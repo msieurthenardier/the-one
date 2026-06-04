@@ -22,11 +22,11 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from tests._acl_shape_helpers import _to_v24_shape
 from the_one.agent.config import AgentConfig
 from the_one.connectors._routing import RoutingDecision, resolve_routing
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
-from tests._acl_shape_helpers import _to_v24_shape
 
 
 def _account(
@@ -79,11 +79,7 @@ def _agent(
         name=name,
         provider_config_id="mock-provider",
         llm_model="mock",
-        connector_ids=(
-            connector_ids
-            if connector_ids is not None
-            else ["acct-test"]
-        ),
+        connector_ids=(connector_ids if connector_ids is not None else ["acct-test"]),
         connector_acls=connector_acls,
     )
 
@@ -427,9 +423,7 @@ class TestResolveRouting:
         [None, "T1"],
         ids=["non_thread_envelope", "thread_envelope"],
     )
-    def test_step2_peer_rule_matches_regardless_of_channel(
-        self, thread_id: str | None
-    ) -> None:
+    def test_step2_peer_rule_matches_regardless_of_channel(self, thread_id: str | None) -> None:
         """Peer rule matches on ``peer_id`` regardless of
         channel_id / thread_id. Parameterized to pin the "regardless of
         channel_id/thread_id" claim explicitly across both shapes."""
@@ -905,11 +899,16 @@ class TestAgentAdmitsThreadsGuildIdAndMemberRoles:
         """Account-scope ``guilds=["G1"]`` + envelope ``guild_id="G2"``
         → ACL denies → no eligible. Pins the L8 threading."""
         alpha = _agent("alpha")
-        account = _account(allowlist={
-            "peers": [], "channels": [], "guilds": ["G1"],
-        })
+        account = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1"],
+            }
+        )
         envelope = _envelope_with_guild(
-            guild_id="G2", member_roles=[],
+            guild_id="G2",
+            member_roles=[],
         )
         decision = resolve_routing(account, envelope, [alpha], None)
         # G2 not in allowlist → ACL denies → no eligible agent.
@@ -925,12 +924,16 @@ class TestAgentAdmitsThreadsGuildIdAndMemberRoles:
         matching the envelope's guild_id; pass the structured tuple
         directly to bypass the flat-string fixture default."""
         alpha = _agent("alpha")
-        account = _account(allowlist={
-            "peers": [], "channels": [],
-            "roles": [{"guild_id": "G1", "role_id": "R1"}],
-        })
+        account = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": [{"guild_id": "G1", "role_id": "R1"}],
+            }
+        )
         envelope = _envelope_with_guild(
-            guild_id="G1", member_roles=[],
+            guild_id="G1",
+            member_roles=[],
         )
         decision = resolve_routing(account, envelope, [alpha], None)
         assert decision.agent is None
@@ -943,13 +946,17 @@ class TestAgentAdmitsThreadsGuildIdAndMemberRoles:
         M11 F12 L5 — pass the structured-tuple role entry directly so
         the entry's guild_id matches the envelope's "G1"."""
         alpha = _agent("alpha")
-        account = _account(allowlist={
-            "peers": [], "channels": [],
-            "guilds": ["G1"],
-            "roles": [{"guild_id": "G1", "role_id": "R1"}],
-        })
+        account = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1"],
+                "roles": [{"guild_id": "G1", "role_id": "R1"}],
+            }
+        )
         envelope = _envelope_with_guild(
-            guild_id="G1", member_roles=["R1"],
+            guild_id="G1",
+            member_roles=["R1"],
         )
         decision = resolve_routing(account, envelope, [alpha], None)
         assert decision.agent == "alpha"

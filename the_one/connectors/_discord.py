@@ -208,9 +208,7 @@ def _build_slash_envelope(
         thread_id_str = None
 
     guild_id_raw = getattr(interaction, "guild_id", None)
-    guild_id_str: str | None = (
-        str(guild_id_raw) if guild_id_raw is not None else None
-    )
+    guild_id_str: str | None = str(guild_id_raw) if guild_id_raw is not None else None
     is_dm = guild_id_raw is None
 
     user = interaction.user
@@ -279,8 +277,7 @@ async def _sync_slash_commands(
     guild_ids_raw = account.config.get("allowlist", {}).get("guilds") or []
     if not guild_ids_raw:
         logger.info(
-            "Discord: no guilds configured for slash command sync on "
-            "account %s; skipping",
+            "Discord: no guilds configured for slash command sync on account %s; skipping",
             account.id,
         )
         return
@@ -344,8 +341,7 @@ def _build_activity(presence_config: Any) -> discord.Activity:
                 )
     elif presence_config is not None:
         logger.warning(
-            "Discord presence config must be a dict; got %r — falling back to "
-            "default activity",
+            "Discord presence config must be a dict; got %r — falling back to default activity",
             type(presence_config).__name__,
         )
     return discord.Activity(name=name, type=_resolve_activity_type(type_name))
@@ -527,9 +523,10 @@ class DiscordClient:
                     # tokens are valid ~15 min from defer; the dispatcher
                     # outbound is typically sub-second, so this is defensive.
                     # Fall through to the channel ladder with a marker prefix.
-                    if isinstance(
-                        exc, discord.errors.NotFound
-                    ) or getattr(exc, "status", None) == 401:
+                    if (
+                        isinstance(exc, discord.errors.NotFound)
+                        or getattr(exc, "status", None) == 401
+                    ):
                         logger.info(
                             "Discord send: ephemeral followup token "
                             "expired/invalid for account %s (%s); falling "
@@ -619,9 +616,7 @@ class DiscordClient:
                 disposition="error",
                 error_type=type(exc).__name__,
             )
-            raise ConnectorConnectionError(
-                f"Discord send failed: {exc}"
-            ) from exc
+            raise ConnectorConnectionError(f"Discord send failed: {exc}") from exc
 
         # Defensive — the SDK contract guarantees a Message back from
         # ``channel.send`` on success. If it ever returns None we'd
@@ -731,9 +726,7 @@ class DiscordClient:
             ) from exc
 
         if channel is None:
-            raise ConnectorConnectionError(
-                f"Discord channel {target.channel_id} not found"
-            )
+            raise ConnectorConnectionError(f"Discord channel {target.channel_id} not found")
         return channel
 
     async def close(self) -> None:
@@ -753,9 +746,7 @@ class DiscordClient:
             try:
                 await self._client.close()
             except Exception:
-                logger.exception(
-                    "Discord SDK Client.close raised during DiscordClient.close"
-                )
+                logger.exception("Discord SDK Client.close raised during DiscordClient.close")
 
         if self._connection_task.done():
             # Task already finished; drain any unobserved exception so
@@ -766,8 +757,7 @@ class DiscordClient:
                 exc = self._connection_task.exception()
                 if exc is not None:
                     logger.debug(
-                        "Discord gateway task ended with exception "
-                        "(observed during close): %r",
+                        "Discord gateway task ended with exception (observed during close): %r",
                         exc,
                     )
             except asyncio.CancelledError:
@@ -781,8 +771,7 @@ class DiscordClient:
             )
         except asyncio.TimeoutError:
             logger.warning(
-                "Discord gateway task did not wind down within %ss after "
-                "close; cancelling",
+                "Discord gateway task did not wind down within %ss after close; cancelling",
                 _CLOSE_TASK_TIMEOUT_SECONDS,
             )
             self._connection_task.cancel()
@@ -796,9 +785,7 @@ class DiscordClient:
             # surface CancelledError to callers.
             pass
         except Exception:
-            logger.exception(
-                "Discord gateway task raised during DiscordClient.close drain"
-            )
+            logger.exception("Discord gateway task raised during DiscordClient.close drain")
 
 
 class DiscordPlugin:
@@ -857,15 +844,11 @@ class DiscordPlugin:
 
         activity = _build_activity(account.config.get("presence"))
         ready_timeout = float(
-            account.config.get(
-                "ready_timeout_seconds", _DEFAULT_READY_TIMEOUT_SECONDS
-            )
+            account.config.get("ready_timeout_seconds", _DEFAULT_READY_TIMEOUT_SECONDS)
         )
 
         last_error: BaseException | None = None
-        for attempt_idx, backoff_seconds in enumerate(
-            _RECONNECT_BACKOFF_SECONDS
-        ):
+        for attempt_idx, backoff_seconds in enumerate(_RECONNECT_BACKOFF_SECONDS):
             try:
                 discord_client = await self._attempt_connect(
                     token=token,
@@ -883,9 +866,7 @@ class DiscordPlugin:
                 # message; the typed exception subclass is preserved in
                 # __cause__ for richer debug surfaces.
                 hint = self._fail_fast_hint(exc)
-                raise ConnectorConnectionError(
-                    f"Discord gateway connect rejected: {hint}"
-                ) from exc
+                raise ConnectorConnectionError(f"Discord gateway connect rejected: {hint}") from exc
             except (
                 discord.errors.GatewayNotFound,
                 discord.errors.ConnectionClosed,
@@ -896,8 +877,7 @@ class DiscordPlugin:
                 last_error = exc
                 if attempt_idx < len(_RECONNECT_BACKOFF_SECONDS) - 1:
                     logger.warning(
-                        "Discord gateway connect attempt %d/%d failed "
-                        "(%s: %s); retrying in %ss",
+                        "Discord gateway connect attempt %d/%d failed (%s: %s); retrying in %ss",
                         attempt_idx + 1,
                         len(_RECONNECT_BACKOFF_SECONDS),
                         type(exc).__name__,
@@ -992,9 +972,7 @@ class DiscordPlugin:
                 # itself, which IS the most common case — every outbound
                 # message the bot delivers gets re-fired as on_message).
                 author = message.author
-                if getattr(author, "bot", False) and not account.config.get(
-                    "ingest_bots", False
-                ):
+                if getattr(author, "bot", False) and not account.config.get("ingest_bots", False):
                     # M11 F17 L1: debug-level dropped line for bot-author filter.
                     log_disposition(
                         account_id=account.id,
@@ -1012,10 +990,7 @@ class DiscordPlugin:
                 # (on_ready fires before on_message in practice, but
                 # the SDK does not guarantee strict ordering and the
                 # AttributeError would be ugly).
-                if (
-                    client.user is not None
-                    and getattr(author, "id", None) == client.user.id
-                ):
+                if client.user is not None and getattr(author, "id", None) == client.user.id:
                     # M11 F17 L1: debug-level dropped line for self-filter.
                     log_disposition(
                         account_id=account.id,
@@ -1062,9 +1037,7 @@ class DiscordPlugin:
                 )
                 from the_one.connectors._inbound import dispatch_inbound
 
-                envelope = _translate_discord_message_to_envelope(
-                    message, account.id
-                )
+                envelope = _translate_discord_message_to_envelope(message, account.id)
                 await dispatch_inbound(account.id, envelope, factory=factory)
             except Exception:
                 # Graceful-failure isolation: log and return so the SDK
@@ -1134,8 +1107,7 @@ class DiscordPlugin:
                         # log and continue with dispatch so the operator
                         # still gets a reply via the outbound path.
                         logger.exception(
-                            "Discord slash /%s: defer failed for "
-                            "interaction on account %s",
+                            "Discord slash /%s: defer failed for interaction on account %s",
                             name,
                             account.id,
                         )
@@ -1161,9 +1133,7 @@ class DiscordPlugin:
                         command_name=name,
                         args=args,
                     )
-                    await dispatch_inbound(
-                        account.id, envelope, factory=factory
-                    )
+                    await dispatch_inbound(account.id, envelope, factory=factory)
                 except Exception:
                     # Graceful-failure isolation: log and return; a
                     # single slash failure must not crash the gateway.
@@ -1177,9 +1147,7 @@ class DiscordPlugin:
             return _slash_command
 
         for _cmd_name, _cmd_desc in _SLASH_COMMAND_VOCAB:
-            tree.command(name=_cmd_name, description=_cmd_desc)(
-                _make_slash_body(_cmd_name)
-            )
+            tree.command(name=_cmd_name, description=_cmd_desc)(_make_slash_body(_cmd_name))
 
         connection_task: asyncio.Task[None] | None = None
         try:
@@ -1199,9 +1167,7 @@ class DiscordPlugin:
             # connection task finishes (or raises) before READY, we want
             # to observe it rather than block on the ready event for the
             # full ready_timeout.
-            ready_waiter = asyncio.create_task(
-                ready_event.wait(), name="discord-ready-wait"
-            )
+            ready_waiter = asyncio.create_task(ready_event.wait(), name="discord-ready-wait")
             try:
                 done, _pending = await asyncio.wait(
                     {ready_waiter, connection_task},
@@ -1219,9 +1185,7 @@ class DiscordPlugin:
             if not done:
                 # Neither task completed within ready_timeout — treat
                 # as a transient connect failure (retryable).
-                raise asyncio.TimeoutError(
-                    f"Discord on_ready did not fire within {ready_timeout}s"
-                )
+                raise asyncio.TimeoutError(f"Discord on_ready did not fire within {ready_timeout}s")
 
             if connection_task in done and not ready_event.is_set():
                 # The gateway task ended (or raised) before READY fired
@@ -1232,9 +1196,7 @@ class DiscordPlugin:
                     raise exc
                 # Task ended cleanly without READY — odd but treat as
                 # transient.
-                raise ConnectorConnectionError(
-                    "Discord gateway closed before READY fired"
-                )
+                raise ConnectorConnectionError("Discord gateway closed before READY fired")
 
             # READY fired — set presence and return the wrapper.
             try:
@@ -1289,9 +1251,7 @@ class DiscordPlugin:
                 if not client.is_closed():
                     await client.close()
             except Exception:
-                logger.exception(
-                    "Discord SDK close raised during connect-error cleanup"
-                )
+                logger.exception("Discord SDK close raised during connect-error cleanup")
             raise
 
     @staticmethod
@@ -1401,9 +1361,7 @@ class DiscordPlugin:
                 )
 
             # ---- 2. Application-summary probe -----------------------
-            app_result = await self._probe_application_summary(
-                session, headers
-            )
+            app_result = await self._probe_application_summary(session, headers)
             checks["application"] = app_result
             if app_result["status"] == "ok":
                 details["application_id"] = app_result.get("application_id")
@@ -1423,9 +1381,7 @@ class DiscordPlugin:
                 del token
                 return DoctorReport(
                     status="failed",
-                    message=(
-                        f"Discord probe failed: {intent_result['message']}"
-                    ),
+                    message=(f"Discord probe failed: {intent_result['message']}"),
                     details=details,
                 )
 
@@ -1435,17 +1391,13 @@ class DiscordPlugin:
             # F1 L2 known gap where probe-says-OK could mask a
             # connect()-silently-receives-nothing case when
             # message_content is operator-disabled.
-            gateway_result = await self._probe_gateway_connect(
-                token, account.config.get("intents")
-            )
+            gateway_result = await self._probe_gateway_connect(token, account.config.get("intents"))
             checks["gateway"] = gateway_result
             if gateway_result["status"] == "failed":
                 del token
                 return DoctorReport(
                     status="failed",
-                    message=(
-                        f"Discord probe failed: {gateway_result['message']}"
-                    ),
+                    message=(f"Discord probe failed: {gateway_result['message']}"),
                     details=details,
                 )
 
@@ -1462,9 +1414,7 @@ class DiscordPlugin:
                 session, headers, guild_ids, bot_user_id
             )
             checks["allowlist"] = allowlist_result
-            details["unreachable_guilds"] = allowlist_result.get(
-                "unreachable_guilds", []
-            )
+            details["unreachable_guilds"] = allowlist_result.get("unreachable_guilds", [])
 
             # Release token plaintext reference before composing the
             # final result.
@@ -1477,9 +1427,7 @@ class DiscordPlugin:
         if intent_result["status"] == "degraded":
             return DoctorReport(
                 status="degraded",
-                message=(
-                    f"Discord probe degraded: {intent_result['message']}"
-                ),
+                message=(f"Discord probe degraded: {intent_result['message']}"),
                 details=details,
             )
         if allowlist_result["status"] == "degraded":
@@ -1515,29 +1463,21 @@ class DiscordPlugin:
                     except Exception:
                         return {
                             "status": "degraded",
-                            "message": (
-                                "/users/@me returned 200 but a malformed body"
-                            ),
+                            "message": ("/users/@me returned 200 but a malformed body"),
                         }
                     bot_user_id = body.get("id") if isinstance(body, dict) else None
-                    bot_username = (
-                        body.get("username") if isinstance(body, dict) else None
-                    )
+                    bot_username = body.get("username") if isinstance(body, dict) else None
                     if bot_user_id is None:
                         # Defensive: malformed Discord response.
                         return {
                             "status": "degraded",
-                            "message": (
-                                "/users/@me returned 200 but missing 'id' field"
-                            ),
+                            "message": ("/users/@me returned 200 but missing 'id' field"),
                         }
                     return {
                         "status": "ok",
                         "message": "token valid",
                         "bot_user_id": str(bot_user_id),
-                        "bot_username": (
-                            str(bot_username) if bot_username is not None else None
-                        ),
+                        "bot_username": (str(bot_username) if bot_username is not None else None),
                     }
                 if status_code == 401:
                     return {
@@ -1575,34 +1515,27 @@ class DiscordPlugin:
                         return {
                             "status": "degraded",
                             "message": (
-                                "/oauth2/applications/@me returned 200 but "
-                                "a malformed body"
+                                "/oauth2/applications/@me returned 200 but a malformed body"
                             ),
                         }
                     if not isinstance(body, dict):
                         return {
                             "status": "degraded",
                             "message": (
-                                "/oauth2/applications/@me returned 200 but "
-                                "a non-object body"
+                                "/oauth2/applications/@me returned 200 but a non-object body"
                             ),
                         }
                     return {
                         "status": "ok",
                         "message": "application metadata reachable",
-                        "application_id": (
-                            str(body["id"]) if "id" in body else None
-                        ),
+                        "application_id": (str(body["id"]) if "id" in body else None),
                         "application_name": body.get("name"),
                         "flags": int(body.get("flags") or 0),
                     }
                 if status_code in (401, 404):
                     return {
                         "status": "failed",
-                        "message": (
-                            f"application metadata unreachable (HTTP "
-                            f"{status_code})"
-                        ),
+                        "message": (f"application metadata unreachable (HTTP {status_code})"),
                     }
                 if status_code == 429:
                     return {
@@ -1611,9 +1544,7 @@ class DiscordPlugin:
                     }
                 return {
                     "status": "degraded",
-                    "message": (
-                        f"application probe returned HTTP {status_code}"
-                    ),
+                    "message": (f"application probe returned HTTP {status_code}"),
                 }
         except aiohttp.ClientError as exc:
             return {
@@ -1640,12 +1571,8 @@ class DiscordPlugin:
         # intent OR when the bot is in <100 guilds (LIMITED variant).
         # We accept either form. _LIMITED bits per Discord docs:
         # MESSAGE_CONTENT_LIMITED = 1 << 19, GUILD_MEMBERS_LIMITED = 1 << 15.
-        gateway_message_content = bool(flags & (1 << 18)) or bool(
-            flags & (1 << 19)
-        )
-        gateway_guild_members = bool(flags & (1 << 14)) or bool(
-            flags & (1 << 15)
-        )
+        gateway_message_content = bool(flags & (1 << 18)) or bool(flags & (1 << 19))
+        gateway_guild_members = bool(flags & (1 << 14)) or bool(flags & (1 << 15))
 
         if gateway_message_content and gateway_guild_members:
             return {
@@ -1657,18 +1584,12 @@ class DiscordPlugin:
         if not gateway_message_content and not gateway_guild_members:
             return {
                 "status": "failed",
-                "message": (
-                    "intents Message Content and Guild Members both missing"
-                ),
+                "message": ("intents Message Content and Guild Members both missing"),
                 "message_content": False,
                 "guild_members": False,
             }
         # Exactly one of the two is missing → degraded.
-        missing = (
-            "Message Content"
-            if not gateway_message_content
-            else "Guild Members"
-        )
+        missing = "Message Content" if not gateway_message_content else "Guild Members"
         return {
             "status": "degraded",
             "message": f"intent {missing} not approved",
@@ -1728,9 +1649,7 @@ class DiscordPlugin:
                 name="discord-doctor-gateway-probe",
             )
 
-            ready_waiter = asyncio.create_task(
-                ready_event.wait(), name="discord-doctor-ready-wait"
-            )
+            ready_waiter = asyncio.create_task(ready_event.wait(), name="discord-doctor-ready-wait")
             try:
                 done, _pending = await asyncio.wait(
                     {ready_waiter, connection_task},
@@ -1748,9 +1667,7 @@ class DiscordPlugin:
             if not done:
                 return {
                     "status": "failed",
-                    "message": (
-                        "gateway smoke test timed out waiting for on_ready"
-                    ),
+                    "message": ("gateway smoke test timed out waiting for on_ready"),
                 }
 
             if connection_task in done and not ready_event.is_set():
@@ -1762,9 +1679,7 @@ class DiscordPlugin:
                     }
                 return {
                     "status": "failed",
-                    "message": (
-                        "gateway connection ended before on_ready fired"
-                    ),
+                    "message": ("gateway connection ended before on_ready fired"),
                 }
 
             return {"status": "ok", "message": "gateway reachable"}
@@ -1780,9 +1695,7 @@ class DiscordPlugin:
                 if not client.is_closed():
                     await client.close()
             except Exception:
-                logger.exception(
-                    "Discord doctor probe: SDK close raised during cleanup"
-                )
+                logger.exception("Discord doctor probe: SDK close raised during cleanup")
 
     @staticmethod
     async def _probe_allowlist_resolution(
@@ -1805,9 +1718,7 @@ class DiscordPlugin:
             # the whole probe as failed (the prior checks already passed).
             return {
                 "status": "degraded",
-                "message": (
-                    "allowlist probe skipped: bot user id unavailable"
-                ),
+                "message": ("allowlist probe skipped: bot user id unavailable"),
                 "unreachable_guilds": [str(g) for g in guild_ids],
                 "reachable_guilds": [],
             }
@@ -1815,10 +1726,7 @@ class DiscordPlugin:
         unreachable: list[str] = []
         reachable: list[str] = []
         for guild_id in guild_ids:
-            url = (
-                f"https://discord.com/api/v10/guilds/{guild_id}/"
-                f"members/{bot_user_id}"
-            )
+            url = f"https://discord.com/api/v10/guilds/{guild_id}/members/{bot_user_id}"
             try:
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
@@ -1836,8 +1744,7 @@ class DiscordPlugin:
             return {
                 "status": "degraded",
                 "message": (
-                    f"{len(unreachable)} of {len(guild_ids)} configured "
-                    "guilds are unreachable"
+                    f"{len(unreachable)} of {len(guild_ids)} configured guilds are unreachable"
                 ),
                 "unreachable_guilds": unreachable,
                 "reachable_guilds": reachable,
@@ -1951,9 +1858,7 @@ class DiscordPlugin:
         if me is None:
             return False
         bot_id = me.id
-        return any(
-            getattr(user, "id", None) == bot_id for user in raw_msg.mentions
-        )
+        return any(getattr(user, "id", None) == bot_id for user in raw_msg.mentions)
 
     async def handle_command(
         self,
@@ -1996,9 +1901,7 @@ class DiscordPlugin:
         del envelope, command_name, args  # explicit "not consumed"
         return None
 
-    def enumerate_discoverable_entities(
-        self, client: ConnectorClient
-    ) -> DiscoverableEntities:
+    def enumerate_discoverable_entities(self, client: ConnectorClient) -> DiscoverableEntities:
         """Snapshot Discord's live cache for the four discoverable axes.
 
         OPTIONAL plugin hook (M11 F3 L3) — discovered by consumers via
@@ -2180,9 +2083,7 @@ class DiscordPlugin:
             messages.append(
                 FetchedMessage(
                     peer_id=str(msg.author.id),
-                    peer_name=getattr(
-                        msg.author, "display_name", msg.author.name
-                    ),
+                    peer_name=getattr(msg.author, "display_name", msg.author.name),
                     content=msg.content,
                     ts=msg.created_at.isoformat(),
                     thread_id=str(msg_thread.id) if msg_thread else None,
@@ -2231,9 +2132,7 @@ class DiscordPlugin:
             messages.append(
                 FetchedMessage(
                     peer_id=str(msg.author.id),
-                    peer_name=getattr(
-                        msg.author, "display_name", msg.author.name
-                    ),
+                    peer_name=getattr(msg.author, "display_name", msg.author.name),
                     content=msg.content,
                     ts=msg.created_at.isoformat(),
                     thread_id=None,

@@ -64,9 +64,7 @@ def _to_v24_shape(allowlist: dict) -> dict:
             if isinstance(entry, dict):
                 channels_new.append(entry)
             elif isinstance(entry, tuple):
-                channels_new.append(
-                    {"guild_id": entry[0], "channel_id": entry[1]}
-                )
+                channels_new.append({"guild_id": entry[0], "channel_id": entry[1]})
             else:
                 channels_new.append(
                     {
@@ -81,13 +79,9 @@ def _to_v24_shape(allowlist: dict) -> dict:
             if isinstance(entry, dict):
                 roles_new.append(entry)
             elif isinstance(entry, tuple):
-                roles_new.append(
-                    {"guild_id": entry[0], "role_id": entry[1]}
-                )
+                roles_new.append({"guild_id": entry[0], "role_id": entry[1]})
             else:
-                roles_new.append(
-                    {"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry}
-                )
+                roles_new.append({"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry})
         result["roles"] = roles_new
     if result.get("dm_admission") == "allowlisted-peers-only":
         result["dm_admission"] = "admin-approved"
@@ -138,9 +132,7 @@ def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
             if isinstance(entry, dict):
                 channels_new.append(entry)
             elif isinstance(entry, tuple):
-                channels_new.append(
-                    {"guild_id": entry[0], "channel_id": entry[1]}
-                )
+                channels_new.append({"guild_id": entry[0], "channel_id": entry[1]})
             else:
                 channels_new.append(
                     {
@@ -155,13 +147,9 @@ def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
             if isinstance(entry, dict):
                 roles_new.append(entry)
             elif isinstance(entry, tuple):
-                roles_new.append(
-                    {"guild_id": entry[0], "role_id": entry[1]}
-                )
+                roles_new.append({"guild_id": entry[0], "role_id": entry[1]})
             else:
-                roles_new.append(
-                    {"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry}
-                )
+                roles_new.append({"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry})
         result["roles"] = roles_new
     return result
 

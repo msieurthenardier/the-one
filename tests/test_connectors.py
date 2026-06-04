@@ -437,9 +437,7 @@ class TestConnectorRegistry:
         register_builtin_connectors()
         assert types() == ["discord"]
 
-    def test_resolve_rejects_plugin_that_does_not_satisfy_protocol(
-        self, clean_registry
-    ) -> None:
+    def test_resolve_rejects_plugin_that_does_not_satisfy_protocol(self, clean_registry) -> None:
         """`resolve` defensively isinstance-checks the produced plugin against
         ConnectorPlugin. A class that doesn't structurally satisfy the
         Protocol raises ConnectorRegistrationError rather than handing back
@@ -447,6 +445,7 @@ class TestConnectorRegistry:
 
         class _NotAPlugin:
             """No connect, no disconnect, no doctor, no normalize_session_key."""
+
             pass
 
         register_for_test("broken", _NotAPlugin)  # bypass register's static-check

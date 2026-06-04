@@ -121,7 +121,9 @@ async def test_pairing_peers_decoupling_live() -> None:
             # mutated the connector (sentinel still set).
             if prior_allowlist is not _UNSET:
                 await restore_connector_allowlist(
-                    base, connector_id, prior_allowlist  # type: ignore[arg-type]
+                    base,
+                    connector_id,
+                    prior_allowlist,  # type: ignore[arg-type]
                 )
 
     # Surface the evidence table in pytest output for the FD's run record.

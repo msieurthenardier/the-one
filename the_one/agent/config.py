@@ -89,9 +89,9 @@ _CONNECTOR_AUTO_RELAY_DIRECTIVE = (
     "as the platform conversation itself. Do NOT ask the operator for "
     "permission to respond on the platform; do NOT narrate that you're "
     "'using send_to_platform_channel'; just reply naturally as you "
-    "would in any chat. Messages tagged ``visibility=\"platform\"`` in "
+    'would in any chat. Messages tagged ``visibility="platform"`` in '
     "the history came from platform peers; messages tagged "
-    "``visibility=\"operator\"`` came from the operator's private "
+    '``visibility="operator"`` came from the operator\'s private '
     "local Chat console (operator-only — these are NOT relayed).\n\n"
     "If you need recent channel context beyond what's in this session "
     "(e.g. catching up after a silent stretch), use the "
@@ -319,30 +319,23 @@ class AgentConfig(BaseModel):
         for account_id, acl in value.items():
             if not isinstance(acl, dict):
                 raise ValueError(
-                    f"connector_acls[{account_id!r}] must be a dict; got "
-                    f"{type(acl).__name__}"
+                    f"connector_acls[{account_id!r}] must be a dict; got {type(acl).__name__}"
                 )
             keys = set(acl.keys())
-            extra = keys - {
-                "peers", "channels", "guilds", "roles", "admit_dms"
-            }
+            extra = keys - {"peers", "channels", "guilds", "roles", "admit_dms"}
             if extra:
                 raise ValueError(
-                    f"connector_acls[{account_id!r}] has unexpected keys: "
-                    f"{sorted(extra)}"
+                    f"connector_acls[{account_id!r}] has unexpected keys: {sorted(extra)}"
                 )
             missing = {"peers", "channels"} - keys
             if missing:
                 raise ValueError(
-                    f"connector_acls[{account_id!r}] is missing required "
-                    f"keys: {sorted(missing)}"
+                    f"connector_acls[{account_id!r}] is missing required keys: {sorted(missing)}"
                 )
 
             for key, value_at_key in acl.items():
                 if key == "admit_dms":
-                    if value_at_key is not None and not isinstance(
-                        value_at_key, bool
-                    ):
+                    if value_at_key is not None and not isinstance(value_at_key, bool):
                         raise ValueError(
                             f"connector_acls[{account_id!r}]['admit_dms'] "
                             f"must be bool or None; got "

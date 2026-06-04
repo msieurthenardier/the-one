@@ -524,8 +524,7 @@ PRAGMA foreign_keys=ON;
         # empty ghost. Skip v13's CREATE when ``connectors`` already
         # exists — the post-v23 table is authoritative.
         async with conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='table' AND name='connectors'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connectors'"
         ) as cursor:
             connectors_table_exists = await cursor.fetchone() is not None
         if not connectors_table_exists:
@@ -660,19 +659,14 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
             if col == "connector_account_id" and v23_renamed_present:
                 continue
             if col not in existing_chat_cols:
-                await conn.execute(
-                    f"ALTER TABLE chat_sessions ADD COLUMN {col} {ddl_type} NULL"
-                )
+                await conn.execute(f"ALTER TABLE chat_sessions ADD COLUMN {col} {ddl_type} NULL")
 
         # v23 may have renamed ``connector_accounts`` → ``connectors``
         # before this v16 re-fires; the guard below short-circuits in
         # that case (the renamed table already has the column).
         async with conn.execute("PRAGMA table_info(connector_accounts)") as cursor:
             existing_acc_cols = {row[1] for row in await cursor.fetchall()}
-        if (
-            existing_acc_cols
-            and "session_continuation_seconds" not in existing_acc_cols
-        ):
+        if existing_acc_cols and "session_continuation_seconds" not in existing_acc_cols:
             await conn.execute(
                 "ALTER TABLE connector_accounts"
                 " ADD COLUMN session_continuation_seconds INTEGER NULL"
@@ -712,17 +706,10 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # that case so we don't leave a ghost duplicate.
         async with conn.execute("PRAGMA table_info(agents)") as cursor:
             existing_cols = {row[1] for row in await cursor.fetchall()}
-        if (
-            "connector_account_ids" not in existing_cols
-            and "connector_ids" not in existing_cols
-        ):
-            await conn.execute(
-                "ALTER TABLE agents ADD COLUMN connector_account_ids TEXT"
-            )
+        if "connector_account_ids" not in existing_cols and "connector_ids" not in existing_cols:
+            await conn.execute("ALTER TABLE agents ADD COLUMN connector_account_ids TEXT")
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (17,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (17,))
         await conn.commit()
         version = 17
 
@@ -747,13 +734,9 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         async with conn.execute("PRAGMA table_info(agents)") as cursor:
             existing_cols = {row[1] for row in await cursor.fetchall()}
         if "connector_acls" not in existing_cols:
-            await conn.execute(
-                "ALTER TABLE agents ADD COLUMN connector_acls TEXT"
-            )
+            await conn.execute("ALTER TABLE agents ADD COLUMN connector_acls TEXT")
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (18,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (18,))
         await conn.commit()
         version = 18
 
@@ -802,8 +785,7 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # post-v19 (CHECK-on-type) + post-v23 (renamed) shape via the
         # v23 migration's prior pass.
         async with conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='table' AND name='connector_accounts'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connector_accounts'"
         ) as cursor:
             pre_v23_source_exists = await cursor.fetchone() is not None
 
@@ -823,8 +805,10 @@ CREATE TABLE connector_accounts_new (
     session_continuation_seconds INTEGER NULL
 );
 
-INSERT INTO connector_accounts_new (id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds)
-    SELECT id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds FROM connector_accounts;
+INSERT INTO connector_accounts_new (id, type, config, secrets, created_at, \
+updated_at, name, idle_timeout_seconds, session_continuation_seconds)
+    SELECT id, type, config, secrets, created_at, updated_at, name, \
+idle_timeout_seconds, session_continuation_seconds FROM connector_accounts;
 
 DROP TABLE connector_accounts;
 
@@ -832,9 +816,7 @@ ALTER TABLE connector_accounts_new RENAME TO connector_accounts;
 
 PRAGMA foreign_keys=ON;
 """)
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (19,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (19,))
         await conn.commit()
         version = 19
 
@@ -848,13 +830,9 @@ PRAGMA foreign_keys=ON;
         async with conn.execute("PRAGMA table_info(agents)") as cursor:
             existing_cols = {row[1] for row in await cursor.fetchall()}
         if "connector_always_listen" not in existing_cols:
-            await conn.execute(
-                "ALTER TABLE agents ADD COLUMN connector_always_listen TEXT"
-            )
+            await conn.execute("ALTER TABLE agents ADD COLUMN connector_always_listen TEXT")
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (20,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (20,))
         await conn.commit()
         version = 20
 
@@ -902,9 +880,7 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
         # against the old column name with the old index name. The
         # ``CREATE INDEX IF NOT EXISTS`` is otherwise a no-op when the
         # index already exists.
-        async with conn.execute(
-            "PRAGMA table_info(pending_approvals)"
-        ) as cursor:
+        async with conn.execute("PRAGMA table_info(pending_approvals)") as cursor:
             pa_cols = {r[1] for r in await cursor.fetchall()}
         if "connector_account_id" in pa_cols:
             # Pre-v23 column shape (fresh-migration path or hand-built
@@ -929,9 +905,7 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
                 "idx_pending_approvals_connector_peer_status "
                 "ON pending_approvals (connector_id, peer_id, status)"
             )
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (21,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (21,))
         await conn.commit()
         version = 21
 
@@ -962,12 +936,8 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
             "AND name IN ('connector_accounts', 'connectors')"
         ) as cursor:
             tables = {r[0] for r in await cursor.fetchall()}
-        source_table = (
-            "connector_accounts" if "connector_accounts" in tables else "connectors"
-        )
-        async with conn.execute(
-            f"SELECT id, config FROM {source_table}"
-        ) as cursor:
+        source_table = "connector_accounts" if "connector_accounts" in tables else "connectors"
+        async with conn.execute(f"SELECT id, config FROM {source_table}") as cursor:
             rows = await cursor.fetchall()
         for row in rows:
             account_id = row[0]
@@ -983,9 +953,7 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
                 f"UPDATE {source_table} SET config = ? WHERE id = ?",
                 (json.dumps(config), account_id),
             )
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (22,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (22,))
         await conn.commit()
         version = 22
 
@@ -1121,8 +1089,10 @@ CREATE TABLE connectors_new (
     session_continuation_seconds INTEGER NULL
 );
 
-INSERT INTO connectors_new (id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds)
-    SELECT id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds FROM connector_accounts;
+INSERT INTO connectors_new (id, type, config, secrets, created_at, updated_at, \
+name, idle_timeout_seconds, session_continuation_seconds)
+    SELECT id, type, config, secrets, created_at, updated_at, name, \
+idle_timeout_seconds, session_continuation_seconds FROM connector_accounts;
 
 DROP TABLE connector_accounts;
 
@@ -1147,8 +1117,10 @@ CREATE TABLE pending_approvals_new (
     resolved_at TEXT
 );
 
-INSERT INTO pending_approvals_new (id, connector_id, peer_id, peer_name, preview, received_at, status, resolved_at)
-    SELECT id, connector_account_id, peer_id, peer_name, preview, received_at, status, resolved_at FROM pending_approvals;
+INSERT INTO pending_approvals_new (id, connector_id, peer_id, peer_name, \
+preview, received_at, status, resolved_at)
+    SELECT id, connector_account_id, peer_id, peer_name, preview, \
+received_at, status, resolved_at FROM pending_approvals;
 
 DROP TABLE pending_approvals;
 
@@ -1161,9 +1133,7 @@ CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
             # Segment 3: chat_sessions column rename + index recreate.
             # Skip if table missing OR if column already renamed.
             if "chat_sessions" in v23_present:
-                async with conn.execute(
-                    "PRAGMA table_info(chat_sessions)"
-                ) as cursor:
+                async with conn.execute("PRAGMA table_info(chat_sessions)") as cursor:
                     cs_cols = {r[1] for r in await cursor.fetchall()}
                 if "connector_account_id" in cs_cols:
                     await conn.executescript("""\
@@ -1179,20 +1149,15 @@ CREATE INDEX idx_chat_sessions_external_key
             # Segment 4: agents column rename. Skip if table missing
             # OR if column already renamed.
             if "agents" in v23_present:
-                async with conn.execute(
-                    "PRAGMA table_info(agents)"
-                ) as cursor:
+                async with conn.execute("PRAGMA table_info(agents)") as cursor:
                     ag_cols = {r[1] for r in await cursor.fetchall()}
                 if "connector_account_ids" in ag_cols:
                     await conn.execute(
-                        "ALTER TABLE agents RENAME COLUMN "
-                        "connector_account_ids TO connector_ids"
+                        "ALTER TABLE agents RENAME COLUMN connector_account_ids TO connector_ids"
                     )
 
             await conn.execute("PRAGMA foreign_keys=ON")
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (23,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (23,))
         await conn.commit()
         version = 23
 
@@ -1235,9 +1200,7 @@ CREATE INDEX idx_chat_sessions_external_key
         #     ``dm_allowed=True`` default
 
         # ---- Transform connectors.config.allowlist ----
-        async with conn.execute(
-            "SELECT id, config FROM connectors"
-        ) as cursor:
+        async with conn.execute("SELECT id, config FROM connectors") as cursor:
             connector_rows = await cursor.fetchall()
         for row in connector_rows:
             connector_id = row[0]
@@ -1259,9 +1222,7 @@ CREATE INDEX idx_chat_sessions_external_key
             # manual operator edit; defensive net).
             dm_admission_raw = allowlist.get("dm_admission")
             dm_admission_old = (
-                dm_admission_raw
-                if dm_admission_raw is not None
-                else "allowlisted-peers-only"
+                dm_admission_raw if dm_admission_raw is not None else "allowlisted-peers-only"
             )
             if dm_admission_old == "none":
                 dm_allowed_default = False
@@ -1271,22 +1232,19 @@ CREATE INDEX idx_chat_sessions_external_key
                 dm_allowed_default = True
             # Rewrite peers: list[str] → list[{id, dm_allowed}].
             allowlist["peers"] = [
-                {"id": peer_id, "dm_allowed": dm_allowed_default}
-                for peer_id in peers
+                {"id": peer_id, "dm_allowed": dm_allowed_default} for peer_id in peers
             ]
             # Rewrite channels: list[str] → list[{guild_id, channel_id}]
             # with NULL guild_id (legacy-permissive backward-compat).
             allowlist["channels"] = [
-                {"guild_id": None, "channel_id": ch_id}
-                for ch_id in allowlist.get("channels", [])
+                {"guild_id": None, "channel_id": ch_id} for ch_id in allowlist.get("channels", [])
             ]
             # Rewrite roles: list[str] → list[{guild_id, role_id}] with
             # NULL guild_id (only when the axis is present — roles is
             # optional in the pre-v24 shape).
             if "roles" in allowlist:
                 allowlist["roles"] = [
-                    {"guild_id": None, "role_id": role_id}
-                    for role_id in allowlist["roles"]
+                    {"guild_id": None, "role_id": role_id} for role_id in allowlist["roles"]
                 ]
             # Rename / normalize dm_admission Literal value.
             # dm_admission_old already collapsed ABSENT →
@@ -1322,16 +1280,12 @@ CREATE INDEX idx_chat_sessions_external_key
         if not agents_table_present:
             agent_rows = []
         else:
-            async with conn.execute(
-                "PRAGMA table_info(agents)"
-            ) as cursor:
+            async with conn.execute("PRAGMA table_info(agents)") as cursor:
                 agents_cols = {r[1] for r in await cursor.fetchall()}
             if "connector_acls" not in agents_cols:
                 agent_rows = []
             else:
-                async with conn.execute(
-                    "SELECT name, connector_acls FROM agents"
-                ) as cursor:
+                async with conn.execute("SELECT name, connector_acls FROM agents") as cursor:
                     agent_rows = await cursor.fetchall()
         for row in agent_rows:
             agent_name = row[0]
@@ -1370,20 +1324,17 @@ CREATE INDEX idx_chat_sessions_external_key
                 # DM Composition Truth Table).
                 if isinstance(payload.get("peers"), list):
                     payload["peers"] = [
-                        {"id": peer_id, "dm_allowed": True}
-                        for peer_id in payload["peers"]
+                        {"id": peer_id, "dm_allowed": True} for peer_id in payload["peers"]
                     ]
                 # Transform channels (NULL guild_id backfill).
                 if isinstance(payload.get("channels"), list):
                     payload["channels"] = [
-                        {"guild_id": None, "channel_id": ch_id}
-                        for ch_id in payload["channels"]
+                        {"guild_id": None, "channel_id": ch_id} for ch_id in payload["channels"]
                     ]
                 # Transform roles (NULL guild_id backfill; if present).
                 if isinstance(payload.get("roles"), list):
                     payload["roles"] = [
-                        {"guild_id": None, "role_id": role_id}
-                        for role_id in payload["roles"]
+                        {"guild_id": None, "role_id": role_id} for role_id in payload["roles"]
                     ]
                 # ``admit_dms`` stays as-is (per-agent overlay design).
             await conn.execute(
@@ -1398,24 +1349,18 @@ CREATE INDEX idx_chat_sessions_external_key
         # (hand-built partial-schema test fixtures — mirrors the
         # agents-table guard above and the v23 ``v23_present`` pattern).
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='pending_approvals'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_approvals'"
         ) as cursor:
             pa_table_present = (await cursor.fetchone()) is not None
         if pa_table_present:
-            await conn.execute(
-                "DROP INDEX IF EXISTS "
-                "idx_pending_approvals_account_peer_status"
-            )
+            await conn.execute("DROP INDEX IF EXISTS idx_pending_approvals_account_peer_status")
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS "
                 "idx_pending_approvals_connector_peer_status "
                 "ON pending_approvals (connector_id, peer_id, status)"
             )
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (24,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (24,))
         await conn.commit()
         version = 24
 
@@ -1447,14 +1392,11 @@ CREATE INDEX idx_chat_sessions_external_key
         # which is renamed to ``connectors`` by v23, so by the time
         # v25 runs the rename has been applied).
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='connectors'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connectors'"
         ) as cursor:
             connectors_table_present = (await cursor.fetchone()) is not None
         if connectors_table_present:
-            async with conn.execute(
-                "SELECT id, config FROM connectors"
-            ) as cursor:
+            async with conn.execute("SELECT id, config FROM connectors") as cursor:
                 connector_rows = await cursor.fetchall()
             for row in connector_rows:
                 connector_id = row[0]
@@ -1464,26 +1406,18 @@ CREATE INDEX idx_chat_sessions_external_key
                 if allowlist is None:
                     continue
                 changed = False
-                if "channels" in allowlist and isinstance(
-                    allowlist["channels"], list
-                ):
+                if "channels" in allowlist and isinstance(allowlist["channels"], list):
                     original = allowlist["channels"]
                     filtered = [
-                        c
-                        for c in original
-                        if isinstance(c, dict) and c.get("guild_id") is not None
+                        c for c in original if isinstance(c, dict) and c.get("guild_id") is not None
                     ]
                     if len(filtered) != len(original):
                         allowlist["channels"] = filtered
                         changed = True
-                if "roles" in allowlist and isinstance(
-                    allowlist["roles"], list
-                ):
+                if "roles" in allowlist and isinstance(allowlist["roles"], list):
                     original = allowlist["roles"]
                     filtered = [
-                        r
-                        for r in original
-                        if isinstance(r, dict) and r.get("guild_id") is not None
+                        r for r in original if isinstance(r, dict) and r.get("guild_id") is not None
                     ]
                     if len(filtered) != len(original):
                         allowlist["roles"] = filtered
@@ -1500,21 +1434,16 @@ CREATE INDEX idx_chat_sessions_external_key
         # ``connector_acls`` column is absent (hand-built partial-schema
         # test fixtures — mirrors the v24 connector_acls-column guard).
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='agents'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agents'"
         ) as cursor:
             agents_table_present = (await cursor.fetchone()) is not None
         if agents_table_present:
-            async with conn.execute(
-                "PRAGMA table_info(agents)"
-            ) as cursor:
+            async with conn.execute("PRAGMA table_info(agents)") as cursor:
                 agents_cols = {r[1] for r in await cursor.fetchall()}
         else:
             agents_cols = set()
         if agents_table_present and "connector_acls" in agents_cols:
-            async with conn.execute(
-                "SELECT name, connector_acls FROM agents"
-            ) as cursor:
+            async with conn.execute("SELECT name, connector_acls FROM agents") as cursor:
                 agent_rows = await cursor.fetchall()
             for row in agent_rows:
                 agent_name = row[0]
@@ -1528,42 +1457,33 @@ CREATE INDEX idx_chat_sessions_external_key
                 for _acct_id, payload in acls.items():
                     if not isinstance(payload, dict):
                         continue
-                    if "channels" in payload and isinstance(
-                        payload["channels"], list
-                    ):
+                    if "channels" in payload and isinstance(payload["channels"], list):
                         original = payload["channels"]
                         filtered = [
                             c
                             for c in original
-                            if isinstance(c, dict)
-                            and c.get("guild_id") is not None
+                            if isinstance(c, dict) and c.get("guild_id") is not None
                         ]
                         if len(filtered) != len(original):
                             payload["channels"] = filtered
                             changed = True
-                    if "roles" in payload and isinstance(
-                        payload["roles"], list
-                    ):
+                    if "roles" in payload and isinstance(payload["roles"], list):
                         original = payload["roles"]
                         filtered = [
                             r
                             for r in original
-                            if isinstance(r, dict)
-                            and r.get("guild_id") is not None
+                            if isinstance(r, dict) and r.get("guild_id") is not None
                         ]
                         if len(filtered) != len(original):
                             payload["roles"] = filtered
                             changed = True
                 if changed:
                     await conn.execute(
-                        "UPDATE agents SET connector_acls = ? "
-                        "WHERE name = ?",
+                        "UPDATE agents SET connector_acls = ? WHERE name = ?",
                         (_json.dumps(acls), agent_name),
                     )
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (25,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (25,))
         await conn.commit()
         version = 25
 
@@ -1625,16 +1545,13 @@ CREATE INDEX idx_chat_sessions_external_key
         # ``connector_accounts`` which is renamed to ``connectors`` by
         # v23, so by the time v26 runs the rename has been applied).
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='connectors'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connectors'"
         ) as cursor:
             connectors_table_present = (await cursor.fetchone()) is not None
         if connectors_table_present:
             # Determine whether the ``name`` column exists (added at
             # v17 per recon; absent in pre-v17 hand-built fixtures).
-            async with conn.execute(
-                "PRAGMA table_info(connectors)"
-            ) as cursor:
+            async with conn.execute("PRAGMA table_info(connectors)") as cursor:
                 connector_cols = {r[1] for r in await cursor.fetchall()}
             has_name = "name" in connector_cols
             select_sql = (
@@ -1672,21 +1589,16 @@ CREATE INDEX idx_chat_sessions_external_key
 
         # ---- Pass B: agents.connector_acls row-rewrites ----
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='agents'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agents'"
         ) as cursor:
             agents_table_present = (await cursor.fetchone()) is not None
         if agents_table_present:
-            async with conn.execute(
-                "PRAGMA table_info(agents)"
-            ) as cursor:
+            async with conn.execute("PRAGMA table_info(agents)") as cursor:
                 agents_cols = {r[1] for r in await cursor.fetchall()}
         else:
             agents_cols = set()
         if agents_table_present and "connector_acls" in agents_cols:
-            async with conn.execute(
-                "SELECT name, connector_acls FROM agents"
-            ) as cursor:
+            async with conn.execute("SELECT name, connector_acls FROM agents") as cursor:
                 agent_rows = await cursor.fetchall()
             for row in agent_rows:
                 agent_name = row[0]
@@ -1709,14 +1621,11 @@ CREATE INDEX idx_chat_sessions_external_key
                             changed = True
                 if changed:
                     await conn.execute(
-                        "UPDATE agents SET connector_acls = ? "
-                        "WHERE name = ?",
+                        "UPDATE agents SET connector_acls = ? WHERE name = ?",
                         (_json.dumps(acls), agent_name),
                     )
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (26,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (26,))
         await conn.commit()
         version = 26
 
@@ -1753,14 +1662,11 @@ CREATE INDEX idx_chat_sessions_external_key
         # have ``connector_accounts`` which is renamed to ``connectors``
         # by v23, so by the time v27 runs the rename has been applied).
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='connectors'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connectors'"
         ) as cursor:
             connectors_table_present = (await cursor.fetchone()) is not None
         if connectors_table_present:
-            async with conn.execute(
-                "SELECT id, config FROM connectors"
-            ) as cursor:
+            async with conn.execute("SELECT id, config FROM connectors") as cursor:
                 connector_rows = await cursor.fetchall()
             for row in connector_rows:
                 connector_id = row[0]
@@ -1789,9 +1695,7 @@ CREATE INDEX idx_chat_sessions_external_key
                 # ``Connector.model_validate`` (db/models.py requires
                 # both keys whenever ``allowlist`` is present). Existing
                 # allowlists already carry them.
-                allowlist = config.setdefault(
-                    "allowlist", {"peers": [], "channels": []}
-                )
+                allowlist = config.setdefault("allowlist", {"peers": [], "channels": []})
                 allowlist.setdefault("peers", [])
                 allowlist.setdefault("channels", [])
                 existing = allowlist.get("guilds") or []
@@ -1809,9 +1713,7 @@ CREATE INDEX idx_chat_sessions_external_key
                     (_json.dumps(config), connector_id),
                 )
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (27,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (27,))
         await conn.commit()
         version = 27
 
@@ -1854,14 +1756,11 @@ CREATE INDEX idx_chat_sessions_external_key
         import json as _json
 
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='connectors'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connectors'"
         ) as cursor:
             connectors_table_present = (await cursor.fetchone()) is not None
         if connectors_table_present:
-            async with conn.execute(
-                "SELECT id, config FROM connectors"
-            ) as cursor:
+            async with conn.execute("SELECT id, config FROM connectors") as cursor:
                 connector_rows = await cursor.fetchall()
             for row in connector_rows:
                 connector_id = row[0]
@@ -1888,9 +1787,7 @@ CREATE INDEX idx_chat_sessions_external_key
                     (_json.dumps(config), connector_id),
                 )
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (28,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (28,))
         await conn.commit()
         version = 28
 
@@ -1923,34 +1820,21 @@ CREATE INDEX idx_chat_sessions_external_key
         # Defensive: skip when ``pending_approvals`` is missing (hand-
         # built partial-schema test fixtures that don't run through v21).
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name='pending_approvals'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_approvals'"
         ) as cursor:
             pa_table_present = (await cursor.fetchone()) is not None
         if pa_table_present:
-            async with conn.execute(
-                "PRAGMA table_info(pending_approvals)"
-            ) as cursor:
+            async with conn.execute("PRAGMA table_info(pending_approvals)") as cursor:
                 pa_cols = {row[1] for row in await cursor.fetchall()}
             if "original_message" not in pa_cols:
-                await conn.execute(
-                    "ALTER TABLE pending_approvals ADD COLUMN original_message TEXT"
-                )
+                await conn.execute("ALTER TABLE pending_approvals ADD COLUMN original_message TEXT")
             if "channel_id" not in pa_cols:
-                await conn.execute(
-                    "ALTER TABLE pending_approvals ADD COLUMN channel_id TEXT"
-                )
+                await conn.execute("ALTER TABLE pending_approvals ADD COLUMN channel_id TEXT")
             if "thread_id" not in pa_cols:
-                await conn.execute(
-                    "ALTER TABLE pending_approvals ADD COLUMN thread_id TEXT"
-                )
+                await conn.execute("ALTER TABLE pending_approvals ADD COLUMN thread_id TEXT")
             if "is_dm" not in pa_cols:
-                await conn.execute(
-                    "ALTER TABLE pending_approvals ADD COLUMN is_dm INTEGER"
-                )
+                await conn.execute("ALTER TABLE pending_approvals ADD COLUMN is_dm INTEGER")
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (29,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (29,))
         await conn.commit()
         version = 29

@@ -96,9 +96,7 @@ async def _clear_pool_locks_registry():
 # ─── Test 1 — enabled state delivers (mission criterion #13) ─────────────
 
 
-async def test_e2e_enabled_state_platform_send_delivers(
-    isolated_db, monkeypatch
-) -> None:
+async def test_e2e_enabled_state_platform_send_delivers(isolated_db, monkeypatch) -> None:
     """When the platform-send tool is operator-enabled and the agent is
     connector-attached, an inbound that drives the agent to call
     ``send_to_platform_channel`` delivers content to the platform.
@@ -158,9 +156,7 @@ async def test_e2e_enabled_state_platform_send_delivers(
     history = decode_messages(sessions[0].messages)
 
     # Assistant tool_call message → OPERATOR_VISIBILITY.
-    assistant_with_call = [
-        m for m in history if m.role == Role.ASSISTANT and m.tool_calls
-    ]
+    assistant_with_call = [m for m in history if m.role == Role.ASSISTANT and m.tool_calls]
     assert assistant_with_call
     for m in assistant_with_call:
         assert m.visibility == OPERATOR_VISIBILITY
@@ -170,8 +166,7 @@ async def test_e2e_enabled_state_platform_send_delivers(
     send_results = [
         m
         for m in tool_msgs
-        if m.tool_result is not None
-        and m.content.startswith(PLATFORM_SEND_OK_PREFIX)
+        if m.tool_result is not None and m.content.startswith(PLATFORM_SEND_OK_PREFIX)
     ]
     assert send_results, "expected a successful platform-send tool_result"
     for m in send_results:
@@ -181,9 +176,7 @@ async def test_e2e_enabled_state_platform_send_delivers(
 # ─── Test 2 — disabled state: inbound received, no outbound (criterion #14) ─
 
 
-async def test_e2e_disabled_state_inbound_received_no_outbound(
-    isolated_db, monkeypatch
-) -> None:
+async def test_e2e_disabled_state_inbound_received_no_outbound(isolated_db, monkeypatch) -> None:
     """When the platform-send tool is operator-DISABLED but the agent is
     connector-attached, the inbound flow stays intact (the user message
     persists peer-visible; the assistant reply persists operator-only),
@@ -370,9 +363,7 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
 # ─── Test 4 — target-validation rejects unattached account (criterion #15) ─
 
 
-async def test_e2e_target_validation_rejects_unattached_account(
-    isolated_db, monkeypatch
-) -> None:
+async def test_e2e_target_validation_rejects_unattached_account(isolated_db, monkeypatch) -> None:
     """The platform-send tool's account-scope check rejects targets
     whose ``account_id`` is not in the agent's attached set.
 
@@ -435,9 +426,11 @@ async def test_e2e_target_validation_rejects_unattached_account(
     tool_msgs = [m for m in history if m.role == Role.TOOL]
     assert tool_msgs
     constraint_msgs = [
-        m for m in tool_msgs
-        if m.content.startswith("[error] [constraint] account_id 'acct-B' is "
-                                "not attached to this agent")
+        m
+        for m in tool_msgs
+        if m.content.startswith(
+            "[error] [constraint] account_id 'acct-B' is not attached to this agent"
+        )
     ]
     assert constraint_msgs, [m.content for m in tool_msgs]
 
@@ -448,9 +441,7 @@ async def test_e2e_target_validation_rejects_unattached_account(
     assert wrong_acquires == [], wrong_acquires
 
     # No platform delivery happened for the rejected target.
-    assert not any(
-        c == "should be rejected" for _t, c in StubPlugin.outbound_records
-    )
+    assert not any(c == "should be rejected" for _t, c in StubPlugin.outbound_records)
 
 
 # ─── Test 5 — pool acquire touches last_activity on outbound ─────────────
@@ -570,9 +561,9 @@ async def test_e2e_plugin_resolve_failure_dispatcher_logs_and_returns(
 
     # A log entry mentioning the failed resolve was emitted.
     resolve_log_records = [
-        r for r in caplog.records
-        if "unknown connector type" in r.getMessage()
-        or "test failure" in r.getMessage()
+        r
+        for r in caplog.records
+        if "unknown connector type" in r.getMessage() or "test failure" in r.getMessage()
     ]
     assert resolve_log_records, [r.getMessage() for r in caplog.records]
 

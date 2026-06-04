@@ -31,7 +31,6 @@ from browser.seeders import (
 )
 from playwright.sync_api import Page, expect
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -78,9 +77,7 @@ def _seed_account_with_agent(
     """
     provider_id = seed_mock_provider(base_url, name=f"mock-for-{agent_name}")
     seed_mock_agent(base_url, provider_id, name=agent_name)
-    account_id = seed_connector(
-        base_url, name=account_name, config=account_config or {}
-    )
+    account_id = seed_connector(base_url, name=account_name, config=account_config or {})
     _attach_agent_to_account(base_url, agent_name, account_id)
     return account_id, agent_name
 
@@ -95,9 +92,7 @@ def _open_agent_connectors_tab(page: Page, base_url: str, agent_name: str) -> No
 
 
 @pytest.mark.browser
-def test_account_editor_always_listen_toggle_renders(
-    app_clean: str, page: Page
-) -> None:
+def test_account_editor_always_listen_toggle_renders(app_clean: str, page: Page) -> None:
     """The Always Listen toggle is visible in the connector
     editor's Session section.
 
@@ -106,9 +101,7 @@ def test_account_editor_always_listen_toggle_renders(
     """
     account_id = seed_connector(app_clean, name="Listen Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     # Lifecycle / Session lives in the Access and Routing tab.
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
@@ -119,15 +112,11 @@ def test_account_editor_always_listen_toggle_renders(
 
 
 @pytest.mark.browser
-def test_account_editor_always_listen_toggle_persists_true(
-    app_clean: str, page: Page
-) -> None:
+def test_account_editor_always_listen_toggle_persists_true(app_clean: str, page: Page) -> None:
     """Toggle ON → save → backend persists ``config.always_listen=True``."""
     account_id = seed_connector(app_clean, name="Listen-True Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
     toggle = page.locator('[data-testid="connector-always-listen-toggle"]')
@@ -146,17 +135,11 @@ def test_account_editor_always_listen_toggle_persists_true(
 
 
 @pytest.mark.browser
-def test_account_editor_always_listen_toggle_persists_false(
-    app_clean: str, page: Page
-) -> None:
+def test_account_editor_always_listen_toggle_persists_false(app_clean: str, page: Page) -> None:
     """Seeded ON → toggle OFF → save → backend persists ``always_listen=False``."""
-    account_id = seed_connector(
-        app_clean, name="Listen-False Bot", config={"always_listen": True}
-    )
+    account_id = seed_connector(app_clean, name="Listen-False Bot", config={"always_listen": True})
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
     toggle = page.locator('[data-testid="connector-always-listen-toggle"]')
@@ -177,33 +160,25 @@ def test_account_editor_always_listen_toggle_persists_false(
 
 
 @pytest.mark.browser
-def test_account_editor_always_listen_info_icon_tooltip_present(
-    app_clean: str, page: Page
-) -> None:
+def test_account_editor_always_listen_info_icon_tooltip_present(app_clean: str, page: Page) -> None:
     """The info-icon next to the Always Listen label is present and
     carries the disambiguating help text in its ``title`` attribute."""
     account_id = seed_connector(app_clean, name="Hint Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
     hint = page.locator('[data-testid="connector-always-listen-hint"]')
     expect(hint).to_be_visible(timeout=5000)
     title = hint.get_attribute("title") or ""
-    assert "lightweight inference call" in title, (
-        f"expected help text in title attr; got {title!r}"
-    )
+    assert "lightweight inference call" in title, f"expected help text in title attr; got {title!r}"
 
 
 # ── Agent Connectors-tab toggle tests ────────────────────────────────────
 
 
 @pytest.mark.browser
-def test_agent_connectors_tab_per_account_toggle_renders(
-    app_clean: str, page: Page
-) -> None:
+def test_agent_connectors_tab_per_account_toggle_renders(app_clean: str, page: Page) -> None:
     """Agent editor's Connectors tab renders the per-account
     "Always listen" toggle for each attached
     account."""
@@ -215,9 +190,7 @@ def test_agent_connectors_tab_per_account_toggle_renders(
     )
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    per_agent_toggle = page.locator(
-        f'[data-testid="agent-connector-always-listen-{account_id}"]'
-    )
+    per_agent_toggle = page.locator(f'[data-testid="agent-connector-always-listen-{account_id}"]')
     expect(per_agent_toggle).to_be_visible(timeout=8000)
 
 
@@ -234,9 +207,7 @@ def test_agent_connectors_tab_per_account_toggle_disabled_when_master_off(
     )
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    per_agent_toggle = page.locator(
-        f'[data-testid="agent-connector-always-listen-{account_id}"]'
-    )
+    per_agent_toggle = page.locator(f'[data-testid="agent-connector-always-listen-{account_id}"]')
     expect(per_agent_toggle).to_be_visible(timeout=8000)
     expect(per_agent_toggle).to_be_disabled()
 
@@ -255,9 +226,7 @@ def test_agent_connectors_tab_per_account_toggle_enabled_when_master_on(
     )
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    per_agent_toggle = page.locator(
-        f'[data-testid="agent-connector-always-listen-{account_id}"]'
-    )
+    per_agent_toggle = page.locator(f'[data-testid="agent-connector-always-listen-{account_id}"]')
     expect(per_agent_toggle).to_be_visible(timeout=8000)
     expect(per_agent_toggle).not_to_be_disabled()
 
@@ -280,9 +249,7 @@ def test_agent_connectors_tab_per_account_toggle_persists_via_save(
     )
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    per_agent_toggle = page.locator(
-        f'[data-testid="agent-connector-always-listen-{account_id}"]'
-    )
+    per_agent_toggle = page.locator(f'[data-testid="agent-connector-always-listen-{account_id}"]')
     expect(per_agent_toggle).to_be_visible(timeout=8000)
     expect(per_agent_toggle).not_to_be_checked()
     per_agent_toggle.check()
@@ -300,9 +267,7 @@ def test_agent_connectors_tab_per_account_toggle_persists_via_save(
 
 
 @pytest.mark.browser
-def test_cross_component_event_disables_per_agent_toggle(
-    app_clean: str, page: Page
-) -> None:
+def test_cross_component_event_disables_per_agent_toggle(app_clean: str, page: Page) -> None:
     """Dispatching ``connector-always-listen-changed`` with
     ``enabled=false`` in the agent editor's tab disables the matching
     per-agent toggle WITHOUT a page reload.
@@ -322,9 +287,7 @@ def test_cross_component_event_disables_per_agent_toggle(
     )
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    per_agent_toggle = page.locator(
-        f'[data-testid="agent-connector-always-listen-{account_id}"]'
-    )
+    per_agent_toggle = page.locator(f'[data-testid="agent-connector-always-listen-{account_id}"]')
     expect(per_agent_toggle).to_be_visible(timeout=8000)
     expect(per_agent_toggle).not_to_be_disabled()
 

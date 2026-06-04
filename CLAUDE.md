@@ -32,6 +32,8 @@ ruff check the_one/ tests/
 ruff format the_one/ tests/
 ```
 
+**Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/` run in CI (`.github/workflows/lint.yml`) on every PR and on pushes to `main`. The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence.
+
 ## Local dev with Docker
 
 There are two ways the container runs. The **image-baked default** (`Dockerfile CMD ["the-one","serve"]` → `uvicorn.run(...)`, no `--reload`) serves from code `COPY`'d at build time — **editing source on the host does NOT update that running app**. The **committed compose dev path** (`docker compose up`, `docker-compose.yml:18-23`) instead bind-mounts host `./the_one` over `/app/the_one` and runs `uvicorn ... --reload --reload-dir /app/the_one` — so host edits DO propagate and most hot-reload live. The test suite spawns its own uvicorn subprocess; that path is independent of the served daemon at port 8484. On the image-baked path, browser tests can therefore go green while the user-facing app serves stale JS — `make rebuild` is the cure.

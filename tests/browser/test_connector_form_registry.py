@@ -61,9 +61,7 @@ class TestConnectorFormRegistry:
         )
         assert result is True
 
-    def test_double_register_warns_and_last_writer_wins(
-        self, app_clean: str, page: Page
-    ) -> None:
+    def test_double_register_warns_and_last_writer_wins(self, app_clean: str, page: Page) -> None:
         page.goto(app_clean)
         page.wait_for_load_state("domcontentloaded")
 
@@ -131,7 +129,7 @@ class TestConnectorFormRegistry:
             f"Expected message to name renderConnectionFields; got: {result['message']!r}"
         )
 
-    def test_registry_optionalFns_includes_renderDiscoverableDropdown(
+    def test_registry_optionalFns_includes_renderDiscoverableDropdown(  # noqa: N802  # name mirrors JS `optionalFns`/`renderDiscoverableDropdown`
         self, app_clean: str, page: Page
     ) -> None:
         """M11 F3 L5: the optionalFns array gains a 5th hook
@@ -183,7 +181,9 @@ class TestConnectorFormRegistry:
 
                 // Discord entry exposes the bridge method.
                 const discordEntry = window.App.studio.connectorFormRegistry.get('discord');
-                const discordHookType = typeof (discordEntry && discordEntry.renderDiscoverableDropdown);
+                const discordHookType = typeof (
+                    discordEntry && discordEntry.renderDiscoverableDropdown
+                );
 
                 return {
                     acceptThrew: acceptThrew,
@@ -205,8 +205,7 @@ class TestConnectorFormRegistry:
             "to throw at register time"
         )
         assert "renderDiscoverableDropdown" in result["rejectMessage"], (
-            f"Expected error message to name the offending hook; got: "
-            f"{result['rejectMessage']!r}"
+            f"Expected error message to name the offending hook; got: {result['rejectMessage']!r}"
         )
         assert result["discordHookType"] == "function", (
             f"Expected the Discord entry to expose renderDiscoverableDropdown as a "

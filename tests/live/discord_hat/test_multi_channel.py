@@ -94,8 +94,7 @@ async def test_multi_channel_routing_live() -> None:
                     base,
                     cid,
                     channel_id,
-                    until=lambda d: (latest_routing_entry(d) or {}).get("disposition")
-                    == "stepped",
+                    until=lambda d: (latest_routing_entry(d) or {}).get("disposition") == "stepped",
                     timeout=120.0,
                 )
                 entry = latest_routing_entry(detail)
@@ -124,8 +123,7 @@ async def test_multi_channel_routing_live() -> None:
 
             # Three distinct channels → three distinct channel-keyed sessions.
             assert len(set(session_ids)) == 3, (
-                f"expected 3 distinct channel-keyed sessions; got "
-                f"{session_ids!r}"
+                f"expected 3 distinct channel-keyed sessions; got {session_ids!r}"
             )
             report.record(
                 "#6 separate sessions — ch1/ch2/ch3 → 3 distinct session ids",
@@ -160,16 +158,13 @@ async def test_multi_channel_routing_live() -> None:
                 timeout=120.0,
             )
             assert entry["agent"] == _AGENT_2, (
-                f"ch3 override → expected agent={_AGENT_2!r}; "
-                f"got {entry.get('agent')!r}"
+                f"ch3 override → expected agent={_AGENT_2!r}; got {entry.get('agent')!r}"
             )
             assert entry["scope"] == "channel", (
-                f"ch3 override → expected scope='channel'; "
-                f"got {entry.get('scope')!r}"
+                f"ch3 override → expected scope='channel'; got {entry.get('scope')!r}"
             )
             assert entry["reason"] == "rule-match", (
-                f"ch3 override → expected reason='rule-match'; "
-                f"got {entry.get('reason')!r}"
+                f"ch3 override → expected reason='rule-match'; got {entry.get('reason')!r}"
             )
             report.record(
                 "#6 channel-scoped override — ch3 rule re-routes away from default",

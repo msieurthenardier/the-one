@@ -78,15 +78,11 @@ def _discord_payload(config: dict) -> dict:
 class TestConnectorConfigValidation:
     # ── intents rejection cases ───────────────────────────────────
 
-    async def test_intents_missing_required_key_rejected(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_intents_missing_required_key_rejected(self, client: AsyncClient) -> None:
         """intents missing one of {message_content, members, guilds} → 422."""
         resp = await client.post(
             "/api/connectors",
-            json=_discord_payload(
-                {"intents": {"message_content": True, "members": True}}
-            ),
+            json=_discord_payload({"intents": {"message_content": True, "members": True}}),
         )
         assert resp.status_code == 422
         assert resp.json()["detail"] == (
@@ -133,8 +129,7 @@ class TestConnectorConfigValidation:
         )
         assert resp.status_code == 422
         assert resp.json()["detail"] == (
-            "Discord connector config.intents.message_content must be a "
-            "boolean; got int."
+            "Discord connector config.intents.message_content must be a boolean; got int."
         )
 
     async def test_intents_empty_dict_rejected(self, client: AsyncClient) -> None:
@@ -162,9 +157,7 @@ class TestConnectorConfigValidation:
             json=_discord_payload({"intents": ["message_content", "members"]}),
         )
         assert resp.status_code == 422
-        assert resp.json()["detail"] == (
-            "Discord connector config.intents must be a dict."
-        )
+        assert resp.json()["detail"] == ("Discord connector config.intents must be a dict.")
 
     # ── guilds rejection cases: retired (M11 F14 L02) ─────────────
     # The top-level ``config.guilds`` ("Scope to servers") validator was
@@ -205,9 +198,7 @@ class TestConnectorConfigValidation:
         """presence with type='dancing' (outside the pinned set) → 422."""
         resp = await client.post(
             "/api/connectors",
-            json=_discord_payload(
-                {"presence": {"name": "agents", "type": "dancing"}}
-            ),
+            json=_discord_payload({"presence": {"name": "agents", "type": "dancing"}}),
         )
         assert resp.status_code == 422
         assert resp.json()["detail"] == (
@@ -218,9 +209,7 @@ class TestConnectorConfigValidation:
 
     # ── happy-path cases ──────────────────────────────────────────
 
-    async def test_happy_path_well_formed_intents_and_presence(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_happy_path_well_formed_intents_and_presence(self, client: AsyncClient) -> None:
         """Optional config keys present and well-formed → 201.
 
         M11 F14 L02: the top-level ``guilds`` key was retired (unified
@@ -252,9 +241,7 @@ class TestConnectorConfigValidation:
 
     # ── stub-type carve-out ───────────────────────────────────────
 
-    async def test_stub_type_with_discord_shaped_config_passes(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_stub_type_with_discord_shaped_config_passes(self, client: AsyncClient) -> None:
         """Stub-type account with arbitrary config bypasses Discord validation."""
         resp = await client.post(
             "/api/connectors",
@@ -282,9 +269,7 @@ class TestConnectorConfigValidation:
     # were deleted; the happy-path tests below are kept as pass-through
     # smoke checks.
 
-    async def test_discord_system_prompt_directive_absent_passes(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_discord_system_prompt_directive_absent_passes(self, client: AsyncClient) -> None:
         """Absent system_prompt_directive → 201."""
         resp = await client.post(
             "/api/connectors",
@@ -299,9 +284,7 @@ class TestConnectorConfigValidation:
         agent-create time post round-8)."""
         resp = await client.post(
             "/api/connectors",
-            json=_discord_payload(
-                {"system_prompt_directive": "Sign replies with a coffee emoji."}
-            ),
+            json=_discord_payload({"system_prompt_directive": "Sign replies with a coffee emoji."}),
         )
         assert resp.status_code == 201
 
@@ -338,9 +321,7 @@ class TestConnectorConfigValidation:
         )
         assert resp.status_code == 201
 
-    async def test_stub_system_prompt_directive_pass_through(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_stub_system_prompt_directive_pass_through(self, client: AsyncClient) -> None:
         """Stub-type with system_prompt_directive in arbitrary shape → 201
         (stubs don't validate per-type config; this pins the carve-out
         behavior for the new key alongside the existing keys)."""
@@ -357,9 +338,7 @@ class TestConnectorConfigValidation:
 
     # ── update path coverage ──────────────────────────────────────
 
-    async def test_update_path_with_malformed_config_rejected(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_update_path_with_malformed_config_rejected(self, client: AsyncClient) -> None:
         """PUT with malformed intents config → 422 (covers the second call site)."""
         create = await client.post(
             "/api/connectors",
@@ -382,6 +361,5 @@ class TestConnectorConfigValidation:
         )
         assert resp.status_code == 422
         assert resp.json()["detail"] == (
-            "Discord connector config.intents.message_content must be a "
-            "boolean; got int."
+            "Discord connector config.intents.message_content must be a boolean; got int."
         )

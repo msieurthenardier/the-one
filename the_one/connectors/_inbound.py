@@ -229,9 +229,7 @@ async def _policy_gate_decision(
     account_listen = bool(account.config.get("always_listen", False))
     agent_listen_dict = agent_config.connector_always_listen
     agent_listen = (
-        agent_listen_dict.get(account.id, False)
-        if agent_listen_dict is not None
-        else False
+        agent_listen_dict.get(account.id, False) if agent_listen_dict is not None else False
     )
     if not account_listen:
         return False, {
@@ -267,13 +265,9 @@ async def _policy_gate_decision(
         "account_always_listen": True,
         "agent_always_listen": True,
         "inference_provider_id": (
-            account.config.get("inference_provider_config_id")
-            or agent_config.provider_config_id
+            account.config.get("inference_provider_config_id") or agent_config.provider_config_id
         ),
-        "inference_model": (
-            account.config.get("inference_model")
-            or agent_config.llm_model
-        ),
+        "inference_model": (account.config.get("inference_model") or agent_config.llm_model),
     }
 
 
@@ -365,8 +359,7 @@ async def dispatch_inbound(
     eligible_attached_agents = await agent_store.list_by_connector(account_id)
     if not eligible_attached_agents:
         logger.info(
-            "dispatch_inbound: no agents attached to account_id=%s; "
-            "ignoring inbound",
+            "dispatch_inbound: no agents attached to account_id=%s; ignoring inbound",
             account_id,
         )
         return
@@ -420,9 +413,7 @@ async def dispatch_inbound(
     working_envelope = envelope
     if isinstance(outcome, NeedsPairing):
         pairing = (account.config.get("pairing") or {}).get("code")
-        success, cleaned = _validate_pairing_prefix(
-            envelope.text, pairing or ""
-        )
+        success, cleaned = _validate_pairing_prefix(envelope.text, pairing or "")
         if not success:
             if envelope.text.startswith(_PAIR_PREFIX):
                 # Failed PAIR attempt (wrong code, malformed prefix, or
@@ -632,8 +623,7 @@ async def dispatch_inbound(
             # unanswered; the audit log preserves the "no-eligible"
             # disposition for the operator to debug.
             logger.exception(
-                "dispatch_inbound: no-eligible peer-error emit failed "
-                "for (agent=%s, account=%s)",
+                "dispatch_inbound: no-eligible peer-error emit failed for (agent=%s, account=%s)",
                 first_eligible_name,
                 account_id,
             )
@@ -659,8 +649,7 @@ async def dispatch_inbound(
         client = await account_acquire(account_id)
     except (KeyError, ConnectorRegistrationError) as exc:
         logger.warning(
-            "dispatch_inbound: pool acquire failed for "
-            "(agent=%s, account=%s): %s",
+            "dispatch_inbound: pool acquire failed for (agent=%s, account=%s): %s",
             decision.agent,
             account_id,
             exc,
@@ -683,8 +672,7 @@ async def dispatch_inbound(
     except Exception:
         # Any other pool failure (connect raise, plugin connect timeout, etc.)
         logger.exception(
-            "dispatch_inbound: unexpected pool acquire failure for "
-            "(agent=%s, account=%s)",
+            "dispatch_inbound: unexpected pool acquire failure for (agent=%s, account=%s)",
             decision.agent,
             account_id,
         )
@@ -756,9 +744,7 @@ async def dispatch_inbound(
         plugin_handle = getattr(plugin, "handle_command", None)
         if plugin_handle is not None:
             try:
-                response = await plugin_handle(
-                    working_envelope, command_name, args
-                )
+                response = await plugin_handle(working_envelope, command_name, args)
             except Exception:
                 logger.exception(
                     "dispatch_inbound: plugin handle_command raised "
@@ -857,7 +843,10 @@ async def dispatch_inbound(
         # Built-in returned None (unknown command name) → fall through
         # to agent.step.
 
-    # NOTE: step-10 and step-12 are independent pool acquisitions and do NOT share state — step-10 holds the dispatcher's outbound ``client`` for command/error emit; step-12's ``agent.step`` may acquire its own ``ConnectorClient`` references via the platform-send tool independently.
+    # NOTE: step-10 and step-12 are independent pool acquisitions and do NOT
+    # share state — step-10 holds the dispatcher's outbound ``client`` for
+    # command/error emit; step-12's ``agent.step`` may acquire its own
+    # ``ConnectorClient`` references via the platform-send tool independently.
 
     # 11.5 (M11 F7 L8). Policy gate — decides engaged-vs-silent per Flight
     # DD §1 five-path decision tree before the per-session lock acquires.
@@ -876,9 +865,7 @@ async def dispatch_inbound(
     # round-trip). The ``next(...)`` is guaranteed to succeed because
     # ``decision.agent`` was selected from this same list by
     # :func:`resolve_routing` at step 7.
-    agent_config = next(
-        a for a in eligible_attached_agents if a.name == decision.agent
-    )
+    agent_config = next(a for a in eligible_attached_agents if a.name == decision.agent)
     session_messages = decode_messages(db_session_for_routing.messages)
     should_engage, policy_audit = await _policy_gate_decision(
         envelope=working_envelope,
@@ -1010,9 +997,7 @@ async def dispatch_inbound(
             # alongside ``tag_post_step_visibility`` (n=3 lift trigger).
             # The WHY remains documented here at the call site; the WHAT
             # lives in the function's docstring.
-            bind_peer_name(
-                agent.messages, pre_step_len, working_envelope.peer_name
-            )
+            bind_peer_name(agent.messages, pre_step_len, working_envelope.peer_name)
 
             # M11 F07 L03: post-step channel-context binding.
             # The envelope always carries ``channel_id`` (every connector
@@ -1031,13 +1016,9 @@ async def dispatch_inbound(
             # ``post_step_metadata`` set (visibility, peer_name,
             # channel_context — n=3 per agents.md
             # § post-step-dispatcher-message-metadata-binding).
-            _channel_cache_snapshot = await _get_account_cache_snapshot(
-                working_envelope.account_id
-            )
+            _channel_cache_snapshot = await _get_account_cache_snapshot(working_envelope.account_id)
             _resolved_channel_name = resolve_channel_name(
-                _channel_cache_snapshot.cache
-                if _channel_cache_snapshot is not None
-                else None,
+                _channel_cache_snapshot.cache if _channel_cache_snapshot is not None else None,
                 working_envelope.channel_id,
             )
             bind_channel_context(
@@ -1078,9 +1059,7 @@ async def dispatch_inbound(
             # not from any WS subscriber.
             new_msgs = agent.messages[pre_step_len:]
             if new_msgs:
-                events = messages_to_ui_events(
-                    new_msgs, index_offset=pre_step_len
-                )
+                events = messages_to_ui_events(new_msgs, index_offset=pre_step_len)
                 for event in events:
                     await broadcast_to_session(session_row.id, event)
 
@@ -1129,18 +1108,11 @@ async def dispatch_inbound(
             # non-empty content) is the user-facing reply.
             reply_text: str | None = None
             for msg in reversed(new_msgs):
-                if (
-                    msg.role == Role.ASSISTANT
-                    and not msg.tool_calls
-                    and msg.content
-                ):
+                if msg.role == Role.ASSISTANT and not msg.tool_calls and msg.content:
                     reply_text = msg.content
                     break
 
-            if (
-                not already_sent_via_tool
-                and reply_text is not None
-            ):
+            if not already_sent_via_tool and reply_text is not None:
                 try:
                     # M10 F8 L11 HAT Fix #6: account-shared pool —
                     # auto-relay uses the same gateway connection
@@ -1172,13 +1144,9 @@ async def dispatch_inbound(
                     # Re-persist to capture the visibility flip on
                     # the assistant message.
                     encoded = encode_messages(agent.messages)
-                    db_session_after_relay = await chat_repo.get(
-                        session_row.id
-                    )
+                    db_session_after_relay = await chat_repo.get(session_row.id)
                     await chat_repo.update(
-                        db_session_after_relay.model_copy(
-                            update={"messages": encoded}
-                        )
+                        db_session_after_relay.model_copy(update={"messages": encoded})
                     )
                     logger.info(
                         "Auto-relayed agent %s reply to platform "
@@ -1217,4 +1185,5 @@ async def _clear_for_test() -> None:
     ``await`` this symbol.
     """
     from the_one.sessions import clear_locks_for_test
+
     clear_locks_for_test()

@@ -236,9 +236,7 @@ class _StubPluginWithFetch(StubPlugin):
             return _sample_fetched_messages()
         return type(self).fetch_dm_response
 
-    def enumerate_discoverable_entities(
-        self, client: Any
-    ) -> DiscoverableEntities:
+    def enumerate_discoverable_entities(self, client: Any) -> DiscoverableEntities:
         if type(self).enumerate_response is not None:
             return type(self).enumerate_response
         return DiscoverableEntities(
@@ -317,11 +315,7 @@ class TestFetchChannelHistory:
         tool = FetchChannelHistoryTool()
         result = await tool.execute(channel_id="ch-1")
         assert result == [
-            {
-                "error": (
-                    "this tool is only available in a connector-attached session"
-                )
-            }
+            {"error": ("this tool is only available in a connector-attached session")}
         ]
 
     async def test_fetch_channel_history_denied_by_agent_acl_returns_error(
@@ -367,13 +361,9 @@ class TestFetchChannelHistory:
             result = await tool.execute(channel_id="ch-1")
         finally:
             current_chat_session_id.reset(token)
-        assert result == [
-            {"error": "this plugin does not support history fetch"}
-        ]
+        assert result == [{"error": "this plugin does not support history fetch"}]
 
-    async def test_fetch_channel_history_returns_messages(
-        self, isolated_db
-    ) -> None:
+    async def test_fetch_channel_history_returns_messages(self, isolated_db) -> None:
         await _seed_stub_account()
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
@@ -430,11 +420,7 @@ class TestFetchThreadHistory:
         tool = FetchThreadHistoryTool()
         result = await tool.execute(channel_id="ch-1", thread_id="t-1")
         assert result == [
-            {
-                "error": (
-                    "this tool is only available in a connector-attached session"
-                )
-            }
+            {"error": ("this tool is only available in a connector-attached session")}
         ]
 
     async def test_fetch_thread_history_denied_by_agent_acl_returns_error(
@@ -451,9 +437,7 @@ class TestFetchThreadHistory:
                 "peers": None,
             }
         }
-        tool = FetchThreadHistoryTool(
-            connector_ids=["acct-hist"], connector_acls=acls
-        )
+        tool = FetchThreadHistoryTool(connector_ids=["acct-hist"], connector_acls=acls)
         token = _bind_csid(sid)
         try:
             result = await tool.execute(channel_id="ch-1", thread_id="t-1")
@@ -475,13 +459,9 @@ class TestFetchThreadHistory:
             result = await tool.execute(channel_id="ch-1", thread_id="t-1")
         finally:
             current_chat_session_id.reset(token)
-        assert result == [
-            {"error": "this plugin does not support history fetch"}
-        ]
+        assert result == [{"error": "this plugin does not support history fetch"}]
 
-    async def test_fetch_thread_history_returns_messages(
-        self, isolated_db
-    ) -> None:
+    async def test_fetch_thread_history_returns_messages(self, isolated_db) -> None:
         await _seed_stub_account()
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
@@ -489,9 +469,7 @@ class TestFetchThreadHistory:
         tool = FetchThreadHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
-            result = await tool.execute(
-                channel_id="ch-1", thread_id="t-1", limit=3
-            )
+            result = await tool.execute(channel_id="ch-1", thread_id="t-1", limit=3)
         finally:
             current_chat_session_id.reset(token)
         assert len(result) == 2
@@ -530,11 +508,7 @@ class TestFetchDmHistory:
         tool = FetchDmHistoryTool()
         result = await tool.execute(peer_id="user-9")
         assert result == [
-            {
-                "error": (
-                    "this tool is only available in a connector-attached session"
-                )
-            }
+            {"error": ("this tool is only available in a connector-attached session")}
         ]
 
     async def test_fetch_dm_history_denied_by_agent_peer_acl_returns_error(
@@ -547,9 +521,7 @@ class TestFetchDmHistory:
         sid = await _seed_connector_session()
 
         acls = {"acct-hist": {"channels": None, "peers": []}}
-        tool = FetchDmHistoryTool(
-            connector_ids=["acct-hist"], connector_acls=acls
-        )
+        tool = FetchDmHistoryTool(connector_ids=["acct-hist"], connector_acls=acls)
         token = _bind_csid(sid)
         try:
             result = await tool.execute(peer_id="user-9")
@@ -558,17 +530,17 @@ class TestFetchDmHistory:
         assert len(result) == 1
         assert "agent not permitted to read peer user-9" in result[0]["error"]
 
-    async def test_fetch_dm_history_account_scope_peers_denies(
-        self, isolated_db
-    ) -> None:
+    async def test_fetch_dm_history_account_scope_peers_denies(self, isolated_db) -> None:
         # Account-scope allowlist.peers narrows to "user-1" only; the
         # tool asks for "user-9" → deny.
         # M11 F17 L8 (Leg D) — peers stored as bare ``{id}`` post-v28.
         await _seed_stub_account(
-            config={"allowlist": {
-                "peers": [{"id": "user-1"}],
-                "channels": [],
-            }}
+            config={
+                "allowlist": {
+                    "peers": [{"id": "user-1"}],
+                    "channels": [],
+                }
+            }
         )
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
@@ -581,9 +553,7 @@ class TestFetchDmHistory:
             current_chat_session_id.reset(token)
         assert "agent not permitted to read peer user-9" in result[0]["error"]
 
-    async def test_fetch_dm_history_missing_plugin_hook_returns_error(
-        self, isolated_db
-    ) -> None:
+    async def test_fetch_dm_history_missing_plugin_hook_returns_error(self, isolated_db) -> None:
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
         sid = await _seed_connector_session()
@@ -594,9 +564,7 @@ class TestFetchDmHistory:
             result = await tool.execute(peer_id="user-1")
         finally:
             current_chat_session_id.reset(token)
-        assert result == [
-            {"error": "this plugin does not support history fetch"}
-        ]
+        assert result == [{"error": "this plugin does not support history fetch"}]
 
     async def test_fetch_dm_history_returns_messages(self, isolated_db) -> None:
         await _seed_stub_account()
@@ -616,9 +584,7 @@ class TestFetchDmHistory:
         assert pid == "user-1"
         assert lim == 2
 
-    async def test_fetch_dm_history_plugin_exception_returns_error_dict(
-        self, isolated_db
-    ) -> None:
+    async def test_fetch_dm_history_plugin_exception_returns_error_dict(self, isolated_db) -> None:
         await _seed_stub_account()
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
@@ -645,9 +611,7 @@ class TestListVisibleChannels:
         tool = ListVisibleChannelsTool()
         result = await tool.execute()
         assert result == {
-            "error": (
-                "this tool is only available in a connector-attached session"
-            ),
+            "error": ("this tool is only available in a connector-attached session"),
             "peers": [],
             "channels": [],
             "groups": [],
@@ -682,9 +646,7 @@ class TestListVisibleChannels:
         async def _fake_snapshot(account_id: str):
             return _Snap()
 
-        monkeypatch.setattr(
-            pool_mod, "_get_account_cache_snapshot", _fake_snapshot
-        )
+        monkeypatch.setattr(pool_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
         tool = ListVisibleChannelsTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
@@ -716,9 +678,7 @@ class TestListVisibleChannels:
         async def _fake_snapshot(account_id: str):
             return None
 
-        monkeypatch.setattr(
-            pool_mod, "_get_account_cache_snapshot", _fake_snapshot
-        )
+        monkeypatch.setattr(pool_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
         _StubPluginWithFetch.enumerate_response = DiscoverableEntities(
             peers=[DiscoverableEntity(id="live-user", label="@live")],
@@ -750,9 +710,7 @@ class TestListVisibleChannels:
         async def _fake_snapshot(account_id: str):
             return None
 
-        monkeypatch.setattr(
-            pool_mod, "_get_account_cache_snapshot", _fake_snapshot
-        )
+        monkeypatch.setattr(pool_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
         tool = ListVisibleChannelsTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
@@ -789,11 +747,7 @@ class TestCycle1Additions:
         finally:
             current_chat_session_id.reset(token)
         assert result == [
-            {
-                "error": (
-                    "this tool is only available in a connector-attached session"
-                )
-            }
+            {"error": ("this tool is only available in a connector-attached session")}
         ]
 
     async def test_list_visible_channels_drops_fetched_at_field(
@@ -820,9 +774,7 @@ class TestCycle1Additions:
         async def _fake_snapshot(account_id: str):
             return _Snap()
 
-        monkeypatch.setattr(
-            pool_mod, "_get_account_cache_snapshot", _fake_snapshot
-        )
+        monkeypatch.setattr(pool_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
         tool = ListVisibleChannelsTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)

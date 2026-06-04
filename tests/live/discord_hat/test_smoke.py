@@ -89,8 +89,7 @@ async def test_smoke_live_premises() -> None:
             cfg.base_url,
             cfg.connector_id,
             channel_id,
-            until=lambda d: (latest_routing_entry(d) or {}).get("disposition")
-            == "policy-silent",
+            until=lambda d: (latest_routing_entry(d) or {}).get("disposition") == "policy-silent",
         )
         neg_entry = latest_routing_entry(neg_detail)
         assert neg_entry is not None
@@ -99,8 +98,7 @@ async def test_smoke_live_premises() -> None:
             f"got {neg_entry.get('disposition')!r}"
         )
         assert neg_entry.get("policy", {}).get("outcome") == "always-listen-off", (
-            f"expected policy.outcome=always-listen-off; got "
-            f"{neg_entry.get('policy')!r}"
+            f"expected policy.outcome=always-listen-off; got {neg_entry.get('policy')!r}"
         )
         report.record(
             "negative control (non-mention → policy-silent/always-listen-off)",

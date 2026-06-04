@@ -50,7 +50,12 @@ from the_one.connectors._pool import (
     account_acquire,
     agent_acquire,
 )
-from the_one.connectors.base import DoctorReport, SessionKey
+from the_one.connectors.base import (
+    DiscoverableEntities,
+    DiscoverableEntity,
+    DoctorReport,
+    SessionKey,
+)
 from the_one.connectors.errors import (
     ConnectorConnectionError,
     ConnectorRegistrationError,
@@ -200,9 +205,7 @@ async def test_concurrent_acquire_same_key_shares_one_worker(patch_plugin) -> No
 
     register_for_test("stub", _SlowStubPlugin)
 
-    results = await asyncio.gather(
-        *(agent_acquire("agent-a", "acct-1") for _ in range(10))
-    )
+    results = await asyncio.gather(*(agent_acquire("agent-a", "acct-1") for _ in range(10)))
     assert _SlowStubPlugin.connect_count == 1  # exactly ONE worker spawned
     first = results[0]
     for r in results:
@@ -593,9 +596,6 @@ async def test_keys_for_test_returns_current_keys(patch_plugin) -> None:
 # ─────────────────────────────────────────────────────────────────
 
 
-from the_one.connectors.base import DiscoverableEntities, DiscoverableEntity
-
-
 class _DiscoverablePlugin(_StubPlugin):
     """Stub plugin implementing ``enumerate_discoverable_entities``.
 
@@ -726,9 +726,7 @@ async def test_refresh_handles_evicted_entry_gracefully(
         eviction_done.set()
         return original_hook(self, client)
 
-    monkeypatch.setattr(
-        _DiscoverablePlugin, "enumerate_discoverable_entities", _evicting_hook
-    )
+    monkeypatch.setattr(_DiscoverablePlugin, "enumerate_discoverable_entities", _evicting_hook)
 
     refreshed = await _refresh_discoverable_entities_for_account("acct-1")
     assert refreshed is False
@@ -979,9 +977,7 @@ def _patch_agent_store_for_rewarm(monkeypatch, account_id: str, attached_agents:
     monkeypatch.setattr(_db_repo_mod, "SQLiteAgentStore", _StubAgentStore)
 
 
-async def test_dead_account_entry_is_evicted_and_rewarmed(
-    patch_plugin, monkeypatch
-) -> None:
+async def test_dead_account_entry_is_evicted_and_rewarmed(patch_plugin, monkeypatch) -> None:
     """(B) Dead-listener self-heal: an account-keyed entry whose
     ``is_alive()`` returns False is collected in ``dead_evicted`` by
     ``_reap_once`` and re-acquired by ``_rewarm_dead_listeners``, so the
@@ -1028,9 +1024,7 @@ async def test_dead_account_entry_is_evicted_and_rewarmed(
     assert _StubPlugin.connect_count == connect_count_before + 1
 
 
-async def test_dead_account_entry_no_attached_agents_left_cold(
-    patch_plugin, monkeypatch
-) -> None:
+async def test_dead_account_entry_no_attached_agents_left_cold(patch_plugin, monkeypatch) -> None:
     """(B2) Dead listener whose connector has ZERO attached agents is
     evicted by ``_reap_once`` but NOT rewarmed by
     ``_rewarm_dead_listeners`` — it is left cold.

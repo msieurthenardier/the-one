@@ -235,9 +235,7 @@ class TestRestoreSkipsRebuildDuringInflight:
                 restored = await _restore_session(s.id)
             assert restored.session is s
             assert restored.session.history == [{"type": "user", "content": "hi"}]
-            assert not rebuild_invoked, (
-                "factory.create should NOT run while session lock is held"
-            )
+            assert not rebuild_invoked, "factory.create should NOT run while session lock is held"
         finally:
             app_module._chat_repo = original_repo  # type: ignore[assignment]
             app_module._get_factory = original_get_factory  # type: ignore[assignment]

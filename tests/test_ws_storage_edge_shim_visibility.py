@@ -107,9 +107,7 @@ class _ShimStubAgent:
 
 def _patch_broadcast_and_save(monkeypatch) -> list[dict[str, Any]]:
     """Stub IO sinks and return the captured broadcast list."""
-    monkeypatch.setattr(
-        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
     monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
 
     captured: list[dict[str, Any]] = []
@@ -425,9 +423,7 @@ async def test_resume_after_auth_tags_resumed_messages(monkeypatch) -> None:
 
     # The resumed tool_result + final assistant carry OPERATOR_VISIBILITY.
     assert session.agent.messages[pre_resume_len].visibility == OPERATOR_VISIBILITY
-    assert (
-        session.agent.messages[pre_resume_len + 1].visibility == OPERATOR_VISIBILITY
-    )
+    assert session.agent.messages[pre_resume_len + 1].visibility == OPERATOR_VISIBILITY
 
     # Pre-resume messages untouched.
     assert session.agent.messages[0].visibility is None  # system

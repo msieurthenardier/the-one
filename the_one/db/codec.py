@@ -229,13 +229,9 @@ def messages_to_ui_events(
         # (``_inbound.py:dispatch_inbound`` → ``broadcast_to_session``) for
         # the connector-inbound path; ``app.py:_process_and_broadcast``
         # handles operator-typed input and is NOT touched by this projection.
-        channel_id_spread = (
-            {"channel_id": msg.channel_id} if msg.channel_id is not None else {}
-        )
+        channel_id_spread = {"channel_id": msg.channel_id} if msg.channel_id is not None else {}
         channel_name_spread = (
-            {"channel_name": msg.channel_name}
-            if msg.channel_name is not None
-            else {}
+            {"channel_name": msg.channel_name} if msg.channel_name is not None else {}
         )
         if msg.role == Role.USER:
             events.append(

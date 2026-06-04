@@ -546,9 +546,7 @@ async def detach_agent_from_connector(
     try:
         cfg = await store.load(agent_name)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Agent not found: {agent_name}"
-        )
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_name}")
 
     if account_id in cfg.connector_ids:
         new_ids = [a for a in cfg.connector_ids if a != account_id]
@@ -1026,9 +1024,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
 # - ``"unknown"`` — Discord-SDK default sentinel, never an operator choice
 # - ``"custom"`` — Discord-API-only via custom status, not supported by
 #   the bot-presence surface
-_DISCORD_PRESENCE_TYPES = frozenset(
-    {"playing", "streaming", "listening", "watching", "competing"}
-)
+_DISCORD_PRESENCE_TYPES = frozenset({"playing", "streaming", "listening", "watching", "competing"})
 
 
 def _validate_connector_config(account: Connector) -> None:
@@ -1100,10 +1096,7 @@ def _validate_connector_config(account: Connector) -> None:
             if not isinstance(presence, dict):
                 raise HTTPException(
                     status_code=422,
-                    detail=(
-                        "Discord connector config.presence must be a dict "
-                        "if present."
-                    ),
+                    detail=("Discord connector config.presence must be a dict if present."),
                 )
             if "name" in presence:
                 name = presence["name"]
@@ -1111,8 +1104,7 @@ def _validate_connector_config(account: Connector) -> None:
                     raise HTTPException(
                         status_code=422,
                         detail=(
-                            "Discord connector config.presence.name must be "
-                            "a non-empty string."
+                            "Discord connector config.presence.name must be a non-empty string."
                         ),
                     )
             if "type" in presence:
@@ -2460,7 +2452,7 @@ async def _save_warm_background(account_id: str) -> None:
         await account_acquire(account_id)
         # Clear any stale error from a previous failed warm.
         _connect_error_store.pop(account_id, None)
-    except (ConnectorClientError, Exception) as exc:  # noqa: BLE001
+    except (ConnectorClientError, Exception) as exc:
         mapped = _map_connect_error(exc)
         _connect_error_store[account_id] = mapped
         logger.warning(
@@ -2544,9 +2536,7 @@ async def get_connector(account_id: str) -> dict[str, Any]:
     try:
         account = await repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
     return _connector_response(account)
 
 
@@ -2586,9 +2576,7 @@ async def update_connector(account_id: str, request: Request) -> dict[str, Any]:
     try:
         existing = await repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
 
     # Per-key __MASKED__ resolution: verbatim mirror of the MCP block
     # above minus the OAuth-managed-keys preservation step (MCP-specific)
@@ -2692,9 +2680,7 @@ async def delete_connector(account_id: str) -> dict[str, str]:
     try:
         await repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
 
     # Evict warm pool entries BEFORE the row delete so any concurrent
     # acquire-in-flight observes the deletion at the repo layer rather
@@ -2705,9 +2691,7 @@ async def delete_connector(account_id: str) -> dict[str, str]:
         await repo.delete(account_id)
     except KeyError:
         # Race: another caller deleted between our get and delete.
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
 
     return {"status": "ok"}
 
@@ -2738,9 +2722,7 @@ async def generate_connector_pairing_code(
     try:
         account = await repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
     code = secrets.token_hex(4)  # 8 hex chars
     issued_at = now_iso()
     # Preserve all other config keys (allowlist, intent, …) — only
@@ -2836,9 +2818,7 @@ async def _replay_approved_message(
         )
 
 
-@router.post(
-    "/connectors/{account_id}/peer-approvals/{approval_id}/approve"
-)
+@router.post("/connectors/{account_id}/peer-approvals/{approval_id}/approve")
 async def approve_peer_approval(
     account_id: str,
     approval_id: str,
@@ -2870,21 +2850,15 @@ async def approve_peer_approval(
     try:
         account = await conn_repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
 
     approval_repo = await _pending_approval_repo()
     try:
         approval = await approval_repo.get(approval_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Pending approval not found: {approval_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Pending approval not found: {approval_id}")
     if approval.connector_id != account_id:
-        raise HTTPException(
-            status_code=404, detail=f"Pending approval not found: {approval_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Pending approval not found: {approval_id}")
 
     try:
         updated_approval = await approval_repo.mark_approved(approval_id)
@@ -2936,9 +2910,7 @@ async def approve_peer_approval(
     return updated_approval.model_dump()
 
 
-@router.post(
-    "/connectors/{account_id}/peer-approvals/{approval_id}/dismiss"
-)
+@router.post("/connectors/{account_id}/peer-approvals/{approval_id}/dismiss")
 async def dismiss_peer_approval(
     account_id: str,
     approval_id: str,
@@ -2953,21 +2925,15 @@ async def dismiss_peer_approval(
     try:
         await conn_repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
 
     approval_repo = await _pending_approval_repo()
     try:
         approval = await approval_repo.get(approval_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Pending approval not found: {approval_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Pending approval not found: {approval_id}")
     if approval.connector_id != account_id:
-        raise HTTPException(
-            status_code=404, detail=f"Pending approval not found: {approval_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Pending approval not found: {approval_id}")
 
     try:
         updated_approval = await approval_repo.mark_dismissed(approval_id)
@@ -3004,7 +2970,7 @@ async def list_pending_approvals() -> list[dict[str, Any]]:
     frontend does not need them and we should not ship the full message
     text to the left-panel list).
     """
-    _FRONTEND_FIELDS = {
+    _frontend_fields = {
         "id",
         "connector_id",
         "peer_id",
@@ -3015,10 +2981,7 @@ async def list_pending_approvals() -> list[dict[str, Any]]:
     }
     approval_repo = await _pending_approval_repo()
     rows = await approval_repo.list_all_pending()
-    return [
-        {k: v for k, v in r.model_dump().items() if k in _FRONTEND_FIELDS}
-        for r in rows
-    ]
+    return [{k: v for k, v in r.model_dump().items() if k in _frontend_fields} for r in rows]
 
 
 @router.get("/connectors/{account_id}/attached-agents")
@@ -3057,9 +3020,7 @@ async def list_attached_agents_for_connector(
     try:
         await repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
 
     store = await _agent_store()
     attached = await store.list_by_connector(account_id)
@@ -3187,9 +3148,7 @@ async def get_connector_status(account_id: str) -> dict[str, Any]:
     try:
         await repo.get(account_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"Connector not found: {account_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"Connector not found: {account_id}")
 
     from the_one.connectors._pool import _get_account_status_snapshot
 
@@ -3284,7 +3243,8 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
     if report.status == "ok":
         try:
             await account_acquire(account_id)
-        except Exception as exc:  # noqa: BLE001 — best-effort warmup; isolated from doctor verdict per F4 L2.
+        except Exception as exc:
+            # best-effort warmup; isolated from doctor verdict per F4 L2.
             pool_warm_error = str(exc)
         else:
             pool_warmed = True
@@ -3302,7 +3262,7 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
                 fresh_cfg["application_id"] = app_id
                 updated_account = fresh.model_copy(update={"config": fresh_cfg})
                 await repo.update(updated_account)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass  # best-effort; ignore persistence errors
 
     details["pool_warmed"] = pool_warmed
@@ -3368,9 +3328,7 @@ def _empty_discoverable_response() -> _DiscoverableEntitiesResponse:
     )
 
 
-def _project_discoverable_entity(
-    entity: Any, *, stale: bool
-) -> _DiscoverableEntityOut:
+def _project_discoverable_entity(entity: Any, *, stale: bool) -> _DiscoverableEntityOut:
     """Project a :class:`DiscoverableEntity` dataclass into the response shape.
 
     The substrate dataclass has no ``stale`` field — staleness is the
@@ -3397,15 +3355,11 @@ def _build_discoverable_response(snapshot: Any) -> _DiscoverableEntitiesResponse
     stale_carry = snapshot.stale_carry
     entities: dict[str, list[_DiscoverableEntityOut]] = {}
     for axis in ("peers", "channels", "groups", "roles"):
-        fresh = [
-            _project_discoverable_entity(e, stale=False)
-            for e in getattr(cache, axis)
-        ]
+        fresh = [_project_discoverable_entity(e, stale=False) for e in getattr(cache, axis)]
         stale_list: list[_DiscoverableEntityOut] = []
         if stale_carry is not None:
             stale_list = [
-                _project_discoverable_entity(e, stale=True)
-                for e in getattr(stale_carry, axis)
+                _project_discoverable_entity(e, stale=True) for e in getattr(stale_carry, axis)
             ]
         entities[axis] = fresh + stale_list
     fetched_at = cache.fetched_at or now_iso()

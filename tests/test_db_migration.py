@@ -1280,9 +1280,7 @@ class TestSchemaV13:
         )
         await conn.commit()
 
-        async with conn.execute(
-            "SELECT id, type FROM connectors ORDER BY id"
-        ) as cur:
+        async with conn.execute("SELECT id, type FROM connectors ORDER BY id") as cur:
             rows = [(r["id"], r["type"]) for r in await cur.fetchall()]
         assert rows == [("discord-id", "discord"), ("stub-id", "stub")]
 
@@ -1360,9 +1358,7 @@ class TestSchemaV14:
         assert name_col["notnull"] == 1, name_col["notnull"]
         assert name_col["dflt_value"] == "''", name_col["dflt_value"]
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 14 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -1380,9 +1376,7 @@ class TestSchemaV14:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert versions.count(14) == 1, f"v14 row should appear exactly once: {versions}"
 
@@ -1423,9 +1417,7 @@ class TestSchemaV14:
             ")"
         )
         for v in range(1, 14):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connector_accounts ("
             "    id TEXT PRIMARY KEY,"
@@ -1472,8 +1464,7 @@ class TestSchemaV14:
         )
         # Seed a row against the v13 shape (no name).
         await conn.execute(
-            "INSERT INTO connector_accounts (id, type, config, secrets)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT INTO connector_accounts (id, type, config, secrets) VALUES (?, ?, ?, ?)",
             ("seeded", "stub", "{}", "{}"),
         )
         await conn.commit()
@@ -1486,20 +1477,14 @@ class TestSchemaV14:
 
         # Row survived with empty name (post-v23 the table is named
         # ``connectors``; the v23 row-rewrite preserves the seeded row).
-        async with conn.execute(
-            "SELECT id, name, type FROM connectors WHERE id = 'seeded'"
-        ) as cur:
+        async with conn.execute("SELECT id, name, type FROM connectors WHERE id = 'seeded'") as cur:
             row = await cur.fetchone()
         assert row is not None
-        assert row["name"] == "", (
-            f"expected empty name from DEFAULT '', got {row['name']!r}"
-        )
+        assert row["name"] == "", f"expected empty name from DEFAULT '', got {row['name']!r}"
         assert row["type"] == "stub"
 
         # Head pointer landed at CURRENT_VERSION (≥14).
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 14 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -1522,9 +1507,7 @@ class TestSchemaV15:
     See flight log ``## Design Adjustments``.
     """
 
-    async def test_v15_fresh_db_includes_idle_timeout_seconds_column(
-        self, tmp_path
-    ) -> None:
+    async def test_v15_fresh_db_includes_idle_timeout_seconds_column(self, tmp_path) -> None:
         """Fresh DB → ensure_schema → v15 surfaces exist."""
         db_path = tmp_path / "v15-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
@@ -1550,9 +1533,7 @@ class TestSchemaV15:
         # No explicit DEFAULT clause — dflt_value must be Python None.
         assert ttl_col["dflt_value"] is None, ttl_col["dflt_value"]
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 15 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -1570,9 +1551,7 @@ class TestSchemaV15:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert versions.count(15) == 1, f"v15 row should appear exactly once: {versions}"
 
@@ -1584,9 +1563,7 @@ class TestSchemaV15:
 
         await conn.close()
 
-    async def test_v15_legacy_v14_row_decodes_with_none_idle_timeout(
-        self, tmp_path
-    ) -> None:
+    async def test_v15_legacy_v14_row_decodes_with_none_idle_timeout(self, tmp_path) -> None:
         """A row seeded against a hand-built v14 schema (no
         ``idle_timeout_seconds`` column) survives the v15 ALTER with
         ``idle_timeout_seconds IS NULL``.
@@ -1612,9 +1589,7 @@ class TestSchemaV15:
             ")"
         )
         for v in range(1, 15):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connector_accounts ("
             "    id TEXT PRIMARY KEY,"
@@ -1677,8 +1652,7 @@ class TestSchemaV15:
         # Row survived with NULL idle_timeout_seconds (post-v23 table
         # renamed to ``connectors``; v23 row-rewrite preserves the row).
         async with conn.execute(
-            "SELECT id, name, idle_timeout_seconds"
-            " FROM connectors WHERE id = 'seeded-v14'"
+            "SELECT id, name, idle_timeout_seconds FROM connectors WHERE id = 'seeded-v14'"
         ) as cur:
             row = await cur.fetchone()
         assert row is not None
@@ -1688,9 +1662,7 @@ class TestSchemaV15:
         )
 
         # Head pointer landed at CURRENT_VERSION (≥15).
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 15 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -1716,9 +1688,7 @@ class TestSchemaV16:
     ``## Design Adjustments`` and _connector_types.py docstring.
     """
 
-    async def test_v16_fresh_db_includes_chat_session_external_key_columns(
-        self, tmp_path
-    ) -> None:
+    async def test_v16_fresh_db_includes_chat_session_external_key_columns(self, tmp_path) -> None:
         """Fresh DB → ensure_schema → v16 surfaces exist."""
         db_path = tmp_path / "v16-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
@@ -1770,9 +1740,7 @@ class TestSchemaV16:
             "v16 migration missing: idx_chat_sessions_external_key does not exist"
         )
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 16 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -1793,9 +1761,7 @@ class TestSchemaV16:
         await ensure_schema(conn)
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert versions.count(16) == 1, f"v16 row should appear exactly once: {versions}"
 
@@ -1840,9 +1806,7 @@ class TestSchemaV16:
             ")"
         )
         for v in range(1, 16):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         # v15-shape chat_sessions (no v16 columns).
         await conn.execute(
             "CREATE TABLE chat_sessions ("
@@ -1890,8 +1854,7 @@ class TestSchemaV16:
         )
         # Seed rows against the v15 shape.
         await conn.execute(
-            "INSERT INTO chat_sessions (id, agent_name, title)"
-            " VALUES (?, ?, ?)",
+            "INSERT INTO chat_sessions (id, agent_name, title) VALUES (?, ?, ?)",
             ("seeded-session", "test-agent", "Pre-v16 session"),
         )
         await conn.execute(
@@ -1939,9 +1902,7 @@ class TestSchemaV16:
         assert acc_row["session_continuation_seconds"] is None
 
         # Head pointer landed at CURRENT_VERSION (≥16).
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 16 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -1962,9 +1923,7 @@ class TestSchemaV17:
     ``agents.connector_acls``).
     """
 
-    async def test_v17_fresh_db_includes_agents_connector_ids_column(
-        self, tmp_path
-    ) -> None:
+    async def test_v17_fresh_db_includes_agents_connector_ids_column(self, tmp_path) -> None:
         """Fresh DB → ensure_schema → v17 surfaces exist (post-v23 the
         column was renamed ``connector_account_ids`` → ``connector_ids``
         via ``ALTER TABLE agents RENAME COLUMN``)."""
@@ -1993,9 +1952,7 @@ class TestSchemaV17:
         # No explicit DEFAULT clause; dflt_value is Python None.
         assert col["dflt_value"] is None, col["dflt_value"]
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 17 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2014,9 +1971,7 @@ class TestSchemaV17:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert versions.count(17) == 1, f"v17 row should appear exactly once: {versions}"
 
@@ -2027,9 +1982,7 @@ class TestSchemaV17:
 
         await conn.close()
 
-    async def test_v17_legacy_v16_row_decodes_with_empty_connector_ids(
-        self, tmp_path
-    ) -> None:
+    async def test_v17_legacy_v16_row_decodes_with_empty_connector_ids(self, tmp_path) -> None:
         """A row seeded against a hand-built v16 schema (no
         ``connector_account_ids`` column) survives the v17 ALTER with the
         column added as NULL; the repository's ``_row_to_config`` reads
@@ -2055,9 +2008,7 @@ class TestSchemaV17:
             ")"
         )
         for v in range(1, 17):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         # v16-shape agents (no connector_account_ids). Mirrors the
         # post-v11/v8 agents columns. We need only the columns the
         # repository's `_row_to_config` reads, plus the PK.
@@ -2129,9 +2080,7 @@ class TestSchemaV17:
         assert loaded.connector_ids == []
 
         # Head pointer landed at CURRENT_VERSION (≥17).
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 17 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2156,9 +2105,7 @@ class TestSchemaV18:
     Downstream: flight 08 (Discord)'s CHECK constraint now lands at v19.
     """
 
-    async def test_v18_fresh_db_includes_agents_connector_acls_column(
-        self, tmp_path
-    ) -> None:
+    async def test_v18_fresh_db_includes_agents_connector_acls_column(self, tmp_path) -> None:
         """Fresh DB → ensure_schema → v18 surfaces exist."""
         db_path = tmp_path / "v18-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
@@ -2184,9 +2131,7 @@ class TestSchemaV18:
         # No explicit DEFAULT clause; dflt_value is Python None.
         assert col["dflt_value"] is None, col["dflt_value"]
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 18 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2205,9 +2150,7 @@ class TestSchemaV18:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert versions.count(18) == 1, f"v18 row should appear exactly once: {versions}"
 
@@ -2217,9 +2160,7 @@ class TestSchemaV18:
 
         await conn.close()
 
-    async def test_v18_legacy_v17_row_decodes_with_none_connector_acls(
-        self, tmp_path
-    ) -> None:
+    async def test_v18_legacy_v17_row_decodes_with_none_connector_acls(self, tmp_path) -> None:
         """A row seeded against a hand-built v17 schema (no
         ``connector_acls`` column) survives the v18 ALTER with the column
         added as NULL; the repository's ``_row_to_config`` reads
@@ -2247,9 +2188,7 @@ class TestSchemaV18:
             ")"
         )
         for v in range(1, 18):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         # v17-shape agents (with connector_account_ids, no connector_acls).
         # We need only the columns the repository's `_row_to_config` reads,
         # plus the PK.
@@ -2318,9 +2257,7 @@ class TestSchemaV18:
         assert loaded.connector_acls is None
 
         # Head pointer landed at CURRENT_VERSION (≥18).
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 18 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2371,9 +2308,7 @@ class TestSchemaV20:
         # No explicit DEFAULT clause; dflt_value is Python None.
         assert col["dflt_value"] is None, col["dflt_value"]
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 20 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2392,13 +2327,9 @@ class TestSchemaV20:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(20) == 1, (
-            f"v20 row should appear exactly once: {versions}"
-        )
+        assert versions.count(20) == 1, f"v20 row should appear exactly once: {versions}"
 
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             cols = {r["name"] for r in await cur.fetchall()}
@@ -2436,9 +2367,7 @@ class TestSchemaV20:
             ")"
         )
         for v in range(1, 20):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         # v19-shape agents (with connector_acls, no connector_always_listen).
         # We need only the columns the repository's `_row_to_config` reads,
         # plus the PK.
@@ -2493,8 +2422,7 @@ class TestSchemaV20:
 
         # The pre-existing row has NULL on the new column.
         async with conn.execute(
-            "SELECT connector_always_listen FROM agents "
-            "WHERE name = 'legacy-v19-agent'"
+            "SELECT connector_always_listen FROM agents WHERE name = 'legacy-v19-agent'"
         ) as cur:
             row = await cur.fetchone()
         assert row is not None
@@ -2506,9 +2434,7 @@ class TestSchemaV20:
         assert loaded.connector_always_listen is None
 
         # Head pointer landed at CURRENT_VERSION (≥20).
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 20 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2537,9 +2463,7 @@ class TestSchemaV21:
     Mirrors the v18 / v20 ``TestSchemaVNN`` shapes.
     """
 
-    async def test_v21_fresh_db_includes_pending_approvals_table(
-        self, tmp_path
-    ) -> None:
+    async def test_v21_fresh_db_includes_pending_approvals_table(self, tmp_path) -> None:
         """Fresh DB → ensure_schema → v21 surfaces exist: table, columns,
         FK constraint, CHECK constraint, supporting index, schema_version
         row at 21."""
@@ -2556,9 +2480,7 @@ class TestSchemaV21:
         # FK column ``connector_account_id`` renamed to ``connector_id``
         # via the v23 row-rewrite ceremony; FK target re-pointed at
         # ``connectors(id)``.
-        async with conn.execute(
-            "PRAGMA table_info(pending_approvals)"
-        ) as cur:
+        async with conn.execute("PRAGMA table_info(pending_approvals)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         expected_cols = {
             "id",
@@ -2594,9 +2516,7 @@ class TestSchemaV21:
 
         # FK ON DELETE CASCADE on connector_id (post-v23 column rename
         # + FK target re-pointed at ``connectors``).
-        async with conn.execute(
-            "PRAGMA foreign_key_list(pending_approvals)"
-        ) as cur:
+        async with conn.execute("PRAGMA foreign_key_list(pending_approvals)") as cur:
             fks = [dict(r) for r in await cur.fetchall()]
         assert len(fks) == 1, fks
         fk = fks[0]
@@ -2611,19 +2531,14 @@ class TestSchemaV21:
         # ``idx_pending_approvals_connector_peer_status``. Under full
         # ``ensure_schema`` the v24 name is what we observe.
         async with conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='index' AND tbl_name='pending_approvals'"
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='pending_approvals'"
         ) as cur:
             index_names = {r["name"] for r in await cur.fetchall()}
-        assert (
-            "idx_pending_approvals_connector_peer_status" in index_names
-        ), index_names
+        assert "idx_pending_approvals_connector_peer_status" in index_names, index_names
 
         # schema_version row for v21 exists; head pointer lands at
         # CURRENT_VERSION.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 21 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2642,25 +2557,17 @@ class TestSchemaV21:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(21) == 1, (
-            f"v21 row should appear exactly once: {versions}"
-        )
+        assert versions.count(21) == 1, f"v21 row should appear exactly once: {versions}"
 
-        async with conn.execute(
-            "PRAGMA table_info(pending_approvals)"
-        ) as cur:
+        async with conn.execute("PRAGMA table_info(pending_approvals)") as cur:
             cols = {r["name"] for r in await cur.fetchall()}
         assert "id" in cols and "status" in cols, cols
 
         await conn.close()
 
-    async def test_v21_fk_cascade_deletes_dependent_rows(
-        self, tmp_path
-    ) -> None:
+    async def test_v21_fk_cascade_deletes_dependent_rows(self, tmp_path) -> None:
         """Deleting a row from connectors removes its dependent
         pending_approvals rows. Verifies FK CASCADE wiring with
         ``PRAGMA foreign_keys=ON``. Post-v23 (M11 F11 L1): parent
@@ -2694,30 +2601,22 @@ class TestSchemaV21:
         await conn.commit()
 
         # Pre-condition: one row.
-        async with conn.execute(
-            "SELECT COUNT(*) FROM pending_approvals"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM pending_approvals") as cur:
             (count_before,) = await cur.fetchone()
         assert count_before == 1, count_before
 
         # Delete the parent.
-        await conn.execute(
-            "DELETE FROM connectors WHERE id = ?", ("acct-1",)
-        )
+        await conn.execute("DELETE FROM connectors WHERE id = ?", ("acct-1",))
         await conn.commit()
 
         # Cascade removed the dependent row.
-        async with conn.execute(
-            "SELECT COUNT(*) FROM pending_approvals"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM pending_approvals") as cur:
             (count_after,) = await cur.fetchone()
         assert count_after == 0, count_after
 
         await conn.close()
 
-    async def test_v21_check_constraint_rejects_bad_status(
-        self, tmp_path
-    ) -> None:
+    async def test_v21_check_constraint_rejects_bad_status(self, tmp_path) -> None:
         """INSERTing a pending_approvals row with ``status='banana'``
         raises ``aiosqlite.IntegrityError``. We assert on the exception
         class only — CHECK-constraint failure messages vary across SQLite
@@ -2788,18 +2687,14 @@ class TestSchemaV22:
 
         assert CURRENT_VERSION >= 22, CURRENT_VERSION
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 22 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
 
         # No connectors rows on a fresh DB; the loop is a no-op.
         # Post-v23: table renamed from ``connector_accounts``.
-        async with conn.execute(
-            "SELECT COUNT(*) FROM connectors"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM connectors") as cur:
             (count,) = await cur.fetchone()
         assert count == 0, count
 
@@ -2819,19 +2714,13 @@ class TestSchemaV22:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(22) == 1, (
-            f"v22 row should appear exactly once: {versions}"
-        )
+        assert versions.count(22) == 1, f"v22 row should appear exactly once: {versions}"
 
         await conn.close()
 
-    async def test_v22_legacy_row_with_empty_channels_gets_dm_admission_all(
-        self, tmp_path
-    ) -> None:
+    async def test_v22_legacy_row_with_empty_channels_gets_dm_admission_all(self, tmp_path) -> None:
         """A legacy v21 row whose ``allowlist.channels`` is empty/absent
         gets ``dm_admission="all"`` inserted by the v22 row-rewrite
         (pre-L1 behavior admitted all DMs against an empty channels
@@ -2851,9 +2740,7 @@ class TestSchemaV22:
             ")"
         )
         for v in range(1, 22):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connector_accounts ("
             "    id TEXT PRIMARY KEY,"
@@ -2868,12 +2755,13 @@ class TestSchemaV22:
             ")"
         )
         # Seed a row with allowlist.peers populated, channels empty.
-        legacy_config = json.dumps({
-            "allowlist": {"peers": ["P1"], "channels": []},
-        })
+        legacy_config = json.dumps(
+            {
+                "allowlist": {"peers": ["P1"], "channels": []},
+            }
+        )
         await conn.execute(
-            "INSERT INTO connector_accounts (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connector_accounts (id, name, type, config) VALUES (?, ?, ?, ?)",
             ("legacy-acct-1", "Legacy", "stub", legacy_config),
         )
         await conn.commit()
@@ -2897,9 +2785,7 @@ class TestSchemaV22:
         assert cfg["allowlist"]["dm_admission"] == "all"
 
         # Head pointer landed at CURRENT_VERSION.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 22 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -2925,9 +2811,7 @@ class TestSchemaV22:
             ")"
         )
         for v in range(1, 22):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connector_accounts ("
             "    id TEXT PRIMARY KEY,"
@@ -2941,12 +2825,13 @@ class TestSchemaV22:
             "    session_continuation_seconds INTEGER NULL"
             ")"
         )
-        legacy_config = json.dumps({
-            "allowlist": {"peers": ["P1"], "channels": ["C1"]},
-        })
+        legacy_config = json.dumps(
+            {
+                "allowlist": {"peers": ["P1"], "channels": ["C1"]},
+            }
+        )
         await conn.execute(
-            "INSERT INTO connector_accounts (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connector_accounts (id, name, type, config) VALUES (?, ?, ?, ?)",
             ("legacy-acct-2", "Legacy", "stub", legacy_config),
         )
         await conn.commit()
@@ -2973,9 +2858,7 @@ class TestSchemaV22:
 
         await conn.close()
 
-    async def test_v22_legacy_row_without_allowlist_untouched(
-        self, tmp_path
-    ) -> None:
+    async def test_v22_legacy_row_without_allowlist_untouched(self, tmp_path) -> None:
         """A legacy v21 row whose config has NO ``allowlist`` key is
         left untouched by the v22 row-rewrite. The Pydantic validator
         default handles it at read time.
@@ -2992,9 +2875,7 @@ class TestSchemaV22:
             ")"
         )
         for v in range(1, 22):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connector_accounts ("
             "    id TEXT PRIMARY KEY,"
@@ -3010,8 +2891,7 @@ class TestSchemaV22:
         )
         legacy_config = json.dumps({"intent": "guild_messages"})
         await conn.execute(
-            "INSERT INTO connector_accounts (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connector_accounts (id, name, type, config) VALUES (?, ?, ?, ?)",
             ("legacy-acct-3", "Legacy", "stub", legacy_config),
         )
         await conn.commit()
@@ -3083,9 +2963,7 @@ class TestSchemaV23:
     shape assertions + legacy-row preservation + idempotency).
     """
 
-    async def test_v23_fresh_db_has_renamed_tables_and_columns(
-        self, tmp_path
-    ) -> None:
+    async def test_v23_fresh_db_has_renamed_tables_and_columns(self, tmp_path) -> None:
         """Fresh DB → ensure_schema → v23 final-shape surfaces exist:
 
         - ``connectors`` table exists, ``connector_accounts`` does not.
@@ -3131,15 +3009,11 @@ class TestSchemaV23:
 
         # ``pending_approvals.connector_id`` exists; old column does not.
         # FK points at ``connectors(id)`` (not ``connector_accounts(id)``).
-        async with conn.execute(
-            "PRAGMA table_info(pending_approvals)"
-        ) as cur:
+        async with conn.execute("PRAGMA table_info(pending_approvals)") as cur:
             pa_cols = {r["name"] for r in await cur.fetchall()}
         assert "connector_id" in pa_cols, pa_cols
         assert "connector_account_id" not in pa_cols, pa_cols
-        async with conn.execute(
-            "PRAGMA foreign_key_list(pending_approvals)"
-        ) as cur:
+        async with conn.execute("PRAGMA foreign_key_list(pending_approvals)") as cur:
             fks = [dict(r) for r in await cur.fetchall()]
         assert len(fks) == 1, fks
         fk = fks[0]
@@ -3164,23 +3038,18 @@ class TestSchemaV23:
         ) as cur:
             indexes = {r["name"]: r["sql"] for r in await cur.fetchall()}
         assert "idx_chat_sessions_external_key" in indexes, indexes
-        assert (
-            "idx_pending_approvals_connector_peer_status" in indexes
-        ), indexes
+        assert "idx_pending_approvals_connector_peer_status" in indexes, indexes
         # The chat_sessions index references the renamed ``connector_id``.
-        assert "connector_id" in indexes["idx_chat_sessions_external_key"], (
-            indexes["idx_chat_sessions_external_key"]
-        )
+        assert "connector_id" in indexes["idx_chat_sessions_external_key"], indexes[
+            "idx_chat_sessions_external_key"
+        ]
         # The pending_approvals index references the renamed column.
-        assert (
-            "connector_id"
-            in indexes["idx_pending_approvals_connector_peer_status"]
-        ), indexes["idx_pending_approvals_connector_peer_status"]
+        assert "connector_id" in indexes["idx_pending_approvals_connector_peer_status"], indexes[
+            "idx_pending_approvals_connector_peer_status"
+        ]
 
         # Head pointer landed at CURRENT_VERSION.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 23 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -3200,18 +3069,13 @@ class TestSchemaV23:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(23) == 1, (
-            f"v23 row should appear exactly once: {versions}"
-        )
+        assert versions.count(23) == 1, f"v23 row should appear exactly once: {versions}"
 
         # Renamed surfaces still present after the second call.
         async with conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name = 'connectors'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = 'connectors'"
         ) as cur:
             assert await cur.fetchone() is not None
         async with conn.execute("PRAGMA table_info(chat_sessions)") as cur:
@@ -3223,9 +3087,7 @@ class TestSchemaV23:
 
         await conn.close()
 
-    async def test_v23_legacy_v22_rows_migrate_with_content_preserved(
-        self, tmp_path
-    ) -> None:
+    async def test_v23_legacy_v22_rows_migrate_with_content_preserved(self, tmp_path) -> None:
         """Rows seeded against a hand-built v22-shape DB
         (``connector_accounts`` + ``chat_sessions.connector_account_id``
         + ``pending_approvals.connector_account_id`` +
@@ -3252,9 +3114,7 @@ class TestSchemaV23:
             ")"
         )
         for v in range(1, 23):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
 
         # v22-shape connector_accounts (post-v19 CHECK on type).
         await conn.execute(
@@ -3412,9 +3272,7 @@ class TestSchemaV23:
         assert acct["session_continuation_seconds"] == 3600
 
         # Agent row survived; connector_ids list preserved verbatim.
-        async with conn.execute(
-            "SELECT connector_ids FROM agents WHERE name = 'agent-1'"
-        ) as cur:
+        async with conn.execute("SELECT connector_ids FROM agents WHERE name = 'agent-1'") as cur:
             agent = await cur.fetchone()
         assert agent is not None
         assert json.loads(agent["connector_ids"]) == ["acct-1"]
@@ -3447,9 +3305,7 @@ class TestSchemaV23:
         assert appr["status"] == "pending"
 
         # Head pointer landed at CURRENT_VERSION.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 23 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -3458,9 +3314,7 @@ class TestSchemaV23:
         # the parent removes the dependent approval.
         await conn.execute("DELETE FROM connectors WHERE id = ?", ("acct-1",))
         await conn.commit()
-        async with conn.execute(
-            "SELECT COUNT(*) FROM pending_approvals"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM pending_approvals") as cur:
             (count,) = await cur.fetchone()
         assert count == 0, count
 
@@ -3526,82 +3380,83 @@ class TestSchemaV24:
             "AND name LIKE 'idx_pending_approvals_%_peer_status'"
         ) as cur:
             indexes = {r["name"] for r in await cur.fetchall()}
-        assert (
-            "idx_pending_approvals_connector_peer_status" in indexes
-        ), indexes
-        assert (
-            "idx_pending_approvals_account_peer_status" not in indexes
-        ), indexes
+        assert "idx_pending_approvals_connector_peer_status" in indexes, indexes
+        assert "idx_pending_approvals_account_peer_status" not in indexes, indexes
 
         # Validator accepts post-v28 bare ``{id}`` peers.
         # M11 F12 L5: post-v25 the validator REQUIRES non-null
         # ``guild_id`` on channel/role entries. M11 F17 L8 (Leg D):
         # post-v28 peers are bare ``{id}``; ``dm_allowed`` is rejected.
         from the_one.db.models import Connector
-        accepted = Connector.model_validate({
-            "id": "acct-x",
-            "name": "x",
-            "type": "stub",
-            "config": {
-                "allowlist": {
-                    "peers": [{"id": "U1"}],
-                    "channels": [
-                        {"guild_id": "G1", "channel_id": "C1"}
-                    ],
-                    "roles": [
-                        {"guild_id": "G1", "role_id": "R1"}
-                    ],
-                    "dm_admission": "admin-approved",
-                }
-            },
-        })
+
+        accepted = Connector.model_validate(
+            {
+                "id": "acct-x",
+                "name": "x",
+                "type": "stub",
+                "config": {
+                    "allowlist": {
+                        "peers": [{"id": "U1"}],
+                        "channels": [{"guild_id": "G1", "channel_id": "C1"}],
+                        "roles": [{"guild_id": "G1", "role_id": "R1"}],
+                        "dm_admission": "admin-approved",
+                    }
+                },
+            }
+        )
         assert accepted.config["allowlist"]["peers"] == [{"id": "U1"}]
 
         # Validator REJECTS ``{id, dm_allowed}`` shape (post-v28).
         with pytest.raises(Exception):
-            Connector.model_validate({
-                "id": "acct-dm",
-                "name": "dm",
-                "type": "stub",
-                "config": {"allowlist": {
-                    "peers": [{"id": "U1", "dm_allowed": True}],
-                    "channels": [],
-                }},
-            })
+            Connector.model_validate(
+                {
+                    "id": "acct-dm",
+                    "name": "dm",
+                    "type": "stub",
+                    "config": {
+                        "allowlist": {
+                            "peers": [{"id": "U1", "dm_allowed": True}],
+                            "channels": [],
+                        }
+                    },
+                }
+            )
 
         # Validator REJECTS the pre-v24 flat shape.
         with pytest.raises(Exception):  # pydantic ValidationError
-            Connector.model_validate({
-                "id": "acct-y",
-                "name": "y",
-                "type": "stub",
-                "config": {
-                    "allowlist": {
-                        "peers": ["U1"],
-                        "channels": [],
-                    }
-                },
-            })
+            Connector.model_validate(
+                {
+                    "id": "acct-y",
+                    "name": "y",
+                    "type": "stub",
+                    "config": {
+                        "allowlist": {
+                            "peers": ["U1"],
+                            "channels": [],
+                        }
+                    },
+                }
+            )
 
         # Validator REJECTS the pre-rename Literal value.
         with pytest.raises(Exception):
-            Connector.model_validate({
-                "id": "acct-z",
-                "name": "z",
-                "type": "stub",
-                "config": {
-                    "allowlist": {
-                        "peers": [],
-                        "channels": [],
-                        "dm_admission": "allowlisted-peers-only",
-                    }
-                },
-            })
+            Connector.model_validate(
+                {
+                    "id": "acct-z",
+                    "name": "z",
+                    "type": "stub",
+                    "config": {
+                        "allowlist": {
+                            "peers": [],
+                            "channels": [],
+                            "dm_admission": "allowlisted-peers-only",
+                        }
+                    },
+                }
+            )
 
         # Head pointer landed at CURRENT_VERSION.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 24 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -3620,13 +3475,9 @@ class TestSchemaV24:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(24) == 1, (
-            f"v24 row should appear exactly once: {versions}"
-        )
+        assert versions.count(24) == 1, f"v24 row should appear exactly once: {versions}"
 
         # Renamed index still present after the second call.
         async with conn.execute(
@@ -3637,9 +3488,7 @@ class TestSchemaV24:
 
         await conn.close()
 
-    async def test_v24_legacy_v23_row_migration_preserves_data(
-        self, tmp_path
-    ) -> None:
+    async def test_v24_legacy_v23_row_migration_preserves_data(self, tmp_path) -> None:
         """v23-shape connector rows with the flat 5-axis allowlist
         migrate to v24 with all data preserved per the collapse rules.
 
@@ -3668,9 +3517,7 @@ class TestSchemaV24:
             ")"
         )
         for v in range(1, 24):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
 
         # v23-shape connectors table (post-v23 rename + post-v19 CHECK).
         await conn.execute(
@@ -3731,67 +3578,71 @@ class TestSchemaV24:
 
         # Seed four connector rows covering the dm_admission sub-cases.
         await conn.execute(
-            "INSERT INTO connectors "
-            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-all",
                 "All",
                 "stub",
-                json.dumps({
-                    "allowlist": {
-                        "peers": ["U1", "U2"],
-                        "channels": ["C1"],
-                        "roles": ["R1"],
-                        "dm_admission": "all",
+                json.dumps(
+                    {
+                        "allowlist": {
+                            "peers": ["U1", "U2"],
+                            "channels": ["C1"],
+                            "roles": ["R1"],
+                            "dm_admission": "all",
+                        }
                     }
-                }),
+                ),
             ),
         )
         await conn.execute(
-            "INSERT INTO connectors "
-            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-none",
                 "None",
                 "stub",
-                json.dumps({
-                    "allowlist": {
-                        "peers": ["U3"],
-                        "channels": [],
-                        "dm_admission": "none",
+                json.dumps(
+                    {
+                        "allowlist": {
+                            "peers": ["U3"],
+                            "channels": [],
+                            "dm_admission": "none",
+                        }
                     }
-                }),
+                ),
             ),
         )
         await conn.execute(
-            "INSERT INTO connectors "
-            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-apo",
                 "APO",
                 "stub",
-                json.dumps({
-                    "allowlist": {
-                        "peers": ["U4"],
-                        "channels": ["C2"],
-                        "dm_admission": "allowlisted-peers-only",
+                json.dumps(
+                    {
+                        "allowlist": {
+                            "peers": ["U4"],
+                            "channels": ["C2"],
+                            "dm_admission": "allowlisted-peers-only",
+                        }
                     }
-                }),
+                ),
             ),
         )
         await conn.execute(
-            "INSERT INTO connectors "
-            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-absent",
                 "Absent",
                 "stub",
-                json.dumps({
-                    "allowlist": {
-                        "peers": ["U5"],
-                        "channels": [],
+                json.dumps(
+                    {
+                        "allowlist": {
+                            "peers": ["U5"],
+                            "channels": [],
+                        }
                     }
-                }),
+                ),
             ),
         )
         await conn.commit()
@@ -3815,9 +3666,7 @@ class TestSchemaV24:
         # peer entries (intentional: any approved peer = can-DM now).
 
         # Sub-case (a): dm_admission == "all".
-        async with conn.execute(
-            "SELECT config FROM connectors WHERE id = 'acct-all'"
-        ) as cur:
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'acct-all'") as cur:
             row = await cur.fetchone()
         config = json.loads(row["config"])
         allowlist = config["allowlist"]
@@ -3830,9 +3679,7 @@ class TestSchemaV24:
         assert allowlist["roles"] == [], allowlist
 
         # Sub-case (b): dm_admission == "none" → peers bare {id}.
-        async with conn.execute(
-            "SELECT config FROM connectors WHERE id = 'acct-none'"
-        ) as cur:
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'acct-none'") as cur:
             row = await cur.fetchone()
         config = json.loads(row["config"])
         allowlist = config["allowlist"]
@@ -3841,9 +3688,7 @@ class TestSchemaV24:
 
         # Sub-case (c): "allowlisted-peers-only" → rewritten to
         # "admin-approved"; peers get bare {id} (v28 stripped dm_allowed).
-        async with conn.execute(
-            "SELECT config FROM connectors WHERE id = 'acct-apo'"
-        ) as cur:
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'acct-apo'") as cur:
             row = await cur.fetchone()
         config = json.loads(row["config"])
         allowlist = config["allowlist"]
@@ -3855,9 +3700,7 @@ class TestSchemaV24:
 
         # Sub-case (d): dm_admission absent → defaulted then rewritten
         # to "admin-approved"; peers bare {id} (v28 stripped dm_allowed).
-        async with conn.execute(
-            "SELECT config FROM connectors WHERE id = 'acct-absent'"
-        ) as cur:
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'acct-absent'") as cur:
             row = await cur.fetchone()
         config = json.loads(row["config"])
         allowlist = config["allowlist"]
@@ -3865,18 +3708,14 @@ class TestSchemaV24:
         assert allowlist["peers"] == [{"id": "U5"}], allowlist
 
         # Head pointer landed at CURRENT_VERSION.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 24 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()
 
-    async def test_v24_agents_connector_acls_rewrite(
-        self, tmp_path
-    ) -> None:
+    async def test_v24_agents_connector_acls_rewrite(self, tmp_path) -> None:
         """``agents.connector_acls`` JSON column row-rewrite works in
         lockstep with the connectors rewrite. Per-agent ``peers`` get
         ``dm_allowed=True`` by default (structural uniformity);
@@ -3893,9 +3732,7 @@ class TestSchemaV24:
             ")"
         )
         for v in range(1, 24):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -3954,27 +3791,27 @@ class TestSchemaV24:
             "INSERT INTO agents (name, connector_acls) VALUES (?, ?)",
             (
                 "agent-1",
-                json.dumps({
-                    "acct-1": {
-                        "peers": ["U1", "U2"],
-                        "channels": ["C1"],
-                        "roles": ["R1"],
-                        "admit_dms": False,
-                    },
-                    "acct-2": {
-                        "peers": None,
-                        "channels": [],
-                    },
-                }),
+                json.dumps(
+                    {
+                        "acct-1": {
+                            "peers": ["U1", "U2"],
+                            "channels": ["C1"],
+                            "roles": ["R1"],
+                            "admit_dms": False,
+                        },
+                        "acct-2": {
+                            "peers": None,
+                            "channels": [],
+                        },
+                    }
+                ),
             ),
         )
         await conn.commit()
 
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT connector_acls FROM agents WHERE name = 'agent-1'"
-        ) as cur:
+        async with conn.execute("SELECT connector_acls FROM agents WHERE name = 'agent-1'") as cur:
             row = await cur.fetchone()
         acls = json.loads(row["connector_acls"])
         # acct-1 — populated axes get structured shape; admit_dms stays
@@ -4020,12 +3857,8 @@ class TestSchemaV24:
             "AND name LIKE 'idx_pending_approvals_%_peer_status'"
         ) as cur:
             indexes = {r["name"]: r["sql"] for r in await cur.fetchall()}
-        assert (
-            "idx_pending_approvals_account_peer_status" not in indexes
-        ), indexes
-        assert (
-            "idx_pending_approvals_connector_peer_status" in indexes
-        ), indexes
+        assert "idx_pending_approvals_account_peer_status" not in indexes, indexes
+        assert "idx_pending_approvals_connector_peer_status" in indexes, indexes
         sql = indexes["idx_pending_approvals_connector_peer_status"]
         # The new index references connector_id, peer_id, status.
         assert "connector_id" in sql, sql
@@ -4066,9 +3899,7 @@ class TestSchemaV25:
       segment marker needed — unlike v21's CREATE INDEX pattern).
     """
 
-    async def test_v25_deletes_orphan_null_guild_id_channels_and_roles(
-        self, tmp_path
-    ) -> None:
+    async def test_v25_deletes_orphan_null_guild_id_channels_and_roles(self, tmp_path) -> None:
         """Seed a v24-shape DB with mixed null + structured channel/role
         entries; verify v25 deletes the null-``guild_id`` orphans and
         preserves everything else (including the new ``"*"`` wildcard
@@ -4088,9 +3919,7 @@ class TestSchemaV25:
             ")"
         )
         for v in range(1, 25):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -4128,46 +3957,43 @@ class TestSchemaV25:
         # Note: the peers entry uses ``{id, dm_allowed}`` shape (pre-v28
         # storage) to test that v28 strips it in the same pipeline.
         await conn.execute(
-            "INSERT INTO connectors "
-            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-mixed",
                 "Mixed",
                 "stub",
-                json.dumps({
-                    "allowlist": {
-                        "peers": [
-                            {"id": "U1", "dm_allowed": True}
-                        ],
-                        "channels": [
-                            # Orphan — should be deleted.
-                            {"guild_id": None, "channel_id": "C-legacy"},
-                            # Concrete — preserved.
-                            {"guild_id": "G1", "channel_id": "C-keep"},
-                            # Wildcard sentinel — preserved.
-                            {"guild_id": "G2", "channel_id": "*"},
-                        ],
-                        "roles": [
-                            # Orphan — deleted.
-                            {"guild_id": None, "role_id": "R-legacy"},
-                            # Concrete — preserved.
-                            {"guild_id": "G1", "role_id": "R-keep"},
-                            # Wildcard sentinel — preserved.
-                            {"guild_id": "G2", "role_id": "*"},
-                        ],
-                        "guilds": ["G1", "G2"],
-                        "dm_admission": "admin-approved",
+                json.dumps(
+                    {
+                        "allowlist": {
+                            "peers": [{"id": "U1", "dm_allowed": True}],
+                            "channels": [
+                                # Orphan — should be deleted.
+                                {"guild_id": None, "channel_id": "C-legacy"},
+                                # Concrete — preserved.
+                                {"guild_id": "G1", "channel_id": "C-keep"},
+                                # Wildcard sentinel — preserved.
+                                {"guild_id": "G2", "channel_id": "*"},
+                            ],
+                            "roles": [
+                                # Orphan — deleted.
+                                {"guild_id": None, "role_id": "R-legacy"},
+                                # Concrete — preserved.
+                                {"guild_id": "G1", "role_id": "R-keep"},
+                                # Wildcard sentinel — preserved.
+                                {"guild_id": "G2", "role_id": "*"},
+                            ],
+                            "guilds": ["G1", "G2"],
+                            "dm_admission": "admin-approved",
+                        }
                     }
-                }),
+                ),
             ),
         )
         await conn.commit()
 
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT config FROM connectors WHERE id = 'acct-mixed'"
-        ) as cur:
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'acct-mixed'") as cur:
             row = await cur.fetchone()
         cfg = json.loads(row["config"])
         allowlist = cfg["allowlist"]
@@ -4191,9 +4017,7 @@ class TestSchemaV25:
         assert allowlist["dm_admission"] == "admin-approved"
 
         # Head pointer landed at CURRENT_VERSION.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 25 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -4216,19 +4040,13 @@ class TestSchemaV25:
         await ensure_schema(conn)
         await ensure_schema(conn)  # second call — must be a no-op
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(25) == 1, (
-            f"v25 row should appear exactly once: {versions}"
-        )
+        assert versions.count(25) == 1, f"v25 row should appear exactly once: {versions}"
 
         await conn.close()
 
-    async def test_v25_agents_connector_acls_orphan_deletion(
-        self, tmp_path
-    ) -> None:
+    async def test_v25_agents_connector_acls_orphan_deletion(self, tmp_path) -> None:
         """``agents.connector_acls`` JSON column row-rewrite deletes the
         same orphan-null-``guild_id`` entries across each per-account
         payload, in lockstep with the connectors rewrite. Wildcard and
@@ -4246,9 +4064,7 @@ class TestSchemaV25:
             ")"
         )
         for v in range(1, 25):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -4305,40 +4121,40 @@ class TestSchemaV25:
             "INSERT INTO agents (name, connector_acls) VALUES (?, ?)",
             (
                 "agent-1",
-                json.dumps({
-                    "acct-A": {
-                        "peers": [{"id": "U1", "dm_allowed": True}],
-                        "channels": [
-                            # Orphan — deleted.
-                            {"guild_id": None, "channel_id": "C-old"},
-                            # Concrete — preserved.
-                            {"guild_id": "G1", "channel_id": "C-keep"},
-                        ],
-                        "roles": [
-                            # Wildcard — preserved.
-                            {"guild_id": "G1", "role_id": "*"},
-                            # Orphan — deleted.
-                            {"guild_id": None, "role_id": "R-old"},
-                        ],
-                    },
-                    "acct-B": {
-                        # Already clean — no UPDATE fires for this
-                        # payload (idempotency at the per-payload level).
-                        "peers": None,
-                        "channels": [
-                            {"guild_id": "G2", "channel_id": "*"},
-                        ],
-                    },
-                }),
+                json.dumps(
+                    {
+                        "acct-A": {
+                            "peers": [{"id": "U1", "dm_allowed": True}],
+                            "channels": [
+                                # Orphan — deleted.
+                                {"guild_id": None, "channel_id": "C-old"},
+                                # Concrete — preserved.
+                                {"guild_id": "G1", "channel_id": "C-keep"},
+                            ],
+                            "roles": [
+                                # Wildcard — preserved.
+                                {"guild_id": "G1", "role_id": "*"},
+                                # Orphan — deleted.
+                                {"guild_id": None, "role_id": "R-old"},
+                            ],
+                        },
+                        "acct-B": {
+                            # Already clean — no UPDATE fires for this
+                            # payload (idempotency at the per-payload level).
+                            "peers": None,
+                            "channels": [
+                                {"guild_id": "G2", "channel_id": "*"},
+                            ],
+                        },
+                    }
+                ),
             ),
         )
         await conn.commit()
 
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT connector_acls FROM agents WHERE name = 'agent-1'"
-        ) as cur:
+        async with conn.execute("SELECT connector_acls FROM agents WHERE name = 'agent-1'") as cur:
             row = await cur.fetchone()
         acls = json.loads(row["connector_acls"])
 
@@ -4354,9 +4170,7 @@ class TestSchemaV25:
         # ``ensure_schema`` pipeline (F12 footgun retirement). The
         # seed above carries the field (legitimate post-v25 stored
         # data); post-pipeline assertion reflects the v26 strip.
-        assert acls["acct-A"]["peers"] == [
-            {"id": "U1"}
-        ]
+        assert acls["acct-A"]["peers"] == [{"id": "U1"}]
 
         # acct-B: untouched (already clean).
         assert acls["acct-B"]["peers"] is None
@@ -4366,9 +4180,7 @@ class TestSchemaV25:
 
         await conn.close()
 
-    async def test_v25_validator_rejects_null_guild_id_channel(
-        self, tmp_path
-    ) -> None:
+    async def test_v25_validator_rejects_null_guild_id_channel(self, tmp_path) -> None:
         """Post-v25 the Pydantic validator on ``Connector.config``
         REJECTS channel/role entries with null ``guild_id`` (the L3
         ``str | None`` annotation is tightened to ``str``). This
@@ -4382,61 +4194,55 @@ class TestSchemaV25:
 
         # Null guild_id on a channel entry → rejected.
         with pytest.raises(Exception):  # pydantic ValidationError
-            Connector.model_validate({
-                "id": "acct-bad-channel",
-                "name": "bad",
-                "type": "stub",
-                "config": {
-                    "allowlist": {
-                        "peers": [],
-                        "channels": [
-                            {"guild_id": None, "channel_id": "C1"}
-                        ],
-                    }
-                },
-            })
+            Connector.model_validate(
+                {
+                    "id": "acct-bad-channel",
+                    "name": "bad",
+                    "type": "stub",
+                    "config": {
+                        "allowlist": {
+                            "peers": [],
+                            "channels": [{"guild_id": None, "channel_id": "C1"}],
+                        }
+                    },
+                }
+            )
 
         # Null guild_id on a role entry → rejected.
         with pytest.raises(Exception):
-            Connector.model_validate({
-                "id": "acct-bad-role",
-                "name": "bad",
+            Connector.model_validate(
+                {
+                    "id": "acct-bad-role",
+                    "name": "bad",
+                    "type": "stub",
+                    "config": {
+                        "allowlist": {
+                            "peers": [],
+                            "channels": [],
+                            "roles": [{"guild_id": None, "role_id": "R1"}],
+                        }
+                    },
+                }
+            )
+
+        # Wildcard ``channel_id="*"`` with concrete guild_id is
+        # accepted (the L5 "any channel of this guild" semantic).
+        accepted = Connector.model_validate(
+            {
+                "id": "acct-wildcard",
+                "name": "ok",
                 "type": "stub",
                 "config": {
                     "allowlist": {
                         "peers": [],
-                        "channels": [],
-                        "roles": [
-                            {"guild_id": None, "role_id": "R1"}
-                        ],
+                        "channels": [{"guild_id": "G1", "channel_id": "*"}],
+                        "roles": [{"guild_id": "G1", "role_id": "*"}],
                     }
                 },
-            })
-
-        # Wildcard ``channel_id="*"`` with concrete guild_id is
-        # accepted (the L5 "any channel of this guild" semantic).
-        accepted = Connector.model_validate({
-            "id": "acct-wildcard",
-            "name": "ok",
-            "type": "stub",
-            "config": {
-                "allowlist": {
-                    "peers": [],
-                    "channels": [
-                        {"guild_id": "G1", "channel_id": "*"}
-                    ],
-                    "roles": [
-                        {"guild_id": "G1", "role_id": "*"}
-                    ],
-                }
-            },
-        })
-        assert accepted.config["allowlist"]["channels"] == [
-            {"guild_id": "G1", "channel_id": "*"}
-        ]
-        assert accepted.config["allowlist"]["roles"] == [
-            {"guild_id": "G1", "role_id": "*"}
-        ]
+            }
+        )
+        assert accepted.config["allowlist"]["channels"] == [{"guild_id": "G1", "channel_id": "*"}]
+        assert accepted.config["allowlist"]["roles"] == [{"guild_id": "G1", "role_id": "*"}]
 
 
 class TestSchemaV26:
@@ -4463,24 +4269,24 @@ class TestSchemaV26:
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert max(versions) == CURRENT_VERSION, versions
         assert CURRENT_VERSION >= 26, CURRENT_VERSION
 
         from the_one.db.models import Connector
 
-        connector = Connector.model_validate({
-            "id": "acct-v26",
-            "name": "v26",
-            "type": "stub",
-            "config": {
-                "inference_provider_config_id": "p1",
-                "inference_model": "m1",
-            },
-        })
+        connector = Connector.model_validate(
+            {
+                "id": "acct-v26",
+                "name": "v26",
+                "type": "stub",
+                "config": {
+                    "inference_provider_config_id": "p1",
+                    "inference_model": "m1",
+                },
+            }
+        )
         assert connector.config["inference_provider_config_id"] == "p1"
         assert connector.config["inference_model"] == "m1"
 
@@ -4519,19 +4325,13 @@ class TestSchemaV26:
         await ensure_schema(conn)
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(26) == 1, (
-            f"v26 row should appear exactly once: {versions}"
-        )
+        assert versions.count(26) == 1, f"v26 row should appear exactly once: {versions}"
 
         await conn.close()
 
-    async def test_v26_legacy_v25_row_migration_strips_dm_allowed(
-        self, tmp_path
-    ) -> None:
+    async def test_v26_legacy_v25_row_migration_strips_dm_allowed(self, tmp_path) -> None:
         """Hand-build a v25-shape DB with ``agents.connector_acls``
         payloads carrying per-agent peer entries with ``dm_allowed``
         keys (True and False); run ``ensure_schema``; assert each
@@ -4549,9 +4349,7 @@ class TestSchemaV26:
             ")"
         )
         for v in range(1, 26):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -4608,24 +4406,26 @@ class TestSchemaV26:
             "INSERT INTO agents (name, connector_acls) VALUES (?, ?)",
             (
                 "agent-strip",
-                json.dumps({
-                    "acct-A": {
-                        "peers": [
-                            {"id": "U1", "dm_allowed": True},
-                            {"id": "U2", "dm_allowed": False},
-                        ],
-                        "channels": [],
-                    },
-                    "acct-B": {
-                        # Already clean (no dm_allowed) — no UPDATE
-                        # should fire for this payload but the agent
-                        # row's other payload triggers the UPDATE
-                        # anyway; the assertion confirms acct-B is
-                        # untouched.
-                        "peers": [{"id": "U3"}],
-                        "channels": [],
-                    },
-                }),
+                json.dumps(
+                    {
+                        "acct-A": {
+                            "peers": [
+                                {"id": "U1", "dm_allowed": True},
+                                {"id": "U2", "dm_allowed": False},
+                            ],
+                            "channels": [],
+                        },
+                        "acct-B": {
+                            # Already clean (no dm_allowed) — no UPDATE
+                            # should fire for this payload but the agent
+                            # row's other payload triggers the UPDATE
+                            # anyway; the assertion confirms acct-B is
+                            # untouched.
+                            "peers": [{"id": "U3"}],
+                            "channels": [],
+                        },
+                    }
+                ),
             ),
         )
         await conn.commit()
@@ -4645,9 +4445,7 @@ class TestSchemaV26:
 
         await conn.close()
 
-    async def test_v26_connector_config_inference_fields_added(
-        self, tmp_path
-    ) -> None:
+    async def test_v26_connector_config_inference_fields_added(self, tmp_path) -> None:
         """Hand-build a v25-shape DB with ``connectors.config`` rows
         lacking the inference keys; run ``ensure_schema``; assert each
         connector's config has the two new keys with None defaults.
@@ -4664,9 +4462,7 @@ class TestSchemaV26:
             ")"
         )
         for v in range(1, 26):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -4681,13 +4477,11 @@ class TestSchemaV26:
             ")"
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             ("acct-1", "Account 1", "stub", json.dumps({})),
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-2",
                 "Account 2",
@@ -4699,24 +4493,13 @@ class TestSchemaV26:
 
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT id, config FROM connectors ORDER BY id"
-        ) as cur:
-            rows = [
-                (r["id"], json.loads(r["config"]))
-                for r in await cur.fetchall()
-            ]
+        async with conn.execute("SELECT id, config FROM connectors ORDER BY id") as cur:
+            rows = [(r["id"], json.loads(r["config"])) for r in await cur.fetchall()]
         for connector_id, config in rows:
-            assert "inference_provider_config_id" in config, (
-                connector_id, config
-            )
-            assert config["inference_provider_config_id"] is None, (
-                connector_id, config
-            )
+            assert "inference_provider_config_id" in config, (connector_id, config)
+            assert config["inference_provider_config_id"] is None, (connector_id, config)
             assert "inference_model" in config, (connector_id, config)
-            assert config["inference_model"] is None, (
-                connector_id, config
-            )
+            assert config["inference_model"] is None, (connector_id, config)
 
         # The non-inference key on acct-2 is preserved.
         cfg_2 = dict(rows)["acct-2"]
@@ -4724,9 +4507,7 @@ class TestSchemaV26:
 
         await conn.close()
 
-    async def test_v26_logs_affected_always_listen_connectors(
-        self, tmp_path, caplog
-    ) -> None:
+    async def test_v26_logs_affected_always_listen_connectors(self, tmp_path, caplog) -> None:
         """Seed a v25-shape DB with two connectors: one with
         ``always_listen=true``, one with ``always_listen=false``. Run
         ``ensure_schema`` under
@@ -4746,9 +4527,7 @@ class TestSchemaV26:
             ")"
         )
         for v in range(1, 26):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -4763,8 +4542,7 @@ class TestSchemaV26:
             ")"
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-loud",
                 "Loud Bot",
@@ -4773,8 +4551,7 @@ class TestSchemaV26:
             ),
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-quiet",
                 "Quiet Bot",
@@ -4788,13 +4565,11 @@ class TestSchemaV26:
             await ensure_schema(conn)
 
         v26_records = [
-            r for r in caplog.records
-            if r.name == "the_one.db.schema"
-            and "v26: connector" in r.getMessage()
+            r
+            for r in caplog.records
+            if r.name == "the_one.db.schema" and "v26: connector" in r.getMessage()
         ]
-        assert len(v26_records) == 1, [
-            (r.name, r.getMessage()) for r in v26_records
-        ]
+        assert len(v26_records) == 1, [(r.name, r.getMessage()) for r in v26_records]
         msg = v26_records[0].getMessage()
         assert "acct-loud" in msg, msg
         assert "Loud Bot" in msg, msg
@@ -4823,27 +4598,27 @@ class TestSchemaV26:
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert max(versions) == CURRENT_VERSION, versions
         assert CURRENT_VERSION >= 27, CURRENT_VERSION
 
         from the_one.db.models import Connector
 
-        connector = Connector.model_validate({
-            "id": "acct-v27",
-            "name": "v27",
-            "type": "stub",
-            "config": {
-                "allowlist": {
-                    "guilds": ["G1", "G2"],
-                    "peers": [],
-                    "channels": [],
-                }
-            },
-        })
+        connector = Connector.model_validate(
+            {
+                "id": "acct-v27",
+                "name": "v27",
+                "type": "stub",
+                "config": {
+                    "allowlist": {
+                        "guilds": ["G1", "G2"],
+                        "peers": [],
+                        "channels": [],
+                    }
+                },
+            }
+        )
         assert connector.config["allowlist"]["guilds"] == ["G1", "G2"]
         assert "guilds" not in connector.config
 
@@ -4862,19 +4637,13 @@ class TestSchemaV26:
         await ensure_schema(conn)
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(27) == 1, (
-            f"v27 row should appear exactly once: {versions}"
-        )
+        assert versions.count(27) == 1, f"v27 row should appear exactly once: {versions}"
 
         await conn.close()
 
-    async def test_v27_folds_top_level_guilds_into_allowlist(
-        self, tmp_path
-    ) -> None:
+    async def test_v27_folds_top_level_guilds_into_allowlist(self, tmp_path) -> None:
         """Hand-build a v26-shape DB with connector rows carrying a
         top-level ``config.guilds``; run ``ensure_schema``; assert each
         row's top-level ``guilds`` is gone and the ids landed in
@@ -4907,9 +4676,7 @@ class TestSchemaV26:
             ")"
         )
         for v in range(1, 27):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -4924,25 +4691,25 @@ class TestSchemaV26:
             ")"
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-union",
                 "Union Bot",
                 "stub",
-                json.dumps({
-                    "guilds": ["111", "222"],
-                    "allowlist": {
-                        "guilds": ["222", "333"],
-                        "peers": [],
-                        "channels": [],
-                    },
-                }),
+                json.dumps(
+                    {
+                        "guilds": ["111", "222"],
+                        "allowlist": {
+                            "guilds": ["222", "333"],
+                            "peers": [],
+                            "channels": [],
+                        },
+                    }
+                ),
             ),
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-only-top",
                 "Only Top Bot",
@@ -4951,8 +4718,7 @@ class TestSchemaV26:
             ),
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-empty-top",
                 "Empty Top Bot",
@@ -4961,8 +4727,7 @@ class TestSchemaV26:
             ),
         )
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config) VALUES (?, ?, ?, ?)",
             (
                 "acct-none",
                 "No Guilds Bot",
@@ -4974,39 +4739,26 @@ class TestSchemaV26:
 
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT id, config FROM connectors ORDER BY id"
-        ) as cur:
-            rows = {
-                r["id"]: json.loads(r["config"])
-                for r in await cur.fetchall()
-            }
+        async with conn.execute("SELECT id, config FROM connectors ORDER BY id") as cur:
+            rows = {r["id"]: json.loads(r["config"]) for r in await cur.fetchall()}
 
         # Union: existing-first order preserved, folded ids appended,
         # duplicate "222" not repeated.
         assert "guilds" not in rows["acct-union"], rows["acct-union"]
-        assert rows["acct-union"]["allowlist"]["guilds"] == [
-            "222", "333", "111"
-        ], rows["acct-union"]
+        assert rows["acct-union"]["allowlist"]["guilds"] == ["222", "333", "111"], rows[
+            "acct-union"
+        ]
 
         # Only top-level: allowlist created with the folded ids and the
         # validator-required (empty) peers/channels axes.
         assert "guilds" not in rows["acct-only-top"], rows["acct-only-top"]
-        assert rows["acct-only-top"]["allowlist"]["guilds"] == [
-            "444", "555"
-        ], rows["acct-only-top"]
-        assert rows["acct-only-top"]["allowlist"]["peers"] == [], (
-            rows["acct-only-top"]
-        )
-        assert rows["acct-only-top"]["allowlist"]["channels"] == [], (
-            rows["acct-only-top"]
-        )
+        assert rows["acct-only-top"]["allowlist"]["guilds"] == ["444", "555"], rows["acct-only-top"]
+        assert rows["acct-only-top"]["allowlist"]["peers"] == [], rows["acct-only-top"]
+        assert rows["acct-only-top"]["allowlist"]["channels"] == [], rows["acct-only-top"]
 
         # Empty top-level: key dropped, no allowlist gratuitously created.
         assert "guilds" not in rows["acct-empty-top"], rows["acct-empty-top"]
-        assert "allowlist" not in rows["acct-empty-top"], (
-            rows["acct-empty-top"]
-        )
+        assert "allowlist" not in rows["acct-empty-top"], rows["acct-empty-top"]
         assert rows["acct-empty-top"]["intent"] == "guild_messages"
 
         # No guilds at all: row untouched.
@@ -5019,15 +4771,15 @@ class TestSchemaV26:
         from the_one.db.models import Connector
 
         for connector_id, config in rows.items():
-            validated = Connector.model_validate({
-                "id": connector_id,
-                "name": connector_id,
-                "type": "stub",
-                "config": config,
-            })
-            assert "guilds" not in validated.config, (
-                connector_id, validated.config
+            validated = Connector.model_validate(
+                {
+                    "id": connector_id,
+                    "name": connector_id,
+                    "type": "stub",
+                    "config": config,
+                }
             )
+            assert "guilds" not in validated.config, (connector_id, validated.config)
 
         await conn.close()
 
@@ -5056,9 +4808,7 @@ class TestSchemaV28:
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert max(versions) == CURRENT_VERSION, versions
         # v28 must have run (CURRENT_VERSION advances past 28 in later legs).
@@ -5068,33 +4818,37 @@ class TestSchemaV28:
         from the_one.db.models import Connector
 
         # Bare {id} peers: accepted.
-        ok = Connector.model_validate({
-            "id": "acct-v28",
-            "name": "v28",
-            "type": "stub",
-            "config": {
-                "allowlist": {
-                    "peers": [{"id": "P1"}, {"id": "P2"}],
-                    "channels": [],
-                    "dm_admission": "admin-approved",
-                }
-            },
-        })
+        ok = Connector.model_validate(
+            {
+                "id": "acct-v28",
+                "name": "v28",
+                "type": "stub",
+                "config": {
+                    "allowlist": {
+                        "peers": [{"id": "P1"}, {"id": "P2"}],
+                        "channels": [],
+                        "dm_admission": "admin-approved",
+                    }
+                },
+            }
+        )
         assert ok.config["allowlist"]["peers"] == [{"id": "P1"}, {"id": "P2"}]
 
         # {id, dm_allowed} peers: rejected by v28 validator.
         with pytest.raises(Exception):  # pydantic ValidationError
-            Connector.model_validate({
-                "id": "acct-bad",
-                "name": "bad",
-                "type": "stub",
-                "config": {
-                    "allowlist": {
-                        "peers": [{"id": "P1", "dm_allowed": True}],
-                        "channels": [],
-                    }
-                },
-            })
+            Connector.model_validate(
+                {
+                    "id": "acct-bad",
+                    "name": "bad",
+                    "type": "stub",
+                    "config": {
+                        "allowlist": {
+                            "peers": [{"id": "P1", "dm_allowed": True}],
+                            "channels": [],
+                        }
+                    },
+                }
+            )
 
         await conn.close()
 
@@ -5109,19 +4863,13 @@ class TestSchemaV28:
         await ensure_schema(conn)
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(28) == 1, (
-            f"v28 row should appear exactly once: {versions}"
-        )
+        assert versions.count(28) == 1, f"v28 row should appear exactly once: {versions}"
 
         await conn.close()
 
-    async def test_v28_strips_dm_allowed_from_legacy_rows(
-        self, tmp_path
-    ) -> None:
+    async def test_v28_strips_dm_allowed_from_legacy_rows(self, tmp_path) -> None:
         """Hand-build a v27-shape DB with ``connectors.config`` rows
         carrying ``{id, dm_allowed}`` peers; run ``ensure_schema``;
         assert each peer entry post-pipeline is a bare ``{id}`` dict.
@@ -5142,9 +4890,7 @@ class TestSchemaV28:
             ")"
         )
         for v in range(1, 28):
-            await conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (v,)
-            )
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
         await conn.execute(
             "CREATE TABLE connectors ("
             "    id TEXT PRIMARY KEY,"
@@ -5166,16 +4912,18 @@ class TestSchemaV28:
                 "acct-strip",
                 "Strip",
                 "stub",
-                json.dumps({
-                    "allowlist": {
-                        "peers": [
-                            {"id": "U1", "dm_allowed": True},
-                            {"id": "U2", "dm_allowed": False},
-                        ],
-                        "channels": [],
-                        "dm_admission": "admin-approved",
+                json.dumps(
+                    {
+                        "allowlist": {
+                            "peers": [
+                                {"id": "U1", "dm_allowed": True},
+                                {"id": "U2", "dm_allowed": False},
+                            ],
+                            "channels": [],
+                            "dm_admission": "admin-approved",
+                        }
                     }
-                }),
+                ),
             ),
         )
 
@@ -5186,13 +4934,15 @@ class TestSchemaV28:
                 "acct-already-bare",
                 "AlreadyBare",
                 "stub",
-                json.dumps({
-                    "allowlist": {
-                        "peers": [{"id": "U3"}],
-                        "channels": [],
-                        "dm_admission": "all",
+                json.dumps(
+                    {
+                        "allowlist": {
+                            "peers": [{"id": "U3"}],
+                            "channels": [],
+                            "dm_admission": "all",
+                        }
                     }
-                }),
+                ),
             ),
         )
 
@@ -5211,9 +4961,7 @@ class TestSchemaV28:
         await ensure_schema(conn)
 
         # acct-strip: dm_allowed stripped; peers bare {id}.
-        async with conn.execute(
-            "SELECT config FROM connectors WHERE id = 'acct-strip'"
-        ) as cur:
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'acct-strip'") as cur:
             row = await cur.fetchone()
         cfg = json.loads(row["config"])
         assert cfg["allowlist"]["peers"] == [
@@ -5241,9 +4989,7 @@ class TestSchemaV28:
         assert cfg["intent"] == "dm_only"
 
         # Head pointer at 28.
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 28 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -5302,9 +5048,7 @@ class TestSchemaV29:
 
         await conn.close()
 
-    async def test_v29_migration_on_v28_fixture_adds_columns_preserves_rows(
-        self, tmp_path
-    ) -> None:
+    async def test_v29_migration_on_v28_fixture_adds_columns_preserves_rows(self, tmp_path) -> None:
         """Hand-build a v28-shaped DB with a pending_approvals row (no
         replay-context columns yet), rewind to v28, run ensure_schema, and
         verify the four columns exist and the existing row reads back with
@@ -5320,8 +5064,7 @@ class TestSchemaV29:
         # Insert a pre-v29 pending_approvals row (omitting the new columns).
         # Use a bare connector row first (pending_approvals has an FK cascade).
         await conn.execute(
-            "INSERT INTO connectors (id, name, type, config, secrets) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO connectors (id, name, type, config, secrets) VALUES (?, ?, ?, ?, ?)",
             ("c-v28", "v28connector", "stub", "{}", "{}"),
         )
         await conn.execute(
@@ -5373,12 +5116,8 @@ class TestSchemaV29:
         await ensure_schema(conn)
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
-        assert versions.count(29) == 1, (
-            f"v29 row should appear exactly once: {versions}"
-        )
+        assert versions.count(29) == 1, f"v29 row should appear exactly once: {versions}"
 
         await conn.close()

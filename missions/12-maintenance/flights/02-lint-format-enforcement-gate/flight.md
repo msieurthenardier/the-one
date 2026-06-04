@@ -1,6 +1,6 @@
 # Flight: Lint/Format Enforcement Gate
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Maintenance (Post-M11)](../../mission.md)
 
 ## Contributing to Criteria
@@ -46,9 +46,9 @@ N/A.
 Leg 1 brings the tree to zero (run `ruff check --fix` for the 43 auto-fixable, manually resolve the ~35 residuals — E501/N802/N818/N806/E402 — then `ruff format`), and removes the dead `noqa: BLE001` vestiges. Leg 2 installs the enforcement: a `.pre-commit-config.yaml` with the ruff hooks and a CI workflow that runs `ruff check` + `ruff format --check` and fails non-zero on any diff/violation. The gate is then proven by confirming a deliberate violation would fail (locally, without committing it).
 
 ### Checkpoints
-- [ ] Tree at 0 lint violations + 0 would-reformat
-- [ ] Pre-commit hook rejects a violating staged change
-- [ ] CI workflow fails on a violation and passes on clean `main`
+- [x] Tree at 0 lint violations + 0 would-reformat
+- [x] Pre-commit hook rejects a violating staged change
+- [~] CI workflow fails on a violation and passes on clean `main` — workflow authored + locally validated; the on-`main` green run is demonstrable only after merge (push trigger fires post-merge)
 
 ### Adaptation Criteria
 
@@ -59,18 +59,18 @@ Leg 1 brings the tree to zero (run `ruff check --fix` for the 43 auto-fixable, m
 - Pre-commit framework vs a hand-rolled git hook; GitHub Actions vs another runner — whatever the operator confirms.
 
 ### Legs
-- [ ] `01-bring-tree-into-compliance` - Fix all 78 violations + reformat 97 files; remove dead `noqa: BLE001`
-- [ ] `02-install-enforcement-gate` - Add pre-commit hook + CI check that fail on ruff violations; prove the gate
+- [x] `01-bring-tree-into-compliance` - Fix all 78 violations + reformat 97 files; remove dead `noqa: BLE001`
+- [x] `02-install-enforcement-gate` - Add pre-commit hook + CI check that fail on ruff violations; prove the gate
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated (CONTRIBUTING / CLAUDE.md note on the gate if appropriate)
+- [x] Tests passing
+- [x] Documentation updated (CLAUDE.md `## Commands` gate-install note)
 
 ### Verification
 On `main`: `ruff check the_one/ tests/` → 0 errors; `ruff format --check the_one/ tests/` → all formatted. The CI workflow run is green. A locally-introduced violation makes both the pre-commit hook and `ruff format --check` exit non-zero.

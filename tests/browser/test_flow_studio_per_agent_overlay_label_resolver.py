@@ -23,7 +23,6 @@ from browser.seeders import (
 )
 from playwright.sync_api import Page, expect
 
-
 _DISCOVERABLE_PAYLOAD = {
     "entities": {
         "peers": [],
@@ -85,9 +84,7 @@ def _route_discoverable_network_error(page: Page, account_id: str) -> None:
     )
 
 
-def _attach_agent_to_account(
-    base_url: str, agent_name: str, account_id: str
-) -> None:
+def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) -> None:
     cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
@@ -95,19 +92,13 @@ def _attach_agent_to_account(
     if account_id not in ids:
         ids.append(account_id)
     cfg["connector_ids"] = ids
-    r = httpx.put(
-        f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0
-    )
+    r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
     assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
 
 
-def _open_agent_connectors_tab(
-    page: Page, base_url: str, agent_name: str
-) -> None:
+def _open_agent_connectors_tab(page: Page, base_url: str, agent_name: str) -> None:
     page.goto(f"{base_url}#studio/agents/{agent_name}")
-    expect(page.locator('[data-testid="tab-connectors"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="tab-connectors"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="tab-connectors"]').click()
 
 
@@ -122,9 +113,7 @@ def test_per_agent_overlay_checkbox_mode_resolves_discord_labels(
     checkbox-row name spans display friendly labels resolved from
     the L4 cache, NOT raw snowflake IDs."""
     provider_id = seed_mock_provider(app_clean, name="mock-label-resolver")
-    agent_name = seed_mock_agent(
-        app_clean, provider_id, name="label-resolver-agent"
-    )
+    agent_name = seed_mock_agent(app_clean, provider_id, name="label-resolver-agent")
     account_id = seed_connector(
         app_clean,
         type="discord",
@@ -146,14 +135,10 @@ def test_per_agent_overlay_checkbox_mode_resolves_discord_labels(
     tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
-    toggle = tile.locator(
-        f'[data-testid="connector-acl-axis-toggle-channels-{account_id}"]'
-    )
+    toggle = tile.locator(f'[data-testid="connector-acl-axis-toggle-channels-{account_id}"]')
     toggle.click()
 
-    checkbox_wrap = tile.locator(
-        f'[data-testid="connector-acl-channels-checkboxes-{account_id}"]'
-    )
+    checkbox_wrap = tile.locator(f'[data-testid="connector-acl-channels-checkboxes-{account_id}"]')
     expect(checkbox_wrap).to_be_visible(timeout=8000)
 
     # Name spans display friendly labels (NOT raw IDs).
@@ -164,17 +149,13 @@ def test_per_agent_overlay_checkbox_mode_resolves_discord_labels(
 
 
 @pytest.mark.browser
-def test_per_agent_overlay_checkbox_mode_stub_shows_raw_ids(
-    app_clean: str, page: Page
-) -> None:
+def test_per_agent_overlay_checkbox_mode_stub_shows_raw_ids(app_clean: str, page: Page) -> None:
     """Stub account (plugin lacks enumerate_discoverable_entities;
     L4 returns 503) → checkbox-row name spans display raw IDs
     (regression contract for stub-type / no-hook accounts).
     """
     provider_id = seed_mock_provider(app_clean, name="mock-stub-fallback")
-    agent_name = seed_mock_agent(
-        app_clean, provider_id, name="stub-fallback-agent"
-    )
+    agent_name = seed_mock_agent(app_clean, provider_id, name="stub-fallback-agent")
     account_id = seed_connector(
         app_clean,
         type="stub",
@@ -196,14 +177,10 @@ def test_per_agent_overlay_checkbox_mode_stub_shows_raw_ids(
     tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
-    toggle = tile.locator(
-        f'[data-testid="connector-acl-axis-toggle-channels-{account_id}"]'
-    )
+    toggle = tile.locator(f'[data-testid="connector-acl-axis-toggle-channels-{account_id}"]')
     toggle.click()
 
-    checkbox_wrap = tile.locator(
-        f'[data-testid="connector-acl-channels-checkboxes-{account_id}"]'
-    )
+    checkbox_wrap = tile.locator(f'[data-testid="connector-acl-channels-checkboxes-{account_id}"]')
     expect(checkbox_wrap).to_be_visible(timeout=8000)
 
     name_spans = checkbox_wrap.locator(".mcp-tool-toggle-name")
@@ -222,9 +199,7 @@ def test_per_agent_overlay_checkbox_mode_network_error_shows_raw_ids(
     _labelCache to an empty axis-bucketed dict). Regression
     contract for transport-error fallback."""
     provider_id = seed_mock_provider(app_clean, name="mock-net-error")
-    agent_name = seed_mock_agent(
-        app_clean, provider_id, name="net-error-agent"
-    )
+    agent_name = seed_mock_agent(app_clean, provider_id, name="net-error-agent")
     account_id = seed_connector(
         app_clean,
         type="discord",
@@ -246,14 +221,10 @@ def test_per_agent_overlay_checkbox_mode_network_error_shows_raw_ids(
     tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
-    toggle = tile.locator(
-        f'[data-testid="connector-acl-axis-toggle-channels-{account_id}"]'
-    )
+    toggle = tile.locator(f'[data-testid="connector-acl-axis-toggle-channels-{account_id}"]')
     toggle.click()
 
-    checkbox_wrap = tile.locator(
-        f'[data-testid="connector-acl-channels-checkboxes-{account_id}"]'
-    )
+    checkbox_wrap = tile.locator(f'[data-testid="connector-acl-channels-checkboxes-{account_id}"]')
     expect(checkbox_wrap).to_be_visible(timeout=8000)
 
     name_spans = checkbox_wrap.locator(".mcp-tool-toggle-name")

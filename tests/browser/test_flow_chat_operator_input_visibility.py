@@ -65,9 +65,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:
@@ -209,9 +207,7 @@ def _drive_one_turn(
     page.goto(f"{base_url}#chat/sessions/{session_id}")
 
     # Wait for chrome to mount with the seeded agent's badge.
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     # Type + submit the operator's turn.
     page.locator('[data-testid="chat-input"]').fill("hello")
@@ -279,9 +275,7 @@ def test_operator_input_yields_operator_visibility_on_connector_session(
     # the operator marker on replay.
     page.reload()
     page.goto(f"{base_url}#chat/sessions/{session_id}")
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     # At least one of each bubble must render on replay.
     expect(page.locator('[data-testid="message"].user').last).to_be_visible(timeout=8000)
@@ -295,9 +289,7 @@ def test_operator_input_yields_operator_visibility_on_connector_session(
     # messages stay local is unbroken; only the visual presentation
     # is different. The marker still applies to assistant bubbles.
     user_bubble = page.locator('[data-testid="message"].user').last
-    user_has_class = user_bubble.evaluate(
-        "el => el.classList.contains('msg-operator-only')"
-    )
+    user_has_class = user_bubble.evaluate("el => el.classList.contains('msg-operator-only')")
     assert user_has_class is False, (
         "user bubble unexpectedly carries .msg-operator-only — the "
         "F5 L8 HAT decision suppresses the marker on the operator's "
@@ -307,9 +299,7 @@ def test_operator_input_yields_operator_visibility_on_connector_session(
 
     assistant_bubble = page.locator('[data-testid="message"].assistant').last
     expect(assistant_bubble).to_have_class(re.compile(r"\bmsg-operator-only\b"))
-    expect(assistant_bubble.locator(".msg-operator-only-label")).to_have_text(
-        "[operator-only]"
-    )
+    expect(assistant_bubble.locator(".msg-operator-only-label")).to_have_text("[operator-only]")
 
 
 @pytest.mark.browser
@@ -358,9 +348,7 @@ def test_operator_input_yields_no_operator_visibility_on_web_session(
     # visibility tagging — symmetric flow makes the comparison clean).
     page.reload()
     page.goto(f"{base_url}#chat/sessions/{session_id}")
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     expect(page.locator('[data-testid="message"].user').last).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="message"].assistant').last).to_be_visible(timeout=8000)
@@ -371,9 +359,7 @@ def test_operator_input_yields_no_operator_visibility_on_web_session(
     # rather than substring matching, which would false-positive on
     # composite classNames.
     user_bubble = page.locator('[data-testid="message"].user').last
-    user_has_operator = user_bubble.evaluate(
-        "el => el.classList.contains('msg-operator-only')"
-    )
+    user_has_operator = user_bubble.evaluate("el => el.classList.contains('msg-operator-only')")
     assert user_has_operator is False, (
         "web-native user bubble unexpectedly carries .msg-operator-only — "
         "storage-edge shim is tagging non-connector sessions"

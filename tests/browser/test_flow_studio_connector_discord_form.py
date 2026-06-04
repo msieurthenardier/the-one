@@ -51,9 +51,9 @@ def _activate_access_and_routing_tab(page: Page) -> None:
     for minimum cross-file coupling.
     """
     page.locator('[data-testid="tab-access-and-routing"]').click()
-    expect(
-        page.locator('[data-testid="connector-runtime-config-section"]')
-    ).to_be_visible(timeout=4000)
+    expect(page.locator('[data-testid="connector-runtime-config-section"]')).to_be_visible(
+        timeout=4000
+    )
 
 
 def _seed_discord(base_url: str, **kwargs) -> str:
@@ -76,9 +76,7 @@ def _seed_discord(base_url: str, **kwargs) -> str:
 
 
 @pytest.mark.browser
-def test_editor_renders_no_intent_checkboxes(
-    app_clean: str, page: Page
-) -> None:
+def test_editor_renders_no_intent_checkboxes(app_clean: str, page: Page) -> None:
     """The Access-and-Routing tab renders no intent-toggle checkboxes.
 
     M11 F17 L6 (Leg B): the three ``discord-intent-*`` checkboxes and
@@ -90,14 +88,10 @@ def test_editor_renders_no_intent_checkboxes(
     account_id = _seed_discord(
         app_clean,
         name="No-Intents Bot",
-        config={
-            "intents": {"message_content": False, "members": True, "guilds": True}
-        },
+        config={"intents": {"message_content": False, "members": True, "guilds": True}},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     _activate_access_and_routing_tab(page)
 
@@ -114,9 +108,7 @@ def test_editor_renders_no_intent_checkboxes(
 
 
 @pytest.mark.browser
-def test_no_change_save_roundtrip_omits_intents_when_absent(
-    app_clean: str, page: Page
-) -> None:
+def test_no_change_save_roundtrip_omits_intents_when_absent(app_clean: str, page: Page) -> None:
     """An M10 F8 Discord account (config lacks intents/guilds/presence)
     saved with no operator edits must NOT introduce the typed keys —
     byte-identical config round-trip."""
@@ -127,9 +119,7 @@ def test_no_change_save_roundtrip_omits_intents_when_absent(
     assert "presence" not in before["config"]
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     # Mark dirty by touching name then reverting — to enable Save while
     # leaving the typed fields untouched. The save will still emit the
     # typed-section state (which should not introduce new keys).
@@ -139,18 +129,14 @@ def test_no_change_save_roundtrip_omits_intents_when_absent(
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
-    assert "intents" not in after["config"], (
-        f"expected no intents key; got: {after['config']!r}"
-    )
+    assert "intents" not in after["config"], f"expected no intents key; got: {after['config']!r}"
     assert "guilds" not in after["config"]
     assert "presence" not in after["config"]
     assert after["name"] == "Pristine Bot Renamed"
 
 
 @pytest.mark.browser
-def test_save_with_pre_existing_intents_key_does_not_crash(
-    app_clean: str, page: Page
-) -> None:
+def test_save_with_pre_existing_intents_key_does_not_crash(app_clean: str, page: Page) -> None:
     """A Discord account whose config carries a pre-existing ``intents``
     key can be saved without error.
 
@@ -163,14 +149,10 @@ def test_save_with_pre_existing_intents_key_does_not_crash(
     account_id = _seed_discord(
         app_clean,
         name="All-True Bot",
-        config={
-            "intents": {"message_content": True, "members": True, "guilds": True}
-        },
+        config={"intents": {"message_content": True, "members": True, "guilds": True}},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="connector-name-input"]').fill("All-True Renamed")
     page.locator('[data-testid="save-connector-btn"]').click()
@@ -203,9 +185,7 @@ def test_presence_name_and_type_save(app_clean: str, page: Page) -> None:
     {name, type} dict."""
     account_id = _seed_discord(app_clean, name="Presence Bot", config={})
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # F5 L3: presence editor moved to the Access-and-Routing tab.
     _activate_access_and_routing_tab(page)
@@ -246,9 +226,7 @@ def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> No
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # F5 L3: Additional Config kv-table lives on the Access-and-Routing
     # tab (inside the Runtime Config section).
@@ -262,9 +240,7 @@ def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> No
     )
 
     # The Additional Config row exists.
-    expect(
-        page.locator('[data-testid="discord-additional-config-row"]')
-    ).to_be_attached()
+    expect(page.locator('[data-testid="discord-additional-config-row"]')).to_be_attached()
 
     # Read the kv-table rows' key inputs. Reserved keys (intents,
     # presence) must NOT appear; the non-reserved extra_key MUST appear.
@@ -288,9 +264,7 @@ def test_bot_token_masked_no_change_roundtrip(app_clean: str, page: Page) -> Non
         secrets={"BOT_TOKEN": "secret_value_wxyz"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     token_input = page.locator('[data-testid="discord-bot-token"]')
     expect(token_input).to_have_value("***...wxyz")
 
@@ -314,9 +288,7 @@ def test_bot_token_value_edit_saves_new_plaintext(app_clean: str, page: Page) ->
         secrets={"BOT_TOKEN": "old_value_oldd"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="discord-bot-token"]').fill("rotated_token_neww")
     page.locator('[data-testid="save-connector-btn"]').click()
@@ -334,9 +306,7 @@ def test_stub_snapshot_byte_identical_to_baseline(app_clean: str, page: Page) ->
     contract under the new typedFields extension."""
     account_id = seed_connector(app_clean, name="Stub Bot", type="stub")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # Read the snapshot JSON via ``getFormSnapshot`` — the function is
     # IIFE-local but ``getFormSnapshot`` runs at editor-mount and the
@@ -381,9 +351,7 @@ def test_stub_snapshot_byte_identical_to_baseline(app_clean: str, page: Page) ->
 
 
 @pytest.mark.browser
-def test_advanced_section_is_last_element_in_runtime_config(
-    app_clean: str, page: Page
-) -> None:
+def test_advanced_section_is_last_element_in_runtime_config(app_clean: str, page: Page) -> None:
     """The Advanced section (``connector-advanced-section``) is the LAST
     child of the Runtime Config section body — below all typed fields.
 
@@ -393,16 +361,12 @@ def test_advanced_section_is_last_element_in_runtime_config(
     """
     account_id = _seed_discord(app_clean, name="Advanced-Order Bot", config={})
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     _activate_access_and_routing_tab(page)
 
     # The Advanced section exists.
-    expect(
-        page.locator('[data-testid="connector-advanced-section"]')
-    ).to_be_attached()
+    expect(page.locator('[data-testid="connector-advanced-section"]')).to_be_attached()
 
     # It must be the LAST child element inside the Runtime Config section
     # body (the substrate wraps _renderRuntimeConfigBody's output inside
@@ -442,25 +406,23 @@ def test_kv_table_key_round_trips_on_save(app_clean: str, page: Page) -> None:
     """
     account_id = _seed_discord(app_clean, name="KV-Round-Trip Bot", config={})
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # Open the Access-and-Routing tab, then open the Advanced disclosure.
     _activate_access_and_routing_tab(page)
     page.locator('[data-testid="connector-advanced-section"]').evaluate(
         "el => el.setAttribute('open', '')"
     )
-    expect(
-        page.locator('[data-testid="discord-additional-config-row"]')
-    ).to_be_visible(timeout=4000)
+    expect(page.locator('[data-testid="discord-additional-config-row"]')).to_be_visible(
+        timeout=4000
+    )
 
     # Click "+ Add row" to add a new kv-table row.
     page.locator('[data-testid="connector-config-add-row-btn"]').click()
 
     # Fill the new row with a custom key + value.
-    key_inputs = page.locator('.connector-config-row .config-key-input')
-    val_inputs = page.locator('.connector-config-row .config-value-input')
+    key_inputs = page.locator(".connector-config-row .config-key-input")
+    val_inputs = page.locator(".connector-config-row .config-value-input")
     # The new row is the last one.
     last_idx = key_inputs.count() - 1
     key_inputs.nth(last_idx).fill("ingest_bots")
@@ -481,9 +443,7 @@ def test_kv_table_key_round_trips_on_save(app_clean: str, page: Page) -> None:
 
     # Reload and verify the key is still there (reload round-trip).
     page.reload()
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     reloaded = _get_account(app_clean, account_id)
     assert reloaded["config"].get("ingest_bots") == "true", (
         f"ingest_bots lost after reload; config={reloaded['config']!r}"

@@ -115,13 +115,10 @@ def tag_post_step_visibility(
         is_successful_platform_send = (
             msg.role == Role.TOOL
             and msg.tool_result is not None
-            and tool_call_names.get(msg.tool_result.tool_call_id)
-            == "send_to_platform_channel"
+            and tool_call_names.get(msg.tool_result.tool_call_id) == "send_to_platform_channel"
             and msg.content.startswith(PLATFORM_SEND_OK_PREFIX)
         )
-        msg.visibility = (
-            None if is_successful_platform_send else OPERATOR_VISIBILITY
-        )
+        msg.visibility = None if is_successful_platform_send else OPERATOR_VISIBILITY
 
 
 def bind_peer_name(

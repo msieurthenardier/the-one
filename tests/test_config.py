@@ -215,12 +215,14 @@ class TestComposeSystemPrompt:
     def test_non_connector_no_persona_returns_base_only(self):
         """Byte-identical to pre-F4 get_system_prompt with empty persona."""
         from the_one.agent.config import compose_system_prompt
+
         out = compose_system_prompt(BASE_PROMPT, "")
         assert out == BASE_PROMPT
 
     def test_non_connector_with_persona_returns_base_separator_persona(self):
         """Byte-identical to pre-F4 get_system_prompt with persona."""
         from the_one.agent.config import compose_system_prompt
+
         out = compose_system_prompt(BASE_PROMPT, "Custom.")
         assert out == BASE_PROMPT + "\n\n---\n\nCustom."
 
@@ -246,6 +248,7 @@ class TestComposeSystemPrompt:
             _CONNECTOR_AUTO_RELAY_DIRECTIVE,
             compose_system_prompt,
         )
+
         out = compose_system_prompt(
             BASE_PROMPT,
             "",
@@ -266,6 +269,7 @@ class TestComposeSystemPrompt:
             _CONNECTOR_AUTO_RELAY_DIRECTIVE,
             compose_system_prompt,
         )
+
         out = compose_system_prompt(
             BASE_PROMPT,
             "",
@@ -280,6 +284,7 @@ class TestComposeSystemPrompt:
             _CONNECTOR_AUTO_RELAY_DIRECTIVE,
             compose_system_prompt,
         )
+
         out = compose_system_prompt(
             BASE_PROMPT,
             "Custom persona.",
@@ -287,9 +292,7 @@ class TestComposeSystemPrompt:
             send_tool_enabled=True,
         )
         # Shape: base + \n\n + directive + \n\n---\n\n + persona.
-        assert out.index(BASE_PROMPT) < out.index(
-            _CONNECTOR_AUTO_RELAY_DIRECTIVE
-        )
+        assert out.index(BASE_PROMPT) < out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
         assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index("---")
         assert out.endswith("Custom persona.")
 
@@ -300,6 +303,7 @@ class TestComposeSystemPrompt:
         available" on call) and post-L10 (tools registered → calls
         succeed)."""
         from the_one.agent.config import _CONNECTOR_AUTO_RELAY_DIRECTIVE
+
         assert "fetch_channel_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
         assert "fetch_thread_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
         assert "fetch_dm_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE

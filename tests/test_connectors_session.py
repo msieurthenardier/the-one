@@ -251,9 +251,7 @@ async def test_resolve_session_creates_new_row_outside_window(
     assert len(sessions) == 2
 
 
-async def test_resolve_session_per_thread_distinct(
-    chat_repo, seeded_agent, stub_plugin
-) -> None:
+async def test_resolve_session_per_thread_distinct(chat_repo, seeded_agent, stub_plugin) -> None:
     """Envelopes for thread A vs. thread B (same channel) get distinct sessions."""
     env_a = _envelope(thread_id="A")
     env_b = _envelope(thread_id="B")
@@ -271,9 +269,7 @@ async def test_resolve_session_per_thread_distinct(
     assert s_b.thread_id == "B"
 
 
-async def test_resolve_session_dm_shape(
-    chat_repo, seeded_agent, stub_plugin
-) -> None:
+async def test_resolve_session_dm_shape(chat_repo, seeded_agent, stub_plugin) -> None:
     """DM-shaped envelope (no thread, channel encodes peer pair) → session
     created with ``thread_id=None``."""
     envelope = _envelope(channel_id="dm-alice", thread_id=None, peer_id="alice")
@@ -374,9 +370,7 @@ class _ThreadCollapsingPlugin:
         return f"collapsed:{envelope.channel_id}"
 
 
-async def test_resolve_session_plugin_decides_key_shape(
-    chat_repo, seeded_agent
-) -> None:
+async def test_resolve_session_plugin_decides_key_shape(chat_repo, seeded_agent) -> None:
     """Plugin returns ``thread_id=None`` despite envelope having a thread;
     resolver stores ``thread_id=None`` on the new row (uses None for lookup
     AND for the stored column)."""

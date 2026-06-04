@@ -44,13 +44,11 @@ from typing import Any, ClassVar
 import pytest
 
 from tests._connector_dispatch_helpers import (
-    StubPluginWithResolver,
     _envelope,
     _make_factory,
     _seed_provider_and_agent,
     _seed_stub_account,
 )
-from the_one.agent.config import AgentConfig
 from the_one.config import settings
 from the_one.connectors import _inbound as inbound_mod
 from the_one.connectors import _pool as pool_mod
@@ -66,7 +64,6 @@ from the_one.connectors.registry import (
 )
 from the_one.db.codec import decode_messages
 from the_one.db.connection import get_connection
-from the_one.db.models import Connector
 from the_one.db.repositories import (
     ChatSessionRepository,
     ConnectorRepository,
@@ -75,7 +72,6 @@ from the_one.db.repositories import (
 from the_one.encryption import get_encryptor
 from the_one.llm.base import Role
 from the_one.sessions import clear_for_test as _clear_session_registry
-
 
 # ─── Autouse fixtures ────────────────────────────────────────────────────
 
@@ -160,9 +156,7 @@ async def _enable_always_listen(
 
     agent_store = SQLiteAgentStore(conn)
     cfg = await agent_store.load(agent_name)
-    updated = cfg.model_copy(
-        update={"connector_always_listen": {account_id: True}}
-    )
+    updated = cfg.model_copy(update={"connector_always_listen": {account_id: True}})
     await agent_store.save(updated)
 
 
@@ -218,16 +212,12 @@ class TestPolicyGateEngagement:
         # Warmup: an engaged DM dispatch materializes the session row
         # so we can write the override key to its metadata.
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=True, text="warmup"), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=True, text="warmup"), factory=factory)
         session_id = await _first_session_id()
 
         conn = await get_connection()
         chat_repo = ChatSessionRepository(conn)
-        await chat_repo.set_session_metadata_key(
-            session_id, "routing_override", "agent-inbound"
-        )
+        await chat_repo.set_session_metadata_key(session_id, "routing_override", "agent-inbound")
 
         # Now dispatch a non-DM envelope; override engages the gate.
         await dispatch_inbound(
@@ -242,9 +232,7 @@ class TestPolicyGateEngagement:
         assert routing[-1]["disposition"] == "stepped"
         assert routing[-1]["scope"] == "override"
 
-    async def test_policy_gate_engages_on_mention(
-        self, isolated_db
-    ) -> None:
+    async def test_policy_gate_engages_on_mention(self, isolated_db) -> None:
         """``plugin.is_mention(envelope)`` True → engage. Non-DM, no
         always-listen, no override."""
         await _seed_provider_and_agent()
@@ -254,18 +242,14 @@ class TestPolicyGateEngagement:
         register_for_test("stub", StubPluginWithMention)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         session_id = await _first_session_id()
         routing = await _routing_entries(session_id)
         assert len(routing) == 1
         assert routing[0]["disposition"] == "stepped"
 
-    async def test_policy_gate_engages_on_inference_yes(
-        self, isolated_db, monkeypatch
-    ) -> None:
+    async def test_policy_gate_engages_on_inference_yes(self, isolated_db, monkeypatch) -> None:
         """Both always-listen toggles True, inference returns True →
         engage. Audit entry stays ``disposition="stepped"`` and does
         NOT carry the policy sub-block (engaged-path semantic)."""
@@ -280,9 +264,7 @@ class TestPolicyGateEngagement:
         monkeypatch.setattr(inbound_mod, "run_engagement_inference", _yes)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         session_id = await _first_session_id()
         routing = await _routing_entries(session_id)
@@ -299,9 +281,7 @@ class TestPolicyGateEngagement:
 class TestPolicyGateSilent:
     """Each branch of the decision tree that goes silent (step 5)."""
 
-    async def test_policy_gate_silent_when_account_always_listen_off(
-        self, isolated_db
-    ) -> None:
+    async def test_policy_gate_silent_when_account_always_listen_off(self, isolated_db) -> None:
         """No DM, no mention, no override, account.always_listen=False
         (default) → silent. The session row exists (resolve_session
         runs before the gate); history holds NO USER/ASSISTANT
@@ -313,9 +293,7 @@ class TestPolicyGateSilent:
         register_for_test("stub", StubPlugin)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         session_id = await _first_session_id()
         conn = await get_connection()
@@ -330,9 +308,7 @@ class TestPolicyGateSilent:
         assert routing[0]["policy"]["outcome"] == "always-listen-off"
         assert routing[0]["policy"]["account_always_listen"] is False
 
-    async def test_policy_gate_silent_when_account_on_agent_off(
-        self, isolated_db
-    ) -> None:
+    async def test_policy_gate_silent_when_account_on_agent_off(self, isolated_db) -> None:
         """``account.always_listen=True`` but the agent's
         ``connector_always_listen[account_id]`` is False (or absent) →
         silent. Audit entry's policy sub-block records the per-toggle
@@ -349,9 +325,7 @@ class TestPolicyGateSilent:
         await acc_repo.update(account)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         session_id = await _first_session_id()
         routing = await _routing_entries(session_id)
@@ -361,9 +335,7 @@ class TestPolicyGateSilent:
         assert routing[0]["policy"]["account_always_listen"] is True
         assert routing[0]["policy"]["agent_always_listen"] is False
 
-    async def test_policy_gate_silent_on_inference_no(
-        self, isolated_db, monkeypatch
-    ) -> None:
+    async def test_policy_gate_silent_on_inference_no(self, isolated_db, monkeypatch) -> None:
         """Both toggles True, inference returns False → silent;
         audit has ``policy.outcome="inference-no"``."""
         await _seed_provider_and_agent()
@@ -377,9 +349,7 @@ class TestPolicyGateSilent:
         monkeypatch.setattr(inbound_mod, "run_engagement_inference", _no)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         session_id = await _first_session_id()
         routing = await _routing_entries(session_id)
@@ -406,17 +376,13 @@ class TestPolicyGateSilent:
             # Mirrors L7's exception-collapse-to-False behaviour.
             return False
 
-        monkeypatch.setattr(
-            inbound_mod, "run_engagement_inference", _safe_default
-        )
+        monkeypatch.setattr(inbound_mod, "run_engagement_inference", _safe_default)
 
         factory = await _make_factory()
         # Should NOT raise even if L7's internal provider resolution
         # would fail in production; L7 collapses to False which we
         # simulate here.
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         session_id = await _first_session_id()
         routing = await _routing_entries(session_id)
@@ -474,9 +440,7 @@ class TestPolicyGateSilentSideEffects:
         after = (await chat_repo.get(session_id)).last_inbound_at
         assert after == before
 
-    async def test_policy_gate_silent_branch_does_not_call_agent_step(
-        self, isolated_db
-    ) -> None:
+    async def test_policy_gate_silent_branch_does_not_call_agent_step(self, isolated_db) -> None:
         """Silent path NEVER calls ``factory.create`` → no agent is
         built. Use a recording factory that fails-loudly if invoked."""
         await _seed_provider_and_agent()
@@ -490,13 +454,14 @@ class TestPolicyGateSilentSideEffects:
             async def create(self, name: str = "default"):
                 self.called = True
                 raise AssertionError(
-                    "factory.create must NOT be called on the silent "
-                    "policy-gate path"
+                    "factory.create must NOT be called on the silent policy-gate path"
                 )
 
         factory = _FailIfCreated()
         await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory  # type: ignore[arg-type]
+            "acct-test",
+            _envelope(is_dm=False),
+            factory=factory,  # type: ignore[arg-type]
         )
         assert factory.called is False
 
@@ -519,9 +484,7 @@ class TestPolicyGateSilentSideEffects:
         register_for_test("stub", StubPlugin)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         session_id = await _first_session_id()
         routing = await _routing_entries(session_id)
@@ -543,9 +506,7 @@ class TestPolicyGateSilentSideEffects:
 class TestPolicyGateEngagedRegression:
     """Pin that engaged paths keep their pre-L8 audit shape."""
 
-    async def test_policy_gate_engaged_audit_disposition_stepped(
-        self, isolated_db
-    ) -> None:
+    async def test_policy_gate_engaged_audit_disposition_stepped(self, isolated_db) -> None:
         """A DM inbound (engaged) lands at step 12 → audit entry has
         ``disposition="stepped"``; L8 did not break the L5 engaged-path
         shape."""
@@ -554,9 +515,7 @@ class TestPolicyGateEngagedRegression:
         register_for_test("stub", StubPlugin)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=True), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=True), factory=factory)
 
         session_id = await _first_session_id()
         routing = await _routing_entries(session_id)
@@ -595,14 +554,10 @@ class TestPolicyGateInferenceFallbacks:
             captured.update(kwargs)
             return False  # silent
 
-        monkeypatch.setattr(
-            inbound_mod, "run_engagement_inference", _capture
-        )
+        monkeypatch.setattr(inbound_mod, "run_engagement_inference", _capture)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(is_dm=False), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(is_dm=False), factory=factory)
 
         assert captured["fallback_provider_config_id"] == "mock-provider"
         assert captured["fallback_llm_model"] == "mock-default"

@@ -64,9 +64,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:
@@ -215,9 +213,7 @@ def test_chat_renders_operator_visibility_distinction(
     page.goto(f"{base_url}#chat/sessions/{session_id}")
 
     # Wait for the chat chrome (deep-link path renders straight into chrome).
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     # Wait for messages to actually render — at least one .msg bubble.
     expect(page.locator(".msg").first).to_be_visible(timeout=5000)
@@ -237,9 +233,7 @@ def test_chat_renders_operator_visibility_distinction(
     # has visibility=operator persisted (verified via data-visibility)
     # but the JS suppresses the class + label per the L8 HAT decision.
     user_bubble = page.locator(".msg.user").first
-    user_has_class = user_bubble.evaluate(
-        "el => el.classList.contains('msg-operator-only')"
-    )
+    user_has_class = user_bubble.evaluate("el => el.classList.contains('msg-operator-only')")
     assert user_has_class is False, (
         "user bubble unexpectedly carries .msg-operator-only — the "
         "F5 L8 HAT decision suppresses the marker on the operator's "
@@ -255,8 +249,7 @@ def test_chat_renders_operator_visibility_distinction(
     labels = page.locator(".msg-operator-only-label")
     label_count = labels.count()
     assert label_count >= 1, (
-        f"expected >= 1 .msg-operator-only-label span (on assistant), "
-        f"got {label_count}"
+        f"expected >= 1 .msg-operator-only-label span (on assistant), got {label_count}"
     )
     assert labels.first.text_content() == "[operator-only]"
 
@@ -265,9 +258,7 @@ def test_chat_renders_operator_visibility_distinction(
     # this tool message has visibility=None so its class set lacks the marker.
     tool_bubble = page.locator(".msg.tool").first
     expect(tool_bubble).to_be_visible(timeout=2000)
-    has_operator_class = tool_bubble.evaluate(
-        "el => el.classList.contains('msg-operator-only')"
-    )
+    has_operator_class = tool_bubble.evaluate("el => el.classList.contains('msg-operator-only')")
     assert has_operator_class is False, (
         ".msg.tool unexpectedly carries .msg-operator-only — codec or render "
         "path is leaking visibility=None as operator"
@@ -276,6 +267,4 @@ def test_chat_renders_operator_visibility_distinction(
     # Sanity: the operator-only bubbles also carry the data-visibility hook
     # (stashed by renderMessage when opts.visibility is truthy).
     has_dataset = operator_only.first.evaluate("el => el.dataset.visibility")
-    assert has_dataset == "operator", (
-        f"expected data-visibility='operator', got {has_dataset!r}"
-    )
+    assert has_dataset == "operator", f"expected data-visibility='operator', got {has_dataset!r}"

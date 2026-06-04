@@ -134,9 +134,7 @@ class TestRoutingSchema:
 
     def test_rule_not_a_dict_rejected(self) -> None:
         with pytest.raises(ValidationError) as exc:
-            _account(
-                config={"routing": {"rules": ["not-a-dict"], "default": None}}
-            )
+            _account(config={"routing": {"rules": ["not-a-dict"], "default": None}})
         assert "must be a dict" in str(exc.value)
 
     def test_rule_missing_scope_rejected(self) -> None:
@@ -218,9 +216,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [
-                            {"scope": "Channel", "match": ["C1"], "agent": "a"}
-                        ],
+                        "rules": [{"scope": "Channel", "match": ["C1"], "agent": "a"}],
                         "default": None,
                     }
                 }
@@ -233,9 +229,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [
-                            {"scope": "group", "match": ["C1"], "agent": "a"}
-                        ],
+                        "rules": [{"scope": "group", "match": ["C1"], "agent": "a"}],
                         "default": None,
                     }
                 }
@@ -269,9 +263,7 @@ class TestRoutingSchema:
         acc = _account(
             config={
                 "routing": {
-                    "rules": [
-                        {"scope": "channel", "match": "C1", "agent": "alpha"}
-                    ],
+                    "rules": [{"scope": "channel", "match": "C1", "agent": "alpha"}],
                     "default": None,
                 }
             }
@@ -328,9 +320,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [
-                            {"scope": "channel", "match": ["C1", ""], "agent": "a"}
-                        ],
+                        "rules": [{"scope": "channel", "match": ["C1", ""], "agent": "a"}],
                         "default": None,
                     }
                 }
@@ -343,9 +333,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [
-                            {"scope": "channel", "match": ["C1", 42], "agent": "a"}
-                        ],
+                        "rules": [{"scope": "channel", "match": ["C1", 42], "agent": "a"}],
                         "default": None,
                     }
                 }

@@ -126,8 +126,7 @@ async def test_multi_agent_routing_live() -> None:
                 f"override should route to {_AGENT_2!r}; got {e2.get('agent')!r}"
             )
             assert e2["reason"] == "override", (
-                f"override entry should carry reason='override'; "
-                f"got {e2.get('reason')!r}"
+                f"override entry should carry reason='override'; got {e2.get('reason')!r}"
             )
             report.record(
                 "#7 /talk-to override — intercept + next @mention routes to target",
@@ -220,8 +219,7 @@ async def test_multi_agent_routing_live() -> None:
                 timeout=120.0,
             )
             assert e6["agent"] == _AGENT_1, (
-                f"dynamic re-override → expected agent={_AGENT_1!r}; "
-                f"got {e6.get('agent')!r}"
+                f"dynamic re-override → expected agent={_AGENT_1!r}; got {e6.get('agent')!r}"
             )
             assert e6["scope"] == "override", (
                 f"dynamic re-override → expected scope='override'; "

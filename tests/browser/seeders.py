@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from tests._acl_shape_helpers import _to_v24_agent_acl, _to_v24_allowlist
+from tests._acl_shape_helpers import _to_v24_allowlist
 
 
 @dataclass

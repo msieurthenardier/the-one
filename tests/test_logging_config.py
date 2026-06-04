@@ -96,7 +96,8 @@ def test_the_one_warning_still_visible_to_caplog(
         child.warning("probe-visible-to-caplog")
 
     matching = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.levelno == logging.WARNING and "probe-visible-to-caplog" in r.getMessage()
     ]
     assert len(matching) == 1, (

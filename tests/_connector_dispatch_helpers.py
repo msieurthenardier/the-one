@@ -328,12 +328,8 @@ class StubPluginWithResolver(StubPlugin):
     resolve_outcome: ClassVar[ResolveOutcome] = Permit()
     resolve_calls: ClassVar[list[tuple[str, str]]] = []
 
-    def resolve(
-        self, account: Connector, envelope: InboundEnvelope
-    ) -> ResolveOutcome:
-        StubPluginWithResolver.resolve_calls.append(
-            (account.id, envelope.peer_id)
-        )
+    def resolve(self, account: Connector, envelope: InboundEnvelope) -> ResolveOutcome:
+        StubPluginWithResolver.resolve_calls.append((account.id, envelope.peer_id))
         return StubPluginWithResolver.resolve_outcome
 
     @classmethod

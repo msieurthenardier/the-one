@@ -33,9 +33,8 @@ from the_one.connectors.base import (
     InboundEnvelope,
 )
 from the_one.db.models import Connector, LLMProviderConfig
-from the_one.llm.base import LLMProvider, Message, Role, ToolCall, ToolResult
+from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
 from the_one.llm.mock import MockProvider
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -118,9 +117,7 @@ def _patch_snapshot(
     async def _fake_snapshot(_account_id: str) -> _DiscoverableCacheSnapshot | None:
         return snapshot
 
-    monkeypatch.setattr(
-        inference_mod, "_get_account_cache_snapshot", _fake_snapshot
-    )
+    monkeypatch.setattr(inference_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -138,9 +135,7 @@ def test_filter_session_history_drops_tool_calls() -> None:
     tool_result = Message.tool(ToolResult(tool_call_id="tc-1", content="tool result"))
     asst_plain = Message.assistant("plain reply")
 
-    filtered = _filter_session_history(
-        [user, asst_tool, tool_result, asst_plain]
-    )
+    filtered = _filter_session_history([user, asst_tool, tool_result, asst_plain])
 
     assert filtered == [user, asst_plain]
 
@@ -239,9 +234,7 @@ async def test_resolve_inference_provider_falls_back_when_connector_kwargs_both_
     """Both connector kwargs unset, fallback id + model set → fallback
     path fires. The constructed provider uses the fallback model.
     """
-    repo = _StubProviderRepo(
-        {"prov-b": _mock_provider_config(provider_id="prov-b")}
-    )
+    repo = _StubProviderRepo({"prov-b": _mock_provider_config(provider_id="prov-b")})
 
     provider = await _resolve_inference_provider(
         repo,  # type: ignore[arg-type]
@@ -255,16 +248,14 @@ async def test_resolve_inference_provider_falls_back_when_connector_kwargs_both_
     assert provider.model == "model-b"
 
 
-async def test_resolve_inference_provider_returns_none_on_connector_resolution_failure_no_fallback() -> None:
+async def test_resolve_inference_provider_none_on_connector_resolution_failure() -> None:
     """Connector path with a missing-in-repo id raises KeyError → helper
     returns None and does NOT fall back to the working fallback. Operator
     misconfiguration is surfaced as silence per DD §9.
     """
     # Working fallback that WOULD resolve if the helper escalated — but it
     # MUST NOT per DD §9.
-    repo = _StubProviderRepo(
-        {"working-prov": _mock_provider_config(provider_id="working-prov")}
-    )
+    repo = _StubProviderRepo({"working-prov": _mock_provider_config(provider_id="working-prov")})
 
     provider = await _resolve_inference_provider(
         repo,  # type: ignore[arg-type]
@@ -311,7 +302,7 @@ async def test_resolve_inference_provider_returns_none_when_fallback_model_missi
     assert provider is None
 
 
-async def test_resolve_inference_provider_returns_none_when_connector_id_set_but_model_unset() -> None:
+async def test_resolve_inference_provider_none_when_connector_id_set_model_unset() -> None:
     """Partial connector pair (id set, model unset) → log + None.
 
     Mirrors the F7-era settings-partial-pair test, at the new layer.
@@ -330,7 +321,7 @@ async def test_resolve_inference_provider_returns_none_when_connector_id_set_but
     assert provider is None
 
 
-async def test_resolve_inference_provider_returns_none_when_connector_model_set_but_id_unset() -> None:
+async def test_resolve_inference_provider_none_when_connector_model_set_id_unset() -> None:
     """Partial connector pair (model set, id unset) → log + None.
 
     Symmetric to the id-set-only case.
@@ -415,9 +406,7 @@ async def _patch_resolver_returning(
         # additions and avoids drift if the signature evolves.
         return provider
 
-    monkeypatch.setattr(
-        inference_mod, "_resolve_inference_provider", _fake_resolver
-    )
+    monkeypatch.setattr(inference_mod, "_resolve_inference_provider", _fake_resolver)
 
 
 async def test_run_engagement_inference_returns_true_on_yes(
@@ -502,9 +491,7 @@ async def test_run_engagement_inference_returns_false_on_multiword_response(
     _patch_snapshot(monkeypatch, None)
     await _patch_resolver_returning(
         monkeypatch,
-        MockProvider(
-            config={"response": {"content": "yes, the agent should respond"}}
-        ),
+        MockProvider(config={"response": {"content": "yes, the agent should respond"}}),
     )
 
     result = await run_engagement_inference(
@@ -645,11 +632,7 @@ async def test_run_engagement_inference_end_to_end_happy_path(
     _patch_snapshot(monkeypatch, None)
 
     repo = _StubProviderRepo(
-        {
-            "prov-a": _mock_provider_config(
-                provider_id="prov-a", response_content="yes"
-            )
-        }
+        {"prov-a": _mock_provider_config(provider_id="prov-a", response_content="yes")}
     )
 
     messages = [
@@ -717,9 +700,7 @@ async def test_run_engagement_inference_uses_cache_label_when_present(
     (not the raw id).
     """
     snapshot = _DiscoverableCacheSnapshot(
-        cache=DiscoverableEntities(
-            channels=[DiscoverableEntity(id="ch-1", label="general")]
-        ),
+        cache=DiscoverableEntities(channels=[DiscoverableEntity(id="ch-1", label="general")]),
         stale_carry=None,
         fetched_at_monotonic=0.0,
         account_type="stub",

@@ -122,9 +122,7 @@ class AdmissionContext:
     member_roles: list[str]
 
     @classmethod
-    def from_envelope(
-        cls, envelope: InboundEnvelope, plugin: Any | None
-    ) -> AdmissionContext:
+    def from_envelope(cls, envelope: InboundEnvelope, plugin: Any | None) -> AdmissionContext:
         """Build an :class:`AdmissionContext` from an inbound envelope.
 
         Resolves ``is_dm`` via :func:`envelope_is_dm` (consulting the
@@ -271,13 +269,11 @@ def admits_outbound(
     if allowlist is not None:
         allowed_channels = allowlist.get("channels", [])
         if allowed_channels and not any(
-            c["channel_id"] == "*" or c["channel_id"] == channel_id
-            for c in allowed_channels
+            c["channel_id"] == "*" or c["channel_id"] == channel_id for c in allowed_channels
         ):
             return (
                 False,
-                f"channel_id {channel_id!r} "
-                f"is not reachable on account {account_id!r}",
+                f"channel_id {channel_id!r} is not reachable on account {account_id!r}",
             )
     # Per-agent channels axis (same structured-tuple shape; same
     # wildcard handling).
@@ -296,8 +292,7 @@ def admits_outbound(
                 f"channels axis is explicitly empty)",
             )
         elif not any(
-            c["channel_id"] == "*" or c["channel_id"] == channel_id
-            for c in agent_channels
+            c["channel_id"] == "*" or c["channel_id"] == channel_id for c in agent_channels
         ):
             return (
                 False,
@@ -347,13 +342,10 @@ def admits_dm_peer(
     allowlist = account.config.get("allowlist")
     if allowlist is not None:
         allowed_peers = allowlist.get("peers", [])
-        if allowed_peers and not any(
-            p["id"] == peer_id for p in allowed_peers
-        ):
+        if allowed_peers and not any(p["id"] == peer_id for p in allowed_peers):
             return (
                 False,
-                f"peer_id {peer_id!r} is not admitted on account "
-                f"{account_id!r}",
+                f"peer_id {peer_id!r} is not admitted on account {account_id!r}",
             )
     # Per-agent peers axis (same structured-dict shape).
     if agent_acl is not None:
@@ -370,8 +362,7 @@ def admits_dm_peer(
         elif not any(p["id"] == peer_id for p in agent_peers):
             return (
                 False,
-                f"peer_id {peer_id!r} is not admitted for this agent on "
-                f"account {account_id!r}",
+                f"peer_id {peer_id!r} is not admitted for this agent on account {account_id!r}",
             )
     return True, ""
 
@@ -471,9 +462,7 @@ def admits_inbound(
         ctx.member_roles,
     )
     if is_dm:
-        return _admits_inbound_dm(
-            account, agent_acl, peer_id, channel_id
-        )
+        return _admits_inbound_dm(account, agent_acl, peer_id, channel_id)
     return _admits_inbound_guild(
         account,
         agent_acl,
@@ -538,8 +527,7 @@ def _admits_inbound_dm(
         if admit_dms is False:
             return (
                 False,
-                f"DM denied: agent admit_dms is False on account "
-                f"{account_id!r}",
+                f"DM denied: agent admit_dms is False on account {account_id!r}",
             )
 
     # Account-scope dm_admission gate (factor 2).
@@ -554,8 +542,7 @@ def _admits_inbound_dm(
         if dm_admission == "none":
             return (
                 False,
-                f"DM denied: account {account_id!r} dm_admission is "
-                f"'none'",
+                f"DM denied: account {account_id!r} dm_admission is 'none'",
             )
 
         if dm_admission != "all":
@@ -587,8 +574,7 @@ def _admits_inbound_dm(
         elif not any(p["id"] == peer_id for p in agent_peers):
             return (
                 False,
-                f"peer_id {peer_id!r} is not admitted for this agent on "
-                f"account {account_id!r}",
+                f"peer_id {peer_id!r} is not admitted for this agent on account {account_id!r}",
             )
         # admit_dms already deny-short-circuited above. The
         # account-scope dm_admission gate validated DM admissibility;
@@ -657,14 +643,12 @@ def _admits_inbound_guild(
         # the entry's ``guild_id`` against the envelope ``guild_id``).
         allowed_channels = allowlist.get("channels", [])
         if allowed_channels and not any(
-            c["guild_id"] == guild_id
-            and (c["channel_id"] == "*" or c["channel_id"] == channel_id)
+            c["guild_id"] == guild_id and (c["channel_id"] == "*" or c["channel_id"] == channel_id)
             for c in allowed_channels
         ):
             return (
                 False,
-                f"channel_id {channel_id!r} is not admitted on account "
-                f"{account_id!r}",
+                f"channel_id {channel_id!r} is not admitted on account {account_id!r}",
             )
         # M10 F8 L8 — account-scope guilds axis. Non-empty list
         # narrows to those guilds; ``guild_id=None`` (DM context)
@@ -675,8 +659,7 @@ def _admits_inbound_guild(
         if allowed_guilds and guild_id not in allowed_guilds:
             return (
                 False,
-                f"guild_id {guild_id!r} is not admitted on account "
-                f"{account_id!r}",
+                f"guild_id {guild_id!r} is not admitted on account {account_id!r}",
             )
         # M10 F8 L8 + M11 F12 L3 + M11 F12 L5 — account-scope roles
         # axis. Each entry is a structured ``{guild_id, role_id}`` dict.
@@ -687,25 +670,17 @@ def _admits_inbound_guild(
         # allowed_roles where r.guild_id == guild_id}`` is non-empty.
         allowed_roles = allowlist.get("roles", [])
         if allowed_roles:
-            admitted_role_ids = {
-                r["role_id"]
-                for r in allowed_roles
-                if r["guild_id"] == guild_id
-            }
+            admitted_role_ids = {r["role_id"] for r in allowed_roles if r["guild_id"] == guild_id}
             if not admitted_role_ids:
                 # No role allowance for this guild → deny.
                 return (
                     False,
-                    f"peer roles do not overlap with admitted roles on "
-                    f"account {account_id!r}",
+                    f"peer roles do not overlap with admitted roles on account {account_id!r}",
                 )
-            if "*" not in admitted_role_ids and not (
-                member_roles_set & admitted_role_ids
-            ):
+            if "*" not in admitted_role_ids and not (member_roles_set & admitted_role_ids):
                 return (
                     False,
-                    f"peer roles do not overlap with admitted roles on "
-                    f"account {account_id!r}",
+                    f"peer roles do not overlap with admitted roles on account {account_id!r}",
                 )
     # Per-agent.
     if agent_acl is not None:
@@ -723,8 +698,7 @@ def _admits_inbound_guild(
         elif not any(p["id"] == peer_id for p in agent_peers):
             return (
                 False,
-                f"peer_id {peer_id!r} is not admitted for this agent on "
-                f"account {account_id!r}",
+                f"peer_id {peer_id!r} is not admitted for this agent on account {account_id!r}",
             )
 
         # Per-agent channels axis (M11 F12 L3 — structured tuples;
@@ -734,7 +708,8 @@ def _admits_inbound_guild(
         if agent_channels is None:
             pass  # inherit account-scope
         elif agent_channels == []:
-            # Per-agent channels axis is explicitly empty: deny all guild-context messages on this account for this agent.
+            # Per-agent channels axis is explicitly empty: deny all
+            # guild-context messages on this account for this agent.
             return (
                 False,
                 f"channel_id {channel_id!r} is not admitted for this "
@@ -742,8 +717,7 @@ def _admits_inbound_guild(
                 f"axis is explicitly empty)",
             )
         elif not any(
-            c["guild_id"] == guild_id
-            and (c["channel_id"] == "*" or c["channel_id"] == channel_id)
+            c["guild_id"] == guild_id and (c["channel_id"] == "*" or c["channel_id"] == channel_id)
             for c in agent_channels
         ):
             return (
@@ -766,8 +740,7 @@ def _admits_inbound_guild(
         elif guild_id not in agent_guilds:
             return (
                 False,
-                f"guild_id {guild_id!r} is not admitted for this agent "
-                f"on account {account_id!r}",
+                f"guild_id {guild_id!r} is not admitted for this agent on account {account_id!r}",
             )
 
         # M10 F8 L8 + M11 F12 L3 — per-agent roles axis (structured
@@ -787,20 +760,14 @@ def _admits_inbound_guild(
             # unconditionally for any ``member_roles`` (including the
             # empty list) when the entry's ``guild_id`` matches the
             # envelope ``guild_id``. Otherwise overlap-required.
-            admitted_role_ids = {
-                r["role_id"]
-                for r in agent_roles
-                if r["guild_id"] == guild_id
-            }
+            admitted_role_ids = {r["role_id"] for r in agent_roles if r["guild_id"] == guild_id}
             if not admitted_role_ids:
                 return (
                     False,
                     f"peer roles do not overlap with admitted roles for "
                     f"this agent on account {account_id!r}",
                 )
-            if "*" not in admitted_role_ids and not (
-                member_roles_set & admitted_role_ids
-            ):
+            if "*" not in admitted_role_ids and not (member_roles_set & admitted_role_ids):
                 return (
                     False,
                     f"peer roles do not overlap with admitted roles for "

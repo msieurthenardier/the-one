@@ -327,7 +327,7 @@ async def cleanup_runtime_cache(runtime: str, package: str, *, timeout_s: float 
             return
 
         logger.warning("cleanup_runtime_cache(%s, %s) completed", runtime, package)
-    except BaseException as e:  # noqa: BLE001 — architect: swallow everything
+    except BaseException as e:  # architect: swallow everything
         logger.warning(
             "cleanup_runtime_cache(%s, %s) swallowed %s: %s",
             runtime,

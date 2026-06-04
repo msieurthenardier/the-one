@@ -30,7 +30,5 @@ def configure_logging() -> None:
         return  # already configured (re-import under --reload, repeated lifespan)
     handler = logging.StreamHandler(sys.stdout)
     setattr(handler, _HANDLER_SENTINEL, True)
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logger.addHandler(handler)

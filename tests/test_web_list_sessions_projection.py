@@ -158,6 +158,5 @@ def test_projection_shape_is_exactly_eleven_keys() -> None:
 
     expected_keys = set(PRE_F5_FIELDS) | set(F5_NEW_FIELDS)
     assert set(payload.keys()) == expected_keys, (
-        f"projection shape drift — got {sorted(payload.keys())}, "
-        f"expected {sorted(expected_keys)}"
+        f"projection shape drift — got {sorted(payload.keys())}, expected {sorted(expected_keys)}"
     )

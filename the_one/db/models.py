@@ -158,9 +158,7 @@ class Connector(BaseModel):
         if value is None:
             return value
         if not (1 <= value <= 604800):
-            raise ValueError(
-                "idle_timeout_seconds must be between 1 and 604800 seconds (7 days)"
-            )
+            raise ValueError("idle_timeout_seconds must be between 1 and 604800 seconds (7 days)")
         return value
 
     @field_validator("session_continuation_seconds")
@@ -237,7 +235,8 @@ class Connector(BaseModel):
           pre-redesign — existing rows round-trip verbatim; only the
           downstream interpretation flipped.
         - ``config["routing"] = {"rules": list[RoutingRule], "default": str | None}``
-          where ``RoutingRule = {"scope": Literal["channel","thread","dm","peer"], "match": list[str], "agent": str}``.
+          where ``RoutingRule = {"scope": Literal["channel","thread","dm","peer"],
+          "match": list[str], "agent": str}``.
           ``match`` is a non-empty list of non-empty strings — set-membership /
           OR semantics: the rule fires if ANY listed value matches the envelope's
           corresponding field.
@@ -269,30 +268,19 @@ class Connector(BaseModel):
         pairing = value.get("pairing")
         if pairing is not None:
             if not isinstance(pairing, dict):
-                raise ValueError(
-                    "config['pairing'] must be a dict with keys "
-                    "{'code', 'issued_at'}"
-                )
+                raise ValueError("config['pairing'] must be a dict with keys {'code', 'issued_at'}")
             extra = set(pairing.keys()) - {"code", "issued_at"}
             if extra:
-                raise ValueError(
-                    f"config['pairing'] has unexpected keys: {sorted(extra)}"
-                )
+                raise ValueError(f"config['pairing'] has unexpected keys: {sorted(extra)}")
             missing = {"code", "issued_at"} - set(pairing.keys())
             if missing:
-                raise ValueError(
-                    f"config['pairing'] is missing required keys: {sorted(missing)}"
-                )
+                raise ValueError(f"config['pairing'] is missing required keys: {sorted(missing)}")
             code = pairing.get("code")
             if not isinstance(code, str) or not code:
-                raise ValueError(
-                    "config['pairing']['code'] must be a non-empty string"
-                )
+                raise ValueError("config['pairing']['code'] must be a non-empty string")
             issued_at = pairing.get("issued_at")
             if not isinstance(issued_at, str):
-                raise ValueError(
-                    "config['pairing']['issued_at'] must be an ISO-format string"
-                )
+                raise ValueError("config['pairing']['issued_at'] must be an ISO-format string")
             # Require a time component (T separator) — date-only strings
             # like "2026-05-18" parse cleanly through fromisoformat but
             # carry no audit value. The leg-4 Studio writer emits full
@@ -309,9 +297,7 @@ class Connector(BaseModel):
                 # ``fromisoformat`` parses both with the .replace shim.
                 datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
             except ValueError as e:
-                raise ValueError(
-                    f"config['pairing']['issued_at'] is not ISO-format: {e}"
-                )
+                raise ValueError(f"config['pairing']['issued_at'] is not ISO-format: {e}")
 
         allowlist = value.get("allowlist")
         if allowlist is not None:
@@ -339,17 +325,17 @@ class Connector(BaseModel):
             # rewrites. ``dm_admission`` Literal value rename
             # ``"allowlisted-peers-only"`` → ``"admin-approved"``.
             extra = set(allowlist.keys()) - {
-                "peers", "channels", "guilds", "roles", "dm_admission",
+                "peers",
+                "channels",
+                "guilds",
+                "roles",
+                "dm_admission",
             }
             if extra:
-                raise ValueError(
-                    f"config['allowlist'] has unexpected keys: {sorted(extra)}"
-                )
+                raise ValueError(f"config['allowlist'] has unexpected keys: {sorted(extra)}")
             missing = {"peers", "channels"} - set(allowlist.keys())
             if missing:
-                raise ValueError(
-                    f"config['allowlist'] is missing required keys: {sorted(missing)}"
-                )
+                raise ValueError(f"config['allowlist'] is missing required keys: {sorted(missing)}")
 
             # M11 F17 L8 (Leg D) — peers axis: list[{id: str}] bare dicts.
             # Post-v28 the per-peer ``dm_allowed`` flag is dropped;
@@ -361,10 +347,7 @@ class Connector(BaseModel):
             # here is strict post-migration.)
             peers_entries = allowlist["peers"]
             if not isinstance(peers_entries, list):
-                raise ValueError(
-                    "config['allowlist']['peers'] must be a list of "
-                    "{id} dicts"
-                )
+                raise ValueError("config['allowlist']['peers'] must be a list of {id} dicts")
             for i, item in enumerate(peers_entries):
                 if not isinstance(item, dict):
                     raise ValueError(
@@ -401,8 +384,7 @@ class Connector(BaseModel):
             channel_entries = allowlist["channels"]
             if not isinstance(channel_entries, list):
                 raise ValueError(
-                    "config['allowlist']['channels'] must be a list of "
-                    "{guild_id, channel_id} dicts"
+                    "config['allowlist']['channels'] must be a list of {guild_id, channel_id} dicts"
                 )
             for i, item in enumerate(channel_entries):
                 if not isinstance(item, dict):
@@ -444,16 +426,10 @@ class Connector(BaseModel):
             if "guilds" in allowlist:
                 guild_entries = allowlist["guilds"]
                 if not isinstance(guild_entries, list):
-                    raise ValueError(
-                        "config['allowlist']['guilds'] must be a list of "
-                        "strings"
-                    )
+                    raise ValueError("config['allowlist']['guilds'] must be a list of strings")
                 for i, item in enumerate(guild_entries):
                     if not isinstance(item, str):
-                        raise ValueError(
-                            f"config['allowlist']['guilds'][{i}] must "
-                            f"be a string"
-                        )
+                        raise ValueError(f"config['allowlist']['guilds'][{i}] must be a string")
 
             # M11 F12 L5 — roles axis (OPTIONAL):
             # list[{guild_id: str, role_id: str}]. Post-v25 the
@@ -466,8 +442,7 @@ class Connector(BaseModel):
                 role_entries = allowlist["roles"]
                 if not isinstance(role_entries, list):
                     raise ValueError(
-                        "config['allowlist']['roles'] must be a list of "
-                        "{guild_id, role_id} dicts"
+                        "config['allowlist']['roles'] must be a list of {guild_id, role_id} dicts"
                     )
                 for i, item in enumerate(role_entries):
                     if not isinstance(item, dict):
@@ -529,25 +504,16 @@ class Connector(BaseModel):
         routing = value.get("routing")
         if routing is not None:
             if not isinstance(routing, dict):
-                raise ValueError(
-                    "config['routing'] must be a dict with keys "
-                    "{'rules', 'default'}"
-                )
+                raise ValueError("config['routing'] must be a dict with keys {'rules', 'default'}")
             extra = set(routing.keys()) - {"rules", "default"}
             if extra:
-                raise ValueError(
-                    f"config['routing'] has unexpected keys: {sorted(extra)}"
-                )
+                raise ValueError(f"config['routing'] has unexpected keys: {sorted(extra)}")
             missing = {"rules", "default"} - set(routing.keys())
             if missing:
-                raise ValueError(
-                    f"config['routing'] is missing required keys: {sorted(missing)}"
-                )
+                raise ValueError(f"config['routing'] is missing required keys: {sorted(missing)}")
             rules = routing["rules"]
             if not isinstance(rules, list):
-                raise ValueError(
-                    "config['routing']['rules'] must be a list"
-                )
+                raise ValueError("config['routing']['rules'] must be a list")
             for i, rule in enumerate(rules):
                 if not isinstance(rule, dict):
                     raise ValueError(
@@ -557,8 +523,7 @@ class Connector(BaseModel):
                 extra = set(rule.keys()) - {"scope", "match", "agent"}
                 if extra:
                     raise ValueError(
-                        f"config['routing']['rules'][{i}] has unexpected keys: "
-                        f"{sorted(extra)}"
+                        f"config['routing']['rules'][{i}] has unexpected keys: {sorted(extra)}"
                     )
                 missing = {"scope", "match", "agent"} - set(rule.keys())
                 if missing:
@@ -594,14 +559,12 @@ class Connector(BaseModel):
                 agent = rule["agent"]
                 if not isinstance(agent, str) or not agent:
                     raise ValueError(
-                        f"config['routing']['rules'][{i}]['agent'] must be a "
-                        "non-empty string"
+                        f"config['routing']['rules'][{i}]['agent'] must be a non-empty string"
                     )
             default = routing["default"]
             if default is not None and (not isinstance(default, str) or not default):
                 raise ValueError(
-                    "config['routing']['default'] must be either None or a "
-                    "non-empty string"
+                    "config['routing']['default'] must be either None or a non-empty string"
                 )
 
         # M11 F7 L5 — ``always_listen``: optional bool. Absent →
@@ -639,8 +602,7 @@ class Connector(BaseModel):
             im = value["inference_model"]
             if im is not None and not isinstance(im, str):
                 raise ValueError(
-                    "config['inference_model'] must be a string or "
-                    f"None; got {type(im).__name__}"
+                    f"config['inference_model'] must be a string or None; got {type(im).__name__}"
                 )
 
         # M11 F7 L5 — strip the legacy ``auto_relay_platform_replies``

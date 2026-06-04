@@ -145,8 +145,7 @@ async def test_e2e_ws_typed_message_into_connector_session_tags_visibility(
     restored = await _get_or_restore_session(session_id)
     assert restored.session is not None, "restore should succeed for seeded row"
     assert restored.session.platform == "stub", (
-        f"Session.platform should mirror the DB row's platform; "
-        f"got {restored.session.platform!r}"
+        f"Session.platform should mirror the DB row's platform; got {restored.session.platform!r}"
     )
 
     # Drive the WS-typed input through the spawn helper — the same call
@@ -181,6 +180,5 @@ async def test_e2e_ws_typed_message_into_connector_session_tags_visibility(
     assert asst_reply, "expected the scripted assistant reply in persisted history"
     for m in asst_reply:
         assert m.visibility == OPERATOR_VISIBILITY, (
-            "assistant reply on a connector-attached session must persist "
-            "with visibility=operator"
+            "assistant reply on a connector-attached session must persist with visibility=operator"
         )

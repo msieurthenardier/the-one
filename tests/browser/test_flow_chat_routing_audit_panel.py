@@ -40,9 +40,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:
@@ -70,10 +68,20 @@ def app_with_data_dir(tmp_path: Path) -> Iterator[tuple[str, Path]]:
     env["THE_ONE_REGISTER_STUB_CONNECTOR"] = "1"
     proc = subprocess.Popen(
         [
-            sys.executable, "-m", "uvicorn", "the_one.interfaces.web.app:app",
-            "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning",
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "the_one.interfaces.web.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
         ],
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     base_url = f"http://127.0.0.1:{port}"
     try:
@@ -121,7 +129,10 @@ def _seed_session_with_metadata(
             ") VALUES (?, ?, ?, ?, datetime('now'), datetime('now'),"
             " NULL, NULL, NULL, NULL, NULL, ?, NULL)",
             (
-                session_id, agent_name, title, "[]",
+                session_id,
+                agent_name,
+                title,
+                "[]",
                 json.dumps(session_metadata) if session_metadata is not None else None,
             ),
         )
@@ -169,8 +180,11 @@ def test_routing_audit_empty_state(app_with_data_dir: tuple[str, Path], page: Pa
     seed_mock_agent(base_url, provider_id, name="empty-agent")
     sid = "sess-empty-1"
     _seed_session_with_metadata(
-        data_dir, session_id=sid, agent_name="empty-agent",
-        title="Empty Routing", session_metadata=None,
+        data_dir,
+        session_id=sid,
+        agent_name="empty-agent",
+        title="Empty Routing",
+        session_metadata=None,
     )
     _navigate_to_session(page, base_url, sid)
     # Expand the outer details to reveal the empty-state inside.
@@ -192,22 +206,57 @@ def test_routing_audit_renders_all_four_dispositions(
     seed_mock_agent(base_url, provider_id, name="multi-agent")
     sid = "sess-multi-1"
     routing = [
-        {"ts": "2026-05-31T00:00:01", "agent": "multi-agent", "rule_index": 0,
-         "scope": "channel", "match": None, "reason": "test", "disposition": "stepped"},
-        {"ts": "2026-05-31T00:00:02", "agent": "multi-agent", "rule_index": 0,
-         "scope": "default", "match": None, "reason": "ping", "disposition": "command-intercepted",
-         "intercept_source": "builtin"},
-        {"ts": "2026-05-31T00:00:03", "agent": None, "rule_index": None,
-         "scope": "default", "match": None, "reason": "no agents", "disposition": "no-eligible"},
-        {"ts": "2026-05-31T00:00:04", "agent": "multi-agent", "rule_index": 0,
-         "scope": "channel", "match": None, "reason": "gate silent", "disposition": "policy-silent",
-         "policy": {"outcome": "inference-no", "account_always_listen": True,
-                    "agent_always_listen": True, "inference_provider_id": "prov-x",
-                    "inference_model": "qwen2.5:7b"}},
+        {
+            "ts": "2026-05-31T00:00:01",
+            "agent": "multi-agent",
+            "rule_index": 0,
+            "scope": "channel",
+            "match": None,
+            "reason": "test",
+            "disposition": "stepped",
+        },
+        {
+            "ts": "2026-05-31T00:00:02",
+            "agent": "multi-agent",
+            "rule_index": 0,
+            "scope": "default",
+            "match": None,
+            "reason": "ping",
+            "disposition": "command-intercepted",
+            "intercept_source": "builtin",
+        },
+        {
+            "ts": "2026-05-31T00:00:03",
+            "agent": None,
+            "rule_index": None,
+            "scope": "default",
+            "match": None,
+            "reason": "no agents",
+            "disposition": "no-eligible",
+        },
+        {
+            "ts": "2026-05-31T00:00:04",
+            "agent": "multi-agent",
+            "rule_index": 0,
+            "scope": "channel",
+            "match": None,
+            "reason": "gate silent",
+            "disposition": "policy-silent",
+            "policy": {
+                "outcome": "inference-no",
+                "account_always_listen": True,
+                "agent_always_listen": True,
+                "inference_provider_id": "prov-x",
+                "inference_model": "qwen2.5:7b",
+            },
+        },
     ]
     _seed_session_with_metadata(
-        data_dir, session_id=sid, agent_name="multi-agent",
-        title="Multi Routing", session_metadata={"routing": routing},
+        data_dir,
+        session_id=sid,
+        agent_name="multi-agent",
+        title="Multi Routing",
+        session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
     page.locator('[data-testid="routing-audit-summary"]').click()
@@ -215,7 +264,7 @@ def test_routing_audit_renders_all_four_dispositions(
     expect(rows).to_have_count(4, timeout=4000)
     # Verify per-disposition badge classes.
     for disp in ("stepped", "command-intercepted", "no-eligible", "policy-silent"):
-        badge = page.locator(f'.routing-audit-badge--{disp}')
+        badge = page.locator(f".routing-audit-badge--{disp}")
         expect(badge).to_be_visible()
 
 
@@ -231,13 +280,22 @@ def test_routing_audit_expansion_shows_raw_fields(
     seed_mock_agent(base_url, provider_id, name="exp-agent")
     sid = "sess-exp-1"
     routing = [
-        {"ts": "2026-05-31T00:00:01", "agent": "exp-agent", "rule_index": 42,
-         "scope": "channel", "match": "C-test", "reason": "matched channel rule 42",
-         "disposition": "stepped"},
+        {
+            "ts": "2026-05-31T00:00:01",
+            "agent": "exp-agent",
+            "rule_index": 42,
+            "scope": "channel",
+            "match": "C-test",
+            "reason": "matched channel rule 42",
+            "disposition": "stepped",
+        },
     ]
     _seed_session_with_metadata(
-        data_dir, session_id=sid, agent_name="exp-agent",
-        title="Expansion Test", session_metadata={"routing": routing},
+        data_dir,
+        session_id=sid,
+        agent_name="exp-agent",
+        title="Expansion Test",
+        session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
     page.locator('[data-testid="routing-audit-summary"]').click()
@@ -262,16 +320,29 @@ def test_routing_audit_policy_silent_renders_nested_policy(
     seed_mock_agent(base_url, provider_id, name="policy-agent")
     sid = "sess-policy-1"
     routing = [
-        {"ts": "2026-05-31T00:00:01", "agent": "policy-agent", "rule_index": 0,
-         "scope": "channel", "match": None, "reason": "gate silent",
-         "disposition": "policy-silent",
-         "policy": {"outcome": "inference-no", "account_always_listen": True,
-                    "agent_always_listen": True, "inference_provider_id": "prov-policy",
-                    "inference_model": "test-model-xyz"}},
+        {
+            "ts": "2026-05-31T00:00:01",
+            "agent": "policy-agent",
+            "rule_index": 0,
+            "scope": "channel",
+            "match": None,
+            "reason": "gate silent",
+            "disposition": "policy-silent",
+            "policy": {
+                "outcome": "inference-no",
+                "account_always_listen": True,
+                "agent_always_listen": True,
+                "inference_provider_id": "prov-policy",
+                "inference_model": "test-model-xyz",
+            },
+        },
     ]
     _seed_session_with_metadata(
-        data_dir, session_id=sid, agent_name="policy-agent",
-        title="Policy Test", session_metadata={"routing": routing},
+        data_dir,
+        session_id=sid,
+        agent_name="policy-agent",
+        title="Policy Test",
+        session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
     page.locator('[data-testid="routing-audit-summary"]').click()
@@ -290,23 +361,30 @@ def test_routing_audit_policy_silent_renders_nested_policy(
 
 
 @pytest.mark.browser
-def test_routing_audit_refresh_re_fetches(
-    app_with_data_dir: tuple[str, Path], page: Page
-) -> None:
+def test_routing_audit_refresh_re_fetches(app_with_data_dir: tuple[str, Path], page: Page) -> None:
     base_url, data_dir = app_with_data_dir
     provider_id = seed_mock_provider(base_url)
     seed_mock_agent(base_url, provider_id, name="refresh-agent")
     sid = "sess-refresh-1"
     initial = {
         "routing": [
-            {"ts": "2026-05-31T00:00:01", "agent": "refresh-agent", "rule_index": 0,
-             "scope": "channel", "match": None, "reason": "first",
-             "disposition": "stepped"},
+            {
+                "ts": "2026-05-31T00:00:01",
+                "agent": "refresh-agent",
+                "rule_index": 0,
+                "scope": "channel",
+                "match": None,
+                "reason": "first",
+                "disposition": "stepped",
+            },
         ]
     }
     _seed_session_with_metadata(
-        data_dir, session_id=sid, agent_name="refresh-agent",
-        title="Refresh Test", session_metadata=initial,
+        data_dir,
+        session_id=sid,
+        agent_name="refresh-agent",
+        title="Refresh Test",
+        session_metadata=initial,
     )
     _navigate_to_session(page, base_url, sid)
     page.locator('[data-testid="routing-audit-summary"]').click()
@@ -314,10 +392,17 @@ def test_routing_audit_refresh_re_fetches(
     expect(rows).to_have_count(1, timeout=4000)
     # Append a second routing entry directly in the DB.
     _append_routing_entry(
-        data_dir, session_id=sid,
-        entry={"ts": "2026-05-31T00:00:02", "agent": "refresh-agent", "rule_index": 0,
-               "scope": "channel", "match": None, "reason": "second",
-               "disposition": "stepped"},
+        data_dir,
+        session_id=sid,
+        entry={
+            "ts": "2026-05-31T00:00:02",
+            "agent": "refresh-agent",
+            "rule_index": 0,
+            "scope": "channel",
+            "match": None,
+            "reason": "second",
+            "disposition": "stepped",
+        },
     )
     # Click Refresh and assert the second row appears.
     page.locator('[data-testid="routing-audit-refresh"]').click()
@@ -336,13 +421,22 @@ def test_routing_audit_panel_is_collapsed_by_default(
     seed_mock_agent(base_url, provider_id, name="collapsed-agent")
     sid = "sess-collapsed-1"
     routing = [
-        {"ts": "2026-05-31T00:00:01", "agent": "collapsed-agent", "rule_index": 0,
-         "scope": "channel", "match": None, "reason": "test",
-         "disposition": "stepped"},
+        {
+            "ts": "2026-05-31T00:00:01",
+            "agent": "collapsed-agent",
+            "rule_index": 0,
+            "scope": "channel",
+            "match": None,
+            "reason": "test",
+            "disposition": "stepped",
+        },
     ]
     _seed_session_with_metadata(
-        data_dir, session_id=sid, agent_name="collapsed-agent",
-        title="Collapsed Test", session_metadata={"routing": routing},
+        data_dir,
+        session_id=sid,
+        agent_name="collapsed-agent",
+        title="Collapsed Test",
+        session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
     # Outer <details> exists but is NOT open on first render.

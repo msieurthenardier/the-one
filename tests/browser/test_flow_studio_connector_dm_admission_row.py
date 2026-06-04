@@ -53,9 +53,7 @@ def test_dm_admission_row_renders_with_account_value_preselected(
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # Access and Routing tab hosts the allowlist section (L9 tabbed
     # layout); the editor mounts the section in the DOM at load but
@@ -66,9 +64,7 @@ def test_dm_admission_row_renders_with_account_value_preselected(
     row = page.locator('[data-testid="connector-allowlist-dm-admission-row"]')
     expect(row).to_be_visible()
 
-    select = page.locator(
-        '[data-testid="connector-allowlist-dm-admission-select"]'
-    )
+    select = page.locator('[data-testid="connector-allowlist-dm-admission-select"]')
     expect(select).to_be_visible()
     # The selected value matches the seeded ``dm_admission``.
     assert select.input_value() == "all", (
@@ -78,9 +74,7 @@ def test_dm_admission_row_renders_with_account_value_preselected(
     # Sanity: all three options are present with the L1-Literal values
     # (M11 F12 L4 — ``"allowlisted-peers-only"`` renamed to
     # ``"admin-approved"`` per operator-vocabulary alignment).
-    option_values = select.locator("option").evaluate_all(
-        "els => els.map(e => e.value)"
-    )
+    option_values = select.locator("option").evaluate_all("els => els.map(e => e.value)")
     assert option_values == ["none", "admin-approved", "all"], (
         f"DM admission options drifted; got: {option_values!r}"
     )
@@ -89,15 +83,12 @@ def test_dm_admission_row_renders_with_account_value_preselected(
     # DM is universal across connector types).
     label = row.locator("label.connector-acl-fieldlabel")
     assert label.text_content().strip() == "DM admission", (
-        f"expected literal 'DM admission' label; got: "
-        f"{label.text_content()!r}"
+        f"expected literal 'DM admission' label; got: {label.text_content()!r}"
     )
 
 
 @pytest.mark.browser
-def test_dm_admission_change_marks_form_dirty(
-    app_clean: str, page: Page
-) -> None:
+def test_dm_admission_change_marks_form_dirty(app_clean: str, page: Page) -> None:
     """Changing the DM-admission selector enables the Save button via
     the existing dirty-tracker mechanism — no new wiring required;
     ``collectAllowlistFromContainer``'s extended dict shape rides into
@@ -122,9 +113,7 @@ def test_dm_admission_change_marks_form_dirty(
 
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
-    select = page.locator(
-        '[data-testid="connector-allowlist-dm-admission-select"]'
-    )
+    select = page.locator('[data-testid="connector-allowlist-dm-admission-select"]')
     expect(select).to_be_visible()
     select.select_option("none")
 
@@ -133,9 +122,7 @@ def test_dm_admission_change_marks_form_dirty(
 
 
 @pytest.mark.browser
-def test_dm_admission_save_persists_value(
-    app_clean: str, page: Page
-) -> None:
+def test_dm_admission_save_persists_value(app_clean: str, page: Page) -> None:
     """Change the selector, click Save, then GET the account — the
     chosen value persists at ``config.allowlist.dm_admission``."""
     account_id = seed_connector(
@@ -162,9 +149,7 @@ def test_dm_admission_save_persists_value(
     expect(save_btn).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="tab-access-and-routing"]').click()
-    select = page.locator(
-        '[data-testid="connector-allowlist-dm-admission-select"]'
-    )
+    select = page.locator('[data-testid="connector-allowlist-dm-admission-select"]')
     expect(select).to_be_visible()
     select.select_option("all")
 
@@ -175,12 +160,10 @@ def test_dm_admission_save_persists_value(
 
     after = _get_account(app_clean, account_id)
     assert after["config"]["allowlist"]["dm_admission"] == "all", (
-        f"DM-admission save did not persist; got: "
-        f"{after['config']['allowlist']!r}"
+        f"DM-admission save did not persist; got: {after['config']['allowlist']!r}"
     )
     # Sibling axes should remain unaffected by the dm_admission save.
     for axis in ("peers", "channels", "guilds", "roles"):
         assert axis in after["config"]["allowlist"], (
-            f"sibling axis {axis!r} dropped at save; got: "
-            f"{after['config']['allowlist']!r}"
+            f"sibling axis {axis!r} dropped at save; got: {after['config']['allowlist']!r}"
         )

@@ -6,6 +6,7 @@ per chat_sessions.id. Closes the mission Known Issue raised in
 F3 planning where the two paths owned distinct lock identities
 and would have raced on agent.messages.
 """
+
 from __future__ import annotations
 
 import asyncio

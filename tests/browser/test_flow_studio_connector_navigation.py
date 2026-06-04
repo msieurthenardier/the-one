@@ -51,9 +51,7 @@ def test_studio_section_nav_click_to_connectors(app_clean: str, page: Page) -> N
     page.goto(f"{app_clean}#studio")
     expect(page.locator(".area-studio .section-nav")).to_be_visible(timeout=5000)
     page.locator(".area-studio .section-nav-item", has_text="Connectors").click()
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "Connectors", timeout=5000
-    )
+    expect(page.locator(".area-studio .page-title")).to_have_text("Connectors", timeout=5000)
     assert page.evaluate("location.hash") == "#studio/connectors"
 
 
@@ -65,9 +63,7 @@ def test_studio_direct_load_connectors(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_studio_legacy_connectors_slug_redirects_to_connectors(
-    app_clean: str, page: Page
-) -> None:
+def test_studio_legacy_connectors_slug_redirects_to_connectors(app_clean: str, page: Page) -> None:
     """Legacy hash `#studio/connectors` still mounts the section
     (backward-compat); the router rewrites the URL to the new slug."""
     page.goto(f"{app_clean}#studio/connectors")
@@ -80,9 +76,7 @@ def test_studio_legacy_connectors_slug_redirects_to_connectors(
 
 
 @pytest.mark.browser
-def test_studio_direct_load_connectors_new_renders_editor(
-    app_clean: str, page: Page
-) -> None:
+def test_studio_direct_load_connectors_new_renders_editor(app_clean: str, page: Page) -> None:
     """Direct-load to the create route mounts the real editor.
 
     M10 F2 L6: the leg-5 placeholder was replaced wholesale with the
@@ -128,9 +122,7 @@ def test_studio_connectors_new_button_opens_form_then_cancel_returns_to_grid(
 
     # Click the empty-canvas CTA → form mounts and URL updates.
     page.locator('[data-testid="new-connector-btn-empty"]').click()
-    expect(page.locator('[data-testid="connector-name-input"]')).to_be_visible(
-        timeout=5000
-    )
+    expect(page.locator('[data-testid="connector-name-input"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/connectors/new"
 
     # Cancel is disabled-until-dirty per the editor contract; use Back

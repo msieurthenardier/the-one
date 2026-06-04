@@ -25,7 +25,6 @@ from the_one.llm.ollama_provider import OllamaProvider
 from the_one.llm.openai_provider import OpenAIProvider
 from the_one.llm.openrouter_provider import OpenRouterProvider
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

@@ -161,7 +161,11 @@ class SQLiteAgentStore:
                 json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
                 json.dumps(config.connector_ids),
                 json.dumps(config.connector_acls) if config.connector_acls is not None else None,
-                json.dumps(config.connector_always_listen) if config.connector_always_listen is not None else None,
+                (
+                    json.dumps(config.connector_always_listen)
+                    if config.connector_always_listen is not None
+                    else None
+                ),
                 now,
                 now,
             ),
@@ -536,15 +540,11 @@ class ConnectorRepository:
         return _decrypt_secrets_blob(self.encryptor, ciphertext)
 
     async def list(self) -> list[Connector]:
-        async with self.conn.execute(
-            "SELECT * FROM connectors ORDER BY name"
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM connectors ORDER BY name") as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
     async def get(self, account_id: str) -> Connector:
-        async with self.conn.execute(
-            "SELECT * FROM connectors WHERE id = ?", (account_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM connectors WHERE id = ?", (account_id,)) as cur:
             row = await cur.fetchone()
         if row is None:
             raise KeyError(f"Connector account not found: {account_id}")
@@ -571,9 +571,7 @@ class ConnectorRepository:
         await self.conn.commit()
 
     async def update(self, account: Connector) -> None:
-        async with self.conn.execute(
-            "SELECT 1 FROM connectors WHERE id = ?", (account.id,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM connectors WHERE id = ?", (account.id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Connector account not found: {account.id}")
         await self.conn.execute(
@@ -594,14 +592,10 @@ class ConnectorRepository:
         await self.conn.commit()
 
     async def delete(self, account_id: str) -> None:
-        async with self.conn.execute(
-            "SELECT 1 FROM connectors WHERE id = ?", (account_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM connectors WHERE id = ?", (account_id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Connector account not found: {account_id}")
-        await self.conn.execute(
-            "DELETE FROM connectors WHERE id = ?", (account_id,)
-        )
+        await self.conn.execute("DELETE FROM connectors WHERE id = ?", (account_id,))
         await self.conn.commit()
 
     def _row_to_model(self, row: aiosqlite.Row) -> Connector:
@@ -731,9 +725,7 @@ class PendingApprovalRepository:
         await self.conn.commit()
         return await self.get(approval_id), False
 
-    async def list_for_account_peer(
-        self, account_id: str, peer_id: str
-    ) -> list[PendingApproval]:
+    async def list_for_account_peer(self, account_id: str, peer_id: str) -> list[PendingApproval]:
         async with self.conn.execute(
             "SELECT * FROM pending_approvals "
             "WHERE connector_id = ? AND peer_id = ? "
@@ -744,9 +736,7 @@ class PendingApprovalRepository:
 
     async def list_by_account(self, account_id: str) -> list[PendingApproval]:
         async with self.conn.execute(
-            "SELECT * FROM pending_approvals "
-            "WHERE connector_id = ? "
-            "ORDER BY received_at ASC",
+            "SELECT * FROM pending_approvals WHERE connector_id = ? ORDER BY received_at ASC",
             (account_id,),
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
@@ -770,8 +760,7 @@ class PendingApprovalRepository:
         left-panel pending section (M11 F17 L9 — Leg E).
         """
         async with self.conn.execute(
-            "SELECT * FROM pending_approvals WHERE status = 'pending' "
-            "ORDER BY received_at DESC"
+            "SELECT * FROM pending_approvals WHERE status = 'pending' ORDER BY received_at DESC"
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
@@ -789,12 +778,10 @@ class PendingApprovalRepository:
             return current  # idempotent on self-target
         if current.status != "pending":
             raise ValueError(
-                f"Pending approval {approval_id} is {current.status}; "
-                f"cannot transition to {target}"
+                f"Pending approval {approval_id} is {current.status}; cannot transition to {target}"
             )
         await self.conn.execute(
-            "UPDATE pending_approvals SET status = ?, resolved_at = ? "
-            "WHERE id = ?",
+            "UPDATE pending_approvals SET status = ?, resolved_at = ? WHERE id = ?",
             (target, now_iso(), approval_id),
         )
         await self.conn.commit()
@@ -1089,9 +1076,7 @@ class ChatSessionRepository:
         )
         await self.conn.commit()
 
-    async def append_to_session_metadata(
-        self, session_id: str, key: str, value: Any
-    ) -> None:
+    async def append_to_session_metadata(self, session_id: str, key: str, value: Any) -> None:
         """Append ``value`` to the list at ``session_metadata[key]``.
 
         Initializes ``session_metadata`` from NULL to ``{}`` and the
