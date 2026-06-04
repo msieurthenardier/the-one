@@ -37,7 +37,6 @@ from the_one.connectors.base import (
     SessionKey,
 )
 from the_one.connectors.errors import (
-    ConnectorAuthRequired,
     ConnectorClientError,
     ConnectorConfigError,
     ConnectorConnectionError,
@@ -83,7 +82,6 @@ __all__ = [
     "SendResult",
     "SessionKey",
     # Exception hierarchy
-    "ConnectorAuthRequired",
     "ConnectorClientError",
     "ConnectorConfigError",
     "ConnectorConnectionError",

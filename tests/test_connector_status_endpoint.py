@@ -708,3 +708,36 @@ def test_map_connect_error_cause_chain_depth():
     result = _map_connect_error(outer)
     assert "PrivilegedIntentsRequired" in result["message"]
     assert result["action_link"] == "https://discord.com/developers/applications"
+
+
+# ---------------------------------------------------------------------------
+# F. _save_warm_background — unexpected errors are NOT recorded as conn errors
+# ---------------------------------------------------------------------------
+
+
+async def test_save_warm_background_unexpected_error_not_recorded():
+    """Programming errors in _save_warm_background re-raise without touching _connect_error_store.
+
+    Regression for M12 F03 finding T2: the collapsed ``except (ConnectorClientError, Exception)``
+    would record any exception — including ``AttributeError`` and other programming bugs — as
+    a connection error, presenting a misleading message to the operator.  The narrowed except
+    must NOT write to ``_connect_error_store`` for non-ConnectorClientError exceptions.
+    """
+    from the_one.connectors import _pool as pool_mod_local
+    from the_one.interfaces.web.api import _save_warm_background
+
+    # Patch account_acquire on the module so the function-local import rebinds to it.
+    original = pool_mod_local.account_acquire
+
+    async def _raising_acquire(account_id: str):  # noqa: ARG001
+        raise AttributeError("simulated programming bug")
+
+    pool_mod_local.account_acquire = _raising_acquire
+    try:
+        with pytest.raises(AttributeError):
+            await _save_warm_background("acct")
+        assert "acct" not in _connect_error_store, (
+            "_connect_error_store must not contain the account when an unexpected error is raised"
+        )
+    finally:
+        pool_mod_local.account_acquire = original

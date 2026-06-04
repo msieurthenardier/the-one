@@ -3994,3 +3994,40 @@ async def test_send_ephemeral_pre_ready_no_application_id_uses_channel(
     webhook.send.assert_not_called()
     channel.send.assert_awaited_once_with("self only")
     assert result.platform_message_id == "66666"
+
+
+async def test_send_ephemeral_followup_non_401_http_error_raises_connection_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ephemeral followup raises a non-401, non-404 HTTPException (e.g. 500)
+    → the else branch maps it to :class:`ConnectorConnectionError` (typed
+    connector error, NOT a bare SDK exception); channel-send fallback is NOT
+    invoked."""
+    import discord
+
+    from the_one.connectors.errors import ConnectorConnectionError as _Conn
+
+    sdk = _make_followup_sdk(application_id=5550002)
+    channel = _make_text_channel_mock(channel_id=22222, sent_message_id=99999)
+    sdk.get_channel = MagicMock(return_value=channel)
+
+    # Build a genuine HTTPException with status=500 (non-401, non-404 → else branch).
+    http_500 = _make_http_exception(discord.errors.HTTPException, status=500)
+    webhook = MagicMock(name="application-webhook")
+    webhook.send = AsyncMock(side_effect=http_500)
+    monkeypatch.setattr(discord.Webhook, "from_state", lambda *, data, state: webhook)
+
+    client = _make_discord_client_with_sdk(sdk)
+    target = OutboundTarget(
+        channel_id="22222",
+        thread_id=None,
+        ephemeral=True,
+        interaction_followup_token="tok-live",
+    )
+
+    with pytest.raises(_Conn, match="Discord send failed"):
+        await client.send(target, "self only")
+
+    # Followup was attempted once; the channel-send fallback was NOT invoked.
+    webhook.send.assert_awaited_once()
+    channel.send.assert_not_called()

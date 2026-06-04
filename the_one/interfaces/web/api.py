@@ -2452,7 +2452,7 @@ async def _save_warm_background(account_id: str) -> None:
         await account_acquire(account_id)
         # Clear any stale error from a previous failed warm.
         _connect_error_store.pop(account_id, None)
-    except (ConnectorClientError, Exception) as exc:
+    except ConnectorClientError as exc:
         mapped = _map_connect_error(exc)
         _connect_error_store[account_id] = mapped
         logger.warning(
@@ -2460,6 +2460,12 @@ async def _save_warm_background(account_id: str) -> None:
             account_id,
             mapped["message"],
         )
+    except Exception:
+        logger.exception(
+            "save-warm background: unexpected error for account=%r; not recorded as conn error",
+            account_id,
+        )
+        raise
 
 
 def _connector_response(account: Connector) -> dict[str, Any]:

@@ -1,55 +1,61 @@
 # Leg: resolve-connector-auth-required
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Connector Error-Handling Correctness](../flight.md)
 
 ## Objective
-Resolve the dead `ConnectorAuthRequired` exception — either wire it into the Discord auth-failure path it documents, or remove the type, its export, and its docstring promise (resolves finding Q2).
+**DELETE** the dead `ConnectorAuthRequired` exception — remove the type, its exports, its docstring promise, the prose in the operational manual, and its unit tests — leaving zero dangling references (resolves finding Q2).
 
 ## Context
-- Maintenance report 2026-06-04, finding **Q2**: `ConnectorAuthRequired` is defined (`errors.py:36`), exported (`__init__.py:40,86`), unit-tested (`tests/test_connectors.py:80,86`), and documented (`base.py:375`) — but never `raise`d anywhere. Auth failures currently funnel through generic `ConnectorConfigError`/`ConnectorConnectionError`, so callers cannot distinguish "needs re-auth" from generic failure.
-- Flight design recommends **wiring** (raise it at the Discord `LoginFailure` site, `_discord.py:~1300`) so the distinction exists, with **deletion** as the acceptable fallback if the operator judges the distinction not worth a code path. Confirm the disposition at flight start.
+- Maintenance report 2026-06-04, finding **Q2**: `ConnectorAuthRequired` is defined, exported, unit-tested, and documented — but never `raise`d anywhere. Auth failures funnel through generic `ConnectorConfigError`/`ConnectorConnectionError`.
+- **Disposition: DELETE (operator-confirmed at flight start).** Investigation found no caller branches on connector error subtype and no surface consumes a "needs re-auth" distinction (the `app.py` `auth_required` machinery is the unrelated MCP tool-call OAuth pause). Wiring would leave the type dead-in-practice; deletion resolves it honestly.
+- **Runtime safety confirmed (design review):** no `except ConnectorAuthRequired` or `isinstance(..., ConnectorAuthRequired)` exists anywhere — deletion breaks no catch site. Catch sites use `ConnectorClientError` (base) / `ConnectorRegistrationError`, both unaffected.
+- This deletion also **moots the Flight 02 N818 concern** — the `# noqa: N818` is inline on the class line and vanishes with the class.
 
-## Inputs
-- `the_one/connectors/errors.py:36`, `the_one/connectors/__init__.py:40,86`, `the_one/connectors/base.py:375` (docstring), `tests/test_connectors.py:80,86`.
-- The Discord auth-failure site at `_discord.py:~1300` (`LoginFailure`).
+## Inputs (complete reference map, design-review verified — post-Flight-02 line numbers)
+- `the_one/connectors/errors.py:34–50` — class definition (carries the `# noqa: N818`)
+- `the_one/connectors/__init__.py:40` — import; `:86` — `__all__` entry
+- `the_one/connectors/base.py:375–377` — docstring `:class:` mention (preceded by a `ConnectorConnectionError` clause ending in `;`)
+- `the_one/agents.md:773` — prose: "defines **6** producer-side types: … `ConnectorAuthRequired`, …" (always-loaded operational manual — MUST update)
+- `tests/test_connectors.py:12` (import), `:54` (class docstring "6-type"), `:61` (`test_subclassing_chain` tuple), `:79–83` & `:85–87` (two dedicated test methods)
+- **No action**: `maintenance/2026-06-04.md` and all `missions/` artifacts are point-in-time/historical records — leave unmodified.
 
 ## Outputs
-- Either: `ConnectorAuthRequired` raised on auth failure + a test asserting it; or: the type, export, docstring promise, and smoke-test removed.
+- `ConnectorAuthRequired` fully removed; `grep -rn ConnectorAuthRequired the_one/ tests/` → zero; ruff + suite green.
 
 ## Acceptance Criteria
-- [ ] **If wiring**: the Discord `LoginFailure` (and any equivalent token-rejection) path raises `ConnectorAuthRequired`; a regression test asserts it; callers that should distinguish re-auth handle it (at minimum it is no longer dead)
-- [ ] **If deleting**: `ConnectorAuthRequired` is removed from `errors.py`, both export sites, the `base.py:375` docstring mention, and the smoke-test; `ruff check` stays green (no dangling import)
-- [ ] No dead exported error type remains either way
-- [ ] Full suite green
+- [x] Class removed from `errors.py` (the `# noqa: N818` went with it)
+- [x] Removed from `__init__.py` import and `__all__`
+- [x] `base.py` docstring: the `ConnectorAuthRequired` clause removed AND the preceding `ConnectorConnectionError` clause's trailing `;` changed to `.`
+- [x] `the_one/agents.md` updated: count reads "5 producer-side types" and `ConnectorAuthRequired` absent from the list
+- [x] `tests/test_connectors.py`: import removed; `test_subclassing_chain` tuple entry removed; class docstring "6-type" → "5-type"; both dedicated test methods deleted
+- [x] `grep -rn "ConnectorAuthRequired" the_one/ tests/` → zero results
+- [x] `docker exec the-one ruff check the_one/ tests/` → 0 (no dangling import)
+- [x] Full suite green (2935 passed)
 
 ## Verification Steps
-- `grep -rn "ConnectorAuthRequired" the_one/ tests/` — wiring: includes at least one `raise`; deletion: zero results
-- `docker exec the-one pytest tests/test_connectors_discord.py tests/test_connectors.py -q` green
-- `ruff check the_one/ tests/` → 0 (no unused-import left by deletion)
+- `grep -rn "ConnectorAuthRequired" the_one/ tests/` → zero results
+- `docker exec the-one ruff check the_one/ tests/` → 0
+- `docker exec the-one pytest tests/test_connectors.py tests/test_connectors_discord.py -q` green (then full suite at flight-end)
 
 ## Implementation Guidance
-
-**Confirm disposition first**, then one of:
-
-1. **Wire it** (recommended)
-   - At the Discord `LoginFailure` handler (`_discord.py:~1300`), raise `ConnectorAuthRequired(...)` instead of (or mapped from) the generic error it currently produces.
-   - Ensure the connect/save-warm caller treats it appropriately — at minimum it must not be misclassified; ideally `/status` or the operator surface can show "needs re-auth" distinctly. (Coordinate with the T2 narrowing in Leg 1 so the new type is among the caught connector errors where appropriate.)
-   - Add a regression test that drives a `LoginFailure` and asserts `ConnectorAuthRequired`.
-
-2. **Delete it** (fallback)
-   - Remove the class (`errors.py:36`), both export lines (`__init__.py:40,86`), the `base.py:375` docstring reference, and the smoke-test (`tests/test_connectors.py:80,86`).
-   - Run `ruff check` to confirm no dangling import; run the suite.
+Apply the complete checklist (5 files, 10 edits):
+1. **`errors.py`** — delete the entire `class ConnectorAuthRequired(...)` block (34–50).
+2. **`__init__.py`** — delete the `ConnectorAuthRequired,` import line (40) and the `"ConnectorAuthRequired",` `__all__` entry (86). (Leaving the import would trip ruff F401 — confirms removal.)
+3. **`base.py`** — delete the `:class:`ConnectorAuthRequired`` sentence (375–377); change the preceding `ConnectorConnectionError` clause's trailing semicolon to a period. Do not disturb the `ConnectorConfigError`/`ConnectorConnectionError` `:class:` references.
+4. **`agents.md`** — line 773: "6 producer-side types" → "5"; drop `ConnectorAuthRequired` from the inline list.
+5. **`tests/test_connectors.py`** — remove the import (12); remove the tuple entry in `test_subclassing_chain` (61); update the `TestConnectorExceptions` docstring (54) "6-type" → "5-type"; delete `test_auth_required_carries_account_id` (79–83) and `test_auth_required_account_name_optional` (85–87).
 
 ## Edge Cases
-- **Flight 02 N818**: `ConnectorAuthRequired` lacks an `Error` suffix and may be an N818 candidate in Flight 02 Leg 1. If deleting here, that N818 concern evaporates — coordinate ordering so Flight 02 doesn't rename a symbol this leg removes.
+- **Don't break shared tests** — `test_subclassing_chain` enumerates ALL error types; only remove the one tuple entry, keep the test and the other 4 types.
+- **Don't break docstring prose** — the semicolon→period fix in `base.py` is required for grammatical flow.
 
 ## Files Affected
-- `the_one/connectors/errors.py` - raise-site wiring OR class removal
-- `the_one/connectors/__init__.py` - export (kept if wiring, removed if deleting)
-- `the_one/connectors/_discord.py` - raise site (if wiring)
-- `the_one/connectors/base.py` - docstring (corrected or removed)
-- `tests/test_connectors.py`, `tests/test_connectors_discord.py` - tests
+- `the_one/connectors/errors.py` - class removed
+- `the_one/connectors/__init__.py` - import + `__all__` entry removed
+- `the_one/connectors/base.py` - docstring clause removed + semicolon→period
+- `the_one/agents.md` - count 6→5, symbol removed from list
+- `tests/test_connectors.py` - import, tuple entry, docstring count, two test methods
 
 ---
 
@@ -57,12 +63,12 @@ Resolve the dead `ConnectorAuthRequired` exception — either wire it into the D
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight:
-  - [ ] Update flight.md status to `landed`
-  - [ ] Check off flight in mission.md
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight:
+  - [x] Update flight.md status to `landed`
+  - [x] Check off flight in mission.md
+- [x] Commit all changes together (code + artifacts)

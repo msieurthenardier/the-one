@@ -770,7 +770,7 @@ Decisions, invariants, and known issues encoded by Mission 10 Flight 1. The code
 
 ### Typed-exception hierarchy
 
-`connectors/errors.py` defines 6 producer-side types: `ConnectorClientError` (base) → `ConnectorConfigError`, `ConnectorConnectionError`, `ConnectorAuthRequired`, `ConnectorRegistrationError`, `ConnectorRateLimitError`.
+`connectors/errors.py` defines 5 producer-side types: `ConnectorClientError` (base) → `ConnectorConfigError`, `ConnectorConnectionError`, `ConnectorRegistrationError`, `ConnectorRateLimitError`.
 
 Mirrors the MCP precedent in shape (`mcp/errors.py` has 10 producer-side types accreted across 11 M07 flights; the consumer-side match list in this file's MCP section collapses them into 4 categories — the "four-typed-exceptions" wording refers to that consumer surface, not the producer hierarchy). The connector hierarchy starts smaller; the **grow deliberately** stance applies — new types land only when a real platform reveals a distinct error mode that doesn't fit any existing type. `ConnectorRateLimitError` is shipped from Flight 1 specifically because Flight 10 owns rate-limit handling for both Discord and Slack outbound, and retrofitting the translation path in Flight 8/9 is structurally worse than carrying the type now.
 

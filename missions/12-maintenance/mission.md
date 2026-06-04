@@ -21,9 +21,9 @@ The connector subsystem itself came through clean on security (inbound XSS, ACL 
 
 - [x] `pip-audit` reports no CVEs in shipped runtime dependencies; runtime `aiohttp`/`idna`/`starlette` bumped to fix versions (via explicit `pyproject.toml` floors, since the image builds from `pyproject.toml`, not `uv.lock`); toolchain-only `urllib3` also bumped (dev-tree, not shipped — reclassified during Flight 01 design review); `uv.lock` regenerated; suite green (D1)
 - [x] A pre-commit hook AND a CI check both run `ruff check` + `ruff format --check` and **fail** on violations; `ruff check the_one/ tests/` returns 0 and `ruff format --check` reports all-formatted on `main` (Q1) — gate landed in Flight 02; the on-`main` CI green run completes when the PR merges
-- [ ] `api.py:2463` broad-except narrowed to expected connector error types, programming errors propagate, the `# noqa: BLE001` crutch removed (T2)
-- [ ] The ephemeral-followup non-401 path maps its `discord.errors.HTTPException` to a typed `ConnectorConnectionError` like the other send paths (T1)
-- [ ] `ConnectorAuthRequired` is either raised from the Discord auth-failure path it documents, or removed along with its export and docstring promise (Q2)
+- [x] `api.py` save-warm broad-except narrowed to `ConnectorClientError`, programming errors log-and-propagate (not recorded), the `# noqa: BLE001` crutch removed (T2; noqa already removed in Flight 02)
+- [x] The ephemeral-followup non-401 path maps its `discord.errors.HTTPException` to a typed `ConnectorConnectionError` like the other send paths (T1)
+- [x] `ConnectorAuthRequired` removed along with its export, docstring promise, manual reference, and tests (Q2 — deletion; nothing consumed the distinction)
 - [ ] Routing-rule reorder is operable by keyboard (move buttons or arrow-key reorder on a focusable handle) (A2)
 - [ ] The connector attach/enable toggle has an accessible name (A3)
 - [ ] The connector live-status region announces state changes to screen readers via `role="status"`/`aria-live` (A1)
@@ -66,7 +66,7 @@ N/A — all findings have concrete, Architect-recommended fixes. Any per-leg des
 
 - [x] Flight 01: Dependency CVE Refresh (D1)
 - [x] Flight 02: Lint/Format Enforcement Gate (Q1)
-- [ ] Flight 03: Connector Error-Handling Correctness (T2, T1, Q2)
+- [x] Flight 03: Connector Error-Handling Correctness (T2, T1, Q2)
 - [ ] Flight 04: Mission-11 UI Accessibility Pass (A2, A3, A1, A4, A5, A6, A7)
 - [ ] Flight 05: Long-Lived Session Hygiene (P4)
 - [ ] Flight 06: Cleanup Grab-Bag (P5, Q4, DOC1–DOC5, G1, G2)
