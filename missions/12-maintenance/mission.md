@@ -1,6 +1,6 @@
 # Mission: Maintenance (Post-M11)
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 
@@ -19,7 +19,7 @@ The connector subsystem itself came through clean on security (inbound XSS, ACL 
 
 ## Success Criteria
 
-- [ ] `pip-audit` reports no CVEs in shipped runtime dependencies; `aiohttp`, `idna`, `starlette`, `urllib3` bumped to fix versions; `uv.lock` regenerated; suite green (D1)
+- [x] `pip-audit` reports no CVEs in shipped runtime dependencies; runtime `aiohttp`/`idna`/`starlette` bumped to fix versions (via explicit `pyproject.toml` floors, since the image builds from `pyproject.toml`, not `uv.lock`); toolchain-only `urllib3` also bumped (dev-tree, not shipped — reclassified during Flight 01 design review); `uv.lock` regenerated; suite green (D1)
 - [ ] A pre-commit hook AND a CI check both run `ruff check` + `ruff format --check` and **fail** on violations; `ruff check the_one/ tests/` returns 0 and `ruff format --check` reports all-formatted on `main` (Q1)
 - [ ] `api.py:2463` broad-except narrowed to expected connector error types, programming errors propagate, the `# noqa: BLE001` crutch removed (T2)
 - [ ] The ephemeral-followup non-401 path maps its `discord.errors.HTTPException` to a typed `ConnectorConnectionError` like the other send paths (T1)
@@ -64,7 +64,7 @@ N/A — all findings have concrete, Architect-recommended fixes. Any per-leg des
 
 > **Note:** These are scoped from the user-confirmed maintenance shortlist. Flights are ready for execution; the architectural-cluster refactors (Q3/Q5/Q6) are deliberately excluded.
 
-- [ ] Flight 01: Dependency CVE Refresh (D1)
+- [x] Flight 01: Dependency CVE Refresh (D1)
 - [ ] Flight 02: Lint/Format Enforcement Gate (Q1)
 - [ ] Flight 03: Connector Error-Handling Correctness (T2, T1, Q2)
 - [ ] Flight 04: Mission-11 UI Accessibility Pass (A2, A3, A1, A4, A5, A6, A7)
