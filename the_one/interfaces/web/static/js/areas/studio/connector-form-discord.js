@@ -189,7 +189,8 @@
     html += '<span id="discord-presence-help-text" class="visually-hidden">' +
             _escapeHtml(presenceTipText) + '</span>';
     html += '<div class="discord-presence-fields">';
-    html += '<select class="field-input field-select" data-field="presence-type" data-testid="discord-presence-type">';
+    html += '<label for="cf-discord-presence-type" class="visually-hidden">Activity type</label>';
+    html += '<select id="cf-discord-presence-type" class="field-input field-select" data-field="presence-type" data-testid="discord-presence-type">';
     var emptySelected = presenceType === '' ? ' selected' : '';
     html += '<option value=""' + emptySelected + '>(default)</option>';
     for (var p = 0; p < PRESENCE_TYPES.length; p++) {
@@ -199,7 +200,8 @@
       html += '<option value="' + _escapeAttr(pt) + '"' + sel + '>' + _escapeHtml(ptLabel) + '</option>';
     }
     html += '</select>';
-    html += '<input class="field-input" type="text" data-field="presence-name" data-testid="discord-presence-name" ' +
+    html += '<label for="cf-discord-presence-name" class="visually-hidden">Activity name</label>';
+    html += '<input id="cf-discord-presence-name" class="field-input" type="text" data-field="presence-name" data-testid="discord-presence-name" ' +
             'value="' + _escapeAttr(presenceName) + '" placeholder="(e.g., chess, music)" />';
     html += '</div>';
     html += '</div>';

@@ -362,7 +362,7 @@
     // Connection" by DOM ancestry.
     var connectionHtml = '';
     connectionHtml += '<div class="editor-section" data-testid="connector-connection-section">';
-    connectionHtml += '<div class="section-title">Connection</div>';
+    connectionHtml += '<h2 class="section-title">Connection</h2>';
     connectionHtml += renderConnectionFields(account, types, isCreate);
     if (!isCreate) {
       // M11 F17 L5: live status indicator row (replaces "Not tested").
@@ -382,7 +382,7 @@
     // Credentials section.
     var credentialsHtml = '';
     credentialsHtml += '<div class="editor-section">';
-    credentialsHtml += '<div class="section-title">Credentials</div>';
+    credentialsHtml += '<h2 class="section-title">Credentials</h2>';
     credentialsHtml += renderSecretsKvTable(account);
     credentialsHtml += '</div>';
 
@@ -401,7 +401,7 @@
     // F5 L6 HAT R4: renamed "Lifecycle" → "Session"; the per-section
     // friendly description sits flush under the terse title (see
     // ``.section-description`` in studio.css).
-    lifecycleHtml += '<div class="section-title">Session</div>';
+    lifecycleHtml += '<h2 class="section-title">Session</h2>';
     lifecycleHtml += '<div class="section-description">How sessions continue and connections idle.</div>';
 
     // F5 L3: ``<small class="form-hint">`` blocks replaced with
@@ -615,7 +615,7 @@
           // — future non-Discord typed connectors will plug into the
           // same slot and the section header will adapt per-type
           // (deferred; today Discord is the sole connector).
-          runtimeConfigHtml += '<div class="section-title">Discord</div>';
+          runtimeConfigHtml += '<h2 class="section-title">Discord</h2>';
           runtimeConfigHtml += '<div class="section-description">What events the bot subscribes to, where it operates, and how it appears.</div>';
           runtimeConfigHtml += runtimeInner;
           runtimeConfigHtml += '</div>';
@@ -652,7 +652,7 @@
     var dangerZoneHtml = '';
     if (!isCreate) {
       dangerZoneHtml += '<div class="editor-section danger-zone">';
-      dangerZoneHtml += '<div class="section-title danger-zone-title">Danger Zone</div>';
+      dangerZoneHtml += '<h2 class="section-title danger-zone-title">Danger Zone</h2>';
       dangerZoneHtml += '<button type="button" class="btn-muted-destructive delete-btn connector-delete-btn" data-testid="delete-connector-btn" data-name="' + escapeAttr(account.name || '') + '">' +
               window.App.icon('trash') +
               '<span data-confirm-title>Delete Connector</span>' +
@@ -2062,10 +2062,12 @@
     html += '<span class="indicator-led indicator-led--idle connector-live-status-led" ' +
             'aria-label="Status unknown" data-state="unknown"></span>';
     html += '<span class="connector-live-status-text" ' +
+            'aria-live="polite" ' +
             'data-testid="connector-live-status">Checking…</span>';
     html += '</div>';
     html += '</div>';
     html += '<div class="connector-live-status-error-wrap" ' +
+            'role="alert" ' +
             'data-testid="connector-live-status-error-wrap" hidden>';
     html += '<span class="connector-live-status-error" ' +
             'data-testid="connector-live-status-error"></span>';
@@ -2091,7 +2093,7 @@
     html += '<button type="button" class="btn-outlined-primary connector-test-connection-btn" data-testid="connector-test-connection-btn">' +
             window.App.icon('refresh-cw') + ' Validate</button>';
     html += '<span class="indicator-led indicator-led--idle connector-test-led" data-testid="connector-test-led" data-state="idle" aria-label="Not tested"></span>';
-    html += '<span class="connector-test-message" data-testid="connector-test-message"></span>';
+    html += '<span class="connector-test-message" aria-live="polite" data-testid="connector-test-message"></span>';
     html += '</div>';
     html += '</div>';
     html += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
@@ -2125,7 +2127,7 @@
 
     var html = '';
     html += '<div class="editor-section connector-pairing-section">';
-    html += '<div class="section-title">Pairing</div>';
+    html += '<h2 class="section-title">Pairing</h2>';
 
     // Action row — Generate/Regenerate button with refresh icon,
     // followed by the status line. Order is button-then-status so the
@@ -2227,7 +2229,7 @@
     // a friendly description. L5 cycle 5: "Access" → "Users".
     // M11 F17 L8 (Leg D): "Users" → "Direct Messages" (peers axis is
     // DM-only post-F16; relabel matches the actual function).
-    html += '<div class="section-title">Direct Messages</div>';
+    html += '<h2 class="section-title">Direct Messages</h2>';
     html += '<div class="section-description">Who can DM the bot.</div>';
 
     // M11 F17 L5: discoverable-entities banner moved to the TOP of the
@@ -2333,7 +2335,7 @@
     // the Servers slot itself.
     html += '<div class="editor-section connector-allowlist-section ' +
             'connector-allowlist-section--servers">';
-    html += '<div class="section-title">Servers</div>';
+    html += '<h2 class="section-title">Servers</h2>';
     var guildsTipText = 'Add a ' + vocab.group +
             '. Narrow which channels and roles inside it the bot ' +
             'answers from.' +
@@ -2510,7 +2512,7 @@
     html += '<tr class="connector-routing-row" data-routing-rule data-routing-rule-idx="' + idx + '">';
     html += '<td class="connector-routing-drag-cell">' +
             '<span class="connector-routing-drag-handle" draggable="true" ' +
-            'role="button" aria-label="Drag to reorder rule" title="Drag to reorder" ' +
+            'tabindex="0" aria-label="Reorder rule — use Arrow keys to move" title="Drag to reorder" ' +
             'data-routing-drag-handle data-row="' + idx + '">' +
             window.App.icon('grip-vertical') +
             '</span></td>';
@@ -2563,7 +2565,7 @@
     html += '<div class="editor-section connector-routing-section">';
     // F5 L6 HAT R4: renamed "Routing rules" → "Routing" with a
     // friendly description.
-    html += '<div class="section-title">Routing</div>';
+    html += '<h2 class="section-title">Routing</h2>';
     html += '<div class="section-description">Which agent handles which message.</div>';
 
     // M10 F7 L9 HAT2: default-agent row at the top of the section
@@ -2621,6 +2623,13 @@
     html += '<button type="button" class="btn-outlined-primary kv-add-row-btn ' +
             'connector-routing-add-row-btn" ' +
             'data-testid="connector-routing-add-row-btn">+ Add rule</button>';
+
+    // M12 F4 L1 A2: persistent visually-hidden live region for keyboard
+    // reorder announcements. Injected once per section render (not per
+    // keypress). The keydown handler in wireRoutingRulesEvents writes
+    // position text here after each move, or a boundary message when
+    // the rule is already first/last.
+    html += '<span class="visually-hidden" aria-live="polite" data-routing-live-region></span>';
 
     html += '</div>'; // .editor-section
     return html;
@@ -2901,10 +2910,62 @@
       });
     }
 
+    // M12 F4 L1 A2 — keyboard reorder via ArrowUp / ArrowDown.
+    //
+    // The keydown handler replicates the drag path's inline DOM mutation
+    // (there is no shared reorder function — both paths mutate DOM order
+    // directly and collectRoutingFromContainer reads querySelectorAll
+    // result). Uses Array.indexOf on the live rows NodeList (NOT the
+    // stale data-row attr) to find the current position. After
+    // insertBefore the moved handle receives focus (insertBefore drops
+    // focus to <body> otherwise). A persistent visually-hidden
+    // aria-live="polite" region announces the new position; at
+    // boundaries it announces "already first/last" rather than silently
+    // no-op'ing.
+    function _wireRoutingKeyboardReorder(rowEl) {
+      var handle = rowEl.querySelector('[data-routing-drag-handle]');
+      if (!handle) return;
+      handle.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        e.preventDefault();
+        var parent = rowEl.parentNode;
+        if (!parent) return;
+        var rows = Array.prototype.slice.call(
+          parent.querySelectorAll('tr.connector-routing-row')
+        );
+        var idx = rows.indexOf(rowEl);
+        if (idx === -1) return;
+        var liveRegion = section.querySelector('[data-routing-live-region]');
+        if (e.key === 'ArrowUp') {
+          if (idx === 0) {
+            if (liveRegion) liveRegion.textContent = 'Rule is already first';
+            return;
+          }
+          parent.insertBefore(rowEl, rows[idx - 1]);
+        } else {
+          if (idx === rows.length - 1) {
+            if (liveRegion) liveRegion.textContent = 'Rule is already last';
+            return;
+          }
+          parent.insertBefore(rowEl, rows[idx + 1].nextSibling);
+        }
+        checkDirty();
+        handle.focus();
+        if (liveRegion) {
+          var updatedRows = Array.prototype.slice.call(
+            parent.querySelectorAll('tr.connector-routing-row')
+          );
+          var newPos = updatedRows.indexOf(rowEl) + 1;
+          liveRegion.textContent = 'Rule moved to position ' + newPos + ' of ' + updatedRows.length;
+        }
+      });
+    }
+
     function _wireRoutingRow(rowEl) {
       _wireRoutingMatchChiplist(rowEl);
       _wireRoutingDragHandle(rowEl);
       _wireRoutingDropTarget(rowEl);
+      _wireRoutingKeyboardReorder(rowEl);
     }
 
     // Initial wiring for pre-rendered rows.
@@ -3077,7 +3138,7 @@
   function renderAttachedAgentsSection() {
     var html = '';
     html += '<div class="editor-section connector-attached-agents-section">';
-    html += '<div class="section-title">Attached agents</div>';
+    html += '<h2 class="section-title">Attached agents</h2>';
     html += '<div class="connector-attached-agents-list" ' +
             'data-testid="connector-attached-agents-list">' +
             '<em class="form-hint">Loading…</em>' +

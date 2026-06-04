@@ -123,6 +123,7 @@
        between themes) but tokens live here for consistency. */
     --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
     --motion-fast: 150ms;
+    --motion-medium: 200ms;
     --motion-base: 250ms;
 
     /* code-block — Mission 08 F3 L07. Read-only code/prompt artifact
@@ -308,6 +309,7 @@
        theme-agnostic but tokens live in both theme blocks for consistency. */
     --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
     --motion-fast: 150ms;
+    --motion-medium: 200ms;
     --motion-base: 250ms;
 
     /* code-block — Mission 08 F3 L07. Light theme overrides the dark
@@ -417,10 +419,12 @@
   @media (prefers-reduced-motion: reduce) {
     [data-theme="dark"] {
       --motion-fast: 0ms;
+      --motion-medium: 0ms;
       --motion-base: 0ms;
     }
     [data-theme="light"] {
       --motion-fast: 0ms;
+      --motion-medium: 0ms;
       --motion-base: 0ms;
     }
   }

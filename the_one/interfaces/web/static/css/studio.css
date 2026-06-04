@@ -57,8 +57,8 @@
   .area-studio .tool-actions .btn-outlined-primary { padding: 3px 10px; font-size: var(--font-size-caption); }
   .area-studio .tool-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
   .area-studio .tool-toggle { display: none; }
-  .area-studio .tool-switch { width: 32px; height: 18px; background: var(--surface-elevated); border-radius: 9px; position: relative; flex-shrink: 0; transition: background 0.2s; }
-  .area-studio .tool-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--fg-tertiary); border-radius: 50%; transition: transform 0.2s, background 0.2s; }
+  .area-studio .tool-switch { width: 32px; height: 18px; background: var(--surface-elevated); border-radius: 9px; position: relative; flex-shrink: 0; transition: background var(--motion-medium); }
+  .area-studio .tool-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--fg-tertiary); border-radius: 50%; transition: transform var(--motion-medium), background var(--motion-medium); }
   .area-studio .tool-toggle:checked + .tool-switch { background: var(--accent); }
   .area-studio .tool-toggle:checked + .tool-switch::after { transform: translateX(14px); background: var(--fg-on-accent); }
   /* Tristate (master category toggle): partial-enabled = accent-translucent
@@ -181,7 +181,7 @@
     border: 1px solid var(--glass-border);
     border-radius: var(--panel-radius);
     box-shadow: var(--bezel-shadow);
-    transition: border-color 0.15s;
+    transition: border-color var(--motion-fast);
   }
   .area-studio .mcp-tool-item:hover { border-color: var(--accent); }
   .area-studio .mcp-tool-summary {
@@ -213,7 +213,7 @@
   }
   .area-studio .mcp-tool-summary .mcp-tool-chevron {
     display: inline-block;
-    transition: transform 0.15s;
+    transition: transform var(--motion-fast);
     color: var(--fg-tertiary);
     flex-shrink: 0;
   }
@@ -323,7 +323,7 @@
   }
   .area-studio .mcp-server-instructions-chevron,
   .area-studio .mcp-server-meta-chevron {
-    transition: transform 0.15s;
+    transition: transform var(--motion-fast);
     color: var(--fg-tertiary, var(--fg-muted));
   }
   .area-studio .mcp-server-instructions[open] .mcp-server-instructions-chevron,
@@ -481,7 +481,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    transition: color 0.15s;
+    transition: color var(--motion-fast);
   }
   .area-studio .mcp-source-tile-expand-btn:hover { color: var(--accent); }
   .area-studio .mcp-source-tile-expand-btn:focus-visible {
@@ -492,7 +492,7 @@
   .area-studio .mcp-source-tile-tool-count strong { color: var(--fg); }
   .area-studio .mcp-source-tile-chevron {
     display: inline-block;
-    transition: transform 0.15s;
+    transition: transform var(--motion-fast);
     color: var(--fg-tertiary);
   }
   .area-studio .mcp-source-tile[aria-expanded="true"] .mcp-source-tile-chevron {
@@ -568,7 +568,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    transition: color 0.15s;
+    transition: color var(--motion-fast);
   }
   .area-studio .tools-category-tile-expand-btn:hover { color: var(--accent); }
   .area-studio .tools-category-tile-expand-btn:focus-visible {
@@ -579,7 +579,7 @@
   .area-studio .tools-category-tile-expand-btn strong { color: var(--fg); }
   .area-studio .tools-category-tile-chevron {
     display: inline-block;
-    transition: transform 0.15s;
+    transition: transform var(--motion-fast);
     color: var(--fg-tertiary);
   }
   .area-studio .tools-category-tile[aria-expanded="true"] .tools-category-tile-chevron {
@@ -604,7 +604,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--surface);
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color var(--motion-fast), background var(--motion-fast);
   }
   .area-studio .tools-category-tile-tools .tool-tile:hover {
     border-color: var(--accent);
@@ -645,7 +645,7 @@
   }
   .area-studio .tools-category-tile-tools .tool-tile-overrides-affordance .chevron {
     display: inline-block;
-    transition: transform 0.15s;
+    transition: transform var(--motion-fast);
     color: var(--fg-tertiary);
   }
   .area-studio .tools-category-tile-tools .tool-tile[open] .tool-tile-overrides-affordance .chevron {
@@ -669,7 +669,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--surface);
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color var(--motion-fast), background var(--motion-fast);
   }
   .area-studio .mcp-tool-toggle-label:hover {
     border-color: var(--accent);
@@ -759,7 +759,7 @@
     align-items: center;
     justify-content: center;
     line-height: 0;
-    transition: color 0.15s ease;
+    transition: color var(--motion-fast) ease;
   }
   .area-studio .kv-remove-row-btn:hover { color: var(--status-danger); }
   .area-studio .kv-remove-row-btn svg { width: 16px; height: 16px; display: block; }
@@ -832,7 +832,7 @@
     align-items: center;
     justify-content: center;
     line-height: 0;
-    transition: color 0.15s ease;
+    transition: color var(--motion-fast) ease;
   }
   .area-studio .config-remove-row-btn:hover,
   .area-studio .secret-remove-row-btn:hover,
@@ -858,6 +858,13 @@
   }
   .area-studio .connector-routing-drag-handle:hover { color: var(--fg); }
   .area-studio .connector-routing-drag-handle:active { cursor: grabbing; }
+  /* M12 F4 L1 A2: visible focus ring for the now-focusable keyboard-reorder
+     handle. Matches the studio input focus style (accent border + glow). */
+  .area-studio .connector-routing-drag-handle:focus-visible {
+    outline: 2px solid var(--accent);
+    border-radius: 3px;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
   .area-studio .connector-routing-drag-handle svg { width: 16px; height: 16px; display: block; }
   .area-studio .connector-routing-row.is-dragging { opacity: 0.5; }
   .area-studio .connector-routing-row.is-dragging .connector-routing-drag-handle { cursor: grabbing; }
@@ -1423,7 +1430,7 @@
     font-variant-numeric: tabular-nums;
   }
   .area-studio .connector-attached-agents-table tbody tr {
-    transition: background 0.15s ease;
+    transition: background var(--motion-fast) ease;
   }
   .area-studio .connector-attached-agents-table tbody tr:hover {
     background: var(--surface-elevated));
@@ -1566,6 +1573,10 @@
   .discoverable-dropdown-item:hover,
   .discoverable-dropdown-item--focused {
     background: var(--accent-translucent);
+  }
+  .discoverable-dropdown-item--focused {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .discoverable-dropdown-item[aria-selected="true"] {
     color: var(--accent);

@@ -1,6 +1,6 @@
 # Leg: headings-contrast-motion
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Mission-11 UI Accessibility Pass](../flight.md)
 
 ## Objective
@@ -20,32 +20,39 @@ Promote the connector-editor section titles to programmatic headings (A5), give 
 ## Outputs
 - Section titles as `<h2>`; dropdown focus indicator at ≥3:1; studio.css transitions token-driven.
 
+## Scope (design-review decision)
+**A5 is scoped to `connector-editor.js` only** — the M11 connector-editor surface this flight covers. `section-title` `<div>`s also exist in `general-tab.js`, `provider-editor.js`, `mcp-server-editor.js`, `tools-editor.js`, `system-page.js`, and `history-buckets.js`; promoting those is **out of scope** (tracked as an A5-remainder follow-up — note in the flight log, not fixed here). Similarly, A7 fixes `studio.css` only; `components.css` has its own hardcoded transition literals — out-of-scope residual, note it.
+
 ## Acceptance Criteria
-- [ ] All 10 editor section titles render as `<h2>` (styled to match the current look), giving heading-navigable structure under the editor's `<h1>`
-- [ ] The `--focused` dropdown item has a distinct visible indicator (outline or stronger background) meeting ≥3:1 against the menu surface, distinguishable from `:hover`
-- [ ] `studio.css` transitions reference `var(--motion-fast)`/`var(--motion-base)` (or a `prefers-reduced-motion` block zeroes them), so reduced-motion users get no transition
-- [ ] `pytest tests/test_design_tokens_a11y.py` and `tests/test_token_definitions.py` stay green (no undefined `var(--x)` introduced)
+- [x] All **10** connector-editor section titles render as `<h2 class="section-title">` (incl. the "Danger Zone" title keeping `danger-zone-title`), under the editor's single `<h1>` — logical heading order, verified live (`<h1>`→10×`<h2>`, 0 `div.section-title`)
+- [x] Visual unchanged — `.section-title` (components.css:333) sets font explicitly; no extra reset needed
+- [x] `.discoverable-dropdown-item--focused` gets `outline: 2px solid var(--accent); outline-offset: -2px` — ≥3:1 vs surface, distinct from `:hover`
+- [x] `studio.css`'s 13 `0.15s` literals → `var(--motion-fast)`; the two `0.2s` `.tool-switch` literals → new **`--motion-medium: 200ms`** (added to both theme blocks AND the `prefers-reduced-motion` zeroing block) — behavior-preserving
+- [x] `pytest tests/test_design_tokens_a11y.py` and `tests/test_token_definitions.py` green — 48 passed (`--motion-medium` defined)
+- [x] Browser assertion confirms the section titles are `<h2>` — `test_connector_editor_section_titles_are_h2`
 
 ## Verification Steps
-- DOM check / browser test: section titles are `<h2>`; heading order is logical (single `<h1>` → `<h2>`s)
+- DOM check / browser test: connector section titles are `<h2>`; heading order is `<h1>`→`<h2>`s
 - Manual: keyboard-navigate the discoverable-dropdown, confirm the focused option is unambiguously visible and distinct from hover
-- Manual with `prefers-reduced-motion: reduce`: studio.css transitions are suppressed
+- Manual with `prefers-reduced-motion: reduce`: studio.css transitions (incl. `.tool-switch`) are suppressed
 - `pytest tests/test_design_tokens_a11y.py tests/test_token_definitions.py -q` green
 
 ## Implementation Guidance
 
-1. **A5 — headings** — change the 9 `section-title` `<div>`s to `<h2>` (keep the `section-title` class for styling; add heading reset CSS if needed so they look identical). Verify no CSS selector depended on `div.section-title` specifically.
-2. **A6 — focus indicator** — in `studio.css:1566-1569`, add a distinct `outline` (e.g. `2px solid var(--accent)`) or a stronger background to `.discoverable-dropdown-item--focused` so it's ≥3:1 and clearly different from `:hover`.
-3. **A7 — reduced-motion** — replace the hardcoded `0.15s`/`0.2s` transition durations across studio.css's 15 sites with `var(--motion-fast)`/`var(--motion-base)`, OR add a `@media (prefers-reduced-motion: reduce)` block in studio.css zeroing those transitions. Prefer the token route (single source of truth) — confirm the tokens exist in `tokens.css` so `test_token_definitions.py` stays green.
+1. **A5 — headings** — change the **10** connector-editor `section-title` `<div>`s (incl. ~655 "Danger Zone", which also has `danger-zone-title` — keep both classes) to `<h2>`, keeping `class="section-title"`. The `.section-title` rule lives in `components.css:333` and sets font explicitly, so the visual is identical with no reset. Verify no selector targets `div.section-title` (confirmed none exist).
+2. **A6 — focus indicator** — in `studio.css:1566-1569`, add `outline: 2px solid var(--accent)` (plus a small offset if needed) to `.discoverable-dropdown-item--focused` so it's ≥3:1 vs `var(--surface)` and clearly distinct from `:hover`. (`test_design_tokens_a11y.py` already asserts accent-on-surface ≥3:1 both themes, so `var(--accent)` is safe.)
+3. **A7 — reduced-motion (token route)** — replace `studio.css`'s `0.15s` literals with `var(--motion-fast)`. For the two `0.2s` `.tool-switch` rules (~60-61): `--motion-fast`=150ms and `--motion-base`=250ms match neither, so **add a new `--motion-medium: 200ms`** to `tokens.css` (alongside the existing motion tokens, both theme blocks if applicable) AND add it to the `prefers-reduced-motion` zeroing block (~417-426); then use `var(--motion-medium)` for those two. This preserves the 200ms duration exactly while making it reduced-motion-aware.
 
 ## Edge Cases
-- **Heading styling drift** — `<h2>` carries default margins/font; reset via the `section-title` class so the visual is unchanged.
-- **Token names** — only use `--motion-*` tokens that are actually defined in `tokens.css`; an undefined `var()` would fail `test_token_definitions.py`.
+- **Heading styling drift** — none expected (the `.section-title` class wins over UA `<h2>` defaults); verify visually anyway.
+- **Token names** — only reference defined `--motion-*` tokens; the new `--motion-medium` must be defined in `tokens.css` (and zeroed in the reduced-motion block) before use, or `test_token_definitions.py` fails.
+- **Out-of-scope residuals** — `components.css` hardcoded transition literals and the app-wide `section-title` divs are NOT fixed here; log them as A5/A7-remainder follow-ups.
 
 ## Files Affected
-- `the_one/interfaces/web/static/js/areas/studio/connector-editor.js` - section titles → `<h2>`
-- `the_one/interfaces/web/static/css/studio.css` - dropdown focus indicator; transition durations → tokens
-- `tests/browser/` or DOM-shape test - heading assertion (if one fits)
+- `the_one/interfaces/web/static/js/areas/studio/connector-editor.js` - 10 section titles → `<h2>`
+- `the_one/interfaces/web/static/css/studio.css` - dropdown focus outline; `0.15s`→`var(--motion-fast)`, `0.2s`→`var(--motion-medium)`
+- `the_one/interfaces/web/static/css/tokens.css` - add `--motion-medium: 200ms` (+ reduced-motion zeroing)
+- `tests/browser/test_flow_studio_connector_editor.py` - `<h2>` heading assertion
 
 ---
 
@@ -53,12 +60,12 @@ Promote the connector-editor section titles to programmatic headings (A5), give 
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight:
-  - [ ] Update flight.md status to `landed`
-  - [ ] Check off flight in mission.md
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight:
+  - [x] Update flight.md status to `landed`
+  - [x] Check off flight in mission.md
+- [x] Commit all changes together (code + artifacts)

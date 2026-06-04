@@ -421,6 +421,9 @@
     checkbox.setAttribute('data-connector-toggle', '');
     checkbox.setAttribute('data-connector-id', account.id);
     checkbox.setAttribute('data-testid', 'connector-toggle-' + account.id);
+    // M12 F4 L1 A3: accessible name for the attach toggle. Mirrors the
+    // per-agent "Always listen" pattern (connectors-tab.js:815-848).
+    checkbox.setAttribute('aria-label', 'Attach ' + (account.name || account.id));
     checkbox.checked = isAttached;
     toggleLabel.appendChild(checkbox);
 

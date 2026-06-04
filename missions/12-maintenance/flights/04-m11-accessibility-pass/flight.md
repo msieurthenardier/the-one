@@ -1,6 +1,6 @@
 # Flight: Mission-11 UI Accessibility Pass
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Maintenance (Post-M11)](../../mission.md)
 
 ## Contributing to Criteria
@@ -18,7 +18,7 @@
 Bring the new Mission-11 connector-editor UI up to WCAG 2.1 Level-A operability and clean up the AA/AAA gaps, in one cohesive pass over `connector-editor.js`, `connectors-tab.js`, and `connector-form-discord.js` (and `studio.css`).
 
 ### Open Questions
-- [ ] A2 mechanism — restore chevron move-up/down buttons, or make the drag handle focusable with arrow-key reordering? See Design Decisions; confirm at flight start.
+- [x] A2 mechanism — **RESOLVED at flight start: focusable handle + arrow-key reordering** (operator choice). Give the drag handle `tabindex="0"`, ArrowUp/ArrowDown keydown reordering (with `preventDefault`), and a visually-hidden live region announcing the new position; the `role="button"` must become genuinely operable (or switch to a real `<button>`). Keep HTML5 drag for mouse users; both paths call the same reorder logic.
 
 ### Design Decisions
 
@@ -49,9 +49,9 @@ Bring the new Mission-11 connector-editor UI up to WCAG 2.1 Level-A operability 
 Three legs grouped by file-cohesion and severity: Leg 1 the two Level-A operability blockers (A2 keyboard reorder, A3 toggle name); Leg 2 the announcement + labeling Level-A/AA items (A1 live region, A4 presence labels); Leg 3 the structural + visual polish (A5 headings, A6 focus contrast, A7 reduced-motion). Each leg adds or extends a browser test where one fits.
 
 ### Checkpoints
-- [ ] Routing rules reorderable by keyboard; toggle named (Leg 1)
-- [ ] Live-status announced; presence controls labeled (Leg 2)
-- [ ] Section titles are headings; dropdown focus visible at 3:1; transitions honor reduced-motion (Leg 3)
+- [x] Routing rules reorderable by keyboard; toggle named (Leg 1)
+- [x] Live-status announced; presence controls labeled (Leg 2)
+- [x] Section titles are headings; dropdown focus visible at 3:1; transitions honor reduced-motion (Leg 3)
 
 ### Adaptation Criteria
 
@@ -62,19 +62,19 @@ Three legs grouped by file-cohesion and severity: Leg 1 the two Level-A operabil
 - Exact ARIA mechanism (`role="status"` vs `aria-live`), heading level styling.
 
 ### Legs
-- [ ] `01-keyboard-reorder-and-toggle-name` - A2 (keyboard routing-rule reorder) + A3 (named attach toggle)
-- [ ] `02-live-region-and-labels` - A1 (live-status announcements) + A4 (presence control labels)
-- [ ] `03-headings-contrast-motion` - A5 (section headings) + A6 (dropdown focus contrast) + A7 (reduced-motion tokens)
+- [x] `01-keyboard-reorder-and-toggle-name` - A2 (keyboard routing-rule reorder) + A3 (named attach toggle)
+- [x] `02-live-region-and-labels` - A1 (live-status announcements) + A4 (presence control labels)
+- [x] `03-headings-contrast-motion` - A5 (section headings) + A6 (dropdown focus contrast) + A7 (reduced-motion tokens)
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (incl. browser tests for the keyboard path)
-- [ ] Documentation updated (agents.md a11y notes if a convention changes)
+- [x] Tests passing (browser tests for the keyboard path + the Witnessed behavior test, both green)
+- [x] Documentation updated (N/A — no convention change; the `--motion-medium` token is self-documenting in tokens.css)
 
 ### Verification
 Manual keyboard-only pass: routing rules reorderable, all controls reachable and named. Screen-reader pass (or `aria-*` assertions in a browser test): status changes announced, toggle/presence controls named, section titles navigable as headings. `pytest -m browser tests/browser/` green. `pytest tests/test_design_tokens_a11y.py` still green.
