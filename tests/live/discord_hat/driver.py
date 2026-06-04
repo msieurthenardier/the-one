@@ -203,9 +203,7 @@ async def wait_for_session(
         last_detail: dict | None = None
         while asyncio.get_event_loop().time() < deadline:
             if session_id is None:
-                resp = await http.get(
-                    "/api/_test/chat/sessions/lookup", params=params
-                )
+                resp = await http.get("/api/_test/chat/sessions/lookup", params=params)
                 resp.raise_for_status()
                 session_id = resp.json().get("session_id")
             if session_id is not None:
@@ -520,8 +518,7 @@ async def post_and_wait_new_routing(
         base_url,
         connector_id,
         channel_id,
-        until=lambda d: routing_len(d) > before
-        and until_entry(latest_routing_entry(d) or {}),
+        until=lambda d: routing_len(d) > before and until_entry(latest_routing_entry(d) or {}),
         timeout=timeout,
         poll_interval=poll_interval,
     )

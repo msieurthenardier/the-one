@@ -103,9 +103,7 @@ class FetchChannelHistoryTool(Tool):
             },
             "limit": {
                 "type": "integer",
-                "description": (
-                    "Maximum number of messages to fetch. Default 20."
-                ),
+                "description": ("Maximum number of messages to fetch. Default 20."),
                 "default": 20,
             },
         },
@@ -122,9 +120,7 @@ class FetchChannelHistoryTool(Tool):
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
         self._connector_ids: list[str] = connector_ids or []
-        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
-            connector_acls
-        )
+        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = connector_acls
 
     async def execute(  # type: ignore[override]
         self,
@@ -149,14 +145,7 @@ class FetchChannelHistoryTool(Tool):
         agent_acl = _agent_acl_for(self._connector_acls, account.id)
         admits, reason = admits_outbound(account, agent_acl, channel_id)
         if not admits:
-            return [
-                {
-                    "error": (
-                        f"agent not permitted to read channel "
-                        f"{channel_id}: {reason}"
-                    )
-                }
-            ]
+            return [{"error": (f"agent not permitted to read channel {channel_id}: {reason}")}]
 
         hook = getattr(plugin, "fetch_history", None)
         if hook is None:
@@ -164,10 +153,8 @@ class FetchChannelHistoryTool(Tool):
 
         try:
             messages = await hook(client, channel_id, None, limit)
-        except Exception as exc:  # noqa: BLE001 — plugin error surface
-            return [
-                {"error": f"fetch_history failed: {type(exc).__name__}: {exc}"}
-            ]
+        except Exception as exc:  # plugin error surface
+            return [{"error": f"fetch_history failed: {type(exc).__name__}: {exc}"}]
 
         return [asdict(m) for m in messages]
 
@@ -195,15 +182,11 @@ class FetchThreadHistoryTool(Tool):
             },
             "thread_id": {
                 "type": "string",
-                "description": (
-                    "Platform-native thread id to fetch from."
-                ),
+                "description": ("Platform-native thread id to fetch from."),
             },
             "limit": {
                 "type": "integer",
-                "description": (
-                    "Maximum number of messages to fetch. Default 20."
-                ),
+                "description": ("Maximum number of messages to fetch. Default 20."),
                 "default": 20,
             },
         },
@@ -220,9 +203,7 @@ class FetchThreadHistoryTool(Tool):
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
         self._connector_ids: list[str] = connector_ids or []
-        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
-            connector_acls
-        )
+        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = connector_acls
 
     async def execute(  # type: ignore[override]
         self,
@@ -248,14 +229,7 @@ class FetchThreadHistoryTool(Tool):
         agent_acl = _agent_acl_for(self._connector_acls, account.id)
         admits, reason = admits_outbound(account, agent_acl, channel_id)
         if not admits:
-            return [
-                {
-                    "error": (
-                        f"agent not permitted to read channel "
-                        f"{channel_id}: {reason}"
-                    )
-                }
-            ]
+            return [{"error": (f"agent not permitted to read channel {channel_id}: {reason}")}]
 
         hook = getattr(plugin, "fetch_history", None)
         if hook is None:
@@ -263,10 +237,8 @@ class FetchThreadHistoryTool(Tool):
 
         try:
             messages = await hook(client, channel_id, thread_id, limit)
-        except Exception as exc:  # noqa: BLE001 — plugin error surface
-            return [
-                {"error": f"fetch_history failed: {type(exc).__name__}: {exc}"}
-            ]
+        except Exception as exc:  # plugin error surface
+            return [{"error": f"fetch_history failed: {type(exc).__name__}: {exc}"}]
 
         return [asdict(m) for m in messages]
 
@@ -295,9 +267,7 @@ class FetchDmHistoryTool(Tool):
             },
             "limit": {
                 "type": "integer",
-                "description": (
-                    "Maximum number of messages to fetch. Default 20."
-                ),
+                "description": ("Maximum number of messages to fetch. Default 20."),
                 "default": 20,
             },
         },
@@ -314,9 +284,7 @@ class FetchDmHistoryTool(Tool):
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
         self._connector_ids: list[str] = connector_ids or []
-        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
-            connector_acls
-        )
+        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = connector_acls
 
     async def execute(  # type: ignore[override]
         self,
@@ -339,14 +307,7 @@ class FetchDmHistoryTool(Tool):
         agent_acl = _agent_acl_for(self._connector_acls, account.id)
         admits, reason = admits_dm_peer(account, agent_acl, peer_id)
         if not admits:
-            return [
-                {
-                    "error": (
-                        f"agent not permitted to read peer "
-                        f"{peer_id}: {reason}"
-                    )
-                }
-            ]
+            return [{"error": (f"agent not permitted to read peer {peer_id}: {reason}")}]
 
         hook = getattr(plugin, "fetch_dm_history", None)
         if hook is None:
@@ -354,15 +315,8 @@ class FetchDmHistoryTool(Tool):
 
         try:
             messages = await hook(client, peer_id, limit)
-        except Exception as exc:  # noqa: BLE001 — plugin error surface
-            return [
-                {
-                    "error": (
-                        f"fetch_dm_history failed: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                }
-            ]
+        except Exception as exc:  # plugin error surface
+            return [{"error": (f"fetch_dm_history failed: {type(exc).__name__}: {exc}")}]
 
         return [asdict(m) for m in messages]
 
@@ -409,9 +363,7 @@ class ListVisibleChannelsTool(Tool):
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
         self._connector_ids: list[str] = connector_ids or []
-        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
-            connector_acls
-        )
+        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = connector_acls
 
     async def execute(self, **_extra: Any) -> dict[str, Any]:  # type: ignore[override]
         ctx = await _resolve_connector_context()
@@ -437,11 +389,10 @@ class ListVisibleChannelsTool(Tool):
                 # ``_discord.py:1704``), but the contract is "callable
                 # returning DiscoverableEntities"; we don't await here.
                 entities = hook(client)
-            except Exception as exc:  # noqa: BLE001 — plugin error surface
+            except Exception as exc:  # plugin error surface
                 return {
                     "error": (
-                        f"enumerate_discoverable_entities failed: "
-                        f"{type(exc).__name__}: {exc}"
+                        f"enumerate_discoverable_entities failed: {type(exc).__name__}: {exc}"
                     ),
                     "peers": [],
                     "channels": [],
@@ -489,9 +440,7 @@ def _outside_connector_error_list() -> list[dict[str, Any]]:
     context or the session row is malformed; in either case the tool
     cannot proceed.
     """
-    return [
-        {"error": "this tool is only available in a connector-attached session"}
-    ]
+    return [{"error": "this tool is only available in a connector-attached session"}]
 
 
 def _outside_connector_error_dict() -> dict[str, Any]:
@@ -523,9 +472,7 @@ def _no_enumerate_hook_error_dict() -> dict[str, Any]:
     }
 
 
-async def _resolve_connector_context() -> (
-    tuple[Any, Any, Any] | None
-):
+async def _resolve_connector_context() -> tuple[Any, Any, Any] | None:
     """Resolve ``(account, plugin, client)`` for the current chat session.
 
     Returns ``None`` when any of the following holds:
@@ -586,14 +533,14 @@ async def _resolve_connector_context() -> (
 
         try:
             plugin = connector_registry.resolve(account.type)
-        except Exception:  # noqa: BLE001 — registry / type failures all collapse
+        except Exception:  # registry / type failures all collapse
             return None
 
         try:
             client = await account_acquire(account_id)
-        except Exception:  # noqa: BLE001 — pool acquire failures all collapse
+        except Exception:  # pool acquire failures all collapse
             return None
-    except Exception:  # noqa: BLE001 — defensive outer net (db unavailable, etc.)
+    except Exception:  # defensive outer net (db unavailable, etc.)
         return None
 
     return account, plugin, client

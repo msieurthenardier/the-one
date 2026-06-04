@@ -184,9 +184,7 @@ class TestInboundPeerNames:
         # F15 L4 multi-user: 3 bots post in order; peer_names accumulate in
         # message order, which is posting order under the per-session lock.
         names = ["HAT Test Bot 1", "HAT Test Bot 2", "HAT Test Bot 3"]
-        detail = _detail_with_messages(
-            *[_user_message(n) for n in names]
-        )
+        detail = _detail_with_messages(*[_user_message(n) for n in names])
         result = inbound_peer_names(detail)
         assert result == names
 

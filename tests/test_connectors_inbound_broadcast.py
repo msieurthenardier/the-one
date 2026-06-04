@@ -153,7 +153,8 @@ async def _dispatch_and_collect(
     if subscribe_before_dispatch:
         add_subscriber(session_id, fake_ws)
 
-    await dispatch_inbound("acct-test",
+    await dispatch_inbound(
+        "acct-test",
         _envelope(text=envelope_text),
         factory=factory,
     )
@@ -217,9 +218,7 @@ async def test_dispatch_inbound_zero_subscribers_is_noop(isolated_db) -> None:
 # ─── Test: visibility carried on broadcast events ────────────────────────
 
 
-async def test_dispatch_inbound_broadcasts_carry_visibility(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_broadcasts_carry_visibility(isolated_db, monkeypatch) -> None:
     """An assistant-with-tool_calls (``send_to_platform_channel``) +
     successful TOOL result drives the broadcast through every
     visibility branch:
@@ -255,9 +254,7 @@ async def test_dispatch_inbound_broadcasts_carry_visibility(
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
 
@@ -273,9 +270,7 @@ async def test_dispatch_inbound_broadcasts_carry_visibility(
         f"unexpected event sequence: {types}"
     )
 
-    user_event, tool_call_event, tool_result_event, assistant_event = (
-        fake_ws.payloads
-    )
+    user_event, tool_call_event, tool_result_event, assistant_event = fake_ws.payloads
 
     # USER: visibility key omitted (peer-visible default).
     assert "visibility" not in user_event
@@ -298,9 +293,7 @@ async def test_dispatch_inbound_broadcasts_carry_visibility(
 # ─── Test: peer_name carried on broadcast events ─────────────────────────
 
 
-async def test_dispatch_inbound_broadcasts_carry_peer_name(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_broadcasts_carry_peer_name(isolated_db, monkeypatch) -> None:
     """The inbound envelope's ``peer_name`` propagates through the
     dispatcher's post-step binding (M11 F6 L3) into the persisted
     USER message, then through the codec's ``messages_to_ui_events``
@@ -332,9 +325,7 @@ async def test_dispatch_inbound_broadcasts_carry_peer_name(
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
 
@@ -343,9 +334,7 @@ async def test_dispatch_inbound_broadcasts_carry_peer_name(
         f"unexpected event sequence: {types}"
     )
 
-    user_event, tool_call_event, tool_result_event, assistant_event = (
-        fake_ws.payloads
-    )
+    user_event, tool_call_event, tool_result_event, assistant_event = fake_ws.payloads
 
     # USER: peer_name from the envelope.
     assert user_event["peer_name"] == "Alice"
@@ -359,9 +348,7 @@ async def test_dispatch_inbound_broadcasts_carry_peer_name(
 # ─── Test: channel_id carried on broadcast events ────────────────────────
 
 
-async def test_dispatch_inbound_broadcasts_carry_channel_id(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_broadcasts_carry_channel_id(isolated_db, monkeypatch) -> None:
     """The inbound envelope's ``channel_id`` propagates through the
     dispatcher's post-step ``bind_channel_context`` (M11 F7 L3) into
     the persisted USER message, then through the codec's
@@ -397,9 +384,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_id(
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
 
@@ -408,9 +393,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_id(
         f"unexpected event sequence: {types}"
     )
 
-    user_event, tool_call_event, tool_result_event, assistant_event = (
-        fake_ws.payloads
-    )
+    user_event, tool_call_event, tool_result_event, assistant_event = fake_ws.payloads
 
     # USER: channel_id from the envelope (always bound).
     assert user_event["channel_id"] == "ch-1"
@@ -430,9 +413,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_id(
 # ─── Test: channel_name carried on broadcast events ──────────────────────
 
 
-async def test_dispatch_inbound_broadcasts_carry_channel_name(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_broadcasts_carry_channel_name(isolated_db, monkeypatch) -> None:
     """When the F3 L4 discoverable-entities cache contains a matching
     channel entity, the dispatcher resolves ``channel_name`` and binds
     it onto the appended USER message; the codec projects it into the
@@ -472,9 +453,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_name(
     async def _fake_snapshot(_account_id: str):
         return synthetic_snapshot
 
-    monkeypatch.setattr(
-        inbound_mod, "_get_account_cache_snapshot", _fake_snapshot
-    )
+    monkeypatch.setattr(inbound_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
     tc = ToolCall(
         id="tc-send-1",
@@ -488,9 +467,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_name(
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
 
@@ -499,9 +476,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_name(
         f"unexpected event sequence: {types}"
     )
 
-    user_event, tool_call_event, tool_result_event, assistant_event = (
-        fake_ws.payloads
-    )
+    user_event, tool_call_event, tool_result_event, assistant_event = fake_ws.payloads
 
     # USER: both channel keys present.
     assert user_event["channel_id"] == "ch-1"
@@ -516,9 +491,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_name(
 # ─── Test: broadcast runs AFTER persistence ──────────────────────────────
 
 
-async def test_dispatch_inbound_broadcasts_after_persistence(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_broadcasts_after_persistence(isolated_db, monkeypatch) -> None:
     """The broadcast loop runs AFTER ``chat_repo.update`` completes.
 
     Wrap ``ChatSessionRepository.update`` so it appends ``"persist"``
@@ -563,9 +536,7 @@ async def test_dispatch_inbound_broadcasts_after_persistence(
         order.append("persist")
         return await real_update(self, session, *args, **kwargs)
 
-    monkeypatch.setattr(
-        _repos_mod.ChatSessionRepository, "update", _tracking_update
-    )
+    monkeypatch.setattr(_repos_mod.ChatSessionRepository, "update", _tracking_update)
 
     # Subclass FakeWS to record into the shared order list.
     class _OrderingWS:
@@ -690,9 +661,7 @@ async def test_dispatch_inbound_multi_turn_parent_message_ids_do_not_collide(
         Message.assistant(content="", tool_calls=[tc2]),
         Message.assistant(content="end2"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     # Warmup so the session row exists; register subscriber against it.
     warmup_factory = await _make_factory()
@@ -714,17 +683,11 @@ async def test_dispatch_inbound_multi_turn_parent_message_ids_do_not_collide(
     # Collect every parent_message_id the dispatcher broadcasted across
     # BOTH turns. The events for the tool_call + tool_result of each
     # turn share a parent_message_id; ACROSS turns they MUST differ.
-    pmids = [
-        p["parent_message_id"]
-        for p in fake_ws.payloads
-        if "parent_message_id" in p
-    ]
+    pmids = [p["parent_message_id"] for p in fake_ws.payloads if "parent_message_id" in p]
     # At least one pmid per turn (tool_call + tool_result each cite one).
     assert len(pmids) >= 2, fake_ws.payloads
     # All pmid VALUES are distinct across turns. (Within a single turn
     # the tool_call + tool_result share a pmid; across turns the pmids
     # must differ. So the unique-set should have exactly 2 entries:
     # one per turn.)
-    assert len(set(pmids)) == 2, (
-        f"parent_message_ids collided across turns: {pmids}"
-    )
+    assert len(set(pmids)) == 2, f"parent_message_ids collided across turns: {pmids}"

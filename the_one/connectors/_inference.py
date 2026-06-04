@@ -70,13 +70,18 @@ New message from {peer_name} in {channel_name}:
 
 Should the agent respond? Respond with exactly one word: "yes" or "no".
 
-STRONG BIAS TOWARD "no". An overly chatty bot is annoying — silence is the default. Only respond "yes" when there is high confidence (beyond a reasonable doubt) that the agent should engage. Pass on borderline cases.
+STRONG BIAS TOWARD "no". An overly chatty bot is annoying — silence is the \
+default. Only respond "yes" when there is high confidence (beyond a reasonable \
+doubt) that the agent should engage. Pass on borderline cases.
 
 "yes" criteria — at least one must clearly hold:
-- The message is unambiguously directed at the agent (by name, implicit reference, or direct question that no human in the conversation has answered)
-- The message is a question that the agent's persona is clearly well-suited to answer AND no other participant has answered
+- The message is unambiguously directed at the agent (by name, implicit \
+reference, or direct question that no human in the conversation has answered)
+- The message is a question that the agent's persona is clearly well-suited to \
+answer AND no other participant has answered
 - The recent context shows the agent is mid-conversation about this topic
-- The operator has explicitly indicated (in operator-only messages tagged visibility="operator") that the agent should engage with this kind of message
+- The operator has explicitly indicated (in operator-only messages tagged \
+visibility="operator") that the agent should engage with this kind of message
 
 When in doubt, "no".
 """
@@ -87,9 +92,7 @@ When in doubt, "no".
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _filter_session_history(
-    messages: list[Message], limit: int = 20
-) -> list[Message]:
+def _filter_session_history(messages: list[Message], limit: int = 20) -> list[Message]:
     """Project ``Role.USER`` + ``Role.ASSISTANT`` (plaintext only) from history.
 
     Drops:
@@ -107,9 +110,7 @@ def _filter_session_history(
     filtered = [
         m
         for m in messages
-        if m.role in (Role.USER, Role.ASSISTANT)
-        and m.content
-        and not m.tool_calls
+        if m.role in (Role.USER, Role.ASSISTANT) and m.content and not m.tool_calls
     ]
     return filtered[-limit:]
 
@@ -186,10 +187,7 @@ async def _resolve_inference_provider(
         # do NOT escalate to the fallback per DD §9 — operator
         # misconfiguration surfaces as silence, not as a silent fallback.
         target_id, target_model = conn_id, conn_model
-    elif (
-        fallback_provider_config_id is not None
-        and fallback_llm_model is not None
-    ):
+    elif fallback_provider_config_id is not None and fallback_llm_model is not None:
         target_id, target_model = fallback_provider_config_id, fallback_llm_model
     else:
         # Either both connector kwargs unset AND fallback partial /

@@ -187,13 +187,9 @@ async def test_get_discoverable_entities_returns_404_for_unknown_account(
 ) -> None:
     """GET against a non-existent account_id → 404 with the
     'Connector not found' detail."""
-    resp = await client.get(
-        "/api/connectors/does-not-exist/discoverable-entities"
-    )
+    resp = await client.get("/api/connectors/does-not-exist/discoverable-entities")
     assert resp.status_code == 404
-    assert resp.json() == {
-        "detail": "Connector not found: does-not-exist"
-    }
+    assert resp.json() == {"detail": "Connector not found: does-not-exist"}
 
 
 async def test_get_discoverable_entities_returns_404_for_cold_account(
@@ -205,9 +201,7 @@ async def test_get_discoverable_entities_returns_404_for_cold_account(
     _DiscoverableStubPlugin.next_snapshot = _DEFAULT_SNAPSHOT
     await _create_account(client, account_id="acct-cold")
 
-    resp = await client.get(
-        "/api/connectors/acct-cold/discoverable-entities"
-    )
+    resp = await client.get("/api/connectors/acct-cold/discoverable-entities")
     assert resp.status_code == 404
     assert resp.json() == {
         "detail": "Run Test Connection first to populate the bot's discoverable view."
@@ -227,9 +221,7 @@ async def test_get_discoverable_entities_returns_200_for_warm_account(
     await _create_account(client, account_id="acct-warm")
     await account_acquire("acct-warm")
 
-    resp = await client.get(
-        "/api/connectors/acct-warm/discoverable-entities"
-    )
+    resp = await client.get("/api/connectors/acct-warm/discoverable-entities")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert set(body["entities"].keys()) == {"peers", "channels", "groups", "roles"}
@@ -250,13 +242,9 @@ async def test_get_discoverable_entities_returns_503_for_account_type_without_ho
     await _create_account(client, account_id="acct-hookless")
     await account_acquire("acct-hookless")
 
-    resp = await client.get(
-        "/api/connectors/acct-hookless/discoverable-entities"
-    )
+    resp = await client.get("/api/connectors/acct-hookless/discoverable-entities")
     assert resp.status_code == 503
-    assert resp.json() == {
-        "detail": "This connector type does not expose discoverable entities."
-    }
+    assert resp.json() == {"detail": "This connector type does not expose discoverable entities."}
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -278,9 +266,7 @@ async def test_post_refresh_discoverable_entities_returns_200_for_warm_account(
     await _create_account(client, account_id="acct-refresh")
     await account_acquire("acct-refresh")
 
-    resp1 = await client.post(
-        "/api/connectors/acct-refresh/discoverable-entities/refresh"
-    )
+    resp1 = await client.post("/api/connectors/acct-refresh/discoverable-entities/refresh")
     assert resp1.status_code == 200, resp1.text
     body1 = resp1.json()
     assert [p["id"] for p in body1["entities"]["peers"]] == ["u1", "u2"]
@@ -294,9 +280,7 @@ async def test_post_refresh_discoverable_entities_returns_200_for_warm_account(
     )
     await asyncio.sleep(0.001)
 
-    resp2 = await client.post(
-        "/api/connectors/acct-refresh/discoverable-entities/refresh"
-    )
+    resp2 = await client.post("/api/connectors/acct-refresh/discoverable-entities/refresh")
     assert resp2.status_code == 200, resp2.text
     body2 = resp2.json()
     assert [p["id"] for p in body2["entities"]["peers"]][:1] == ["u1"]
@@ -313,9 +297,7 @@ async def test_post_refresh_discoverable_entities_returns_404_for_cold_account(
     _DiscoverableStubPlugin.next_snapshot = _DEFAULT_SNAPSHOT
     await _create_account(client, account_id="acct-cold-post")
 
-    resp = await client.post(
-        "/api/connectors/acct-cold-post/discoverable-entities/refresh"
-    )
+    resp = await client.post("/api/connectors/acct-cold-post/discoverable-entities/refresh")
     assert resp.status_code == 404
     assert resp.json() == {
         "detail": "Run Test Connection first to populate the bot's discoverable view."
@@ -349,9 +331,7 @@ async def test_discoverable_entities_response_projects_stale_flag(
     await account_acquire("acct-stale")
 
     # First refresh: cache = {A, B, C}; stale_carry = {}.
-    resp1 = await client.post(
-        "/api/connectors/acct-stale/discoverable-entities/refresh"
-    )
+    resp1 = await client.post("/api/connectors/acct-stale/discoverable-entities/refresh")
     assert resp1.status_code == 200, resp1.text
 
     # Second refresh: snapshot drops C → cache = {A, B}; stale_carry = {C}.
@@ -362,14 +342,10 @@ async def test_discoverable_entities_response_projects_stale_flag(
         ],
         fetched_at="2026-05-22T00:05:00+00:00",
     )
-    resp2 = await client.post(
-        "/api/connectors/acct-stale/discoverable-entities/refresh"
-    )
+    resp2 = await client.post("/api/connectors/acct-stale/discoverable-entities/refresh")
     assert resp2.status_code == 200, resp2.text
 
-    resp = await client.get(
-        "/api/connectors/acct-stale/discoverable-entities"
-    )
+    resp = await client.get("/api/connectors/acct-stale/discoverable-entities")
     assert resp.status_code == 200, resp.text
     peers = resp.json()["entities"]["peers"]
     by_id = {p["id"]: p["stale"] for p in peers}

@@ -40,7 +40,6 @@ from the_one.connectors._discord import DiscordClient, DiscordPlugin
 from the_one.connectors._stub import StubPlugin
 from the_one.connectors.base import (
     DiscoverableEntities,
-    DiscoverableEntity,
     NeedsPairing,
     OutboundTarget,
     Permit,
@@ -48,7 +47,6 @@ from the_one.connectors.base import (
 from the_one.connectors.errors import ConnectorConnectionError
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor
-
 
 # ─────────────────────────────────────────────────────────────────
 # Fixtures / stubs
@@ -108,23 +106,23 @@ class _StubActivity:
         self.type = kwargs.get("type")
 
 
-class _StubLoginFailure(Exception):
+class _StubLoginFailure(Exception):  # noqa: N818  # mirrors discord.py exception name
     pass
 
 
-class _StubPrivilegedIntentsRequired(Exception):
+class _StubPrivilegedIntentsRequired(Exception):  # noqa: N818  # mirrors discord.py exception name
     pass
 
 
-class _StubGatewayNotFound(Exception):
+class _StubGatewayNotFound(Exception):  # noqa: N818  # mirrors discord.py exception name
     pass
 
 
-class _StubConnectionClosed(Exception):
+class _StubConnectionClosed(Exception):  # noqa: N818  # mirrors discord.py exception name
     pass
 
 
-class _StubHTTPException(Exception):
+class _StubHTTPException(Exception):  # noqa: N818  # mirrors discord.py exception name
     pass
 
 
@@ -247,9 +245,7 @@ class _StubDiscordClient:
         # SDK has it; defensive.
         return self.user is not None
 
-    async def change_presence(
-        self, *, activity: _StubActivity | None = None, **_: Any
-    ) -> None:
+    async def change_presence(self, *, activity: _StubActivity | None = None, **_: Any) -> None:
         self.change_presence_calls.append(activity)
 
     def get_all_channels(self) -> Any:
@@ -308,11 +304,11 @@ class _StubCommandTree:
 
     def command(self, *, name: str, description: str) -> Any:
         """Decorator capturing the registered slash-command callback."""
+
         def _decorator(coro: Any) -> Any:
-            self.commands.append(
-                {"name": name, "description": description, "callback": coro}
-            )
+            self.commands.append({"name": name, "description": description, "callback": coro})
             return coro
+
         return _decorator
 
     def copy_global_to(self, *, guild: Any) -> None:
@@ -521,9 +517,7 @@ async def test_probe_gateway_intents_from_config_honored(
     """
     _patch_discord(monkeypatch)
     intents_cfg = {"message_content": False, "members": True, "guilds": True}
-    await DiscordPlugin._probe_gateway_connect(
-        "test-token", intents_cfg=intents_cfg
-    )
+    await DiscordPlugin._probe_gateway_connect("test-token", intents_cfg=intents_cfg)
     # Most recently constructed stub client carries the intents.
     last_intents = _StubDiscordClient.instances[-1].intents
     # All three must be True regardless of the intents_cfg value.
@@ -607,9 +601,7 @@ async def test_reconnect_exhaustion_raises_connection_error(
     plugin = DiscordPlugin()
     account = _make_account(encryptor)
 
-    with pytest.raises(
-        ConnectorConnectionError, match="exceeded 5-attempt reconnect budget"
-    ):
+    with pytest.raises(ConnectorConnectionError, match="exceeded 5-attempt reconnect budget"):
         await plugin.connect(account, encryptor)
 
     # Five attempts consumed.
@@ -691,9 +683,7 @@ async def test_presence_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    account = _make_account(
-        encryptor, presence={"name": "Playing chess", "type": "playing"}
-    )
+    account = _make_account(encryptor, presence={"name": "Playing chess", "type": "playing"})
 
     client = await plugin.connect(account, encryptor)
     try:
@@ -715,7 +705,8 @@ async def test_presence_malformed_falls_back_to_default(
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
     account = _make_account(
-        encryptor, presence={"name": 123, "type": "not-a-real-type"}  # type: ignore[dict-item]
+        encryptor,
+        presence={"name": 123, "type": "not-a-real-type"},  # type: ignore[dict-item]
     )
 
     client = await plugin.connect(account, encryptor)
@@ -756,9 +747,7 @@ async def test_token_plaintext_not_retained(monkeypatch: pytest.MonkeyPatch) -> 
                 except Exception:
                     continue
                 if isinstance(value, str) and value == plaintext:
-                    pytest.fail(
-                        f"{type(obj).__name__}.{attr_name} retained plaintext token"
-                    )
+                    pytest.fail(f"{type(obj).__name__}.{attr_name} retained plaintext token")
 
         # Specifically the conventional attribute names that an
         # incautious impl might use are absent.
@@ -837,9 +826,7 @@ async def test_connect_blocks_until_on_ready_fires(
     # coroutine is running.
     for _ in range(200):
         await asyncio.sleep(0)
-        if _StubDiscordClient.instances and _StubDiscordClient.instances[
-            -1
-        ].connect_calls:
+        if _StubDiscordClient.instances and _StubDiscordClient.instances[-1].connect_calls:
             break
     sdk_client = _StubDiscordClient.instances[-1]
 
@@ -979,12 +966,11 @@ def _make_guild_text_msg(
     for the channel type to make the helper's thread/DM detection work
     correctly.
     """
-    import discord
     from types import SimpleNamespace
 
-    channel = SimpleNamespace(
-        id=channel_id, type=discord.ChannelType.text, parent=None
-    )
+    import discord
+
+    channel = SimpleNamespace(id=channel_id, type=discord.ChannelType.text, parent=None)
     guild = SimpleNamespace(id=guild_id)
     return SimpleNamespace(
         author=author,
@@ -1032,12 +1018,8 @@ async def test_on_message_filters_bot_default(
         async def _fake_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             dispatch_calls.append((account_id, envelope, factory))
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: object()
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: object())
 
         bot_author = _make_msg_author(author_id=99, is_bot=True)
         msg = _make_guild_text_msg(author=bot_author, content="bot speaking")
@@ -1059,9 +1041,7 @@ async def test_on_message_allows_bot_with_ingest_bots_override(
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    client, sdk_client = await _connect_and_get_handler(
-        plugin, encryptor, ingest_bots=True
-    )
+    client, sdk_client = await _connect_and_get_handler(plugin, encryptor, ingest_bots=True)
     try:
         dispatch_calls: list[tuple] = []
 
@@ -1069,12 +1049,8 @@ async def test_on_message_allows_bot_with_ingest_bots_override(
             dispatch_calls.append((account_id, envelope, factory))
 
         sentinel_factory = object()
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: sentinel_factory
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: sentinel_factory)
 
         # A different bot — NOT our own (self-filter still applies).
         bot_author = _make_msg_author(author_id=12345, is_bot=True)
@@ -1101,21 +1077,15 @@ async def test_on_message_self_filtered_even_when_ingest_bots_true(
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    client, sdk_client = await _connect_and_get_handler(
-        plugin, encryptor, ingest_bots=True
-    )
+    client, sdk_client = await _connect_and_get_handler(plugin, encryptor, ingest_bots=True)
     try:
         dispatch_calls: list[tuple] = []
 
         async def _fake_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             dispatch_calls.append((account_id, envelope, factory))
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: object()
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: object())
 
         # client.user.id is "bot-123" per _StubClientUser default.
         assert sdk_client.user is not None
@@ -1147,12 +1117,8 @@ async def test_on_message_happy_path_dispatches_envelope(
             dispatch_calls.append((account_id, envelope, factory))
 
         sentinel_factory = object()
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: sentinel_factory
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: sentinel_factory)
 
         human = _make_msg_author(author_id=555, display_name="Alice", is_bot=False)
         msg = _make_guild_text_msg(
@@ -1188,15 +1154,12 @@ async def test_on_message_swallows_dispatcher_exception(
     plugin = DiscordPlugin()
     client, sdk_client = await _connect_and_get_handler(plugin, encryptor)
     try:
+
         async def _raising_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             raise RuntimeError("simulated dispatcher failure")
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _raising_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: object()
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _raising_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: object())
 
         human = _make_msg_author(author_id=777)
         msg = _make_guild_text_msg(author=human, content="will crash")
@@ -1226,13 +1189,9 @@ async def test_on_message_returns_when_factory_unavailable(
         async def _fake_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             dispatch_calls.append((account_id, envelope, factory))
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
         # Force pre-startup / post-shutdown null factory.
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: None
-        )
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: None)
 
         human = _make_msg_author(author_id=888)
         msg = _make_guild_text_msg(author=human, content="lifespan race")
@@ -1244,7 +1203,8 @@ async def test_on_message_returns_when_factory_unavailable(
         assert dispatch_calls == []
         # A WARNING was logged about the missing factory.
         warnings = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno == logging.WARNING and "AgentFactory" in r.message
         ]
         assert warnings, "expected a WARNING log when factory is unavailable"
@@ -1388,10 +1348,7 @@ def _resolve_test_account(
         # post-v28; the resolver hook reads only the ``id`` field.
         config = {
             "allowlist": {
-                "peers": [
-                    {"id": peer_id}
-                    for peer_id in (allowlist_peers or [])
-                ],
+                "peers": [{"id": peer_id} for peer_id in (allowlist_peers or [])],
                 "channels": [],
             }
         }
@@ -1506,9 +1463,7 @@ def _make_discord_message_stub(
       produce that shape).
     """
     msg = MagicMock()
-    msg.mentions = [
-        MagicMock(id=mid) for mid in (mention_ids or [])
-    ]
+    msg.mentions = [MagicMock(id=mid) for mid in (mention_ids or [])]
     if guild_me_id is None and mention_ids is None:
         # DM-shaped: no guild attached.
         msg.guild = None
@@ -1581,7 +1536,7 @@ def test_is_mention_returns_false_when_raw_discord_message_missing() -> None:
     result: bool | None = None
     try:
         result = plugin.is_mention(_mention_test_envelope({}))
-    except BaseException as exc:  # noqa: BLE001 — pin no-exception
+    except BaseException as exc:  # pin no-exception
         raised = exc
     assert raised is None, f"is_mention raised unexpectedly: {raised!r}"
     assert result is False
@@ -1676,9 +1631,7 @@ def _make_discord_client_with_sdk(sdk: Any) -> DiscordClient:
     )
 
 
-def _make_text_channel_mock(
-    *, channel_id: int = 4242, sent_message_id: int = 999111
-) -> Any:
+def _make_text_channel_mock(*, channel_id: int = 4242, sent_message_id: int = 999111) -> Any:
     """Mock that mirrors the ``discord.TextChannel`` surface ``send`` touches.
 
     ``send`` is an :class:`AsyncMock` that returns a Message-shaped
@@ -1695,9 +1648,7 @@ def _make_text_channel_mock(
     return channel
 
 
-def _make_thread_mock(
-    *, thread_id: int = 8888, sent_message_id: int = 999222
-) -> Any:
+def _make_thread_mock(*, thread_id: int = 8888, sent_message_id: int = 999222) -> Any:
     """Mock that satisfies ``isinstance(obj, discord.Thread)``.
 
     The implementation does ``isinstance(thread_candidate, discord.Thread)``
@@ -1718,7 +1669,10 @@ def _make_thread_mock(
 
 
 def _make_http_exception(
-    exc_cls: type, *, status: int, retry_after: float | None = None,
+    exc_cls: type,
+    *,
+    status: int,
+    retry_after: float | None = None,
 ) -> Exception:
     """Construct a real ``discord.errors.HTTPException`` subclass.
 
@@ -1776,10 +1730,12 @@ async def test_send_thread_happy_path() -> None:
     # AND a channel when called with the channel id (it shouldn't reach
     # the latter on this test, but the assertion below pins that).
     fallback_channel = _make_text_channel_mock(channel_id=99999)
+
     def _route(cid: int) -> Any:
         if cid == 33333:
             return thread
         return fallback_channel
+
     sdk.get_channel = MagicMock(side_effect=_route)
 
     client = _make_discord_client_with_sdk(sdk)
@@ -1810,12 +1766,14 @@ async def test_send_thread_id_resolves_to_non_thread_falls_back_to_channel() -> 
     # get_channel(channel_id) returns the real channel.
     non_thread = _make_text_channel_mock(channel_id=55555)  # NOT a Thread.
     real_channel = _make_text_channel_mock(channel_id=66666, sent_message_id=77777)
+
     def _route(cid: int) -> Any:
         if cid == 55555:
             return non_thread
         if cid == 66666:
             return real_channel
         return None
+
     sdk.get_channel = MagicMock(side_effect=_route)
 
     client = _make_discord_client_with_sdk(sdk)
@@ -1856,6 +1814,7 @@ async def test_send_channel_not_found_raises_connection_error() -> None:
     """``get_channel`` returns None AND ``fetch_channel`` raises
     :class:`discord.errors.NotFound` → :class:`ConnectorConnectionError`."""
     import discord
+
     from the_one.connectors.errors import ConnectorConnectionError as _Conn
 
     sdk = MagicMock(spec=discord.Client)
@@ -1881,6 +1840,7 @@ async def test_send_channel_fetch_returns_none_raises_connection_error() -> None
     branch of the channel-not-found path documented in the leg spec.
     """
     import discord
+
     from the_one.connectors.errors import ConnectorConnectionError as _Conn
 
     sdk = MagicMock(spec=discord.Client)
@@ -1900,15 +1860,14 @@ async def test_send_forbidden_raises_config_error() -> None:
     """``destination.send`` raises :class:`discord.errors.Forbidden`
     → :class:`ConnectorConfigError`."""
     import discord
+
     from the_one.connectors.errors import ConnectorConfigError as _Cfg
 
     sdk = MagicMock(spec=discord.Client)
     sdk.user = None
     sdk.is_closed = MagicMock(return_value=False)
     channel = _make_text_channel_mock(channel_id=70001)
-    channel.send = AsyncMock(
-        side_effect=_make_http_exception(discord.errors.Forbidden, status=403)
-    )
+    channel.send = AsyncMock(side_effect=_make_http_exception(discord.errors.Forbidden, status=403))
     sdk.get_channel = MagicMock(return_value=channel)
 
     client = _make_discord_client_with_sdk(sdk)
@@ -1928,15 +1887,14 @@ async def test_send_not_found_on_send_raises_connection_error() -> None:
     (channel deleted between resolution and send) →
     :class:`ConnectorConnectionError`."""
     import discord
+
     from the_one.connectors.errors import ConnectorConnectionError as _Conn
 
     sdk = MagicMock(spec=discord.Client)
     sdk.user = None
     sdk.is_closed = MagicMock(return_value=False)
     channel = _make_text_channel_mock(channel_id=70002)
-    channel.send = AsyncMock(
-        side_effect=_make_http_exception(discord.errors.NotFound, status=404)
-    )
+    channel.send = AsyncMock(side_effect=_make_http_exception(discord.errors.NotFound, status=404))
     sdk.get_channel = MagicMock(return_value=channel)
 
     client = _make_discord_client_with_sdk(sdk)
@@ -1950,6 +1908,7 @@ async def test_send_rate_limit_raises_rate_limit_error_with_retry_after() -> Non
     """HTTPException(status=429) with ``retry_after`` populated →
     :class:`ConnectorRateLimitError` carrying the hint."""
     import discord
+
     from the_one.connectors.errors import ConnectorRateLimitError as _Rate
 
     sdk = MagicMock(spec=discord.Client)
@@ -1957,9 +1916,7 @@ async def test_send_rate_limit_raises_rate_limit_error_with_retry_after() -> Non
     sdk.is_closed = MagicMock(return_value=False)
     channel = _make_text_channel_mock(channel_id=70003)
     channel.send = AsyncMock(
-        side_effect=_make_http_exception(
-            discord.errors.HTTPException, status=429, retry_after=2.5
-        )
+        side_effect=_make_http_exception(discord.errors.HTTPException, status=429, retry_after=2.5)
     )
     sdk.get_channel = MagicMock(return_value=channel)
 
@@ -1978,6 +1935,7 @@ async def test_send_rate_limit_without_retry_after() -> None:
     """HTTPException(status=429) without a ``retry_after`` hint →
     :class:`ConnectorRateLimitError` with ``retry_after_seconds=None``."""
     import discord
+
     from the_one.connectors.errors import ConnectorRateLimitError as _Rate
 
     sdk = MagicMock(spec=discord.Client)
@@ -1985,9 +1943,7 @@ async def test_send_rate_limit_without_retry_after() -> None:
     sdk.is_closed = MagicMock(return_value=False)
     channel = _make_text_channel_mock(channel_id=70004)
     channel.send = AsyncMock(
-        side_effect=_make_http_exception(
-            discord.errors.HTTPException, status=429, retry_after=None
-        )
+        side_effect=_make_http_exception(discord.errors.HTTPException, status=429, retry_after=None)
     )
     sdk.get_channel = MagicMock(return_value=channel)
 
@@ -2008,6 +1964,7 @@ async def test_send_generic_http_exception_raises_connection_error() -> None:
     the F4 tool produces a clean ``[error] ...`` envelope.
     """
     import discord
+
     from the_one.connectors.errors import ConnectorConnectionError as _Conn
 
     sdk = MagicMock(spec=discord.Client)
@@ -2015,9 +1972,7 @@ async def test_send_generic_http_exception_raises_connection_error() -> None:
     sdk.is_closed = MagicMock(return_value=False)
     channel = _make_text_channel_mock(channel_id=70005)
     channel.send = AsyncMock(
-        side_effect=_make_http_exception(
-            discord.errors.HTTPException, status=400
-        )
+        side_effect=_make_http_exception(discord.errors.HTTPException, status=400)
     )
     sdk.get_channel = MagicMock(return_value=channel)
 
@@ -2106,9 +2061,7 @@ class _StubAiohttpSession:
         self.closed = True
         return None
 
-    def get(
-        self, url: str, *, headers: dict[str, str] | None = None
-    ) -> _StubAiohttpResponse:
+    def get(self, url: str, *, headers: dict[str, str] | None = None) -> _StubAiohttpResponse:
         self.calls.append((url, headers or {}))
         # Exact match first; then longest-prefix match.
         if url in self.url_responses:
@@ -2299,9 +2252,7 @@ async def test_doctor_happy_path_all_checks_pass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """All 5 probes succeed → status='ok', message='Discord probe ok'."""
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses()
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses())
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
@@ -2391,9 +2342,7 @@ async def test_doctor_both_intents_missing_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Both intents missing → failed (short-circuits gateway + allowlist)."""
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses(flags=0)
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses(flags=0))
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
@@ -2419,9 +2368,7 @@ async def test_doctor_gateway_timeout_fails(
     before ready" path). That covers the same failed-aggregation
     branch without waiting 30 seconds.
     """
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses()
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses())
     _StubDoctorGatewayClient.auto_fire_ready = False
     _StubDoctorGatewayClient.connect_ends_before_ready = True
 
@@ -2446,9 +2393,7 @@ async def test_doctor_gateway_real_timeout_path(
     in <1s. Confirms the actual timeout branch (no done tasks) is
     reachable and surfaces as failed.
     """
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses()
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses())
     _StubDoctorGatewayClient.auto_fire_ready = False
     _StubDoctorGatewayClient.connect_hangs = True
 
@@ -2457,12 +2402,8 @@ async def test_doctor_gateway_real_timeout_path(
     # ``asyncio.wait(..., timeout=30.0, ...)``; we override the timeout.
     real_wait = asyncio.wait
 
-    async def _short_wait(
-        tasks: Any, *, timeout: float | None = None, return_when: Any
-    ) -> Any:
-        return await real_wait(
-            tasks, timeout=0.1, return_when=return_when
-        )
+    async def _short_wait(tasks: Any, *, timeout: float | None = None, return_when: Any) -> Any:
+        return await real_wait(tasks, timeout=0.1, return_when=return_when)
 
     monkeypatch.setattr(asyncio, "wait", _short_wait)
 
@@ -2487,15 +2428,11 @@ async def test_doctor_allowlist_unreachable_guild_degrades(
         f"https://discord.com/api/v10/guilds/G1/members/{bot_id}": (
             _StubAiohttpResponse(200, {"user": {"id": bot_id}})
         ),
-        f"https://discord.com/api/v10/guilds/G2/members/{bot_id}": (
-            _StubAiohttpResponse(404)
-        ),
+        f"https://discord.com/api/v10/guilds/G2/members/{bot_id}": (_StubAiohttpResponse(404)),
     }
     _patch_discord_for_doctor(
         monkeypatch,
-        url_responses=_happy_url_responses(
-            bot_user_id=bot_id, guild_responses=guild_responses
-        ),
+        url_responses=_happy_url_responses(bot_user_id=bot_id, guild_responses=guild_responses),
     )
 
     encryptor = _make_encryptor()
@@ -2529,9 +2466,7 @@ async def test_doctor_empty_allowlist_returns_ok(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Allowlist absent or empty → skip; 1-4 pass → ok."""
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses()
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses())
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
@@ -2578,9 +2513,7 @@ async def test_doctor_receives_encryptor_per_call_without_caching(
     """
     from cryptography.fernet import Fernet
 
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses()
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses())
 
     plugin = DiscordPlugin()
 
@@ -2603,9 +2536,7 @@ async def test_doctor_receives_encryptor_per_call_without_caching(
     # doesn't consume the encryptor — but the assertion below pins
     # the contract regardless.
     _reset_doctor_gateway_stub_state()
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses()
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses())
     enc_b = Encryptor(Fernet.generate_key())
     assert enc_b is not enc_a
     account_b = Connector(
@@ -2627,9 +2558,7 @@ async def test_doctor_gateway_smoke_test_is_read_only(
 
     Pins the "read-only — no message dispatch" acceptance criterion.
     """
-    _patch_discord_for_doctor(
-        monkeypatch, url_responses=_happy_url_responses()
-    )
+    _patch_discord_for_doctor(monkeypatch, url_responses=_happy_url_responses())
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
@@ -2697,17 +2626,16 @@ def _make_interaction(
     ``channel.{type, parent}``, ``token`` (M11 F14 L7 followup token),
     ``response.defer(ephemeral=...)``.
     """
-    import discord
     from types import SimpleNamespace
+
+    import discord
 
     user = SimpleNamespace(
         id=user_id,
         display_name=display_name,
         roles=roles or [],
     )
-    channel = SimpleNamespace(
-        id=channel_id, type=discord.ChannelType.text, parent=None
-    )
+    channel = SimpleNamespace(id=channel_id, type=discord.ChannelType.text, parent=None)
     # The interaction.response must support ``defer(ephemeral=...)``.
     response = SimpleNamespace(defer=AsyncMock(return_value=None))
     interaction = SimpleNamespace(
@@ -2908,12 +2836,9 @@ async def test_connect_with_empty_guilds_skips_sync(
         infos = [
             r
             for r in caplog.records
-            if r.levelno == logging.INFO
-            and "no guilds configured" in r.message.lower()
+            if r.levelno == logging.INFO and "no guilds configured" in r.message.lower()
         ]
-        assert infos, (
-            "expected an INFO log when the guilds list is empty or absent"
-        )
+        assert infos, "expected an INFO log when the guilds list is empty or absent"
     finally:
         await plugin.disconnect(client)
 
@@ -2929,9 +2854,7 @@ async def test_connect_proceeds_when_tree_sync_raises(
 
     _patch_discord(monkeypatch)
     # First guild sync raises; second succeeds — both should attempt.
-    _StubCommandTree.sync_should_raise = [
-        _StubHTTPException("missing applications.commands scope")
-    ]
+    _StubCommandTree.sync_should_raise = [_StubHTTPException("missing applications.commands scope")]
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
@@ -2964,9 +2887,7 @@ async def test_connect_proceeds_when_tree_sync_raises(
             for r in caplog.records
             if r.levelno == logging.WARNING and "sync" in r.message.lower()
         ]
-        assert warnings_logged, (
-            "expected a WARNING log when tree.sync raises"
-        )
+        assert warnings_logged, "expected a WARNING log when tree.sync raises"
     finally:
         await plugin.disconnect(client)
 
@@ -3075,20 +2996,16 @@ async def test_sync_copies_global_commands_into_each_guild_before_sync(
         for gid_str in guild_ids:
             gid = int(gid_str)
             copy_indices = [
-                i for i, (op, g) in enumerate(tree.call_log)
-                if op == "copy" and g.id == gid
+                i for i, (op, g) in enumerate(tree.call_log) if op == "copy" and g.id == gid
             ]
             sync_indices = [
-                i for i, (op, g) in enumerate(tree.call_log)
-                if op == "sync" and g.id == gid
+                i for i, (op, g) in enumerate(tree.call_log) if op == "sync" and g.id == gid
             ]
             assert len(copy_indices) == 1, (
-                f"guild {gid}: expected exactly 1 copy_global_to call, "
-                f"got {len(copy_indices)}"
+                f"guild {gid}: expected exactly 1 copy_global_to call, got {len(copy_indices)}"
             )
             assert len(sync_indices) == 1, (
-                f"guild {gid}: expected exactly 1 sync call, "
-                f"got {len(sync_indices)}"
+                f"guild {gid}: expected exactly 1 sync call, got {len(sync_indices)}"
             )
             assert copy_indices[0] < sync_indices[0], (
                 f"guild {gid}: copy_global_to must be called BEFORE sync "
@@ -3127,25 +3044,17 @@ async def test_slash_command_body_dispatches_envelope(
         # Capture dispatcher calls + provide a factory.
         dispatch_calls: list[tuple[str, Any, Any]] = []
 
-        async def _fake_dispatch(
-            account_id: str, envelope: Any, *, factory: Any
-        ) -> None:
+        async def _fake_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             dispatch_calls.append((account_id, envelope, factory))
 
         sentinel_factory = object()
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: sentinel_factory
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: sentinel_factory)
 
         # Pull the ``talk_to`` callback off the tree and invoke it as
         # the SDK would.
         tree = _StubCommandTree.instances[0]
-        talk_to_entry = next(
-            c for c in tree.commands if c["name"] == "talk_to"
-        )
+        talk_to_entry = next(c for c in tree.commands if c["name"] == "talk_to")
         callback = talk_to_entry["callback"]
 
         interaction = _make_interaction(
@@ -3259,9 +3168,7 @@ def test_build_slash_envelope_non_underscore_commands_unchanged() -> None:
             args="",
         )
         # text must be ``/agents``, ``/whoami``, etc. — no transformation.
-        assert envelope.text == f"/{cmd}", (
-            f"Expected '/{cmd}' but got {envelope.text!r}"
-        )
+        assert envelope.text == f"/{cmd}", f"Expected '/{cmd}' but got {envelope.text!r}"
         # And it must still parse cleanly.
         parsed = _parse_command(envelope.text)
         assert parsed is not None
@@ -3285,17 +3192,11 @@ async def test_slash_command_body_handles_empty_args(
     try:
         dispatch_calls: list[tuple[str, Any, Any]] = []
 
-        async def _fake_dispatch(
-            account_id: str, envelope: Any, *, factory: Any
-        ) -> None:
+        async def _fake_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             dispatch_calls.append((account_id, envelope, factory))
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: object()
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: object())
 
         # Invoke ``/help`` with no args — slash command default.
         tree = _StubCommandTree.instances[0]
@@ -3329,17 +3230,11 @@ async def test_slash_command_body_marks_dm_in_raw(
     try:
         dispatch_calls: list[tuple[str, Any, Any]] = []
 
-        async def _fake_dispatch(
-            account_id: str, envelope: Any, *, factory: Any
-        ) -> None:
+        async def _fake_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             dispatch_calls.append((account_id, envelope, factory))
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: object()
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: object())
 
         tree = _StubCommandTree.instances[0]
         whoami_entry = next(c for c in tree.commands if c["name"] == "whoami")
@@ -3372,17 +3267,12 @@ async def test_slash_command_body_swallows_dispatcher_exception(
 
     client = await plugin.connect(account, encryptor)
     try:
-        async def _raising_dispatch(
-            account_id: str, envelope: Any, *, factory: Any
-        ) -> None:
+
+        async def _raising_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             raise RuntimeError("simulated dispatcher failure")
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _raising_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: object()
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _raising_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: object())
 
         tree = _StubCommandTree.instances[0]
         agents_entry = next(c for c in tree.commands if c["name"] == "agents")
@@ -3414,24 +3304,16 @@ async def test_slash_command_body_returns_when_factory_unavailable(
     try:
         dispatch_calls: list[tuple[str, Any, Any]] = []
 
-        async def _fake_dispatch(
-            account_id: str, envelope: Any, *, factory: Any
-        ) -> None:
+        async def _fake_dispatch(account_id: str, envelope: Any, *, factory: Any) -> None:
             dispatch_calls.append((account_id, envelope, factory))
 
-        monkeypatch.setattr(
-            "the_one.connectors._inbound.dispatch_inbound", _fake_dispatch
-        )
-        monkeypatch.setattr(
-            "the_one.agent.factory.get_factory", lambda: None
-        )
+        monkeypatch.setattr("the_one.connectors._inbound.dispatch_inbound", _fake_dispatch)
+        monkeypatch.setattr("the_one.agent.factory.get_factory", lambda: None)
 
         tree = _StubCommandTree.instances[0]
         new_entry = next(c for c in tree.commands if c["name"] == "new")
         interaction = _make_interaction()
-        with caplog.at_level(
-            logging.WARNING, logger="the_one.connectors._discord"
-        ):
+        with caplog.at_level(logging.WARNING, logger="the_one.connectors._discord"):
             await new_entry["callback"](interaction)
 
         # Dispatcher MUST NOT be called.
@@ -3440,12 +3322,9 @@ async def test_slash_command_body_returns_when_factory_unavailable(
         warnings_logged = [
             r
             for r in caplog.records
-            if r.levelno == logging.WARNING
-            and "AgentFactory" in r.message
+            if r.levelno == logging.WARNING and "AgentFactory" in r.message
         ]
-        assert warnings_logged, (
-            "expected a WARNING log when the factory is unavailable"
-        )
+        assert warnings_logged, "expected a WARNING log when the factory is unavailable"
     finally:
         await plugin.disconnect(client)
 
@@ -3588,12 +3467,8 @@ def _populate_discoverable_caches(stub_sdk_client: _StubDiscordClient) -> None:
             _StubDiscoverableChannel(id=3002, name="voice-lobby", type="voice"),
         ],
         roles=[
-            _StubDiscoverableRole(
-                id=4001, name="moderators", position=2, mentionable=True
-            ),
-            _StubDiscoverableRole(
-                id=4002, name="everyone", position=0, mentionable=False
-            ),
+            _StubDiscoverableRole(id=4001, name="moderators", position=2, mentionable=True),
+            _StubDiscoverableRole(id=4002, name="everyone", position=0, mentionable=False),
         ],
     )
     guild_b = _StubDiscoverableGuild(
@@ -3604,9 +3479,7 @@ def _populate_discoverable_caches(stub_sdk_client: _StubDiscordClient) -> None:
             _StubDiscoverableChannel(id=3003, name="lounge", type="text"),
         ],
         roles=[
-            _StubDiscoverableRole(
-                id=4003, name="vip", position=1, mentionable=True
-            ),
+            _StubDiscoverableRole(id=4003, name="vip", position=1, mentionable=True),
         ],
     )
     stub_sdk_client.users = list(users)
@@ -3737,21 +3610,11 @@ async def test_discord_plugin_enumerate_excludes_category_channels(
                 name="Mixed-Type Guild",
                 member_count=10,
                 channels=[
-                    _StubDiscoverableChannel(
-                        id=7001, name="Section", type="category"
-                    ),
-                    _StubDiscoverableChannel(
-                        id=7002, name="general", type="text"
-                    ),
-                    _StubDiscoverableChannel(
-                        id=7003, name="voice-lobby", type="voice"
-                    ),
-                    _StubDiscoverableChannel(
-                        id=7004, name="ideas", type="forum"
-                    ),
-                    _StubDiscoverableChannel(
-                        id=7005, name="news", type="news"
-                    ),
+                    _StubDiscoverableChannel(id=7001, name="Section", type="category"),
+                    _StubDiscoverableChannel(id=7002, name="general", type="text"),
+                    _StubDiscoverableChannel(id=7003, name="voice-lobby", type="voice"),
+                    _StubDiscoverableChannel(id=7004, name="ideas", type="forum"),
+                    _StubDiscoverableChannel(id=7005, name="news", type="news"),
                 ],
             ),
         ]
@@ -4089,9 +3952,7 @@ async def test_send_ephemeral_token_expired_falls_back_to_channel(
     not_found = _make_http_exception(discord.errors.NotFound, status=404)
     webhook = MagicMock(name="application-webhook")
     webhook.send = AsyncMock(side_effect=not_found)
-    monkeypatch.setattr(
-        discord.Webhook, "from_state", lambda *, data, state: webhook
-    )
+    monkeypatch.setattr(discord.Webhook, "from_state", lambda *, data, state: webhook)
 
     client = _make_discord_client_with_sdk(sdk)
     target = OutboundTarget(

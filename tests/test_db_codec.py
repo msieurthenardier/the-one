@@ -838,9 +838,7 @@ class TestMessagesToUiEventsPeerName:
         msgs = [
             Message.user("plain"),
             Message.user("from-alice", peer_name="alice"),
-            Message.user(
-                "operator-and-alice", peer_name="alice", visibility="operator"
-            ),
+            Message.user("operator-and-alice", peer_name="alice", visibility="operator"),
         ]
         events = messages_to_ui_events(msgs)
         assert len(events) == 3

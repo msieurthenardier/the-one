@@ -110,9 +110,7 @@ class SendToPlatformChannelTool(Tool):
         # at builtins.py:104-105 constructs every tool zero-arg there).
         super().__init__(config, cross_configs, agent_name)
         self._connector_ids: list[str] = connector_ids or []
-        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
-            connector_acls
-        )
+        self._connector_acls: dict[str, dict[str, list[str] | None]] | None = connector_acls
 
     async def execute(self, target: Any = None, content: Any = None, **_extra: Any) -> str:  # type: ignore[override]
         # `**_extra` defensively accepts unexpected kwargs from the LLM
@@ -138,10 +136,7 @@ class SendToPlatformChannelTool(Tool):
 
         # ── Account-scope validation ───────────────────────────────
         if account_id not in self._connector_ids:
-            return (
-                f"[error] [constraint] account_id {account_id!r} is "
-                f"not attached to this agent"
-            )
+            return f"[error] [constraint] account_id {account_id!r} is not attached to this agent"
 
         # ── Channel + per-agent ACL consultation (M10 F6 L3) ───────
         # Function-local imports — adopted defensively by symmetry with
@@ -161,10 +156,7 @@ class SendToPlatformChannelTool(Tool):
         try:
             account = await acc_repo.get(account_id)
         except KeyError:
-            return (
-                f"[error] [constraint] account_id {account_id!r} "
-                "not found"
-            )
+            return f"[error] [constraint] account_id {account_id!r} not found"
 
         # M10 F7 L2: ACL admission extracted to connectors/_acl.py — single
         # pure function consumed by both outbound (here) and inbound (F7 L5
@@ -172,9 +164,7 @@ class SendToPlatformChannelTool(Tool):
         from the_one.connectors._acl import admits_outbound
 
         agent_acl: dict[str, list[str] | None] | None = (
-            self._connector_acls.get(account_id)
-            if self._connector_acls is not None
-            else None
+            self._connector_acls.get(account_id) if self._connector_acls is not None else None
         )
         admits, reason = admits_outbound(account, agent_acl, channel_id)
         if not admits:

@@ -106,8 +106,7 @@ async def test_multi_user_routing_live() -> None:
             report.record(
                 "#5 topology — 3 bots → ONE channel-scoped session",
                 "PASS",
-                f"single session id={session_id!r}; "
-                f"{len(seen_names)} distinct inbound peer_names",
+                f"single session id={session_id!r}; {len(seen_names)} distinct inbound peer_names",
             )
             report.record(
                 "#13 attribution — F6 peer_name per bot",
@@ -218,11 +217,15 @@ async def test_multi_user_routing_live() -> None:
             # never mutated that agent (sentinel still set).
             if prior_agent1 is not _UNSET:
                 await restore_agent_connector_acls(
-                    base, _AGENT_1, prior_agent1  # type: ignore[arg-type]
+                    base,
+                    _AGENT_1,
+                    prior_agent1,  # type: ignore[arg-type]
                 )
             if prior_agent2 is not _UNSET:
                 await restore_agent_connector_acls(
-                    base, _AGENT_2, prior_agent2  # type: ignore[arg-type]
+                    base,
+                    _AGENT_2,
+                    prior_agent2,  # type: ignore[arg-type]
                 )
 
     # Surface the evidence table in pytest output for the FD's run record.

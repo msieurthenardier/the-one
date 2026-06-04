@@ -139,9 +139,7 @@ async def resolve_session(
     dispatcher composes this with the pool and per-session lock.
     """
     key = plugin.normalize_session_key(envelope)
-    continuation = _resolve_continuation_seconds(
-        override=account.session_continuation_seconds
-    )
+    continuation = _resolve_continuation_seconds(override=account.session_continuation_seconds)
 
     existing = await repo.find_most_recent_by_external_key(
         platform=key.platform,

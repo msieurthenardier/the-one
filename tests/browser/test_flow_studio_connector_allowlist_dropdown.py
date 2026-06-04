@@ -35,7 +35,6 @@ import pytest
 from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
-
 # ── Stub payloads + route helpers ───────────────────────────────────────
 
 
@@ -90,8 +89,7 @@ _DISCOVERABLE_PAYLOAD = {
 }
 
 
-def _route_discoverable_ok(page: Page, account_id: str,
-                            payload: dict | None = None) -> None:
+def _route_discoverable_ok(page: Page, account_id: str, payload: dict | None = None) -> None:
     """Stub GET + POST /api/connectors/{id}/discoverable-entities."""
     body = payload if payload is not None else _DISCOVERABLE_PAYLOAD
 
@@ -142,9 +140,7 @@ def _activate_access_and_routing_tab(page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_allowlist_axis_renders_dropdown_for_discord_account(
-    app_clean: str, page: Page
-) -> None:
+def test_allowlist_axis_renders_dropdown_for_discord_account(app_clean: str, page: Page) -> None:
     """Edit an existing Discord account → the top-level allowlist
     surface renders the ``discoverable-dropdown`` component for peers
     AND for the new hierarchical Servers (guilds) parent organizer.
@@ -159,9 +155,7 @@ def test_allowlist_axis_renders_dropdown_for_discord_account(
     account_id = _seed_discord(app_clean, name="Discord Allowlist Bot")
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     expect(page.locator('[data-testid="discoverable-dropdown-peers"]')).to_have_count(
@@ -177,9 +171,7 @@ def test_allowlist_axis_renders_dropdown_for_discord_account(
 
 
 @pytest.mark.browser
-def test_allowlist_axis_renders_chiplist_for_stub_account(
-    app_clean: str, page: Page
-) -> None:
+def test_allowlist_axis_renders_chiplist_for_stub_account(app_clean: str, page: Page) -> None:
     """Edit an existing stub account → the top-level peers axis still
     renders the pre-existing chip-list editor (the regression contract
     for any connector type without a ``renderDiscoverableDropdown``
@@ -193,29 +185,25 @@ def test_allowlist_axis_renders_chiplist_for_stub_account(
     """
     account_id = seed_connector(app_clean, name="Stub Allowlist Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # Top-level chip-lists: peers + guilds (the Servers parent
     # organizer); channels + roles no longer render at the top level.
     for axis in ("peers", "guilds"):
-        expect(
-            page.locator(f'[data-testid="connector-allowlist-{axis}-chiplist"]')
-        ).to_have_count(1)
+        expect(page.locator(f'[data-testid="connector-allowlist-{axis}-chiplist"]')).to_have_count(
+            1
+        )
     for retired_axis in ("channels", "roles"):
         expect(
-            page.locator(
-                f'[data-testid="connector-allowlist-{retired_axis}-chiplist"]'
-            )
+            page.locator(f'[data-testid="connector-allowlist-{retired_axis}-chiplist"]')
         ).to_have_count(0)
     # And no dropdown components rendered for any axis.
     expect(page.locator('[data-testid^="discoverable-dropdown-"]')).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
+def test_allowlist_dropdown_onChange_updates_account_config_allowlist(  # noqa: N802  # name mirrors JS `onChange` handler
     app_clean: str, page: Page
 ) -> None:
     """Open a Discord account → pre-seed a server (so the nested
@@ -244,26 +232,18 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # The server row for guild-1 mounts.
-    server_row = page.locator(
-        '[data-testid="connector-allowlist-server-row-guild-1"]'
-    )
+    server_row = page.locator('[data-testid="connector-allowlist-server-row-guild-1"]')
     expect(server_row).to_have_count(1, timeout=8000)
 
     # The server-scoped channels dropdown is inside the row.
-    items = server_row.locator(
-        '[data-testid="discoverable-dropdown-item-channels"]'
-    )
+    items = server_row.locator('[data-testid="discoverable-dropdown-item-channels"]')
     expect(items).to_have_count(2, timeout=8000)
 
-    input_el = server_row.locator(
-        '[data-testid="discoverable-dropdown-input-channels"]'
-    )
+    input_el = server_row.locator('[data-testid="discoverable-dropdown-input-channels"]')
     expect(input_el).to_be_enabled(timeout=4000)
     input_el.focus()
     items.filter(has_text="#general").click()
@@ -293,12 +273,9 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
     # selected ``#general`` item synthesizes
     # ``{guild_id: 'guild-1', channel_id: '111'}``.
     channel_ids = [
-        e.get("channel_id") if isinstance(e, dict) else e
-        for e in (allowlist.get("channels") or [])
+        e.get("channel_id") if isinstance(e, dict) else e for e in (allowlist.get("channels") or [])
     ]
-    assert "111" in channel_ids, (
-        f"expected channel id '111' persisted; allowlist={allowlist!r}"
-    )
+    assert "111" in channel_ids, f"expected channel id '111' persisted; allowlist={allowlist!r}"
 
 
 @pytest.mark.browser
@@ -330,9 +307,7 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # Wait for the server row + nested chip to render. M11 F12 L5
@@ -340,19 +315,13 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     # under each server-scoped channels dropdown; the chip carries
     # ``data-id`` with the channel id and ``data-testid``
     # ``discoverable-dropdown-chip-channels``.
-    server_row = page.locator(
-        '[data-testid="connector-allowlist-server-row-guild-1"]'
-    )
+    server_row = page.locator('[data-testid="connector-allowlist-server-row-guild-1"]')
     expect(server_row).to_have_count(1, timeout=8000)
-    chip = server_row.locator(
-        '[data-testid="discoverable-dropdown-chip-channels"][data-id="111"]'
-    )
+    chip = server_row.locator('[data-testid="discoverable-dropdown-chip-channels"][data-id="111"]')
     expect(chip).to_have_count(1)
 
     # The × button is inside the chip (dropdown-owned remove affordance).
-    chip.locator(
-        '[data-testid="discoverable-dropdown-chip-remove-channels"]'
-    ).click()
+    chip.locator('[data-testid="discoverable-dropdown-chip-remove-channels"]').click()
     expect(chip).to_have_count(0)
 
     save_btn = page.locator('[data-testid="save-connector-btn"]')
@@ -369,8 +338,7 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     # is gone; the wildcard may or may not be present depending on
     # collect-path projection.
     channel_ids = [
-        e.get("channel_id") if isinstance(e, dict) else e
-        for e in (allowlist.get("channels") or [])
+        e.get("channel_id") if isinstance(e, dict) else e for e in (allowlist.get("channels") or [])
     ]
     assert "111" not in channel_ids, (
         f"expected '111' removed from channels; allowlist={allowlist!r}"
@@ -378,9 +346,7 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
 
 
 @pytest.mark.browser
-def test_allowlist_storage_axis_guilds_maps_to_api_groups(
-    app_clean: str, page: Page
-) -> None:
+def test_allowlist_storage_axis_guilds_maps_to_api_groups(app_clean: str, page: Page) -> None:
     """The storage-axis ``'guilds'`` slot mounts a dropdown whose
     component-internal axis is ``'groups'``. Pins the bidirectional
     storage↔API axis translation centralized in
@@ -408,9 +374,7 @@ def test_allowlist_storage_axis_guilds_maps_to_api_groups(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # The guilds STORAGE slot div contains a dropdown whose outermost
@@ -419,9 +383,7 @@ def test_allowlist_storage_axis_guilds_maps_to_api_groups(
     expect(guilds_slot).to_have_count(1)
     dropdown_in_slot = guilds_slot.locator('[data-axis="groups"]')
     expect(dropdown_in_slot).to_have_count(1)
-    expect(dropdown_in_slot).to_have_attribute(
-        "data-testid", "discoverable-dropdown-groups"
-    )
+    expect(dropdown_in_slot).to_have_attribute("data-testid", "discoverable-dropdown-groups")
 
     # Top-level peers slot still hosts a peers dropdown (no translation).
     peers_slot = page.locator('[data-allowlist-chiplist-slot="peers"]')
@@ -429,30 +391,18 @@ def test_allowlist_storage_axis_guilds_maps_to_api_groups(
 
     # Channels + roles no longer have top-level slots (no translation
     # needed; they render server-scoped inside the server row).
-    expect(
-        page.locator('[data-allowlist-chiplist-slot="channels"]')
-    ).to_have_count(0)
-    expect(
-        page.locator('[data-allowlist-chiplist-slot="roles"]')
-    ).to_have_count(0)
+    expect(page.locator('[data-allowlist-chiplist-slot="channels"]')).to_have_count(0)
+    expect(page.locator('[data-allowlist-chiplist-slot="roles"]')).to_have_count(0)
     # The server row hosts an in-row channels dropdown with its
     # natural data-axis="channels".
-    server_row = page.locator(
-        '[data-testid="connector-allowlist-server-row-guild-1"]'
-    )
+    server_row = page.locator('[data-testid="connector-allowlist-server-row-guild-1"]')
     expect(server_row).to_have_count(1, timeout=8000)
-    expect(
-        server_row.locator('[data-axis="channels"]')
-    ).to_have_count(1)
-    expect(
-        server_row.locator('[data-axis="roles"]')
-    ).to_have_count(1)
+    expect(server_row.locator('[data-axis="channels"]')).to_have_count(1)
+    expect(server_row.locator('[data-axis="roles"]')).to_have_count(1)
 
 
 @pytest.mark.browser
-def test_create_mode_discord_does_not_render_allowlist(
-    app_clean: str, page: Page
-) -> None:
+def test_create_mode_discord_does_not_render_allowlist(app_clean: str, page: Page) -> None:
     """Create-mode renders flat (no tabs) and structurally omits the
     allowlist section. Picking Discord in the type dropdown MUST NOT
     render any allowlist UI AND MUST NOT fire a GET to
@@ -479,19 +429,13 @@ def test_create_mode_discord_does_not_render_allowlist(
     page.route("**/discoverable-entities*", handle)
 
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="connector-type-select"]').select_option("discord")
 
     # No allowlist UI of either flavor renders.
-    expect(
-        page.locator('[data-testid^="connector-allowlist-"]')
-    ).to_have_count(0)
+    expect(page.locator('[data-testid^="connector-allowlist-"]')).to_have_count(0)
     expect(page.locator('[data-testid^="discoverable-dropdown-"]')).to_have_count(0)
-    expect(
-        page.locator('[data-allowlist-chiplist-slot]')
-    ).to_have_count(0)
+    expect(page.locator("[data-allowlist-chiplist-slot]")).to_have_count(0)
 
     # And no discoverable-entities fetch fired.
     assert captured == [], (

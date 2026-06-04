@@ -122,9 +122,7 @@ async def _clear_pool_locks_registry():
 # ─── Test 1 — headline: both-visibility coexistence ──────────────────────
 
 
-async def test_e2e_both_visibility_paths_coexist_in_session(
-    isolated_db, monkeypatch
-) -> None:
+async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db, monkeypatch) -> None:
     """Connector inbound creates a peer-visible USER message + an
     operator-tagged assistant reply (F4 L4 dispatcher tagging); a
     direct repo write appends two more operator-tagged Messages to
@@ -202,9 +200,7 @@ async def test_e2e_both_visibility_paths_coexist_in_session(
         visibility=OPERATOR_VISIBILITY,
     )
     updated_history = existing + [operator_user, operator_assistant]
-    sess_updated = sess.model_copy(
-        update={"messages": encode_messages(updated_history)}
-    )
+    sess_updated = sess.model_copy(update={"messages": encode_messages(updated_history)})
     await chat_repo.update(sess_updated)
 
     # Re-fetch + decode — the round-trip through the column is the test.
@@ -356,10 +352,7 @@ async def test_e2e_continuation_window_real_time_supersede(isolated_db) -> None:
     # Both rows share the same external key (platform + account + channel
     # + thread) — the most-recent-within-window query is what
     # distinguishes them, not a key change.
-    external_keys = {
-        (s.platform, s.connector_id, s.channel_id, s.thread_id)
-        for s in sessions
-    }
+    external_keys = {(s.platform, s.connector_id, s.channel_id, s.thread_id) for s in sessions}
     assert len(external_keys) == 1
 
     # Each row should have exactly one user turn (the inbound that

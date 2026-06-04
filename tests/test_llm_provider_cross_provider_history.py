@@ -40,7 +40,6 @@ from the_one.llm.ollama_provider import OllamaProvider
 from the_one.llm.openai_provider import OpenAIProvider
 from the_one.llm.openrouter_provider import OpenRouterProvider
 
-
 # ---------------------------------------------------------------------------
 # Canonical multi-shape session
 # ---------------------------------------------------------------------------
@@ -87,7 +86,10 @@ def _build_canonical_session() -> list[Message]:
         Message.tool(
             ToolResult(
                 tool_call_id="toolu_01abc123",
-                content='[{"peer_name": "alice", "content": "hi"}, {"peer_name": "bob", "content": "hey"}]',
+                content=(
+                    '[{"peer_name": "alice", "content": "hi"}, '
+                    '{"peer_name": "bob", "content": "hey"}]'
+                ),
             ),
         ),
         # F8 L1 medium-severity addition (per design review): empty-content
@@ -267,8 +269,7 @@ class TestCrossProviderHistoryPureEncoder:
             "role": "tool",
             "tool_call_id": "toolu_01abc123",
             "content": (
-                '[{"peer_name": "alice", "content": "hi"}, '
-                '{"peer_name": "bob", "content": "hey"}]'
+                '[{"peer_name": "alice", "content": "hi"}, {"peer_name": "bob", "content": "hey"}]'
             ),
         }
 
@@ -423,9 +424,7 @@ class TestCrossProviderHistoryPureEncoder:
             ),
         ]
 
-        anthropic_results = [
-            anthropic_provider._to_api_message(m) for m in openai_shape_session
-        ]
+        anthropic_results = [anthropic_provider._to_api_message(m) for m in openai_shape_session]
         assert anthropic_results[1]["content"][1]["id"] == "call_xyz789"
         assert anthropic_results[2]["content"][0]["tool_use_id"] == "call_xyz789"
 
@@ -459,9 +458,7 @@ class TestCrossProviderHistoryPureEncoder:
         assert a_result["role"] == "assistant"
         assert isinstance(a_result["content"], list)
         text_blocks = [b for b in a_result["content"] if b.get("type") == "text"]
-        assert text_blocks == [], (
-            f"Anthropic emitted a text block for empty content: {a_result}"
-        )
+        assert text_blocks == [], f"Anthropic emitted a text block for empty content: {a_result}"
         tool_use_blocks = [b for b in a_result["content"] if b.get("type") == "tool_use"]
         assert len(tool_use_blocks) == 1
 
@@ -623,9 +620,7 @@ class TestCrossProviderHistoryLive:
                 Message.system("Reply with one word."),
                 Message.user("Hello."),
             ]
-            anthropic_reply = await anthropic.complete(
-                history, temperature=0.0, max_tokens=50
-            )
+            anthropic_reply = await anthropic.complete(history, temperature=0.0, max_tokens=50)
             assert isinstance(anthropic_reply, Message)
             assert anthropic_reply.role == Role.ASSISTANT
             history.append(anthropic_reply)
@@ -665,9 +660,7 @@ class TestCrossProviderHistoryLive:
 
             # Step 2: continue the session under Anthropic.
             history.append(Message.user("Same."))
-            anthropic_reply = await anthropic.complete(
-                history, temperature=0.0, max_tokens=50
-            )
+            anthropic_reply = await anthropic.complete(history, temperature=0.0, max_tokens=50)
             assert isinstance(anthropic_reply, Message)
             assert anthropic_reply.role == Role.ASSISTANT
         finally:
@@ -724,9 +717,7 @@ class TestCrossProviderHistoryLive:
             # no-op — the test still pins shape compatibility for the
             # messages-without-tool-result swap path.
             for tc in anthropic_reply.tool_calls:
-                history.append(
-                    Message.tool(ToolResult(tool_call_id=tc.id, content="ok"))
-                )
+                history.append(Message.tool(ToolResult(tool_call_id=tc.id, content="ok")))
 
             # Step 3: re-send the WHOLE history through Ollama. The
             # cross-provider invariant being tested: Ollama accepts a
@@ -758,9 +749,7 @@ class TestCrossProviderHistoryLive:
             pytest.skip("openai SDK (required by OpenRouter provider) not installed")
 
         anthropic_model = os.environ.get("LIVE_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-        openrouter_model = os.environ.get(
-            "LIVE_OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free"
-        )
+        openrouter_model = os.environ.get("LIVE_OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
         anthropic = AnthropicProvider(model=anthropic_model)
         openrouter = OpenRouterProvider(model=openrouter_model)
 
@@ -770,9 +759,7 @@ class TestCrossProviderHistoryLive:
                 Message.system("Reply with one word."),
                 Message.user("Hello."),
             ]
-            anthropic_reply = await anthropic.complete(
-                history, temperature=0.0, max_tokens=50
-            )
+            anthropic_reply = await anthropic.complete(history, temperature=0.0, max_tokens=50)
             assert isinstance(anthropic_reply, Message)
             assert anthropic_reply.role == Role.ASSISTANT
             history.append(anthropic_reply)
@@ -789,9 +776,7 @@ class TestCrossProviderHistoryLive:
                     f"Set LIVE_OPENROUTER_MODEL to a valid slug to override."
                 )
             except (openai.PermissionDeniedError, openai.AuthenticationError) as exc:
-                pytest.skip(
-                    f"OpenRouter auth/permission error: {type(exc).__name__}: {exc}."
-                )
+                pytest.skip(f"OpenRouter auth/permission error: {type(exc).__name__}: {exc}.")
             assert isinstance(openrouter_reply, Message)
             assert openrouter_reply.role == Role.ASSISTANT
         finally:
@@ -814,9 +799,7 @@ class TestCrossProviderHistoryLive:
             pytest.skip("openai SDK (required by OpenRouter provider) not installed")
 
         anthropic_model = os.environ.get("LIVE_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-        openrouter_model = os.environ.get(
-            "LIVE_OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free"
-        )
+        openrouter_model = os.environ.get("LIVE_OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
         anthropic = AnthropicProvider(model=anthropic_model)
         openrouter = OpenRouterProvider(model=openrouter_model)
 
@@ -836,17 +819,13 @@ class TestCrossProviderHistoryLive:
                     f"Set LIVE_OPENROUTER_MODEL to a valid slug to override."
                 )
             except (openai.PermissionDeniedError, openai.AuthenticationError) as exc:
-                pytest.skip(
-                    f"OpenRouter auth/permission error: {type(exc).__name__}: {exc}."
-                )
+                pytest.skip(f"OpenRouter auth/permission error: {type(exc).__name__}: {exc}.")
             assert isinstance(openrouter_reply, Message)
             history.append(openrouter_reply)
 
             # Step 2: continue the session under Anthropic.
             history.append(Message.user("Same."))
-            anthropic_reply = await anthropic.complete(
-                history, temperature=0.0, max_tokens=50
-            )
+            anthropic_reply = await anthropic.complete(history, temperature=0.0, max_tokens=50)
             assert isinstance(anthropic_reply, Message)
             assert anthropic_reply.role == Role.ASSISTANT
         finally:

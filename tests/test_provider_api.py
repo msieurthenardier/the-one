@@ -739,9 +739,7 @@ class TestEncryptionRotation:
         decrypted = Fernet(key_before).decrypt(row["secrets"].encode()).decode()
         assert _json.loads(decrypted) == {"K": "preservedmcpsecretvalue"}
 
-    async def test_rotate_connector_secrets(
-        self, client: AsyncClient, tmp_path: Path
-    ) -> None:
+    async def test_rotate_connector_secrets(self, client: AsyncClient, tmp_path: Path) -> None:
         """After rotation, connectors.secrets still decrypts under
         the new key — re-encrypted atomically with llm_providers.api_key
         and mcp_sources.secrets in the same single commit.
@@ -770,8 +768,7 @@ class TestEncryptionRotation:
                 .decode()
             )
             await seed_conn.execute(
-                "INSERT INTO connectors (id, type, config, secrets) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO connectors (id, type, config, secrets) VALUES (?, ?, ?, ?)",
                 ("acct-rotate", "stub", "{}", ciphertext),
             )
             await seed_conn.commit()
@@ -856,8 +853,7 @@ class TestEncryptionRotation:
         seed_conn.row_factory = aiosqlite.Row
         try:
             await seed_conn.execute(
-                "INSERT INTO connectors (id, type, config, secrets) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO connectors (id, type, config, secrets) VALUES (?, ?, ?, ?)",
                 ("conn-preserve", "stub", "{}", conn_ct_before),
             )
             await seed_conn.commit()

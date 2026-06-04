@@ -50,9 +50,7 @@ def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) ->
 
 
 @pytest.mark.browser
-def test_detach_button_removes_agent_from_attached_list(
-    app_clean: str, page: Page
-) -> None:
+def test_detach_button_removes_agent_from_attached_list(app_clean: str, page: Page) -> None:
     """Seed a connector account + an agent attached to it; navigate to
     the detail page; click Detach on the agent's row; verify the row
     disappears and the agent's ``connector_ids`` is empty."""
@@ -65,16 +63,12 @@ def test_detach_button_removes_agent_from_attached_list(
     assert account_id in _get_agent(app_clean, agent_name)["connector_ids"]
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # The attached-agents table renders the agent's row + Detach button.
     row = page.locator(f'[data-testid="connector-attached-agent-{agent_name}"]')
     expect(row).to_have_count(1, timeout=5000)
-    detach_btn = page.locator(
-        f'[data-testid="connector-attached-agent-detach-{agent_name}"]'
-    )
+    detach_btn = page.locator(f'[data-testid="connector-attached-agent-detach-{agent_name}"]')
     expect(detach_btn).to_have_count(1)
     expect(detach_btn).to_have_text("Detach")
 
@@ -83,9 +77,7 @@ def test_detach_button_removes_agent_from_attached_list(
     # Row disappears from the re-rendered table.
     expect(row).to_have_count(0, timeout=5000)
     # No detach-error message rendered.
-    expect(
-        page.locator(".connector-attached-agent-detach-error")
-    ).to_have_count(0)
+    expect(page.locator(".connector-attached-agent-detach-error")).to_have_count(0)
 
     # Server-side: the agent's connector_ids no longer contains the account.
     after = _get_agent(app_clean, agent_name)
@@ -93,9 +85,7 @@ def test_detach_button_removes_agent_from_attached_list(
 
 
 @pytest.mark.browser
-def test_connectors_grid_displays_attached_agents_count(
-    app_clean: str, page: Page
-) -> None:
+def test_connectors_grid_displays_attached_agents_count(app_clean: str, page: Page) -> None:
     """Seed three accounts (2/1/0 agents attached) and verify the grid
     tile renders the singular/plural/zero forms of the agent-count
     badge.
@@ -119,19 +109,11 @@ def test_connectors_grid_displays_attached_agents_count(
     seed_connector(app_clean, name="Zero Agents Bot")
 
     page.goto(f"{app_clean}#studio/connectors")
-    expect(
-        page.locator('[data-testid="connector-card"]')
-    ).to_have_count(3, timeout=8000)
+    expect(page.locator('[data-testid="connector-card"]')).to_have_count(3, timeout=8000)
 
-    tile_a = page.locator(
-        f'[data-testid="connector-card"][data-id="{account_a}"]'
-    )
-    tile_b = page.locator(
-        f'[data-testid="connector-card"][data-id="{account_b}"]'
-    )
-    tile_c = page.locator(
-        '[data-testid="connector-card"]', has_text="Zero Agents Bot"
-    )
+    tile_a = page.locator(f'[data-testid="connector-card"][data-id="{account_a}"]')
+    tile_b = page.locator(f'[data-testid="connector-card"][data-id="{account_b}"]')
+    tile_c = page.locator('[data-testid="connector-card"]', has_text="Zero Agents Bot")
 
     expect(tile_a.locator(".entity-tile-meta")).to_have_text("2 agents")
     expect(tile_b.locator(".entity-tile-meta")).to_have_text("1 agent")

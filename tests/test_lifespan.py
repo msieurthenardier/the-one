@@ -15,6 +15,7 @@ need a writable data dir.
 
 from __future__ import annotations
 
+import logging as _logging
 import time
 from pathlib import Path
 
@@ -245,9 +246,7 @@ async def test_lifespan_warm_acquires_connectors_per_account(
         # attached.
         assert acquire_calls == ["acct-warm"], acquire_calls
         # Pool reflects one sentinel-keyed entry.
-        keys_for_account = [
-            k for k in pool_mod._pool if k[1] == "acct-warm"
-        ]
+        keys_for_account = [k for k in pool_mod._pool if k[1] == "acct-warm"]
         assert len(keys_for_account) == 1
         assert keys_for_account[0] == (
             pool_mod._ACCOUNT_POOL_AGENT_SLOT,
@@ -316,9 +315,6 @@ async def test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-import logging as _logging
-
-
 async def test_lifespan_warns_on_deprecated_inference_env_vars(
     _isolated_data_dir,
     monkeypatch: pytest.MonkeyPatch,
@@ -341,7 +337,8 @@ async def test_lifespan_warns_on_deprecated_inference_env_vars(
             pass
 
     matching = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.levelno == _logging.WARNING
         and "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID" in r.getMessage()
     ]
@@ -372,7 +369,8 @@ async def test_lifespan_does_not_warn_when_inference_env_vars_unset(
             pass
 
     matching = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.levelno == _logging.WARNING
         and (
             "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID" in r.getMessage()
@@ -404,6 +402,7 @@ async def test_lifespan_warms_connector_with_attached_agent(
     for this connector because an agent is attached.
     """
     from the_one.agent.config import AgentConfig
+    from the_one.config import settings as _settings
     from the_one.connectors import _pool as pool_mod
     from the_one.connectors._stub import StubPlugin
     from the_one.connectors.registry import register_for_test
@@ -416,7 +415,6 @@ async def test_lifespan_warms_connector_with_attached_agent(
     )
     from the_one.db.schema import ensure_schema
     from the_one.encryption import get_encryptor
-    from the_one.config import settings as _settings
 
     register_for_test("stub", StubPlugin)
     StubPlugin.reset_for_test()

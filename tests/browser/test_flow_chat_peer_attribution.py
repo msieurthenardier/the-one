@@ -63,9 +63,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:
@@ -226,9 +224,7 @@ def test_chat_renders_peer_attribution(
     page.goto(f"{base_url}#chat/sessions/{session_id}")
 
     # Wait for the chat chrome (deep-link path renders straight into chrome).
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     # Wait for messages to render — at least one .msg bubble.
     expect(page.locator(".msg").first).to_be_visible(timeout=5000)
@@ -263,7 +259,8 @@ def test_chat_renders_peer_attribution(
     )
     assert first_peer_attr is not None, "first peer bubble has no following attribution element"
     assert "msg-attribution" in first_peer_attr["cls"], (
-        f"expected msg-attribution class on first peer attribution, got cls={first_peer_attr['cls']!r}"
+        "expected msg-attribution class on first peer attribution, got "
+        f"cls={first_peer_attr['cls']!r}"
     )
     assert "from-peer" in first_peer_attr["cls"], (
         f"expected from-peer class on first peer attribution, got cls={first_peer_attr['cls']!r}"
@@ -313,9 +310,7 @@ def test_chat_renders_peer_attribution(
 
     # Assertion 6: computed style on the peer bubble — the source-order
     # CSS override should flip align-self to flex-start.
-    peer_align = first_peer.evaluate(
-        "el => getComputedStyle(el).alignSelf"
-    )
+    peer_align = first_peer.evaluate("el => getComputedStyle(el).alignSelf")
     assert peer_align == "flex-start", (
         f"peer bubble align-self should be 'flex-start' (CSS source-order "
         f"override after .msg.user), got {peer_align!r}"
@@ -325,8 +320,7 @@ def test_chat_renders_peer_attribution(
     # the base .msg.user rule should still apply, keeping flex-end.
     op_align = op_user.evaluate("el => getComputedStyle(el).alignSelf")
     assert op_align == "flex-end", (
-        f"operator-typed user bubble align-self should be 'flex-end', "
-        f"got {op_align!r}"
+        f"operator-typed user bubble align-self should be 'flex-end', got {op_align!r}"
     )
 
     # Assertion 8: visibility composition — the assistant bubble carries
@@ -338,8 +332,7 @@ def test_chat_renders_peer_attribution(
         "el => el.classList.contains('msg-operator-only')"
     )
     assert assistant_has_marker is True, (
-        "assistant bubble should carry .msg-operator-only "
-        "(visibility=operator persisted by codec)"
+        "assistant bubble should carry .msg-operator-only (visibility=operator persisted by codec)"
     )
 
     for i in range(2):
@@ -351,9 +344,7 @@ def test_chat_renders_peer_attribution(
             "peer-inbound users have visibility=None by construction"
         )
 
-    op_user_has_marker = op_user.evaluate(
-        "el => el.classList.contains('msg-operator-only')"
-    )
+    op_user_has_marker = op_user.evaluate("el => el.classList.contains('msg-operator-only')")
     assert op_user_has_marker is False, (
         "operator-typed user bubble unexpectedly carries .msg-operator-only — "
         "the F5 L8 HAT decision suppresses the marker on user bubbles."
@@ -390,8 +381,7 @@ def test_chat_renders_peer_attribution(
         f"got cls={first_peer_label['cls']!r}"
     )
     assert first_peer_label["text"] == "From alice: ", (
-        f"expected first peer label text 'From alice: ', "
-        f"got {first_peer_label['text']!r}"
+        f"expected first peer label text 'From alice: ', got {first_peer_label['text']!r}"
     )
     # Verify the visually-hidden utility actually hides the span from sighted
     # users (sr-only pattern collapses to a 1×1 clipped box). Browsers report
@@ -421,17 +411,14 @@ def test_chat_renders_peer_attribution(
         f"got cls={second_peer_label['cls']!r}"
     )
     assert second_peer_label["text"] == "From bob: ", (
-        f"expected second peer label text 'From bob: ', "
-        f"got {second_peer_label['text']!r}"
+        f"expected second peer label text 'From bob: ', got {second_peer_label['text']!r}"
     )
 
     # Assertion 10 (negative case): the operator-typed user bubble must NOT
     # carry a .msg-from-peer-label — the operator IS the source; there is no
     # peer to announce. Verifies the gate is `opts.peerName` truthiness (not
     # bubble-role).
-    op_user_peer_label = op_user.evaluate(
-        "el => el.querySelector('.msg-from-peer-label') !== null"
-    )
+    op_user_peer_label = op_user.evaluate("el => el.querySelector('.msg-from-peer-label') !== null")
     assert op_user_peer_label is False, (
         "operator-typed user bubble unexpectedly carries a "
         ".msg-from-peer-label — the screen-reader label gate is "

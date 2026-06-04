@@ -67,7 +67,7 @@ def test_not_tested_text_absent(app_clean: str, page: Page) -> None:
     # Assert "Not tested" text is not present anywhere in the editor.
     # The test-message span is now empty by default; the status reads from
     # the live-status poll, not a hardcoded string.
-    editor = page.locator('.connector-editor')
+    editor = page.locator(".connector-editor")
     expect(editor).not_to_contain_text("Not tested")
 
 
@@ -131,9 +131,7 @@ def test_invite_renders_from_persisted_application_id(app_clean: str, page: Page
 
 
 @pytest.mark.browser
-def test_discoverable_entities_banner_in_access_routing_tab(
-    app_clean: str, page: Page
-) -> None:
+def test_discoverable_entities_banner_in_access_routing_tab(app_clean: str, page: Page) -> None:
     """Discoverable-entities banner renders at the top of the Access-and-Routing tab."""
     account_id = seed_connector(app_clean, name="Banner Location Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")

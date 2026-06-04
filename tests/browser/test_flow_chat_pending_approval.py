@@ -52,9 +52,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:
@@ -217,10 +215,7 @@ def _allowlist_peers(base_url: str, account_id: str) -> list[str]:
     assert r.status_code == 200, r.text
     config = r.json().get("config") or {}
     allowlist = config.get("allowlist") or {}
-    return [
-        (p.get("id") if isinstance(p, dict) else p)
-        for p in (allowlist.get("peers") or [])
-    ]
+    return [(p.get("id") if isinstance(p, dict) else p) for p in (allowlist.get("peers") or [])]
 
 
 @pytest.mark.browser
@@ -259,9 +254,7 @@ def test_pending_approval_banner_renders_on_session_join(
 
     page.goto(f"{base_url}#chat/sessions/{session_id}")
 
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
     banner = page.locator('[data-testid="pending-approval-banner"]')
     expect(banner).to_have_count(1, timeout=5000)
     # Approval id matches the seeded value.
@@ -269,9 +262,7 @@ def test_pending_approval_banner_renders_on_session_join(
     expect(banner).to_have_attribute("data-connector-id", account_id)
     # Peer name + preview are rendered.
     expect(banner.locator(".msg-pending-approval-peer-name")).to_have_text("Alice")
-    expect(banner.locator(".msg-pending-approval-preview")).to_have_text(
-        "hello bot please help"
-    )
+    expect(banner.locator(".msg-pending-approval-preview")).to_have_text("hello bot please help")
     # Two action buttons present.
     expect(banner.locator('[data-testid="pending-approval-approve"]')).to_have_count(1)
     expect(banner.locator('[data-testid="pending-approval-dismiss"]')).to_have_count(1)
@@ -317,9 +308,7 @@ def test_pending_approval_approve_click_updates_status_and_allowlist(
     assert peer_id not in _allowlist_peers(base_url, account_id)
 
     page.goto(f"{base_url}#chat/sessions/{session_id}")
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     banner = page.locator('[data-testid="pending-approval-banner"]')
     expect(banner).to_have_count(1, timeout=5000)
@@ -372,9 +361,7 @@ def test_pending_approval_dismiss_click_updates_status(
     initial_peers = _allowlist_peers(base_url, account_id)
 
     page.goto(f"{base_url}#chat/sessions/{session_id}")
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     banner = page.locator('[data-testid="pending-approval-banner"]')
     expect(banner).to_have_count(1, timeout=5000)
@@ -435,9 +422,7 @@ def test_pending_approval_dedup_replay_then_live_broadcast(
     )
 
     page.goto(f"{base_url}#chat/sessions/{session_id}")
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        agent_name, timeout=8000
-    )
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     banner = page.locator('[data-testid="pending-approval-banner"]')
     expect(banner).to_have_count(1, timeout=5000)

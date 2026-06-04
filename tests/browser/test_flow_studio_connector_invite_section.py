@@ -31,7 +31,6 @@ import pytest
 from browser.seeders import seed_connector
 from playwright.sync_api import Browser, Page, expect
 
-
 _DISCORD_PERMISSIONS_CONSTANT = "2147552256"
 
 
@@ -80,9 +79,9 @@ def _activate_access_and_routing_tab(page: Page) -> None:
     minimum cross-file coupling.
     """
     page.locator('[data-testid="tab-access-and-routing"]').click()
-    expect(
-        page.locator('[data-testid="connector-runtime-config-section"]')
-    ).to_be_visible(timeout=4000)
+    expect(page.locator('[data-testid="connector-runtime-config-section"]')).to_be_visible(
+        timeout=4000
+    )
 
 
 def _fulfill_probe(page: Page, account_id: str, application_id: str) -> None:
@@ -102,9 +101,7 @@ def _fulfill_probe(page: Page, account_id: str, application_id: str) -> None:
             body=json.dumps(payload),
         )
 
-    page.route(
-        f"**/api/connectors/{account_id}/test/connect", handler
-    )
+    page.route(f"**/api/connectors/{account_id}/test/connect", handler)
 
 
 # ── Tests ────────────────────────────────────────────────────────────────
@@ -128,9 +125,7 @@ def test_pre_probe_hint_visible_url_hidden(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_post_probe_url_visible_with_permissions_constant(
-    app_clean: str, page: Page
-) -> None:
+def test_post_probe_url_visible_with_permissions_constant(app_clean: str, page: Page) -> None:
     """After a successful Test Connection whose report carries
     ``details.application_id``, the URL display becomes visible with
     the computed invite URL — including ``client_id={appId}`` and
@@ -156,16 +151,12 @@ def test_post_probe_url_visible_with_permissions_constant(
 
     url_code = page.locator('[data-testid="connector-invite-url"]')
     expect(url_code).to_contain_text("client_id=999000111222333444")
-    expect(url_code).to_contain_text(
-        f"permissions={_DISCORD_PERMISSIONS_CONSTANT}"
-    )
+    expect(url_code).to_contain_text(f"permissions={_DISCORD_PERMISSIONS_CONSTANT}")
     expect(url_code).to_contain_text("scope=bot+applications.commands")
 
 
 @pytest.mark.browser
-def test_permissions_constant_stable_and_no_intent_checkboxes(
-    app_clean: str, page: Page
-) -> None:
+def test_permissions_constant_stable_and_no_intent_checkboxes(app_clean: str, page: Page) -> None:
     """Post-probe invite URL has the stable ``permissions=2147552256``
     constant AND the editor renders no intent-toggle checkboxes.
 
@@ -189,9 +180,9 @@ def test_permissions_constant_stable_and_no_intent_checkboxes(
 
     url_code = page.locator('[data-testid="connector-invite-url"]')
     url_text = url_code.text_content() or ""
-    assert (
-        f"permissions={_DISCORD_PERMISSIONS_CONSTANT}" in url_text
-    ), f"permissions constant missing from invite URL: {url_text!r}"
+    assert f"permissions={_DISCORD_PERMISSIONS_CONSTANT}" in url_text, (
+        f"permissions constant missing from invite URL: {url_text!r}"
+    )
 
     # Navigate to the Access-and-Routing tab and assert no intent
     # checkboxes or intent row are rendered (Leg B subtraction).
@@ -218,23 +209,21 @@ def test_stub_type_renders_no_invite_section(app_clean: str, page: Page) -> None
 
 
 @pytest.mark.browser
-def test_copy_button_writes_url_to_clipboard(
-    app_clean: str, clipboard_page: Page
-) -> None:
+def test_copy_button_writes_url_to_clipboard(app_clean: str, clipboard_page: Page) -> None:
     """Clicking the Copy button writes the invite URL to the system
     clipboard. The test reads it back via ``navigator.clipboard.readText``
     in a context that has been granted clipboard permissions."""
     account_id = _seed_discord(app_clean, name="Copy Bot")
     _fulfill_probe(clipboard_page, account_id, application_id="77777777")
     clipboard_page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        clipboard_page.locator('[data-testid="connector-test-connection-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(clipboard_page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
+        timeout=8000
+    )
 
     clipboard_page.locator('[data-testid="connector-test-connection-btn"]').click()
-    expect(
-        clipboard_page.locator('[data-testid="connector-test-led"]')
-    ).to_have_attribute("data-state", "ok", timeout=8000)
+    expect(clipboard_page.locator('[data-testid="connector-test-led"]')).to_have_attribute(
+        "data-state", "ok", timeout=8000
+    )
 
     url_code = clipboard_page.locator('[data-testid="connector-invite-url"]')
     expected_url = url_code.text_content() or ""

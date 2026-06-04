@@ -19,6 +19,11 @@ from __future__ import annotations
 
 import pytest
 
+from tests._acl_shape_helpers import (
+    DEFAULT_TEST_GUILD_ID,
+    _to_v24_agent_acl,
+    _to_v24_shape,
+)
 from the_one.connectors._acl import (
     AdmissionContext,
     _default_no_mention,
@@ -28,11 +33,6 @@ from the_one.connectors._acl import admits_inbound as _admits_inbound_real
 from the_one.connectors._acl import admits_outbound as _admits_outbound_real
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
-from tests._acl_shape_helpers import (
-    DEFAULT_TEST_GUILD_ID,
-    _to_v24_agent_acl,
-    _to_v24_shape,
-)
 
 
 def admits_inbound(account, agent_acl, peer_id, channel_id, **kwargs):
@@ -74,17 +74,13 @@ def admits_inbound(account, agent_acl, peer_id, channel_id, **kwargs):
         guild_id=guild_id,
         member_roles=kwargs.get("member_roles", []),
     )
-    return _admits_inbound_real(
-        account, _to_v24_agent_acl(agent_acl), ctx
-    )
+    return _admits_inbound_real(account, _to_v24_agent_acl(agent_acl), ctx)
 
 
 def admits_outbound(account, agent_acl, channel_id, **kwargs):
     """Test wrapper — same flat-shape translation as
     :func:`admits_inbound` (see its docstring)."""
-    return _admits_outbound_real(
-        account, _to_v24_agent_acl(agent_acl), channel_id, **kwargs
-    )
+    return _admits_outbound_real(account, _to_v24_agent_acl(agent_acl), channel_id, **kwargs)
 
 
 def _account(allowlist: dict | None = None) -> Connector:
@@ -153,9 +149,7 @@ class TestAdmitsOutbound:
         assert reason == ""
 
     def test_per_agent_channels_none_inherits(self) -> None:
-        admits, reason = admits_outbound(
-            _account(), {"peers": None, "channels": None}, "C1"
-        )
+        admits, reason = admits_outbound(_account(), {"peers": None, "channels": None}, "C1")
         assert admits is True
         assert reason == ""
 
@@ -163,9 +157,7 @@ class TestAdmitsOutbound:
         """`[]` at per-agent = DMs-only sentinel. Without ``is_dm=True``
         the default-fail-closed semantic holds (preserves pre-F8
         behavior for callers that don't resolve DM-truth)."""
-        admits, reason = admits_outbound(
-            _account(), {"peers": None, "channels": []}, "C1"
-        )
+        admits, reason = admits_outbound(_account(), {"peers": None, "channels": []}, "C1")
         assert admits is False
         assert reason == (
             "channel_id 'C1' is not reachable for this agent on account "
@@ -203,50 +195,36 @@ class TestAdmitsOutbound:
         )
 
     def test_per_agent_channels_subset_admits_member(self) -> None:
-        admits, reason = admits_outbound(
-            _account(), {"peers": None, "channels": ["C1"]}, "C1"
-        )
+        admits, reason = admits_outbound(_account(), {"peers": None, "channels": ["C1"]}, "C1")
         assert admits is True
         assert reason == ""
 
     def test_per_agent_channels_subset_denies_non_member(self) -> None:
-        admits, reason = admits_outbound(
-            _account(), {"peers": None, "channels": ["C1"]}, "C2"
-        )
+        admits, reason = admits_outbound(_account(), {"peers": None, "channels": ["C1"]}, "C2")
         assert admits is False
-        assert reason == (
-            "channel_id 'C2' is not reachable for this agent on account 'acc-1'"
-        )
+        assert reason == ("channel_id 'C2' is not reachable for this agent on account 'acc-1'")
 
     # ── Intersection (account-scope + per-agent both apply) ───────
 
     def test_intersection_admits_when_in_both(self) -> None:
         acc = _account(allowlist={"peers": [], "channels": ["C1", "C2"]})
-        admits, reason = admits_outbound(
-            acc, {"peers": None, "channels": ["C2"]}, "C2"
-        )
+        admits, reason = admits_outbound(acc, {"peers": None, "channels": ["C2"]}, "C2")
         assert admits is True
         assert reason == ""
 
     def test_intersection_denies_when_in_account_but_not_per_agent(self) -> None:
         acc = _account(allowlist={"peers": [], "channels": ["C1", "C2"]})
-        admits, reason = admits_outbound(
-            acc, {"peers": None, "channels": ["C2"]}, "C1"
-        )
+        admits, reason = admits_outbound(acc, {"peers": None, "channels": ["C2"]}, "C1")
         assert admits is False
         # Per-agent denies (account-scope would admit) — reason reflects
         # the per-agent axis.
-        assert reason == (
-            "channel_id 'C1' is not reachable for this agent on account 'acc-1'"
-        )
+        assert reason == ("channel_id 'C1' is not reachable for this agent on account 'acc-1'")
 
     def test_intersection_denies_when_in_per_agent_but_not_account(self) -> None:
         """Account-scope is the gate; per-agent narrows further. Account
         deny pre-empts the per-agent permit."""
         acc = _account(allowlist={"peers": [], "channels": ["C1"]})
-        admits, reason = admits_outbound(
-            acc, {"peers": None, "channels": ["C2"]}, "C2"
-        )
+        admits, reason = admits_outbound(acc, {"peers": None, "channels": ["C2"]}, "C2")
         assert admits is False
         assert reason == "channel_id 'C2' is not reachable on account 'acc-1'"
 
@@ -339,13 +317,10 @@ class TestAdmitsInbound:
         updated post-v28: dm_admission gate fires first (not peers
         membership guard)."""
         acc = _account(allowlist={"peers": ["P1"], "channels": []})
-        admits, reason = admits_inbound(
-            acc, None, "P2", "C1", is_dm=True
-        )
+        admits, reason = admits_inbound(acc, None, "P2", "C1", is_dm=True)
         assert admits is False
         assert reason == (
-            "DM denied: account 'acc-1' dm_admission is "
-            "'admin-approved' and peer not in allowlist"
+            "DM denied: account 'acc-1' dm_admission is 'admin-approved' and peer not in allowlist"
         )
 
     # ── Account-scope channels axis ───────────────────────────────
@@ -376,18 +351,14 @@ class TestAdmitsInbound:
         assert reason == ""
 
     def test_per_agent_peers_none_inherits(self) -> None:
-        admits, reason = admits_inbound(
-            _account(), {"peers": None, "channels": None}, "P1", "C1"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": None, "channels": None}, "P1", "C1")
         assert admits is True
         assert reason == ""
 
     def test_per_agent_peers_empty_denies_any_peer(self) -> None:
         """`[]` at per-agent peers = explicit-empty deny (peers-axis
         analog of channels' DMs-only sentinel)."""
-        admits, reason = admits_inbound(
-            _account(), {"peers": [], "channels": None}, "P1", "C1"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": [], "channels": None}, "P1", "C1")
         assert admits is False
         assert reason == (
             "peer_id 'P1' is not admitted for this agent on account 'acc-1' "
@@ -395,27 +366,19 @@ class TestAdmitsInbound:
         )
 
     def test_per_agent_peers_subset_admits_member(self) -> None:
-        admits, reason = admits_inbound(
-            _account(), {"peers": ["P1"], "channels": None}, "P1", "C1"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": ["P1"], "channels": None}, "P1", "C1")
         assert admits is True
         assert reason == ""
 
     def test_per_agent_peers_subset_denies_non_member(self) -> None:
-        admits, reason = admits_inbound(
-            _account(), {"peers": ["P1"], "channels": None}, "P2", "C1"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": ["P1"], "channels": None}, "P2", "C1")
         assert admits is False
-        assert reason == (
-            "peer_id 'P2' is not admitted for this agent on account 'acc-1'"
-        )
+        assert reason == ("peer_id 'P2' is not admitted for this agent on account 'acc-1'")
 
     # ── Per-agent channels axis (with permissive peers) ──────────
 
     def test_per_agent_channels_none_inherits(self) -> None:
-        admits, reason = admits_inbound(
-            _account(), {"peers": None, "channels": None}, "P1", "C1"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": None, "channels": None}, "P1", "C1")
         assert admits is True
         assert reason == ""
 
@@ -424,9 +387,7 @@ class TestAdmitsInbound:
         the inbound verb ("admitted"). Without ``is_dm=True`` the
         default-fail-closed semantic holds (preserves pre-F8
         behavior for callers that don't resolve DM-truth)."""
-        admits, reason = admits_inbound(
-            _account(), {"peers": None, "channels": []}, "P1", "C1"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": None, "channels": []}, "P1", "C1")
         assert admits is False
         assert reason == (
             "channel_id 'C1' is not admitted for this agent on account "
@@ -466,20 +427,14 @@ class TestAdmitsInbound:
         )
 
     def test_per_agent_channels_subset_admits_member(self) -> None:
-        admits, reason = admits_inbound(
-            _account(), {"peers": None, "channels": ["C1"]}, "P1", "C1"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": None, "channels": ["C1"]}, "P1", "C1")
         assert admits is True
         assert reason == ""
 
     def test_per_agent_channels_subset_denies_non_member(self) -> None:
-        admits, reason = admits_inbound(
-            _account(), {"peers": None, "channels": ["C1"]}, "P1", "C2"
-        )
+        admits, reason = admits_inbound(_account(), {"peers": None, "channels": ["C1"]}, "P1", "C2")
         assert admits is False
-        assert reason == (
-            "channel_id 'C2' is not admitted for this agent on account 'acc-1'"
-        )
+        assert reason == ("channel_id 'C2' is not admitted for this agent on account 'acc-1'")
 
     # ── Asymmetry pin ─────────────────────────────────────────────
 
@@ -498,9 +453,7 @@ class TestAdmitsInbound:
         assert reason == ""
 
         # Per-agent: peers = [] → DENY (axis explicitly empty).
-        admits, reason = admits_inbound(
-            acc, {"peers": [], "channels": None}, "P-anything", "C1"
-        )
+        admits, reason = admits_inbound(acc, {"peers": [], "channels": None}, "P-anything", "C1")
         assert admits is False
         assert reason == (
             "peer_id 'P-anything' is not admitted for this agent on account "
@@ -526,9 +479,7 @@ class TestAdmitsInbound:
         "channels axis vacuously admits" intent — empty list at account
         scope = unrestricted per the HAT-redesign.)"""
         acc = _account(allowlist={"peers": ["P1"], "channels": []})
-        admits, reason = admits_inbound(
-            acc, {"peers": ["P2"], "channels": None}, "P3", "C1"
-        )
+        admits, reason = admits_inbound(acc, {"peers": ["P2"], "channels": None}, "P3", "C1")
         assert admits is False
         # Deny attributed to the per-agent axis…
         assert "is not admitted for this agent" in reason
@@ -544,25 +495,19 @@ class TestAdmitsInbound:
         narrow on either axis."""
         acc = _account(allowlist={"peers": ["P1"], "channels": ["C1"]})
         # Member of both account-scope subsets → admit on both paths.
-        assert admits_inbound(acc, {}, "P1", "C1") == admits_inbound(
-            acc, None, "P1", "C1"
-        )
+        assert admits_inbound(acc, {}, "P1", "C1") == admits_inbound(acc, None, "P1", "C1")
         # M11 F16 L1 — guild path no longer consults account-scope peers,
         # so a non-member of peers now ADMITS in the guild path (channels
         # axis permits C1). Equivalence still holds (both admit).
-        assert admits_inbound(acc, {}, "P2", "C1") == admits_inbound(
-            acc, None, "P2", "C1"
-        )
+        assert admits_inbound(acc, {}, "P2", "C1") == admits_inbound(acc, None, "P2", "C1")
         # M11 F16 L1 — the genuine peers-deny equivalence case moves to
         # DM context, where the account-scope peers axis still gates: a
         # non-member of peers denies on both paths with the same reason.
-        assert admits_inbound(
-            acc, {}, "P2", "C1", is_dm=True
-        ) == admits_inbound(acc, None, "P2", "C1", is_dm=True)
-        # Non-member of channels → deny on both paths with same reason.
-        assert admits_inbound(acc, {}, "P1", "C2") == admits_inbound(
-            acc, None, "P1", "C2"
+        assert admits_inbound(acc, {}, "P2", "C1", is_dm=True) == admits_inbound(
+            acc, None, "P2", "C1", is_dm=True
         )
+        # Non-member of channels → deny on both paths with same reason.
+        assert admits_inbound(acc, {}, "P1", "C2") == admits_inbound(acc, None, "P1", "C2")
 
     # ── Both axes denied: peers-first short-circuit ────────────────
 
@@ -596,7 +541,11 @@ class TestAdmitsInboundGuildsAxis:
         unrestricted on guilds. Back-compat with pre-L8 rows."""
         acc = _account(allowlist={"peers": [], "channels": []})
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", guild_id="G-anything",
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id="G-anything",
         )
         assert admits is True
         assert reason == ""
@@ -606,27 +555,47 @@ class TestAdmitsInboundGuildsAxis:
         (HAT-redesigned defaulting anchor — same shape as peers)."""
         acc = _account(allowlist={"peers": [], "channels": [], "guilds": []})
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", guild_id="G-anything",
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id="G-anything",
         )
         assert admits is True
         assert reason == ""
 
     def test_account_guilds_subset_admits_member(self) -> None:
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "guilds": ["G1", "G2"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1", "G2"],
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", guild_id="G1",
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id="G1",
         )
         assert admits is True
         assert reason == ""
 
     def test_account_guilds_subset_denies_non_member(self) -> None:
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "guilds": ["G1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1"],
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", guild_id="G2",
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id="G2",
         )
         assert admits is False
         assert "guild_id 'G2' is not admitted on account 'acc-1'" == reason
@@ -639,11 +608,19 @@ class TestAdmitsInboundGuildsAxis:
         only reachable DM-envelope path; post-F10 it persists for
         callers that haven't threaded ``is_dm=True``.
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "guilds": ["G1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1"],
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", guild_id=None,
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id=None,
         )
         assert admits is False
         assert "guild_id None is not admitted on account 'acc-1'" == reason
@@ -658,12 +635,21 @@ class TestAdmitsInboundGuildsAxis:
         Pins that guild-axis restriction is orthogonal to DM admission
         under the new posture.
         """
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [], "guilds": ["G1"],
-            "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "guilds": ["G1"],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", is_dm=True, guild_id=None,
+            acc,
+            None,
+            "P1",
+            "C1",
+            is_dm=True,
+            guild_id=None,
         )
         assert admits is True
         assert reason == ""
@@ -673,13 +659,19 @@ class TestAdmitsInboundGuildsAxis:
     def test_per_agent_guilds_none_inherits_account_scope(self) -> None:
         """``None`` on per-agent guilds → inherit account-scope (no
         narrowing). Mirrors the peers-axis precedent."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "guilds": ["G1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1"],
+            }
+        )
         admits, reason = admits_inbound(
             acc,
             {"peers": None, "channels": None, "guilds": None},
-            "P1", "C1", guild_id="G1",
+            "P1",
+            "C1",
+            guild_id="G1",
         )
         assert admits is True
         assert reason == ""
@@ -690,7 +682,9 @@ class TestAdmitsInboundGuildsAxis:
         admits, reason = admits_inbound(
             _account(),
             {"peers": None, "channels": None, "guilds": []},
-            "P1", "C1", guild_id="G1",
+            "P1",
+            "C1",
+            guild_id="G1",
         )
         assert admits is False
         assert "per-agent guilds axis is explicitly empty" in reason
@@ -698,13 +692,19 @@ class TestAdmitsInboundGuildsAxis:
     def test_per_agent_guilds_subset_narrows_further(self) -> None:
         """Account-scope admits G1/G2; per-agent narrows to G1 only.
         G2 inbound → deny."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "guilds": ["G1", "G2"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1", "G2"],
+            }
+        )
         admits, reason = admits_inbound(
             acc,
             {"peers": None, "channels": None, "guilds": ["G1"]},
-            "P1", "C1", guild_id="G2",
+            "P1",
+            "C1",
+            guild_id="G2",
         )
         assert admits is False
         assert "guild_id 'G2' is not admitted for this agent" in reason
@@ -720,18 +720,30 @@ class TestAdmitsInboundRolesAxis:
         admits. Back-compat with pre-L8 rows."""
         acc = _account(allowlist={"peers": [], "channels": []})
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", member_roles=[],
+            acc,
+            None,
+            "P1",
+            "C1",
+            member_roles=[],
         )
         assert admits is True
         assert reason == ""
 
     def test_account_roles_empty_admits_any_member_roles(self) -> None:
         """Axis ``[]`` = unrestricted on this axis at account-scope."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": [],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": [],
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", member_roles=["R-anything"],
+            acc,
+            None,
+            "P1",
+            "C1",
+            member_roles=["R-anything"],
         )
         assert admits is True
         assert reason == ""
@@ -739,22 +751,38 @@ class TestAdmitsInboundRolesAxis:
     def test_account_roles_overlap_admits(self) -> None:
         """Any-of overlap — peer holds R1, allowlist requires R1|R2 →
         admit."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1", "R2"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": ["R1", "R2"],
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", member_roles=["R1", "R3"],
+            acc,
+            None,
+            "P1",
+            "C1",
+            member_roles=["R1", "R3"],
         )
         assert admits is True
         assert reason == ""
 
     def test_account_roles_no_overlap_denies(self) -> None:
         """Peer holds R3; allowlist requires R1|R2 → deny (no overlap)."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1", "R2"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": ["R1", "R2"],
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", member_roles=["R3"],
+            acc,
+            None,
+            "P1",
+            "C1",
+            member_roles=["R3"],
         )
         assert admits is False
         assert "peer roles do not overlap" in reason
@@ -767,11 +795,19 @@ class TestAdmitsInboundRolesAxis:
         path on the roles axis; post-F10 it persists for ``is_dm=False``
         callers.
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": ["R1"],
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", member_roles=[],
+            acc,
+            None,
+            "P1",
+            "C1",
+            member_roles=[],
         )
         assert admits is False
         assert "peer roles do not overlap" in reason
@@ -784,12 +820,21 @@ class TestAdmitsInboundRolesAxis:
         + peer allowlisted. DMs SKIP the roles axis under L1; admit.
         Pins that the roles-axis restriction is irrelevant for DMs.
         """
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [], "roles": ["R1"],
-            "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "roles": ["R1"],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", is_dm=True, member_roles=[],
+            acc,
+            None,
+            "P1",
+            "C1",
+            is_dm=True,
+            member_roles=[],
         )
         assert admits is True
         assert reason == ""
@@ -799,9 +844,13 @@ class TestAdmitsInboundRolesAxis:
         populate) is equivalent to ``[]`` for the overlap check.
         Pin to prevent silent ``None``→``set()`` drift.
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": ["R1"],
+            }
+        )
         admits, reason = admits_inbound(acc, None, "P1", "C1")
         assert admits is False
 
@@ -813,12 +862,20 @@ class TestAdmitsInboundRolesAxis:
         + peer allowlisted. DMs SKIP the roles axis under L1; the
         missing ``member_roles`` is irrelevant. Admit.
         """
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [], "roles": ["R1"],
-            "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "roles": ["R1"],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "C1", is_dm=True,
+            acc,
+            None,
+            "P1",
+            "C1",
+            is_dm=True,
         )
         assert admits is True
         assert reason == ""
@@ -826,13 +883,19 @@ class TestAdmitsInboundRolesAxis:
     # ── Per-agent roles axis ─────────────────────────────────────
 
     def test_per_agent_roles_none_inherits_account_scope(self) -> None:
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": ["R1"],
+            }
+        )
         admits, reason = admits_inbound(
             acc,
             {"peers": None, "channels": None, "roles": None},
-            "P1", "C1", member_roles=["R1"],
+            "P1",
+            "C1",
+            member_roles=["R1"],
         )
         assert admits is True
         assert reason == ""
@@ -842,7 +905,9 @@ class TestAdmitsInboundRolesAxis:
         admits, reason = admits_inbound(
             _account(),
             {"peers": None, "channels": None, "roles": []},
-            "P1", "C1", member_roles=["R1"],
+            "P1",
+            "C1",
+            member_roles=["R1"],
         )
         assert admits is False
         assert "per-agent roles axis is explicitly empty" in reason
@@ -850,13 +915,19 @@ class TestAdmitsInboundRolesAxis:
     def test_per_agent_roles_subset_narrows_further(self) -> None:
         """Account-scope admits R1/R2; per-agent narrows to R1 only.
         Peer with only R2 → deny."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1", "R2"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": ["R1", "R2"],
+            }
+        )
         admits, reason = admits_inbound(
             acc,
             {"peers": None, "channels": None, "roles": ["R1"]},
-            "P1", "C1", member_roles=["R2"],
+            "P1",
+            "C1",
+            member_roles=["R2"],
         )
         assert admits is False
         assert "peer roles do not overlap" in reason
@@ -885,50 +956,71 @@ class TestAdmitsInboundDmAdmissionAxis:
         """``dm_admission="none"`` + peer on list → deny via the
         dm_admission gate (checked before peers membership).
         """
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [], "dm_admission": "none",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "dm_admission": "none",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is False
-        assert reason == (
-            "DM denied: account 'acc-1' dm_admission is 'none'"
-        )
+        assert reason == ("DM denied: account 'acc-1' dm_admission is 'none'")
 
     def test_dm_admission_none_peer_not_on_allowlist_denies(self) -> None:
         """``dm_admission="none"`` + peer not on list → deny via the
         dm_admission gate (dm_admission checked before list membership
         post-v28; reason is now the dm_admission deny, not a peers-axis deny).
         """
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [], "dm_admission": "none",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "dm_admission": "none",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P2", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P2",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is False
-        assert reason == (
-            "DM denied: account 'acc-1' dm_admission is 'none'"
-        )
+        assert reason == ("DM denied: account 'acc-1' dm_admission is 'none'")
 
     def test_dm_admission_none_peers_empty_denies(self) -> None:
         """``dm_admission="none"`` + empty peers list → deny via the
         dm_admission gate.
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "dm_admission": "none",
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "dm_admission": "none",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is False
-        assert reason == (
-            "DM denied: account 'acc-1' dm_admission is 'none'"
-        )
+        assert reason == ("DM denied: account 'acc-1' dm_admission is 'none'")
 
     # ── dm_admission = "admin-approved" (post-v28: in-list == can-DM)
 
@@ -938,13 +1030,21 @@ class TestAdmitsInboundDmAdmissionAxis:
         """``dm_admission="admin-approved"`` + peer on list → admit
         (in-list == can-DM; no per-peer toggle needed post-v28).
         """
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [],
-            "dm_admission": "admin-approved",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "dm_admission": "admin-approved",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is True
         assert reason == ""
@@ -953,18 +1053,25 @@ class TestAdmitsInboundDmAdmissionAxis:
         self,
     ) -> None:
         """``dm_admission="admin-approved"`` + peer not on list → deny."""
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [],
-            "dm_admission": "admin-approved",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "dm_admission": "admin-approved",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P2", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P2",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is False
         assert reason == (
-            "DM denied: account 'acc-1' dm_admission is "
-            "'admin-approved' and peer not in allowlist"
+            "DM denied: account 'acc-1' dm_admission is 'admin-approved' and peer not in allowlist"
         )
 
     def test_dm_admission_admin_approved_peers_empty_denies(
@@ -973,30 +1080,46 @@ class TestAdmitsInboundDmAdmissionAxis:
         """``dm_admission="admin-approved"`` + empty list → deny
         (no peer approved yet).
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [],
-            "dm_admission": "admin-approved",
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "dm_admission": "admin-approved",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is False
         assert reason == (
-            "DM denied: account 'acc-1' dm_admission is "
-            "'admin-approved' and peer not in allowlist"
+            "DM denied: account 'acc-1' dm_admission is 'admin-approved' and peer not in allowlist"
         )
 
     # ── dm_admission = "all" ─────────────────────────────────────
 
     def test_dm_admission_all_peer_on_allowlist_admits(self) -> None:
         """``dm_admission="all"`` + peer on list → admit."""
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [], "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is True
         assert reason == ""
@@ -1009,24 +1132,42 @@ class TestAdmitsInboundDmAdmissionAxis:
         (changed from pre-v28 where the peers-axis-precedence denied
         non-listed peers even under ``"all"``).
         """
-        acc = _account(allowlist={
-            "peers": ["P1"], "channels": [], "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": ["P1"],
+                "channels": [],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P2", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P2",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is True
         assert reason == ""
 
     def test_dm_admission_all_peers_empty_admits(self) -> None:
         """``dm_admission="all"`` + empty list → admit."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
-            acc, None, "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            acc,
+            None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is True
         assert reason == ""
@@ -1047,19 +1188,24 @@ class TestAdmitsInboundPerAgentAdmitDms:
         """Account ``dm_admission="all"`` + per-agent ``admit_dms=False``
         + ``is_dm=True`` → deny via the per-agent admit_dms gate.
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
             acc,
             {"peers": None, "channels": None, "admit_dms": False},
-            "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is False
-        assert reason == (
-            "DM denied: agent admit_dms is False on account 'acc-1'"
-        )
+        assert reason == ("DM denied: agent admit_dms is False on account 'acc-1'")
 
     def test_per_agent_admit_dms_false_irrelevant_for_guild_messages(
         self,
@@ -1069,14 +1215,21 @@ class TestAdmitsInboundPerAgentAdmitDms:
         admission gate at account scope is also skipped when not a DM).
         Guild-context messages are unaffected by per-agent admit_dms.
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "dm_admission": "none",
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "dm_admission": "none",
+            }
+        )
         admits, reason = admits_inbound(
             acc,
             {"peers": None, "channels": None, "admit_dms": False},
-            "P1", "C1", is_dm=False,
-            guild_id="G1", member_roles=["R1"],
+            "P1",
+            "C1",
+            is_dm=False,
+            guild_id="G1",
+            member_roles=["R1"],
         )
         assert admits is True
         assert reason == ""
@@ -1085,14 +1238,21 @@ class TestAdmitsInboundPerAgentAdmitDms:
         """Account ``dm_admission="all"`` + per-agent ``admit_dms=None``
         + ``is_dm=True`` → admit (None inherits; account-scope permits).
         """
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "dm_admission": "all",
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "dm_admission": "all",
+            }
+        )
         admits, reason = admits_inbound(
             acc,
             {"peers": None, "channels": None, "admit_dms": None},
-            "P1", "dm-channel", is_dm=True,
-            guild_id=None, member_roles=None,
+            "P1",
+            "dm-channel",
+            is_dm=True,
+            guild_id=None,
+            member_roles=None,
         )
         assert admits is True
         assert reason == ""
@@ -1109,11 +1269,18 @@ class TestAdmitsOutboundAcceptsButIgnoresGuildsRoles:
         passing ``guild_id="G-other"`` still admits if the channels
         axis would permit. Pins the L8 "outbound has no envelope"
         rationale."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "guilds": ["G1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "guilds": ["G1"],
+            }
+        )
         admits, reason = admits_outbound(
-            acc, None, "C1", guild_id="G-other",
+            acc,
+            None,
+            "C1",
+            guild_id="G-other",
         )
         assert admits is True
         assert reason == ""
@@ -1121,11 +1288,18 @@ class TestAdmitsOutboundAcceptsButIgnoresGuildsRoles:
     def test_outbound_ignores_member_roles_even_when_account_restricts(self) -> None:
         """Symmetric to the guild check — roles axis is not consulted
         on outbound."""
-        acc = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1"],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": ["R1"],
+            }
+        )
         admits, reason = admits_outbound(
-            acc, None, "C1", member_roles=[],
+            acc,
+            None,
+            "C1",
+            member_roles=[],
         )
         assert admits is True
         assert reason == ""
@@ -1203,30 +1377,45 @@ class TestDmAdmissionCompositionMatrix:
 
     # Cells: (admit_dms, dm_admission, in_allowlist, expected, test_id, rationale)
     _MATRIX_CELLS = [
-        (None, "all", True, True,
-         "cell_01_None_all_in", "all + in list → admit"),
-        (None, "all", False, True,
-         "cell_02_None_all_out",
-         "all + NOT in list → admit (peers list irrelevant under all)"),
-        (None, "none", True, False,
-         "cell_03_None_none_in", "none always denies"),
-        (None, "admin-approved", True, True,
-         "cell_04_None_apv_in",
-         "happy path: in list + admin-approved → admit"),
-        (None, "admin-approved", False, False,
-         "cell_05_None_apv_out",
-         "not in list + admin-approved → deny"),
-        (False, "all", True, False,
-         "cell_06_False_all_in",
-         "admit_dms=False short-circuits regardless of policy"),
+        (None, "all", True, True, "cell_01_None_all_in", "all + in list → admit"),
+        (
+            None,
+            "all",
+            False,
+            True,
+            "cell_02_None_all_out",
+            "all + NOT in list → admit (peers list irrelevant under all)",
+        ),
+        (None, "none", True, False, "cell_03_None_none_in", "none always denies"),
+        (
+            None,
+            "admin-approved",
+            True,
+            True,
+            "cell_04_None_apv_in",
+            "happy path: in list + admin-approved → admit",
+        ),
+        (
+            None,
+            "admin-approved",
+            False,
+            False,
+            "cell_05_None_apv_out",
+            "not in list + admin-approved → deny",
+        ),
+        (
+            False,
+            "all",
+            True,
+            False,
+            "cell_06_False_all_in",
+            "admit_dms=False short-circuits regardless of policy",
+        ),
     ]
 
     @pytest.mark.parametrize(
         ("admit_dms", "dm_admission", "in_allowlist", "expected"),
-        [
-            pytest.param(*cell[:4], id=cell[4])
-            for cell in _MATRIX_CELLS
-        ],
+        [pytest.param(*cell[:4], id=cell[4]) for cell in _MATRIX_CELLS],
     )
     def test_dm_composition_matrix_cell(
         self,
@@ -1257,9 +1446,7 @@ class TestDmAdmissionCompositionMatrix:
                 "admit_dms": admit_dms,
             }
 
-        admits, _ = admits_inbound(
-            account, agent_acl, inbound_peer, "C-dm", is_dm=True
-        )
+        admits, _ = admits_inbound(account, agent_acl, inbound_peer, "C-dm", is_dm=True)
         assert admits is expected, (
             f"cell admit_dms={admit_dms} dm_admission={dm_admission!r} "
             f"in_allowlist={in_allowlist}: "
@@ -1292,12 +1479,18 @@ class TestHierarchicalAxisWildcardMatrix:
     ) -> None:
         """channels=[{guild_id="A", channel_id="*"}],
         envelope.guild_id="A", envelope.channel_id="X" → admit."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [{"guild_id": "A", "channel_id": "*"}],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [{"guild_id": "A", "channel_id": "*"}],
+            }
+        )
         admits, _ = admits_inbound(
-            acc, None, "P1", "X", guild_id="A",
+            acc,
+            None,
+            "P1",
+            "X",
+            guild_id="A",
         )
         assert admits is True
 
@@ -1305,12 +1498,18 @@ class TestHierarchicalAxisWildcardMatrix:
         """channels=[{guild_id="A", channel_id="*"}],
         envelope.guild_id="B", envelope.channel_id="X" → deny (still
         guild-scoped — the wildcard is per-guild, not global)."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [{"guild_id": "A", "channel_id": "*"}],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [{"guild_id": "A", "channel_id": "*"}],
+            }
+        )
         admits, _ = admits_inbound(
-            acc, None, "P1", "X", guild_id="B",
+            acc,
+            None,
+            "P1",
+            "X",
+            guild_id="B",
         )
         assert admits is False
 
@@ -1321,15 +1520,21 @@ class TestHierarchicalAxisWildcardMatrix:
                    {guild_id="B", channel_id="*"}],
         envelope.guild_id="A", envelope.channel_id="Y" → deny (X is
         the only A-scoped explicit; wildcard only admits B-scoped)."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [
-                {"guild_id": "A", "channel_id": "X"},
-                {"guild_id": "B", "channel_id": "*"},
-            ],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [
+                    {"guild_id": "A", "channel_id": "X"},
+                    {"guild_id": "B", "channel_id": "*"},
+                ],
+            }
+        )
         admits, _ = admits_inbound(
-            acc, None, "P1", "Y", guild_id="A",
+            acc,
+            None,
+            "P1",
+            "Y",
+            guild_id="A",
         )
         assert admits is False
 
@@ -1339,10 +1544,12 @@ class TestHierarchicalAxisWildcardMatrix:
         """Outbound matches by channel_id alone (locked L3 semantic);
         the ``"*"`` wildcard simply admits any channel_id when present
         in the list."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [{"guild_id": "A", "channel_id": "*"}],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [{"guild_id": "A", "channel_id": "*"}],
+            }
+        )
         admits, _ = admits_outbound(acc, None, "C-any-channel")
         assert admits is True
 
@@ -1354,14 +1561,20 @@ class TestHierarchicalAxisWildcardMatrix:
         """roles=[{guild_id="A", role_id="*"}],
         envelope.guild_id="A", member_roles=[] → admit (wildcard
         short-circuits overlap)."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [],
-            "roles": [{"guild_id": "A", "role_id": "*"}],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": [{"guild_id": "A", "role_id": "*"}],
+            }
+        )
         admits, _ = admits_inbound(
-            acc, None, "P1", "C1",
-            guild_id="A", member_roles=[],
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id="A",
+            member_roles=[],
         )
         assert admits is True
 
@@ -1369,28 +1582,40 @@ class TestHierarchicalAxisWildcardMatrix:
         """roles=[{guild_id="A", role_id="*"}],
         envelope.guild_id="B", member_roles=["R1"] → deny (the wildcard
         is per-guild scoped)."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [],
-            "roles": [{"guild_id": "A", "role_id": "*"}],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": [{"guild_id": "A", "role_id": "*"}],
+            }
+        )
         admits, _ = admits_inbound(
-            acc, None, "P1", "C1",
-            guild_id="B", member_roles=["R1"],
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id="B",
+            member_roles=["R1"],
         )
         assert admits is False
 
     def test_role_wildcard_admits_any_member_roles(self) -> None:
         """roles=[{guild_id="A", role_id="*"}],
         envelope.guild_id="A", member_roles=["R-arbitrary"] → admit."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [],
-            "roles": [{"guild_id": "A", "role_id": "*"}],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+                "roles": [{"guild_id": "A", "role_id": "*"}],
+            }
+        )
         admits, _ = admits_inbound(
-            acc, None, "P1", "C1",
-            guild_id="A", member_roles=["R-arbitrary"],
+            acc,
+            None,
+            "P1",
+            "C1",
+            guild_id="A",
+            member_roles=["R-arbitrary"],
         )
         assert admits is True
 
@@ -1401,17 +1626,20 @@ class TestHierarchicalAxisWildcardMatrix:
         admits any envelope.channel_id when envelope.guild_id="A".
         Account-scope is left unrestricted on channels so the per-agent
         wildcard is the decisive gate."""
-        acc = _account(allowlist={
-            "peers": [],
-            "channels": [],
-        })
+        acc = _account(
+            allowlist={
+                "peers": [],
+                "channels": [],
+            }
+        )
         admits, _ = admits_inbound(
             acc,
             {
                 "peers": None,
                 "channels": [{"guild_id": "A", "channel_id": "*"}],
             },
-            "P1", "Z",
+            "P1",
+            "Z",
             guild_id="A",
         )
         assert admits is True
@@ -1439,25 +1667,23 @@ def test_f3a_approve_peer_then_dm_is_admitted() -> None:
     """
     # Post-fix allowlist: approved peer is bare {id} — this is what
     # ``approve_peer_approval`` in api.py now writes post-v28.
-    account = _account(allowlist={
-        "peers": ["peer-1"],     # _to_v24_shape translates to {"id": "peer-1"}
-        "channels": [],
-        "dm_admission": "admin-approved",
-    })
+    account = _account(
+        allowlist={
+            "peers": ["peer-1"],  # _to_v24_shape translates to {"id": "peer-1"}
+            "channels": [],
+            "dm_admission": "admin-approved",
+        }
+    )
 
     # Immediate DM from the approved peer — should be ADMITTED.
-    admits, reason = admits_inbound(
-        account, None, "peer-1", "dm-ch", is_dm=True
-    )
+    admits, reason = admits_inbound(account, None, "peer-1", "dm-ch", is_dm=True)
     assert admits is True, (
         f"F3a regression: approved peer should be admitted immediately "
         f"under admin-approved; got denied with reason={reason!r}"
     )
 
     # A non-approved peer under admin-approved → still denied.
-    admits2, reason2 = admits_inbound(
-        account, None, "peer-other", "dm-ch", is_dm=True
-    )
+    admits2, reason2 = admits_inbound(account, None, "peer-other", "dm-ch", is_dm=True)
     assert admits2 is False
     assert "admin-approved" in reason2
 

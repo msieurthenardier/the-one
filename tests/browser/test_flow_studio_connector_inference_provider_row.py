@@ -42,7 +42,6 @@ from browser.seeders import (
 )
 from playwright.sync_api import Page, expect
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -91,8 +90,12 @@ def test_inference_rows_visible_when_always_listen_on(app_clean: str, page: Page
     )
     _open_connector_editor_access_tab(page, app_clean, account_id)
 
-    expect(page.locator('[data-testid="connector-config-inference-provider-select"]')).to_be_visible(timeout=4000)
-    expect(page.locator('[data-testid="connector-config-inference-model-select"]')).to_be_visible(timeout=4000)
+    expect(
+        page.locator('[data-testid="connector-config-inference-provider-select"]')
+    ).to_be_visible(timeout=4000)
+    expect(page.locator('[data-testid="connector-config-inference-model-select"]')).to_be_visible(
+        timeout=4000
+    )
 
 
 # ── Test 3: dropdown populates from /api/providers ───────────────────────
@@ -119,7 +122,9 @@ def test_inference_provider_dropdown_populates_from_api(app_clean: str, page: Pa
     placeholder = sel.locator('option[value=""]').first
     expect(placeholder).to_be_attached()
     placeholder_text = placeholder.text_content() or ""
-    assert "Use routed agent" in placeholder_text, f"expected fallback hint; got {placeholder_text!r}"
+    assert "Use routed agent" in placeholder_text, (
+        f"expected fallback hint; got {placeholder_text!r}"
+    )
 
 
 # ── Test 4: select provider + model → save round-trips ───────────────────
@@ -218,9 +223,7 @@ def test_inference_provider_clear_saves_null(app_clean: str, page: Page) -> None
     assert cfg.get("inference_provider_config_id") is None, (
         f"expected inference_provider_config_id=None; got {cfg}"
     )
-    assert cfg.get("inference_model") is None, (
-        f"expected inference_model=None; got {cfg}"
-    )
+    assert cfg.get("inference_model") is None, f"expected inference_model=None; got {cfg}"
 
 
 # ── Test 6 (F14 L4 a): model select populates from provider /models ──────

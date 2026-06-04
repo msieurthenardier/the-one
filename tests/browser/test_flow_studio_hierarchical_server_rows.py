@@ -22,58 +22,72 @@ from __future__ import annotations
 
 import json
 
-import httpx
 import pytest
 from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
-
 
 # Discoverable payload — 2 servers, each with 1+ channels + roles.
 _DISCOVERABLE_PAYLOAD = {
     "entities": {
         "groups": [
             {
-                "id": "guild-A", "label": "Guild A",
-                "metadata": {}, "stale": False,
+                "id": "guild-A",
+                "label": "Guild A",
+                "metadata": {},
+                "stale": False,
             },
             {
-                "id": "guild-B", "label": "Guild B",
-                "metadata": {}, "stale": False,
+                "id": "guild-B",
+                "label": "Guild B",
+                "metadata": {},
+                "stale": False,
             },
         ],
         "channels": [
             {
-                "id": "chan-A-1", "label": "general",
+                "id": "chan-A-1",
+                "label": "general",
                 "group": "guild-A",
-                "metadata": {}, "stale": False,
+                "metadata": {},
+                "stale": False,
             },
             {
-                "id": "chan-A-2", "label": "off-topic",
+                "id": "chan-A-2",
+                "label": "off-topic",
                 "group": "guild-A",
-                "metadata": {}, "stale": False,
+                "metadata": {},
+                "stale": False,
             },
             {
-                "id": "chan-B-1", "label": "lobby",
+                "id": "chan-B-1",
+                "label": "lobby",
                 "group": "guild-B",
-                "metadata": {}, "stale": False,
+                "metadata": {},
+                "stale": False,
             },
         ],
         "roles": [
             {
-                "id": "role-A-mod", "label": "moderator",
+                "id": "role-A-mod",
+                "label": "moderator",
                 "group": "guild-A",
-                "metadata": {}, "stale": False,
+                "metadata": {},
+                "stale": False,
             },
             {
-                "id": "role-B-admin", "label": "admin",
+                "id": "role-B-admin",
+                "label": "admin",
                 "group": "guild-B",
-                "metadata": {}, "stale": False,
+                "metadata": {},
+                "stale": False,
             },
         ],
         "peers": [
             {
-                "id": "user-1", "label": "alice",
-                "metadata": {}, "stale": False,
+                "id": "user-1",
+                "label": "alice",
+                "metadata": {},
+                "stale": False,
             },
         ],
     },
@@ -97,9 +111,14 @@ def _route_discoverable_ok(page: Page, account_id: str) -> None:
 
 
 def _seed_discord_with_hierarchical_allowlist(
-    base_url: str, name: str, *, dm_admission: str = "admin-approved",
-    peers: list | None = None, guilds: list | None = None,
-    channels: list | None = None, roles: list | None = None,
+    base_url: str,
+    name: str,
+    *,
+    dm_admission: str = "admin-approved",
+    peers: list | None = None,
+    guilds: list | None = None,
+    channels: list | None = None,
+    roles: list | None = None,
 ) -> str:
     """Seed a Discord-type account with a hierarchical allowlist."""
     return seed_connector(
@@ -124,9 +143,7 @@ def _activate_access_and_routing_tab(page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_server_row_renders_with_nested_channels_and_roles(
-    app_clean: str, page: Page
-) -> None:
+def test_server_row_renders_with_nested_channels_and_roles(app_clean: str, page: Page) -> None:
     """A server row in the Servers section renders with nested
     channels + roles sub-chiplists. The row's testid is keyed by
     guild_id; the nested chips carry guild-scoped testids."""
@@ -143,15 +160,11 @@ def test_server_row_renders_with_nested_channels_and_roles(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # Server row renders.
-    server_row = page.locator(
-        '[data-testid="connector-allowlist-server-row-guild-A"]'
-    )
+    server_row = page.locator('[data-testid="connector-allowlist-server-row-guild-A"]')
     expect(server_row).to_have_count(1, timeout=8000)
 
     # Nested explicit-channel chip renders inside the row. M11 F12 L5
@@ -192,9 +205,7 @@ def test_server_added_without_explicit_children_shows_wildcard_sentinels(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # Wildcard sentinel chips render.
@@ -202,16 +213,12 @@ def test_server_added_without_explicit_children_shows_wildcard_sentinels(
         '[data-testid="connector-allowlist-channels-wildcard-guild-A"]'
     )
     expect(channels_sentinel).to_have_count(1, timeout=8000)
-    roles_sentinel = page.locator(
-        '[data-testid="connector-allowlist-roles-wildcard-guild-A"]'
-    )
+    roles_sentinel = page.locator('[data-testid="connector-allowlist-roles-wildcard-guild-A"]')
     expect(roles_sentinel).to_have_count(1)
 
 
 @pytest.mark.browser
-def test_remove_server_row_button_renders_per_server(
-    app_clean: str, page: Page
-) -> None:
+def test_remove_server_row_button_renders_per_server(app_clean: str, page: Page) -> None:
     """Each server row carries a remove button keyed by its guild_id;
     the operator can remove a single server independently."""
     account_id = _seed_discord_with_hierarchical_allowlist(
@@ -226,21 +233,15 @@ def test_remove_server_row_button_renders_per_server(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # Both server rows render with their own remove buttons.
     expect(
-        page.locator(
-            '[data-testid="connector-allowlist-server-row-remove-guild-A"]'
-        )
+        page.locator('[data-testid="connector-allowlist-server-row-remove-guild-A"]')
     ).to_have_count(1, timeout=8000)
     expect(
-        page.locator(
-            '[data-testid="connector-allowlist-server-row-remove-guild-B"]'
-        )
+        page.locator('[data-testid="connector-allowlist-server-row-remove-guild-B"]')
     ).to_have_count(1)
 
 
@@ -263,16 +264,12 @@ def test_explicit_channel_chip_renders_without_wildcard_sentinel(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # Explicit chip present. M11 F12 L5 post-fix: rendered by the
     # discoverable-dropdown inside the server-scoped channels dropdown.
-    server_row = page.locator(
-        '[data-testid="connector-allowlist-server-row-guild-A"]'
-    )
+    server_row = page.locator('[data-testid="connector-allowlist-server-row-guild-A"]')
     expect(server_row).to_have_count(1, timeout=8000)
     expect(
         server_row.locator(
@@ -281,22 +278,16 @@ def test_explicit_channel_chip_renders_without_wildcard_sentinel(
     ).to_have_count(1, timeout=8000)
     # Wildcard channels sentinel NOT present (explicit narrowing).
     expect(
-        page.locator(
-            '[data-testid="connector-allowlist-channels-wildcard-guild-A"]'
-        )
+        page.locator('[data-testid="connector-allowlist-channels-wildcard-guild-A"]')
     ).to_have_count(0)
     # Roles sentinel IS present (no explicit role narrowing).
     expect(
-        page.locator(
-            '[data-testid="connector-allowlist-roles-wildcard-guild-A"]'
-        )
+        page.locator('[data-testid="connector-allowlist-roles-wildcard-guild-A"]')
     ).to_have_count(1)
 
 
 @pytest.mark.browser
-def test_servers_section_renders_with_section_testid(
-    app_clean: str, page: Page
-) -> None:
+def test_servers_section_renders_with_section_testid(app_clean: str, page: Page) -> None:
     """The Servers section is the parent organizer; its top-level slot
     carries ``data-testid="connector-allowlist-servers-slot"`` and the
     enclosing row carries
@@ -309,30 +300,24 @@ def test_servers_section_renders_with_section_testid(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
-    expect(
-        page.locator(
-            '[data-testid="connector-allowlist-servers-section"]'
-        )
-    ).to_have_count(1, timeout=8000)
-    expect(
-        page.locator('[data-testid="connector-allowlist-servers-slot"]')
-    ).to_have_count(1)
+    expect(page.locator('[data-testid="connector-allowlist-servers-section"]')).to_have_count(
+        1, timeout=8000
+    )
+    expect(page.locator('[data-testid="connector-allowlist-servers-slot"]')).to_have_count(1)
     # No server rows when guilds is empty.
     expect(
-        page.locator('[data-testid="connector-allowlist-server-rows"] '
-                     '> [data-testid^="connector-allowlist-server-row-"]')
+        page.locator(
+            '[data-testid="connector-allowlist-server-rows"] '
+            '> [data-testid^="connector-allowlist-server-row-"]'
+        )
     ).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_explicit_wildcard_storage_renders_as_sentinel_chip(
-    app_clean: str, page: Page
-) -> None:
+def test_explicit_wildcard_storage_renders_as_sentinel_chip(app_clean: str, page: Page) -> None:
     """When the underlying storage carries an explicit ``channel_id="*"``
     wildcard entry (i.e. the operator added a server via the
     hierarchical UI without explicit channel narrowing), the chip
@@ -353,27 +338,19 @@ def test_explicit_wildcard_storage_renders_as_sentinel_chip(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     expect(
-        page.locator(
-            '[data-testid="connector-allowlist-channels-wildcard-guild-A"]'
-        )
+        page.locator('[data-testid="connector-allowlist-channels-wildcard-guild-A"]')
     ).to_have_count(1, timeout=8000)
     expect(
-        page.locator(
-            '[data-testid="connector-allowlist-roles-wildcard-guild-A"]'
-        )
+        page.locator('[data-testid="connector-allowlist-roles-wildcard-guild-A"]')
     ).to_have_count(1)
 
 
 @pytest.mark.browser
-def test_top_level_channels_and_roles_sections_no_longer_render(
-    app_clean: str, page: Page
-) -> None:
+def test_top_level_channels_and_roles_sections_no_longer_render(app_clean: str, page: Page) -> None:
     """The L4 flat 3-section layout (Channels / Roles as siblings of
     Servers) is gone. Verify the L4 hint testids that anchored those
     rows are NOT present in the post-L5 markup."""
@@ -383,23 +360,13 @@ def test_top_level_channels_and_roles_sections_no_longer_render(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
     # The L4 flat Channels hint at the top level is gone.
-    expect(
-        page.locator(
-            '[data-testid="connector-allowlist-channels-hint"]'
-        )
-    ).to_have_count(0)
+    expect(page.locator('[data-testid="connector-allowlist-channels-hint"]')).to_have_count(0)
     # The L4 flat Roles hint at the top level is gone.
-    expect(
-        page.locator('[data-testid="connector-allowlist-roles-hint"]')
-    ).to_have_count(0)
+    expect(page.locator('[data-testid="connector-allowlist-roles-hint"]')).to_have_count(0)
     # The Servers (Guilds) hint IS present (still rendered as the
     # parent organizer label).
-    expect(
-        page.locator('[data-testid="connector-allowlist-guilds-hint"]')
-    ).to_have_count(1)
+    expect(page.locator('[data-testid="connector-allowlist-guilds-hint"]')).to_have_count(1)

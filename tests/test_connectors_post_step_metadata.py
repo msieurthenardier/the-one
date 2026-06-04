@@ -89,9 +89,7 @@ def test_tool_result_of_non_platform_send_gets_operator_visibility() -> None:
     """
     tc = ToolCall(id="tc-1", name="read_file", arguments={})
     assistant = Message.assistant("", tool_calls=[tc])
-    tool_msg = Message.tool(
-        ToolResult(tool_call_id="tc-1", content="file contents")
-    )
+    tool_msg = Message.tool(ToolResult(tool_call_id="tc-1", content="file contents"))
     messages = [assistant, tool_msg]
 
     tag_post_step_visibility(messages, pre_step_len=0)
@@ -377,9 +375,7 @@ def test_resolve_channel_name_returns_label_on_match() -> None:
     """``resolve_channel_name`` walks ``cache.channels`` and returns
     the ``label`` of the entity whose ``id`` matches ``channel_id``.
     """
-    cache = DiscoverableEntities(
-        channels=[DiscoverableEntity(id="C123", label="general")]
-    )
+    cache = DiscoverableEntities(channels=[DiscoverableEntity(id="C123", label="general")])
     assert resolve_channel_name(cache, "C123") == "general"
 
 
@@ -388,9 +384,7 @@ def test_resolve_channel_name_returns_none_on_miss() -> None:
     returns ``None`` (cache present but stale or platform-side
     channel created after the last refresh).
     """
-    cache = DiscoverableEntities(
-        channels=[DiscoverableEntity(id="C123", label="general")]
-    )
+    cache = DiscoverableEntities(channels=[DiscoverableEntity(id="C123", label="general")])
     assert resolve_channel_name(cache, "C-missing") is None
 
 

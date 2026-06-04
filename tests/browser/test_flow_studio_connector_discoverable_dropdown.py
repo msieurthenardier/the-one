@@ -20,7 +20,6 @@ import pytest
 from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
-
 _STUB_PAYLOAD = {
     "entities": {
         "peers": [],
@@ -108,20 +107,18 @@ def _route_get_ok(page: Page, account_id: str, payload: dict | None = None) -> N
     )
 
 
-def _mount(page: Page, account_id: str, axis: str = "channels",
-           current_values: list | None = None) -> None:
+def _mount(
+    page: Page, account_id: str, axis: str = "channels", current_values: list | None = None
+) -> None:
     page.evaluate(
         _MOUNT_HARNESS_JS,
-        {"accountId": account_id, "axis": axis,
-         "currentValues": current_values or []},
+        {"accountId": account_id, "axis": axis, "currentValues": current_values or []},
     )
 
 
 @pytest.mark.browser
 class TestDiscoverableDropdown:
-    def test_dropdown_populates_from_api_response(
-        self, app_clean: str, page: Page
-    ) -> None:
+    def test_dropdown_populates_from_api_response(self, app_clean: str, page: Page) -> None:
         account_id = "fake-account-populates"
         _route_get_ok(page, account_id)
         page.goto(app_clean)
@@ -133,10 +130,11 @@ class TestDiscoverableDropdown:
         items = page.locator('[data-testid="discoverable-dropdown-item-channels"]')
         expect(items).to_have_count(3, timeout=8000)
         # Group-section is present (channels share ``guild-1``).
-        expect(page.locator(
-            '[data-testid="discoverable-dropdown-menu-channels"] '
-            '.discoverable-dropdown-group'
-        )).to_have_count(1)
+        expect(
+            page.locator(
+                '[data-testid="discoverable-dropdown-menu-channels"] .discoverable-dropdown-group'
+            )
+        ).to_have_count(1)
 
     def test_dropdown_typeahead_filters_by_label_substring(
         self, app_clean: str, page: Page
@@ -147,9 +145,9 @@ class TestDiscoverableDropdown:
         page.wait_for_load_state("domcontentloaded")
 
         _mount(page, account_id)
-        expect(page.locator(
-            '[data-testid="discoverable-dropdown-item-channels"]'
-        )).to_have_count(3, timeout=8000)
+        expect(page.locator('[data-testid="discoverable-dropdown-item-channels"]')).to_have_count(
+            3, timeout=8000
+        )
 
         input_el = page.locator('[data-testid="discoverable-dropdown-input-channels"]')
         # Wait for the input to be enabled (initial load completes).
@@ -157,13 +155,11 @@ class TestDiscoverableDropdown:
         input_el.fill("gen")
 
         # Only #general should remain visible; the other two are hidden.
-        visible = page.locator(
-            '[data-testid="discoverable-dropdown-item-channels"]:not([hidden])'
-        )
+        visible = page.locator('[data-testid="discoverable-dropdown-item-channels"]:not([hidden])')
         expect(visible).to_have_count(1, timeout=4000)
         expect(visible).to_have_text("#general")
 
-    def test_dropdown_select_item_fires_onChange_with_new_value(
+    def test_dropdown_select_item_fires_onChange_with_new_value(  # noqa: N802  # name mirrors JS `onChange` handler
         self, app_clean: str, page: Page
     ) -> None:
         account_id = "fake-account-select"
@@ -187,7 +183,7 @@ class TestDiscoverableDropdown:
         result = page.evaluate("() => window._lastOnChange")
         assert result == ["111"], f"Expected ['111'], got {result!r}"
 
-    def test_dropdown_chip_remove_fires_onChange_with_value_dropped(
+    def test_dropdown_chip_remove_fires_onChange_with_value_dropped(  # noqa: N802  # name mirrors JS `onChange` handler
         self, app_clean: str, page: Page
     ) -> None:
         account_id = "fake-account-remove"
@@ -197,17 +193,15 @@ class TestDiscoverableDropdown:
 
         _mount(page, account_id, current_values=["111"])
         # Wait for the initial fetch to settle so chip labels resolve.
-        expect(page.locator(
-            '[data-testid="discoverable-dropdown-item-channels"]'
-        )).to_have_count(3, timeout=8000)
+        expect(page.locator('[data-testid="discoverable-dropdown-item-channels"]')).to_have_count(
+            3, timeout=8000
+        )
 
         # Chip is rendered for the pre-populated value.
         chip = page.locator('[data-testid="discoverable-dropdown-chip-channels"]')
         expect(chip).to_have_count(1)
 
-        remove = page.locator(
-            '[data-testid="discoverable-dropdown-chip-remove-channels"]'
-        )
+        remove = page.locator('[data-testid="discoverable-dropdown-chip-remove-channels"]')
         remove.click()
 
         result = page.evaluate("() => window._lastOnChange")
@@ -272,18 +266,16 @@ class TestDiscoverableDropdown:
         page.wait_for_load_state("domcontentloaded")
 
         _mount(page, account_id)
-        expect(page.locator(
-            '[data-testid="discoverable-dropdown-item-channels"]'
-        )).to_have_count(3, timeout=8000)
+        expect(page.locator('[data-testid="discoverable-dropdown-item-channels"]')).to_have_count(
+            3, timeout=8000
+        )
 
         # Use ``page.expect_request`` to wait for the POST to fire as a
         # direct consequence of the dispatched event.
         with page.expect_request(
             lambda req: (
                 req.method == "POST"
-                and req.url.rstrip("/").endswith(
-                    "/discoverable-entities/refresh"
-                )
+                and req.url.rstrip("/").endswith("/discoverable-entities/refresh")
             ),
             timeout=8000,
         ) as request_info:
@@ -301,9 +293,7 @@ class TestDiscoverableDropdown:
         assert request.method == "POST"
         assert "/discoverable-entities/refresh" in request.url
 
-    def test_dropdown_hides_menu_on_pre_probe_404(
-        self, app_clean: str, page: Page
-    ) -> None:
+    def test_dropdown_hides_menu_on_pre_probe_404(self, app_clean: str, page: Page) -> None:
         # F5 L6 HAT R5: per-axis pre-probe hint removed — the hint now
         # lives on the section-level banner (see
         # ``test_flow_studio_connector_editor.py`` for the
@@ -370,9 +360,7 @@ _WARMED_PAYLOAD = {
 
 
 @pytest.mark.browser
-def test_test_connection_pool_warmed_event_refreshes_dropdowns(
-    app_clean: str, page: Page
-) -> None:
+def test_test_connection_pool_warmed_event_refreshes_dropdowns(app_clean: str, page: Page) -> None:
     """M11 F4 L4 HAT fold-in: Test Connection that warms the pool
     (envelope ``details.pool_warmed=true``, the A1 contract) must
     re-fetch any mounted ``discoverable-dropdown`` for the same
@@ -425,9 +413,7 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
                 route.fulfill(
                     status=404,
                     content_type="application/json",
-                    body=json.dumps(
-                        {"detail": "Run Test Connection first — cold account."}
-                    ),
+                    body=json.dumps({"detail": "Run Test Connection first — cold account."}),
                 )
                 return
             get_calls["warm"] += 1
@@ -476,9 +462,7 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(
-        page.locator('[data-testid="save-connector-btn"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # Open the Access and Routing tab so the discoverable-dropdown
     # components mount and fire their initial (cold-pool 404) GET.
@@ -500,12 +484,8 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
     # — peers/channels/groups/roles — plus one from the banner probe).
     # We only require ≥1 to confirm the cold-pool state was observed
     # by at least one listener.
-    assert get_calls["cold"] >= 1, (
-        f"expected ≥1 cold-pool GET, got {get_calls['cold']}"
-    )
-    assert get_calls["warm"] == 0, (
-        f"expected 0 warm GETs pre-click, got {get_calls['warm']}"
-    )
+    assert get_calls["cold"] >= 1, f"expected ≥1 cold-pool GET, got {get_calls['cold']}"
+    assert get_calls["warm"] == 0, f"expected 0 warm GETs pre-click, got {get_calls['warm']}"
 
     # Switch back to the General tab — that's where Test Connection
     # lives. The Access and Routing panel's dropdowns remain mounted
@@ -522,9 +502,9 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
     # Wait for the LED to flip to ``ok`` so we know
     # ``renderTestConnectionBanner`` ran (and therefore the
     # pool-warmed event has been dispatched).
-    expect(
-        page.locator('[data-testid="connector-test-led"]')
-    ).to_have_attribute("data-state", "ok", timeout=8000)
+    expect(page.locator('[data-testid="connector-test-led"]')).to_have_attribute(
+        "data-state", "ok", timeout=8000
+    )
 
     # Flip back to Access and Routing to observe the dropdown's
     # post-event state. (The re-fetch already happened in the
@@ -541,6 +521,5 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
     # event-driven nudge actually triggered a fresh fetch (not just
     # a stale render carried over).
     assert get_calls["warm"] >= 1, (
-        f"expected ≥1 warm GET after pool-warmed event, "
-        f"got {get_calls['warm']}"
+        f"expected ≥1 warm GET after pool-warmed event, got {get_calls['warm']}"
     )

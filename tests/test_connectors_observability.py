@@ -137,9 +137,7 @@ def test_log_disposition_includes_optional_reason(caplog):
 
 def test_log_disposition_includes_latency_ms(caplog):
     with caplog.at_level(logging.INFO, logger="the_one.connectors._observability"):
-        _call_log_disposition(
-            kind="outbound", disposition="ok", latency_ms=12.5
-        )
+        _call_log_disposition(kind="outbound", disposition="ok", latency_ms=12.5)
     msg = caplog.records[0].message
     assert "latency_ms=12.5" in msg
     assert "connector.outbound" in msg
@@ -147,18 +145,14 @@ def test_log_disposition_includes_latency_ms(caplog):
 
 def test_log_disposition_includes_retry_after(caplog):
     with caplog.at_level(logging.INFO, logger="the_one.connectors._observability"):
-        _call_log_disposition(
-            kind="outbound", disposition="rate_limited", retry_after=5.0
-        )
+        _call_log_disposition(kind="outbound", disposition="rate_limited", retry_after=5.0)
     msg = caplog.records[0].message
     assert "retry_after=5.000" in msg
 
 
 def test_log_disposition_includes_error_type(caplog):
     with caplog.at_level(logging.INFO, logger="the_one.connectors._observability"):
-        _call_log_disposition(
-            kind="outbound", disposition="error", error_type="Forbidden"
-        )
+        _call_log_disposition(kind="outbound", disposition="error", error_type="Forbidden")
     msg = caplog.records[0].message
     assert "error_type=Forbidden" in msg
 

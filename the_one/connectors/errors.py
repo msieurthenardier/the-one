@@ -24,9 +24,7 @@ class ConnectorConfigError(ConnectorClientError):
     def __init__(self, account_id: str, validation_message: str) -> None:
         self.account_id = account_id
         self.validation_message = validation_message
-        super().__init__(
-            f"Connector account {account_id!r} config rejected: {validation_message}"
-        )
+        super().__init__(f"Connector account {account_id!r} config rejected: {validation_message}")
 
 
 class ConnectorConnectionError(ConnectorClientError):

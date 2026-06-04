@@ -19,11 +19,9 @@ from typing import Any
 
 import pytest
 
-from the_one.connectors import _discord_translate as translate_mod
 from the_one.connectors._discord_translate import (
     _translate_discord_message_to_envelope,
 )
-
 
 # ─────────────────────────────────────────────────────────────────
 # Stub ``discord`` module (mirrors the surface the helper touches)
@@ -196,9 +194,7 @@ def test_dm_translation_sets_is_dm_and_clears_guild() -> None:
     """DM channel: is_dm=True, guild_id=None, channel_id = DM channel id, thread_id None."""
     author = _make_author()  # no .roles attribute when not a Member
     channel = _make_dm_channel(channel_id=9999)
-    msg = _make_message(
-        author=author, channel=channel, content="dm content", guild_id=None
-    )
+    msg = _make_message(author=author, channel=channel, content="dm content", guild_id=None)
 
     env = _translate_discord_message_to_envelope(msg, account_id="acct-1")
 
@@ -268,9 +264,7 @@ def test_text_uses_clean_content_not_raw_content() -> None:
 
     assert env.text == "hey @gleepglorp how are you"
     # The raw SDK message reference still exposes the unresolved markup.
-    assert env.raw["discord_message"].content == (
-        "hey <@1506767486002135280> how are you"
-    )
+    assert env.raw["discord_message"].content == ("hey <@1506767486002135280> how are you")
 
 
 def test_text_falls_back_to_content_when_clean_content_missing() -> None:

@@ -31,7 +31,6 @@ from browser.seeders import (
 )
 from playwright.sync_api import Page, expect
 
-
 _DISCOVERABLE_PAYLOAD = {
     "entities": {
         "peers": [
@@ -126,30 +125,22 @@ def test_per_agent_overlay_chip_mode_renders_dropdown_for_discord(
     # Expand each axis (peers + channels) and verify the dropdown
     # component renders inside the chip-list wrapper.
     for axis in ("peers", "channels"):
-        toggle = tile.locator(
-            f'[data-testid="connector-acl-axis-toggle-{axis}-{account_id}"]'
-        )
+        toggle = tile.locator(f'[data-testid="connector-acl-axis-toggle-{axis}-{account_id}"]')
         expect(toggle).to_be_visible()
         toggle.click()
 
-        wrapper = tile.locator(
-            f'[data-testid="connector-acl-{axis}-{account_id}"]'
-        )
+        wrapper = tile.locator(f'[data-testid="connector-acl-{axis}-{account_id}"]')
         expect(wrapper).to_have_count(1)
         # Dropdown component is mounted inside the chip-list wrapper.
         expect(wrapper.locator(f'[data-axis="{axis}"]')).to_have_count(1)
-        expect(
-            wrapper.locator(f'[data-testid="discoverable-dropdown-{axis}"]')
-        ).to_have_count(1)
+        expect(wrapper.locator(f'[data-testid="discoverable-dropdown-{axis}"]')).to_have_count(1)
         # Free-form chip-list input must NOT be present (the dropdown
         # owns the wrapper's children wholesale).
-        expect(wrapper.locator('> input.chip-list-input')).to_have_count(0)
+        expect(wrapper.locator("> input.chip-list-input")).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_per_agent_overlay_checkbox_mode_unchanged(
-    app_clean: str, page: Page
-) -> None:
+def test_per_agent_overlay_checkbox_mode_unchanged(app_clean: str, page: Page) -> None:
     """Discord account with a non-empty account-scope on the peers axis
     → the per-agent overlay's peers axis renders the CHECKBOX-LIST
     editor (account-scope narrows the agent's selection), NOT the
@@ -183,16 +174,12 @@ def test_per_agent_overlay_checkbox_mode_unchanged(
     tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
-    toggle = tile.locator(
-        f'[data-testid="connector-acl-axis-toggle-peers-{account_id}"]'
-    )
+    toggle = tile.locator(f'[data-testid="connector-acl-axis-toggle-peers-{account_id}"]')
     toggle.click()
 
     # Checkbox-list mode renders one input[type=checkbox] per scope
     # chip; the dropdown component must NOT mount on this axis.
-    checkbox_wrap = tile.locator(
-        f'[data-testid="connector-acl-peers-checkboxes-{account_id}"]'
-    )
+    checkbox_wrap = tile.locator(f'[data-testid="connector-acl-peers-checkboxes-{account_id}"]')
     expect(checkbox_wrap).to_have_count(1)
     expect(checkbox_wrap.locator('input[type="checkbox"]')).to_have_count(2)
     # And no dropdown rendered on the peers axis.

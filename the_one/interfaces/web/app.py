@@ -34,6 +34,8 @@ from the_one.agent.factory import (
     AgentNotFoundError,
     ProviderNotConfiguredError,
     ProviderNotFoundError,
+)
+from the_one.agent.factory import (
     set_factory as _set_module_factory,
 )
 from the_one.config import settings
@@ -154,20 +156,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     logger.info(
                         "Connector account %r (type=%r) has no attached agents; "
                         "skipping startup acquire",
-                        account.id, account.type,
+                        account.id,
+                        account.type,
                     )
                     continue
                 await account_acquire(account.id)
                 logger.info(
                     "Warm-acquired connector account %r (type=%r) at startup "
                     "(account-shared pool entry; %d attached agent(s))",
-                    account.id, account.type, len(attached),
+                    account.id,
+                    account.type,
+                    len(attached),
                 )
             except Exception:
                 logger.exception(
                     "Failed to warm-acquire connector account %r (type=%r) at startup; "
                     "listener will spin up on first agent-initiated outbound instead",
-                    account.id, account.type,
+                    account.id,
+                    account.type,
                 )
     except Exception:
         logger.exception(
@@ -474,9 +480,7 @@ async def _merge_pending_approvals_into_history(
         return ui_events
     pending_events = pending_approvals_to_ui_events(pending_rows)
     combined = ui_events + pending_events
-    combined.sort(
-        key=lambda e: e.get("ts") or e.get("received_at") or ""
-    )
+    combined.sort(key=lambda e: e.get("ts") or e.get("received_at") or "")
     return combined
 
 
@@ -604,9 +608,7 @@ async def _restore_session(session_id: str) -> RestoredSession:
     # session into the history stream so the operator sees pending banners
     # on rejoin. Sessions without connector context (operator-typed) get
     # no DB query.
-    ui_events = await _merge_pending_approvals_into_history(
-        ui_events, db_session
-    )
+    ui_events = await _merge_pending_approvals_into_history(ui_events, db_session)
 
     if session_id in _sessions:
         # Update existing Session in place — keeps identity. Subscribers

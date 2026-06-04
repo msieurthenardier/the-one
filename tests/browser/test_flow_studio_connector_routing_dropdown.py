@@ -41,7 +41,6 @@ from browser.seeders import (
 )
 from playwright.sync_api import Page, expect
 
-
 # ── Stub payloads + route helpers (mirrors L6a) ─────────────────────────
 
 
@@ -103,8 +102,7 @@ _DISCOVERABLE_PAYLOAD = {
 }
 
 
-def _route_discoverable_ok(page: Page, account_id: str,
-                            payload: dict | None = None) -> None:
+def _route_discoverable_ok(page: Page, account_id: str, payload: dict | None = None) -> None:
     """Stub GET + POST /api/connectors/{id}/discoverable-entities."""
     body = payload if payload is not None else _DISCOVERABLE_PAYLOAD
 
@@ -192,9 +190,7 @@ def _activate_access_and_routing_tab(page: Page) -> None:
 
 def _wait_for_routing_agent_dropdown_populated(page: Page, agent_name: str) -> None:
     expect(
-        page.locator(
-            f'[data-testid="connector-routing-default"] option[value="{agent_name}"]'
-        )
+        page.locator(f'[data-testid="connector-routing-default"] option[value="{agent_name}"]')
     ).to_have_count(1, timeout=8000)
 
 
@@ -219,27 +215,23 @@ def test_routing_match_renders_dropdown_for_discord_channel_scope(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
     row = page.locator('tr.connector-routing-row[data-routing-rule-idx="0"]')
     expect(row).to_be_attached()
     # Match cell hosts the dropdown component (data-axis="channels").
-    match_slot = row.locator('[data-routing-match]')
+    match_slot = row.locator("[data-routing-match]")
     expect(match_slot.locator('[data-axis="channels"]')).to_have_count(1)
     expect(match_slot.locator('[data-testid="discoverable-dropdown-channels"]')).to_have_count(1)
     # And no chip-list input remains inside the dropdown-mounted slot
     # (the dropdown component owns the slot's children wholesale).
-    expect(match_slot.locator('> input.chip-list-input')).to_have_count(0)
+    expect(match_slot.locator("> input.chip-list-input")).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_routing_match_renders_dropdown_for_discord_peer_scope(
-    app_clean: str, page: Page
-) -> None:
+def test_routing_match_renders_dropdown_for_discord_peer_scope(app_clean: str, page: Page) -> None:
     """Discord account with one seeded ``scope='peer'`` rule → the
     match cell mounts the dropdown with ``data-axis="peers"``.
     """
@@ -253,22 +245,18 @@ def test_routing_match_renders_dropdown_for_discord_peer_scope(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
     row = page.locator('tr.connector-routing-row[data-routing-rule-idx="0"]')
-    match_slot = row.locator('[data-routing-match]')
+    match_slot = row.locator("[data-routing-match]")
     expect(match_slot.locator('[data-axis="peers"]')).to_have_count(1)
     expect(match_slot.locator('[data-testid="discoverable-dropdown-peers"]')).to_have_count(1)
 
 
 @pytest.mark.browser
-def test_routing_match_thread_scope_uses_channels_axis(
-    app_clean: str, page: Page
-) -> None:
+def test_routing_match_thread_scope_uses_channels_axis(app_clean: str, page: Page) -> None:
     """Discord account, ``scope='thread'`` row → the match cell's
     dropdown axis is ``channels`` (per the thread→channels mapping
     centralized in ``_mountRoutingMatchEditor``).
@@ -283,14 +271,12 @@ def test_routing_match_thread_scope_uses_channels_axis(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
     row = page.locator('tr.connector-routing-row[data-routing-rule-idx="0"]')
-    match_slot = row.locator('[data-routing-match]')
+    match_slot = row.locator("[data-routing-match]")
     # Threads narrow channels at the routing-engine layer; the dropdown
     # shows the channel feed.
     expect(match_slot.locator('[data-axis="channels"]')).to_have_count(1)
@@ -298,9 +284,7 @@ def test_routing_match_thread_scope_uses_channels_axis(
 
 
 @pytest.mark.browser
-def test_routing_match_renders_chiplist_for_stub_account(
-    app_clean: str, page: Page
-) -> None:
+def test_routing_match_renders_chiplist_for_stub_account(app_clean: str, page: Page) -> None:
     """Stub-type account with one seeded routing rule → the match cell
     still renders the pre-existing chip-list editor (regression
     contract for any connector type without a
@@ -315,26 +299,22 @@ def test_routing_match_renders_chiplist_for_stub_account(
         config={"routing": {"rules": seeded_rules, "default": None}},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
     row = page.locator('tr.connector-routing-row[data-routing-rule-idx="0"]')
-    match_slot = row.locator('[data-routing-match]')
+    match_slot = row.locator("[data-routing-match]")
     # The chip-list editor is the slot itself (.connector-routing-match-chiplist);
     # the seeded chip + the live input both remain.
-    expect(match_slot.locator('.chip')).to_have_count(1)
-    expect(match_slot.locator('.chip-list-input')).to_have_count(1)
+    expect(match_slot.locator(".chip")).to_have_count(1)
+    expect(match_slot.locator(".chip-list-input")).to_have_count(1)
     # And no dropdown rendered.
     expect(match_slot.locator('[data-testid^="discoverable-dropdown-"]')).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_routing_scope_change_re_mounts_dropdown_with_new_axis(
-    app_clean: str, page: Page
-) -> None:
+def test_routing_scope_change_re_mounts_dropdown_with_new_axis(app_clean: str, page: Page) -> None:
     """Discord account, row scope changes from ``'channel'`` to
     ``'peer'`` → the match cell re-mounts the dropdown with
     ``data-axis="peers"`` AND previous match values are CLEARED (the
@@ -350,20 +330,20 @@ def test_routing_scope_change_re_mounts_dropdown_with_new_axis(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
     row = page.locator('tr.connector-routing-row[data-routing-rule-idx="0"]')
-    match_slot = row.locator('[data-routing-match]')
+    match_slot = row.locator("[data-routing-match]")
     # Baseline: channels axis with the pre-selected chip.
     expect(match_slot.locator('[data-axis="channels"]')).to_have_count(1, timeout=8000)
-    expect(match_slot.locator('[data-testid="discoverable-dropdown-chip-channels"]')).to_have_count(1)
+    expect(match_slot.locator('[data-testid="discoverable-dropdown-chip-channels"]')).to_have_count(
+        1
+    )
 
     # Change scope → expect the dropdown to re-mount with the peers axis.
-    row.locator('[data-routing-scope]').select_option("peer")
+    row.locator("[data-routing-scope]").select_option("peer")
     expect(match_slot.locator('[data-axis="peers"]')).to_have_count(1)
     expect(match_slot.locator('[data-axis="channels"]')).to_have_count(0)
     # Previous match values are cleared.
@@ -371,7 +351,7 @@ def test_routing_scope_change_re_mounts_dropdown_with_new_axis(
 
 
 @pytest.mark.browser
-def test_routing_match_onChange_persists_via_save_round_trip(
+def test_routing_match_onChange_persists_via_save_round_trip(  # noqa: N802  # name mirrors JS `onChange` handler
     app_clean: str, page: Page
 ) -> None:
     """Discord account with an empty routing-rules row → operator
@@ -385,9 +365,7 @@ def test_routing_match_onChange_persists_via_save_round_trip(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
@@ -395,23 +373,23 @@ def test_routing_match_onChange_persists_via_save_round_trip(
     # dropdown, pick the agent, save.
     page.locator('[data-testid="connector-routing-add-row-btn"]').click()
     row = page.locator('tr.connector-routing-row[data-routing-rule-idx="0"]')
-    row.locator('[data-routing-scope]').select_option("channel")
+    row.locator("[data-routing-scope]").select_option("channel")
 
     # Scope the dropdown queries to the row's match cell — the allowlist
     # section also renders a channels-axis dropdown on the same tab, so
     # the ambient testids resolve to >1 element.
-    match_slot = row.locator('[data-routing-match]')
+    match_slot = row.locator("[data-routing-match]")
     items = match_slot.locator('[data-testid="discoverable-dropdown-item-channels"]')
     expect(items).to_have_count(2, timeout=8000)
     input_el = match_slot.locator('[data-testid="discoverable-dropdown-input-channels"]')
     expect(input_el).to_be_enabled(timeout=4000)
     input_el.focus()
     items.filter(has_text="#general").click()
-    expect(
-        match_slot.locator('[data-testid="discoverable-dropdown-chip-channels"]')
-    ).to_have_count(1)
+    expect(match_slot.locator('[data-testid="discoverable-dropdown-chip-channels"]')).to_have_count(
+        1
+    )
 
-    row.locator('[data-routing-agent]').select_option(agent_name)
+    row.locator("[data-routing-agent]").select_option(agent_name)
 
     save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled(timeout=4000)

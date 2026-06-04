@@ -24,6 +24,7 @@ import dataclasses
 import aiosqlite
 import pytest
 
+from tests._acl_shape_helpers import DEFAULT_TEST_GUILD_ID, _to_v24_shape
 from the_one.agent.config import AgentConfig
 from the_one.connectors import CommandHandler, CommandResponse
 from the_one.connectors._commands import (
@@ -41,7 +42,6 @@ from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import ChatSession, Connector
 from the_one.db.repositories import ChatSessionRepository
 from the_one.db.schema import ensure_schema
-from tests._acl_shape_helpers import DEFAULT_TEST_GUILD_ID, _to_v24_shape
 
 
 class TestParseCommand:
@@ -460,9 +460,7 @@ class TestPermittedAgentsAgainstStructuredAllowlist:
             args=[],
         )
         response = await _handle_agents(ctx)
-        assert response.text == (
-            "Agents available to you on this account:\n- alpha"
-        )
+        assert response.text == ("Agents available to you on this account:\n- alpha")
 
     async def test_denies_when_guild_id_absent(self) -> None:
         """Same structured-tuple allowlist, but the envelope carries no
@@ -491,9 +489,7 @@ class TestHandleAgents:
             args=[],
         )
         response = await _handle_agents(ctx)
-        assert response.text == (
-            "Agents available to you on this account:\n- alpha\n- bravo"
-        )
+        assert response.text == ("Agents available to you on this account:\n- alpha\n- bravo")
         # M11 F14 L7: /agents is self-only → ephemeral.
         assert response.ephemeral is True
 
@@ -518,9 +514,7 @@ class TestHandleAgents:
         ]
         ctx = _build_context(eligible=eligible, args=[])
         response = await _handle_agents(ctx)
-        assert response.text == (
-            "Agents available to you on this account:\n- alpha"
-        )
+        assert response.text == ("Agents available to you on this account:\n- alpha")
 
     async def test_returns_no_eligible_when_all_denied(self) -> None:
         """All eligible attached agents are ACL-denied → the
@@ -578,9 +572,7 @@ class TestHandleTalkTo:
             args=["nonexistent"],
         )
         response = await _handle_talk_to(ctx)
-        assert response.text == (
-            "No such agent or you don't have permission: nonexistent"
-        )
+        assert response.text == ("No such agent or you don't have permission: nonexistent")
         # No write to the session row.
         session = await chat_repo.get("session-1")
         assert session.session_metadata is None
@@ -602,9 +594,7 @@ class TestHandleTalkTo:
             args=["bravo"],
         )
         response = await _handle_talk_to(ctx)
-        assert response.text == (
-            "No such agent or you don't have permission: bravo"
-        )
+        assert response.text == ("No such agent or you don't have permission: bravo")
         # No override write.
         session = await chat_repo.get("session-1")
         assert session.session_metadata is None
@@ -695,8 +685,7 @@ class TestHandleNew:
         ctx = _build_context(chat_repo=chat_repo)
         response = await _handle_new(ctx)
         assert response.text == (
-            "Started a new conversation. Your next message will begin a "
-            "fresh session."
+            "Started a new conversation. Your next message will begin a fresh session."
         )
         # M11 F14 L7: /new is channel-affecting → NOT ephemeral.
         assert response.ephemeral is False
@@ -705,6 +694,7 @@ class TestHandleNew:
         assert "ended_at" in session.session_metadata
         # ISO timestamp shape: round-trip via datetime.fromisoformat.
         from datetime import datetime
+
         datetime.fromisoformat(session.session_metadata["ended_at"])
 
 
@@ -717,8 +707,7 @@ class TestHandleReset:
         ctx = _build_context(chat_repo=chat_repo, session_id="reset-session")
         response = await _handle_reset(ctx)
         assert response.text == (
-            "Started a new conversation. Your next message will begin a "
-            "fresh session."
+            "Started a new conversation. Your next message will begin a fresh session."
         )
         # M11 F14 L7: /reset (alias for /new) is channel-affecting → NOT
         # ephemeral.
@@ -804,9 +793,7 @@ class TestDispatchBuiltinCommand:
         ctx = _build_context(eligible=[_agent("alpha")])
         response = await _dispatch_builtin_command("agents", [], ctx)
         assert response is not None
-        assert response.text == (
-            "Agents available to you on this account:\n- alpha"
-        )
+        assert response.text == ("Agents available to you on this account:\n- alpha")
 
     async def test_unknown_command_returns_none(self) -> None:
         """Fall-through is preserved for unrecognized command names —

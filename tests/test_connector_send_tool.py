@@ -207,27 +207,21 @@ class TestTargetValidation:
 
     async def test_missing_channel_id(self) -> None:
         tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
-        result = await tool.execute(
-            target={"account_id": "acc-1"}, content="x"
-        )
+        result = await tool.execute(target={"account_id": "acc-1"}, content="x")
         assert result.startswith("[error]")
         assert "channel_id" in result
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_non_string_account_id(self) -> None:
         tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
-        result = await tool.execute(
-            target={"account_id": 123, "channel_id": "c1"}, content="x"
-        )
+        result = await tool.execute(target={"account_id": 123, "channel_id": "c1"}, content="x")
         assert result.startswith("[error]")
         assert "account_id" in result
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_non_string_channel_id(self) -> None:
         tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
-        result = await tool.execute(
-            target={"account_id": "acc-1", "channel_id": 7}, content="x"
-        )
+        result = await tool.execute(target={"account_id": "acc-1", "channel_id": 7}, content="x")
         assert result.startswith("[error]")
         assert "channel_id" in result
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
@@ -265,10 +259,7 @@ class TestAccountScopeValidation:
         )
         # Verbatim format from the leg artifact's design decisions:
         # `[error] [constraint] account_id 'acc-B' is not attached to this agent`
-        assert result == (
-            "[error] [constraint] account_id 'acc-B' is "
-            "not attached to this agent"
-        )
+        assert result == ("[error] [constraint] account_id 'acc-B' is not attached to this agent")
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_empty_account_list_rejects_any_account(self) -> None:
@@ -355,9 +346,7 @@ class TestPoolDispatch:
 
 
 class TestPoolAcquireFailures:
-    async def test_unknown_account_id_returns_constraint_envelope(
-        self, isolated_db
-    ) -> None:
+    async def test_unknown_account_id_returns_constraint_envelope(self, isolated_db) -> None:
         # Account is in the tool's attached list but NOT persisted in the
         # DB. Post-leg-3, the per-call `ConnectorRepository.get`
         # at the channel-ACL consult site raises `KeyError` first and the
@@ -375,15 +364,11 @@ class TestPoolAcquireFailures:
             target={"account_id": "acct-missing", "channel_id": "c1"},
             content="x",
         )
-        assert result == (
-            "[error] [constraint] account_id 'acct-missing' not found"
-        )
+        assert result == ("[error] [constraint] account_id 'acct-missing' not found")
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 
-    async def test_unregistered_plugin_type_returns_registration_error(
-        self, isolated_db
-    ) -> None:
+    async def test_unregistered_plugin_type_returns_registration_error(self, isolated_db) -> None:
         # Account is persisted (type="stub") but registry is cleared so
         # "stub" is unregistered — `_resolve_plugin` raises
         # `ConnectorRegistrationError`.
@@ -468,16 +453,12 @@ class TestPrefixSentinelSanity:
             await tool.execute(target=None, content="x"),
             await tool.execute(target={}, content="x"),
             await tool.execute(target={"account_id": ""}, content="x"),
-            await tool.execute(
-                target={"account_id": "acc-1", "channel_id": ""}, content="x"
-            ),
+            await tool.execute(target={"account_id": "acc-1", "channel_id": ""}, content="x"),
             await tool.execute(
                 target={"account_id": "acc-1", "channel_id": "c1", "thread_id": 9},
                 content="x",
             ),
-            await tool.execute(
-                target={"account_id": "acc-1", "channel_id": "c1"}, content=None
-            ),
+            await tool.execute(target={"account_id": "acc-1", "channel_id": "c1"}, content=None),
             await tool.execute(
                 target={"account_id": "acc-X", "channel_id": "c1"}, content="x"
             ),  # unattached
@@ -486,9 +467,7 @@ class TestPrefixSentinelSanity:
             assert envelope.startswith("[error]")
             assert not envelope.startswith(PLATFORM_SEND_OK_PREFIX), envelope
 
-    async def test_pool_and_send_failures_do_not_start_with_prefix(
-        self, isolated_db
-    ) -> None:
+    async def test_pool_and_send_failures_do_not_start_with_prefix(self, isolated_db) -> None:
         # KeyError path.
         register_for_test("stub", StubPlugin)
         tool = SendToPlatformChannelTool(
@@ -521,9 +500,7 @@ class TestContentInterpolationRepr:
     matches only the literal first 18 chars, NOT a substring at position ~20.
     """
 
-    async def test_peer_supplied_prefix_in_content_is_repr_escaped(
-        self, isolated_db
-    ) -> None:
+    async def test_peer_supplied_prefix_in_content_is_repr_escaped(self, isolated_db) -> None:
         await _seed_stub_account("acct-send")
         register_for_test("stub", StubPlugin)
 
@@ -554,9 +531,7 @@ class TestContentInterpolationRepr:
 # ─── F6 leg 3: channel + per-agent ACL gating ────────────────────────────
 
 
-async def _seed_stub_account_with_config(
-    account_id: str, config: dict
-) -> Connector:
+async def _seed_stub_account_with_config(account_id: str, config: dict) -> Connector:
     """Persist a stub-typed Connector with explicit ``config``.
 
     Mirror of ``_seed_stub_account`` but allows the test to drive
@@ -620,17 +595,17 @@ class TestF6OutboundGating:
         assert result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert "acct-send:c1" in result
 
-    async def test_permit_when_channel_in_account_allowlist_no_acl(
-        self, isolated_db
-    ) -> None:
+    async def test_permit_when_channel_in_account_allowlist_no_acl(self, isolated_db) -> None:
         # Account allowlist includes c1; per-agent ACL absent → inherit.
         # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {
-                "peers": [],
-                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
-            }},
+            config={
+                "allowlist": {
+                    "peers": [],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
+                }
+            },
         )
         register_for_test("stub", StubPlugin)
 
@@ -644,17 +619,17 @@ class TestF6OutboundGating:
         )
         assert result.startswith(PLATFORM_SEND_OK_PREFIX)
 
-    async def test_deny_when_channel_not_in_account_allowlist(
-        self, isolated_db
-    ) -> None:
+    async def test_deny_when_channel_not_in_account_allowlist(self, isolated_db) -> None:
         # Account allowlist includes c1 only; tool tries c2 → denial.
         # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {
-                "peers": [],
-                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
-            }},
+            config={
+                "allowlist": {
+                    "peers": [],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
+                }
+            },
         )
         register_for_test("stub", StubPlugin)
 
@@ -667,29 +642,28 @@ class TestF6OutboundGating:
             content="hello",
         )
         assert result == (
-            "[error] [constraint] channel_id 'c2' "
-            "is not reachable on account 'acct-send'"
+            "[error] [constraint] channel_id 'c2' is not reachable on account 'acct-send'"
         )
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         # Denial returns BEFORE pool.acquire — no outbound recorded.
         assert StubPlugin.outbound_records == []
 
-    async def test_deny_when_channel_in_account_but_not_in_per_agent_acl(
-        self, isolated_db
-    ) -> None:
+    async def test_deny_when_channel_in_account_but_not_in_per_agent_acl(self, isolated_db) -> None:
         # Account allows c1 + c2; per-agent ACL narrows to c1 only;
         # tool tries c2 → per-agent denial. L7 HAT: peers axis is None
         # (inherit) so it does not collide with the channels narrow.
         # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {
-                "peers": [],
-                "channels": [
-                    {"guild_id": "g-test", "channel_id": "c1"},
-                    {"guild_id": "g-test", "channel_id": "c2"},
-                ],
-            }},
+            config={
+                "allowlist": {
+                    "peers": [],
+                    "channels": [
+                        {"guild_id": "g-test", "channel_id": "c1"},
+                        {"guild_id": "g-test", "channel_id": "c2"},
+                    ],
+                }
+            },
         )
         register_for_test("stub", StubPlugin)
 
@@ -714,9 +688,7 @@ class TestF6OutboundGating:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 
-    async def test_permit_when_per_agent_acl_channels_is_none_inherits(
-        self, isolated_db
-    ) -> None:
+    async def test_permit_when_per_agent_acl_channels_is_none_inherits(self, isolated_db) -> None:
         # M10 F6 L7 HAT semantic: per-agent channels = None inherits
         # account-scope (no agent-level narrowing). Account allowlist
         # absent → permit overall.
@@ -765,9 +737,7 @@ class TestF6OutboundGating:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 
-    async def test_permit_when_per_agent_acl_account_id_absent(
-        self, isolated_db
-    ) -> None:
+    async def test_permit_when_per_agent_acl_account_id_absent(self, isolated_db) -> None:
         # `connector_acls` is present but missing this account_id →
         # inherit (no narrowing for this account).
         await _seed_stub_account_with_config("acct-send", config={})
@@ -795,13 +765,15 @@ class TestF6OutboundGating:
         # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {
-                "peers": [],
-                "channels": [
-                    {"guild_id": "g-test", "channel_id": "c1"},
-                    {"guild_id": "g-test", "channel_id": "c2"},
-                ],
-            }},
+            config={
+                "allowlist": {
+                    "peers": [],
+                    "channels": [
+                        {"guild_id": "g-test", "channel_id": "c1"},
+                        {"guild_id": "g-test", "channel_id": "c2"},
+                    ],
+                }
+            },
         )
         register_for_test("stub", StubPlugin)
 
@@ -840,9 +812,7 @@ class TestF6OutboundGating:
             target={"account_id": "acct-deleted", "channel_id": "c1"},
             content="hello",
         )
-        assert result == (
-            "[error] [constraint] account_id 'acct-deleted' not found"
-        )
+        assert result == ("[error] [constraint] account_id 'acct-deleted' not found")
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 
@@ -864,10 +834,7 @@ class TestF6OutboundGating:
             target={"account_id": "acct-B", "channel_id": "c1"},
             content="hello",
         )
-        assert result == (
-            "[error] [constraint] account_id 'acct-B' is "
-            "not attached to this agent"
-        )
+        assert result == ("[error] [constraint] account_id 'acct-B' is not attached to this agent")
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 

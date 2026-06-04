@@ -140,9 +140,7 @@ async def _handle_agents(context: dict[str, Any]) -> CommandResponse:
     """
     names = _permitted_agents(context)
     if not names:
-        return CommandResponse(
-            text="No agents available for this conversation.", ephemeral=True
-        )
+        return CommandResponse(text="No agents available for this conversation.", ephemeral=True)
     lines = ["Agents available to you on this account:"]
     lines.extend(f"- {name}" for name in names)
     return CommandResponse(text="\n".join(lines), ephemeral=True)
@@ -171,9 +169,7 @@ async def _handle_talk_to(context: dict[str, Any]) -> CommandResponse:
     target = " ".join(args)
     permitted = _permitted_agents(context)
     if target not in permitted:
-        return CommandResponse(
-            text=f"No such agent or you don't have permission: {target}"
-        )
+        return CommandResponse(text=f"No such agent or you don't have permission: {target}")
     chat_repo = context["chat_repo"]
     session_id: str = context["session_id"]
     await chat_repo.set_session_metadata_key(session_id, "routing_override", target)
@@ -207,10 +203,7 @@ async def _handle_new(context: dict[str, Any]) -> CommandResponse:
     session_id: str = context["session_id"]
     await chat_repo.set_session_metadata_key(session_id, "ended_at", now_iso())
     return CommandResponse(
-        text=(
-            "Started a new conversation. Your next message will begin a "
-            "fresh session."
-        )
+        text=("Started a new conversation. Your next message will begin a fresh session.")
     )
 
 
@@ -303,9 +296,7 @@ async def _dispatch_builtin_command(
     # future caller that skips the envelope layer and invokes dispatch
     # directly with an underscore-form name.
     # Unknown commands still return None (fall through to agent.step).
-    handler = _HANDLERS.get(command_name) or _HANDLERS.get(
-        command_name.replace("_", "-")
-    )
+    handler = _HANDLERS.get(command_name) or _HANDLERS.get(command_name.replace("_", "-"))
     if handler is None:
         return None
     context["args"] = args

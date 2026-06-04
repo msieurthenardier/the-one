@@ -33,7 +33,6 @@ from browser.seeders import (
 )
 from playwright.sync_api import Page, expect
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -159,9 +158,7 @@ def test_admit_dms_unchecks_and_persists(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_admit_dms_disabled_when_account_dm_admission_none(
-    app_clean: str, page: Page
-) -> None:
+def test_admit_dms_disabled_when_account_dm_admission_none(app_clean: str, page: Page) -> None:
     """Account-scope ``dm_admission="none"`` → switch is DISABLED and
     visually-checked; hint text matches the disabled-state literal.
     """
@@ -187,9 +184,7 @@ def test_admit_dms_disabled_when_account_dm_admission_none(
 
 
 @pytest.mark.browser
-def test_admit_dms_reload_shows_unchecked_when_persisted_false(
-    app_clean: str, page: Page
-) -> None:
+def test_admit_dms_reload_shows_unchecked_when_persisted_false(app_clean: str, page: Page) -> None:
     """Agent with a persisted ``admit_dms: False`` → switch re-renders
     UNCHECKED on page load.
 
@@ -210,17 +205,15 @@ def test_admit_dms_reload_shows_unchecked_when_persisted_false(
     # requires ``peers`` and ``channels`` keys when an entry exists, so
     # include them as ``None`` (inherit) alongside ``admit_dms: False``.
     cfg = _get_agent(app_clean, agent_name)
-    cfg["connector_acls"] = {
-        account_id: {"peers": None, "channels": None, "admit_dms": False}
-    }
+    cfg["connector_acls"] = {account_id: {"peers": None, "channels": None, "admit_dms": False}}
     _put_agent(app_clean, agent_name, cfg)
 
     # Confirm the seed landed before navigating (catches PUT-schema
     # drift before the UI assertion would mis-diagnose the render bug).
     seeded = _get_agent(app_clean, agent_name)
-    assert (seeded.get("connector_acls") or {}).get(account_id, {}).get(
-        "admit_dms"
-    ) is False, f"seed precondition failed: {seeded.get('connector_acls')!r}"
+    assert (seeded.get("connector_acls") or {}).get(account_id, {}).get("admit_dms") is False, (
+        f"seed precondition failed: {seeded.get('connector_acls')!r}"
+    )
 
     _open_agent_connectors_tab(page, app_clean, agent_name)
 

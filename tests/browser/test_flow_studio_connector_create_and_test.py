@@ -112,9 +112,7 @@ def test_create_succeeds_probe_fails_persists_account_with_red_banner(
 
 
 @pytest.mark.browser
-def test_create_422_blocks_probe_and_surfaces_error_inline(
-    app_clean: str, page: Page
-) -> None:
+def test_create_422_blocks_probe_and_surfaces_error_inline(app_clean: str, page: Page) -> None:
     """Create returns 422 → operator stays on create form; probe NOT fired.
 
     F5 L8 HAT: the idle-timeout dropdown no longer allows out-of-range
@@ -203,9 +201,7 @@ def test_create_mode_pick_discord_does_not_render_runtime_config_inline(
 
     # Pre-pick baseline: the generic kv-table is in the DOM (pre-stub
     # render path) and the Discord typed-form fields are not yet mounted.
-    expect(page.locator('[data-testid="connector-config-table"]')).to_have_count(
-        1, timeout=4000
-    )
+    expect(page.locator('[data-testid="connector-config-table"]')).to_have_count(1, timeout=4000)
     # F5 L6 HAT round-2: testid migrated from ``discord-intents-fieldset``
     # to ``discord-intents-row`` (the fieldset was replaced with a
     # ``.field-row.admin-pf-row`` container).
@@ -259,6 +255,4 @@ def test_create_mode_pick_discord_does_not_render_runtime_config_inline(
 
     # Save button is enabled (picking a type IS a dirty edit relative
     # to the pre-pick baseline).
-    expect(
-        page.locator('[data-testid="create-and-test-connector-btn"]')
-    ).to_be_enabled()
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_enabled()

@@ -110,9 +110,7 @@ class TestToolResultContentNormalizationAtConstruction:
         assert tr.content == "plain string result"
 
     def test_tool_result_normalizes_nested_structure(self) -> None:
-        nested: dict[str, object] = {
-            "channels": [{"id": "ch1", "members": [{"name": "alice"}]}]
-        }
+        nested: dict[str, object] = {"channels": [{"id": "ch1", "members": [{"name": "alice"}]}]}
         tr = ToolResult(tool_call_id="t1", content=nested)
         assert isinstance(tr.content, str)
         assert json.loads(tr.content) == nested

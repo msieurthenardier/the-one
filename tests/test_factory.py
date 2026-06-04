@@ -123,9 +123,7 @@ def factory(store: InMemoryStore) -> AgentFactory:
     # other purposes. Mock the repository to return a default account
     # for any account_id the caller's AgentConfig references.
     mock_acc_repo = AsyncMock()
-    mock_acc_repo.get = AsyncMock(
-        side_effect=lambda aid: Connector(id=aid, name=aid, type="stub")
-    )
+    mock_acc_repo.get = AsyncMock(side_effect=lambda aid: Connector(id=aid, name=aid, type="stub"))
 
     with (
         patch("the_one.agent.factory.get_provider", _fake_get_provider),
@@ -705,9 +703,7 @@ class TestFactoryToolProviderWiring:
         )
         await store.save(cfg)
 
-        with patch.object(
-            BuiltinToolProvider, "get_tools", _wrapped_builtin_get_tools
-        ):
+        with patch.object(BuiltinToolProvider, "get_tools", _wrapped_builtin_get_tools):
             ctx = factory_with_builtin_tool_configs(
                 tool_configs=[],
                 extra_tool_providers=[CapturingStubProvider()],

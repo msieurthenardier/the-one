@@ -7,6 +7,7 @@ dispatcher can broadcast inbound-driven UI events without an
 ``interfaces.web.app`` import. The Session dataclass no longer
 carries the field; this module is the source of truth.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict

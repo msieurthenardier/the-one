@@ -46,7 +46,6 @@ from httpx import ASGITransport, AsyncClient
 from the_one.connectors import _pool as pool_mod
 from the_one.connectors._pool import (
     _ACCOUNT_POOL_AGENT_SLOT,
-    _StatusSnapshot,
     _get_account_status_snapshot,
 )
 from the_one.connectors.base import DoctorReport, SessionKey
@@ -64,7 +63,6 @@ from the_one.interfaces.web.api import (
     _map_connect_error,
     router,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

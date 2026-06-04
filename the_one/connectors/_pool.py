@@ -383,8 +383,7 @@ async def _entry_worker(
             await plugin.disconnect(client)
         except Exception:
             logger.exception(
-                "Connector plugin disconnect failed during entry teardown "
-                "(account=%r, type=%r)",
+                "Connector plugin disconnect failed during entry teardown (account=%r, type=%r)",
                 account.id,
                 account.type,
             )
@@ -406,9 +405,7 @@ async def _evict(key: tuple[str, str]) -> None:
     try:
         await asyncio.wait_for(entry.worker, timeout=10.0)
     except asyncio.TimeoutError:
-        logger.warning(
-            "Connector pool worker for %r did not terminate within 10s", key
-        )
+        logger.warning("Connector pool worker for %r did not terminate within 10s", key)
         entry.worker.cancel()
         with contextlib.suppress(BaseException):
             await entry.worker
@@ -545,9 +542,7 @@ async def _reap_once() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
             return_exceptions=True,
         )
         for key, result in zip(all_to_evict, results):
-            if isinstance(result, BaseException) and not isinstance(
-                result, asyncio.CancelledError
-            ):
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
                 logger.exception(
                     "Connector pool _evict raised during reap pass: key=%r exc=%r",
                     key,
@@ -954,22 +949,30 @@ async def _get_account_status_snapshot(
             # reporting "disconnected" and swallowing it.
             if last_error:
                 return _StatusSnapshot(
-                    state="error", alive=False,
-                    last_error=last_error, last_error_link=last_error_link,
+                    state="error",
+                    alive=False,
+                    last_error=last_error,
+                    last_error_link=last_error_link,
                 )
             return _StatusSnapshot(
-                state="disconnected", alive=False,
-                last_error=None, last_error_link=None,
+                state="disconnected",
+                alive=False,
+                last_error=None,
+                last_error_link=None,
             )
         if entry.failure is not None:
             return _StatusSnapshot(
-                state="error", alive=False,
-                last_error=last_error, last_error_link=last_error_link,
+                state="error",
+                alive=False,
+                last_error=last_error,
+                last_error_link=last_error_link,
             )
         if entry.client_ready is None or not entry.client_ready.is_set():
             return _StatusSnapshot(
-                state="connecting", alive=False,
-                last_error=None, last_error_link=None,
+                state="connecting",
+                alive=False,
+                last_error=None,
+                last_error_link=None,
             )
         client = entry.client
 
@@ -977,8 +980,10 @@ async def _get_account_status_snapshot(
     # flag/attribute reads that don't need serialization.
     if client is None:
         return _StatusSnapshot(
-            state="disconnected", alive=False,
-            last_error=None, last_error_link=None,
+            state="disconnected",
+            alive=False,
+            last_error=None,
+            last_error_link=None,
         )
     # Read application_id from the client if exposed (DiscordClient exposes it
     # post-READY via the .application_id property; other plugin clients that
@@ -990,8 +995,10 @@ async def _get_account_status_snapshot(
         # Plugin has no is_alive() — treat as connected (same exemption
         # the reaper uses at _pool.py:~496-503).
         return _StatusSnapshot(
-            state="connected", alive=True,
-            last_error=None, last_error_link=None,
+            state="connected",
+            alive=True,
+            last_error=None,
+            last_error_link=None,
             application_id=app_id,
         )
     alive = bool(is_alive_fn())
@@ -1105,9 +1112,7 @@ async def agent_acquire(agent_name: str, account_id: str) -> ConnectorClient:
                 client_ready=asyncio.Event(),
                 account_type=account.type,
             )
-            entry.worker = asyncio.create_task(
-                _entry_worker(plugin, account, encryptor, entry)
-            )
+            entry.worker = asyncio.create_task(_entry_worker(plugin, account, encryptor, entry))
             _pool[key] = entry
             # leg 6: ensure the reaper is running. Idempotent — the helper
             # checks ``_reaper_task is None or done()`` before spawning.

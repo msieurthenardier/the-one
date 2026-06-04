@@ -207,17 +207,11 @@ def _scope_matches(
             return envelope.channel_id
         return None
     if rule_scope == "thread":
-        if (
-            envelope.thread_id is not None
-            and envelope.thread_id in rule_match
-        ):
+        if envelope.thread_id is not None and envelope.thread_id in rule_match:
             return envelope.thread_id
         return None
     if rule_scope == "dm":
-        if (
-            envelope.thread_id is None
-            and envelope.peer_id in rule_match
-        ):
+        if envelope.thread_id is None and envelope.peer_id in rule_match:
             return envelope.peer_id
         return None
     if rule_scope == "peer":
@@ -255,17 +249,13 @@ def resolve_routing(
     circuits to :func:`_default_not_dm`, which returns ``False`` —
     the historical fail-closed semantic).
     """
-    agents_by_name: dict[str, AgentConfig] = {
-        a.name: a for a in eligible_attached_agents
-    }
+    agents_by_name: dict[str, AgentConfig] = {a.name: a for a in eligible_attached_agents}
 
     # Step 1 — Override.
     override = (session_metadata or {}).get("routing_override")
     if isinstance(override, str) and override:
         candidate = agents_by_name.get(override)
-        if candidate is not None and _agent_admits(
-            account, candidate, envelope, plugin
-        ):
+        if candidate is not None and _agent_admits(account, candidate, envelope, plugin):
             return RoutingDecision(
                 agent=override,
                 rule_index=None,
@@ -299,9 +289,7 @@ def resolve_routing(
     default = routing.get("default")
     if isinstance(default, str) and default:
         candidate = agents_by_name.get(default)
-        if candidate is not None and _agent_admits(
-            account, candidate, envelope, plugin
-        ):
+        if candidate is not None and _agent_admits(account, candidate, envelope, plugin):
             return RoutingDecision(
                 agent=default,
                 rule_index=None,

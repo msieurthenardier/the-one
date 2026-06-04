@@ -41,9 +41,7 @@ def test_test_connection_button_absent_in_create_mode(app_clean: str, page: Page
 
 
 @pytest.mark.browser
-def test_default_stub_probe_renders_success_with_no_details(
-    app_clean: str, page: Page
-) -> None:
+def test_default_stub_probe_renders_success_with_no_details(app_clean: str, page: Page) -> None:
     """Click → real stub doctor returns status=ok, details={} → green LED
     + no details panel surfaced (M07 inspector convention: status +
     one-sentence message at-a-glance; details panel opens only on
@@ -89,9 +87,7 @@ def test_configured_failure_response_renders_red_led_and_details(
             body=json.dumps(stub_payload),
         )
 
-    page.route(
-        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
-    )
+    page.route(f"**/api/connectors/{account_id}/test/connect", handle_test_connect)
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
@@ -133,9 +129,7 @@ def test_degraded_response_renders_warning_led(app_clean: str, page: Page) -> No
             body=json.dumps(stub_payload),
         )
 
-    page.route(
-        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
-    )
+    page.route(f"**/api/connectors/{account_id}/test/connect", handle_test_connect)
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
@@ -170,9 +164,7 @@ def test_non_string_detail_renders_as_font_mono_json(app_clean: str, page: Page)
             body=json.dumps(stub_payload),
         )
 
-    page.route(
-        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
-    )
+    page.route(f"**/api/connectors/{account_id}/test/connect", handle_test_connect)
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
@@ -188,9 +180,7 @@ def test_non_string_detail_renders_as_font_mono_json(app_clean: str, page: Page)
 
 
 @pytest.mark.browser
-def test_secret_shaped_detail_value_passes_through_unmasked(
-    app_clean: str, page: Page
-) -> None:
+def test_secret_shaped_detail_value_passes_through_unmasked(app_clean: str, page: Page) -> None:
     """A masked-token detail value on `status:'ok'` is never surfaced —
     `details_wrap` stays hidden per M07 inspector convention. The
     no-leak property is preserved structurally: the wrap never renders
@@ -211,9 +201,7 @@ def test_secret_shaped_detail_value_passes_through_unmasked(
             body=json.dumps(stub_payload),
         )
 
-    page.route(
-        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
-    )
+    page.route(f"**/api/connectors/{account_id}/test/connect", handle_test_connect)
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(

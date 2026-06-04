@@ -93,9 +93,7 @@ def build_request_headers(source: MCPSource) -> dict[str, str]:
     }
     merged = {**config_headers, **operator_secrets}
     return {
-        (k.strip() if isinstance(k, str) else k): (
-            v.strip() if isinstance(v, str) else v
-        )
+        (k.strip() if isinstance(k, str) else k): (v.strip() if isinstance(v, str) else v)
         for k, v in merged.items()
     }
 

@@ -147,9 +147,7 @@ def test_edit_form_renders_all_sections(app_clean: str, page: Page) -> None:
 def test_type_select_populates_from_types_endpoint(app_clean: str, page: Page) -> None:
     """The type <select> shows the 'stub' option fetched from /types."""
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(timeout=8000)
 
     options = page.locator('[data-testid="connector-type-select"] option')
     # First option is the disabled "Select a connector type" placeholder
@@ -165,9 +163,7 @@ def test_create_and_test_creates_account_and_transitions_to_edit_mode(
     """Fill the create form → Create & Test → both calls fire → URL is
     in edit-mode → the new tile is visible after Back to grid."""
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="connector-name-input"]').fill("Created Bot")
     page.locator('[data-testid="connector-type-select"]').select_option("stub")
@@ -190,15 +186,13 @@ def test_create_and_test_creates_account_and_transitions_to_edit_mode(
 
     # Back to grid → the new tile is visible.
     page.locator('[data-testid="back-connector-btn"]').click()
-    expect(
-        page.locator('[data-testid="connector-card"]', has_text="Created Bot")
-    ).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="connector-card"]', has_text="Created Bot")).to_be_visible(
+        timeout=5000
+    )
 
 
 @pytest.mark.browser
-def test_edit_with_unchanged_secret_preserves_stored_value(
-    app_clean: str, page: Page
-) -> None:
+def test_edit_with_unchanged_secret_preserves_stored_value(app_clean: str, page: Page) -> None:
     """Save without touching a secret → backend keeps the stored value."""
     account_id = seed_connector(
         app_clean,
@@ -375,9 +369,7 @@ def test_delete_from_danger_zone_removes_tile(app_clean: str, page: Page) -> Non
     """Two-click Delete fires DELETE → tile gone from grid."""
     account_id = seed_connector(app_clean, name="Deletable Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
 
     delete_btn = page.locator('[data-testid="delete-connector-btn"]')
     # First click — arms the confirm-delete state.
@@ -435,15 +427,11 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     # Reopen the editor — go back to grid first, then click the card so the
     # router fully re-mounts the editor (a same-URL navigate is a no-op).
     page.locator('[data-testid="back-connector-btn"]').click()
-    card = page.locator(
-        '[data-testid="connector-card"]', has_text="Continuation Bot"
-    )
+    card = page.locator('[data-testid="connector-card"]', has_text="Continuation Bot")
     expect(card).to_be_visible(timeout=5000)
     card.click()
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
-    expect(
-        page.locator('[data-testid="connector-continuation-input"]')
-    ).to_have_value("3600")
+    expect(page.locator('[data-testid="connector-continuation-input"]')).to_have_value("3600")
 
 
 @pytest.mark.browser
@@ -483,9 +471,7 @@ def _wait_for_routing_agent_dropdown_populated(page: Page, agent_name: str) -> N
     value avoids racing the async population during the test.
     """
     expect(
-        page.locator(
-            f'[data-testid="connector-routing-default"] option[value="{agent_name}"]'
-        )
+        page.locator(f'[data-testid="connector-routing-default"] option[value="{agent_name}"]')
     ).to_be_attached(timeout=5000)
 
 
@@ -534,9 +520,7 @@ def test_routing_rules_add_rule_with_chip_list(app_clean: str, page: Page) -> No
     after = _get_account(app_clean, account_id)
     routing = (after.get("config") or {}).get("routing")
     assert routing is not None, f"expected config.routing to persist, got {after}"
-    assert routing["rules"] == [
-        {"scope": "channel", "match": ["ch1", "ch2"], "agent": agent_name}
-    ]
+    assert routing["rules"] == [{"scope": "channel", "match": ["ch1", "ch2"], "agent": agent_name}]
 
 
 @pytest.mark.browser
@@ -678,9 +662,7 @@ def test_routing_rules_baseline_not_dirty(app_clean: str, page: Page) -> None:
     # value. The snapshot recaptured by fetchAttachedAgents's .then means
     # the dirty-tracker must report clean: save + cancel stay disabled.
     expect(
-        page.locator(
-            'tr.connector-routing-row[data-routing-rule-idx="0"] [data-routing-agent]'
-        )
+        page.locator('tr.connector-routing-row[data-routing-rule-idx="0"] [data-routing-agent]')
     ).to_have_value("router-baseline")
     expect(page.locator('[data-testid="connector-routing-default"]')).to_have_value(
         "router-baseline"
@@ -768,14 +750,12 @@ def test_editor_entry_shows_seeded_peer_chip(app_clean: str, page: Page) -> None
     # the seeded peer.
     peers_chiplist = page.locator('[data-testid="connector-allowlist-peers-chiplist"]')
     expect(peers_chiplist).to_be_attached()
-    peer_chip = peers_chiplist.locator('.chip', has_text=peer_id)
+    peer_chip = peers_chiplist.locator(".chip", has_text=peer_id)
     expect(peer_chip).to_be_visible(timeout=5000)
 
 
 @pytest.mark.browser
-def test_editor_reentry_reflects_peer_added_between_visits(
-    app_clean: str, page: Page
-) -> None:
+def test_editor_reentry_reflects_peer_added_between_visits(app_clean: str, page: Page) -> None:
     """Re-entering the editor after a backend peer mutation shows the new chip.
 
     Step 1: seed a connector with NO peers; open the editor from the grid.
@@ -812,5 +792,5 @@ def test_editor_reentry_reflects_peer_added_between_visits(
     _activate_access_and_routing_tab(page)
     peers_chiplist = page.locator('[data-testid="connector-allowlist-peers-chiplist"]')
     expect(peers_chiplist).to_be_attached()
-    peer_chip = peers_chiplist.locator('.chip', has_text=new_peer_id)
+    peer_chip = peers_chiplist.locator(".chip", has_text=new_peer_id)
     expect(peer_chip).to_be_visible(timeout=5000)

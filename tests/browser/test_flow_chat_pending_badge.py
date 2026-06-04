@@ -43,9 +43,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:

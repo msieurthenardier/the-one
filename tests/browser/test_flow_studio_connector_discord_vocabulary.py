@@ -41,9 +41,7 @@ def _get_account(base_url: str, account_id: str) -> dict:
 
 
 def _put_account(base_url: str, account_id: str, payload: dict) -> dict:
-    r = httpx.put(
-        f"{base_url}/api/connectors/{account_id}", json=payload, timeout=5.0
-    )
+    r = httpx.put(f"{base_url}/api/connectors/{account_id}", json=payload, timeout=5.0)
     assert r.status_code == 200, f"put failed: {r.status_code} {r.text}"
     return r.json()
 
@@ -52,9 +50,7 @@ def _put_account(base_url: str, account_id: str, payload: dict) -> dict:
 
 
 @pytest.mark.browser
-def test_discord_account_renders_substituted_allowlist_labels(
-    app_clean: str, page: Page
-) -> None:
+def test_discord_account_renders_substituted_allowlist_labels(app_clean: str, page: Page) -> None:
     """Discord-type account: Allowlist <label> text reads "Users" and
     "Servers" (substituted via ``connectorVocabulary``). The pre-L6
     "Peers" / "Guilds" labels MUST NOT appear on the page."""
@@ -65,9 +61,7 @@ def test_discord_account_renders_substituted_allowlist_labels(
         secrets={"BOT_TOKEN": "plaintext"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # Switch to the Access and Routing tab so the allowlist section is
     # visible (the L9 tabbed layout puts Allowlist behind the secondary
@@ -97,7 +91,7 @@ def test_discord_account_renders_substituted_allowlist_labels(
     # ABOVE the Users (peers) row, so the gating decision precedes the
     # per-peer chip list.
     allowlist_labels = page.locator(
-        '.connector-allowlist-section .connector-acl-fieldlabel'
+        ".connector-allowlist-section .connector-acl-fieldlabel"
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
     # M11 F10 L2: the DM-admission row reuses the
     # ``connector-acl-fieldlabel`` class, so it joins this label list
@@ -112,9 +106,7 @@ def test_discord_account_renders_substituted_allowlist_labels(
 
 
 @pytest.mark.browser
-def test_discord_account_hints_drop_discord_flavored_qualifier(
-    app_clean: str, page: Page
-) -> None:
+def test_discord_account_hints_drop_discord_flavored_qualifier(app_clean: str, page: Page) -> None:
     """Discord-type account: the Servers (guilds) section hint drops
     the "Discord-flavored; ignored by other platforms." qualifier
     (``hintTone === 'native'``). The substituted singular ("server")
@@ -133,9 +125,7 @@ def test_discord_account_hints_drop_discord_flavored_qualifier(
         secrets={"BOT_TOKEN": "plaintext"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
     # F5 L6 HAT round-3: per-axis hint moved from a verbose
@@ -167,10 +157,7 @@ def test_discord_account_hints_drop_discord_flavored_qualifier(
     # Page-wide: the full disclaimer string must not appear anywhere on
     # the rendered editor for a Discord-type account.
     assert (
-        page.get_by_text(
-            "Discord-flavored; ignored by other platforms.", exact=False
-        ).count()
-        == 0
+        page.get_by_text("Discord-flavored; ignored by other platforms.", exact=False).count() == 0
     )
 
 
@@ -217,18 +204,14 @@ def test_discord_account_attached_agents_header_renders_substituted_labels(
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # Wait for the attached-agents table to render (the fetch resolves
     # asynchronously after mount). The General tab is default, so the
     # attached-agents section is already visible.
-    expect(
-        page.locator(
-            '[data-testid="connector-attached-agents-table"]'
-        )
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="connector-attached-agents-table"]')).to_be_visible(
+        timeout=8000
+    )
 
     # Read the <th> cells in document order.
     header_cells = page.locator(
@@ -257,24 +240,20 @@ def test_discord_routing_scope_dropdown_substitutes_peer_textcontent(
         type="discord",
         config={
             "routing": {
-                "rules": [
-                    {"scope": "peer", "match": ["alice"], "agent": "general"}
-                ],
+                "rules": [{"scope": "peer", "match": ["alice"], "agent": "general"}],
                 "default": None,
             }
         },
         secrets={"BOT_TOKEN": "plaintext"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
     # Read the textContent of every option whose value is "peer".
-    peer_option_texts = page.locator(
-        '[data-routing-scope] option[value="peer"]'
-    ).evaluate_all("els => els.map(e => e.textContent.trim())")
+    peer_option_texts = page.locator('[data-routing-scope] option[value="peer"]').evaluate_all(
+        "els => els.map(e => e.textContent.trim())"
+    )
     assert len(peer_option_texts) >= 1, (
         "expected at least one routing-scope <option value='peer'> on the editor"
     )
@@ -284,18 +263,18 @@ def test_discord_routing_scope_dropdown_substitutes_peer_textcontent(
         )
 
     # The <option value> attribute MUST stay at the substrate literal.
-    peer_values = page.locator(
-        '[data-routing-scope] option[value="peer"]'
-    ).evaluate_all("els => els.map(e => e.value)")
+    peer_values = page.locator('[data-routing-scope] option[value="peer"]').evaluate_all(
+        "els => els.map(e => e.value)"
+    )
     for val in peer_values:
         assert val == "peer", f"persistence vocabulary drift; got value={val!r}"
 
     # Channel option: textContent should be "channel" (substituted via
     # vocab.channel — which happens to equal the literal 'channel' for
     # Discord, but the substitution still flows through).
-    channel_texts = page.locator(
-        '[data-routing-scope] option[value="channel"]'
-    ).evaluate_all("els => els.map(e => e.textContent.trim())")
+    channel_texts = page.locator('[data-routing-scope] option[value="channel"]').evaluate_all(
+        "els => els.map(e => e.textContent.trim())"
+    )
     for text in channel_texts:
         assert text == "channel", (
             f"expected 'channel' textContent for value='channel'; got: {text!r}"
@@ -303,18 +282,14 @@ def test_discord_routing_scope_dropdown_substitutes_peer_textcontent(
 
 
 @pytest.mark.browser
-def test_stub_account_preserves_baseline_allowlist_labels(
-    app_clean: str, page: Page
-) -> None:
+def test_stub_account_preserves_baseline_allowlist_labels(app_clean: str, page: Page) -> None:
     """Regression: a ``'stub'``-type account still renders the pre-L6
     baseline labels "Peers" / "Channels" / "Guilds" / "Roles" — the
     generic-fallback path of ``connectorVocabulary.get('stub')`` (no
     entry registered → default vocab)."""
     account_id = seed_connector(app_clean, name="Vocab Stub", type="stub")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
     # The pre-L6 baseline labels remain on a generic-tone account; M11
@@ -325,7 +300,7 @@ def test_stub_account_preserves_baseline_allowlist_labels(
     # ``connector-allowlist-section`` class so this selector still
     # collects labels across both.
     allowlist_labels = page.locator(
-        '.connector-allowlist-section .connector-acl-fieldlabel'
+        ".connector-allowlist-section .connector-acl-fieldlabel"
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
     # M11 F10 L2: DM-admission row joins the label list (literal label;
     # no vocabulary substitution). L5 cycle 5: DM admission now leads
@@ -343,8 +318,7 @@ def test_stub_account_preserves_baseline_allowlist_labels(
     guilds_hint = page.locator('[data-testid="connector-allowlist-guilds-hint"]')
     guilds_text = guilds_hint.get_attribute("title") or ""
     assert "Discord-flavored" in guilds_text, (
-        f"generic-tone account should retain the 'Discord-flavored' qualifier; "
-        f"got: {guilds_text!r}"
+        f"generic-tone account should retain the 'Discord-flavored' qualifier; got: {guilds_text!r}"
     )
 
 
@@ -395,8 +369,7 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
     assert "guilds" in before["config"]["allowlist"]
     assert "roles" in before["config"]["allowlist"]
     before_peer_ids = [
-        (p.get("id") if isinstance(p, dict) else p)
-        for p in before["config"]["allowlist"]["peers"]
+        (p.get("id") if isinstance(p, dict) else p) for p in before["config"]["allowlist"]["peers"]
     ]
     assert before_peer_ids == ["alice", "bob"]
     assert before["config"]["allowlist"]["guilds"] == ["111"]
@@ -408,20 +381,15 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
     # Round-trip via the UI: open the editor, mark dirty (rename), and
     # save. The substrate field names must survive.
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
-    page.locator('[data-testid="connector-name-input"]').fill(
-        "Wire Discord Renamed"
-    )
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+    page.locator('[data-testid="connector-name-input"]').fill("Wire Discord Renamed")
     page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
     assert after["name"] == "Wire Discord Renamed"
     after_peer_ids = [
-        (p.get("id") if isinstance(p, dict) else p)
-        for p in after["config"]["allowlist"]["peers"]
+        (p.get("id") if isinstance(p, dict) else p) for p in after["config"]["allowlist"]["peers"]
     ]
     after_channel_ids = [
         (c.get("channel_id") if isinstance(c, dict) else c)
@@ -432,8 +400,7 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
         for r in after["config"]["allowlist"]["roles"]
     ]
     assert after_peer_ids == ["alice", "bob"], (
-        f"peers field-name drifted at save round-trip; got: "
-        f"{after['config']['allowlist']!r}"
+        f"peers field-name drifted at save round-trip; got: {after['config']['allowlist']!r}"
     )
     # Explicit ids are preserved (post-L5 the hierarchical editor may
     # also include the sentinel ``"*"`` if a server row's children are
@@ -443,8 +410,6 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
         f"channels round-trip lost 'general'; got: {after_channel_ids!r}"
     )
     assert after["config"]["allowlist"]["guilds"] == ["111"]
-    assert "mod" in after_role_ids, (
-        f"roles round-trip lost 'mod'; got: {after_role_ids!r}"
-    )
+    assert "mod" in after_role_ids, f"roles round-trip lost 'mod'; got: {after_role_ids!r}"
     assert "users" not in after["config"]["allowlist"]
     assert "servers" not in after["config"]["allowlist"]

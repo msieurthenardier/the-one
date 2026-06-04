@@ -36,6 +36,8 @@ import pytest
 from the_one.connectors.registry import (
     clear_for_test,
     restore_to_baseline_for_test,
+)
+from the_one.connectors.registry import (
     types as _registry_types,
 )
 from the_one.db._connector_types import CONNECTOR_TYPES

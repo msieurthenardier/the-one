@@ -54,9 +54,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:
@@ -241,17 +239,13 @@ def test_session_list_renders_source_badge_for_connector_attached_row(
     ).to_be_visible(timeout=8000)
 
     # Connector-attached row: assert badge presence, class modifier, text.
-    connector_row = page.locator(
-        f'.session-list .list-item:has(button[data-id="{connector_sid}"])'
-    )
+    connector_row = page.locator(f'.session-list .list-item:has(button[data-id="{connector_sid}"])')
     badge = connector_row.locator(".session-item-source")
     expect(badge).to_have_count(1)
     expect(badge).to_have_text("stub")
     expect(badge).to_have_class(re.compile(r"\bsession-item-source--stub\b"))
 
     # Web-native row: assert NO .session-item-source child element.
-    web_row = page.locator(
-        f'.session-list .list-item:has(button[data-id="{web_sid}"])'
-    )
+    web_row = page.locator(f'.session-list .list-item:has(button[data-id="{web_sid}"])')
     expect(web_row).to_be_visible()
     expect(web_row.locator(".session-item-source")).to_have_count(0)

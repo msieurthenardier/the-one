@@ -78,17 +78,13 @@ def connector_repo(conn, connector_repo_encryptor):
 @pytest.fixture
 async def _seed_connector(connector_repo):
     """Seed an ``acct-1`` connector account so PendingApproval FK passes."""
-    await connector_repo.create(
-        Connector(id="acct-1", name="Stub Account", type="stub")
-    )
+    await connector_repo.create(Connector(id="acct-1", name="Stub Account", type="stub"))
 
 
 def _make_fake_agent() -> Agent:
     from the_one.tools.base import ToolRegistry
 
-    return Agent(
-        llm=FakeLLM([]), tools=ToolRegistry(), system_prompt="You are a test agent"
-    )
+    return Agent(llm=FakeLLM([]), tools=ToolRegistry(), system_prompt="You are a test agent")
 
 
 @pytest.fixture
@@ -246,9 +242,7 @@ class TestRestoreSessionMergesPendingApproval:
 
         class RaisingRepo:
             async def list_for_account_peer(self, *args, **kwargs):
-                raise AssertionError(
-                    "operator-typed session must NOT query pending_approvals"
-                )
+                raise AssertionError("operator-typed session must NOT query pending_approvals")
 
         async def raising_repo():
             return RaisingRepo()
@@ -256,9 +250,7 @@ class TestRestoreSessionMergesPendingApproval:
         with patch.object(patched_app, "_pending_approval_repo", raising_repo):
             result = await patched_app._restore_session("s-operator")
         assert result.status == "ok"
-        assert not any(
-            e.get("type") == "pending-approval" for e in result.session.history
-        )
+        assert not any(e.get("type") == "pending-approval" for e in result.session.history)
 
     async def test_merge_orders_by_timestamp(
         self,

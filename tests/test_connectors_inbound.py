@@ -294,9 +294,7 @@ async def test_dispatch_inbound_reuses_session_within_window(isolated_db) -> Non
     assert user_msgs == ["first", "second"]
 
 
-async def test_dispatch_inbound_creates_new_session_after_window(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_creates_new_session_after_window(isolated_db, monkeypatch) -> None:
     """An inbound that arrives after the continuation window elapsed →
     a new session row is created; the old row is preserved."""
     await _seed_provider_and_agent()
@@ -400,12 +398,8 @@ async def test_dispatch_inbound_serializes_concurrent_same_session(
     event = asyncio.Event()
     factory = await _make_blocking_factory(event, monkeypatch)
 
-    task1 = asyncio.create_task(
-        dispatch_inbound("acct-test", envelope, factory=factory)
-    )
-    task2 = asyncio.create_task(
-        dispatch_inbound("acct-test", envelope, factory=factory)
-    )
+    task1 = asyncio.create_task(dispatch_inbound("acct-test", envelope, factory=factory))
+    task2 = asyncio.create_task(dispatch_inbound("acct-test", envelope, factory=factory))
 
     # Spin until the per-session lock for the established session_id
     # is held (one task entered the critical section) and the other
@@ -441,9 +435,7 @@ async def test_dispatch_inbound_serializes_concurrent_same_session(
     assert len(user_msgs) == 3
 
 
-async def test_dispatch_inbound_parallelizes_different_sessions(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_parallelizes_different_sessions(isolated_db, monkeypatch) -> None:
     """Two concurrent dispatches for DIFFERENT external keys → both
     reach the agent.step blocked-on-event state concurrently. The
     per-session lock is keyed on chat_sessions.id; distinct keys
@@ -475,12 +467,8 @@ async def test_dispatch_inbound_parallelizes_different_sessions(
     event = asyncio.Event()
     factory = await _make_blocking_factory(event, monkeypatch)
 
-    task1 = asyncio.create_task(
-        dispatch_inbound("acct-test", env_a, factory=factory)
-    )
-    task2 = asyncio.create_task(
-        dispatch_inbound("acct-test", env_b, factory=factory)
-    )
+    task1 = asyncio.create_task(dispatch_inbound("acct-test", env_a, factory=factory))
+    task2 = asyncio.create_task(dispatch_inbound("acct-test", env_b, factory=factory))
 
     # Wait until BOTH session locks are held concurrently — that's
     # the lock-parallelism contract under test.
@@ -491,8 +479,7 @@ async def test_dispatch_inbound_parallelizes_different_sessions(
         held = {
             sid
             for sid in session_ids
-            if (lock := session_locks.get(sid)) is not None
-            and lock.locked()
+            if (lock := session_locks.get(sid)) is not None and lock.locked()
         }
         if held == session_ids:
             break
@@ -512,9 +499,7 @@ async def test_dispatch_inbound_parallelizes_different_sessions(
 # ─── ContextVar binding ──────────────────────────────────────────────────
 
 
-async def test_dispatch_inbound_sets_and_resets_context_var(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_sets_and_resets_context_var(isolated_db, monkeypatch) -> None:
     """``current_chat_session_id`` is set to the session id during the
     agent.step call and reset to ``None`` after the dispatcher returns."""
     await _seed_provider_and_agent()
@@ -695,9 +680,7 @@ async def test_dispatch_inbound_persists_inbound_with_channel_name_from_cache(
     async def _fake_snapshot(_account_id: str):
         return synthetic_snapshot
 
-    monkeypatch.setattr(
-        inbound_mod, "_get_account_cache_snapshot", _fake_snapshot
-    )
+    monkeypatch.setattr(inbound_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
     factory = await _make_factory()
     envelope = _envelope()  # channel_id="ch-1"
@@ -747,9 +730,7 @@ async def test_dispatch_inbound_persists_inbound_with_none_channel_name_when_cac
     async def _fake_snapshot(_account_id: str):
         return synthetic_snapshot
 
-    monkeypatch.setattr(
-        inbound_mod, "_get_account_cache_snapshot", _fake_snapshot
-    )
+    monkeypatch.setattr(inbound_mod, "_get_account_cache_snapshot", _fake_snapshot)
 
     factory = await _make_factory()
     envelope = _envelope()  # channel_id="ch-1"
@@ -843,9 +824,7 @@ async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
 # ─── F4 L4 visibility-tagging coverage ───────────────────────────────────
 
 
-async def test_dispatch_inbound_tags_assistant_text_as_operator(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_tags_assistant_text_as_operator(isolated_db, monkeypatch) -> None:
     """Plain-text assistant reply (no tool call) → ``visibility="operator"``.
 
     The default branch of the F4 L4 tagging pass: every non-USER new
@@ -916,9 +895,7 @@ async def test_dispatch_inbound_tags_successful_send_tool_result_as_platform_vis
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     envelope = _envelope()
     await dispatch_inbound("acct-test", envelope, factory=factory)
@@ -933,9 +910,7 @@ async def test_dispatch_inbound_tags_successful_send_tool_result_as_platform_vis
 
     # Assistant message that carried the tool_call → OPERATOR (per the
     # default branch — it's not a USER message and not a tool_result).
-    assistant_with_call = [
-        m for m in history if m.role == Role.ASSISTANT and m.tool_calls
-    ]
+    assistant_with_call = [m for m in history if m.role == Role.ASSISTANT and m.tool_calls]
     assert assistant_with_call
     for m in assistant_with_call:
         assert m.visibility == OPERATOR_VISIBILITY
@@ -946,8 +921,7 @@ async def test_dispatch_inbound_tags_successful_send_tool_result_as_platform_vis
     send_results = [
         m
         for m in tool_msgs
-        if m.tool_result is not None
-        and m.content.startswith(PLATFORM_SEND_OK_PREFIX)
+        if m.tool_result is not None and m.content.startswith(PLATFORM_SEND_OK_PREFIX)
     ]
     assert send_results, "expected a successful platform-send tool_result"
     for m in send_results:
@@ -982,9 +956,7 @@ async def test_dispatch_inbound_tags_failed_send_tool_result_as_operator(
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     envelope = _envelope()
     await dispatch_inbound("acct-test", envelope, factory=factory)
@@ -1129,9 +1101,7 @@ async def test_dispatch_inbound_continue_tool_call_is_operator_visible(
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     envelope = _envelope()
     await dispatch_inbound("acct-test", envelope, factory=factory)
@@ -1159,8 +1129,7 @@ async def test_dispatch_inbound_continue_tool_call_is_operator_visible(
     assistant_with_continue = [
         m
         for m in history
-        if m.role == Role.ASSISTANT
-        and any(c.name == "continue" for c in m.tool_calls)
+        if m.role == Role.ASSISTANT and any(c.name == "continue" for c in m.tool_calls)
     ]
     assert assistant_with_continue
     for m in assistant_with_continue:
@@ -1254,9 +1223,7 @@ async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
 # ─── F3 owns NO outbound ─────────────────────────────────────────────────
 
 
-async def test_dispatch_inbound_does_not_call_record_outbound(
-    isolated_db, monkeypatch
-) -> None:
+async def test_dispatch_inbound_does_not_call_record_outbound(isolated_db, monkeypatch) -> None:
     """F3 L4 owns ZERO outbound via the platform-send TOOL.
     ``StubPlugin.outbound_records`` is untouched by ``dispatch_inbound``
     when neither the tool nor the relay-side-effect fires. F4 will own
@@ -1331,20 +1298,15 @@ async def test_auto_relay_default_on_platform_inbound_invokes_client_send(
     sessions = await chat_repo.list()
     history = decode_messages(sessions[0].messages)
     assistant_msgs = [m for m in history if m.role == Role.ASSISTANT]
-    plaintext_replies = [
-        m for m in assistant_msgs if not m.tool_calls and m.content
-    ]
+    plaintext_replies = [m for m in assistant_msgs if not m.tool_calls and m.content]
     assert plaintext_replies, "expected a plaintext assistant reply"
     for m in plaintext_replies:
         assert m.visibility is None, (
-            "auto-relayed plaintext reply must be platform-visible "
-            "(visibility=None)"
+            "auto-relayed plaintext reply must be platform-visible (visibility=None)"
         )
 
 
-async def test_auto_relay_skips_when_agent_already_called_tool(
-    isolated_db, monkeypatch
-) -> None:
+async def test_auto_relay_skips_when_agent_already_called_tool(isolated_db, monkeypatch) -> None:
     """When the agent invokes ``send_to_platform_channel`` during the
     step, the auto-relay branch detects the tool call in the new
     messages and skips — avoiding a double-send to peers.
@@ -1371,9 +1333,7 @@ async def test_auto_relay_skips_when_agent_already_called_tool(
         Message.assistant(content="", tool_calls=[tc]),
         Message.assistant(content="done"),
     ]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     envelope = _envelope()
     await dispatch_inbound("acct-test", envelope, factory=factory)
@@ -1385,9 +1345,7 @@ async def test_auto_relay_skips_when_agent_already_called_tool(
     assert content == "agent-deliberate send"
 
 
-async def test_auto_relay_skips_when_agent_reply_is_empty(
-    isolated_db, monkeypatch
-) -> None:
+async def test_auto_relay_skips_when_agent_reply_is_empty(isolated_db, monkeypatch) -> None:
     """When the agent produces no plaintext (e.g. only tool calls and
     a final empty assistant message), the auto-relay branch finds no
     candidate reply and skips — no spurious empty-content outbound.
@@ -1399,9 +1357,7 @@ async def test_auto_relay_skips_when_agent_reply_is_empty(
     # The scripted provider returns an assistant with empty content
     # and no tool calls — the agent ends the turn with nothing to say.
     responses = [Message.assistant(content="")]
-    factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_ids=["acct-test"]
-    )
+    factory = await _make_scripted_factory(responses, monkeypatch, connector_ids=["acct-test"])
 
     envelope = _envelope()
     await dispatch_inbound("acct-test", envelope, factory=factory)
@@ -1423,9 +1379,7 @@ async def test_auto_relay_handles_client_send_exception_gracefully(
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
     # Make StubClient.send raise on every call.
-    StubPlugin.send_should_raise = ConnectorConnectionError(
-        "auto-relay send failure"
-    )
+    StubPlugin.send_should_raise = ConnectorConnectionError("auto-relay send failure")
     factory = await _make_factory()
 
     envelope = _envelope()
@@ -1442,8 +1396,7 @@ async def test_auto_relay_handles_client_send_exception_gracefully(
     sessions = await chat_repo.list()
     history = decode_messages(sessions[0].messages)
     plaintext_replies = [
-        m for m in history
-        if m.role == Role.ASSISTANT and not m.tool_calls and m.content
+        m for m in history if m.role == Role.ASSISTANT and not m.tool_calls and m.content
     ]
     assert plaintext_replies
     for m in plaintext_replies:
@@ -1582,12 +1535,8 @@ async def test_multi_agent_auto_relay_shares_one_pool_client(
     factory = await _make_factory()
 
     # Drive both inbounds — both should auto-relay (default-on).
-    await dispatch_inbound(
-        "acct-test", _envelope(channel_id="ch-1"), factory=factory
-    )
-    await dispatch_inbound(
-        "acct-test", _envelope(channel_id="ch-2"), factory=factory
-    )
+    await dispatch_inbound("acct-test", _envelope(channel_id="ch-1"), factory=factory)
+    await dispatch_inbound("acct-test", _envelope(channel_id="ch-2"), factory=factory)
 
     # Both relays landed via StubPlugin.outbound_records (mock provider
     # produces ``"ok"`` by default — bravo's agent config uses the same
@@ -1600,9 +1549,7 @@ async def test_multi_agent_auto_relay_shares_one_pool_client(
     assert StubPlugin.connect_calls == [("acct-test", "stub")]
 
     # Pool has exactly one entry, sentinel-keyed.
-    keys_for_account = [
-        k for k in pool_mod._pool if k[1] == "acct-test"
-    ]
+    keys_for_account = [k for k in pool_mod._pool if k[1] == "acct-test"]
     assert len(keys_for_account) == 1
     assert keys_for_account[0] == (
         pool_mod._ACCOUNT_POOL_AGENT_SLOT,
@@ -1698,9 +1645,7 @@ class TestF6Gating:
         assert len(sessions) == 1
         return sessions[0]
 
-    async def test_stub_without_resolve_permits_via_default_fallback(
-        self, isolated_db
-    ) -> None:
+    async def test_stub_without_resolve_permits_via_default_fallback(self, isolated_db) -> None:
         """``StubPlugin`` (no ``resolve``) hits ``_default_permit`` →
         dispatch proceeds; audit entry shows ``outcome=permit`` with
         ``reason=None`` (uniform shape for the leg-4 renderer).
@@ -1725,9 +1670,7 @@ class TestF6Gating:
         assert audit[0]["reason"] is None
         assert "ts" in audit[0]
 
-    async def test_permit_outcome_dispatches_and_writes_audit(
-        self, isolated_db
-    ) -> None:
+    async def test_permit_outcome_dispatches_and_writes_audit(self, isolated_db) -> None:
         """The variant stub returning ``Permit()`` dispatches normally
         and the audit log records the outcome with ``reason=None``."""
         await _seed_provider_and_agent()
@@ -1784,9 +1727,7 @@ class TestF6Gating:
                 },
             )
         )
-        StubPluginWithResolver.resolve_outcome = NeedsPairing(
-            reason="unknown_peer"
-        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="unknown_peer")
         register_for_test("stub", StubPluginWithResolver)
 
         factory = await _make_factory()
@@ -1799,9 +1740,7 @@ class TestF6Gating:
         refreshed = await acc_repo.get("acct-test")
         allowlist = refreshed.config.get("allowlist")
         assert allowlist is not None
-        assert any(
-            p["id"] == "peer-1" for p in allowlist["peers"]
-        ), allowlist["peers"]
+        assert any(p["id"] == "peer-1" for p in allowlist["peers"]), allowlist["peers"]
         # Bare shape: no dm_allowed key.
         peer_entry = next(p for p in allowlist["peers"] if p["id"] == "peer-1")
         assert set(peer_entry.keys()) == {"id"}, peer_entry
@@ -1820,9 +1759,7 @@ class TestF6Gating:
         assert audit[0]["reason"] == "paired"
         assert audit[0]["peer_id"] == "peer-1"
 
-    async def test_needs_pairing_with_invalid_prefix_denies_silently(
-        self, isolated_db
-    ) -> None:
+    async def test_needs_pairing_with_invalid_prefix_denies_silently(self, isolated_db) -> None:
         """NeedsPairing + ``PAIR wrong hello`` (wrong code): silent
         deny — audit logged, allowlist unchanged, agent.step did NOT
         run (no assistant message in history).
@@ -1844,9 +1781,7 @@ class TestF6Gating:
                 },
             )
         )
-        StubPluginWithResolver.resolve_outcome = NeedsPairing(
-            reason="unknown_peer"
-        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="unknown_peer")
         register_for_test("stub", StubPluginWithResolver)
 
         factory = await _make_factory()
@@ -1932,9 +1867,7 @@ class TestF6Gating:
 
         # ONE pending_approval row exists for (acct-test, peer-1).
         approval_repo = PendingApprovalRepository(conn)
-        rows = await approval_repo.list_for_account_peer(
-            "acct-test", "peer-1"
-        )
+        rows = await approval_repo.list_for_account_peer("acct-test", "peer-1")
         assert len(rows) == 1
         row = rows[0]
         assert row.connector_id == "acct-test"
@@ -1946,8 +1879,7 @@ class TestF6Gating:
         # The dispatcher broadcast a ``pending-approval`` event to the
         # session row.
         pa_events = [
-            (sid, ev) for (sid, ev) in broadcast_calls
-            if ev.get("type") == "pending-approval"
+            (sid, ev) for (sid, ev) in broadcast_calls if ev.get("type") == "pending-approval"
         ]
         assert len(pa_events) == 1, broadcast_calls
         sid, event = pa_events[0]
@@ -2005,9 +1937,7 @@ class TestF6Gating:
 
         # No pending_approvals row was inserted.
         approval_repo = PendingApprovalRepository(conn)
-        rows = await approval_repo.list_for_account_peer(
-            "acct-test", "peer-1"
-        )
+        rows = await approval_repo.list_for_account_peer("acct-test", "peer-1")
         assert rows == [], rows
 
         # Audit follows the pre-L2 wrong-code deny shape.
@@ -2022,8 +1952,7 @@ class TestF6Gating:
 
         # No pending-approval broadcast event was emitted.
         pa_events = [
-            (sid, ev) for (sid, ev) in broadcast_calls
-            if ev.get("type") == "pending-approval"
+            (sid, ev) for (sid, ev) in broadcast_calls if ev.get("type") == "pending-approval"
         ]
         assert pa_events == [], pa_events
 
@@ -2061,27 +1990,18 @@ class TestF6Gating:
         monkeypatch.setattr(inbound_mod, "broadcast_to_session", _capture)
 
         factory = await _make_factory()
-        await dispatch_inbound(
-            "acct-test", _envelope(text="hello"), factory=factory
-        )
-        await dispatch_inbound(
-            "acct-test", _envelope(text="hello again"), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(text="hello"), factory=factory)
+        await dispatch_inbound("acct-test", _envelope(text="hello again"), factory=factory)
 
         # ONE row only.
         approval_repo = PendingApprovalRepository(conn)
-        rows = await approval_repo.list_for_account_peer(
-            "acct-test", "peer-1"
-        )
+        rows = await approval_repo.list_for_account_peer("acct-test", "peer-1")
         assert len(rows) == 1, rows
         # Latest preview refreshed in place.
         assert rows[0].preview == "hello again"
 
         # TWO broadcast events; same approval_id.
-        pa_events = [
-            ev for (_sid, ev) in broadcast_calls
-            if ev.get("type") == "pending-approval"
-        ]
+        pa_events = [ev for (_sid, ev) in broadcast_calls if ev.get("type") == "pending-approval"]
         assert len(pa_events) == 2, pa_events
         assert pa_events[0]["approval_id"] == pa_events[1]["approval_id"]
         assert pa_events[0]["approval_id"] == rows[0].id
@@ -2167,9 +2087,7 @@ class TestF6Gating:
 
         # Second DM from the SAME peer while still pending → upsert updates
         # in place (created=False) → NO additional send.
-        await dispatch_inbound(
-            "acct-test", _envelope(text="hello again"), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(text="hello again"), factory=factory)
         assert len(StubPlugin.outbound_records) == 1, (
             "auto-reply must not re-fire on repeat DM while pending"
         )
@@ -2199,9 +2117,7 @@ class TestF6Gating:
         assert audit[0]["reason"] == "blocked"
         assert audit[0]["peer_id"] == "peer-1"
 
-    async def test_pairing_persistence_survives_fresh_repo_fetch(
-        self, isolated_db
-    ) -> None:
+    async def test_pairing_persistence_survives_fresh_repo_fetch(self, isolated_db) -> None:
         """After successful pairing the peer is persisted: a fresh
         :class:`ConnectorRepository` instance built off the same
         DB connection sees ``peer_id`` in ``config['allowlist']['peers']``.
@@ -2226,9 +2142,7 @@ class TestF6Gating:
                 },
             )
         )
-        StubPluginWithResolver.resolve_outcome = NeedsPairing(
-            reason="unknown_peer"
-        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="unknown_peer")
         register_for_test("stub", StubPluginWithResolver)
 
         factory = await _make_factory()
@@ -2243,16 +2157,12 @@ class TestF6Gating:
         refreshed = await fresh_repo.get("acct-test")
         allowlist = refreshed.config.get("allowlist")
         assert allowlist is not None
-        assert any(
-            p["id"] == "peer-1" for p in allowlist["peers"]
-        ), allowlist["peers"]
+        assert any(p["id"] == "peer-1" for p in allowlist["peers"]), allowlist["peers"]
         # Bare shape: no dm_allowed key.
         peer_entry = next(p for p in allowlist["peers"] if p["id"] == "peer-1")
         assert set(peer_entry.keys()) == {"id"}, peer_entry
 
-    async def test_audit_entries_accrue_across_sequential_inbounds(
-        self, isolated_db
-    ) -> None:
+    async def test_audit_entries_accrue_across_sequential_inbounds(self, isolated_db) -> None:
         """Three sequential inbounds → three audit entries, preserved
         in insertion order."""
         await _seed_provider_and_agent()
@@ -2262,7 +2172,8 @@ class TestF6Gating:
 
         factory = await _make_factory()
         for text in ("first", "second", "third"):
-            await dispatch_inbound("acct-test",
+            await dispatch_inbound(
+                "acct-test",
                 _envelope(text=text),
                 factory=factory,
             )
@@ -2410,9 +2321,7 @@ class TestF7RoutingIntegration:
                 provider_config_id="mock-provider",
                 llm_model="mock-default",
                 connector_ids=["acct-test"],
-                connector_acls=(
-                    {"acct-test": bravo_acls} if bravo_acls is not None else None
-                ),
+                connector_acls=({"acct-test": bravo_acls} if bravo_acls is not None else None),
             )
         )
         if alpha_acls is not None:
@@ -2465,9 +2374,7 @@ class TestF7RoutingIntegration:
 
     # ── Routing-match ─────────────────────────────────────────────────
 
-    async def test_dispatch_inbound_routes_to_agent_per_rule_match(
-        self, isolated_db
-    ) -> None:
+    async def test_dispatch_inbound_routes_to_agent_per_rule_match(self, isolated_db) -> None:
         """Routing engine's rule-walk step 2 picks ``bravo`` on ch-1
         when the rules list pins that scope-match. The audit-log entry
         records the rule index, scope, match, and ``reason=rule-match``."""
@@ -2549,17 +2456,13 @@ class TestF7RoutingIntegration:
         # we filter on in the assertion.
         inner = await _make_factory()
         warmup_factory = self._RecordingFactory(inner)
-        await dispatch_inbound(
-            "acct-test", _envelope(text="warmup"), factory=warmup_factory
-        )
+        await dispatch_inbound("acct-test", _envelope(text="warmup"), factory=warmup_factory)
         session_id = await self._first_session_id()
 
         # Write the override via the new primitive — this is the path
         # F7 L6's ``/talk-to`` handler will exercise.
         chat_repo = ChatSessionRepository(conn)
-        await chat_repo.set_session_metadata_key(
-            session_id, "routing_override", "alpha"
-        )
+        await chat_repo.set_session_metadata_key(session_id, "routing_override", "alpha")
 
         # Second inbound — the override should now drive routing.
         factory = self._RecordingFactory(inner)
@@ -2650,9 +2553,7 @@ class TestF7RoutingIntegration:
         the system-outbound path (``account_acquire → client.send``).
         ``agent.step`` does NOT run."""
         # Single agent with peers ACL that denies the peer.
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         # Update alpha with the denying ACL.
         conn = await get_connection()
         from the_one.agent.config import AgentConfig
@@ -2665,9 +2566,7 @@ class TestF7RoutingIntegration:
                 provider_config_id="mock-provider",
                 llm_model="mock-default",
                 connector_ids=["acct-test"],
-                connector_acls={
-                    "acct-test": {"peers": [], "channels": None}
-                },
+                connector_acls={"acct-test": {"peers": [], "channels": None}},
             )
         )
         await _seed_stub_account()
@@ -2705,9 +2604,7 @@ class TestF7RoutingIntegration:
         silent return BEFORE ``resolve_session``: no exception, no
         peer-facing error, no chat_sessions row, no routing audit.
         Preserves L3's silent-ignore semantic."""
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=[]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=[])
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
@@ -2726,7 +2623,7 @@ class TestF7RoutingIntegration:
 
     # ── Command intercept (L6 wired) ─────────────────────────────────
 
-    async def test_dispatch_inbound_command_text_intercepted_after_L6(
+    async def test_dispatch_inbound_command_text_intercepted_after_L6(  # noqa: N802  # name mirrors the L6 step label
         self, isolated_db
     ) -> None:
         """M10 F7 L6: ``/agents`` is now intercepted by
@@ -2742,9 +2639,7 @@ class TestF7RoutingIntegration:
         — the L5 test asserted the placeholder semantic (fall-through);
         L6's leg rewrites it to the post-L6 semantic (intercept).
         """
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
@@ -2772,9 +2667,7 @@ class TestF7RoutingIntegration:
         assert target.channel_id == envelope.channel_id
         assert target.thread_id == envelope.thread_id
         # The response lists the alphabetically-first attached agent.
-        assert content == (
-            "Agents available to you on this account:\n- alpha"
-        )
+        assert content == ("Agents available to you on this account:\n- alpha")
 
         # Audit-log entry records the intercept disposition.
         routing = await self._routing_entries(session_id)
@@ -2799,9 +2692,7 @@ class TestF7RoutingIntegration:
         ``test_connectors_discord.py``; this is the thin dispatcher-level
         pass-through assertion.)
         """
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
@@ -2826,9 +2717,7 @@ class TestF7RoutingIntegration:
         """A channel-affecting command (``/new``) keeps the default
         ``ephemeral=False``; the token is still threaded (present when the
         invocation was a slash) but the adapter routes to the channel."""
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
@@ -2864,9 +2753,7 @@ class TestF7RoutingIntegration:
         ``account_acquire`` on the inbound module instead of the bare
         ``agent_acquire``.
         """
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
@@ -2875,13 +2762,9 @@ class TestF7RoutingIntegration:
         from the_one.connectors.errors import ConnectorRegistrationError
 
         async def _raising_account_acquire(account_id: str):
-            raise ConnectorRegistrationError(
-                f"forced for account={account_id}"
-            )
+            raise ConnectorRegistrationError(f"forced for account={account_id}")
 
-        monkeypatch.setattr(
-            inbound_mod_local, "account_acquire", _raising_account_acquire
-        )
+        monkeypatch.setattr(inbound_mod_local, "account_acquire", _raising_account_acquire)
 
         inner = await _make_factory()
         factory = self._RecordingFactory(inner)
@@ -2910,9 +2793,7 @@ class TestF7RoutingIntegration:
         emission is logged + swallowed; the dispatcher returns cleanly
         and the audit entry still records ``disposition="no-eligible"``.
         Pins the swallow-and-log contract."""
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         # Update alpha to deny the peer so routing returns
         # decision.agent=None.
         conn = await get_connection()
@@ -2926,17 +2807,13 @@ class TestF7RoutingIntegration:
                 provider_config_id="mock-provider",
                 llm_model="mock-default",
                 connector_ids=["acct-test"],
-                connector_acls={
-                    "acct-test": {"peers": [], "channels": None}
-                },
+                connector_acls={"acct-test": {"peers": [], "channels": None}},
             )
         )
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
         # Configure the stub's send to raise.
-        StubPlugin.send_should_raise = ConnectorConnectionError(
-            "emit failed"
-        )
+        StubPlugin.send_should_raise = ConnectorConnectionError("emit failed")
 
         inner = await _make_factory()
         factory = self._RecordingFactory(inner)
@@ -2970,9 +2847,7 @@ class TestF7RoutingIntegration:
         The engine's ACL admission check on step 4 is exercised end-
         to-end through the dispatcher — the L5 dispatcher does NOT
         re-check ACL on the engine's output (the engine already did)."""
-        await self._seed_two_agents(
-            alpha_acls={"peers": [], "channels": None}
-        )
+        await self._seed_two_agents(alpha_acls={"peers": [], "channels": None})
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
@@ -3008,9 +2883,7 @@ class TestF7RoutingIntegration:
         """
         from the_one.connectors.base import CommandResponse
 
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         await _seed_stub_account()
 
         class _CommandHandlingStub(StubPlugin):
@@ -3018,18 +2891,13 @@ class TestF7RoutingIntegration:
 
             handle_command_calls: list[tuple[str, list[str]]] = []
 
-            async def handle_command(
-                self, envelope, command_name, args
-            ):
-                _CommandHandlingStub.handle_command_calls.append(
-                    (command_name, list(args))
-                )
+            async def handle_command(self, envelope, command_name, args):
+                _CommandHandlingStub.handle_command_calls.append((command_name, list(args)))
                 return CommandResponse(text="plugin-intercepted-response")
 
         register_for_test("stub", _CommandHandlingStub)
 
         # Spy on the built-in dispatcher to assert it was NOT called.
-        from the_one.connectors import _inbound as inbound_mod_local
         builtin_calls: list[tuple[str, list[str]]] = []
 
         async def _spy_builtin(command_name, args, context):
@@ -3041,9 +2909,8 @@ class TestF7RoutingIntegration:
         # source module attribute so the dispatcher's function-local
         # import binds to the spy.
         from the_one.connectors import _commands as commands_mod
-        monkeypatch.setattr(
-            commands_mod, "_dispatch_builtin_command", _spy_builtin
-        )
+
+        monkeypatch.setattr(commands_mod, "_dispatch_builtin_command", _spy_builtin)
 
         inner = await _make_factory()
         factory = self._RecordingFactory(inner)
@@ -3056,9 +2923,7 @@ class TestF7RoutingIntegration:
         assert factory.created_with == []
 
         # Plugin's handle_command was consulted with the right command.
-        assert _CommandHandlingStub.handle_command_calls == [
-            ("agents", [])
-        ]
+        assert _CommandHandlingStub.handle_command_calls == [("agents", [])]
 
         # The built-in handler was NEVER invoked — the plugin's non-
         # None response short-circuited the dispatcher.
@@ -3094,9 +2959,7 @@ class TestF7RoutingIntegration:
         agent's slug); (iii) audit-log carries ``intercept_source=
         "builtin"``.
         """
-        await _seed_provider_and_agent(
-            agent_name="alpha", connector_ids=["acct-test"]
-        )
+        await _seed_provider_and_agent(agent_name="alpha", connector_ids=["acct-test"])
         await _seed_stub_account()
 
         class _NoneReturningPlugin(StubPlugin):
@@ -3104,12 +2967,8 @@ class TestF7RoutingIntegration:
 
             handle_command_calls: list[tuple[str, list[str]]] = []
 
-            async def handle_command(
-                self, envelope, command_name, args
-            ):
-                _NoneReturningPlugin.handle_command_calls.append(
-                    (command_name, list(args))
-                )
+            async def handle_command(self, envelope, command_name, args):
+                _NoneReturningPlugin.handle_command_calls.append((command_name, list(args)))
                 return None
 
         register_for_test("stub", _NoneReturningPlugin)
@@ -3124,17 +2983,13 @@ class TestF7RoutingIntegration:
         assert factory.created_with == []
 
         # Plugin's handle_command was consulted.
-        assert _NoneReturningPlugin.handle_command_calls == [
-            ("agents", [])
-        ]
+        assert _NoneReturningPlugin.handle_command_calls == [("agents", [])]
 
         # The built-in /agents handler ran and produced its standard
         # response.
         assert len(StubPlugin.outbound_records) == 1
         _, content = StubPlugin.outbound_records[0]
-        assert content == (
-            "Agents available to you on this account:\n- alpha"
-        )
+        assert content == ("Agents available to you on this account:\n- alpha")
 
         # Audit-log entry records the builtin intercept-source key.
         session_id = await self._first_session_id()
@@ -3147,9 +3002,7 @@ class TestF7RoutingIntegration:
 
     # ── M10 F8 L11 HAT Fix #6 — multi-agent connector-account sharing ──
 
-    async def test_multi_agent_routing_shares_pool_entry(
-        self, isolated_db
-    ) -> None:
+    async def test_multi_agent_routing_shares_pool_entry(self, isolated_db) -> None:
         """Multi-agent routing on a single connector account uses ONE
         pool entry — the account-shared sentinel keying.
 
@@ -3196,31 +3049,23 @@ class TestF7RoutingIntegration:
         factory = self._RecordingFactory(inner)
 
         # First inbound: ch-1 routes to bravo (rule-match).
-        await dispatch_inbound(
-            "acct-test", _envelope(channel_id="ch-1"), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(channel_id="ch-1"), factory=factory)
         # Second inbound: ch-2 falls back to alpha (alphabetical).
-        await dispatch_inbound(
-            "acct-test", _envelope(channel_id="ch-2"), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(channel_id="ch-2"), factory=factory)
 
         # Both agents were exercised through the routing layer.
         assert set(factory.created_with) == {"alpha", "bravo"}
 
         # Pool has exactly ONE entry for the account, keyed on the
         # connector sentinel — NOT one per (agent, account).
-        keys_for_account = [
-            k for k in pool_mod._pool if k[1] == "acct-test"
-        ]
+        keys_for_account = [k for k in pool_mod._pool if k[1] == "acct-test"]
         assert len(keys_for_account) == 1, keys_for_account
         assert keys_for_account[0] == (
             pool_mod._ACCOUNT_POOL_AGENT_SLOT,
             "acct-test",
         )
 
-    async def test_multi_agent_routing_single_plugin_connect_call(
-        self, isolated_db
-    ) -> None:
+    async def test_multi_agent_routing_single_plugin_connect_call(self, isolated_db) -> None:
         """M10 F8 L11 HAT Fix #6: regardless of how many agents route
         through one connector account, the plugin's ``connect`` is
         called exactly ONCE for that account.
@@ -3261,12 +3106,8 @@ class TestF7RoutingIntegration:
         factory = self._RecordingFactory(inner)
 
         # Drive two inbounds; each routes to a different agent.
-        await dispatch_inbound(
-            "acct-test", _envelope(channel_id="ch-1"), factory=factory
-        )
-        await dispatch_inbound(
-            "acct-test", _envelope(channel_id="ch-2"), factory=factory
-        )
+        await dispatch_inbound("acct-test", _envelope(channel_id="ch-1"), factory=factory)
+        await dispatch_inbound("acct-test", _envelope(channel_id="ch-2"), factory=factory)
 
         # Both agents stepped — routing fired for both.
         assert set(factory.created_with) == {"alpha", "bravo"}
@@ -3275,9 +3116,7 @@ class TestF7RoutingIntegration:
         # The second routing dispatch reuses the warm pool entry.
         assert StubPlugin.connect_calls == [("acct-test", "stub")]
 
-    async def test_dispatch_inbound_pool_key_uses_connector_sentinel(
-        self, isolated_db
-    ) -> None:
+    async def test_dispatch_inbound_pool_key_uses_connector_sentinel(self, isolated_db) -> None:
         """Single-agent regression: even with one attached agent, the
         pool entry keys on ``_ACCOUNT_POOL_AGENT_SLOT`` — not on
         the routed agent's name. Pins the keying invariant so a
@@ -3294,9 +3133,9 @@ class TestF7RoutingIntegration:
 
         # The agent's name does NOT appear in the pool keys.
         agent_keyed = [
-            k for k in pool_mod._pool
-            if k[0] != pool_mod._ACCOUNT_POOL_AGENT_SLOT
-            and k[1] == "acct-test"
+            k
+            for k in pool_mod._pool
+            if k[0] != pool_mod._ACCOUNT_POOL_AGENT_SLOT and k[1] == "acct-test"
         ]
         assert agent_keyed == [], agent_keyed
         # The sentinel-keyed entry exists.

@@ -206,9 +206,7 @@ class TestSQLiteAgentStore:
         loaded = await agent_store.load("no-mcp-overrides")
         assert loaded.mcp_overrides is None
 
-    async def test_save_round_trips_connector_ids(
-        self, agent_store: SQLiteAgentStore
-    ) -> None:
+    async def test_save_round_trips_connector_ids(self, agent_store: SQLiteAgentStore) -> None:
         """Saving an agent with ``connector_ids`` set roundtrips
         through the SQLite store (M10 F4 L5 v17 migration).
 
@@ -276,9 +274,7 @@ class TestSQLiteAgentStore:
         loaded = await agent_store.load("pre-v17-agent")
         assert loaded.connector_ids == []
 
-    async def test_save_round_trips_connector_acls(
-        self, agent_store: SQLiteAgentStore
-    ) -> None:
+    async def test_save_round_trips_connector_acls(self, agent_store: SQLiteAgentStore) -> None:
         """Saving an agent with ``connector_acls`` set roundtrips through
         ``save`` and ``load``. Mirror of
         ``test_save_round_trips_connector_ids`` for the F6 L1c
@@ -294,9 +290,7 @@ class TestSQLiteAgentStore:
                         {"id": "u1"},
                         {"id": "u2"},
                     ],
-                    "channels": [
-                        {"guild_id": "g-test", "channel_id": "c1"}
-                    ],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 },
                 "acct-b": {"peers": [], "channels": []},
             },
@@ -309,9 +303,7 @@ class TestSQLiteAgentStore:
                     {"id": "u1"},
                     {"id": "u2"},
                 ],
-                "channels": [
-                    {"guild_id": "g-test", "channel_id": "c1"}
-                ],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             },
             "acct-b": {"peers": [], "channels": []},
         }
@@ -556,9 +548,7 @@ class TestSQLiteAgentStore:
         agent overrides). Mirrors the ``connector_acls`` None-default
         round-trip test.
         """
-        cfg = AgentConfig(
-            name="no-always-listen-agent", connector_always_listen=None
-        )
+        cfg = AgentConfig(name="no-always-listen-agent", connector_always_listen=None)
         await agent_store.save(cfg)
         loaded = await agent_store.load("no-always-listen-agent")
         assert loaded.connector_always_listen is None
@@ -576,9 +566,7 @@ class TestSQLiteAgentStore:
         ``{}``; SQL NULL deserializes as Python None, which is falsy and
         triggers the ``else None`` branch.
         """
-        cfg = AgentConfig(
-            name="empty-always-listen-agent", connector_always_listen={}
-        )
+        cfg = AgentConfig(name="empty-always-listen-agent", connector_always_listen={})
         await agent_store.save(cfg)
         loaded = await agent_store.load("empty-always-listen-agent")
         assert loaded.connector_always_listen == {}
@@ -686,20 +674,14 @@ class TestSQLiteAgentStore:
         # Seed an agent attached to a different account — confirms
         # the filter excludes non-matching rows (rather than returning
         # all agents).
-        await agent_store.save(
-            AgentConfig(name="other", connector_ids=["acct-other"])
-        )
+        await agent_store.save(AgentConfig(name="other", connector_ids=["acct-other"]))
         assert await agent_store.list_by_connector("nonexistent") == []
 
-    async def test_list_by_connector_single_attached(
-        self, agent_store: SQLiteAgentStore
-    ) -> None:
+    async def test_list_by_connector_single_attached(self, agent_store: SQLiteAgentStore) -> None:
         """Seeding one agent attached to ``acct-1`` produces a single-
         element result (M10 F7 L3).
         """
-        await agent_store.save(
-            AgentConfig(name="solo", connector_ids=["acct-1"])
-        )
+        await agent_store.save(AgentConfig(name="solo", connector_ids=["acct-1"]))
         result = await agent_store.list_by_connector("acct-1")
         assert [cfg.name for cfg in result] == ["solo"]
 
@@ -711,9 +693,7 @@ class TestSQLiteAgentStore:
         ``ORDER BY name`` invariant.
         """
         for name in ("zebra", "alpha", "marlin"):
-            await agent_store.save(
-                AgentConfig(name=name, connector_ids=["acct-1"])
-            )
+            await agent_store.save(AgentConfig(name=name, connector_ids=["acct-1"]))
         result = await agent_store.list_by_connector("acct-1")
         assert [cfg.name for cfg in result] == ["alpha", "marlin", "zebra"]
 
@@ -724,12 +704,8 @@ class TestSQLiteAgentStore:
         account id; agents attached only to other accounts are excluded
         (M10 F7 L3).
         """
-        await agent_store.save(
-            AgentConfig(name="alice", connector_ids=["acct-1"])
-        )
-        await agent_store.save(
-            AgentConfig(name="bob", connector_ids=["acct-2"])
-        )
+        await agent_store.save(AgentConfig(name="alice", connector_ids=["acct-1"]))
+        await agent_store.save(AgentConfig(name="bob", connector_ids=["acct-2"]))
         result = await agent_store.list_by_connector("acct-1")
         assert [cfg.name for cfg in result] == ["alice"]
 
@@ -801,9 +777,7 @@ class TestSQLiteAgentStore:
         assert [cfg.name for cfg in result_1] == ["multi-attached"]
         assert [cfg.name for cfg in result_2] == ["multi-attached"]
 
-    async def test_seed_provider_and_agent_default_attaches_to_acct_test(
-        self, isolated_db
-    ) -> None:
+    async def test_seed_provider_and_agent_default_attaches_to_acct_test(self, isolated_db) -> None:
         """Pinning test for M10 F7 L3 fixture-helper default change:
         bare-calling ``_seed_provider_and_agent()`` (no
         ``connector_ids`` kwarg) results in the seeded agent
@@ -819,8 +793,8 @@ class TestSQLiteAgentStore:
         :func:`the_one.db.connection.get_connection` — the module-level
         singleton that ``isolated_db`` repoints at the per-test path.
         """
-        from the_one.db.connection import get_connection
         from tests._connector_dispatch_helpers import _seed_provider_and_agent
+        from the_one.db.connection import get_connection
 
         await _seed_provider_and_agent()
         conn = await get_connection()
@@ -907,9 +881,7 @@ class TestAgentConfigConnectorAclsValidator:
                         {"id": "u1"},
                         {"id": "u2"},
                     ],
-                    "channels": [
-                        {"guild_id": "g-test", "channel_id": "c1"}
-                    ],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 },
             },
         )
@@ -919,9 +891,7 @@ class TestAgentConfigConnectorAclsValidator:
                     {"id": "u1"},
                     {"id": "u2"},
                 ],
-                "channels": [
-                    {"guild_id": "g-test", "channel_id": "c1"}
-                ],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             },
         }
 
@@ -1012,9 +982,7 @@ class TestAgentConfigConnectorAclsValidator:
         with pytest.raises(ValidationError):
             AgentConfig(
                 name="agent",
-                connector_acls={
-                    "acct-a": {"peers": [], "channels": [], "extra": []}
-                },
+                connector_acls={"acct-a": {"peers": [], "channels": [], "extra": []}},
             )
 
     def test_non_list_non_none_inner_value_raises(self) -> None:
@@ -1109,8 +1077,10 @@ class TestAgentConfigConnectorAclsValidator:
                 name="agent",
                 connector_acls={
                     "acct-a": {
-                        "peers": [], "channels": [],
-                        "guilds": [], "roles": [],
+                        "peers": [],
+                        "channels": [],
+                        "guilds": [],
+                        "roles": [],
                         "workspaces": [],  # not allowed
                     }
                 },
@@ -1141,9 +1111,7 @@ class TestPerAgentDmAllowedStrictRejection:
             )
         msg = str(exc_info.value)
         assert "dm_allowed" in msg, msg
-        assert (
-            "F12 footgun retirement" in msg or "F13 L2" in msg
-        ), msg
+        assert "F12 footgun retirement" in msg or "F13 L2" in msg, msg
 
     def test_per_agent_peers_without_dm_allowed_key_accepted(
         self,
@@ -1207,9 +1175,7 @@ class TestAgentConfigConnectorAlwaysListenValidator:
         """``{"acct-a": True}`` is valid — per-agent always-listen toggle
         flipped on for that account.
         """
-        cfg = AgentConfig(
-            name="agent", connector_always_listen={"acct-a": True}
-        )
+        cfg = AgentConfig(name="agent", connector_always_listen={"acct-a": True})
         assert cfg.connector_always_listen == {"acct-a": True}
 
     def test_explicit_false_per_account_is_valid(self) -> None:
@@ -1217,9 +1183,7 @@ class TestAgentConfigConnectorAlwaysListenValidator:
         as-is (equivalent in runtime semantic to absent, but preserved
         by the codec so the operator's intent is retained).
         """
-        cfg = AgentConfig(
-            name="agent", connector_always_listen={"acct-a": False}
-        )
+        cfg = AgentConfig(name="agent", connector_always_listen={"acct-a": False})
         assert cfg.connector_always_listen == {"acct-a": False}
 
     def test_mixed_true_false_per_account_is_valid(self) -> None:
@@ -1261,9 +1225,7 @@ class TestAgentConfigConnectorAlwaysListenValidator:
         account-level False is structurally inert (the account check
         short-circuits) but not a validation error.
         """
-        cfg = AgentConfig(
-            name="agent", connector_always_listen={"acct-a": True}
-        )
+        cfg = AgentConfig(name="agent", connector_always_listen={"acct-a": True})
         assert cfg.connector_always_listen == {"acct-a": True}
 
     def test_orphan_account_id_toggle_validates_cleanly(self) -> None:
@@ -1476,9 +1438,7 @@ class TestConnectorRepository:
     reference-not-copy invariant are exercised identically.
     """
 
-    async def test_create_and_get(
-        self, connector_repo: ConnectorRepository
-    ) -> None:
+    async def test_create_and_get(self, connector_repo: ConnectorRepository) -> None:
         account = Connector(
             id="a1", name="Test Bot", type="stub", config={"intent": "guild_messages"}
         )
@@ -1488,19 +1448,13 @@ class TestConnectorRepository:
         assert loaded.config == {"intent": "guild_messages"}
 
     async def test_list(self, connector_repo: ConnectorRepository) -> None:
-        await connector_repo.create(
-            Connector(id="b", name="Bravo Bot", type="stub")
-        )
-        await connector_repo.create(
-            Connector(id="a", name="Alpha Bot", type="stub")
-        )
+        await connector_repo.create(Connector(id="b", name="Bravo Bot", type="stub"))
+        await connector_repo.create(Connector(id="a", name="Alpha Bot", type="stub"))
         accounts = await connector_repo.list()
         assert [a.name for a in accounts] == ["Alpha Bot", "Bravo Bot"]
 
     async def test_update(self, connector_repo: ConnectorRepository) -> None:
-        await connector_repo.create(
-            Connector(id="a1", name="Old Name", type="stub")
-        )
+        await connector_repo.create(Connector(id="a1", name="Old Name", type="stub"))
         account = await connector_repo.get("a1")
         account.name = "New Name"
         await connector_repo.update(account)
@@ -1508,16 +1462,12 @@ class TestConnectorRepository:
         assert loaded.name == "New Name"
 
     async def test_delete(self, connector_repo: ConnectorRepository) -> None:
-        await connector_repo.create(
-            Connector(id="a1", name="Doomed", type="stub")
-        )
+        await connector_repo.create(Connector(id="a1", name="Doomed", type="stub"))
         await connector_repo.delete("a1")
         with pytest.raises(KeyError):
             await connector_repo.get("a1")
 
-    async def test_secrets_round_trip(
-        self, connector_repo: ConnectorRepository
-    ) -> None:
+    async def test_secrets_round_trip(self, connector_repo: ConnectorRepository) -> None:
         """secrets dict round-trips through the encryption envelope."""
         account = Connector(
             id="a1",
@@ -1531,9 +1481,7 @@ class TestConnectorRepository:
         assert fetched.config == {"intent": "guild_messages"}
         assert fetched.secrets == {"BOT_TOKEN": "discord_secret_value_xyz"}
 
-    async def test_secrets_encrypted_at_rest(
-        self, connector_repo: ConnectorRepository
-    ) -> None:
+    async def test_secrets_encrypted_at_rest(self, connector_repo: ConnectorRepository) -> None:
         """Raw DB read of the secrets column yields ciphertext, NOT plaintext JSON."""
         import json
 
@@ -1557,9 +1505,7 @@ class TestConnectorRepository:
         decrypted = connector_repo.encryptor.decrypt(raw)
         assert json.loads(decrypted) == {"TOKEN": "super-secret-value"}
 
-    async def test_empty_secrets_default(
-        self, connector_repo: ConnectorRepository
-    ) -> None:
+    async def test_empty_secrets_default(self, connector_repo: ConnectorRepository) -> None:
         """An account created without secrets= round-trips with secrets={}."""
         account = Connector(id="a1", name="Test", type="stub", config={"x": 1})
         await connector_repo.create(account)
@@ -1645,9 +1591,7 @@ class TestConnectorRepository:
         import pytest
 
         with pytest.raises(ValueError) as exc_info:
-            Connector(
-                id="a", name="x", type="stub", idle_timeout_seconds=604801
-            )
+            Connector(id="a", name="x", type="stub", idle_timeout_seconds=604801)
         assert "between 1 and 604800" in str(exc_info.value)
 
     async def test_idle_timeout_seconds_validator_accepts_bounds(self) -> None:
@@ -1656,14 +1600,10 @@ class TestConnectorRepository:
         a1 = Connector(id="a", name="x", type="stub", idle_timeout_seconds=1)
         assert a1.idle_timeout_seconds == 1
         # Upper bound: 604800 (7 days).
-        a2 = Connector(
-            id="b", name="x", type="stub", idle_timeout_seconds=604800
-        )
+        a2 = Connector(id="b", name="x", type="stub", idle_timeout_seconds=604800)
         assert a2.idle_timeout_seconds == 604800
         # None — default; accepted, falls through to env-var / default.
-        a3 = Connector(
-            id="c", name="x", type="stub", idle_timeout_seconds=None
-        )
+        a3 = Connector(id="c", name="x", type="stub", idle_timeout_seconds=None)
         assert a3.idle_timeout_seconds is None
 
 
@@ -1681,16 +1621,16 @@ class TestConnectorConfigValidator:
 
     def test_non_reserved_keys_pass_through(self) -> None:
         account = Connector(
-            id="a", name="n", type="stub",
+            id="a",
+            name="n",
+            type="stub",
             config={"intent": "guild_messages", "version": 2},
         )
         assert account.config == {"intent": "guild_messages", "version": 2}
 
     def test_valid_pairing_round_trips(self) -> None:
         pairing = {"code": "abc-123", "issued_at": "2026-05-18T00:00:00Z"}
-        account = Connector(
-            id="a", name="n", type="stub", config={"pairing": pairing}
-        )
+        account = Connector(id="a", name="n", type="stub", config={"pairing": pairing})
         assert account.config["pairing"] == pairing
 
     def test_valid_allowlist_round_trips(self) -> None:
@@ -1702,9 +1642,7 @@ class TestConnectorConfigValidator:
             ],
             "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
         }
-        account = Connector(
-            id="a", name="n", type="stub", config={"allowlist": allowlist}
-        )
+        account = Connector(id="a", name="n", type="stub", config={"allowlist": allowlist})
         # The validator also inserts ``dm_admission`` default.
         assert account.config["allowlist"]["peers"] == allowlist["peers"]
         assert account.config["allowlist"]["channels"] == allowlist["channels"]
@@ -1721,7 +1659,9 @@ class TestConnectorConfigValidator:
         ``"allowlisted-peers-only"`` to ``"admin-approved"``.
         """
         account = Connector(
-            id="a", name="n", type="stub",
+            id="a",
+            name="n",
+            type="stub",
             config={"allowlist": {"peers": [], "channels": []}},
         )
         assert account.config["allowlist"] == {
@@ -1736,9 +1676,7 @@ class TestConnectorConfigValidator:
             "allowlist": {"peers": [], "channels": []},
             "intent": "guild_messages",
         }
-        account = Connector(
-            id="a", name="n", type="stub", config=config
-        )
+        account = Connector(id="a", name="n", type="stub", config=config)
         assert account.config == config
 
     # --- Pairing malformed shape tests ---
@@ -1746,52 +1684,69 @@ class TestConnectorConfigValidator:
     def test_pairing_must_be_dict(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"pairing": "not-a-dict"},
             )
 
     def test_pairing_missing_code_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"pairing": {"issued_at": "2026-05-18T00:00:00Z"}},
             )
 
     def test_pairing_missing_issued_at_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"pairing": {"code": "x"}},
             )
 
     def test_pairing_extra_key_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
-                config={"pairing": {
-                    "code": "x", "issued_at": "2026-05-18T00:00:00Z",
-                    "extra": "field",
-                }},
+                id="a",
+                name="n",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "x",
+                        "issued_at": "2026-05-18T00:00:00Z",
+                        "extra": "field",
+                    }
+                },
             )
 
     def test_pairing_empty_code_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"pairing": {"code": "", "issued_at": "2026-05-18T00:00:00Z"}},
             )
 
     def test_pairing_non_string_code_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"pairing": {"code": 123, "issued_at": "2026-05-18T00:00:00Z"}},
             )
 
     def test_pairing_malformed_issued_at_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"pairing": {"code": "x", "issued_at": "not-iso"}},
             )
 
@@ -1801,7 +1756,9 @@ class TestConnectorConfigValidator:
         """
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"pairing": {"code": "x", "issued_at": "2026-05-18"}},
             )
 
@@ -1810,42 +1767,54 @@ class TestConnectorConfigValidator:
     def test_allowlist_must_be_dict(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"allowlist": ["not-a-dict"]},
             )
 
     def test_allowlist_missing_peers_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"allowlist": {"channels": []}},
             )
 
     def test_allowlist_missing_channels_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"allowlist": {"peers": []}},
             )
 
     def test_allowlist_extra_key_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"allowlist": {"peers": [], "channels": [], "extra": []}},
             )
 
     def test_allowlist_non_list_peers_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"allowlist": {"peers": "not-a-list", "channels": []}},
             )
 
     def test_allowlist_non_string_peer_raises(self) -> None:
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"allowlist": {"peers": [123], "channels": []}},
             )
 
@@ -1869,9 +1838,7 @@ class TestConnectorConfigValidator:
             "guilds": ["g1", "g2"],
             "roles": [{"guild_id": "g-test", "role_id": "r1"}],
         }
-        account = Connector(
-            id="a", name="n", type="stub", config={"allowlist": allowlist}
-        )
+        account = Connector(id="a", name="n", type="stub", config={"allowlist": allowlist})
         for key in ("peers", "channels", "guilds", "roles"):
             assert account.config["allowlist"][key] == allowlist[key]
 
@@ -1889,7 +1856,9 @@ class TestConnectorConfigValidator:
         """
         # 2-key shape still works.
         acc1 = Connector(
-            id="a1", name="n", type="stub",
+            id="a1",
+            name="n",
+            type="stub",
             config={"allowlist": {"peers": [], "channels": []}},
         )
         assert acc1.config["allowlist"] == {
@@ -1899,24 +1868,33 @@ class TestConnectorConfigValidator:
         }
         # peers + channels + guilds only (no roles).
         acc2 = Connector(
-            id="a2", name="n", type="stub",
-            config={"allowlist": {
-                "peers": [], "channels": [], "guilds": ["G1"],
-            }},
+            id="a2",
+            name="n",
+            type="stub",
+            config={
+                "allowlist": {
+                    "peers": [],
+                    "channels": [],
+                    "guilds": ["G1"],
+                }
+            },
         )
         assert acc2.config["allowlist"]["guilds"] == ["G1"]
         assert "roles" not in acc2.config["allowlist"]
         # peers + channels + roles only (no guilds).
         acc3 = Connector(
-            id="a3", name="n", type="stub",
-            config={"allowlist": {
-                "peers": [], "channels": [],
-                "roles": [{"guild_id": "g-test", "role_id": "R1"}],
-            }},
+            id="a3",
+            name="n",
+            type="stub",
+            config={
+                "allowlist": {
+                    "peers": [],
+                    "channels": [],
+                    "roles": [{"guild_id": "g-test", "role_id": "R1"}],
+                }
+            },
         )
-        assert acc3.config["allowlist"]["roles"] == [
-            {"guild_id": "g-test", "role_id": "R1"}
-        ]
+        assert acc3.config["allowlist"]["roles"] == [{"guild_id": "g-test", "role_id": "R1"}]
         assert "guilds" not in acc3.config["allowlist"]
 
     def test_allowlist_extra_key_still_rejected_after_l8(self) -> None:
@@ -1926,12 +1904,18 @@ class TestConnectorConfigValidator:
         new axes."""
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
-                config={"allowlist": {
-                    "peers": [], "channels": [],
-                    "guilds": [], "roles": [],
-                    "workspaces": [],  # not in the 4-axis allowed set
-                }},
+                id="a",
+                name="n",
+                type="stub",
+                config={
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [],
+                        "guilds": [],
+                        "roles": [],
+                        "workspaces": [],  # not in the 4-axis allowed set
+                    }
+                },
             )
 
     def test_allowlist_non_string_guild_or_role_raises(self) -> None:
@@ -1940,17 +1924,29 @@ class TestConnectorConfigValidator:
         way ``peers`` and ``channels`` do."""
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
-                config={"allowlist": {
-                    "peers": [], "channels": [], "guilds": [42],
-                }},
+                id="a",
+                name="n",
+                type="stub",
+                config={
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [],
+                        "guilds": [42],
+                    }
+                },
             )
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
-                config={"allowlist": {
-                    "peers": [], "channels": [], "roles": [None],
-                }},
+                id="a",
+                name="n",
+                type="stub",
+                config={
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [],
+                        "roles": [None],
+                    }
+                },
             )
 
     # --- Repository round-trip tests ---
@@ -1959,9 +1955,7 @@ class TestConnectorConfigValidator:
         self, connector_repo: ConnectorRepository
     ) -> None:
         pairing = {"code": "abc", "issued_at": "2026-05-18T00:00:00Z"}
-        account = Connector(
-            id="a1", name="n", type="stub", config={"pairing": pairing}
-        )
+        account = Connector(id="a1", name="n", type="stub", config={"pairing": pairing})
         await connector_repo.create(account)
         loaded = await connector_repo.get("a1")
         assert loaded.config["pairing"] == pairing
@@ -1974,9 +1968,7 @@ class TestConnectorConfigValidator:
             "peers": [{"id": "u1"}],
             "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
         }
-        account = Connector(
-            id="a1", name="n", type="stub", config={"allowlist": allowlist}
-        )
+        account = Connector(id="a1", name="n", type="stub", config={"allowlist": allowlist})
         await connector_repo.create(account)
         loaded = await connector_repo.get("a1")
         assert loaded.config["allowlist"]["peers"] == allowlist["peers"]
@@ -1989,9 +1981,7 @@ class TestConnectorConfigValidator:
         become absent. Leg-4 Studio UI relies on this invariant.
         """
         empty = {"peers": [], "channels": []}
-        account = Connector(
-            id="a1", name="n", type="stub", config={"allowlist": empty}
-        )
+        account = Connector(id="a1", name="n", type="stub", config={"allowlist": empty})
         await connector_repo.create(account)
         loaded = await connector_repo.get("a1")
         assert loaded.config["allowlist"] == empty
@@ -2065,12 +2055,16 @@ class TestConnectorConfigValidator:
         # Create with dm_admission = "all".
         # M11 F17 L8 (Leg D) — bare ``{id}`` peers post-v28.
         account = Connector(
-            id="a1", name="n", type="stub",
-            config={"allowlist": {
-                "peers": [{"id": "P1"}],
-                "channels": [],
-                "dm_admission": "all",
-            }},
+            id="a1",
+            name="n",
+            type="stub",
+            config={
+                "allowlist": {
+                    "peers": [{"id": "P1"}],
+                    "channels": [],
+                    "dm_admission": "all",
+                }
+            },
         )
         await connector_repo.create(account)
 
@@ -2093,9 +2087,7 @@ class TestConnectorConfigValidator:
         reloaded.config["allowlist"]["dm_admission"] = "admin-approved"
         await connector_repo.update(reloaded)
         final = await connector_repo.get("a1")
-        assert final.config["allowlist"]["dm_admission"] == (
-            "admin-approved"
-        )
+        assert final.config["allowlist"]["dm_admission"] == ("admin-approved")
 
     async def test_empty_allowlist_stored_as_lists_not_null(
         self, connector_repo: ConnectorRepository
@@ -2109,10 +2101,9 @@ class TestConnectorConfigValidator:
         otherwise be ambiguous.
         """
         import json
+
         empty = {"peers": [], "channels": []}
-        account = Connector(
-            id="a1", name="n", type="stub", config={"allowlist": empty}
-        )
+        account = Connector(id="a1", name="n", type="stub", config={"allowlist": empty})
         await connector_repo.create(account)
         async with connector_repo.conn.execute(
             "SELECT config FROM connectors WHERE id = ?", ("a1",)
@@ -2153,9 +2144,8 @@ class TestConnectorConfigValidator:
         on secrets-decrypt).
         """
         import json
-        account = Connector(
-            id="bad", name="n", type="stub", secrets={"TOKEN": "x"}
-        )
+
+        account = Connector(id="bad", name="n", type="stub", secrets={"TOKEN": "x"})
         await connector_repo.create(account)
         malformed = json.dumps({"pairing": {"code": ""}})  # missing issued_at + empty code
         await connector_repo.conn.execute(
@@ -2175,19 +2165,25 @@ class TestConnectorConfigValidator:
         on-disk shape — covered implicitly by every pre-F7 row.
         """
         account_true = Connector(
-            id="a-true", name="n", type="stub",
+            id="a-true",
+            name="n",
+            type="stub",
             config={"always_listen": True},
         )
         assert account_true.config["always_listen"] is True
 
         account_false = Connector(
-            id="a-false", name="n", type="stub",
+            id="a-false",
+            name="n",
+            type="stub",
             config={"always_listen": False},
         )
         assert account_false.config["always_listen"] is False
 
         account_absent = Connector(
-            id="a-absent", name="n", type="stub",
+            id="a-absent",
+            name="n",
+            type="stub",
             config={},
         )
         assert "always_listen" not in account_absent.config
@@ -2199,17 +2195,23 @@ class TestConnectorConfigValidator:
         """
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"always_listen": "yes"},
             )
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"always_listen": 1},
             )
         with pytest.raises(ValidationError):
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={"always_listen": None},
             )
 
@@ -2222,13 +2224,17 @@ class TestConnectorConfigValidator:
         information and is migrated out on every validate cycle.
         """
         account_true = Connector(
-            id="a-true", name="n", type="stub",
+            id="a-true",
+            name="n",
+            type="stub",
             config={"auto_relay_platform_replies": True},
         )
         assert "auto_relay_platform_replies" not in account_true.config
 
         account_false = Connector(
-            id="a-false", name="n", type="stub",
+            id="a-false",
+            name="n",
+            type="stub",
             config={"auto_relay_platform_replies": False},
         )
         assert "auto_relay_platform_replies" not in account_false.config
@@ -2240,7 +2246,9 @@ class TestConnectorConfigValidator:
         Mixed-state row migrates cleanly without losing the new key.
         """
         account = Connector(
-            id="a", name="n", type="stub",
+            id="a",
+            name="n",
+            type="stub",
             config={
                 "auto_relay_platform_replies": True,
                 "always_listen": True,
@@ -2260,7 +2268,9 @@ class TestConnectorConfigValidator:
         strip-then-return order matters.
         """
         account = Connector(
-            id="a", name="n", type="stub",
+            id="a",
+            name="n",
+            type="stub",
             config={"auto_relay_platform_replies": "not-a-bool"},
         )
         assert "auto_relay_platform_replies" not in account.config
@@ -2286,7 +2296,9 @@ class TestAllowlistGuildIdRequired:
         and the L5 rationale (hierarchical Server-as-parent UI)."""
         with pytest.raises(Exception) as exc_info:
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={
                     "allowlist": {
                         "peers": [],
@@ -2308,7 +2320,9 @@ class TestAllowlistGuildIdRequired:
         rationale."""
         with pytest.raises(Exception) as exc_info:
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={
                     "allowlist": {
                         "peers": [],
@@ -2328,7 +2342,9 @@ class TestAllowlistGuildIdRequired:
         one defaulted to None."""
         with pytest.raises(Exception) as exc_info:
             Connector(
-                id="a", name="n", type="stub",
+                id="a",
+                name="n",
+                type="stub",
                 config={
                     "allowlist": {
                         "peers": [],
@@ -2347,7 +2363,9 @@ class TestAllowlistGuildIdRequired:
         string; the validator accepts it as long as ``guild_id`` is a
         concrete string."""
         account = Connector(
-            id="a", name="n", type="stub",
+            id="a",
+            name="n",
+            type="stub",
             config={
                 "allowlist": {
                     "peers": [],
@@ -2360,12 +2378,8 @@ class TestAllowlistGuildIdRequired:
                 }
             },
         )
-        assert account.config["allowlist"]["channels"] == [
-            {"guild_id": "g-1", "channel_id": "*"}
-        ]
-        assert account.config["allowlist"]["roles"] == [
-            {"guild_id": "g-1", "role_id": "*"}
-        ]
+        assert account.config["allowlist"]["channels"] == [{"guild_id": "g-1", "channel_id": "*"}]
+        assert account.config["allowlist"]["roles"] == [{"guild_id": "g-1", "role_id": "*"}]
 
 
 # ── Chat Session Repository ──────────────────────────────────────────────
@@ -2803,9 +2817,7 @@ class TestChatSessionRepository:
         :meth:`append_to_session_metadata` / :meth:`update_last_inbound`
         not-found semantics."""
         with pytest.raises(KeyError):
-            await chat_repo.set_session_metadata_key(
-                "no-such-session", "foo", "bar"
-            )
+            await chat_repo.set_session_metadata_key("no-such-session", "foo", "bar")
 
     async def test_set_session_metadata_key_accepts_any_value_type(
         self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
@@ -2880,9 +2892,7 @@ class TestConnectorSessionContinuation:
     async def test_session_continuation_seconds_validator_rejects_zero(self) -> None:
         """Validator rejects 0 (would zero-out the continuation window)."""
         with pytest.raises(ValueError) as exc_info:
-            Connector(
-                id="a", name="x", type="stub", session_continuation_seconds=0
-            )
+            Connector(id="a", name="x", type="stub", session_continuation_seconds=0)
         assert "between 1 and 604800" in str(exc_info.value)
 
     async def test_session_continuation_seconds_validator_rejects_one_week_plus_one(
@@ -2890,9 +2900,7 @@ class TestConnectorSessionContinuation:
     ) -> None:
         """Validator rejects 604801 (catches the ms-vs-s typo)."""
         with pytest.raises(ValueError) as exc_info:
-            Connector(
-                id="a", name="x", type="stub", session_continuation_seconds=604801
-            )
+            Connector(id="a", name="x", type="stub", session_continuation_seconds=604801)
         assert "between 1 and 604800" in str(exc_info.value)
 
     async def test_session_continuation_seconds_validator_accepts_bounds(
@@ -2900,21 +2908,13 @@ class TestConnectorSessionContinuation:
     ) -> None:
         """Validator accepts 1, 86400 (24h default), 604800 (7-day cap),
         and None (the default)."""
-        a1 = Connector(
-            id="a", name="x", type="stub", session_continuation_seconds=1
-        )
+        a1 = Connector(id="a", name="x", type="stub", session_continuation_seconds=1)
         assert a1.session_continuation_seconds == 1
-        a2 = Connector(
-            id="b", name="x", type="stub", session_continuation_seconds=86400
-        )
+        a2 = Connector(id="b", name="x", type="stub", session_continuation_seconds=86400)
         assert a2.session_continuation_seconds == 86400
-        a3 = Connector(
-            id="c", name="x", type="stub", session_continuation_seconds=604800
-        )
+        a3 = Connector(id="c", name="x", type="stub", session_continuation_seconds=604800)
         assert a3.session_continuation_seconds == 604800
-        a4 = Connector(
-            id="d", name="x", type="stub", session_continuation_seconds=None
-        )
+        a4 = Connector(id="d", name="x", type="stub", session_continuation_seconds=None)
         assert a4.session_continuation_seconds is None
 
 
@@ -3051,12 +3051,8 @@ def pending_approval_repo(conn):
 async def _seed_connector(conn, connector_repo_encryptor):
     """Seed an ``acct-1`` connector account for FK-bound tests."""
     repo = ConnectorRepository(conn, connector_repo_encryptor)
-    await repo.create(
-        Connector(id="acct-1", name="Stub Account", type="stub")
-    )
-    await repo.create(
-        Connector(id="acct-2", name="Stub Other", type="stub")
-    )
+    await repo.create(Connector(id="acct-1", name="Stub Account", type="stub"))
+    await repo.create(Connector(id="acct-2", name="Stub Other", type="stub"))
 
 
 class TestPendingApprovalRepository:
@@ -3121,9 +3117,7 @@ class TestPendingApprovalRepository:
         assert second.preview == "hi again"
         assert second.received_at >= first.received_at
 
-        rows = await pending_approval_repo.list_for_account_peer(
-            "acct-1", "peer-1"
-        )
+        rows = await pending_approval_repo.list_for_account_peer("acct-1", "peer-1")
         assert len(rows) == 1, rows
         assert rows[0].id == first.id
 
@@ -3153,9 +3147,7 @@ class TestPendingApprovalRepository:
         assert second.id != first.id
         assert second.status == "pending"
         # Two rows now exist for this (account, peer).
-        rows = await pending_approval_repo.list_for_account_peer(
-            "acct-1", "peer-1"
-        )
+        rows = await pending_approval_repo.list_for_account_peer("acct-1", "peer-1")
         assert {r.id for r in rows} == {first.id, second.id}
         statuses = {r.status for r in rows}
         assert statuses == {"approved", "pending"}
@@ -3270,9 +3262,7 @@ class TestPendingApprovalRepository:
             peer_name="Alice",
             preview="again",
         )
-        rows = await pending_approval_repo.list_for_account_peer(
-            "acct-1", "peer-1"
-        )
+        rows = await pending_approval_repo.list_for_account_peer("acct-1", "peer-1")
         assert [r.id for r in rows] == [first.id, second.id]
         # received_at strictly non-decreasing.
         assert rows[0].received_at <= rows[1].received_at
@@ -3320,11 +3310,7 @@ class TestPendingApprovalRepository:
             preview="hello",
         )
         # Sanity: row present.
-        assert (
-            len(await pending_approval_repo.list_by_account("acct-1"))
-        ) == 1
+        assert (len(await pending_approval_repo.list_by_account("acct-1"))) == 1
         await connector_repo.delete("acct-1")
         # Cascade removed the dependent row.
-        assert (
-            len(await pending_approval_repo.list_by_account("acct-1"))
-        ) == 0
+        assert (len(await pending_approval_repo.list_by_account("acct-1"))) == 0
