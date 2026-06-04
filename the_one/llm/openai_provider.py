@@ -87,6 +87,14 @@ class OpenAIProvider(LLMProvider):
             client_kwargs["base_url"] = base_url
         self.client = openai.AsyncOpenAI(**client_kwargs)
 
+    async def aclose(self) -> None:
+        """Release the persistent OpenAI HTTP client.
+
+        F05 L01: ``openai.AsyncOpenAI`` wraps an ``httpx.AsyncClient``
+        whose ``aclose()`` is idempotent — safe to call multiple times.
+        """
+        await self.client.close()
+
     async def _resolve_max_context_tokens(self) -> None:
         # Longest-prefix match: sort keys descending by length so e.g.
         # ``gpt-4-turbo`` wins over ``gpt-4`` when ``self.model`` is
