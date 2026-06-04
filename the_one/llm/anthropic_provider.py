@@ -62,6 +62,14 @@ class AnthropicProvider(LLMProvider):
         """
         # Intentional no-op — see docstring.
 
+    async def aclose(self) -> None:
+        """Release the persistent Anthropic HTTP client.
+
+        F05 L01: ``anthropic.AsyncAnthropic.close()`` is async and
+        idempotent — safe to call multiple times.
+        """
+        await self.client.close()
+
     def _build_kwargs(
         self,
         messages: list[Message],

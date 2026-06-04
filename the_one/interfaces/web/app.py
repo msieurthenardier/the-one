@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -107,6 +108,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from the_one.mcp.oauth import start_periodic_sweep
 
     start_periodic_sweep()
+    # F05 L01: start the web-session idle reaper just after the OAuth sweep.
+    global _web_session_reaper_task
+    _web_session_reaper_task = asyncio.create_task(_web_session_reap_loop())
     # M10 F2 L6: dev-mode-gated test-seam — when
     # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
     # register the in-process StubPlugin as the 'stub' connector type so
@@ -225,6 +229,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if _inflight_resume_tasks:
         with contextlib.suppress(Exception):
             await asyncio.gather(*list(_inflight_resume_tasks), return_exceptions=True)
+    # F05 L01: drain the web-session idle reaper after in-flight task drains
+    # and before the PTY session registry drain. Cancels the reaper task and
+    # closes all remaining in-memory sessions.
+    try:
+        await _web_session_reaper_shutdown_drain()
+    except Exception:
+        logger.exception("web-session reaper shutdown failed")
     try:
         await _session_registry_shutdown_drain()
     except Exception:
@@ -325,6 +336,12 @@ class Session:
     # routing-audit panel reads from this in-memory snapshot via the
     # session_joined WS payload; Refresh button re-fetches from REST.
     session_metadata: dict[str, Any] | None = None
+    # F05 L01: monotonic timestamp of the most recent activity on this
+    # session (create, restore, message send, chat_reset, WS disconnect).
+    # Used by the web-session idle reaper to determine when a zero-
+    # subscriber session qualifies for eviction. Defaults to construction
+    # time so new/restored sessions start with a fresh clock.
+    last_activity: float = field(default_factory=time.monotonic)
 
     def add_event(self, event: dict[str, Any]) -> None:
         self.history.append(event)
@@ -344,6 +361,22 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
+
+# F05 L01: shared lock that serializes all read-modify-write operations on
+# ``_sessions`` (create, restore, delete, reaper eviction). The reaper is
+# two-phase: select+pop under this lock, then ``await agent.aclose()``
+# OUTSIDE it (avoids holding the lock across async I/O).
+_sessions_lock: asyncio.Lock = asyncio.Lock()
+
+# F05 L01: web-session idle reaper task reference (started in lifespan,
+# cancelled on shutdown). Mirrors ``_reaper_task`` in
+# ``tools/_session_registry.py``.
+_web_session_reaper_task: asyncio.Task[None] | None = None
+
+# F05 L01: reaper wake interval — a fraction of the TTL, floored at 30s.
+# Computed lazily at startup relative to the configured TTL so tests can
+# monkeypatch the env var and get a sensible interval.
+_WEB_SESSION_REAPER_INTERVAL_SECONDS = 30.0
 
 # Set of in-flight per-message processing tasks spawned by the WebSocket
 # handler. Tracked so FastAPI's lifespan teardown can cancel them on
@@ -374,6 +407,9 @@ async def _spawn_message_processing(
     instead of silently dropping into a crashed task.
     """
     async with session_locks[session.id]:
+        # F05 L01: touch last_activity at the start of message processing
+        # so the reaper clock advances on every new user turn.
+        session.last_activity = time.monotonic()
         # F5 L5: bind the current chat_session_id into the per-task
         # ContextVar so any pool-spawned MCP OAuth provider construction
         # below (via ``_entry_worker`` → ``build_oauth_provider_for_source``)
@@ -399,6 +435,137 @@ async def _spawn_message_processing(
                 )
         finally:
             current_chat_session_id.reset(token)
+
+
+# ── Web-session idle reaper ───────────────────────────────────────────────
+
+
+def _get_web_session_idle_ttl() -> int:
+    """Read ``THE_ONE_WEB_SESSION_IDLE_TTL_SECONDS`` at call time.
+
+    F05 L01: mirrors the ``THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS``
+    reader in ``connectors/_pool.py``: ``os.environ.get`` at call time
+    with int-parse and a fallback to the default (1800s = 30 min).
+    Reading at call time (rather than at module-import time) lets tests
+    monkeypatch the env var without reloading the module.
+    """
+    raw = os.environ.get("THE_ONE_WEB_SESSION_IDLE_TTL_SECONDS")
+    default = 1800
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "THE_ONE_WEB_SESSION_IDLE_TTL_SECONDS=%r is not an int; falling back to %d",
+            raw,
+            default,
+        )
+        return default
+
+
+async def _reap_web_sessions_once() -> list[str]:
+    """Run one idle-reaper pass over ``_sessions``.
+
+    F05 L01: two-phase — select+pop under ``_sessions_lock``, then call
+    ``agent.aclose()`` outside the lock so async I/O doesn't block
+    concurrent create/restore paths. Also pops the evicted ids from
+    ``session_locks`` to prevent the lock map from growing unboundedly.
+
+    SAFETY invariant: sessions with ≥1 live subscriber OR currently
+    processing are NEVER evicted, regardless of their idle age.
+
+    Returns the list of evicted session ids (for test purchase and
+    log output).
+    """
+    ttl = _get_web_session_idle_ttl()
+    now = time.monotonic()
+
+    evicted: list[tuple[str, Agent]] = []
+    async with _sessions_lock:
+        for sid, session in list(_sessions.items()):
+            if subscribers_for(sid):
+                continue  # open chat tab — never reap
+            if is_session_processing(sid):
+                continue  # mid-turn tool call — belt-and-suspenders
+            if (now - session.last_activity) <= ttl:
+                continue  # not idle yet
+            evicted.append((sid, session.agent))
+            _sessions.pop(sid)
+
+    evicted_ids: list[str] = []
+    for sid, agent in evicted:
+        evicted_ids.append(sid)
+        # Pop the session lock to prevent unbounded lock-map growth.
+        # Must be outside _sessions_lock (we already released it above).
+        session_locks.pop(sid, None)
+        try:
+            await agent.aclose()
+        except Exception:
+            logger.exception("agent.aclose() raised during web-session reap: sid=%r", sid)
+
+    if evicted_ids:
+        logger.info("web-session reaper evicted %d session(s): %s", len(evicted_ids), evicted_ids)
+    return evicted_ids
+
+
+async def _web_session_reap_loop() -> None:
+    """Background loop: sleep, reap, repeat.
+
+    F05 L01: mirrors ``_reap_loop`` in ``tools/_session_registry.py``.
+    The reaper interval is a fraction of the TTL, floored at 30s.
+    On cancellation, drains all remaining zero-subscriber sessions
+    before re-raising ``CancelledError``.
+    """
+    try:
+        while True:
+            ttl = _get_web_session_idle_ttl()
+            interval = max(30, ttl // 10)
+            await asyncio.sleep(interval)
+            try:
+                await _reap_web_sessions_once()
+            except Exception:
+                logger.exception("web-session reap pass raised; continuing")
+    except asyncio.CancelledError:
+        # Drain remaining sessions on shutdown. Does NOT unconditionally
+        # reap all sessions — only those with zero subscribers (open tabs
+        # would still be in the subscriber registry but the server is
+        # shutting down, so the WS connections will close anyway).
+        # This is belt-and-suspenders: the shutdown drain below handles
+        # the rest.
+        raise
+
+
+async def _web_session_reaper_shutdown_drain() -> None:
+    """Cancel the reaper task and close all remaining sessions.
+
+    F05 L01: wired into the FastAPI ``lifespan`` shutdown branch, after
+    the in-flight/resume task drains and before the PTY session registry
+    drain. Mirrors ``shutdown_drain()`` in ``tools/_session_registry.py``.
+    After this runs, any late-arriving join will recreate sessions via
+    the DB restore path — nothing is lost, only the warm cache is torn down.
+    """
+    global _web_session_reaper_task
+
+    task = _web_session_reaper_task
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    # Belt-and-suspenders drain of any remaining sessions.
+    async with _sessions_lock:
+        snapshot = list(_sessions.items())
+        _sessions.clear()
+
+    for sid, session in snapshot:
+        session_locks.pop(sid, None)
+        try:
+            await session.agent.aclose()
+        except Exception:
+            logger.exception("agent.aclose() raised during web-session shutdown drain: sid=%r", sid)
+
+    _web_session_reaper_task = None
 
 
 # ── Session health classification ────────────────────────────────────────
@@ -502,8 +669,10 @@ async def _create_session(
         created=now,
         source=source,
         agent_name=db_agent_name,
+        last_activity=time.monotonic(),
     )
-    _sessions[sid] = session
+    async with _sessions_lock:
+        _sessions[sid] = session
 
     # Persist to DB
     try:
@@ -545,7 +714,8 @@ async def _restore_session(session_id: str) -> RestoredSession:
         db_session = await repo.get(session_id)
     except KeyError:
         # If we had a cached session for this id, drop it — the row is gone.
-        _sessions.pop(session_id, None)
+        async with _sessions_lock:
+            _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_NOT_FOUND, None)
 
     # If a message is actively being processed on this session, skip the
@@ -559,6 +729,7 @@ async def _restore_session(session_id: str) -> RestoredSession:
     # completes will pick up any config edits as before.
     cached = _sessions.get(session_id)
     if cached is not None and is_session_processing(session_id):
+        cached.last_activity = time.monotonic()  # F05 L01: touch on restore
         return RestoredSession(cached, SESSION_STATUS_OK, db_session)
 
     factory = _get_factory()
@@ -572,7 +743,8 @@ async def _restore_session(session_id: str) -> RestoredSession:
             db_session.agent_name,
             exc,
         )
-        _sessions.pop(session_id, None)
+        async with _sessions_lock:
+            _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
     except ProviderNotConfiguredError as exc:
         logger.warning(
@@ -581,7 +753,8 @@ async def _restore_session(session_id: str) -> RestoredSession:
             db_session.agent_name,
             exc,
         )
-        _sessions.pop(session_id, None)
+        async with _sessions_lock:
+            _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
     except AgentNotFoundError as exc:
         logger.warning(
@@ -590,7 +763,8 @@ async def _restore_session(session_id: str) -> RestoredSession:
             db_session.agent_name,
             exc,
         )
-        _sessions.pop(session_id, None)
+        async with _sessions_lock:
+            _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_AGENT_DELETED, db_session)
 
     messages = decode_messages(db_session.messages)
@@ -610,42 +784,45 @@ async def _restore_session(session_id: str) -> RestoredSession:
     # no DB query.
     ui_events = await _merge_pending_approvals_into_history(ui_events, db_session)
 
-    if session_id in _sessions:
-        # Update existing Session in place — keeps identity. Subscribers
-        # live in the neutral session registry keyed by session id, so
-        # the in-place update preserves the subscriber set implicitly.
-        existing = _sessions[session_id]
-        existing.agent = agent
-        existing.title = db_session.title
-        existing.agent_name = db_session.agent_name
-        existing.history = ui_events
-        # M10 F05 L04: refresh the cached platform field from the DB row
-        # so connector-attachment state stays in sync with the persisted
-        # truth across rejoins. Drives the WS storage-edge shim gate in
-        # ``_process_and_broadcast`` + ``_resume_paused_session``.
-        existing.platform = db_session.platform
-        # M11 F13 L5: refresh the routing-audit snapshot from the DB row
-        # so the next session_joined payload carries the latest entries
-        # the dispatcher has written via append_to_session_metadata.
-        existing.session_metadata = db_session.session_metadata
-        return RestoredSession(existing, SESSION_STATUS_OK, db_session)
+    async with _sessions_lock:
+        if session_id in _sessions:
+            # Update existing Session in place — keeps identity. Subscribers
+            # live in the neutral session registry keyed by session id, so
+            # the in-place update preserves the subscriber set implicitly.
+            existing = _sessions[session_id]
+            existing.agent = agent
+            existing.title = db_session.title
+            existing.agent_name = db_session.agent_name
+            existing.history = ui_events
+            # M10 F05 L04: refresh the cached platform field from the DB row
+            # so connector-attachment state stays in sync with the persisted
+            # truth across rejoins. Drives the WS storage-edge shim gate in
+            # ``_process_and_broadcast`` + ``_resume_paused_session``.
+            existing.platform = db_session.platform
+            # M11 F13 L5: refresh the routing-audit snapshot from the DB row
+            # so the next session_joined payload carries the latest entries
+            # the dispatcher has written via append_to_session_metadata.
+            existing.session_metadata = db_session.session_metadata
+            existing.last_activity = time.monotonic()  # F05 L01: touch on restore
+            return RestoredSession(existing, SESSION_STATUS_OK, db_session)
 
-    session = Session(
-        id=session_id,
-        agent=agent,
-        created=db_session.created_at,
-        title=db_session.title,
-        agent_name=db_session.agent_name,
-        history=ui_events,
-        # M10 F05 L04: surface the persisted connector-attachment state to
-        # the in-memory Session so the WS storage-edge shim can gate on it.
-        platform=db_session.platform,
-        # M11 F13 L5: surface session_metadata so _build_session_joined_ok
-        # can ship the routing-audit entries in the join payload without a
-        # separate REST round-trip.
-        session_metadata=db_session.session_metadata,
-    )
-    _sessions[session_id] = session
+        session = Session(
+            id=session_id,
+            agent=agent,
+            created=db_session.created_at,
+            title=db_session.title,
+            agent_name=db_session.agent_name,
+            history=ui_events,
+            # M10 F05 L04: surface the persisted connector-attachment state to
+            # the in-memory Session so the WS storage-edge shim can gate on it.
+            platform=db_session.platform,
+            # M11 F13 L5: surface session_metadata so _build_session_joined_ok
+            # can ship the routing-audit entries in the join payload without a
+            # separate REST round-trip.
+            session_metadata=db_session.session_metadata,
+            last_activity=time.monotonic(),  # F05 L01: touch on restore
+        )
+        _sessions[session_id] = session
     return RestoredSession(session, SESSION_STATUS_OK, db_session)
 
 
@@ -1457,6 +1634,7 @@ async def chat_reset(request: Request) -> dict[str, str]:
         s.agent.reset()
         s.history.clear()
         s.title = "New chat"
+        s.last_activity = time.monotonic()  # F05 L01: touch on reset
         await _send_to_session(s, {"type": "system", "content": "Context cleared."})
         await _save_session_to_db(s)
     return {"status": "ok"}
@@ -1566,12 +1744,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             if action == "delete_session":
                 sid = payload.get("session_id")
                 if sid:
-                    # Remove from memory
-                    if sid in _sessions:
-                        if session and session.id == sid:
-                            remove_subscriber(session.id, ws)
-                            session = None
-                        del _sessions[sid]
+                    # Remove from memory — under _sessions_lock to serialize
+                    # with the reaper. F05 L01.
+                    async with _sessions_lock:
+                        if sid in _sessions:
+                            if session and session.id == sid:
+                                remove_subscriber(session.id, ws)
+                                session = None
+                            del _sessions[sid]
                     # Remove from DB
                     try:
                         repo = await _chat_repo()
@@ -1623,3 +1803,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         if session:
             remove_subscriber(session.id, ws)
+            # F05 L01: touch last_activity at disconnect so the idle clock
+            # starts from the moment the tab is closed, not from the last
+            # message. A disconnected session with zero subscribers will be
+            # reaped after TTL seconds of inactivity from this point.
+            session.last_activity = time.monotonic()

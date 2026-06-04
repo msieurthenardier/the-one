@@ -375,3 +375,18 @@ class Agent:
         # _on_match callbacks; re-assignment would orphan those references.
         self._loaded_schemas.clear()
         self._loaded_tool_names.clear()
+
+    async def aclose(self) -> None:
+        """Release the LLM provider's persistent HTTP client.
+
+        F05 L01: idempotent — a ``_closed`` guard prevents double-close.
+        Delegates to ``LLMProvider.aclose()``; the base implementation is
+        a no-op (providers without a persistent client inherit it).
+        Providers that hold a live ``httpx.AsyncClient`` (Anthropic, OpenAI)
+        override it. MCP tool handles are pool-owned and NOT closed here —
+        the MCP pool has its own TTL reaper.
+        """
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        await self.llm.aclose()

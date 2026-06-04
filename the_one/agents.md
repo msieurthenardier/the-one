@@ -697,6 +697,17 @@ False-positive surface is also accepted: `echo "do not run sudo"` is refused; wo
 - **Idle-mark prompt detection**: `_read_until_idle` blocks until the master_fd has been silent for 100ms (2s hard cap). Robust against inconsistent shell prompts (zsh themes, sudo prompts).
 - **Per-call denylist re-check** (Decision 11): every `_send` runs `_command_check(input, exec_cfg)` BEFORE forwarding. Agents cannot pre-stage a denylisted command behind an open session.
 
+### Web-session idle reaper
+
+The `_sessions: dict[str, Session]` in `the_one/interfaces/web/app.py` is the warm in-memory cache for active UI chat sessions. Each entry pins a live `Agent` (LLM HTTP client, full message history). A background idle reaper (F05 L01, Mission 12 Flight 05) bounds memory growth in long-lived processes.
+
+- **Reaper**: `_web_session_reap_loop()` / `_reap_web_sessions_once()` in `app.py`. Wakes every `max(30, TTL // 10)` seconds. Evicts sessions where `not subscribers_for(sid)` AND `not is_session_processing(sid)` AND `(monotonic() - last_activity) > TTL`.
+- **Safety invariant**: sessions with ≥1 live WS subscriber (open chat tab) are NEVER reaped, regardless of idle age. Sessions mid-processing (tool calls up to 120s) are protected by the `is_session_processing` guard.
+- **Teardown**: eviction calls `await agent.aclose()` outside the `_sessions_lock` (two-phase pattern — snapshot+pop under lock, close after release). `Agent.aclose()` delegates to `LLMProvider.aclose()`; Anthropic/OpenAI providers release their persistent `httpx` client; Ollama (per-request client) is a no-op.
+- **Rehydration**: evicted sessions rehydrate losslessly from `chat_sessions` DB on next join (the DB is the durable backing store; the in-memory dict is a warm cache).
+- **TTL**: `THE_ONE_WEB_SESSION_IDLE_TTL_SECONDS` env var, read at call time via `os.environ.get`, int-parse with fallback to 1800 (30 min). See `.env.example`.
+- **Lifespan**: reaper started just after `start_periodic_sweep()` on startup; `_web_session_reaper_shutdown_drain()` called on shutdown after in-flight task drains, before PTY registry drain.
+
 Windows: `UnixPtySession` raises `NotImplementedError("Windows ConPTY support deferred")` on import under `os.name == "nt"`.
 
 ### Origin allowlist

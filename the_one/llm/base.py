@@ -358,3 +358,13 @@ class LLMProvider(ABC):
                 "parameters": tool_def["parameters"],
             },
         }
+
+    async def aclose(self) -> None:
+        """Release any persistent HTTP client held by this provider.
+
+        Default no-op — providers without a persistent client inherit this.
+        Providers that hold an ``httpx.AsyncClient`` (Anthropic, OpenAI)
+        override to call ``await self.client.aclose()``. Called by
+        ``Agent.aclose()`` during web-session idle-reaper eviction.
+        F05 L01: idempotent by design (httpx's own aclose is idempotent).
+        """
