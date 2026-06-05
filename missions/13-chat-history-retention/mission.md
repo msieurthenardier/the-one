@@ -1,17 +1,36 @@
 # Mission: Chat History Retention
 
-**Status**: planning (backlogged)
+**Status**: active
 
-> **Backlogged — re-evaluate before scheduling.** This mission is deferred behind a
-> maintenance cycle. The `XX-` prefix is a placeholder; assign the next available
-> sequence number when it is pulled off the backlog. Because the maintenance cycle is
-> likely to change parts of the codebase this mission depends on (the `AgentConfig`
-> model and its persistence/migration path, the General-tab Studio JS, the
-> `ChatSession` repository and its purge primitives, the connector session semantics,
-> and the FastAPI lifespan), the architect viability check and the file:line references
-> below must be re-validated against the post-maintenance codebase before flight design.
-> Treat the storage-shape determination, the "engaged-turn" interaction semantics, and
-> the migration version (v30) as findings-at-time-of-drafting, not commitments.
+> **Re-validated 2026-06-05, pulled off the backlog as Mission 13.** Drafted (as `XX-`)
+> behind Mission 12 (Maintenance, Post-M11, now completed). Every dependency surface the
+> backlog banner flagged was re-checked against the current post-M12 `main` and **all
+> draft assumptions hold** (the M12 changes to these files were ruff-format reflow only,
+> no semantic change):
+> - **Migration version:** `CURRENT_VERSION = 29` (`db/schema.py:15`); M12 added no
+>   migration → **v30 is still the correct next version**.
+> - **AgentConfig** persists as dedicated SQLite columns; `max_iterations`
+>   (`agent/config.py:265`, DDL `db/schema.py:55`) is the field precedent; the
+>   model + migration + `save()` (`db/repositories.py:121`) + `_row_to_config()`
+>   (`:226`) atomic-leg requirement is real (in-code IndexError note at `:240`).
+> - **General-tab Behavior section** intact (`general-tab.js:116-121`); the Danger-Zone
+>   `App.confirmDelete` arm-then-fire pattern (`:123-132`) is reusable for "Purge now".
+> - **ChatSessionRepository** (`db/repositories.py:905`): single `delete()` by id exists;
+>   no agent-wide / by-age primitive (both new). Sessions key on `agent_name`.
+> - **`updated_at`** is bumped on engaged turns only — interactive (`:1020`) and connector
+>   (`update_last_inbound`, `:1073`, called at `_inbound.py:928`); silenced/denied inbounds
+>   do **not** bump (`_inbound.py:854`). No new bumping logic needed.
+> - **Connector sessions** are keyed by `agent_name` (`connectors/_session.py:183`), so an
+>   agent-scoped DB delete sweeps connector conversations too. (F05's reaper is web-UI-only;
+>   connector sessions are DB-direct — unaffected.)
+> - **Lifespan precedent (favorable drift):** M12 F05 added a lifespan-wired web-session
+>   idle reaper with a shutdown drain (`app.py` loop `:512`, start `:113`, drain `:539`,
+>   wired `:232`) — a closer precedent for the daily-purge task than the `mcp/oauth` sweep
+>   originally cited. **Flight 3 mirrors the F05 reaper shape.**
+>
+> The architect viability re-check (Phase 4b) returned **feasible** — all three flights
+> remain viable; no draft file:line target was invalidated. New gate to satisfy: M12's
+> ruff lint/format CI now blocks PRs, so all new code must pass `ruff check` + `ruff format --check`.
 
 ## Outcome
 
@@ -77,8 +96,12 @@ policy.
 - Planning skills produce documentation only; implementation happens via flights under
   `/agentic-workflow`. No source changes during planning.
 - The automated purge must integrate with the existing FastAPI lifespan lifecycle (started
-  at startup, cancelled cleanly at shutdown), consistent with existing periodic-task
-  precedent. No new scheduler dependency unless a flight justifies it.
+  at startup, cancelled cleanly at shutdown), mirroring the M12 F05 web-session-reaper
+  pattern (`app.py` loop `:512` / start `:113` / drain `:539` / wired `:232`). No new
+  scheduler dependency unless a flight justifies it.
+- The daily purge is **due-based with startup catch-up**: it persists a global
+  `last_purge_at` and runs only when ≥24h have elapsed since the last run — so it is not
+  re-run on every restart, but a window missed during downtime is honored on next startup.
 - Destructive operations (manual and automated) must scope strictly to the target agent;
   no cross-agent bleed.
 
@@ -97,9 +120,16 @@ policy.
   table). Adding `chat_history_retention_days` **requires a schema migration (v30)**. The
   Pydantic field, the migration, the `save()` column, and the `_row_to_config()` decode
   must all land in the **same leg** (atomic-leg pattern) to avoid an `IndexError` on load.
-- [ ] **Daily cadence trigger** — a 24h interval loop from startup (mirroring the existing
-  `mcp/oauth/_state.py` periodic-sweep precedent) is the planned approach. Confirm during
-  the automated-purge flight whether a specific wall-clock time-of-day is required instead.
+- [x] **Daily cadence trigger** → Resolved: a **due-based catch-up scheduler**, not a naive
+  interval-from-startup. Persist a single global `last_purge_at` timestamp; **check it on
+  startup** and run the purge only if `now - last_purge_at >= 24h`. This means: NOT purged on
+  every startup (a recent run is skipped), but a missed window self-heals (if the app was down
+  when a run was due, it runs on next startup). After running, update `last_purge_at`; the
+  lifespan loop then re-checks on a cadence (sleep until next-due, or a coarse periodic wake)
+  and purges-if-due. The loop is wired into the FastAPI lifespan mirroring the **M12 F05
+  web-session reaper** shape (start at `app.py:113`, shutdown-drain at `:539`/`:232`). The
+  storage for `last_purge_at` (a small metadata row vs a settings store) is a Flight-3 design
+  decision — it is global (one daily sweep covers all agents), not per-agent.
 - [x] **Applying retention to pre-existing history on first ship** → Resolved: existing
   conversations simply become subject to the default 30-day policy going forward. The v30
   migration backfills `chat_history_retention_days = 30` on existing agents; no backfill or
@@ -125,10 +155,17 @@ _None yet — emergent blockers will be recorded here as flights surface them._
   "Purge now" button with a confirmation step to the General tab (reusing the existing
   confirm-delete UI pattern), and wire it up. Behavior-test the confirm-then-history-gone
   flow.
-- [ ] Flight 3: **Daily Automatic Purge** — add a daily background process, wired into the
-  FastAPI lifespan (mirroring the `mcp/oauth` periodic-sweep module shape, started at
-  startup and cancelled cleanly at shutdown), that deletes each agent's conversations whose
-  last engaged interaction predates that agent's retention window; verify newer
-  conversations, other agents, and the active connector session are untouched
+- [ ] Flight 3: **Daily Automatic Purge** — add a daily background process wired into the
+  FastAPI lifespan (mirroring the **M12 F05 web-session reaper** shape — loop + `create_task`
+  start + shutdown-drain at `app.py:512/113/539/232`), using the **due-based catch-up**
+  trigger (persist a global `last_purge_at`; on startup and on each cadence wake, purge only
+  if ≥24h elapsed; update the timestamp after). It deletes each agent's conversations whose
+  last engaged interaction (`updated_at`) predates that agent's retention window; verify
+  newer conversations, other agents, and the active connector session are untouched
   (behavior-tested by seeding interactive and connector sessions with aged `updated_at`
-  timestamps).
+  timestamps, plus a restart-catch-up case: down-through-a-due-window → purge runs on next
+  startup; recent-run → startup skips).
+- [ ] Flight 4 *(optional)*: **Alignment** — a vibe-coding session to tune the retention UX
+  hands-on after the structured flights land (e.g. the input's placement/labeling/help text,
+  the default value's feel, the purge-now confirm wording, any empty-state messaging).
+  Creative collaboration, not structured execution; run only if the operator wants the polish pass.
