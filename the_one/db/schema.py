@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 29
+CURRENT_VERSION = 30
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1838,3 +1838,26 @@ CREATE INDEX idx_chat_sessions_external_key
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (29,))
         await conn.commit()
         version = 29
+
+    if version < 30:
+        # M13 F01 L01 — per-agent chat-history retention. Additive NOT NULL
+        # column with a constant DEFAULT 30, which backfills existing agents
+        # to the default 30-day policy (mission Open Q resolved). PRAGMA guard
+        # + INSERT OR IGNORE last (partial-apply safe), mirroring v29.
+        # Defensive: skip when ``agents`` is missing (hand-built partial-
+        # schema test fixtures that don't run through the full migration chain).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agents'"
+        ) as cursor:
+            agents_table_present = (await cursor.fetchone()) is not None
+        if agents_table_present:
+            async with conn.execute("PRAGMA table_info(agents)") as cursor:
+                agent_cols = {row[1] for row in await cursor.fetchall()}
+            if "chat_history_retention_days" not in agent_cols:
+                await conn.execute(
+                    "ALTER TABLE agents ADD COLUMN "
+                    "chat_history_retention_days INTEGER NOT NULL DEFAULT 30"
+                )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (30,))
+        await conn.commit()
+        version = 30

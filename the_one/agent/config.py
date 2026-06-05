@@ -263,6 +263,7 @@ class AgentConfig(BaseModel):
 
     # Behavior
     max_iterations: int = 20
+    chat_history_retention_days: int = Field(default=30, ge=1, le=365)
 
     @field_validator("connector_acls", mode="after")
     @classmethod

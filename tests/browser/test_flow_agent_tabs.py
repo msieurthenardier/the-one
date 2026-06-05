@@ -307,3 +307,42 @@ def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> No
     # Should carry the .test-result-ok or .test-result-fail modifier.
     cls = result.get_attribute("class") or ""
     assert "test-result-ok" in cls or "test-result-fail" in cls
+
+
+@pytest.mark.browser
+def test_retention_days_input_renders_above_max_iterations(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Retention-days input renders in the Behavior section above Max Iterations.
+
+    Asserts:
+    - [data-field="chat_history_retention_days"] is visible with the correct
+      id, type, min, and max attributes.
+    - The retention input precedes [data-field="max_iterations"] in DOM order
+      (compareDocumentPosition idiom — see test_flow_studio_mcp_editor.py).
+    """
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    retention_input = page.locator('[data-field="chat_history_retention_days"]')
+    expect(retention_input).to_be_visible()
+    assert retention_input.get_attribute("id") == "studio-retention-days"
+    assert retention_input.get_attribute("type") == "number"
+    assert retention_input.get_attribute("min") == "1"
+    assert retention_input.get_attribute("max") == "365"
+
+    # DOM-order check: retention input must precede max_iterations input.
+    # Node.compareDocumentPosition returns a bitmask; bit 2 (value 4,
+    # DOCUMENT_POSITION_FOLLOWING) is set when the argument follows the caller.
+    retention_before_maxiter = page.evaluate(
+        "() => {"
+        "  var r = document.querySelector('[data-field=\"chat_history_retention_days\"]');"
+        "  var m = document.querySelector('[data-field=\"max_iterations\"]');"
+        "  if (!r || !m) return false;"
+        "  return !!(r.compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING);"
+        "}"
+    )
+    assert retention_before_maxiter, (
+        "chat_history_retention_days input must precede max_iterations in DOM order"
+    )

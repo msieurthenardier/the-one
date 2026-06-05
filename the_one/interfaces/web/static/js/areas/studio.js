@@ -1927,6 +1927,9 @@ App.registerArea({
         if (!key) continue;
         if (key === 'max_iterations') {
           data[key] = parseInt(f.value, 10) || 20;
+        } else if (key === 'chat_history_retention_days') {
+          var n = parseInt(f.value, 10);
+          data[key] = Number.isNaN(n) ? 30 : n;
         } else if (key === 'provider_config_id') {
           data[key] = f.value || null;
         } else {

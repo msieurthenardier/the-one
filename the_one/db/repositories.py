@@ -127,8 +127,9 @@ class SQLiteAgentStore:
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
                 kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
                 connector_ids, connector_acls,
-                connector_always_listen, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                connector_always_listen, chat_history_retention_days,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -144,6 +145,7 @@ class SQLiteAgentStore:
                 connector_ids=excluded.connector_ids,
                 connector_acls=excluded.connector_acls,
                 connector_always_listen=excluded.connector_always_listen,
+                chat_history_retention_days=excluded.chat_history_retention_days,
                 updated_at=excluded.updated_at
             """,
             (
@@ -166,6 +168,7 @@ class SQLiteAgentStore:
                     if config.connector_always_listen is not None
                     else None
                 ),
+                config.chat_history_retention_days,
                 now,
                 now,
             ),
@@ -264,6 +267,7 @@ class SQLiteAgentStore:
                 if row["connector_always_listen"]
                 else None
             ),
+            chat_history_retention_days=row["chat_history_retention_days"],
         )
 
 

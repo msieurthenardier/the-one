@@ -274,9 +274,9 @@ class TestSchemaV8:
             f"dm-allowlist-simplify v28 migration (got {CURRENT_VERSION})"
         )
         # M11 F17 L10 (Leg F): v29 adds replay-context columns to
-        # pending_approvals; CURRENT_VERSION is now 29.
-        assert CURRENT_VERSION == 29, (
-            "CURRENT_VERSION must be 29 after the M11 F17 L10 (Leg F) "
+        # pending_approvals; CURRENT_VERSION is now at least 29.
+        assert CURRENT_VERSION >= 29, (
+            "CURRENT_VERSION must be >= 29 after the M11 F17 L10 (Leg F) "
             f"respond-on-approval v29 migration (got {CURRENT_VERSION})"
         )
 
@@ -5014,9 +5014,9 @@ class TestSchemaV29:
 
         await ensure_schema(conn)
 
-        # CURRENT_VERSION is now 29.
-        assert CURRENT_VERSION == 29, (
-            f"CURRENT_VERSION must be 29 after Leg F v29 migration (got {CURRENT_VERSION})"
+        # CURRENT_VERSION is now at least 29.
+        assert CURRENT_VERSION >= 29, (
+            f"CURRENT_VERSION must be >= 29 after Leg F v29 migration (got {CURRENT_VERSION})"
         )
 
         # All four replay-context columns are present, TEXT or INTEGER, nullable.
@@ -5119,5 +5119,135 @@ class TestSchemaV29:
         async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert versions.count(29) == 1, f"v29 row should appear exactly once: {versions}"
+
+        await conn.close()
+
+
+assert CURRENT_VERSION >= 30, (
+    f"CURRENT_VERSION must be >= 30 for TestSchemaV30 tests (got {CURRENT_VERSION})"
+)
+
+
+class TestSchemaV30:
+    """Tests for the v30 migration: additive chat-history retention column on
+    ``agents``.
+
+    M13 F01 L01 — per-agent chat-history retention. One NOT NULL INTEGER column
+    with DEFAULT 30: ``chat_history_retention_days``.
+    """
+
+    async def test_v30_fresh_db_has_retention_column(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → chat_history_retention_days exists on agents."""
+        db_path = tmp_path / "v30-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        # Column present, correct type, NOT NULL, default 30.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+
+        assert "chat_history_retention_days" in cols, (
+            "v30 migration missing: column `chat_history_retention_days` absent on "
+            "agents after fresh ensure_schema"
+        )
+        col = cols["chat_history_retention_days"]
+        assert col["type"] == "INTEGER", col["type"]
+        assert col["notnull"] == 1, col["notnull"]
+        assert col["dflt_value"] == "30", col["dflt_value"]
+
+        # schema_version head pointer at CURRENT_VERSION (30).
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        assert row[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v30_migration_on_v29_fixture_adds_column_backfills_rows(self, tmp_path) -> None:
+        """Hand-build a v29-shaped DB with an existing agent row (no
+        chat_history_retention_days column yet), run ensure_schema, and verify
+        the column exists and the existing agent row reads back with 30 (the
+        DEFAULT backfill)."""
+        db_path = tmp_path / "v30-from-v29.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build a minimal v29-shaped schema (agents table WITHOUT the new
+        # column, schema_version seeded at 29). This is a fresh file, so there
+        # is no table to skip with IF NOT EXISTS.
+        await conn.execute(
+            """
+            CREATE TABLE agents (
+                name TEXT PRIMARY KEY,
+                description TEXT,
+                provider_config_id TEXT,
+                llm_model TEXT,
+                system_prompt TEXT,
+                enabled_tools TEXT,
+                disabled_tools TEXT NOT NULL DEFAULT '[]',
+                max_iterations INTEGER NOT NULL DEFAULT 20,
+                kb_ids TEXT NOT NULL DEFAULT '[]',
+                mcp_source_ids TEXT NOT NULL DEFAULT '[]',
+                tool_overrides TEXT,
+                mcp_overrides TEXT,
+                connector_ids TEXT NOT NULL DEFAULT '[]',
+                connector_acls TEXT,
+                connector_always_listen TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        await conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (29,))
+        # Insert an agent row before migration (no chat_history_retention_days column).
+        await conn.execute(
+            "INSERT INTO agents (name, disabled_tools, kb_ids, mcp_source_ids, connector_ids, "
+            "created_at, updated_at) VALUES (?, '[]', '[]', '[]', '[]', datetime('now'), "
+            "datetime('now'))",
+            ("pre-v30-agent",),
+        )
+        await conn.commit()
+
+        # Run ensure_schema — only v30 fires (v29 is already in schema_version).
+        await ensure_schema(conn)
+
+        # Column now exists.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "chat_history_retention_days" in cols, (
+            "column `chat_history_retention_days` missing after v30 migration"
+        )
+
+        # Existing agent row reads back with 30 (DEFAULT backfill).
+        async with conn.execute(
+            "SELECT chat_history_retention_days FROM agents WHERE name = 'pre-v30-agent'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 30, f"expected 30 (DEFAULT backfill), got {row[0]}"
+
+        # Head pointer at CURRENT_VERSION.
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        assert row[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v30_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice leaves v30 in schema_version exactly once."""
+        db_path = tmp_path / "v30-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(30) == 1, f"v30 row should appear exactly once: {versions}"
 
         await conn.close()
