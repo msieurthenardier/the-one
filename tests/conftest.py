@@ -54,6 +54,53 @@ def pytest_configure(config: pytest.Config) -> None:
         "THE_ONE_DATA_DIR",
         tempfile.mkdtemp(prefix="the-one-pytest-"),
     )
+    _daemonize_aiosqlite_worker_threads()
+
+
+def _daemonize_aiosqlite_worker_threads() -> None:
+    """Make aiosqlite's per-connection worker thread a daemon (TEST-ONLY).
+
+    Root cause of the long-standing "broad pytest wedges for hours AFTER the
+    summary line" KI (and the recurring, mis-labelled-as-benign "aiosqlite
+    teardown ResourceWarning"):
+
+    aiosqlite 0.22's ``Connection`` spawns a **non-daemon** ``Thread``
+    (``core.py``: ``Thread(target=_connection_worker_thread, ...)`` — no
+    ``daemon=True``). That thread is stopped only by ``Connection.close()``,
+    which signals it via ``call_soon_threadsafe`` **on the event loop the
+    connection was created on**. Under pytest-asyncio's per-test event loops, a
+    connection opened in test A's loop and not closed before that loop is torn
+    down leaves an orphaned worker thread bound to a now-closed loop; a later
+    ``close()`` then raises ``RuntimeError: Event loop is closed`` and the thread
+    never exits. Because it is non-daemon, ``threading._shutdown`` **joins** it
+    at interpreter exit → the pytest process hangs forever after printing its
+    summary (all tests already passed). The ``_close_db_singleton_at_session_end``
+    fixture below cannot fix this: it only handles the singleton, and its
+    ``close()`` hits the same closed-loop ``RuntimeError``.
+
+    Daemonizing the worker thread lets the interpreter exit cleanly regardless of
+    cross-loop leaks. This is test-only and safe: production closes the singleton
+    on its single long-lived lifespan loop (no leak there), and the only
+    connections still alive at interpreter exit here are abandoned throwaway test
+    DBs in tmp dirs. Patching ``__init__`` sets ``daemon`` after the thread is
+    created but before it is ``start()``ed (aiosqlite starts it lazily in
+    ``connect()``), which is the only window ``Thread.daemon`` may be assigned.
+    """
+    import aiosqlite.core as _aiosqlite_core
+
+    conn_cls = _aiosqlite_core.Connection
+    if getattr(conn_cls, "_the_one_daemonized", False):
+        return  # idempotent — pytest_configure can run more than once
+    _orig_init = conn_cls.__init__
+
+    def _init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        _orig_init(self, *args, **kwargs)
+        thread = getattr(self, "_thread", None)
+        if thread is not None and not thread.is_alive():
+            thread.daemon = True
+
+    conn_cls.__init__ = _init
+    conn_cls._the_one_daemonized = True
 
 
 @pytest.fixture(autouse=True, scope="session")
