@@ -1,6 +1,6 @@
 # Leg: fetch-json-helper
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Cleanup Grab-Bag](../flight.md)
 
 ## Objective
@@ -18,11 +18,11 @@ Extract a shared `App.api.fetchJson(url, opts)` helper that centralizes the ok-c
 - Call sites in the studio JS switched to it.
 
 ## Acceptance Criteria
-- [ ] A single shared helper performs: fetch → ok-check → on-error parse JSON `detail` → flatten 422 `loc/msg` arrays → snippet fallback → throw a consistent error; on success returns parsed JSON
-- [ ] The two duplicated ~25-line blocks in `connector-editor.js` are replaced by calls to the helper
-- [ ] Other raw `resp.ok` sites in the studio JS are migrated where the pattern fits (at minimum the connector-editor ones)
-- [ ] **Error rendering is unchanged** from the user's perspective (same messages for 422, same snippet fallback)
-- [ ] Existing browser tests covering connector save/create error paths stay green
+- [x] A single shared helper performs: fetch → ok-check → on-error parse JSON `detail` → flatten 422 `loc/msg` arrays → snippet fallback → throw a consistent error; on success returns parsed JSON
+- [x] The two duplicated ~25-line blocks in `connector-editor.js` are replaced by calls to the helper
+- [x] Other raw `resp.ok` sites in the studio JS are migrated where the pattern fits (at minimum the connector-editor ones)
+- [x] **Error rendering is unchanged** from the user's perspective (same messages for 422, same snippet fallback)
+- [x] Existing browser tests covering connector save/create error paths stay green
 
 ## Verification Steps
 - `grep -c "\.ok" the_one/interfaces/web/static/js/areas/studio/connector-editor.js` — materially fewer hand-rolled checks
@@ -51,10 +51,10 @@ Extract a shared `App.api.fetchJson(url, opts)` helper that centralizes the ok-c
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight: (not final)
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight: (not final)
+- [x] Commit all changes together (code + artifacts)

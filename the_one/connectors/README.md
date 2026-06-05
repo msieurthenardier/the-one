@@ -96,28 +96,25 @@ will add two more:
   declared on the `ConnectorPlugin` Protocol.
 - `CommandHandler` Protocol (F7 L1) — declared in `base.py`. Connectors
   that want to register platform-native command surfaces (Discord slash
-  commands in F8, Slack in F9) structurally satisfy it in addition to
-  `ConnectorPlugin`. Handler may return `None` to fall through to the
-  dispatcher's built-in text-prefix parser (F7 L5); returns
-  `CommandResponse(text=...)` to emit a response via the system-outbound
-  path. NOT a `ConnectorPlugin` widening.
+  commands in F8) structurally satisfy it in addition to `ConnectorPlugin`.
+  Handler may return `None` to fall through to the dispatcher's built-in
+  text-prefix parser (F7 L5); returns `CommandResponse(text=...)` to emit a
+  response via the system-outbound path. NOT a `ConnectorPlugin` widening.
 
 Per the `structural-Protocol-satisfaction` convention, real connectors
-(Discord — Flight 8; the second connector — Flight 9) do NOT inherit from
-the Protocols. They simply expose methods with the right names + signatures
-and the runtime-checkable Protocols accept them. Each Protocol a connector
-claims to satisfy is asserted via `isinstance(conn, ProtocolType)` in the
-per-platform integration tests — structural satisfaction is per-Protocol,
-not subsystem-wide.
+(Discord — Flight 8) do NOT inherit from the Protocols. They simply expose
+methods with the right names + signatures and the runtime-checkable Protocols
+accept them. Each Protocol a connector claims to satisfy is asserted via
+`isinstance(conn, ProtocolType)` in the per-platform integration tests —
+structural satisfaction is per-Protocol, not subsystem-wide.
 
 "Single contract file" (the mission criterion) means one `base.py`, not one
 Protocol. Multiple Protocols in one file satisfy the criterion.
 
 ### Skeleton for a real plugin
 
-Reference shape for Flight 8 (Discord) and Flight 9 (the second connector).
-The platform is intentionally hypothetical — Discord and Slack ergonomics are
-out of scope for this skeleton.
+Reference shape for a connector plugin. The platform below is intentionally
+hypothetical — actual platform ergonomics are out of scope for this skeleton.
 
 ```python
 # Registered via register_builtin_connectors() in connectors/registry.py —
@@ -379,7 +376,7 @@ invariant" for the full discussion and rationale.
 
 ## §10. Required capabilities (Protocol-widening)
 
-F4 widened `ConnectorClient` with `async def send(target: OutboundTarget, content: str) -> SendResult` (Mission 10 leg 1 of Flight 4). Every connector in scope (stub, Discord at F8, the second connector at F9) MUST implement this method — outbound is the only path from agent to platform, and the `SendToPlatformChannelTool` (the sole production caller) depends on the method being callable.
+F4 widened `ConnectorClient` with `async def send(target: OutboundTarget, content: str) -> SendResult` (Mission 10 leg 1 of Flight 4). Every connector MUST implement this method — outbound is the only path from agent to platform, and the `SendToPlatformChannelTool` (the sole production caller) depends on the method being callable.
 
 The widening is non-breaking for existing implementations that already provide all the methods the widened Protocol requires. A class missing the new method fails the `runtime_checkable` isinstance check after widening — Python's Protocol semantics check method-name presence at call time, not at type definition. `tests/test_connectors.py::test_client_missing_send_fails_check` pins this behavior.
 

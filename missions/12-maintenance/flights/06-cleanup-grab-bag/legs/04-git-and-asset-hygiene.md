@@ -1,6 +1,6 @@
 # Leg: git-and-asset-hygiene
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Cleanup Grab-Bag](../flight.md)
 
 ## Objective
@@ -20,11 +20,11 @@ Maintenance report 2026-06-04, Category 7 findings:
 - Re-exported (meaningfully smaller) brand PNGs at the correct dimensions.
 
 ## Acceptance Criteria
-- [ ] `origin/docs/acl-recon-reason-string-convention`, `origin/flight/16-pairing-peers-dm-only`, `origin/flight/17-daily-driver-gate` are deleted from the remote
-- [ ] No local tracking branches dangle for the deleted remotes
-- [ ] `gleepglorp_small.png` is re-exported at its intended (smaller) dimensions and file size, materially below `gleepglorp_med.png`
-- [ ] `gleepglorp_med.png` is re-compressed if it can shrink without visible quality loss
-- [ ] The brand images still render correctly wherever they're referenced (no broken `src`)
+- [x] `origin/docs/acl-recon-reason-string-convention`, `origin/flight/16-pairing-peers-dm-only`, `origin/flight/17-daily-driver-gate` are deleted from the remote
+- [x] No local tracking branches dangle for the deleted remotes
+- [x] `gleepglorp_small.png` is re-exported at its intended (smaller) dimensions and file size, materially below `gleepglorp_med.png`
+- [x] `gleepglorp_med.png` is re-compressed if it can shrink without visible quality loss
+- [x] The brand images still render correctly wherever they're referenced (no broken `src`)
 
 ## Verification Steps
 - `git ls-remote --heads origin` → the 3 branches absent
@@ -61,12 +61,12 @@ Maintenance report 2026-06-04, Category 7 findings:
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight:
-  - [ ] Update flight.md status to `landed`
-  - [ ] Check off flight in mission.md
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `landed` (in this file's header)
+- [x] Check off this leg in flight.md (Flight Director)
+- [x] If final leg of flight:
+  - [x] Update flight.md status to `landed` (Flight Director)
+  - [x] Check off flight in mission.md (Flight Director)
+- [x] Commit all changes together (Flight Director)

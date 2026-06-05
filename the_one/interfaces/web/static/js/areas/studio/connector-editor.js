@@ -1514,35 +1514,11 @@
     var originalLabel = saveBtn.textContent;
     saveBtn.textContent = 'Saving…';
 
-    fetch('/api/connectors/' + encodeURIComponent(account.id), {
+    App.api.fetchJson('/api/connectors/' + encodeURIComponent(account.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-      .then(function (r) {
-        if (!r.ok) {
-          return r.text().then(function (body) {
-            var detail;
-            try {
-              var parsed = JSON.parse(body);
-              detail = parsed && parsed.detail;
-            } catch (_) { /* non-JSON body */ }
-            if (Array.isArray(detail)) {
-              detail = detail.map(function (d) {
-                var loc = (d.loc || []).join('.');
-                return loc ? (loc + ': ' + d.msg) : d.msg;
-              }).join(' | ');
-            }
-            if (!detail) {
-              var snippet = (body || '').trim().slice(0, 500);
-              detail = 'Server error ' + r.status + ' ' + r.statusText +
-                       (snippet ? ': ' + snippet : '');
-            }
-            throw new Error(detail || 'Save failed');
-          });
-        }
-        return r.json();
-      })
       .then(function (updated) {
         window.App.showFlash(container, 'Connector saved');
         saveBtn.textContent = originalLabel;
@@ -1561,35 +1537,11 @@
     saveBtn.disabled = true;
     saveBtn.textContent = 'Creating…';
 
-    fetch('/api/connectors', {
+    App.api.fetchJson('/api/connectors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-      .then(function (r) {
-        if (!r.ok) {
-          return r.text().then(function (body) {
-            var detail;
-            try {
-              var parsed = JSON.parse(body);
-              detail = parsed && parsed.detail;
-            } catch (_) { /* non-JSON */ }
-            if (Array.isArray(detail)) {
-              detail = detail.map(function (d) {
-                var loc = (d.loc || []).join('.');
-                return loc ? (loc + ': ' + d.msg) : d.msg;
-              }).join(' | ');
-            }
-            if (!detail) {
-              var snippet = (body || '').trim().slice(0, 500);
-              detail = 'Server error ' + r.status + ' ' + r.statusText +
-                       (snippet ? ': ' + snippet : '');
-            }
-            throw new Error(detail || 'Create failed');
-          });
-        }
-        return r.json();
-      })
       .then(function (newAccount) {
         saveBtn.textContent = 'Testing…';
         return fetch('/api/connectors/' + encodeURIComponent(newAccount.id) + '/test/connect', {

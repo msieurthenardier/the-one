@@ -6,6 +6,7 @@ from typing import Any
 
 import anthropic
 
+from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
     LLMProvider,
     Message,
@@ -27,8 +28,9 @@ from the_one.llm.registry import register_provider
 # future flight can swap in raw-event iteration if higher fidelity is
 # needed. 3.7 reflects Anthropic's tokeniser density (slightly denser
 # than OpenAI's cl100k_base on English+code mixtures).
+# The shared threshold (200 bytes) and emitter logic live in
+# ``the_one.llm._streaming``; only the per-provider density lives here.
 BYTES_PER_TOKEN_ANTHROPIC = 3.7
-INTERIM_USAGE_BYTE_THRESHOLD_ANTHROPIC = 200
 
 
 class AnthropicProvider(LLMProvider):
@@ -166,30 +168,19 @@ class AnthropicProvider(LLMProvider):
                 raise
 
     async def _stream_inner(self, kwargs: dict[str, Any]) -> AsyncIterator[StreamChunk]:
-        # F7 L04: cumulative byte accumulator for mid-stream usage
-        # emission. Anthropic-specific bytes-per-token; same threshold and
-        # last-emitted-bytes pattern as OpenAI/Ollama. See module-level
+        # F7 L04 / M12 F6 L1: shared byte-emitter for mid-stream usage
+        # emission. Anthropic only uses the emitter half of
+        # ``_StreamAccumulator`` — tool calls arrive whole via
+        # ``get_final_message``, not as streaming deltas. See module-level
         # BYTES_PER_TOKEN_ANTHROPIC docstring for the cycle-1 trade-off.
-        accumulated_bytes = 0
-        last_emitted_bytes = 0
+        acc = _StreamAccumulator(bytes_per_token=BYTES_PER_TOKEN_ANTHROPIC)
         async with self.client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 yield StreamChunk(content=text, is_final=False)
                 if text:
-                    accumulated_bytes += len(text.encode("utf-8"))
-                    if (
-                        accumulated_bytes - last_emitted_bytes
-                        >= INTERIM_USAGE_BYTE_THRESHOLD_ANTHROPIC
-                    ):
-                        yield StreamChunk(
-                            content="",
-                            is_final=False,
-                            usage=TokenUsage(
-                                input_tokens=0,
-                                output_tokens=int(accumulated_bytes / BYTES_PER_TOKEN_ANTHROPIC),
-                            ),
-                        )
-                        last_emitted_bytes = accumulated_bytes
+                    interim = acc.maybe_emit_interim(text)
+                    if interim:
+                        yield interim
             final = await stream.get_final_message()
 
         content = ""

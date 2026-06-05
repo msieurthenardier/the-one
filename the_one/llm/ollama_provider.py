@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from the_one.llm import ollama_api
+from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
     LLMProvider,
     Message,
@@ -21,12 +22,9 @@ from the_one.llm.registry import register_provider
 # F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
 # Ollama hosts a heterogeneous mix of tokenisers (Llama 3, Qwen, Gemma,
 # Mistral, etc.); 3.5 is the empirical mean across the most common
-# instruction-tuned families. Tunable post-HAT.
+# instruction-tuned families. Tunable post-HAT.  The shared threshold
+# (200 bytes) and accumulator logic live in ``the_one.llm._streaming``.
 BYTES_PER_TOKEN_OLLAMA = 3.5
-# Cumulative-byte threshold between interim usage emissions. Matches
-# OpenAI's INTERIM_USAGE_BYTE_THRESHOLD so frontend re-render cadence
-# is consistent across providers.
-INTERIM_USAGE_BYTE_THRESHOLD_OLLAMA = 200
 
 
 class OllamaProvider(LLMProvider):
@@ -171,13 +169,10 @@ class OllamaProvider(LLMProvider):
             body["tools"] = [self.tool_schema(t) for t in tools]
 
         content = ""
-        tool_calls_acc: dict[int, dict[str, str]] = {}
         usage: TokenUsage | None = None
-        # F7 L04: cumulative byte accumulator for mid-stream usage emission.
-        # See OpenAIProvider.stream() for the design rationale; identical
-        # pattern with Ollama-specific BYTES_PER_TOKEN.
-        accumulated_bytes = 0
-        last_emitted_bytes = 0
+        # F7 L04 / M12 F6 L1: shared accumulator for tool-call deltas and
+        # mid-stream interim-usage emission (Ollama-specific bytes-per-token).
+        acc = _StreamAccumulator(bytes_per_token=BYTES_PER_TOKEN_OLLAMA)
 
         async for chunk_dict in ollama_api.chat_stream(
             self.base_url, body, headers=self._auth_headers()
@@ -196,32 +191,28 @@ class OllamaProvider(LLMProvider):
             if text:
                 content += text
                 yield StreamChunk(content=text, is_final=False)
-                accumulated_bytes += len(text.encode("utf-8"))
-                if accumulated_bytes - last_emitted_bytes >= INTERIM_USAGE_BYTE_THRESHOLD_OLLAMA:
-                    yield StreamChunk(
-                        content="",
-                        is_final=False,
-                        usage=TokenUsage(
-                            input_tokens=0,
-                            output_tokens=int(accumulated_bytes / BYTES_PER_TOKEN_OLLAMA),
-                        ),
-                    )
-                    last_emitted_bytes = accumulated_bytes
+                interim = acc.maybe_emit_interim(text)
+                if interim:
+                    yield interim
             for tc_delta in delta.get("tool_calls", []) or []:
                 idx = tc_delta.get("index", 0)
-                entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-                if tc_delta.get("id"):
-                    entry["id"] = tc_delta["id"]
                 fn = tc_delta.get("function", {}) or {}
-                if fn.get("name"):
-                    entry["name"] = fn["name"]
                 args = fn.get("arguments")
                 if args is not None:
                     if isinstance(args, str):
-                        entry["arguments"] += args
+                        args_str = args
                     else:
-                        # Ollama may emit arguments as a dict directly; serialise.
-                        entry["arguments"] += json.dumps(args)
+                        # Ollama may emit arguments as a dict directly; serialise
+                        # before handing the str increment to the accumulator.
+                        args_str = json.dumps(args)
+                else:
+                    args_str = ""
+                acc.feed_tool_call_delta(
+                    index=idx,
+                    id_str=tc_delta.get("id") or "",
+                    name_str=fn.get("name") or "",
+                    arguments_str=args_str,
+                )
             # Some Ollama responses surface usage on the last data line that
             # ALSO carries choices (rather than a metadata-only trailer).
             if "usage" in chunk_dict and usage is None:
@@ -231,14 +222,10 @@ class OllamaProvider(LLMProvider):
                     output_tokens=u.get("completion_tokens", 0),
                 )
 
-        tool_calls: list[ToolCall] = []
-        for idx in sorted(tool_calls_acc.keys()):
-            e = tool_calls_acc[idx]
-            try:
-                args_obj = json.loads(e["arguments"]) if e["arguments"] else {}
-            except json.JSONDecodeError:
-                args_obj = {}
-            tool_calls.append(ToolCall(id=e["id"] or e["name"], name=e["name"], arguments=args_obj))
+        tool_calls: list[ToolCall] = [
+            ToolCall(id=e["id"], name=e["name"], arguments=e["arguments"])
+            for e in acc.finalize_tool_calls()
+        ]
 
         msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
         yield StreamChunk(
