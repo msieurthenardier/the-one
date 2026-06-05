@@ -1,6 +1,6 @@
 # Flight: Retention Setting
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Chat History Retention](../../mission.md)
 
 > **Landed 2026-06-05 on automated + live-instance evidence; behavior-test live acceptance
