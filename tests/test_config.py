@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pydantic
 import pytest
 
 from the_one.agent.config import BASE_PROMPT, AgentConfig
@@ -317,3 +318,42 @@ class TestComposeSystemPrompt:
     # deleted alongside; legacy callers that still pass the kwarg
     # would now raise ``TypeError`` (no longer in the composer's
     # signature). Nothing in production code passes it.
+
+
+# ===================================================================
+# chat_history_retention_days field
+# ===================================================================
+
+
+class TestChatHistoryRetentionDaysField:
+    """Tests for AgentConfig.chat_history_retention_days — M13 F01 L01."""
+
+    def test_default_is_30(self):
+        """Default value is 30 days."""
+        cfg = AgentConfig(name="x")
+        assert cfg.chat_history_retention_days == 30
+
+    def test_boundary_1_is_valid(self):
+        """Lower bound 1 constructs successfully."""
+        cfg = AgentConfig(name="x", chat_history_retention_days=1)
+        assert cfg.chat_history_retention_days == 1
+
+    def test_boundary_365_is_valid(self):
+        """Upper bound 365 constructs successfully."""
+        cfg = AgentConfig(name="x", chat_history_retention_days=365)
+        assert cfg.chat_history_retention_days == 365
+
+    def test_zero_is_rejected(self):
+        """0 is below the lower bound and raises ValidationError."""
+        with pytest.raises(pydantic.ValidationError):
+            AgentConfig(name="x", chat_history_retention_days=0)
+
+    def test_366_is_rejected(self):
+        """366 exceeds the upper bound and raises ValidationError."""
+        with pytest.raises(pydantic.ValidationError):
+            AgentConfig(name="x", chat_history_retention_days=366)
+
+    def test_negative_is_rejected(self):
+        """-5 is below the lower bound and raises ValidationError."""
+        with pytest.raises(pydantic.ValidationError):
+            AgentConfig(name="x", chat_history_retention_days=-5)

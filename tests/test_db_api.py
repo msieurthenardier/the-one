@@ -200,6 +200,58 @@ class TestAgentAPI:
         assert resp.status_code == 200
         assert resp.json()["connector_always_listen"] is None
 
+    async def test_create_agent_persists_chat_history_retention_days(
+        self, client: AsyncClient
+    ) -> None:
+        """POST with ``chat_history_retention_days=90`` round-trips through GET.
+
+        M13 F01 L01: confirms the new per-agent retention field flows through
+        the API layer without any api.py change (Pydantic ``model_validate``
+        picks up the field automatically and ``cfg.model_dump()`` round-trips
+        it in the response).
+        """
+        payload = {
+            "name": "retention-agent",
+            "chat_history_retention_days": 90,
+        }
+        resp = await client.post("/api/agents", json=payload)
+        assert resp.status_code == 201
+        assert resp.json()["chat_history_retention_days"] == 90
+
+        # GET round-trips the field unchanged (proves the value persisted
+        # to the DB and decoded back through _row_to_config).
+        resp = await client.get("/api/agents/retention-agent")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["chat_history_retention_days"] == 90
+
+        # PUT with an updated value also round-trips correctly.
+        resp = await client.put(
+            "/api/agents/retention-agent",
+            json={"name": "retention-agent", "chat_history_retention_days": 180},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["chat_history_retention_days"] == 180
+
+        resp = await client.get("/api/agents/retention-agent")
+        assert resp.status_code == 200
+        assert resp.json()["chat_history_retention_days"] == 180
+
+    async def test_create_agent_with_out_of_range_retention_days_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        """POST with ``chat_history_retention_days=400`` (> 365) returns 422.
+
+        M13 F01 L01: the ge=1/le=365 Field bound raises ValidationError, which
+        the POST endpoint maps to HTTP 422 (mirrors the tool_overrides 422 test
+        at line 118).
+        """
+        resp = await client.post(
+            "/api/agents",
+            json={"name": "bad-retention", "chat_history_retention_days": 400},
+        )
+        assert resp.status_code == 422
+
 
 # ── Knowledge base endpoints ─────────────────────────────────────────────
 

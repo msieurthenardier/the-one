@@ -27,7 +27,8 @@
       provider_config_id: providers && providers.length > 0 ? providers[0].id : null,
       llm_model: '',
       system_prompt: '',
-      max_iterations: 20
+      max_iterations: 20,
+      chat_history_retention_days: 30
     };
 
     var html = '';
@@ -115,6 +116,10 @@
 
     // Behavior — max_iterations stays here (real AgentConfig storage).
     html += '<div class="editor-section"><div class="section-title">Behavior</div>';
+    html += '<div class="field-row"><label for="studio-retention-days">Chat History Retention (days)</label>' +
+      '<input id="studio-retention-days" class="field-input field-input-short" ' +
+      'data-field="chat_history_retention_days" type="number" value="' +
+      (cfg.chat_history_retention_days || 30) + '" min="1" max="365" /></div>';
     html += '<div class="field-row"><label for="studio-max-iterations">Max Iterations</label>' +
       '<input id="studio-max-iterations" class="field-input field-input-short" data-field="max_iterations" type="number" value="' +
       (cfg.max_iterations || 20) + '" min="1" max="100" /></div>';
