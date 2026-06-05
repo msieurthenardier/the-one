@@ -137,7 +137,16 @@ policy.
 
 ## Known Issues
 
-_None yet — emergent blockers will be recorded here as flights surface them._
+- [ ] **Flight 1 behavior-test live acceptance deferred** — the `agent-retention-setting-roundtrip`
+  Witnessed behavior test (rendered Save → reload persistence + out-of-range reject UX) was not run
+  during F1 execution: the session lacked SendMessage continuation for the live Executor/Validator
+  crew. F1 landed on automated evidence (233 unit/API tests incl. persist round-trip + 422, browser
+  placement test) and live-instance verification (all agents serve `chat_history_retention_days=30`).
+  Run the behavior test in a continuation-capable session to close the live-acceptance gap.
+- [ ] **Pre-existing a11y gap (observed during F1 review)** — the General-tab `system_prompt`
+  textarea (`general-tab.js`, System Prompt section) has no `<label for>`/`id` association
+  (WCAG 1.3.1/4.1.2). Not introduced by F1; flagged by the F1 accessibility review for a future
+  cleanup (candidate for the Flight 4 alignment pass or a maintenance flight).
 
 ## Flights
 
@@ -145,7 +154,7 @@ _None yet — emergent blockers will be recorded here as flights surface them._
 > created one at a time as work progresses. This list will evolve based on discoveries
 > during implementation.
 
-- [ ] Flight 1: **Retention Setting** — add the `chat_history_retention_days` field to
+- [x] Flight 1: **Retention Setting** — add the `chat_history_retention_days` field to
   `AgentConfig` together with its v30 schema migration, `save()` column, `_row_to_config()`
   decode, and a server-side 1–365 reject-validator (default 30) — all in one atomic leg —
   then render the input in the General tab Behavior section above Max Iterations and wire

@@ -56,6 +56,30 @@ review, single flight-level code review + commit after the last autonomous leg).
 
 ## Flight Director Notes
 
+### Flight review + landing (Flight Director)
+- **Code review (Haiku)** and **accessibility review (Sonnet)** on all uncommitted changes both
+  returned `[HANDOFF:confirmed]` — all Leg 1 + Leg 2 acceptance criteria met, migration
+  idempotent/partial-apply-safe, raw-value preservation correct, WCAG AA pass on the new input.
+  A11y noted a pre-existing (not-introduced) `system_prompt` label gap → carried to mission Known
+  Issues.
+- **Commit** `5c35275` (14 files, in scope); legs → `completed`; pushed; **draft PR #99** opened.
+- **Live-instance verification** (Flight Director, direct): the rebuilt container serves
+  `chat_history_retention_days` on all 5 agents, every value backfilled to **30** — confirms the
+  v30 migration ran against the real DB (not mocks) and round-trips through the real API.
+- **Behavior-test acceptance — DEFERRED by operator.** Started `/behavior-test
+  agent-retention-setting-roundtrip`; preconditions all met (instance up, 5 agents, Chrome MCP
+  live — verified via `list_pages`). BUT this session has no SendMessage continuation tool → the
+  Witnessed run would run in degraded re-spawn-per-step mode (~12 spawns). Surfaced the trade-off;
+  the operator initially chose to run, then elected to **defer** and land on current evidence. No
+  Executor/Validator were spawned (only a read-only browser probe), so no agent mutated state — all
+  agents remain at 30. Spec stays `draft`, Last Run `never`. Deferred follow-up recorded in mission
+  Known Issues.
+- **Landing decision**: flight → `landed`. Mission criteria 1 & 2 are substantiated by committed
+  automated tests + live verification; the behavior test's marginal add (rendered Save/reload/reject
+  UX) is the only deferred piece. Checked off Flight 1 in mission.md; left mission master
+  success-criteria boxes for the mission-debrief. PR marked ready for review with a deferral note.
+- `[COMPLETE:flight]`
+
 ### Leg 1 spot-check (Flight Director)
 - Verified the landed diff is in scope (exactly the 6 authorized files), `CURRENT_VERSION = 30`,
   the v30 block is well-formed (sqlite_master table guard + PRAGMA column guard + E501-split ALTER

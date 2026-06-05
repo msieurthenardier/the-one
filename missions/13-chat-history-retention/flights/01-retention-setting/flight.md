@@ -1,15 +1,27 @@
 # Flight: Retention Setting
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Chat History Retention](../../mission.md)
 
+> **Landed 2026-06-05 on automated + live-instance evidence; behavior-test live acceptance
+> deferred.** The operator elected to land on the strength of the committed verification
+> (233 in-container unit/API tests incl. the persist round-trip and out-of-range 422, plus the
+> browser placement test) and live-instance confirmation (the rebuilt instance serves
+> `chat_history_retention_days=30` on all existing agents — v30 migration verified against the
+> real DB). The `agent-retention-setting-roundtrip` behavior test (rendered Save/reload/reject
+> UX) was NOT run — the session lacked SendMessage continuation for the Witnessed crew. Tracked
+> as a deferred follow-up (mission Known Issues).
+
 ## Contributing to Criteria
-- [ ] Each agent exposes a chat-history retention setting (an integer number of days,
+- [x] Each agent exposes a chat-history retention setting (an integer number of days,
   constrained to 1–365, defaulting to 30) in the General tab's Behavior section,
-  positioned above Max Iterations.
-- [ ] The retention value persists across save and reload, and out-of-range values
+  positioned above Max Iterations. *(Verified: browser placement test via `compareDocumentPosition`;
+  live instance serves the field at 30 on all agents; `Field(ge=1, le=365, default=30)`.)*
+- [x] The retention value persists across save and reload, and out-of-range values
   (below 1 or above 365) are rejected with a validation error rather than silently
-  accepted or clamped.
+  accepted or clamped. *(Verified: `test_db_api.py` persist round-trip + out-of-range 422;
+  DD6 raw-value preservation sends out-of-range to the server. Rendered reload/error UX is the
+  deferred behavior test's marginal add.)*
 
 ---
 
@@ -229,11 +241,13 @@ empty during planning, so inserting above Max Iterations should not break a snap
 
 ### Completion Checklist
 - [x] Both legs completed
-- [ ] `CURRENT_VERSION == 30`; migration verified against a live SQLite DB (not only mocks)
-- [ ] `make test` green (unit + browser)
-- [ ] `ruff check` + `ruff format --check` clean
-- [ ] Behavior test `agent-retention-setting-roundtrip` passes
-- [ ] Code + artifacts committed together
+- [x] `CURRENT_VERSION == 30`; migration verified against a live SQLite DB (not only mocks) — the
+  rebuilt instance serves `chat_history_retention_days=30` on all 5 existing agents
+- [x] `make test` green (unit + browser) — 233 in-container unit/API tests; browser placement test
+- [x] `ruff check` + `ruff format --check` clean
+- [ ] Behavior test `agent-retention-setting-roundtrip` passes — **DEFERRED** (run later in a
+  SendMessage-continuation-capable session; see header note + mission Known Issues)
+- [x] Code + artifacts committed together — `5c35275`, draft PR #99
 
 ### Verification
 
