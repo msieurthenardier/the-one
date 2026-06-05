@@ -1036,6 +1036,23 @@ class ChatSessionRepository:
         await self.conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
         await self.conn.commit()
 
+    async def delete_all_for_agent(self, agent_name: str) -> int:
+        """Delete every chat session for an agent (interactive AND
+        connector-keyed) and return the number of rows removed.
+
+        Name-keyed (agents have no id column; agents.name is the PK).
+        Idempotent: returns 0 for an agent with no sessions and never
+        raises for a missing agent — the FK was dropped at schema v5,
+        so this neither cascades nor is blocked. Rename-safe because
+        rename() re-points chat_sessions.agent_name in one transaction.
+        """
+        async with self.conn.execute(
+            "DELETE FROM chat_sessions WHERE agent_name = ?", (agent_name,)
+        ) as cur:
+            count = cur.rowcount
+        await self.conn.commit()
+        return count
+
     async def purge_messages(self, session_id: str) -> None:
         """Clear messages for a session but keep the session itself."""
         async with self.conn.execute(

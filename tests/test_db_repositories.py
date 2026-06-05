@@ -2498,6 +2498,85 @@ class TestChatSessionRepository:
         assert loaded.session_metadata == {"routing": "default"}
         assert loaded.last_inbound_at == "2026-05-17T00:00:00+00:00"
 
+    # ── M13 F02 L01: agent-wide chat-history purge ───────────────────────
+
+    async def test_delete_all_for_agent_sweeps_interactive_and_connector(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """delete_all_for_agent removes BOTH an interactive session and a
+        connector-keyed session (chat_sessions rows with agent_name set),
+        returns the count, and leaves no sessions for that agent.
+        """
+        await agent_store.save(AgentConfig(name="a1"))
+        await chat_repo.create(ChatSession(id="s-interactive", agent_name="a1"))
+        await chat_repo.create(
+            ChatSession(
+                id="s-conn",
+                agent_name="a1",
+                platform="discord",
+                connector_id="acc-1",
+                channel_id="ch-1",
+            )
+        )
+        deleted = await chat_repo.delete_all_for_agent("a1")
+        assert deleted == 2
+        assert await chat_repo.list(agent_name="a1") == []
+
+    async def test_delete_all_for_agent_leaves_other_agents(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Cross-agent isolation: purging a1 must not touch a2's sessions."""
+        await agent_store.save(AgentConfig(name="a1"))
+        await agent_store.save(AgentConfig(name="a2"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="a1"))
+        await chat_repo.create(ChatSession(id="s2", agent_name="a2"))
+        deleted = await chat_repo.delete_all_for_agent("a1")
+        assert deleted == 1
+        survivors = await chat_repo.list(agent_name="a2")
+        assert len(survivors) == 1
+        assert survivors[0].id == "s2"
+
+    async def test_delete_all_for_agent_empty_is_noop(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """An agent with no sessions returns 0 and does not raise."""
+        await agent_store.save(AgentConfig(name="a1"))
+        deleted = await chat_repo.delete_all_for_agent("a1")
+        assert deleted == 0
+
+    async def test_rename_then_purge_composition(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Rename re-points chat_sessions.agent_name in one transaction, so a
+        name-keyed purge by the NEW name clears the renamed agent's sessions
+        (interactive AND connector-keyed). The OLD name resolves to zero
+        sessions because the cascade moved them, not because they were
+        deleted under the old name. A bystander agent is left intact.
+        """
+        await agent_store.save(AgentConfig(name="a1"))
+        await chat_repo.create(ChatSession(id="s-interactive", agent_name="a1"))
+        await chat_repo.create(
+            ChatSession(
+                id="s-conn",
+                agent_name="a1",
+                platform="discord",
+                connector_id="acc-1",
+                channel_id="ch-1",
+            )
+        )
+        await agent_store.save(AgentConfig(name="a2"))
+        await chat_repo.create(ChatSession(id="s-bystander", agent_name="a2"))
+
+        await agent_store.rename("a1", "a1-renamed")
+
+        deleted = await chat_repo.delete_all_for_agent("a1-renamed")
+        assert deleted == 2
+        assert await chat_repo.list(agent_name="a1-renamed") == []
+        assert await chat_repo.list(agent_name="a1") == []
+        bystander = await chat_repo.list(agent_name="a2")
+        assert len(bystander) == 1
+        assert bystander[0].id == "s-bystander"
+
     async def test_round_trip_session_metadata_dict_and_none(
         self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
     ) -> None:

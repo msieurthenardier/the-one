@@ -1,9 +1,9 @@
 # Behavior Test: Agent Retention Setting Round-Trip
 
 **Slug**: `agent-retention-setting-roundtrip`
-**Status**: draft
+**Status**: active
 **Created**: 2026-06-05
-**Last Run**: never
+**Last Run**: 2026-06-05-20-42-09 (pass, 6/6 — see `runs/`; first run 2026-06-05-20-06-29 failed Step 4 on a since-fixed error-rendering defect)
 
 ## Intent
 

@@ -137,16 +137,26 @@ policy.
 
 ## Known Issues
 
-- [ ] **Flight 1 behavior-test live acceptance deferred** — the `agent-retention-setting-roundtrip`
-  Witnessed behavior test (rendered Save → reload persistence + out-of-range reject UX) was not run
-  during F1 execution: the session lacked SendMessage continuation for the live Executor/Validator
-  crew. F1 landed on automated evidence (233 unit/API tests incl. persist round-trip + 422, browser
-  placement test) and live-instance verification (all agents serve `chat_history_retention_days=30`).
-  Run the behavior test in a continuation-capable session to close the live-acceptance gap.
-- [ ] **Pre-existing a11y gap (observed during F1 review)** — the General-tab `system_prompt`
-  textarea (`general-tab.js`, System Prompt section) has no `<label for>`/`id` association
-  (WCAG 1.3.1/4.1.2). Not introduced by F1; flagged by the F1 accessibility review for a future
-  cleanup (candidate for the Flight 4 alignment pass or a maintenance flight).
+- [x] **Flight 1 behavior-test live acceptance deferred** — RESOLVED in Flight 2. The
+  `agent-retention-setting-roundtrip` Witnessed behavior test was run during F2 execution as the
+  flight's entry gate and passed **6/6** (run `2026-06-05-20-42-09`). The first F2 run found a
+  pre-existing F1 error-rendering defect (out-of-range saves displayed `[object Object]` instead of a
+  readable message); that was fixed in F2 (`extractApiError` helper in `studio.js`) and the gate
+  re-run clean. The live-acceptance gap is closed. (Run mode was batched-Witnessed — this session
+  also lacked SendMessage continuation — but the act/judge separation was preserved.)
+- [x] **Pre-existing a11y gap (observed during F1 review)** — RESOLVED in Flight 2 (DD6). The
+  General-tab `system_prompt` textarea now has `id="studio-system-prompt"` and an associated
+  `<label for="studio-system-prompt" class="visually-hidden">` (WCAG 1.3.1/4.1.2), verified by the F2
+  accessibility review.
+- [ ] **Post-purge WebSocket `session_list` staleness (DD2a consequence)** — discovered in Flight 2,
+  affects the Chat-area session list under concurrent WS subscription. The "Purge now" endpoint deletes
+  DB rows but does not evict in-memory `_sessions` (F2 DD2a, an explicitly accepted boundary). During
+  the F2 purge behavior test, a hard reload immediately after purge briefly received a WS `session_list`
+  push still containing the just-purged sessions, even though the REST API (authoritative) returned 0; a
+  clean reload did not reproduce it. Niche (a concurrent client during the purge window) and consistent
+  with the documented DD2a trade-off, but a tidier fix would have purge broadcast an invalidating
+  `session_list` to subscribers. Candidate for Flight 3 (which already touches the purge/lifespan path)
+  or Flight 4.
 
 ## Flights
 
@@ -159,11 +169,11 @@ policy.
   decode, and a server-side 1–365 reject-validator (default 30) — all in one atomic leg —
   then render the input in the General tab Behavior section above Max Iterations and wire
   save/load. Behavior-test the set-persists-across-reload flow.
-- [ ] Flight 2: **Purge Now** — add an agent-wide "delete all conversations for this agent"
+- [x] Flight 2: **Purge Now** — add an agent-wide "delete all conversations for this agent"
   repository method (parameterized `WHERE agent_name = ?`) and API endpoint, add the
   "Purge now" button with a confirmation step to the General tab (reusing the existing
   confirm-delete UI pattern), and wire it up. Behavior-test the confirm-then-history-gone
-  flow.
+  flow. *(Landed 2026-06-05; both behavior gates green — purge 5/6, retention entry gate 6/6.)*
 - [ ] Flight 3: **Daily Automatic Purge** — add a daily background process wired into the
   FastAPI lifespan (mirroring the **M12 F05 web-session reaper** shape — loop + `create_task`
   start + shutdown-drain at `app.py:512/113/539/232`), using the **due-based catch-up**

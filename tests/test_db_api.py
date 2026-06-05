@@ -2785,6 +2785,30 @@ class TestChatSessionAPI:
         resp = await client.get("/api/chat/sessions?agent_name=a1")
         assert len(resp.json()) == 1
 
+    async def test_delete_agent_chat_sessions_returns_count(self, client: AsyncClient) -> None:
+        """M13 F02 L01: DELETE /api/agents/{name}/chat/sessions purges all of
+        an agent's sessions, returns {"status":"ok","deleted":N}, and is
+        idempotent — the no-session case returns 200 {"deleted":0}, NOT 404.
+        """
+        await client.post("/api/agents", json={"name": "a1"})
+        await client.post("/api/chat/sessions", json={"agent_name": "a1"})
+        await client.post("/api/chat/sessions", json={"agent_name": "a1"})
+
+        resp = await client.delete("/api/agents/a1/chat/sessions")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "deleted": 2}
+
+        # History is gone for that agent.
+        resp = await client.get("/api/chat/sessions?agent_name=a1")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+        # Idempotent: an agent with no sessions returns 200 {"deleted":0}, not 404.
+        await client.post("/api/agents", json={"name": "a-empty"})
+        resp = await client.delete("/api/agents/a-empty/chat/sessions")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "deleted": 0}
+
     async def test_get_session_includes_session_metadata(
         self, client: AsyncClient, tmp_path
     ) -> None:
