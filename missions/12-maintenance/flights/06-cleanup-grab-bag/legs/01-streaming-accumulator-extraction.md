@@ -1,6 +1,6 @@
 # Leg: streaming-accumulator-extraction
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Cleanup Grab-Bag](../flight.md)
 
 ## Objective
@@ -21,11 +21,11 @@ Extract a shared `_StreamAccumulator` helper that removes the near-identical str
 - OpenAI and Ollama providers feed it normalized deltas; Anthropic adopts the byte-emitter half.
 
 ## Acceptance Criteria
-- [ ] A single `_StreamAccumulator` (or equivalent helper) encapsulates tool-call delta accumulation + the byte/interim-usage emitter, parameterized by `bytes_per_token` + threshold
-- [ ] `openai_provider` and `ollama_provider` use it; the duplicated ~55-LOC blocks are gone
-- [ ] `anthropic_provider` uses the shared byte-emitter (its tool calls still come whole from `get_final_message`)
-- [ ] **No behavior change**: all existing LLM/provider streaming tests pass **without modification**
-- [ ] Net duplication reduced (~110 LOC of accumulator + ~20-LOC triplicated emitter consolidated)
+- [x] A single `_StreamAccumulator` (or equivalent helper) encapsulates tool-call delta accumulation + the byte/interim-usage emitter, parameterized by `bytes_per_token` + threshold
+- [x] `openai_provider` and `ollama_provider` use it; the duplicated ~55-LOC blocks are gone
+- [x] `anthropic_provider` uses the shared byte-emitter (its tool calls still come whole from `get_final_message`)
+- [x] **No behavior change**: all existing LLM/provider streaming tests pass **without modification**
+- [x] Net duplication reduced (~110 LOC of accumulator + ~20-LOC triplicated emitter consolidated)
 
 ## Verification Steps
 - `docker exec the-one pytest tests/ -q -k "stream or provider or llm"` green, with no edits to those tests
@@ -57,10 +57,10 @@ Extract a shared `_StreamAccumulator` helper that removes the near-identical str
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing (unchanged)
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight: (not final)
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing (unchanged)
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight: (not final)
+- [x] Commit all changes together (code + artifacts)

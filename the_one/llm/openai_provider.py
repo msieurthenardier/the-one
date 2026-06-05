@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 import openai
 
+from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
     LLMProvider,
     Message,
@@ -26,16 +27,11 @@ from the_one.llm.registry import register_provider
 DEFAULT_OPENAI_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
 
 
-# F7 L04: mid-stream usage byte-heuristic. Provider's native ``stream()``
-# only emits the final ``usage`` metadata chunk; for progressive telemetry
-# we synthesise interim ``TokenUsage`` values from the cumulative bytes
-# observed in delta text. Bytes-per-token average for OpenAI tokenisers
-# (cl100k_base) is ~4.0 across mixed English+code corpora.
+# F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
+# Bytes-per-token average for OpenAI tokenisers (cl100k_base) is ~4.0
+# across mixed English+code corpora.  The shared threshold (200 bytes)
+# and accumulator logic live in ``the_one.llm._streaming``.
 BYTES_PER_TOKEN_OPENAI = 4.0
-# Emit one interim StreamChunk(usage=...) every this-many cumulative bytes.
-# 200 bytes ≈ 50 OpenAI tokens; at ~20 tokens/sec streaming, ~one update
-# every 2.5s — smooth without flooding the frontend.
-INTERIM_USAGE_BYTE_THRESHOLD = 200
 
 
 # M08 F6.5 L01: per-model context-window lookup. OpenAI doesn't expose
@@ -188,18 +184,13 @@ class OpenAIProvider(LLMProvider):
         stream = await self.client.chat.completions.create(**kwargs)
 
         content = ""
-        tool_calls_acc: dict[int, dict[str, str]] = {}
         usage: TokenUsage | None = None
-        # F7 L04: cumulative byte accumulator for mid-stream usage emission.
-        # ``accumulated_bytes`` is monotonic (never reset). We emit an
-        # interim StreamChunk(usage=...) when the delta since
-        # ``last_emitted_bytes`` exceeds INTERIM_USAGE_BYTE_THRESHOLD. The
-        # synthesised TokenUsage carries the cumulative output_tokens
-        # estimate; frontend's updateTelemetry is last-write-wins so this
-        # gives a smoothly-increasing ``ctx:`` value during long streams.
-        accumulated_bytes = 0
-        last_emitted_bytes = 0
-        bytes_per_token = self._bytes_per_token_for_interim()
+        # F7 L04 / M12 F6 L1: shared accumulator for tool-call deltas and
+        # mid-stream interim-usage emission.  ``bytes_per_token`` is resolved
+        # at stream-open via ``_bytes_per_token_for_interim()`` so
+        # OpenRouterProvider's override (BYTES_PER_TOKEN_OPENROUTER = 4.0)
+        # still applies without baking a constant at import time.
+        acc = _StreamAccumulator(bytes_per_token=self._bytes_per_token_for_interim())
 
         async for chunk in stream:
             if not chunk.choices:
@@ -214,42 +205,24 @@ class OpenAIProvider(LLMProvider):
             if getattr(delta, "content", None):
                 content += delta.content
                 yield StreamChunk(content=delta.content, is_final=False)
-                accumulated_bytes += len(delta.content.encode("utf-8"))
-                if accumulated_bytes - last_emitted_bytes >= INTERIM_USAGE_BYTE_THRESHOLD:
-                    # Interim usage emission: cumulative output_tokens
-                    # estimate, no input_tokens (frontend's
-                    # last-write-wins handles input_tokens from the
-                    # earlier final-usage event of the previous turn or
-                    # zero on first turn).
-                    yield StreamChunk(
-                        content="",
-                        is_final=False,
-                        usage=TokenUsage(
-                            input_tokens=0,
-                            output_tokens=int(accumulated_bytes / bytes_per_token),
-                        ),
-                    )
-                    last_emitted_bytes = accumulated_bytes
+                interim = acc.maybe_emit_interim(delta.content)
+                if interim:
+                    yield interim
             if getattr(delta, "tool_calls", None):
                 for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-                    if tc_delta.id:
-                        entry["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            entry["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            entry["arguments"] += tc_delta.function.arguments
+                    acc.feed_tool_call_delta(
+                        index=tc_delta.index,
+                        id_str=tc_delta.id or "",
+                        name_str=(tc_delta.function.name or "") if tc_delta.function else "",
+                        arguments_str=(tc_delta.function.arguments or "")
+                        if tc_delta.function
+                        else "",
+                    )
 
-        tool_calls: list[ToolCall] = []
-        for idx in sorted(tool_calls_acc.keys()):
-            e = tool_calls_acc[idx]
-            try:
-                args = json.loads(e["arguments"]) if e["arguments"] else {}
-            except json.JSONDecodeError:
-                args = {}
-            tool_calls.append(ToolCall(id=e["id"] or e["name"], name=e["name"], arguments=args))
+        tool_calls: list[ToolCall] = [
+            ToolCall(id=e["id"], name=e["name"], arguments=e["arguments"])
+            for e in acc.finalize_tool_calls()
+        ]
 
         msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
         yield StreamChunk(

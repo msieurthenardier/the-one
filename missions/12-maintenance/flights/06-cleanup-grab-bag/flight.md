@@ -1,6 +1,6 @@
 # Flight: Cleanup Grab-Bag
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Maintenance (Post-M11)](../../mission.md)
 
 ## Contributing to Criteria
@@ -48,10 +48,10 @@ N/A — all items are concrete.
 Four independent legs: P5 (extract `_StreamAccumulator`), Q4 (extract `App.api.fetchJson`), DOC1–DOC5 (doc + env scrub), G1+G2 (git + asset hygiene). Each is self-contained and individually verifiable; they can land in any order.
 
 ### Checkpoints
-- [ ] Streaming-parser duplication removed, provider tests green unchanged
-- [ ] Shared fetch helper in use, error rendering unchanged
-- [ ] Docs/env accurate
-- [ ] Stale branches gone, PNGs re-exported
+- [x] Streaming-parser duplication removed, provider tests green unchanged
+- [x] Shared fetch helper in use, error rendering unchanged
+- [x] Docs/env accurate
+- [x] Stale branches gone (already), PNGs re-exported (`_small` 512×512)
 
 ### Adaptation Criteria
 
@@ -62,20 +62,20 @@ Four independent legs: P5 (extract `_StreamAccumulator`), Q4 (extract `App.api.f
 - Splitting or merging the doc/git legs if scope shifts.
 
 ### Legs
-- [ ] `01-streaming-accumulator-extraction` - Extract shared `_StreamAccumulator` (P5)
-- [ ] `02-fetch-json-helper` - Extract shared `App.api.fetchJson` (Q4)
-- [ ] `03-docs-and-env-scrub` - DOC1–DOC5 corrections
-- [ ] `04-git-and-asset-hygiene` - G1 (stale branches) + G2 (brand PNGs)
+- [x] `01-streaming-accumulator-extraction` - Extract shared `_StreamAccumulator` (P5)
+- [x] `02-fetch-json-helper` - Extract shared `App.api.fetchJson` (Q4)
+- [x] `03-docs-and-env-scrub` - DOC1–DOC5 corrections
+- [x] `04-git-and-asset-hygiene` - G1 (stale branches) + G2 (brand PNGs)
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing (provider/streaming unchanged + browser 422 path; full suite)
+- [x] Documentation updated (DOC1–DOC5; agents.md anchors)
 
 ### Verification
 Provider tests green unchanged (P5 behavior-preserving); studio JS error rendering unchanged (Q4); `grep` confirms the phantom event / stale Slack refs / dead env vars are gone (DOC1–DOC4); `git branch -a --merged main` shows the 3 branches deleted (G1); brand PNGs are meaningfully smaller (G2).

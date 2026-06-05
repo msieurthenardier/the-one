@@ -1,6 +1,6 @@
 # Leg: docs-and-env-scrub
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Cleanup Grab-Bag](../flight.md)
 
 ## Objective
@@ -24,12 +24,12 @@ Maintenance report 2026-06-04, Category 6 + Category 9 findings:
 - Corrected docs + env example matching actual behavior.
 
 ## Acceptance Criteria
-- [ ] **DOC1**: `agents.md:578` describes the actual mechanism (optimistic client update + 10s poll), not the non-existent `connector-peer-approval-resolved` event
-- [ ] **DOC2**: stale "Flight 9 / second connector / Slack" references in `README.md` + `registry.py` are removed or reframed as illustrative/hypothetical
-- [ ] **DOC3**: the 3 dead `THE_ONE_LLM_*` lines are removed from `.env.example`; `THE_ONE_LOG_LEVEL` and `THE_ONE_DATA_DIR` are added
-- [ ] **DOC4**: the operator-relevant `os.environ` tunables are documented in `.env.example` (with brief descriptions + defaults)
-- [ ] **DOC5**: `agents.md` has brief anchors for the streaming-parser accumulator (coordinate with Flight 06 Leg 1) and the singleton-connection model
-- [ ] The legacy `THE_ONE_INFERENCE_*` deprecation shim is left intact
+- [x] **DOC1**: `agents.md:578` describes the actual mechanism (optimistic client update + 10s poll), not the non-existent `connector-peer-approval-resolved` event
+- [x] **DOC2**: stale "Flight 9 / second connector / Slack" references in `README.md` + `registry.py` are removed or reframed as illustrative/hypothetical
+- [x] **DOC3**: the 3 dead `THE_ONE_LLM_*` lines are removed from `.env.example`; `THE_ONE_LOG_LEVEL` and `THE_ONE_DATA_DIR` are added
+- [x] **DOC4**: the operator-relevant `os.environ` tunables are documented in `.env.example` (with brief descriptions + defaults)
+- [x] **DOC5**: `agents.md` has brief anchors for the streaming-parser accumulator (coordinate with Flight 06 Leg 1) and the singleton-connection model
+- [x] The legacy `THE_ONE_INFERENCE_*` deprecation shim is left intact
 
 ## Verification Steps
 - `grep -rn "connector-peer-approval-resolved" the_one/` → zero (DOC1 corrected, not re-introduced)
@@ -61,10 +61,10 @@ Maintenance report 2026-06-04, Category 6 + Category 9 findings:
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing (docs-only, but run lint/suite if any code comment changed)
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight: (not final)
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing (docs-only, but run lint/suite if any code comment changed)
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight: (not final)
+- [x] Commit all changes together (code + artifacts)

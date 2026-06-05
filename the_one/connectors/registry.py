@@ -10,7 +10,7 @@ the convenience functions (:func:`register`, :func:`resolve`, :func:`types`)
 delegate to it.
 
 Future connector types are added via :func:`register_builtin_connectors` —
-flight 8 (Discord) and flight 9 (second connector) extend its body. The
+flight 8 registered ``"discord"``; additional platforms extend its body. The
 function is called once at module import time so the singleton is in its
 baseline state from the first dispatch.
 
@@ -138,7 +138,7 @@ def restore_to_baseline_for_test() -> None:
     Empties the registry then re-runs the builtin discovery hook so the
     state matches what production code sees at module import time. For
     flight 1 the baseline is empty (no builtins yet); flight 8+ this
-    restores ``"discord"`` (and Flight 9's second connector).
+    restores ``"discord"`` (the only registered builtin at this checkpoint).
     """
     _registry._plugins.clear()
     register_builtin_connectors()
@@ -153,8 +153,7 @@ def register_builtin_connectors() -> None:
     convention codified in ``_stub.py:18-19`` (and mirrored by
     ``_connector_types.py``'s docstring).
 
-    Future flights extend the body — Flight 9 (second connector) registers
-    the second platform's plugin.
+    Future flights extend the body to register additional platform plugins.
 
     Per the connector-type 6-layer checklist (``agents.md`` §"Connector
     type extension checklist"), this is layer 3 of the coordination — the

@@ -575,7 +575,7 @@ The same form-side validator (`_is_safe_provider_url`) must run on the **resolve
 
 Two API surfaces landed in F9 and were renamed by F11 L2 to use the `connectors`/`connector_id` segments (formerly the pre-rename `*_id` form). Both belong on the radar for anyone touching the Studio connector pages or the per-agent connector overlay.
 
-- **`POST /api/connectors/{connector_id}/peer-approvals/{approval_id}/approve`** and **`POST /api/connectors/{connector_id}/peer-approvals/{approval_id}/dismiss`** (F9 L3 Discord-native peer-approval action endpoints). Approve flips the `pending_approvals` row to `status='approved'` and adds the peer to the account allowlist; dismiss flips to `status='dismissed'` without mutating the allowlist. Both endpoints emit a `connector-peer-approval-resolved` event on the studio event bus so the UI updates in lockstep.
+- **`POST /api/connectors/{connector_id}/peer-approvals/{approval_id}/approve`** and **`POST /api/connectors/{connector_id}/peer-approvals/{approval_id}/dismiss`** (F9 L3 Discord-native peer-approval action endpoints). Approve flips the `pending_approvals` row to `status='approved'` and adds the peer to the account allowlist; dismiss flips to `status='dismissed'` without mutating the allowlist. The UI updates via an **optimistic DOM update** (adds `msg-pending-approval-acting` to dim and disable the banner) followed by an **on-200 status swap via `App.chat.applyApprovalStatus`** in the POST response handler (`chat.js:322-347`). The pending-approval list refreshes when the WS delivers a `session_list` event. There is no periodic poll and no studio-event-bus event for this flow.
 - **`DELETE /api/agents/{name}/connectors/{connector_id}`** (F9 L5 detach-from-Connectors-screen endpoint). Detaches the agent from the connector, releases the per-(agent, connector) pool entry, persists the `connector_ids` list change, and updates the connector's attached-agents list without a page reload. Emits `connector-agent-detached` on the studio event bus.
 
 ### MCP source secrets storage
@@ -696,6 +696,10 @@ False-positive surface is also accepted: `echo "do not run sudo"` is refused; wo
 - **Max concurrent**: `count_for_agent < max_concurrent_sessions` (default 5, `Narrow`). The L6 spec accepts a documented race on concurrent `_start` calls; the registry's internal lock has so far serialised correctly under single-process asyncio.
 - **Idle-mark prompt detection**: `_read_until_idle` blocks until the master_fd has been silent for 100ms (2s hard cap). Robust against inconsistent shell prompts (zsh themes, sudo prompts).
 - **Per-call denylist re-check** (Decision 11): every `_send` runs `_command_check(input, exec_cfg)` BEFORE forwarding. Agents cannot pre-stage a denylisted command behind an open session.
+
+### Singleton aiosqlite connection model
+
+`the_one/db/connection.py` holds a single module-level `aiosqlite.Connection` (`_connection`). The connection is lazy — created on the first `get_connection()` call — with WAL journal mode and foreign-key enforcement applied immediately after open. All repositories and schema helpers obtain the connection via `get_connection()`; there is no connection-pool layer. The lifespan handler calls `close_connection()` on shutdown, which closes and nulls the module-level reference. Tests that need a clean state re-call `init_db()` on an isolated `tmp_path` data dir.
 
 ### Web-session idle reaper
 
@@ -888,6 +892,21 @@ class StreamChunk:
 - **OpenAI**: native via `chat.completions.create(stream=True, stream_options={"include_usage": True}, ...)`. The `include_usage` flag is **required** — without it the trailing metadata chunk has no `usage` and end-of-stream telemetry breaks. Tool-call deltas accumulate by `index`.
 - **Ollama**: native via `ollama_api.chat_stream`. True SSE (`data: {...}` + `data: [DONE]` terminator), distinct from `pull_model`'s JSONL. Reuses the OpenAI-shape tool-call accumulation.
 - **Mock**: honours `config["stream_chunks"]: list[str]`. When unset, falls back to default-impl **inline** (NOT `super().stream(...)` delegation) for clarity.
+
+### `_StreamAccumulator` — shared streaming helper
+
+`the_one/llm/_streaming.py` — M12 F6 L1 consolidation of the near-identical per-provider streaming internals.
+
+**Responsibility**: encapsulates the two cross-provider concerns that previously lived as duplicated blocks in `openai_provider.py` and `ollama_provider.py` (tool-call delta accumulation) and `anthropic_provider.py` (byte→interim-usage emitter):
+
+1. **Tool-call delta accumulation** (`feed_tool_call_delta`, `finalize_tool_calls`) — keyed by `index` (OpenAI / Ollama streaming convention). Providers normalise SDK objects to `str` at the edge before calling `feed_tool_call_delta`; the accumulator is str-append-only. Ollama must `json.dumps(args)` when `arguments` arrives as a dict before handing the increment here.
+2. **Byte→interim-usage emission** (`maybe_emit_interim`) — returns a `StreamChunk(usage=…)` when the cumulative byte count since last emission crosses `threshold` (shared 200-byte default). Providers call this AFTER yielding the content chunk, then yield the returned interim chunk (if not None). Preserves the exact per-provider emit ordering.
+
+**Per-provider bytes-per-token**: passed in at stream-open as a constructor argument; OpenAI/OpenRouter use 4.0, Ollama 3.5, Anthropic 3.7. OpenRouter's `_bytes_per_token_for_interim()` override still applies because providers pass `self._bytes_per_token_for_interim()` at stream-open time (not a baked constant).
+
+**Anthropic adopts only the byte-emitter half** — its tool calls arrive whole via `get_final_message`, not as streaming deltas.
+
+**Import discipline**: `_streaming.py` imports ONLY from `the_one.llm.base` (acyclic: `base` is the leaf; `_streaming` depends only on `base`; providers depend on both).
 
 ### WS event vocabulary
 
