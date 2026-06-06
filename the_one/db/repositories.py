@@ -78,6 +78,15 @@ class SQLiteAgentStore:
         async with self.conn.execute("SELECT name FROM agents ORDER BY name") as cur:
             return [row[0] for row in await cur.fetchall()]
 
+    async def list_retention_windows(self) -> list[tuple[str, int]]:
+        """(name, chat_history_retention_days) for every agent — the
+        projection the daily purge sweep enumerates (M13 F03). Avoids the
+        full-config decode of load() per agent."""
+        async with self.conn.execute(
+            "SELECT name, chat_history_retention_days FROM agents ORDER BY name"
+        ) as cur:
+            return [(row[0], row[1]) for row in await cur.fetchall()]
+
     async def list_by_provider(self, provider_config_id: str) -> list[str]:
         """Return agent names that reference the given provider config."""
         async with self.conn.execute(
@@ -903,6 +912,37 @@ class ToolConfigRepository:
         )
 
 
+# ── App metadata repository ──────────────────────────────────────────────
+
+
+class AppMetadataRepository:
+    """Async get/set for the global ``app_metadata`` key/value store.
+
+    A single-row-per-key kv table (schema v31). Leg 3 uses it to hold the
+    daily purge's ``last_purge_at`` timestamp via ``get("last_purge_at")`` /
+    ``set("last_purge_at", <iso>)``. Generic by design — callers pass the
+    key string. Values are non-NULL strings (``value TEXT NOT NULL``).
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def get(self, key: str) -> str | None:
+        """Return the stored string for ``key``, or ``None`` if absent."""
+        async with self.conn.execute("SELECT value FROM app_metadata WHERE key = ?", (key,)) as cur:
+            row = await cur.fetchone()
+        return row[0] if row is not None else None
+
+    async def set(self, key: str, value: str) -> None:
+        """Insert or update ``key`` to ``value`` (upsert; latest value wins)."""
+        await self.conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        await self.conn.commit()
+
+
 # ── Chat session repository ──────────────────────────────────────────────
 
 
@@ -1052,6 +1092,44 @@ class ChatSessionRepository:
             count = cur.rowcount
         await self.conn.commit()
         return count
+
+    async def delete_older_than(self, agent_name: str, cutoff: str) -> list[str]:
+        """Delete an agent's chat sessions whose ``updated_at`` predates
+        ``cutoff`` and return the ids of the deleted rows.
+
+        Age-filtered, id-returning sibling of :meth:`delete_all_for_agent`
+        (M13 F03). Used by the daily purge sweep (Leg 3), which needs the
+        ids to evict the matching in-memory ``_sessions`` entries.
+
+        Comparison is LEXICAL on the ISO-8601-UTC ``updated_at`` string —
+        sound because ``updated_at`` is always written via ``now_iso()``
+        and the active-session resolver already orders lexically on it.
+        ``cutoff`` must be a ``now_iso()``-shaped string (the caller builds
+        it as ``(now_utc - timedelta(days=N)).isoformat()``).
+
+        Name-keyed and rename-safe for the same reasons as
+        :meth:`delete_all_for_agent`. Returns ``[]`` when nothing matches.
+
+        Form: SELECT the ids, then DELETE the same predicate, on the
+        serial connection (DD2 — no ``RETURNING``). Not atomic, but safe:
+        ``updated_at`` only moves forward, so an interleaving bump can only
+        move a captured row OUT of the predicate, never an uncaptured row
+        in — the returned ids are always a superset of rows actually
+        deleted (no false deletion; at worst a benign spurious eviction
+        downstream).
+        """
+        async with self.conn.execute(
+            "SELECT id FROM chat_sessions WHERE agent_name = ? AND updated_at < ?",
+            (agent_name, cutoff),
+        ) as cur:
+            ids = [row[0] for row in await cur.fetchall()]
+        if ids:
+            await self.conn.execute(
+                "DELETE FROM chat_sessions WHERE agent_name = ? AND updated_at < ?",
+                (agent_name, cutoff),
+            )
+            await self.conn.commit()
+        return ids
 
     async def purge_messages(self, session_id: str) -> None:
         """Clear messages for a session but keep the session itself."""

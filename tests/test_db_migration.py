@@ -5251,3 +5251,62 @@ class TestSchemaV30:
         assert versions.count(30) == 1, f"v30 row should appear exactly once: {versions}"
 
         await conn.close()
+
+
+class TestSchemaV31:
+    """Tests for the v31 migration: global ``app_metadata`` kv store.
+
+    M13 F03 L01 — brand-new ``app_metadata (key TEXT PRIMARY KEY, value TEXT
+    NOT NULL)`` table created via CREATE TABLE IF NOT EXISTS. Holds the daily
+    purge's ``last_purge_at`` (wired up by Leg 3). The fresh-DB path runs every
+    migration block in sequence and so exercises the new block.
+    """
+
+    async def test_v31_fresh_db_has_app_metadata_table(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → app_metadata exists, schema_version at 31."""
+        db_path = tmp_path / "v31-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        # app_metadata table present.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='app_metadata'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None, (
+            "v31 migration missing: table `app_metadata` absent after fresh ensure_schema"
+        )
+
+        # Columns: key TEXT PRIMARY KEY, value TEXT NOT NULL.
+        async with conn.execute("PRAGMA table_info(app_metadata)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "key" in cols and "value" in cols, cols
+        assert cols["key"]["pk"] == 1, cols["key"]
+        assert cols["value"]["type"] == "TEXT", cols["value"]["type"]
+        assert cols["value"]["notnull"] == 1, cols["value"]["notnull"]
+
+        # schema_version head pointer at CURRENT_VERSION (31).
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        assert row[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v31_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice leaves v31 in schema_version exactly once."""
+        db_path = tmp_path / "v31-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(31) == 1, f"v31 row should appear exactly once: {versions}"
+
+        await conn.close()

@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 30
+CURRENT_VERSION = 31
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1861,3 +1861,18 @@ CREATE INDEX idx_chat_sessions_external_key
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (30,))
         await conn.commit()
         version = 30
+
+    if version < 31:
+        # M13 F03 L01 — global app-metadata kv store. Holds the daily
+        # purge's `last_purge_at` (Leg 3). Brand-new table, so CREATE TABLE
+        # IF NOT EXISTS (idempotent / partial-apply safe), then stamp the
+        # version with INSERT OR IGNORE last, mirroring v21/v30.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_metadata ("
+            "    key TEXT PRIMARY KEY,"
+            "    value TEXT NOT NULL"
+            ")"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (31,))
+        await conn.commit()
+        version = 31

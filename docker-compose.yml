@@ -53,6 +53,9 @@ services:
       - THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1
       - THE_ONE_HOST=0.0.0.0
       - THE_ONE_DEV_MODE=true
+      # M13 F03 — dev-only test seam for the daily-purge behavior gate.
+      # Dual-gated with THE_ONE_DEV_MODE; exposes POST /api/_test/purge-sweep.
+      - THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Sandbox privilege model (F3 §10): bubblewrap requires unprivileged

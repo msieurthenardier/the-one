@@ -3752,6 +3752,23 @@ async def lookup_chat_session(
     return {"session_id": session.id if session else None}
 
 
+@router.post("/_test/purge-sweep")
+async def trigger_purge_sweep() -> dict[str, Any]:
+    """M13 F03 — dev-mode-gated test seam. Fires ONE daily-purge sweep
+    on demand (production fires on the 24h due-check, which a behavior
+    test can't wait on). Dual-gated: dev_mode AND the env flag.
+    Gating mirrors the sibling /_test/ seams (403 when off)."""
+    if not settings.dev_mode or os.environ.get("THE_ONE_PURGE_SWEEP_TEST_ENDPOINT") != "1":
+        raise HTTPException(
+            status_code=403,
+            detail="test-seam endpoint requires dev_mode + THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1",
+        )
+    from the_one.interfaces.web.app import _run_purge_sweep_and_evict
+
+    result = await _run_purge_sweep_and_evict()
+    return {"deleted": result["deleted"], "last_purge_at": result["last_purge_at"]}
+
+
 def _session_summary(session: ChatSession) -> dict[str, Any]:
     return {
         "id": session.id,

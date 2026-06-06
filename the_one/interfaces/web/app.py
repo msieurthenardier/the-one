@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+import the_one.retention as retention
 from the_one import __version__
 from the_one.agent import Agent
 
@@ -111,6 +112,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # F05 L01: start the web-session idle reaper just after the OAuth sweep.
     global _web_session_reaper_task
     _web_session_reaper_task = asyncio.create_task(_web_session_reap_loop())
+    # M13 F03 L3: start the daily chat-history purge loop just after the
+    # reaper start. Due-based catch-up on entry, then sleep+recheck.
+    global _chat_history_purge_task
+    _chat_history_purge_task = asyncio.create_task(_chat_history_purge_loop())
     # M10 F2 L6: dev-mode-gated test-seam — when
     # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
     # register the in-process StubPlugin as the 'stub' connector type so
@@ -236,6 +241,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _web_session_reaper_shutdown_drain()
     except Exception:
         logger.exception("web-session reaper shutdown failed")
+    # M13 F03 L3: drain the daily chat-history purge loop beside the
+    # web-session reaper drain. Cancels the task and suppresses CancelledError.
+    try:
+        await _chat_history_purge_shutdown_drain()
+    except Exception:
+        logger.exception("daily purge shutdown failed")
     try:
         await _session_registry_shutdown_drain()
     except Exception:
@@ -372,6 +383,11 @@ _sessions_lock: asyncio.Lock = asyncio.Lock()
 # cancelled on shutdown). Mirrors ``_reaper_task`` in
 # ``tools/_session_registry.py``.
 _web_session_reaper_task: asyncio.Task[None] | None = None
+
+# M13 F03 L3: daily chat-history purge loop task reference (started in
+# lifespan just after the reaper, cancelled on shutdown). Mirrors
+# ``_web_session_reaper_task`` above.
+_chat_history_purge_task: asyncio.Task[None] | None = None
 
 # F05 L01: reaper wake interval — a fraction of the TTL, floored at 30s.
 # Computed lazily at startup relative to the configured TTL so tests can
@@ -566,6 +582,85 @@ async def _web_session_reaper_shutdown_drain() -> None:
             logger.exception("agent.aclose() raised during web-session shutdown drain: sid=%r", sid)
 
     _web_session_reaper_task = None
+
+
+# ── Daily chat-history purge ──────────────────────────────────────────────
+
+
+def _get_purge_check_interval() -> int:
+    """THE_ONE_PURGE_CHECK_INTERVAL_SECONDS at call time; default 3600
+    (coarse — the due-check gates the actual 24h purge). Floored at 60s
+    so a 0/negative value can't tight-loop."""
+    raw = os.environ.get("THE_ONE_PURGE_CHECK_INTERVAL_SECONDS")
+    if raw is None:
+        return 3600
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        logger.warning("THE_ONE_PURGE_CHECK_INTERVAL_SECONDS=%r not an int; using 3600", raw)
+        return 3600
+
+
+async def _purge_due() -> bool:
+    conn = await get_connection()
+    last = await retention.get_last_purge_at(conn)
+    return retention.is_purge_due(last, datetime.now(timezone.utc))
+
+
+async def _run_purge_sweep_and_evict() -> dict:
+    """Run the DB sweep, then evict swept ids from the in-memory
+    _sessions registry (DD4). Three-phase, reaper shape (app.py:485–509):
+    pop under _sessions_lock; close + lock-map-pop outside it."""
+    conn = await get_connection()
+    result = await retention.run_purge_sweep(conn)
+    ids = result["ids"]
+    if not ids:
+        return result
+    evicted: list[tuple[str, Agent]] = []
+    async with _sessions_lock:
+        for sid in ids:
+            sess = _sessions.pop(sid, None)
+            if sess is not None:
+                evicted.append((sid, sess.agent))
+    for sid, agent in evicted:  # outside the lock (reaper hygiene)
+        session_locks.pop(sid, None)
+        try:
+            await agent.aclose()
+        except Exception:
+            logger.exception("agent.aclose() raised during purge eviction: sid=%r", sid)
+    logger.info(
+        "daily purge swept %d session(s); evicted %d from _sessions",
+        len(ids),
+        len(evicted),
+    )
+    return result
+
+
+async def _chat_history_purge_loop() -> None:
+    """Due-based daily purge. Catch-up on entry, then sleep+recheck.
+    M13 F03 — mirrors the F05 web-session reaper loop/start/drain."""
+
+    async def _maybe_purge() -> None:
+        try:
+            if await _purge_due():
+                await _run_purge_sweep_and_evict()
+        except Exception:
+            logger.exception("daily purge pass raised; continuing")
+
+    await _maybe_purge()  # startup catch-up (guarded)
+    while True:
+        await asyncio.sleep(_get_purge_check_interval())
+        await _maybe_purge()
+
+
+async def _chat_history_purge_shutdown_drain() -> None:
+    global _chat_history_purge_task
+    task = _chat_history_purge_task
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    _chat_history_purge_task = None
 
 
 # ── Session health classification ────────────────────────────────────────
