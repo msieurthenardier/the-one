@@ -1,6 +1,6 @@
 # Flight: Daily Automatic Purge
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Chat History Retention](../../mission.md)
 
 ## Contributing to Criteria
@@ -61,6 +61,20 @@ A dev-mode-gated test endpoint fires one sweep on demand so the behavior gate is
 No open questions remain for this flight.
 
 ### Design Decisions
+
+> **Errata (post-flight, 2026-06-06 — see [flight-debrief.md](flight-debrief.md)):** two DDs below
+> carry reasoning that was superseded during implementation and should be read with these corrections:
+> - **DD2** says "SELECT-then-DELETE **in one transaction** … no concurrent writer can slip between
+>   them." That atomicity framing is wrong — the bare `SELECT` runs outside any transaction. The
+>   actual safety guarantee is **serial connection + monotonic-forward `updated_at`**: an interleaving
+>   bump can only move a captured row *out* of the predicate, never an uncaptured row *in*, so the
+>   returned ids are always a **superset** of rows deleted (no false deletion; at worst a benign
+>   spurious `_sessions` eviction). The shipped docstring (`repositories.py` `delete_older_than`)
+>   carries the corrected reasoning.
+> - **DD5** says step 7 reads the "**unchanged** `last_purge_at`" observable. Wrong — the always-force
+>   endpoint advances `last_purge_at` on every run (`run_purge_sweep` sets it unconditionally). The
+>   behavior gate correctly asserts `deleted: 0` for idempotency instead. The due-respecting "skip if
+>   <24h" path is covered by unit tests, not the live gate.
 
 **DD1 — `last_purge_at` lives in a new `app_metadata` kv table (v31 migration, atomic leg)**:
 Add `CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)` as
