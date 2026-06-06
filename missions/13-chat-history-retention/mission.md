@@ -1,6 +1,6 @@
 # Mission: Chat History Retention
 
-**Status**: active
+**Status**: completed
 
 > **Re-validated 2026-06-05, pulled off the backlog as Mission 13.** Drafted (as `XX-`)
 > behind Mission 12 (Maintenance, Post-M11, now completed). Every dependency surface the
@@ -68,10 +68,13 @@ policy.
   accepted or clamped.
 - [ ] A "Purge now" control deletes all of that agent's conversations, but only after the
   operator explicitly confirms the destructive action.
-- [ ] A daily automated process removes every conversation whose last interaction predates
+- [x] A daily automated process removes every conversation whose last interaction predates
   the agent's retention window, while leaving conversations within the window intact.
-- [ ] Purge (both manual and automated) removes entire conversations — including
+  *(Flight 3 — due-based catch-up lifespan sweep; behavior-tested 6/6.)*
+- [x] Purge (both manual and automated) removes entire conversations — including
   connector-originated ones — and never affects another agent's conversations.
+  *(F2 manual half + F3 automated half; both behavior-tested. F3 verified aged interactive AND
+  superseded-connector rows swept, recent/active-connector/other-agent kept.)*
 
 ## Stakeholders
 
@@ -157,6 +160,14 @@ policy.
   with the documented DD2a trade-off, but a tidier fix would have purge broadcast an invalidating
   `session_list` to subscribers. Candidate for Flight 3 (which already touches the purge/lifespan path)
   or Flight 4.
+  **Partially addressed in Flight 3 (DD4):** the *automated* sweep runs in-process and **does** evict
+  matching `_sessions` entries (three-phase, mirroring the F05 reaper — pop under `_sessions_lock`, then
+  `session_locks.pop` + `agent.aclose()` outside), so the background reaper does not leave stale
+  in-memory sessions. The *manual* F2 "Purge now" HTTP endpoint still does not evict `_sessions` (it
+  runs in the repo/HTTP layer where reaching into app-state would be a boundary crossing) — so the
+  original niche-staleness window remains only for the manual path. Remaining scope: retrofit eviction
+  (or a `session_list` invalidation broadcast) onto the F2 endpoint, if judged worth it — Flight 4 or
+  the end-of-mission maintenance flight.
 
 ## Flights
 
@@ -174,7 +185,7 @@ policy.
   "Purge now" button with a confirmation step to the General tab (reusing the existing
   confirm-delete UI pattern), and wire it up. Behavior-test the confirm-then-history-gone
   flow. *(Landed 2026-06-05; both behavior gates green — purge 5/6, retention entry gate 6/6.)*
-- [ ] Flight 3: **Daily Automatic Purge** — add a daily background process wired into the
+- [x] Flight 3: **Daily Automatic Purge** — add a daily background process wired into the
   FastAPI lifespan (mirroring the **M12 F05 web-session reaper** shape — loop + `create_task`
   start + shutdown-drain at `app.py:512/113/539/232`), using the **due-based catch-up**
   trigger (persist a global `last_purge_at`; on startup and on each cadence wake, purge only
@@ -188,3 +199,4 @@ policy.
   hands-on after the structured flights land (e.g. the input's placement/labeling/help text,
   the default value's feel, the purge-now confirm wording, any empty-state messaging).
   Creative collaboration, not structured execution; run only if the operator wants the polish pass.
+  *(**Declined** at mission debrief 2026-06-06 — UX was acceptable as built; mission completed on F1–F3.)*

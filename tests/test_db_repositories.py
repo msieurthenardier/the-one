@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from the_one.agent.config import AgentConfig
 from the_one.db.models import ChatSession, Connector, KBItem, KnowledgeBase, MCPSource
 from the_one.db.repositories import (
+    AppMetadataRepository,
     ChatSessionRepository,
     ConnectorRepository,
     KBItemRepository,
@@ -38,6 +39,11 @@ async def conn(tmp_path):
 @pytest.fixture
 def agent_store(conn):
     return SQLiteAgentStore(conn)
+
+
+@pytest.fixture
+def app_metadata_repo(conn):
+    return AppMetadataRepository(conn)
 
 
 @pytest.fixture
@@ -2577,6 +2583,140 @@ class TestChatSessionRepository:
         assert len(bystander) == 1
         assert bystander[0].id == "s-bystander"
 
+    # ── M13 F03 L02: age-filtered, id-returning purge ────────────────────
+    #
+    # Explicit ISO-8601-UTC strings pin the LEXICAL updated_at comparison
+    # (DD3). aged < cutoff < recent lexically because all three share the
+    # now_iso() shape (trailing +00:00); do not mix other timestamp shapes.
+
+    async def test_delete_older_than_age_filter_and_returned_ids(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Deletes exactly the rows with updated_at < cutoff and returns
+        their ids; rows at/after the cutoff are left.
+        """
+        aged = "2020-01-01T00:00:00+00:00"
+        recent = "2099-01-01T00:00:00+00:00"
+        cutoff = "2050-01-01T00:00:00+00:00"
+        await agent_store.save(AgentConfig(name="a1"))
+        await chat_repo.create(ChatSession(id="s-aged", agent_name="a1", updated_at=aged))
+        await chat_repo.create(ChatSession(id="s-recent", agent_name="a1", updated_at=recent))
+        deleted_ids = await chat_repo.delete_older_than("a1", cutoff)
+        assert deleted_ids == ["s-aged"]
+        survivors = await chat_repo.list(agent_name="a1")
+        assert [s.id for s in survivors] == ["s-recent"]
+
+    async def test_delete_older_than_connector_sweep_active_survives(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """A connector-keyed aged row is swept; a connector-keyed recent row
+        (the active session's proxy) is kept — proving connector rows are
+        subject to the same age filter and the active session survives.
+
+        The "recent updated_at" here is the unit-level proxy for an active
+        session; true most-recent-by-external-key resolution is Leg 4's
+        behavior gate (DD4 coverage split) — not the real invariant.
+        """
+        aged = "2020-01-01T00:00:00+00:00"
+        recent = "2099-01-01T00:00:00+00:00"
+        cutoff = "2050-01-01T00:00:00+00:00"
+        await agent_store.save(AgentConfig(name="a1"))
+        await chat_repo.create(
+            ChatSession(
+                id="s-conn-aged",
+                agent_name="a1",
+                platform="discord",
+                connector_id="acc-1",
+                channel_id="ch-1",
+                updated_at=aged,
+            )
+        )
+        await chat_repo.create(
+            ChatSession(
+                id="s-conn-recent",
+                agent_name="a1",
+                platform="discord",
+                connector_id="acc-1",
+                channel_id="ch-1",
+                updated_at=recent,
+            )
+        )
+        deleted_ids = await chat_repo.delete_older_than("a1", cutoff)
+        assert deleted_ids == ["s-conn-aged"]
+        survivors = await chat_repo.list(agent_name="a1")
+        assert [s.id for s in survivors] == ["s-conn-recent"]
+
+    async def test_delete_older_than_leaves_other_agents(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Cross-agent isolation: sweeping a1 returns only a1's ids and never
+        touches a2's aged row, regardless of its updated_at.
+        """
+        aged = "2020-01-01T00:00:00+00:00"
+        cutoff = "2050-01-01T00:00:00+00:00"
+        await agent_store.save(AgentConfig(name="a1"))
+        await agent_store.save(AgentConfig(name="a2"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="a1", updated_at=aged))
+        await chat_repo.create(ChatSession(id="s2", agent_name="a2", updated_at=aged))
+        deleted_ids = await chat_repo.delete_older_than("a1", cutoff)
+        assert deleted_ids == ["s1"]
+        survivors = await chat_repo.list(agent_name="a2")
+        assert [s.id for s in survivors] == ["s2"]
+
+    async def test_delete_older_than_empty_and_all_recent_noop(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Returns [] for an agent with only recent rows (nothing matches)
+        and for an agent with no rows at all — no error either way.
+        """
+        recent = "2099-01-01T00:00:00+00:00"
+        cutoff = "2050-01-01T00:00:00+00:00"
+        await agent_store.save(AgentConfig(name="a1"))
+        await agent_store.save(AgentConfig(name="a2"))
+        await chat_repo.create(ChatSession(id="s-recent", agent_name="a1", updated_at=recent))
+        # All-recent agent: nothing predates the cutoff.
+        assert await chat_repo.delete_older_than("a1", cutoff) == []
+        assert [s.id for s in await chat_repo.list(agent_name="a1")] == ["s-recent"]
+        # Agent with no rows at all.
+        assert await chat_repo.delete_older_than("a2", cutoff) == []
+
+    async def test_delete_older_than_boundary_at_cutoff_is_kept(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """The predicate is strict ``<``, so a row whose updated_at equals the
+        cutoff exactly is KEPT (pins DD3's "predates the window" semantics).
+        """
+        cutoff = "2050-01-01T00:00:00+00:00"
+        await agent_store.save(AgentConfig(name="a1"))
+        await chat_repo.create(ChatSession(id="s-boundary", agent_name="a1", updated_at=cutoff))
+        deleted_ids = await chat_repo.delete_older_than("a1", cutoff)
+        assert deleted_ids == []
+        assert [s.id for s in await chat_repo.list(agent_name="a1")] == ["s-boundary"]
+
+    async def test_delete_older_than_rename_then_sweep_composition(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Rename re-points chat_sessions.agent_name in one transaction, so an
+        age-filtered sweep by the NEW name removes the renamed agent's aged
+        row, keeps its recent row, and leaves a bystander agent untouched.
+        """
+        aged = "2020-01-01T00:00:00+00:00"
+        recent = "2099-01-01T00:00:00+00:00"
+        cutoff = "2050-01-01T00:00:00+00:00"
+        await agent_store.save(AgentConfig(name="a1"))
+        await chat_repo.create(ChatSession(id="s-aged", agent_name="a1", updated_at=aged))
+        await chat_repo.create(ChatSession(id="s-recent", agent_name="a1", updated_at=recent))
+        await agent_store.save(AgentConfig(name="a2"))
+        await chat_repo.create(ChatSession(id="s-bystander", agent_name="a2", updated_at=aged))
+
+        await agent_store.rename("a1", "a1-renamed")
+
+        deleted_ids = await chat_repo.delete_older_than("a1-renamed", cutoff)
+        assert deleted_ids == ["s-aged"]
+        assert [s.id for s in await chat_repo.list(agent_name="a1-renamed")] == ["s-recent"]
+        bystander = await chat_repo.list(agent_name="a2")
+        assert [s.id for s in bystander] == ["s-bystander"]
+
     async def test_round_trip_session_metadata_dict_and_none(
         self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
     ) -> None:
@@ -3393,3 +3533,33 @@ class TestPendingApprovalRepository:
         await connector_repo.delete("acct-1")
         # Cascade removed the dependent row.
         assert (len(await pending_approval_repo.list_by_account("acct-1"))) == 0
+
+
+class TestAppMetadataRepository:
+    """Tests for the global app_metadata kv store (schema v31)."""
+
+    async def test_get_absent_key_returns_none(
+        self, app_metadata_repo: AppMetadataRepository
+    ) -> None:
+        assert await app_metadata_repo.get("last_purge_at") is None
+
+    async def test_set_then_get_roundtrips(self, app_metadata_repo: AppMetadataRepository) -> None:
+        await app_metadata_repo.set("last_purge_at", "2026-06-06T00:00:00Z")
+        assert await app_metadata_repo.get("last_purge_at") == "2026-06-06T00:00:00Z"
+
+    async def test_set_twice_upserts_latest_value(
+        self, app_metadata_repo: AppMetadataRepository
+    ) -> None:
+        await app_metadata_repo.set("last_purge_at", "2026-06-06T00:00:00Z")
+        # Second set on the same key must not raise (no PRIMARY KEY violation)
+        # and the latest value wins.
+        await app_metadata_repo.set("last_purge_at", "2026-06-07T12:30:00Z")
+        assert await app_metadata_repo.get("last_purge_at") == "2026-06-07T12:30:00Z"
+
+    async def test_empty_string_value_distinct_from_absent(
+        self, app_metadata_repo: AppMetadataRepository
+    ) -> None:
+        # `value TEXT NOT NULL` permits '' but not SQL NULL; get returns None
+        # only for an absent row, '' for a present-but-empty value.
+        await app_metadata_repo.set("k", "")
+        assert await app_metadata_repo.get("k") == ""
