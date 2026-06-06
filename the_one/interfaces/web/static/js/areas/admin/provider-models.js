@@ -188,7 +188,6 @@
 
       pullAbort = new AbortController();
       pullGoBtn.disabled = true;
-      pullBtn.disabled = true;
       pullNameInput.disabled = true;
       pullError.classList.add('is-hidden');
       pullProgress.classList.remove('is-hidden');
