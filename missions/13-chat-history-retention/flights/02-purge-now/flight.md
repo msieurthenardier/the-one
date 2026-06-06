@@ -1,6 +1,6 @@
 # Flight: Purge Now
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Chat History Retention](../../mission.md)
 
 ## Contributing to Criteria
