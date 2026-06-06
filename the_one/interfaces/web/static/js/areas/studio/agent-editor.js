@@ -28,7 +28,7 @@
 // synchronously before this function returns so test_flow_agent_crud.py's
 // form-field tests find [data-field="..."] selectors immediately.
 //
-// callbacks: { onBack, onDelete, onSave, onTabChange, onTestProvider,
+// callbacks: { onBack, onDelete, onPurge, onSave, onTabChange, onTestProvider,
 //              toolCategories, allTools, initialTab }
 //
 // Editor Delete button: uses App.confirmDelete via studio.js's
@@ -153,7 +153,8 @@
 
     window.App.studio.renderGeneralTab(generalPanel, agent, providers, {
       onTestProvider: callbacks.onTestProvider,
-      onDelete: callbacks.onDelete
+      onDelete: callbacks.onDelete,
+      onPurge: callbacks.onPurge
     });
     window.App.studio.renderKnowledgeTab(knowledgePanel);
     // F8 L3 — extended signature: pass agent + allMcpSources + callbacks so

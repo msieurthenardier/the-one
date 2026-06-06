@@ -108,9 +108,14 @@
 
     html += '</div>'; // .editor-section LLM
 
-    // System Prompt
+    // System Prompt — the visible section-title gives the human-readable
+    // heading; the visually-hidden <label for> supplies the programmatic
+    // label association (WCAG 1.3.1/4.1.2) without a duplicate VISIBLE label.
+    // Uses the project's `.visually-hidden` global utility (NOT `sr-only`,
+    // which does not exist in this codebase).
     html += '<div class="editor-section"><div class="section-title">System Prompt</div>';
-    html += '<textarea class="field-textarea" data-field="system_prompt" rows="8" placeholder="Instructions for the agent...">' +
+    html += '<label for="studio-system-prompt" class="visually-hidden">System Prompt</label>';
+    html += '<textarea id="studio-system-prompt" class="field-textarea" data-field="system_prompt" rows="8" placeholder="Instructions for the agent...">' +
       escapeHtml(cfg.system_prompt || '') + '</textarea>';
     html += '</div>';
 
@@ -135,6 +140,16 @@
       html += '<button type="button" class="btn-muted-destructive delete-btn" ' +
         'data-testid="delete-agent-btn" data-name="' + escapeAttr(cfg.name || '') + '">' +
         '<span data-confirm-title>Delete Agent</span></button>';
+      // Carries `delete-btn` in ADDITION to `purge-history-btn` so it inherits
+      // the shared destructive armed-state styling (`.delete-btn.confirm-delete`
+      // → red, components.css:1000) — NOT because it deletes the agent. Distinct
+      // visible text + data-testid keep it unmistakable from Delete Agent.
+      // Delete Agent is emitted FIRST so the existing
+      // `panel.querySelector('.delete-btn')` still resolves to it; purge wiring
+      // keys on the unique `.purge-history-btn` selector.
+      html += '<button type="button" class="btn-muted-destructive delete-btn purge-history-btn" ' +
+        'data-testid="purge-history-btn" data-name="' + escapeAttr(cfg.name || '') + '">' +
+        '<span data-confirm-title>Purge now</span></button>';
       html += '</div>';
     }
 
@@ -147,6 +162,10 @@
     var deleteBtn = panel.querySelector('.delete-btn');
     if (deleteBtn && callbacks.onDelete) {
       deleteBtn.addEventListener('click', function () { callbacks.onDelete(deleteBtn); });
+    }
+    var purgeBtn = panel.querySelector('.purge-history-btn');
+    if (purgeBtn && callbacks.onPurge) {
+      purgeBtn.addEventListener('click', function () { callbacks.onPurge(purgeBtn); });
     }
   }
 

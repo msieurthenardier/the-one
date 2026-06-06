@@ -3656,6 +3656,13 @@ async def delete_chat_session(session_id: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.delete("/agents/{name}/chat/sessions")
+async def delete_agent_chat_sessions(name: str) -> dict[str, Any]:
+    repo = await _chat_repo()
+    deleted = await repo.delete_all_for_agent(name)
+    return {"status": "ok", "deleted": deleted}
+
+
 @router.post("/chat/sessions/{session_id}/purge")
 async def purge_chat_messages(session_id: str) -> dict[str, str]:
     repo = await _chat_repo()

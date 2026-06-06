@@ -1503,6 +1503,7 @@ App.registerArea({
         initialTab: self._activeTab || 'general',
         onBack: handleBack,
         onDelete: handleDeleteEditor,
+        onPurge: handlePurgeHistory,
         onSave: function () { save(isCreate); },
         onCancel: function () { cancelEdit(); },
         onTabChange: function (tabId) { setActiveTab(tabId); },
@@ -1640,6 +1641,33 @@ App.registerArea({
             App.showFlash(editorEl, (err && err.message) || 'Delete failed', true);
           });
       }, { confirmLabel: 'Confirm Delete?' });
+    }
+
+    // Purge chat history (M13 F2 leg 02). Mirrors handleDeleteEditor's
+    // two-step App.confirmDelete arm-then-fire, but DELETEs the agent's chat
+    // SESSIONS (not the agent) and KEEPS the agent selected — no
+    // loadAll()/selectAgent/renderEmptyEditor. On success the deleted count is
+    // flashed in place; on transport failure the armed button reverts and an
+    // error flash shows. Reads self._selectedAgent.name (like
+    // handleDeleteEditor), not the button's data-name.
+    function handlePurgeHistory(purgeBtn) {
+      var name = self._selectedAgent ? self._selectedAgent.name : null;
+      if (!name) return;
+      App.confirmDelete(purgeBtn, function (btn, revertFn) {
+        fetch('/api/agents/' + encodeURIComponent(name) + '/chat/sessions', { method: 'DELETE' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Purge failed'); });
+            return r.json();
+          })
+          .then(function (body) {
+            var n = body && typeof body.deleted === 'number' ? body.deleted : 0;
+            App.showFlash(editorEl, 'Purged ' + n + ' conversation' + (n === 1 ? '' : 's'), false);
+          })
+          .catch(function (err) {
+            revertFn();
+            App.showFlash(editorEl, (err && err.message) || 'Purge failed', true);
+          });
+      }, { confirmLabel: 'Confirm Purge?' });
     }
 
     // Test provider — POST /api/providers/{id}/test with empty body.
@@ -1928,6 +1956,12 @@ App.registerArea({
         if (key === 'max_iterations') {
           data[key] = parseInt(f.value, 10) || 20;
         } else if (key === 'chat_history_retention_days') {
+          // DD6: preserve the raw parsed value — only NaN (empty/non-numeric)
+          // falls back to the 30-day default. A typed out-of-range value (e.g.
+          // 0 or 400) is forwarded verbatim so the server's validation rejects
+          // it with a 422 that surfaces at the UI, rather than being silently
+          // clamped to the default client-side. (Contract relied on by the
+          // agent-retention-setting-roundtrip behavior-test lower-bound variant.)
           var n = parseInt(f.value, 10);
           data[key] = Number.isNaN(n) ? 30 : n;
         } else if (key === 'provider_config_id') {
@@ -2366,7 +2400,7 @@ App.registerArea({
           body: JSON.stringify(data)
         })
           .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Create failed'); });
+            if (!r.ok) return r.json().then(function (e) { throw new Error(extractApiError(e, 'Create failed')); });
             return r.json();
           })
           .then(function (created) {
@@ -2409,7 +2443,7 @@ App.registerArea({
             .then(function (r) {
               if (!r.ok) {
                 return r.json().then(function (e) {
-                  throw new Error(typeof e.detail === 'string' ? e.detail : 'Rename failed');
+                  throw new Error(extractApiError(e, 'Rename failed'));
                 });
               }
               return r.json();
@@ -2436,7 +2470,7 @@ App.registerArea({
             });
           })
           .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
+            if (!r.ok) return r.json().then(function (e) { throw new Error(extractApiError(e, 'Save failed')); });
             return r.json();
           })
           .then(function (updated) {
@@ -2465,6 +2499,28 @@ App.registerArea({
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
+
+    // Extract a human-readable error message from a FastAPI response body.
+    // e        - the parsed JSON response body
+    // fallback - returned when no usable message can be derived
+    //
+    // FastAPI 422 bodies have e.detail as a Pydantic validation array:
+    //   [{ loc: [..., "field"], msg: "Input should be ..." }, ...]
+    // Single-string details (e.g. 404, 409 custom errors) are passed through.
+    function extractApiError(e, fallback) {
+      if (!e || !e.detail) return fallback;
+      if (typeof e.detail === 'string') return e.detail;
+      if (Array.isArray(e.detail)) {
+        var msgs = [];
+        for (var i = 0; i < e.detail.length; i++) {
+          var item = e.detail[i];
+          var field = (item.loc && item.loc.length) ? item.loc[item.loc.length - 1] : null;
+          msgs.push(field ? (field + ': ' + item.msg) : item.msg);
+        }
+        return msgs.join('; ') || fallback;
+      }
+      return fallback;
+    }
 
     var showFlash = function (msg) { App.showFlash(editorEl, msg); };
 
