@@ -1,6 +1,6 @@
 # Mission: Chat History Retention
 
-**Status**: active
+**Status**: completed
 
 > **Re-validated 2026-06-05, pulled off the backlog as Mission 13.** Drafted (as `XX-`)
 > behind Mission 12 (Maintenance, Post-M11, now completed). Every dependency surface the
@@ -199,3 +199,4 @@ policy.
   hands-on after the structured flights land (e.g. the input's placement/labeling/help text,
   the default value's feel, the purge-now confirm wording, any empty-state messaging).
   Creative collaboration, not structured execution; run only if the operator wants the polish pass.
+  *(**Declined** at mission debrief 2026-06-06 — UX was acceptable as built; mission completed on F1–F3.)*
