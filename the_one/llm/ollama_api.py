@@ -42,6 +42,25 @@ def ensure_v1(base_url: str) -> str:
     return url if url.endswith("/v1") else f"{url}/v1"
 
 
+def _ollama_error_detail(resp: httpx.Response) -> str:
+    """Extract Ollama's own error message from a non-2xx response body.
+
+    Ollama returns a JSON ``{"error": "<reason>"}`` body even on 4xx/5xx
+    (e.g. out-of-memory, unsupported operation). Surfacing it gives the
+    operator an actionable message instead of a bare HTTP status line.
+    """
+    try:
+        body = resp.json()
+        if isinstance(body, dict) and body.get("error"):
+            return str(body["error"])
+    except Exception:
+        pass
+    text = (resp.text or "").strip()
+    if text:
+        return f"HTTP {resp.status_code}: {text[:200]}"
+    return f"HTTP {resp.status_code}"
+
+
 def _parse_parameter_size(raw: str | None) -> int | None:
     """Parse Ollama's ``parameter_size`` string (e.g. ``'7B'``) to an int."""
     if not raw:
@@ -275,6 +294,12 @@ async def pull_model(base_url: str, model: str) -> AsyncIterator[dict[str, Any]]
         raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
     except httpx.TimeoutException as exc:
         raise ConnectionError(f"Timeout pulling model from Ollama at {url}: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise ValueError(f"Model '{model}' not found in the Ollama library") from exc
+        raise ValueError(
+            f"Ollama returned HTTP {exc.response.status_code} pulling '{model}' from {url}"
+        ) from exc
 
 
 async def delete_model(base_url: str, model: str) -> None:
@@ -311,6 +336,10 @@ async def load_model(base_url: str, model: str, keep_alive: str = "24h") -> None
         raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
     except httpx.TimeoutException as exc:
         raise ConnectionError(f"Timeout loading model '{model}' on Ollama at {url}: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
+        raise ValueError(
+            f"Ollama could not load model '{model}': {_ollama_error_detail(exc.response)}"
+        ) from exc
 
 
 async def unload_model(base_url: str, model: str) -> None:
@@ -342,4 +371,8 @@ async def unload_model(base_url: str, model: str) -> None:
     except httpx.TimeoutException as exc:
         raise ConnectionError(
             f"Timeout unloading model '{model}' on Ollama at {url}: {exc}"
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        raise ValueError(
+            f"Ollama could not unload model '{model}': {_ollama_error_detail(exc.response)}"
         ) from exc

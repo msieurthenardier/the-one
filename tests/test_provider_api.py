@@ -1839,12 +1839,14 @@ class TestOllamaLibrarySearch:
         assert resp.status_code == 200
         assert [m["name"] for m in resp.json()] == ["qwen2.5:7b"]
 
-    async def test_results_capped_at_30(self, client: AsyncClient) -> None:
-        models = [{"name": f"model-x-{i}", "size": 100} for i in range(50)]
+    async def test_results_not_capped(self, client: AsyncClient) -> None:
+        # Issue #93: every matching model must be reachable. The previous
+        # 30-item filtered cap silently hid models from broad searches.
+        models = [{"name": f"model-x-{i:03d}", "size": 100} for i in range(50)]
         with self._mock_httpx(models):
             resp = await client.get("/api/ollama-library/search?q=model-x")
         assert resp.status_code == 200
-        assert len(resp.json()) == 30
+        assert len(resp.json()) == 50
 
     async def test_cache_hit(self, client: AsyncClient) -> None:
         models = [

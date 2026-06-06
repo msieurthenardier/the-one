@@ -4367,10 +4367,11 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
         if not q or q in name.lower():
             results.append({"name": name, "size": str(m.get("size", 0))})
     results.sort(key=lambda r: r["name"].lower())
-    # Empty query: return the full library (capped at 500 — current Ollama
-    # library is ~100 models, headroom for growth). Filtered query keeps
-    # the legacy 30-item cap.
-    return results[:500] if not q else results[:30]
+    # No result cap: every matching model must be reachable in the picker
+    # (issue #93). The library is ~100 models and renders into a native
+    # <select>, so returning the full match set is cheap; the previous
+    # 30-item filtered cap silently hid models from broad searches.
+    return results
 
 
 # ── Encryption ───────────────────────────────────────────────────────────

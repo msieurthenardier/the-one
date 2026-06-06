@@ -311,6 +311,45 @@ class TestPullModel:
                 async for _ in ollama_api.pull_model(BASE, "model"):
                     pass
 
+    @staticmethod
+    def _stream_client_raising(status: int) -> AsyncMock:
+        """Build a mocked AsyncClient whose streamed response fails
+        ``raise_for_status()`` with the given HTTP status."""
+        resp = MagicMock()
+        resp.status_code = status
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "error", request=MagicMock(), response=resp
+        )
+        stream_cm = AsyncMock()
+        stream_cm.__aenter__ = AsyncMock(return_value=resp)
+        stream_cm.__aexit__ = AsyncMock(return_value=False)
+        instance = AsyncMock()
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        instance.stream = MagicMock(return_value=stream_cm)
+        return instance
+
+    @pytest.mark.asyncio
+    async def test_404_raises_value_error(self) -> None:
+        """A 404 (unknown model) surfaces a clean ValueError, not a raw
+        HTTPStatusError (issue #94 secondary)."""
+        instance = self._stream_client_raising(404)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            with pytest.raises(ValueError, match="not found"):
+                async for _ in ollama_api.pull_model(BASE, "nonexistent"):
+                    pass
+
+    @pytest.mark.asyncio
+    async def test_http_error_raises_value_error(self) -> None:
+        """A non-404 HTTP error surfaces a clean ValueError naming the status."""
+        instance = self._stream_client_raising(500)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            with pytest.raises(ValueError, match="HTTP 500"):
+                async for _ in ollama_api.pull_model(BASE, "boom"):
+                    pass
+
 
 # ---------------------------------------------------------------------------
 # delete_model
@@ -395,6 +434,21 @@ class TestLoadModel:
             mock_cls.return_value = instance
             with pytest.raises(ConnectionError, match="Timeout loading"):
                 await ollama_api.load_model(BASE, "model")
+
+    @pytest.mark.asyncio
+    async def test_http_error_surfaces_ollama_message(self) -> None:
+        # A 500 from /api/generate previously leaked the raw httpx
+        # "Server error '500 ...'" string. Surface Ollama's own error body
+        # (e.g. an out-of-memory message) so the operator knows why.
+        resp = _json_response(
+            {"error": "model requires more system memory than is available"},
+            status_code=500,
+        )
+        instance = _mock_client(resp)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            with pytest.raises(ValueError, match="more system memory"):
+                await ollama_api.load_model(BASE, "huge-model")
 
 
 # ---------------------------------------------------------------------------
