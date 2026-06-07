@@ -21,35 +21,24 @@ which is exactly what we capture and assert gone after close().
 
 from __future__ import annotations
 
-import shutil
-import socket
-import subprocess
-import threading
+import errno
+import os
+import signal
+import stat
+import sys
 import time
 from pathlib import Path
 
 import pytest
 
+from tests._sandbox_fixtures import (
+    home_workspace,
+    loopback_server,
+    make_denylist_secret,
+    sleep_pids,
+)
 from the_one.platform.pty import create_pty_session
 from the_one.platform.sandbox.base import SandboxProfile
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _sleep_pids() -> set[str]:
-    """Return PIDs of any 'sleep 30' processes visible in /proc."""
-    try:
-        out = subprocess.check_output(
-            ["pgrep", "-f", "sleep 30"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-        return set(out.strip().split())
-    except subprocess.CalledProcessError:
-        return set()
-
 
 # ---------------------------------------------------------------------------
 # Orphan-survival test
@@ -72,10 +61,7 @@ async def test_pty_close_reaps_namespace_grandchild(
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
     home = Path.home()
-    workspace = home / ".the-one-test-pty-orphan"
-    workspace.mkdir(exist_ok=True)
-
-    try:
+    with home_workspace("pty-orphan") as workspace:
         # Build a profile that allows writes inside the workspace and
         # sets HOME so the shell has a writable home directory.
         prof = SandboxProfile(
@@ -87,63 +73,197 @@ async def test_pty_close_reaps_namespace_grandchild(
         session = create_pty_session(cwd=workspace, profile=prof)
         await session.start()
 
-        # Snapshot PIDs before launching the grandchild.
-        pids_before = _sleep_pids()
+        try:
+            # Snapshot PIDs before launching the grandchild.
+            pids_before = sleep_pids()
 
-        # Launch a backgrounded sleep inside the session.
-        # --unshare-pid gives the process a namespace-local PID but does
-        # NOT hide it from host /proc, so host pgrep sees it under its
-        # real host PID.
-        await session.send("sleep 30 &\n")
+            # Launch a backgrounded sleep inside the session.
+            # --unshare-pid gives the process a namespace-local PID but does
+            # NOT hide it from host /proc, so host pgrep sees it under its
+            # real host PID.
+            await session.send("sleep 30 &\n")
 
-        # Give the shell a moment to fork the grandchild.
-        time.sleep(0.2)
+            # Give the shell a moment to fork the grandchild.
+            time.sleep(0.2)
 
-        # Snapshot PIDs after launching; there should be at least one new one.
-        pids_after_spawn = _sleep_pids()
-        new_pids = pids_after_spawn - pids_before
+            # Snapshot PIDs after launching; there should be at least one new one.
+            pids_after_spawn = sleep_pids()
+            new_pids = pids_after_spawn - pids_before
 
-        # If bwrap is working correctly we expect the grandchild to be visible.
-        # (If not visible, the assertion below trivially passes for the wrong
-        # reason — log a note but don't fail here; the orphan check is what matters.)
-        if not new_pids:
-            import warnings
+            # If bwrap is working correctly we expect the grandchild to be visible.
+            # (If not visible, the assertion below trivially passes for the wrong
+            # reason — log a note but don't fail here; the orphan check is what matters.)
+            if not new_pids:
+                import warnings
 
-            warnings.warn(
-                "No new 'sleep 30' PIDs found after session.send — "
-                "grandchild may have launched under a different cmdline; "
-                "the orphan check below will trivially pass.",
-                stacklevel=1,
+                warnings.warn(
+                    "No new 'sleep 30' PIDs found after session.send — "
+                    "grandchild may have launched under a different cmdline; "
+                    "the orphan check below will trivially pass.",
+                    stacklevel=1,
+                )
+
+            # Close the session.  The bwrap-wrapped path uses SIGKILL-fast on
+            # the bwrap-outer pid; --die-with-parent then tears down the whole
+            # PID namespace including the grandchild sleep.
+            await session.close()
+
+            # Test-side settle: give the async PID-namespace teardown time to
+            # propagate to /proc.  (close() itself adds no settle — this is
+            # the right place for it per DD5.)
+            time.sleep(0.5)
+
+            pids_after_close = sleep_pids()
+            # Orphans = new PIDs (from our sleep 30) that are still alive after close.
+            # pids_after_close - pids_before isolates only PIDs that appeared after our
+            # test started, then intersect with new_pids to pin to our specific grandchild.
+            orphans = new_pids & pids_after_close
+            assert not orphans, (
+                f"Orphan 'sleep 30' grandchildren remain after PTY close: {orphans}. "
+                f"pids_before={pids_before}, pids_after_spawn={pids_after_spawn}, "
+                f"pids_after_close={pids_after_close}"
             )
 
-        # Close the session.  The bwrap-wrapped path uses SIGKILL-fast on
-        # the bwrap-outer pid; --die-with-parent then tears down the whole
-        # PID namespace including the grandchild sleep.
-        await session.close()
+        finally:
+            # Belt-and-suspenders: close in case an exception left it open.
+            try:
+                await session.close()
+            except Exception:
+                pass
 
-        # Test-side settle: give the async PID-namespace teardown time to
-        # propagate to /proc.  (close() itself adds no settle — this is
-        # the right place for it per DD5.)
-        time.sleep(0.5)
 
-        pids_after_close = _sleep_pids()
-        # Orphans = new PIDs (from our sleep 30) that are still alive after close.
-        # pids_after_close - pids_before isolates only PIDs that appeared after our
-        # test started, then intersect with new_pids to pin to our specific grandchild.
-        orphans = new_pids & pids_after_close
-        assert not orphans, (
-            f"Orphan 'sleep 30' grandchildren remain after PTY close: {orphans}. "
-            f"pids_before={pids_before}, pids_after_spawn={pids_after_spawn}, "
-            f"pids_after_close={pids_after_close}"
+# ---------------------------------------------------------------------------
+# App-crash regression test (M14 F3 L3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_bwrap
+def test_pty_app_crash_reaps_grandchild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Killing the PTY session's parent process (without calling close()) reaps grandchildren.
+
+    This test proves the INVARIANT: when the process that owns a bwrap-wrapped PTY session
+    dies (simulating an app crash, SIGKILL, or unhandled exception), the sandboxed
+    grandchild processes are reaped within ~1s.
+
+    It does NOT attribute the reap to our pre-execvp prctl(PR_SET_PDEATHSIG) call vs
+    bwrap's own --die-with-parent.  Both mechanisms are in play; this is a regression
+    guard — if either mechanism stops working, this test catches it.
+
+    Probe: first verifies /bin/bwrap is not setuid and has no file capabilities.
+    If bwrap is setuid/setcap on this host, prctl(PR_SET_PDEATHSIG) is cleared on
+    execve of bwrap, making the attribution ambiguous and this test unreliable —
+    pytest.skip rather than false-pass.
+    """
+    # --- Probe: /bin/bwrap must NOT be setuid or file-capped ---
+    bwrap_stat = os.stat("/bin/bwrap")
+    if bwrap_stat.st_mode & stat.S_ISUID:
+        pytest.skip("/bin/bwrap is setuid — pdeathsig cleared on execve; test would be unreliable")
+
+    try:
+        cap_data = os.getxattr("/bin/bwrap", "security.capability")
+        if cap_data:
+            pytest.skip(
+                "/bin/bwrap has file capabilities — pdeathsig cleared on execve; "
+                "test would be unreliable"
+            )
+    except OSError as e:
+        # errno.ENODATA (61) or errno.ENOTSUP (95) → no capabilities → proceed
+        if e.errno not in (errno.ENODATA, errno.ENOTSUP):
+            raise
+
+    # Unset bypass flag so the driver process selects BubblewrapSandbox.
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+
+    home = Path.home()
+    with home_workspace("pty-app-crash") as workspace:
+        # Build the driver script that starts a PTY session and signals readiness.
+        # The driver CANNOT use top-level await — it wraps async in asyncio.run().
+        # It then stays alive via time.sleep(9999) until the test SIGKILLs it.
+        # The driver inherits the test's environment (including the monkeypatched
+        # THE_ONE_SANDBOX_DISABLED absence) via subprocess.Popen default inherit.
+        driver_script = (
+            "import asyncio, time, sys\n"
+            "from pathlib import Path\n"
+            "from the_one.platform.pty import create_pty_session\n"
+            "from the_one.platform.sandbox.base import SandboxProfile\n"
+            "async def main():\n"
+            f"    ws = Path({str(workspace)!r})\n"
+            f"    home = Path({str(home)!r})\n"
+            "    prof = SandboxProfile(\n"
+            "        writable_paths=[str(ws)],\n"
+            "        network_allowed=False,\n"
+            "        home=str(home),\n"
+            "    )\n"
+            "    s = create_pty_session(cwd=ws, profile=prof)\n"
+            "    await s.start()\n"
+            "    await s.send('sleep 30 &\\n')\n"
+            "    print('READY', flush=True)  # readiness signal to the test\n"
+            "asyncio.run(main())\n"
+            "time.sleep(9999)  # stay alive until SIGKILLed\n"
         )
 
-    finally:
-        # Belt-and-suspenders: close in case an exception left it open.
+        import subprocess
+
+        # Snapshot BEFORE launching the driver — this is the pre-test baseline.
+        # The driver prints READY only after sleep 30 is already backgrounded, so
+        # capturing here ensures new_pids is non-empty when sleep 30 is running.
+        pids_before = sleep_pids()
+
+        driver = subprocess.Popen(
+            [sys.executable, "-c", driver_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         try:
-            await session.close()
-        except Exception:
-            pass
-        shutil.rmtree(workspace, ignore_errors=True)
+            # Wait for the READY line (driver has started the PTY and launched sleep 30).
+            # Use a timeout to avoid hanging if the driver crashes.
+            ready_line = driver.stdout.readline()  # type: ignore[union-attr]
+            assert ready_line.strip() == "READY", (
+                f"Driver did not emit READY; got: {ready_line!r}. stderr: {driver.stderr.read()!r}"  # type: ignore[union-attr]
+            )
+
+            # Brief settle so the grandchild sleep 30 is fully visible in /proc.
+            time.sleep(0.3)
+
+            pids_after_driver_ready = sleep_pids()
+
+            # New PIDs = those that appeared after the test started (our grandchild).
+            new_pids = pids_after_driver_ready - pids_before
+
+            # Assert the grandchild was actually captured — otherwise the subsequent
+            # "gone" assertion trivially passes for the wrong reason.
+            assert new_pids, (
+                "No new 'sleep 30' PIDs found after driver sent READY. "
+                "The grandchild may have failed to launch; check the driver stderr. "
+                f"pids_before={pids_before}, pids_after_driver_ready={pids_after_driver_ready}"
+            )
+
+            # SIGKILL the driver without calling session.close() — simulates an app crash.
+            # bwrap's --die-with-parent (prctl PR_SET_PDEATHSIG) is tied to the driver
+            # process (bwrap's direct parent), so killing the driver fires bwrap's own
+            # pdeathsig, collapsing the PID namespace and reaping grandchildren.
+            os.kill(driver.pid, signal.SIGKILL)
+            driver.wait(timeout=5)
+
+            # Give the PID-namespace teardown time to propagate to /proc (~300ms for bwrap 0.9.0).
+            time.sleep(1.0)
+
+            pids_after_kill = sleep_pids()
+            orphans = new_pids & pids_after_kill
+            assert not orphans, (
+                f"Orphan 'sleep 30' grandchildren remain after app-crash SIGKILL: {orphans}. "
+                f"pids_before={pids_before}, new_pids={new_pids}, "
+                f"pids_after_kill={pids_after_kill}. "
+                "bwrap --die-with-parent or pre-execvp pdeathsig may not be firing."
+            )
+
+        finally:
+            if driver.poll() is None:
+                driver.kill()
+                driver.wait(timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -169,36 +289,31 @@ async def test_pty_write_outside_allowlist_denied(
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
     home_dir = Path.home()
-    workspace = home_dir / ".the-one-test-pty-allowlist"
-    sibling = home_dir / ".the-one-test-pty-allowlist-sibling"
-    workspace.mkdir(exist_ok=True)
-    sibling.mkdir(exist_ok=True)
+    with home_workspace("pty-allowlist") as workspace:
+        with home_workspace("pty-allowlist-sibling") as sibling:
+            prof = SandboxProfile(
+                writable_paths=[str(workspace)],
+                network_allowed=False,
+                home=str(home_dir),
+            )
+            session = create_pty_session(cwd=workspace, profile=prof)
+            await session.start()
+            try:
+                target = sibling / "should-not-exist.txt"
+                target.unlink(missing_ok=True)
 
-    prof = SandboxProfile(
-        writable_paths=[str(workspace)],
-        network_allowed=False,
-        home=str(home_dir),
-    )
-    session = create_pty_session(cwd=workspace, profile=prof)
-    await session.start()
-    try:
-        target = sibling / "should-not-exist.txt"
-        target.unlink(missing_ok=True)
+                await session.send(f"echo forbidden > {target}\n")
 
-        await session.send(f"echo forbidden > {target}\n")
-
-        # bwrap --bind writes are kernel-synchronous; no settle needed.
-        assert not target.exists(), (
-            f"Write outside allowlist should be contained by bwrap; "
-            f"file unexpectedly present at {target}"
-        )
-    finally:
-        try:
-            await session.close()
-        except Exception:
-            pass
-        shutil.rmtree(workspace, ignore_errors=True)
-        shutil.rmtree(sibling, ignore_errors=True)
+                # bwrap --bind writes are kernel-synchronous; no settle needed.
+                assert not target.exists(), (
+                    f"Write outside allowlist should be contained by bwrap; "
+                    f"file unexpectedly present at {target}"
+                )
+            finally:
+                try:
+                    await session.close()
+                except Exception:
+                    pass
 
 
 @pytest.mark.requires_bwrap
@@ -216,47 +331,41 @@ async def test_pty_denylist_secret_write_denied_sibling_allowed(
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
     home_dir = Path.home()
-    workspace = home_dir / ".the-one-test-pty-denylist"
-    workspace.mkdir(exist_ok=True)
+    with home_workspace("pty-denylist") as workspace:
+        secret_dir, secret_file = make_denylist_secret(workspace)
 
-    secret_dir = workspace / "secret"
-    secret_dir.mkdir(exist_ok=True)
-    secret_file = secret_dir / "key"
-    secret_file.write_text("original-content")
-
-    prof = SandboxProfile(
-        writable_paths=[str(workspace)],
-        readonly_overlay_paths=[str(secret_dir)],
-        network_allowed=False,
-        home=str(home_dir),
-    )
-    session = create_pty_session(cwd=workspace, profile=prof)
-    await session.start()
-    try:
-        # Attempt to overwrite the secret — the ro-bind-try overlay should block it.
-        await session.send(f"echo tampered > {secret_file}\n")
-
-        # bwrap --bind writes are kernel-synchronous; no settle needed.
-        assert secret_file.read_text() == "original-content", (
-            "Denylist overlay must protect the secret file from writes; "
-            f"content is now: {secret_file.read_text()!r}"
+        prof = SandboxProfile(
+            writable_paths=[str(workspace)],
+            readonly_overlay_paths=[str(secret_dir)],
+            network_allowed=False,
+            home=str(home_dir),
         )
-
-        # Write to an allowlisted sibling path MUST succeed.
-        ok_file = workspace / "ok.txt"
-        ok_file.unlink(missing_ok=True)
-        await session.send(f"echo allowed > {ok_file}\n")
-
-        # bwrap --bind writes are kernel-synchronous; no settle needed.
-        assert ok_file.exists(), (
-            f"Write to allowlisted path must succeed; {ok_file} does not exist on host"
-        )
-    finally:
+        session = create_pty_session(cwd=workspace, profile=prof)
+        await session.start()
         try:
-            await session.close()
-        except Exception:
-            pass
-        shutil.rmtree(workspace, ignore_errors=True)
+            # Attempt to overwrite the secret — the ro-bind-try overlay should block it.
+            await session.send(f"echo tampered > {secret_file}\n")
+
+            # bwrap --bind writes are kernel-synchronous; no settle needed.
+            assert secret_file.read_text() == "original-content", (
+                "Denylist overlay must protect the secret file from writes; "
+                f"content is now: {secret_file.read_text()!r}"
+            )
+
+            # Write to an allowlisted sibling path MUST succeed.
+            ok_file = workspace / "ok.txt"
+            ok_file.unlink(missing_ok=True)
+            await session.send(f"echo allowed > {ok_file}\n")
+
+            # bwrap --bind writes are kernel-synchronous; no settle needed.
+            assert ok_file.exists(), (
+                f"Write to allowlisted path must succeed; {ok_file} does not exist on host"
+            )
+        finally:
+            try:
+                await session.close()
+            except Exception:
+                pass
 
 
 @pytest.mark.requires_bwrap
@@ -281,91 +390,64 @@ async def test_pty_network_denied_by_default_allowed_when_enabled(
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
-    # Stand up a minimal TCP server on the host's loopback.
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind(("127.0.0.1", 0))
-    server_sock.listen(5)
-    server_port = server_sock.getsockname()[1]
-    server_sock.settimeout(5.0)
-
-    stop_event = threading.Event()
-
-    def _serve() -> None:
-        while not stop_event.is_set():
-            try:
-                conn, _ = server_sock.accept()
-                conn.sendall(b"hello")
-                conn.close()
-            except Exception:
-                break
-
-    t = threading.Thread(target=_serve, daemon=True)
-    t.start()
-
     home_dir = Path.home()
-    workspace = home_dir / ".the-one-test-pty-network"
-    workspace.mkdir(exist_ok=True)
-
-    # Single-line python3 probe: prints "connected" on success, "failed:<e>" on failure.
-    # String-concat trick ("con"+"nected") keeps the literal word "connected" out of the
-    # probe source text — the PTY echoes the command back, and we assert on the OUTPUT
-    # line only.  Without the concat, the echo itself would contain "connected" and the
-    # deny-path assertion would false-fail.
-    connect_cmd = (
-        f"python3 -c 'import socket,sys;"
-        f"s=socket.socket();s.settimeout(2);"
-        f's.connect(("127.0.0.1",{server_port}));print("con"+"nected");s.close()\' '
-        f"2>/dev/null && true || echo 'failed'\n"
-    )
-
-    try:
-        # --- Network denied (network_allowed=False) ---
-        prof_deny = SandboxProfile(
-            writable_paths=[str(workspace)],
-            network_allowed=False,
-            home=str(home_dir),
-        )
-        session_deny = create_pty_session(shell="/bin/sh", cwd=workspace, profile=prof_deny)
-        await session_deny.start()
-        try:
-            out_deny = (await session_deny.send(connect_cmd, timeout=15.0)).decode(errors="replace")
-        finally:
-            try:
-                await session_deny.close()
-            except Exception:
-                pass
-
-        assert "connected" not in out_deny, (
-            f"Network should be isolated when network_allowed=False; got: {out_deny!r}"
-        )
-
-        # --- Network allowed (network_allowed=True) ---
-        prof_allow = SandboxProfile(
-            writable_paths=[str(workspace)],
-            network_allowed=True,
-            home=str(home_dir),
-        )
-        session_allow = create_pty_session(shell="/bin/sh", cwd=workspace, profile=prof_allow)
-        await session_allow.start()
-        try:
-            out_allow = (await session_allow.send(connect_cmd, timeout=15.0)).decode(
-                errors="replace"
+    with loopback_server() as server_port:
+        with home_workspace("pty-network") as workspace:
+            # Single-line python3 probe: prints "connected" on success, "failed:<e>" on failure.
+            # String-concat trick ("con"+"nected") keeps the literal word "connected" out of the
+            # probe source text — the PTY echoes the command back, and we assert on the OUTPUT
+            # line only.  Without the concat, the echo itself would contain "connected" and the
+            # deny-path assertion would false-fail.
+            connect_cmd = (
+                f"python3 -c 'import socket,sys;"
+                f"s=socket.socket();s.settimeout(2);"
+                f's.connect(("127.0.0.1",{server_port}));print("con"+"nected");s.close()\' '
+                f"2>/dev/null && true || echo 'failed'\n"
             )
-        finally:
-            try:
-                await session_allow.close()
-            except Exception:
-                pass
 
-        assert "connected" in out_allow, (
-            f"Network should be reachable when network_allowed=True; got: {out_allow!r}"
-        )
-    finally:
-        stop_event.set()
-        server_sock.close()
-        t.join(timeout=2)
-        shutil.rmtree(workspace, ignore_errors=True)
+            # --- Network denied (network_allowed=False) ---
+            prof_deny = SandboxProfile(
+                writable_paths=[str(workspace)],
+                network_allowed=False,
+                home=str(home_dir),
+            )
+            session_deny = create_pty_session(shell="/bin/sh", cwd=workspace, profile=prof_deny)
+            await session_deny.start()
+            try:
+                out_deny = (await session_deny.send(connect_cmd, timeout=15.0)).decode(
+                    errors="replace"
+                )
+            finally:
+                try:
+                    await session_deny.close()
+                except Exception:
+                    pass
+
+            assert "connected" not in out_deny, (
+                f"Network should be isolated when network_allowed=False; got: {out_deny!r}"
+            )
+
+            # --- Network allowed (network_allowed=True) ---
+            prof_allow = SandboxProfile(
+                writable_paths=[str(workspace)],
+                network_allowed=True,
+                home=str(home_dir),
+            )
+            session_allow = create_pty_session(shell="/bin/sh", cwd=workspace, profile=prof_allow)
+            await session_allow.start()
+            try:
+                out_allow = (await session_allow.send(connect_cmd, timeout=15.0)).decode(
+                    errors="replace"
+                )
+            finally:
+                try:
+                    await session_allow.close()
+                except Exception:
+                    pass
+
+            assert "connected" in out_allow, (
+                f"Network should be reachable when network_allowed=True; got: {out_allow!r}"
+            )
 
 
 @pytest.mark.requires_bwrap
@@ -382,32 +464,30 @@ async def test_pty_real_home_persistence(
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
-    home_dir = Path.home()
-    workspace = home_dir / ".the-one-test-pty-home"
-    workspace.mkdir(exist_ok=True)
+    with home_workspace("pty-home") as workspace:
+        # Redirect HOME to workspace so ~ inside the sandbox resolves there.
+        monkeypatch.setenv("HOME", str(workspace))
 
-    # Redirect HOME to workspace so ~ inside the sandbox resolves there.
-    monkeypatch.setenv("HOME", str(workspace))
-
-    prof = SandboxProfile(
-        writable_paths=[str(workspace)],
-        network_allowed=False,
-        home=str(workspace),
-    )
-    session = create_pty_session(cwd=workspace, profile=prof)
-    await session.start()
-    try:
-        await session.send("echo pty-home-canary > ~/canary.txt\n")
-
-        # bwrap --bind writes are kernel-synchronous; no settle needed.
-        canary = workspace / "canary.txt"
-        assert canary.exists(), f"~/canary.txt should exist on host at {canary} after sandbox write"
-        assert "pty-home-canary" in canary.read_text(), (
-            f"~/canary.txt content mismatch: {canary.read_text()!r}"
+        prof = SandboxProfile(
+            writable_paths=[str(workspace)],
+            network_allowed=False,
+            home=str(workspace),
         )
-    finally:
+        session = create_pty_session(cwd=workspace, profile=prof)
+        await session.start()
         try:
-            await session.close()
-        except Exception:
-            pass
-        shutil.rmtree(workspace, ignore_errors=True)
+            await session.send("echo pty-home-canary > ~/canary.txt\n")
+
+            # bwrap --bind writes are kernel-synchronous; no settle needed.
+            canary = workspace / "canary.txt"
+            assert canary.exists(), (
+                f"~/canary.txt should exist on host at {canary} after sandbox write"
+            )
+            assert "pty-home-canary" in canary.read_text(), (
+                f"~/canary.txt content mismatch: {canary.read_text()!r}"
+            )
+        finally:
+            try:
+                await session.close()
+            except Exception:
+                pass

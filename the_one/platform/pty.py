@@ -38,10 +38,15 @@ synchronous ``os.write`` + ``select.select`` + ``os.read`` loop.
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import os
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from the_one.platform.sandbox.base import SandboxProfile
 
 if os.name == "nt":
     raise NotImplementedError("Windows ConPTY support deferred to a future mission")
@@ -167,7 +172,7 @@ class UnixPtySession(PtySession):
         self,
         cwd: Path | None = None,
         shell: str | None = None,
-        profile: object | None = None,  # SandboxProfile | None (avoid import at class level)
+        profile: SandboxProfile | None = None,
     ) -> None:
         self._cwd = cwd
         self._shell_override = shell
@@ -232,6 +237,19 @@ class UnixPtySession(PtySession):
         # (spec-level ground truth — a future backend variant can't drift this).
         self._wrapped = spec.command == "bwrap"
 
+        # Fork-safety (DD1): load libc HERE, in the PARENT, before pty.fork().
+        # Importing ctypes or calling CDLL inside the post-fork child is unsafe —
+        # a new dlopen() can deadlock on a mutex inherited from a parent thread
+        # mid-import. ctypes is already imported at module level; we just call
+        # CDLL here in the parent so the handle is available pre-fork.
+        # Primary orphan-reap coverage is bwrap's own --die-with-parent
+        # (prctl PR_SET_PDEATHSIG tied to the Python parent). This pre-execvp
+        # call closes only the microsecond startup race window before bwrap
+        # registers its own handler. Safe only when bwrap is not setuid/setcap
+        # (probed by the regression test — those executables clear PDEATHSIG on execve).
+        _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        _pr_set_pdeathsig = 1  # prctl constant PR_SET_PDEATHSIG (linux/prctl.h)
+
         try:
             pid, master_fd = pty.fork()
         except OSError as exc:
@@ -252,6 +270,12 @@ class UnixPtySession(PtySession):
                     os.chdir(spec.cwd)
                 os.environ.clear()
                 os.environ.update(spec.env)
+                # Defense-in-depth: set PR_SET_PDEATHSIG so this child (and
+                # everything it execs) receives SIGKILL if the Python parent
+                # dies. The pre-loaded _libc handle is safe to use here (no
+                # new import/dlopen — loaded in the parent above). signal is
+                # already imported at module level.
+                _libc.prctl(_pr_set_pdeathsig, signal.SIGKILL)
                 os.execvp(spec.command, [spec.command, *spec.args])
             except Exception:  # pragma: no cover — exec replaces image
                 # Unreachable under normal operation: ``execvp`` either
@@ -555,7 +579,7 @@ class UnixPtySession(PtySession):
 def create_pty_session(
     cwd: Path | None = None,
     shell: str | None = None,
-    profile: object | None = None,  # SandboxProfile | None (avoid import at module level)
+    profile: SandboxProfile | None = None,
 ) -> PtySession:
     """Platform-dispatching factory.
 

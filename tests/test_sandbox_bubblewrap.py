@@ -20,7 +20,7 @@ from the_one.platform.sandbox import (
 )
 
 _BWRAP_NOT_FOUND_MSG = (
-    "MCP sandbox setup failed: bubblewrap binary not found in PATH. "
+    "sandbox setup failed: bubblewrap binary not found in PATH. "
     "Install with: apt-get install bubblewrap. "
     "In test environments only, set THE_ONE_SANDBOX_DISABLED=1 "
     "with THE_ONE_TEST_MODE=1."
@@ -44,7 +44,7 @@ def _bwrap_present(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_init_raises_when_bwrap_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """__init__ raises SandboxError with the §6 verbatim message when bwrap missing."""
+    """__init__ raises SandboxError with the platform-neutral verbatim message when bwrap absent."""
     monkeypatch.setattr(shutil, "which", lambda name: None)
     with pytest.raises(SandboxError) as exc_info:
         BubblewrapSandbox()

@@ -1,16 +1,20 @@
 # Flight: Uniform Policy, CLI Parity & Seam Hardening
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] A tool launched from the **CLI** is sandboxed identically to the same tool
+- [x] A tool launched from the **CLI** is sandboxed identically to the same tool
       launched from the web app — the CLI is not an unsandboxed bypass.
-      *(behavior-test-backed + `@requires_bwrap`)*
-- [ ] The sandbox policy (filesystem scope, network) is applied **uniformly** to
+      *(behavior-test-backed + `@requires_bwrap`)* — `tests/test_cli_sandbox_parity.py`
+      (containment under bwrap + factory wires real `FilesystemConfig`) + the live
+      `tool-sandbox-containment` run (6/6).
+- [x] The sandbox policy (filesystem scope, network) is applied **uniformly** to
       built-in tools and MCP servers from one policy source *(reinforced: asserted
-      by a parity test, not just structurally)*
-- [ ] Existing behavior preserved: tests pass, ruff gate passes
+      by a parity test, not just structurally)* — single `_build_tool_profile` source;
+      parity test + unified behavior test assert it across shell/python/PTY.
+- [x] Existing behavior preserved: tests pass (14/14 `@requires_bwrap`, 3015 default
+      suite, 0 regressions), ruff gate passes
 
 ## Source artifacts
 This flight sources carry-forwards from the **Flight 2 debrief** (top-5
@@ -212,15 +216,16 @@ across shell/python/PTY with agent-safe observables only, and pull the
 Run the full suite + the unified behavior test in `verify-integration`.
 
 ### Checkpoints
-- [ ] CLI-parity `@requires_bwrap` test: a tool built the CLI's way is sandboxed
+- [x] CLI-parity `@requires_bwrap` test: a tool built the CLI's way is sandboxed
       (write-denied under bwrap) and the factory wires a non-empty `FilesystemConfig`.
       Green.
-- [ ] `tool-sandbox-containment` behavior test passes against a live instance
-      (agent-safe observables; no exploit-and-read-error steps).
-- [ ] `@requires_bwrap` suite consolidated behind `tests/_sandbox_fixtures.py`
+- [x] `tool-sandbox-containment` behavior test passes against a live instance
+      (agent-safe observables; no exploit-and-read-error steps). **6/6 PASS** — run log
+      `tests/behavior/tool-sandbox-containment/runs/2026-06-07-15-29-51.md`.
+- [x] `@requires_bwrap` suite consolidated behind `tests/_sandbox_fixtures.py`
       (builtin + PTY); all bwrap tests still green; no duplication of
       workspace/denylist/loopback setup.
-- [ ] `debt-and-docs`: app-crash-simulation regression test shows the bwrap PTY tree
+- [x] `debt-and-docs`: app-crash-simulation regression test shows the bwrap PTY tree
       is reaped when the parent dies without `close()` (bwrap-not-setuid probed); no
       double-kill regression; `profile` typing fixed (`TYPE_CHECKING`); light debts
       cleared (factory docstring, bubblewrap message, `--ro-bind-try` caveat, footgun
@@ -247,7 +252,7 @@ Run the full suite + the unified behavior test in `verify-integration`.
 
 > **Note:** Tentative; legs are planned one at a time as the flight progresses.
 
-- [ ] `cli-parity` - Verify the CLI tool-construction path (`AgentFactory` at
+- [x] `cli-parity` - Verify the CLI tool-construction path (`AgentFactory` at
       `cli.py:38`) matches the web path; add a `@requires_bwrap` test that builds a
       built-in tool the CLI's way (`AgentFactory(store=store).create()`) and asserts
       **(a) a write outside the allowlist is denied under real bwrap** (the real
@@ -256,7 +261,7 @@ Run the full suite + the unified behavior test in `verify-integration`.
       "profile equals web path" assertion (architect: same `AgentFactory` path → same
       `_build_tool_profile` inputs). Files: `interfaces/cli.py` (read/verify),
       `the_one/agent/factory.py` (read), new `tests/test_cli_sandbox_parity.py`.
-- [ ] `containment-behavior-suite` - Author `tests/behavior/tool-sandbox-containment.md`
+- [x] `containment-behavior-suite` - Author `tests/behavior/tool-sandbox-containment.md`
       (unified, agent-safe observables; shell + python + PTY) and consolidate the
       `@requires_bwrap` setup into `tests/_sandbox_fixtures.py` (workspace-under-`$HOME`,
       denylist-fixture, loopback-server helpers) for `test_builtin_tool_sandbox.py` +
@@ -266,7 +271,7 @@ Run the full suite + the unified behavior test in `verify-integration`.
       enforcement code. Files: new behavior spec, `tests/_sandbox_fixtures.py`,
       `test_builtin_tool_sandbox.py`, `test_pty_sandbox.py` (refactor); assess
       `test_mcp_sandbox_integration.py`.
-- [ ] `debt-and-docs` *(folds in the minimal hardening — operator)* -
+- [x] `debt-and-docs` *(folds in the minimal hardening — operator)* -
       **(1) Invariant regression test**: a `@requires_bwrap` app-crash-simulation (a
       subprocess starts a sandboxed PTY session, is SIGKILL'd without `close()`; assert
       the bwrap tree is reaped); **probe `/bin/bwrap` is not setuid/setcap** first
@@ -287,22 +292,22 @@ Run the full suite + the unified behavior test in `verify-integration`.
       (empirically verified), not open. Files: `the_one/platform/pty.py`,
       `tests/test_pty_sandbox.py`, `SECURITY-MODEL.md`, `the_one/agents.md`, `CLAUDE.md`,
       `the_one/platform/sandbox/{factory,bubblewrap}.py`.
-- [ ] `verify-integration` - Full suite host-native + in-container; ruff; `-m
+- [x] `verify-integration` - Full suite host-native + in-container; ruff; `-m
       requires_bwrap`; run `/behavior-test tool-sandbox-containment` and capture the
       run log; confirm CLI parity test green; confirm passthrough still no-error.
-- [ ] `uat-and-alignment` *(optional)* - Guided HAT: operator drives the live
-      surface to confirm CLI-vs-web parity + the hardening behaves, iterative fixes.
+- [~] `uat-and-alignment` *(optional)* — **SKIPPED** (operator: no UI changed this flight;
+      automated tests + the live behavior test suffice).
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (full suite, `-m requires_bwrap`, `tool-sandbox-containment`,
+- [x] All legs completed
+- [ ] Code merged *(draft PR open; merges after review)*
+- [x] Tests passing (full suite, `-m requires_bwrap`, `tool-sandbox-containment`,
       CLI parity)
-- [ ] Documentation updated (footguns, `--ro-bind-try` caveat, message/docstring fixes)
+- [x] Documentation updated (footguns, `--ro-bind-try` caveat, message/docstring fixes)
 
 ### Verification
 - **CLI parity**: a `@requires_bwrap` test proves a tool built via the CLI's

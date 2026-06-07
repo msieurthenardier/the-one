@@ -80,7 +80,15 @@ Flight 2)". The security-relevant invariants are:
   host-workspace profile: write access limited to the `FilesystemConfig`
   allowlist, denylisted paths bound read-only via `--ro-bind-try` (not
   writable; read-scoping is deferred), real `$HOME`, network
-  deny-by-default (`ExecutionConfig.sandbox_network_allowed` opt-in). On
+  deny-by-default (`ExecutionConfig.sandbox_network_allowed` opt-in).
+  **`--ro-bind-try` silent-skip caveat**: `--ro-bind-try` (used for
+  denylist paths) silently skips a path that does not exist on the host
+  — the overlay is a no-op for absent paths. A denylist entry therefore
+  only protects a path that already exists at sandbox launch time; a
+  missing path is neither mounted nor protected. Tests that rely on
+  denylist enforcement must ensure the target directory pre-exists before
+  starting the sandbox (see `tests/_sandbox_fixtures.py:make_denylist_secret`).
+  On
   non-Linux or bwrap-missing Linux, the seam falls through to
   `PassthroughSandbox` (observable via a one-time WARNING log). **PTY
   teardown**: a single-pid SIGKILL on the bwrap PID reaps the entire bwrap

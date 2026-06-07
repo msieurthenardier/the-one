@@ -66,7 +66,7 @@ class BubblewrapSandbox:
         """Validate bwrap presence; raise SandboxError per §6 if missing."""
         if shutil.which("bwrap") is None:
             raise SandboxError(
-                "MCP sandbox setup failed: bubblewrap binary not found in PATH. "
+                "sandbox setup failed: bubblewrap binary not found in PATH. "
                 "Install with: apt-get install bubblewrap. "
                 "In test environments only, set THE_ONE_SANDBOX_DISABLED=1 "
                 "with THE_ONE_TEST_MODE=1."

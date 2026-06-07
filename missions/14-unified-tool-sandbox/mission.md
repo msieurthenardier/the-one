@@ -190,7 +190,30 @@ door.
 
 ## Known Issues
 
-_None yet — emergent blockers discovered during execution are recorded here._
+### Host-crash PTY-orphan window — MITIGATED
+
+**Summary**: when the Python process is killed without calling `session.close()`, bwrap-wrapped
+PTY grandchild processes (e.g. a backgrounded `sleep 30` inside the shell) could in principle
+be orphaned if bwrap's own parent-death signal is not firing.
+
+**Finding**: the orphan window does **not exist** in practice. bwrap's `--die-with-parent` flag
+calls `prctl(PR_SET_PDEATHSIG, SIGKILL)` tied to the Python parent process at bwrap startup.
+When the Python process is killed, bwrap-outer receives SIGKILL within ~300ms (verified empirically,
+bwrap 0.9.0). bwrap's own PID-namespace teardown then reaps the entire namespace, including
+`setsid`'d grandchildren.
+
+**Additional defense**: `UnixPtySession.start()` also calls `prctl(PR_SET_PDEATHSIG, SIGKILL)` in
+the fork child immediately before `execvp("bwrap", ...)` — this closes the microsecond startup race
+window before bwrap registers its own handler. Safe because `/bin/bwrap` is not setuid/setcap on
+this host (pdeathsig is cleared on execve only for setuid/setcap executables).
+
+**Locked by**: `tests/test_pty_sandbox.py::test_pty_app_crash_reaps_grandchild`
+(`@requires_bwrap`) — proves that killing the driver process (bwrap's direct parent) without
+calling `session.close()` reaps the grandchild PID within ~1s. The test first probes that
+`/bin/bwrap` is not setuid/setcap so a passing reap is not silently attributable to pdeathsig
+being cleared.
+
+**Resolution**: F3 L3 (`debt-and-docs`). Status: **mitigated**.
 
 ## Flights
 
@@ -209,10 +232,13 @@ _None yet — emergent blockers discovered during execution are recorded here._
       Behavior-test PTY-session containment. *(Heaviest flight.)* — **landed
       2026-06-07**; single-path seam, single-pid SIGKILL teardown; 12 `@requires_bwrap`
       tests + live behavior test (6/7 PASS); PR #104.
-- [ ] Flight 3: **Uniform policy & CLI parity** — ensure the `SandboxProfile`
+- [x] Flight 3: **Uniform policy & CLI parity** — ensure the `SandboxProfile`
       applies uniformly across all four spawn types from one policy source; verify a
       CLI-launched tool is sandboxed identically to the web path; consolidate the
-      containment / escape-attempt behavior-test suite.
+      containment / escape-attempt behavior-test suite. — **landed 2026-06-07**;
+      CLI-parity `@requires_bwrap` test + unified `tool-sandbox-containment` behavior
+      test (6/6 live) + `_sandbox_fixtures.py` consolidation + seam-hardening regression
+      test (host-crash orphan window proven mitigated) + debt/docs cleared.
 - [ ] Flight 4: **Agent-selectable execution isolation (boxed mode)** — layer a
       runtime isolation choice on top of the seam so the agent can run untrusted /
       self-generated code in a **disposable box** (no host FS/network, scratch

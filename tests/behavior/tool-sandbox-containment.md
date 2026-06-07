@@ -1,9 +1,9 @@
 # Behavior Test: Tool-Execution Sandbox Containment (unified)
 
 **Slug**: `tool-sandbox-containment`
-**Status**: draft
+**Status**: active
 **Created**: 2026-06-07
-**Last Run**: never
+**Last Run**: 2026-06-07-15-29-51
 
 ## Intent
 

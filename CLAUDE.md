@@ -156,6 +156,12 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 - **`StubTool`** (`tests/conftest.py`): A `Tool` subclass that records calls and returns a canned string. Used to verify the agent executes tools correctly without side effects.
 - **`make_registry`** fixture: Creates a `ToolRegistry` pre-loaded with StubTools for quick test setup.
 
+**Sandbox testing footguns** — three patterns that cause confusing false-passes or false-failures in `@requires_bwrap` tests. Full documentation in `the_one/agents.md` "Sandbox testing footguns"; summary here:
+
+1. **Teardown-dispatch bit** — `UnixPtySession._wrapped` is set at `start()` time from `spec.command == "bwrap"`; mocking the backend after `start()` does not change the teardown path. Observe teardown behavior via the test's observable outputs, not backend state.
+2. **PTY-echo sentinel** — the PTY echoes the sent command before executing it. Use the `"con"+"nected"` string-concat trick to keep assertion targets out of the echoed source. Assert on the post-echo output, not the full response.
+3. **`@requires_bwrap` workspace under `$HOME`** — bwrap mounts a fresh `tmpfs` at `/tmp`, making `/tmp`-rooted workspaces invisible inside the sandbox. Always use `home_workspace()` from `tests/_sandbox_fixtures.py`; never use `tmp_path` or `/tmp` for bwrap test workspaces.
+
 ## Flight Operations
 
 This project uses [Flight Control](https://github.com/msieurthenardier/mission-control).
