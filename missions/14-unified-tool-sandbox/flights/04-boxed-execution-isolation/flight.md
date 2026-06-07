@@ -1,6 +1,6 @@
 # Flight: Agent-Selectable Execution Isolation (Boxed Mode)
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
@@ -366,7 +366,7 @@ surfaces.
       requires_bwrap`; run `/behavior-test tool-sandbox-box-isolation` + re-run
       `tool-sandbox-containment` (no host-mode regression); confirm passthrough still
       no-error (+ the new no-enforcement WARNING fires off-bwrap).
-- [ ] `uat-and-alignment` *(optional)* — Guided HAT: operator drives the live agent to
+- [~] `uat-and-alignment` *(optional)* — **SKIPPED** (operator: the live behavior test (9/9) + the `@requires_bwrap` suite cover acceptance). Originally: guided HAT to drive the live agent and
       sanity-check box-by-default behavior (does the agent escalate sensibly? does boxed
       multi-step session code work? does a normal "read my file" task escalate?), with
       inline fixes. (Behavior test is primary; this is the human vibe-check on selection
@@ -377,11 +377,11 @@ surfaces.
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed (8 core; optional HAT skipped)
 - [ ] Code merged
-- [ ] Tests passing (full suite, `-m requires_bwrap`, `tool-sandbox-box-isolation`,
+- [x] Tests passing (full suite, `-m requires_bwrap`, `tool-sandbox-box-isolation`,
       `tool-sandbox-containment` un-regressed)
-- [ ] Documentation updated (boxed-mode security model, model-selection guidance,
+- [x] Documentation updated (boxed-mode security model, model-selection guidance,
       carry-forward debt docs)
 
 ### Verification

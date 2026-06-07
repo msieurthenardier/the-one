@@ -513,7 +513,32 @@ A caller-supplied `cwd` is **honored** (validated ⊆ scratch) rather than ignor
 
 ## Decisions
 
-_Runtime decisions not in the original plan will be recorded here._
+### Flight landed — operator decisions (2026-06-07)
+- **HAT skipped**: `uat-and-alignment` not run — the live `tool-sandbox-box-isolation`
+  behavior test (9/9) + the `@requires_bwrap` suite cover acceptance (operator).
+- **host_access over-escalation: accept as-is**. The agent escalates `host_access=true`
+  readily on read/inspect tasks (it self-escalated to read a referenced file and to read
+  `/proc/net/dev`). Operator accepts: containment always held; escalating to read files the
+  user referenced is defensible; least-privilege still holds for self-contained compute
+  (Fibonacci stayed boxed). No guidance change this flight.
+- **Follow-up (operator question) — operator-facing "disallow unboxing" control**: a future
+  enhancement to let an operator FORCE boxed mode (reject/ignore `host_access=true`) per
+  agent or per tool. Implementation shape: an `ExecutionConfig` policy flag (e.g.
+  `allow_host_access: bool = True`) enforced in the tool `execute()` (when false, a
+  `host_access=true` request is forced boxed or refused), surfaced in the Studio/Administration
+  tool-config UI (the same surface that edits `FilesystemConfig`/`ExecutionConfig`). This is
+  an OPERATOR POLICY capability (not model-guidance) and was explicitly out of scope for
+  Flight 4 (leg-3 DD). **Recommended home**: a small dedicated follow-up flight (or folded
+  into Flight 5 Alignment) — it touches `ExecutionConfig` + the tool execute branch + the
+  config UI. Recorded here so it isn't lost.
+
+### Flight Director — completion (2026-06-07)
+All 8 core legs completed + reviewed ([HANDOFF:confirmed], 0 issues); committed `2ccbb5e`;
+draft PR #107; flight `landed`; Flight 4 checked off in the mission. The optional HAT is
+skipped; the optional Flight 5 (Alignment) remains for hands-on policy-ergonomics review
+(natural home for the force-box UI control above).
+
+_Other runtime decisions are recorded inline in the per-leg progress entries above._
 
 ---
 

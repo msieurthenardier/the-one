@@ -258,7 +258,12 @@ mode.
       CLI-parity `@requires_bwrap` test + unified `tool-sandbox-containment` behavior
       test (6/6 live) + `_sandbox_fixtures.py` consolidation + seam-hardening regression
       test (host-crash orphan window proven mitigated) + debt/docs cleared.
-- [ ] Flight 4: **Agent-selectable execution isolation (boxed mode)** — layer a
+- [x] Flight 4: **Agent-selectable execution isolation (boxed mode)** — **landed
+      2026-06-07**; box-by-default + `host_access` escalation; true isolation via a
+      minimal RO system rootfs + host-bound scratch (no user FS, no network);
+      per-call-ephemeral + per-session-persistent scratch; across shell/python_exec/
+      shell_session_*. Live `tool-sandbox-box-isolation` 9/9; 31 `@requires_bwrap`;
+      read-scoping advanced for the boxed path. PR #107. — layer a
       runtime isolation choice on top of the seam so the agent can run untrusted /
       self-generated code in a **disposable box** (no host FS/network, scratch
       workspace) distinct from host-workspace execution. Scope: the selection
