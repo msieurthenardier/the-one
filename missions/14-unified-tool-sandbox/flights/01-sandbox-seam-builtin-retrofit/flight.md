@@ -1,6 +1,6 @@
 # Flight: Sandbox Seam + Built-in Tool Retrofit
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
