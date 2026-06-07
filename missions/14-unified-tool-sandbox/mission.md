@@ -197,7 +197,7 @@ _None yet — emergent blockers discovered during execution are recorded here._
 > **Note:** These are tentative suggestions, not commitments. Flights are planned
 > and created one at a time as work progresses.
 
-- [ ] Flight 1: **Seam + built-in tool retrofit** — create the shared sandboxing
+- [x] Flight 1: **Seam + built-in tool retrofit** — create the shared sandboxing
       boundary; route the shell tool, Python interpreter tool, and the existing MCP
       stdio path through it; add a passthrough/null backend + selection factory so
       non-Linux runs through the seam without erroring at construction. Built-in

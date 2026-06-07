@@ -281,7 +281,16 @@ pair directly. `merged_config()` is convenient enough that a future
 maintainer might reach for it; the rule in transports/stdio.py's docstring
 exists to head off that mistake at code-review time.
 
-## §7. Sandbox-wrap composition (F3 + post-L1b + post-L2)
+## §7. Sandbox-wrap composition (F3 + post-L1b + post-L2 + M14 F1)
+
+**M14 F1 update**: the sandbox backend is no longer constructed directly in
+`connect_stdio`. `connect_stdio` calls `get_sandbox_backend()` (the factory in
+`the_one/platform/sandbox/factory.py`) which returns a `BubblewrapSandbox` on
+Linux+bwrap-present, or a `PassthroughSandbox` otherwise. **Bwrap missing no
+longer raises `SandboxError` at connection time** — the factory routes to
+`PassthroughSandbox` with a one-time WARNING. The double-flag bypass
+(`THE_ONE_SANDBOX_DISABLED=1 AND THE_ONE_TEST_MODE=1`) and the runtime
+bwrap-stderr→`SandboxError` translation (post-L2, below) are unchanged.
 
 F3's `BubblewrapSandbox.prepare_spawn` wraps every locally-spawned stdio MCP
 server. Strict-by-default profile:
@@ -294,8 +303,9 @@ server. Strict-by-default profile:
 - `--unshare-net` network policy when `network_allowed=False`.
 - `--die-with-parent` process supervision (sandboxed subprocess dies with
   the python parent, no orphan).
-- `HOME=/tmp` override regardless of operator-supplied env (sandbox policy,
-  see CLAUDE.md F3 contracts §7).
+- `HOME=/tmp` override regardless of operator-supplied env (MCP safe default;
+  see CLAUDE.md F3 contracts §7). Built-in tools use the host-workspace profile
+  and pass real `$HOME` instead.
 
 **A03 RESOLVED (post-L1b)**: argv emits
 `--ro-bind / /` → `--tmpfs /tmp` → `--bind PATH PATH` (post-L1b). Pre-A03
@@ -309,7 +319,7 @@ operator binds land on top of it. Locked by
 
 **A02 RESOLVED (post-L2)**: bwrap-side post-setup errors (writable-path
 nonexistent, generic exit-code != 0, EPERM on unshare) are translated to
-`MCPSandboxError` with F3 §6 catalog messages. Mechanism: `connect_stdio`
+`SandboxError` with F3 §6 catalog messages. Mechanism: `connect_stdio`
 opens a `tempfile.SpooledTemporaryFile` and passes it as `errlog=` to
 `stdio_client(...)`. On post-CM failure, the captured stderr is read (≤500
 chars stripped) and pattern-matched against three signatures:
@@ -326,7 +336,7 @@ chars stripped) and pattern-matched against three signatures:
 The `bwrap:` prefix discriminator is the load-bearing test. Locked by
 `tests/test_mcp_sandbox_integration.py::test_inner_process_failure_does_not_translate_to_sandbox_error`
 (a child process that exits non-zero with a non-`bwrap:`-prefixed message
-stays in `MCPConnectionError`, NOT `MCPSandboxError`).
+stays in `MCPConnectionError`, NOT `SandboxError`).
 
 **Test-mode bypass**: when `THE_ONE_SANDBOX_DISABLED=1 AND
 THE_ONE_TEST_MODE=1` (the F3 §10 double-flag bypass), the sandbox layer is

@@ -9,6 +9,7 @@ from the_one.tools.base import ConstraintError, Tool
 from the_one.tools.execution import (
     ExecutionConfig,
     _build_subprocess_env,
+    _build_tool_profile,
     _command_check,
     _cwd_check,
     _truncate_output,
@@ -89,11 +90,13 @@ class ShellTool(Tool):
         try:
             _command_check(command, exec_cfg)
             canonical_cwd = _cwd_check(cwd or str(Path.home()), fs_cfg)
+            profile = _build_tool_profile(fs_cfg, exec_cfg)
             stdout, stderr, returncode = await run_shell(
                 command,
                 timeout=clipped_timeout,
                 env=_build_subprocess_env(),
                 cwd=canonical_cwd,
+                profile=profile,
             )
             text, _ = _truncate_output(stdout, stderr, returncode, exec_cfg)
             return text

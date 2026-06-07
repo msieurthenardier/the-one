@@ -6,10 +6,10 @@ Covers:
     raises ``ValueError``, ``writable_paths`` coercion + ``None`` rejection,
     bool-vs-int strictness).
   * ``SpawnSpec`` frozen invariant + Windows-only field defaults.
-  * ``MCPSandbox`` Protocol structural-satisfaction check (positive on
+  * ``ToolSandbox`` Protocol structural-satisfaction check (positive on
     ``BubblewrapSandbox``, two-direction negative on classes missing each
     of the two required attributes).
-  * ``MCPSandboxError`` subclass relationship + canonical/convenience
+  * ``SandboxError`` subclass relationship + canonical/convenience
     import paths.
 
 A module-level autouse fixture monkeypatches ``shutil.which("bwrap")`` so
@@ -29,13 +29,14 @@ import shutil
 import pytest
 
 from the_one.mcp.errors import MCPClientError
-from the_one.mcp.errors import MCPSandboxError as CanonicalMCPSandboxError
+from the_one.mcp.errors import SandboxError as CanonicalSandboxError
 from the_one.platform.sandbox import (
     BubblewrapSandbox,
-    MCPSandbox,
-    MCPSandboxError,
+    PassthroughSandbox,
+    SandboxError,
     SandboxProfile,
     SpawnSpec,
+    ToolSandbox,
 )
 
 
@@ -130,25 +131,30 @@ def test_spawn_spec_default_windows_fields() -> None:
     assert spec.attribute_list is None
 
 
-# --- MCPSandbox Protocol ------------------------------------------------------
+# --- ToolSandbox Protocol ------------------------------------------------------
 
 
-def test_mcpsandbox_protocol_runtime_check_bubblewrap() -> None:
-    """BubblewrapSandbox structurally satisfies MCPSandbox (positive)."""
-    assert isinstance(BubblewrapSandbox(), MCPSandbox)
+def test_toolsandbox_protocol_runtime_check_bubblewrap() -> None:
+    """BubblewrapSandbox structurally satisfies ToolSandbox (positive)."""
+    assert isinstance(BubblewrapSandbox(), ToolSandbox)
 
 
-def test_mcpsandbox_protocol_runtime_check_negative_missing_prepare_spawn() -> None:
-    """A class with ``name`` but no ``prepare_spawn`` does NOT satisfy MCPSandbox."""
+def test_toolsandbox_protocol_runtime_check_passthrough() -> None:
+    """PassthroughSandbox structurally satisfies ToolSandbox (positive)."""
+    assert isinstance(PassthroughSandbox(), ToolSandbox)
+
+
+def test_toolsandbox_protocol_runtime_check_negative_missing_prepare_spawn() -> None:
+    """A class with ``name`` but no ``prepare_spawn`` does NOT satisfy ToolSandbox."""
 
     class MissingPrepareSpawn:
         name: str = "missing-prepare"
 
-    assert not isinstance(MissingPrepareSpawn(), MCPSandbox)
+    assert not isinstance(MissingPrepareSpawn(), ToolSandbox)
 
 
-def test_mcpsandbox_protocol_runtime_check_negative_missing_name() -> None:
-    """A class with ``prepare_spawn`` but no ``name`` does NOT satisfy MCPSandbox."""
+def test_toolsandbox_protocol_runtime_check_negative_missing_name() -> None:
+    """A class with ``prepare_spawn`` but no ``name`` does NOT satisfy ToolSandbox."""
 
     class MissingName:
         def prepare_spawn(
@@ -161,15 +167,15 @@ def test_mcpsandbox_protocol_runtime_check_negative_missing_name() -> None:
         ) -> SpawnSpec:
             return SpawnSpec(command=command, args=args, env=env, cwd=cwd)
 
-    assert not isinstance(MissingName(), MCPSandbox)
+    assert not isinstance(MissingName(), ToolSandbox)
 
 
-# --- MCPSandboxError ----------------------------------------------------------
+# --- SandboxError ----------------------------------------------------------
 
 
-def test_mcpsandbox_error_subclass_of_mcpclient_error() -> None:
+def test_sandbox_error_subclass_of_mcpclient_error() -> None:
     """Subclass relationship + canonical-and-convenience import paths agree."""
-    assert issubclass(MCPSandboxError, MCPClientError)
-    assert MCPSandboxError is CanonicalMCPSandboxError, (
+    assert issubclass(SandboxError, MCPClientError)
+    assert SandboxError is CanonicalSandboxError, (
         "Convenience re-export must alias the canonical class, not redeclare it."
     )

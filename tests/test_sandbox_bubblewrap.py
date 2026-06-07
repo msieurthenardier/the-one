@@ -12,7 +12,7 @@ import shutil
 
 import pytest
 
-from the_one.mcp.errors import MCPSandboxError
+from the_one.mcp.errors import SandboxError
 from the_one.platform.sandbox import (
     BubblewrapSandbox,
     SandboxProfile,
@@ -44,9 +44,9 @@ def _bwrap_present(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_init_raises_when_bwrap_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """__init__ raises MCPSandboxError with the §6 verbatim message when bwrap missing."""
+    """__init__ raises SandboxError with the §6 verbatim message when bwrap missing."""
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    with pytest.raises(MCPSandboxError) as exc_info:
+    with pytest.raises(SandboxError) as exc_info:
         BubblewrapSandbox()
     # Verbatim §6 invariant — locks the message text against future drift.
     assert str(exc_info.value) == _BWRAP_NOT_FOUND_MSG
@@ -204,7 +204,14 @@ def test_prepare_spawn_cwd_is_none() -> None:
 
 
 def test_prepare_spawn_home_override_unconditional() -> None:
-    """Operator-supplied HOME is silently overridden to /tmp."""
+    """With the default profile (home=None), HOME is still forced to /tmp.
+
+    Operator-supplied HOME in the env dict is silently overridden; with no
+    profile.home set the backend falls back to '/tmp'.  This invariant holds
+    for MCP servers (which always use the default profile).  A profile with
+    ``home`` set to a real path is tested separately by
+    ``test_prepare_spawn_profile_driven_home``.
+    """
     sb = BubblewrapSandbox()
     spec = sb.prepare_spawn(
         SandboxProfile(),
@@ -286,3 +293,73 @@ def test_prepare_spawn_returns_spawnspec_with_correct_field_types() -> None:
     assert spec.command == "bwrap"
     assert spec.creation_flags == 0
     assert spec.attribute_list is None
+
+
+def test_prepare_spawn_readonly_overlay_after_writable_bind_before_proc() -> None:
+    """--ro-bind overlay entries appear after the writable --bind loop and before --proc.
+
+    A secret path under a writable root (e.g. /home/u/.ssh under /home/u)
+    must be re-mounted read-only on top: bind order is last-wins for
+    overlapping mounts, so the overlay --ro-bind must come AFTER --bind.
+    Also asserts it appears BEFORE --proc (i.e. in the FS mount section).
+    """
+    sb = BubblewrapSandbox()
+    profile = SandboxProfile(
+        writable_paths=["/home/u"],
+        readonly_overlay_paths=["/home/u/.ssh"],
+    )
+    spec = sb.prepare_spawn(profile, "/bin/echo", [], {})
+    a = spec.args
+
+    # Locate --bind /home/u /home/u (writable bind)
+    bind_u_idx = None
+    for i, tok in enumerate(a):
+        if tok == "--bind" and i + 2 < len(a) and a[i + 1] == "/home/u":
+            bind_u_idx = i
+            break
+    assert bind_u_idx is not None, "--bind /home/u /home/u not found in argv"
+
+    # Locate --ro-bind-try /home/u/.ssh /home/u/.ssh (overlay)
+    ro_bind_ssh_idx = None
+    for i, tok in enumerate(a):
+        if tok == "--ro-bind-try" and i + 2 < len(a) and a[i + 1] == "/home/u/.ssh":
+            ro_bind_ssh_idx = i
+            break
+    assert ro_bind_ssh_idx is not None, "--ro-bind-try /home/u/.ssh /home/u/.ssh not found in argv"
+
+    proc_idx = a.index("--proc")
+
+    assert bind_u_idx < ro_bind_ssh_idx, (
+        f"--bind /home/u ({bind_u_idx}) must precede --ro-bind-try /home/u/.ssh ({ro_bind_ssh_idx})"
+    )
+    assert ro_bind_ssh_idx < proc_idx, (
+        f"--ro-bind-try /home/u/.ssh ({ro_bind_ssh_idx}) must precede --proc ({proc_idx})"
+    )
+    # Also assert the overlay values are correct (--ro-bind-try PATH PATH)
+    assert a[ro_bind_ssh_idx + 1] == "/home/u/.ssh"
+    assert a[ro_bind_ssh_idx + 2] == "/home/u/.ssh"
+
+
+def test_prepare_spawn_profile_driven_home() -> None:
+    """profile.home overrides the /tmp default; spec.env['HOME'] and argv both reflect it."""
+    sb = BubblewrapSandbox()
+    profile = SandboxProfile(home="/home/u")
+    spec = sb.prepare_spawn(profile, "/bin/echo", [], {})
+    a = spec.args
+
+    assert spec.env["HOME"] == "/home/u"
+    home_idx = a.index("HOME")
+    assert a[home_idx + 1] == "/home/u"
+    # Only one --setenv HOME pair
+    home_count = sum(1 for i, x in enumerate(a) if x == "HOME" and i > 0 and a[i - 1] == "--setenv")
+    assert home_count == 1
+
+
+def test_prepare_spawn_default_profile_home_still_tmp() -> None:
+    """Default profile (home=None) still yields HOME=/tmp — no regression."""
+    sb = BubblewrapSandbox()
+    spec = sb.prepare_spawn(SandboxProfile(), "/bin/echo", [], {})
+    assert spec.env["HOME"] == "/tmp"
+    a = spec.args
+    home_idx = a.index("HOME")
+    assert a[home_idx + 1] == "/tmp"

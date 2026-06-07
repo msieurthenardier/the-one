@@ -35,24 +35,26 @@ See flight 02 design decision §11 for the env-var-assembly contract,
 and L4's `transports/streamable_http.py` for the structurally
 parallel headers-assembly pattern.
 
-**F3 sandbox wrap (mission 07 flight 03 L4)**: every stdio MCP source
-spawns sandboxed via ``BubblewrapSandbox.prepare_spawn``. The wrap reads
-``MCPSource.config["sandbox"]`` (optional dict; defaults to strict-floor
-``SandboxProfile()``) via ``SandboxProfile.from_dict`` and applies bwrap's
-``--clearenv`` + per-key ``--setenv`` env-allowlist enforcement,
-``--ro-bind / /`` + ``--bind PATH PATH`` filesystem scope,
+**F3 sandbox wrap (M14 F1 L3)**: every stdio MCP source spawns sandboxed
+via ``get_sandbox_backend().prepare_spawn``. The factory (``get_sandbox_backend``
+from ``the_one.platform.sandbox.factory``) centralizes backend selection:
+``BubblewrapSandbox`` on Linux with bwrap present and bypass off;
+``PassthroughSandbox`` otherwise (non-Linux, bwrap-missing, or
+double-flag test bypass). The wrap reads ``MCPSource.config["sandbox"]``
+(optional dict; defaults to strict-floor ``SandboxProfile()``) via
+``SandboxProfile.from_dict`` and, when the bubblewrap backend is selected,
+applies bwrap's ``--clearenv`` + per-key ``--setenv`` env-allowlist
+enforcement, ``--ro-bind / /`` + ``--bind PATH PATH`` filesystem scope,
 ``--unshare-net`` network policy (when ``network_allowed=False``), and
-``--die-with-parent`` process supervision. The ONLY skip path is the
-``THE_ONE_SANDBOX_DISABLED=1 AND THE_ONE_TEST_MODE=1`` double-flag bypass
-(set by ``tests/conftest.py::pytest_configure`` for ``THE_ONE_TEST_MODE``
-and by the Playwright browser-test CI workflow for the companion flag).
-``MCPSandboxError`` from sandbox setup (e.g., ``bwrap`` binary missing)
-propagates without translation; post-spawn errors continue to surface as
-F2's ``MCPConnectionError`` via ``MCPClient.connect()``. Per F3 §6's
-boundary, bwrap-side post-setup errors (``writable_paths`` nonexistent,
-``EPERM`` on ``unshare``, generic exit-code != 0) are translated to
-``MCPSandboxError`` via the SDK's ``errlog=`` parameter — see leg
-``02-bwrap-error-translation`` (mission 07 flight 04). The
+``--die-with-parent`` process supervision. Off-Linux or bwrap-missing hosts
+now degrade silently to the passthrough backend rather than raising at
+construction time (the mission's core fix for the MCP path). The
+double-flag bypass (``THE_ONE_SANDBOX_DISABLED=1 AND THE_ONE_TEST_MODE=1``)
+is handled inside the factory; stdio no longer owns a copy of that predicate.
+Per F3 §6's boundary, bwrap-side post-setup errors (``writable_paths``
+nonexistent, ``EPERM`` on ``unshare``, generic exit-code != 0) are
+translated to ``SandboxError`` via the SDK's ``errlog=`` parameter — see
+leg ``02-bwrap-error-translation`` (mission 07 flight 04). The
 bwrap-prefix discriminator (``_BWRAP_OWN_PREFIX_RE``) gates patterns
 #2/#3 so inner-process failures (post-bwrap-success) continue to
 surface as F2's ``MCPConnectionError`` — F3 §6's directionality contract.
@@ -60,7 +62,6 @@ surface as F2's ``MCPConnectionError`` — F3 §6's directionality contract.
 
 from __future__ import annotations
 
-import os
 import re
 import tempfile
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -70,15 +71,20 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from the_one.db.models import MCPSource
-from the_one.mcp.errors import MCPConnectionError, MCPSandboxError
+from the_one.mcp.errors import MCPConnectionError, SandboxError
 from the_one.platform.env import _build_subprocess_env
-from the_one.platform.sandbox import BubblewrapSandbox, SandboxProfile
+from the_one.platform.sandbox import (
+    BubblewrapSandbox,
+    SandboxProfile,
+    ToolSandbox,
+    get_sandbox_backend,
+)
 
 __all__ = ["build_stdio_environ", "connect_stdio"]
 
 
 # ---------------------------------------------------------------------------
-# Bwrap stderr → MCPSandboxError translation (F3 §6)
+# Bwrap stderr → SandboxError translation (F3 §6)
 # ---------------------------------------------------------------------------
 #
 # Probe results captured 2026-05-07 against bwrap inside the dev container
@@ -101,7 +107,7 @@ __all__ = ["build_stdio_environ", "connect_stdio"]
 #       bwrap: Unknown option --invalid-flag-xyz
 #   regex: (no match → fallback). The bwrap-prefix discriminator
 #       (_BWRAP_OWN_PREFIX_RE) gates this path so inner-process failures
-#       are NOT mistranslated as MCPSandboxError.
+#       are NOT mistranslated as SandboxError.
 #
 # Pattern 3 — EPERM / namespace creation refused (prefix-gated):
 #   probe stderr (verbatim, kernel without unprivileged_userns_clone):
@@ -144,13 +150,13 @@ _BWRAP_EPERM_UNSHARE_RE = re.compile(
 # succeeded and the inner child wrote those bytes — F2's
 # MCPConnectionError must handle that case, not us. This is the
 # load-bearing test that prevents inner-process failures from being
-# mistranslated as MCPSandboxError (F3 §6 directionality contract;
+# mistranslated as SandboxError (F3 §6 directionality contract;
 # Test #6d locks it).
 _BWRAP_OWN_PREFIX_RE = re.compile(r"^\s*bwrap:", re.MULTILINE)
 
 
-def _translate_bwrap_stderr(stderr_text: str) -> MCPSandboxError | None:
-    """Pattern-match captured bwrap stderr → MCPSandboxError per F3 §6.
+def _translate_bwrap_stderr(stderr_text: str) -> SandboxError | None:
+    """Pattern-match captured bwrap stderr → SandboxError per F3 §6.
 
     Returns ``None`` if the capture indicates a non-bwrap failure
     (e.g., the child target spawned successfully under bwrap and itself
@@ -163,14 +169,14 @@ def _translate_bwrap_stderr(stderr_text: str) -> MCPSandboxError | None:
     gate because that message is unambiguously a bwrap signature and is
     the most operator-actionable case.
 
-    Returns an :class:`MCPSandboxError` for any of the three §6 catalog
+    Returns an :class:`SandboxError` for any of the three §6 catalog
     signatures.
     """
     # Path-#1 check is exempt from the prefix gate.
     m = _BWRAP_NONEXISTENT_PATH_RE.search(stderr_text)
     if m:
         path = m.group("path").strip()
-        return MCPSandboxError(
+        return SandboxError(
             f"MCP sandbox setup failed: writable_paths entry "
             f"{path!r} does not exist. "
             f"Create the directory or remove from writable_paths."
@@ -180,14 +186,14 @@ def _translate_bwrap_stderr(stderr_text: str) -> MCPSandboxError | None:
     if not _BWRAP_OWN_PREFIX_RE.search(stderr_text):
         return None
     if _BWRAP_EPERM_UNSHARE_RE.search(stderr_text):
-        return MCPSandboxError(
+        return SandboxError(
             "MCP sandbox setup failed: namespace creation refused "
             "(EPERM on unshare). The container likely lacks the "
             "privilege grants required by §10."
         )
     # bwrap printed something to stderr that we don't recognise → catalog #2.
     snippet = stderr_text.strip()[:500]
-    return MCPSandboxError(
+    return SandboxError(
         "MCP sandbox setup failed: bubblewrap exited non-zero. "
         "Check that the dev/CI environment has cap_add: SYS_ADMIN "
         "AND security_opt: seccomp:unconfined per F3 design decision §10. "
@@ -203,7 +209,7 @@ def _translate_bwrap_stderr(stderr_text: str) -> MCPSandboxError | None:
 # act on directly. Runs AFTER the F3 §6 bwrap-stderr discriminator so a
 # bwrap-side failure (sandbox profile misconfiguration, EPERM, missing
 # inner command at the bwrap layer) is NOT mistranslated as a "missing in
-# container" message — those continue to surface as MCPSandboxError per
+# container" message — those continue to surface as SandboxError per
 # the F3 §6 directionality contract. The two D3 cases:
 #
 #   1. FileNotFoundError on subprocess spawn — the command isn't on PATH.
@@ -356,43 +362,32 @@ def build_stdio_environ(source: MCPSource, allowlist_env: dict[str, str]) -> dic
     return {**allowlist_env, **config_env, **source.secrets}
 
 
-def _sandbox_disabled_for_tests() -> bool:
-    """Test-only sandbox bypass per F3 §10.
-
-    Returns True ONLY when BOTH ``THE_ONE_SANDBOX_DISABLED=1`` AND
-    ``THE_ONE_TEST_MODE=1`` are present in the process env. The double
-    flag is belt-and-suspenders: production sets neither; pytest sets
-    only ``THE_ONE_TEST_MODE`` (via ``tests/conftest.py``); the
-    Playwright browser-test CI workflow sets both for its
-    ``pytest -m browser`` invocation only.
-
-    Per §10's operational guardrail, ``THE_ONE_TEST_MODE`` MUST NOT
-    appear in any Dockerfile, docker-compose service env, entrypoint
-    script, kubernetes manifest, or CI variable — its presence outside
-    pytest is a deployment defect.
-
-    Reads ``os.environ`` at call time so ``monkeypatch.setenv`` /
-    ``monkeypatch.delenv`` from tests are honoured.
-    """
-    return (
-        os.environ.get("THE_ONE_SANDBOX_DISABLED") == "1"
-        and os.environ.get("THE_ONE_TEST_MODE") == "1"
-    )
-
-
-def _build_stdio_params(source: MCPSource) -> StdioServerParameters:
+def _build_stdio_params(source: MCPSource) -> tuple[StdioServerParameters, ToolSandbox]:
     """Build StdioServerParameters for an MCPSource.
 
-    Applies the F3 sandbox wrap via ``BubblewrapSandbox.prepare_spawn``
-    unless the F3 §10 double-flag bypass is set. Preserves F2's
-    ``build_stdio_environ`` + ``_build_subprocess_env`` calls verbatim;
-    the sandbox layer is additive on top.
+    Obtains the sandbox backend from the factory (``get_sandbox_backend``)
+    rather than constructing ``BubblewrapSandbox`` directly. Always builds
+    the ``SandboxProfile`` and runs ``backend.prepare_spawn`` — for
+    ``PassthroughSandbox`` this produces the unwrapped command (same as the
+    old bypass branch); for ``BubblewrapSandbox`` it produces the
+    bwrap-wrapped command.
 
-    May raise ``MCPSandboxError`` (from ``BubblewrapSandbox()`` if
-    ``bwrap`` is missing) or ``ValueError`` (from
-    ``SandboxProfile.from_dict`` on a type-mismatched
-    ``config["sandbox"]`` field — propagates as a programmer/validator
-    boundary error per F3 §6).
+    Backend selection is fully centralized in the factory:
+    - Double-flag test bypass → ``PassthroughSandbox``
+    - Non-Linux host → ``PassthroughSandbox``
+    - bwrap absent on Linux → ``PassthroughSandbox`` (degrades silently,
+      no ``SandboxError`` at construction time — the mission's core fix)
+    - Linux + bwrap present + bypass off → ``BubblewrapSandbox``
+
+    May raise ``ValueError`` (from ``SandboxProfile.from_dict`` on a
+    type-mismatched ``config["sandbox"]`` field — propagates as a
+    programmer/validator boundary error per F3 §6). ``SandboxError`` at
+    construction time is no longer reachable from this site; the factory
+    absorbs bwrap-missing by returning passthrough.
+
+    Returns ``(params, backend)`` — callers derive
+    ``sandboxed = isinstance(backend, BubblewrapSandbox)`` to gate the
+    bwrap-stderr-capture path.
     """
     command: str = source.config["command"]
     # SDK's StdioServerParameters has args: list[str] with default_factory=list,
@@ -405,17 +400,16 @@ def _build_stdio_params(source: MCPSource) -> StdioServerParameters:
     cwd: str | None = source.config.get("cwd")
     env = build_stdio_environ(source, _build_subprocess_env())
 
-    if _sandbox_disabled_for_tests():
-        return StdioServerParameters(command=command, args=args, env=env, cwd=cwd)
-
+    # Always build the profile — passthrough ignores it, bubblewrap applies it.
+    # (Prior code skipped from_dict on the bypass path; the new code validates
+    # always, which is strictly better. A malformed config["sandbox"] now raises
+    # ValueError even under bypass — acceptable deliberate behaviour change.)
     profile = SandboxProfile.from_dict(source.config.get("sandbox") or {})
-    sandbox = BubblewrapSandbox()  # may raise MCPSandboxError if bwrap missing
-    spec = sandbox.prepare_spawn(profile, command, args, env, cwd)
-    return StdioServerParameters(
-        command=spec.command,
-        args=spec.args,
-        env=spec.env,
-        cwd=spec.cwd,
+    backend = get_sandbox_backend()
+    spec = backend.prepare_spawn(profile, command, args, env, cwd)
+    return (
+        StdioServerParameters(command=spec.command, args=spec.args, env=spec.env, cwd=spec.cwd),
+        backend,
     )
 
 
@@ -433,22 +427,27 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
     `get_default_environment()` UNDER our env, providing additional
     defense-in-depth defaults for HOME/LANG/etc.
 
-    The spawn is wrapped by ``BubblewrapSandbox.prepare_spawn`` (F3
-    sandbox layer) unless the ``THE_ONE_SANDBOX_DISABLED=1 AND
-    THE_ONE_TEST_MODE=1`` double-flag bypass is set. Sandbox-setup
-    failures propagate as ``MCPSandboxError``; post-spawn failures
-    continue to surface via F2's existing ``MCPConnectionError``
-    translation in ``MCPClient.connect``.
+    The spawn is wrapped by the sandbox backend selected by the factory
+    (F3 sandbox layer). ``BubblewrapSandbox`` is used on Linux with bwrap
+    present and bypass off; ``PassthroughSandbox`` is used otherwise
+    (non-Linux, bwrap-missing, or double-flag test bypass). Sandbox-setup
+    failures via bwrap propagate as ``SandboxError`` post-spawn; the factory
+    absorbs bwrap-missing silently, so off-Linux / bwrap-missing hosts
+    degrade to passthrough without raising at connect time.
 
-    On the sandboxed path, bwrap stderr is captured via the SDK's
-    ``errlog=`` parameter into a ``SpooledTemporaryFile``; on transport-
-    CM failure the captured text is pattern-matched against the F3 §6
-    catalog signatures and re-raised as the appropriate
-    ``MCPSandboxError``. The bypass path retains the SDK's default
-    ``errlog=sys.stderr`` passthrough.
+    On the sandboxed path (``isinstance(backend, BubblewrapSandbox)``),
+    bwrap stderr is captured via the SDK's ``errlog=`` parameter into a
+    ``SpooledTemporaryFile``; on transport-CM failure the captured text is
+    pattern-matched against the F3 §6 catalog signatures and re-raised as
+    the appropriate ``SandboxError``. The passthrough path retains the
+    SDK's default ``errlog=sys.stderr`` passthrough.
     """
-    params = _build_stdio_params(source)
-    sandboxed = not _sandbox_disabled_for_tests()
+    params, backend = _build_stdio_params(source)
+    # True iff the factory selected the bubblewrap backend — the only backend
+    # that wraps the spawn in `bwrap` and writes bwrap stderr to errlog.
+    # Uses the concrete class, NOT the ToolSandbox Protocol (which both backends
+    # satisfy) — the isinstance check must discriminate between the two.
+    sandboxed = isinstance(backend, BubblewrapSandbox)
     # D3: capture the operator-configured command for translation messages
     # (the post-prepare-spawn `params.command` is "bwrap" on the sandboxed
     # path, which would not be operator-actionable in a translated error).
@@ -507,12 +506,12 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
                             raise inner_err from original_exc
                         raise inner_err
     else:
-        # Test bypass path: SDK's default errlog=sys.stderr passthrough.
+        # Passthrough path (non-bwrap backend): SDK's default errlog=sys.stderr.
         # F9 L2 D3: catch FileNotFoundError synchronously here so the
-        # bypass path also benefits from the operator-actionable
+        # passthrough path also benefits from the operator-actionable
         # translation. The SDK pipes inner stderr to sys.stderr on this
         # path so we don't capture it for ModuleNotFoundError translation
-        # — that path remains unchanged for the bypass.
+        # — that path remains unchanged for the passthrough.
         try:
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as session:
@@ -551,11 +550,11 @@ async def _open_stdio_transport_stack(
 
         ClientSession.__aexit__
         stdio_client.__aexit__   (flushes bwrap stderr into errbuf)
-        translation callback     (reads errbuf, raises MCPSandboxError if matched)
+        translation callback     (reads errbuf, raises SandboxError if matched)
         SpooledTemporaryFile.__exit__  (closes errbuf — but only AFTER
                                         translation has read it)
 
-    The translation callback raises the translated ``MCPSandboxError``
+    The translation callback raises the translated ``SandboxError``
     if the captured stderr matches an F3 §6 catalog pattern, replacing
     any in-flight exception so the caller sees the bwrap diagnostic
     rather than the downstream ``McpError`` / ``Connection closed``
@@ -565,8 +564,10 @@ async def _open_stdio_transport_stack(
     exist for back-compat with its 9 prior async-CM callers in
     ``tests/test_mcp_stdio_sandbox.py``.
     """
-    params = _build_stdio_params(source)
-    sandboxed = not _sandbox_disabled_for_tests()
+    params, backend = _build_stdio_params(source)
+    # True iff the factory selected the bubblewrap backend — the only backend
+    # that wraps the spawn in `bwrap` and writes bwrap stderr to errlog.
+    sandboxed = isinstance(backend, BubblewrapSandbox)
     # F9 L2 D3: capture the operator-configured command for translation
     # messages — `params.command` is "bwrap" on the sandboxed path and
     # would not be operator-actionable in a translated error.
@@ -586,7 +587,7 @@ async def _open_stdio_transport_stack(
             # __aexit__ flushes stderr and BEFORE SpooledTemporaryFile
             # closes. The closure captures errbuf by reference; the
             # callback reads it, pattern-matches, and raises the
-            # translated MCPSandboxError on match.
+            # translated SandboxError on match.
             #
             # F9 L2 D3: callback also runs the inner-spawn translation
             # AFTER the bwrap-discriminator gate. Bwrap-side translation
@@ -630,16 +631,16 @@ async def _open_stdio_transport_stack(
         # Entry-failure path: stdio_client or ClientSession entry raised
         # before we could return. Drain the stack (which runs the
         # translation callback if it was registered) and let any
-        # MCPSandboxError replace the original exception.
+        # SandboxError replace the original exception.
         #
-        # F9 L2 D3: on the bypass path, FileNotFoundError surfaces here
+        # F9 L2 D3: on the passthrough path, FileNotFoundError surfaces here
         # synchronously (anyio.open_process raises before stack.aclose
         # walks). Translate to MCPConnectionError with an operator-
         # actionable message ahead of MCPClient.connect's catchall
         # translation.
         try:
             await stack.aclose()
-        except MCPSandboxError as sandbox_err:
+        except SandboxError as sandbox_err:
             raise sandbox_err from exc
         except MCPConnectionError as conn_err:
             # D3 callback raised an inner-spawn translation.

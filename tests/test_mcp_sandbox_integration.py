@@ -25,7 +25,7 @@ Coverage matrix:
        network-unreachable error string (IP-literal avoids DNS).
 * #5   Network allowed — same call under ``network_allowed=True``
        returns ``"connected"``. Skipped if test-runner has no outbound.
-* #6   Writable-path nonexistent — surfaces as ``MCPSandboxError``
+* #6   Writable-path nonexistent — surfaces as ``SandboxError``
        catalog #1 per L2 (mission 07 flight 04). Asserts the
        operator-actionable substring (``writable_paths entry`` /
        ``does not exist``) so regressions in the regex are caught.
@@ -36,7 +36,7 @@ Coverage matrix:
        the dev container has SYS_ADMIN so this test SKIPS there. Asserts
        catalog #3 substring when runnable.
 * #6d  Inner-process failure (post-bwrap-success) MUST surface as
-       ``MCPConnectionError``, NOT ``MCPSandboxError`` — locks the
+       ``MCPConnectionError``, NOT ``SandboxError`` — locks the
        OTHER side of F3 §6's directionality contract via the
        bwrap-prefix discriminator.
 * #7   No host-env leakage — process-env-only sentinel key is filtered
@@ -73,7 +73,7 @@ from tests.fixtures.mcp.hello_server import (
 )
 from the_one.db.models import MCPSource
 from the_one.mcp.client import MCPClient
-from the_one.mcp.errors import MCPCallError, MCPConnectionError, MCPSandboxError
+from the_one.mcp.errors import MCPCallError, MCPConnectionError, SandboxError
 
 # ---------------------------------------------------------------------------
 # Module-level constants + helpers
@@ -400,26 +400,26 @@ async def test_sandbox_network_allowed_when_network_allowed_true() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #6 — Writable_paths nonexistent → MCPSandboxError catalog #1 per L2
+# #6 — Writable_paths nonexistent → SandboxError catalog #1 per L2
 # ---------------------------------------------------------------------------
 
 
 @requires_bwrap
 @pytest.mark.skip(
     reason=(
-        "F5 L01: SDK task-group cross-task deadlock (F6 A5) routes MCPSandboxError "
+        "F5 L01: SDK task-group cross-task deadlock (F6 A5) routes SandboxError "
         "through teardown rather than the connect() context — test expects "
-        "MCPSandboxError at the `async with MCPClient(source):` line but actual "
-        "chain raises MCPConnectionError there with MCPSandboxError surfacing in "
+        "SandboxError at the `async with MCPClient(source):` line but actual "
+        "chain raises MCPConnectionError there with SandboxError surfacing in "
         "teardown. Pre-existing F6-class architectural issue; defer to MCP cleanup "
         "flight. Symptom class: F6-A5-deadlock."
     )
 )
 async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
-    """Nonexistent writable_paths entry surfaces as MCPSandboxError #1.
+    """Nonexistent writable_paths entry surfaces as SandboxError #1.
 
     Per F3 §6 + L2 (mission 07 flight 04): bwrap-side post-setup errors
-    (writable_paths nonexistent) are translated to ``MCPSandboxError``
+    (writable_paths nonexistent) are translated to ``SandboxError``
     inside ``connect_stdio`` via the SDK's ``errlog=`` parameter. bwrap
     emits ``bwrap: Can't find source path /var/does/not/exist_<uuid>:
     No such file or directory``; the stderr-capture buffer collects
@@ -435,7 +435,7 @@ async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
         sandbox={"writable_paths": [nonexistent], "network_allowed": False},
     )
 
-    with pytest.raises(MCPSandboxError) as exc_info:
+    with pytest.raises(SandboxError) as exc_info:
         async with MCPClient(source):
             pass
 
@@ -449,7 +449,7 @@ async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #6b — Bwrap unrecognised failure (with bwrap: prefix) → MCPSandboxError #2
+# #6b — Bwrap unrecognised failure (with bwrap: prefix) → SandboxError #2
 # ---------------------------------------------------------------------------
 
 
@@ -458,7 +458,7 @@ async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
     reason=(
         "F5 L01: same F6 A5 SDK task-group cross-task deadlock as "
         "test_sandbox_writable_paths_nonexistent_raises_at_connect — "
-        "MCPSandboxError surfaces in teardown rather than the connect() context. "
+        "SandboxError surfaces in teardown rather than the connect() context. "
         "Symptom class: F6-A5-deadlock (batched with sibling test)."
     )
 )
@@ -501,7 +501,7 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
     source = _build_naughty_source(
         sandbox={"writable_paths": [], "network_allowed": False},
     )
-    with pytest.raises(MCPSandboxError) as exc_info:
+    with pytest.raises(SandboxError) as exc_info:
         async with MCPClient(source):
             pass
     message = str(exc_info.value)
@@ -514,7 +514,7 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
 
 
 # ---------------------------------------------------------------------------
-# #6c — EPERM on unshare → MCPSandboxError catalog #3 (skip if SYS_ADMIN)
+# #6c — EPERM on unshare → SandboxError catalog #3 (skip if SYS_ADMIN)
 # ---------------------------------------------------------------------------
 
 
@@ -528,7 +528,7 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
     ),
 )
 async def test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3() -> None:
-    """EPERM on unshare surfaces as MCPSandboxError catalog #3.
+    """EPERM on unshare surfaces as SandboxError catalog #3.
 
     Only meaningful in environments WITHOUT ``cap_add: SYS_ADMIN`` +
     ``security_opt: seccomp:unconfined``. The dev container has both;
@@ -541,7 +541,7 @@ async def test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3() -> None:
     source = _build_naughty_source(
         sandbox={"writable_paths": [], "network_allowed": False},
     )
-    with pytest.raises(MCPSandboxError) as exc_info:
+    with pytest.raises(SandboxError) as exc_info:
         async with MCPClient(source):
             pass
     message = str(exc_info.value)
@@ -559,7 +559,7 @@ async def test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3() -> None:
 async def test_inner_process_failure_does_not_translate_to_sandbox_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Inner-process failure (post-bwrap-success) → MCPConnectionError, NOT MCPSandboxError.
+    """Inner-process failure (post-bwrap-success) → MCPConnectionError, NOT SandboxError.
 
     Locks the OTHER side of F3 §6's directionality contract via the
     bwrap-prefix discriminator (``_BWRAP_OWN_PREFIX_RE``). bwrap
@@ -614,10 +614,10 @@ async def test_inner_process_failure_does_not_translate_to_sandbox_error(
         async with MCPClient(source):
             pass
     # Critical directionality: inner-process failures must NOT mistranslate
-    # to MCPSandboxError. The bwrap-prefix discriminator is the
+    # to SandboxError. The bwrap-prefix discriminator is the
     # load-bearing test.
-    assert not isinstance(exc_info.value, MCPSandboxError), (
-        f"inner-process failure mistranslated to MCPSandboxError: {exc_info.value!r}"
+    assert not isinstance(exc_info.value, SandboxError), (
+        f"inner-process failure mistranslated to SandboxError: {exc_info.value!r}"
     )
 
 

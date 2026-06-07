@@ -5,7 +5,7 @@ Coverage:
    2. warm-reuse-on-second-acquire
    3. concurrent-acquire-same-key-shares-one-worker  (cycle-2 race-fix lock)
    4. different-keys-spawn-independent-workers
-   5. spawn-failure-propagates-from-worker  (``MCPSandboxError``)
+   5. spawn-failure-propagates-from-worker  (``SandboxError``)
    6. spawn-failure-pop-is-idempotent-under-concurrent-acquires
    7. acquire-cancellation-leaves-worker-running
    8. ``_load_source`` runs OUTSIDE the lock
@@ -30,7 +30,7 @@ import pytest
 from the_one.db.models import MCPSource
 from the_one.mcp import _pool as pool_mod
 from the_one.mcp._pool import acquire
-from the_one.mcp.errors import MCPConnectionError, MCPSandboxError
+from the_one.mcp.errors import MCPConnectionError, SandboxError
 
 
 # Autouse cleanup. The project uses pytest-asyncio in `auto` mode (verified
@@ -176,12 +176,12 @@ async def test_spawn_failure_propagates_to_acquire_callers(monkeypatch):
         _instance_count = 0
 
         async def _connect_impl(self):
-            raise MCPSandboxError("test sandbox failure")
+            raise SandboxError("test sandbox failure")
 
     monkeypatch.setattr(pool_mod, "MCPClient", _FailingClient)
     monkeypatch.setattr(pool_mod, "_load_source", _patched_load_source)
 
-    with pytest.raises(MCPSandboxError, match="test sandbox failure"):
+    with pytest.raises(SandboxError, match="test sandbox failure"):
         await acquire("agent-a", "src-1")
     # Entry was popped during the failure-observation path; pool empty.
     assert ("agent-a", "src-1") not in pool_mod._pool

@@ -26,7 +26,7 @@ def pytest_configure(config: pytest.Config) -> None:
     invocation). With only ``THE_ONE_TEST_MODE=1``, the sandbox wrap
     stays active for unit + integration tests in environments where
     ``bwrap`` is present (dev container post-L1a). The double-flag
-    bypass in ``the_one.mcp.transports.stdio._sandbox_disabled_for_tests``
+    bypass in ``the_one.platform.sandbox.factory._sandbox_disabled_for_tests``
     only fires when BOTH flags are set.
 
     Uses ``setdefault`` so existing values are preserved — the CI

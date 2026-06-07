@@ -11,7 +11,7 @@ Failure modes (graceful-degrade per F6 §8):
 #. **Source deleted** — :class:`MCPSourceRepository.get` raises
    ``KeyError`` → log + skip; agent build continues.
 #. **Source fails to start** — :func:`acquire` or
-   :meth:`MCPClient.list_tools` raises :class:`MCPSandboxError` /
+   :meth:`MCPClient.list_tools` raises :class:`SandboxError` /
    :class:`MCPConnectionError` / :class:`MCPVersionMismatch` /
    :class:`MCPAuthRequired` → log + skip the source, continue with
    others. The agent builds with whatever sources connected successfully
@@ -53,8 +53,8 @@ from the_one.mcp.errors import (
     MCPAuthRequired,
     MCPConnectionError,
     MCPRegistrationError,
-    MCPSandboxError,
     MCPVersionMismatch,
+    SandboxError,
 )
 from the_one.mcp.types import MCPTool
 from the_one.tools.base import Tool
@@ -320,7 +320,7 @@ class MCPToolProvider:
                     )
                     continue
                 except (
-                    MCPSandboxError,
+                    SandboxError,
                     MCPConnectionError,
                     MCPVersionMismatch,
                 ) as e:

@@ -37,7 +37,7 @@ Applies whenever the runtime emits a clear, actionable error that can be matched
 
 Each symbol has ONE canonical import path; lower packages MAY re-export for convenience. Code that touches the symbol's identity (subclassing, isinstance, exception handlers) MUST use the canonical path. Re-export, never re-define.
 
-Example: `MCPSandboxError` is canonical at `the_one.mcp.errors`; `the_one.platform.sandbox.__init__` re-exports for convenience but the canonical import is `from the_one.mcp.errors import MCPSandboxError`.
+Example: `SandboxError` is canonical at `the_one.mcp.errors`; `the_one.platform.sandbox.__init__` re-exports for convenience but the canonical import is `from the_one.mcp.errors import SandboxError`.
 
 ### `structural-Protocol-satisfaction`
 
@@ -602,25 +602,54 @@ The repository stores the `Encryptor` **as a reference, not a copy**, so post-ro
 
 For runtime invariants (test-seam pattern, AsyncExitStack composition, `_DEFAULT` sentinel rationale, env-var assembly, sandbox-wrap composition, pool semantics), see `the_one/mcp/README.md`.
 
-### MCP F3 Sandbox (authoritative for F4+)
+### Sandbox seam — platform-wide (M14 F1, authoritative for F4+)
+
+**Scope (M14 F1)**: the sandbox is now a platform-wide seam, not an MCP-only one. Three
+spawn paths route through a single `get_sandbox_backend()` factory: built-in `shell` tool,
+built-in `python_exec` tool, and stdio MCP servers. PTY sessions (`shell_session_*`) are
+wired in Flight 2 of M14.
+
+**Backend selection (`get_sandbox_backend()` in `the_one/platform/sandbox/factory.py`)**:
+returns a `BubblewrapSandbox` on Linux when `bwrap` is in `$PATH`, and a
+`PassthroughSandbox` otherwise (off-Linux or bwrap missing on Linux). On Linux with a
+missing `bwrap`, a one-time WARNING is emitted; no `SandboxError` is raised at construction
+time. The factory is the sole selector — spawn sites do NOT construct backends directly.
+
+**`PassthroughSandbox`**: a no-op backend that returns the command/args/env unchanged.
+Proves the seam contract without enforcing containment. Used for non-Linux hosts, for
+bwrap-absent Linux environments (with logged warning), and for all passthrough-pinned
+unit tests (`test_execution_tools.py`). The passthrough is observable (logged) — absence
+of enforcement is not silent.
+
+**Built-in-tool profile (host-workspace, M14 F1 L4)**:
+`_build_tool_profile(exec_cfg, fs_cfg)` in `the_one/tools/execution.py` derives a
+`SandboxProfile` for `shell` and `python_exec`:
+- `writable_paths` = `FilesystemConfig.path_allowlist` (operator-configured workspace).
+- `readonly_overlay_paths` = `FilesystemConfig.path_denylist` (denylisted entries are
+  bound read-only via `--ro-bind-try`; write attempts raise; **read-scoping is deferred
+  to a later flight** — denylisted secrets are not writable, not necessarily unreadable).
+- `home` = real `$HOME` (the host-workspace profile gives the agent a capable assistant
+  posture, not a cage; `/tmp` default is for MCP servers where no real workspace applies).
+- `network_allowed` = `ExecutionConfig.sandbox_network_allowed` (deny-by-default; False
+  unless the operator opts in).
 
 1. **Strict-by-default trust** — Locally-spawned stdio MCP servers run in a bubblewrap jail: read-only filesystem outside an operator-configured `writable_paths` list; network OFF unless `network_allowed=True`. Operator-trust threat model: the sandbox does not defend against operator mistakes (broad `writable_paths`, `network_allowed=True` on untrusted sources), only against MCP-author mistakes / supply-chain compromise within the sandboxed scope.
 
 2. **Profile storage** — `MCPSource.config["sandbox"] = {"writable_paths": list[str], "network_allowed": bool}` lives plaintext alongside `command`/`args`/`env`. Both fields optional; defaults `[]` and `false`. Namespace-flag fields (`pid_unshare`, `ipc_unshare`, `uts_unshare`, bool-defaulting-True) are JSON-edit-only advanced knobs — API validator passes them through unchanged.
 
-3. **`MCPSandbox` Protocol** — `prepare_spawn(profile, command, args, env, cwd=None) -> SpawnSpec`. `SpawnSpec` is `@dataclass(frozen=True)` with `command/args/env/cwd` plus Windows-only `creation_flags: int = 0` and `attribute_list`. Windows fields exist purely so a future backend can populate them without changing the Protocol.
+3. **`ToolSandbox` Protocol** — `prepare_spawn(profile, command, args, env, cwd=None) -> SpawnSpec`. `SpawnSpec` is `@dataclass(frozen=True)` with `command/args/env/cwd` plus Windows-only `creation_flags: int = 0` and `attribute_list`. Windows fields exist purely so a future backend can populate them without changing the Protocol.
 
-4. **`MCPSandboxError` boundary** — Failures BEFORE bwrap successfully wraps-and-execs raise `MCPSandboxError` (bwrap missing, writable_paths entry doesn't exist, `EPERM` on `unshare`, container lacks §10 privilege grants). Failures AFTER (target spawned but exits non-zero, init handshake fails) raise `MCPConnectionError` / `MCPVersionMismatch`. NO unsandboxed fallback in production; `THE_ONE_SANDBOX_DISABLED` is never read in production paths. Catalog messages (operator-facing, verbatim-tested) live in `the_one/mcp/errors.py`.
+4. **`SandboxError` boundary** — Failures BEFORE bwrap successfully wraps-and-execs raise `SandboxError` (writable_paths entry doesn't exist, `EPERM` on `unshare`, container lacks §10 privilege grants). Failures AFTER (target spawned but exits non-zero, init handshake fails) raise `MCPConnectionError` / `MCPVersionMismatch`. **Bwrap missing** no longer raises `SandboxError` at construction time — the factory routes to `PassthroughSandbox` (one-time WARNING on Linux; no error). The runtime bwrap-stderr→`SandboxError` translation on the MCP stdio path (catalog messages in `the_one/mcp/errors.py`) still raises `SandboxError` on post-exec bwrap failures. `THE_ONE_SANDBOX_DISABLED` is never read in production paths. Catalog messages (operator-facing, verbatim-tested) live in `the_one/mcp/errors.py`.
 
 5. **Privilege model** — Dev container: `cap_add: [SYS_ADMIN]` AND `security_opt: [seccomp:unconfined]` (BOTH — SYS_ADMIN alone is filtered by docker's default seccomp profile). Browser-test CI: no privilege grants; `THE_ONE_SANDBOX_DISABLED=1` AND `THE_ONE_TEST_MODE=1` (BOTH; set ONLY by `tests/conftest.py::pytest_configure`). Production: no flags — bwrap is mandatory.
 
    **Operational guardrail**: `THE_ONE_TEST_MODE` MUST NOT appear in any Dockerfile, compose env, entrypoint script, k8s manifest, or CI variable. Presence outside pytest is a deployment defect.
 
-6. **HOME override** — `BubblewrapSandbox.prepare_spawn` forces `env["HOME"] = "/tmp"` regardless of operator config. Reasoning: inherited HOME (`/root` in dev) becomes read-only-but-not-writable under `--ro-bind / /`; subprocess writes to `~/.cache` would EACCES; `/tmp` is writable via `--tmpfs`. Operators cannot override HOME via kv-table — sandbox policy, not configurable.
+6. **HOME policy** — `BubblewrapSandbox.prepare_spawn` sets `env["HOME"]` from `profile.home` when set, otherwise defaults to `"/tmp"` (MCP safe default — inherited `HOME=/root` would be read-only-but-not-writable under `--ro-bind / /`; subprocess writes to `~/.cache` would EACCES; `/tmp` is writable via `--tmpfs`). The host-workspace profile (`_build_tool_profile`) passes the real `$HOME` so built-in tools get a capable-assistant posture. Operators still cannot override HOME via the kv-table — `SandboxProfile.from_dict` intentionally omits `home` from its parsed-key set.
 
 ### MCP error translation
 
-`MCPClient.{connect, list_tools, call_tool}` raise one of: `MCPVersionMismatch`, `MCPAuthRequired`, `MCPSandboxError` (stdio only), or `MCPConnectionError` (catchall). `MCPToolProvider.get_tools_for_agent` graceful-skips all four. Adding a fifth typed exception requires updating BOTH the translator AND the consumer's match list.
+`MCPClient.{connect, list_tools, call_tool}` raise one of: `MCPVersionMismatch`, `MCPAuthRequired`, `SandboxError` (stdio only), or `MCPConnectionError` (catchall). `MCPToolProvider.get_tools_for_agent` graceful-skips all four. Adding a fifth typed exception requires updating BOTH the translator AND the consumer's match list.
 
 **Nested `try/except*` in `connect()`** — Python (PEP 654) forbids mixing `except` and `except*` in one block. The OAuth `except*` nests inside an inner `try` so the version-mismatch `except RuntimeError` can stay flat. `list_tools`/`call_tool` use a flat shape because they have no `except` siblings. Don't "tidy up" the asymmetry.
 
@@ -664,6 +693,7 @@ Active constraint types after F5:
 | Output cap | `ExecutionConfig.output_cap_bytes` | `Narrow` | 6 execution tools (combined stdout+stderr, tail-preserving) |
 | Timeout caps | `ExecutionConfig.timeout_seconds_default`, `timeout_seconds_max` | `Narrow` × 2 + `default <= max` model_validator | 6 execution tools |
 | Command denylist | `ExecutionConfig.command_denylist` | `NarrowSuperset` | `shell`, `python_exec`, `shell_session_send` (per-call re-check). Substring match with trailing-space convention to avoid the `sudoku` false-positive class. |
+| Sandbox network | `ExecutionConfig.sandbox_network_allowed` | `Narrow` | `shell`, `python_exec` (deny-by-default; `True` opts the built-in tool into network access inside the bwrap jail) |
 | URL/host scope + SSRF | `WebConfig.*` (see below) | mixed | 4 web tools |
 
 **`WebConfig.redirect_cap`** is `Field`-only — NO `Annotated` marker. Tool-level only; agent override raises `ValueError`.
@@ -674,13 +704,25 @@ Active constraint types after F5:
 
 ### Subprocess environment invariant
 
-All three execution call sites — `the_one/platform/shell.py`, `the_one/platform/interpreter.py`, `the_one/platform/pty.py::UnixPtySession` — pass an explicit subprocess env built from a hardcoded 8-key allowlist defined as `_ENV_ALLOWLIST` in `the_one/platform/env.py`:
+The hardcoded 8-key allowlist is defined as `_ENV_ALLOWLIST` in `the_one/platform/env.py`
+and materialized by `_build_subprocess_env()`:
 
 ```
 PATH, HOME, USER, LOGNAME, LANG, LC_ALL, TERM, TZ
 ```
 
-**NOT operator-configurable** — part of the F4 trust contract: the agent has no path to read or carry through host secrets via subprocess inheritance. `the_one/platform/pty.py` consumes `_build_subprocess_env` directly to avoid a backwards `platform/ → tools/` dependency.
+Call sites (M14 F1 update):
+- `the_one/tools/shell.py` (ShellTool) — calls `_build_subprocess_env()` and passes the
+  filtered env to `run_shell()` / the sandbox seam.
+- `the_one/tools/python_exec.py` (PythonExecTool) — same pattern.
+- `the_one/platform/pty.py::UnixPtySession` — calls `_build_subprocess_env()` directly to
+  avoid a backwards `platform/ → tools/` dependency; PTY sessions are not yet wired
+  through the sandbox seam (M14 Flight 2).
+
+The platform layer (`run_shell`, `run_python`) receives the already-filtered env from the
+tool layer — it does NOT re-build the allowlist internally.
+
+**NOT operator-configurable** — part of the F4 trust contract: the agent has no path to read or carry through host secrets via subprocess inheritance.
 
 ### Threat model — trip-wire, not fence
 

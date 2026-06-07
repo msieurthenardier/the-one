@@ -31,8 +31,8 @@ from the_one.mcp._pool import acquire
 from the_one.mcp.errors import (
     MCPConnectionError,
     MCPRegistrationError,
-    MCPSandboxError,
     MCPVersionMismatch,
+    SandboxError,
 )
 from the_one.mcp.types import MCPTool
 from the_one.tools.base import Tool
@@ -145,7 +145,7 @@ class MCPClientTool(Tool):
         invariant).
 
         Per F6 §8 failure class #3: source-fails-mid-session — if
-        ``acquire`` raises :class:`MCPSandboxError` /
+        ``acquire`` raises :class:`SandboxError` /
         :class:`MCPConnectionError` / :class:`MCPVersionMismatch` during
         a session (e.g., the warm pool entry was reaped and respawn
         fails), return the env-failure envelope. The LLM sees the error
@@ -161,7 +161,7 @@ class MCPClientTool(Tool):
                 self._source_id,
                 source_override=self._effective_source,
             )
-        except (MCPSandboxError, MCPConnectionError, MCPVersionMismatch) as e:
+        except (SandboxError, MCPConnectionError, MCPVersionMismatch) as e:
             return f"[error] MCP source {self._source_name!r} unavailable: {type(e).__name__}: {e}"
         # call_tool propagates MCPAuthRequired (F5) — the agent loop's
         # _execute_tool catches that and translates to metadata. We

@@ -4,21 +4,28 @@ Two helpers with a deliberate divergence:
 
     select_shell() reports the shell *the agent or operator would prefer*.
         On POSIX it honors ``$SHELL`` (falling back to ``/bin/sh`` when unset
-        or empty); on Windows it returns ``cmd.exe``. F4 may use this to
-        construct an explicit shell invocation via ``create_subprocess_exec``.
+        or empty); on Windows it returns ``cmd.exe``. F14 L4 uses this to
+        construct an explicit shell invocation via ``create_subprocess_exec``
+        on the sandboxed path (DD7).
 
-    run_shell() lets the OS pick the shell — it calls
-        ``asyncio.create_subprocess_shell`` which uses ``/bin/sh`` on POSIX
-        and ``cmd.exe`` on Windows regardless of ``$SHELL``. This preserves
-        today's ``ShellTool`` semantics byte-for-byte; F4 may unify these by
-        passing the selected shell explicitly.
+    run_shell() lets the OS pick the shell on the legacy (no-profile) path —
+        it calls ``asyncio.create_subprocess_shell`` which uses ``/bin/sh`` on
+        POSIX and ``cmd.exe`` on Windows regardless of ``$SHELL``. This
+        preserves today's ``ShellTool`` semantics byte-for-byte when
+        ``profile is None``.
+
+        When ``profile`` is provided, run_shell() takes the sandboxed seam
+        path: calls ``get_sandbox_backend().prepare_spawn()`` and spawns via
+        ``create_subprocess_exec`` using ``select_shell()`` (DD7 — $SHELL-
+        honoring, falls back to /bin/sh). The same kill/session pattern is
+        used on both paths.
 
 Both return raw bytes; decoding is the caller's responsibility (preserving
 the existing ``decode(errors="replace")`` policy in ``ShellTool``).
 
 Subprocess lifecycle (timeout handling):
     On ``asyncio.TimeoutError`` the helper kills the subprocess and re-drains
-    pipes with a second ``proc.communicate()`` before re-raising. The second
+    pipes with a second ``communicate()`` before re-raising. The second
     ``communicate`` (rather than ``proc.wait()``) is necessary because the
     cancelled first ``communicate`` left ``StreamReader`` tasks attached to
     the pipes; a bare ``wait()`` can hang waiting for those readers to drain.
@@ -31,6 +38,10 @@ import asyncio
 import os
 import signal
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from the_one.platform.sandbox.base import SandboxProfile
 
 
 def select_shell() -> tuple[str, list[str]]:
@@ -58,54 +69,86 @@ async def run_shell(
     timeout: float,
     env: dict[str, str] | None = None,
     cwd: str | Path | None = None,
+    profile: "SandboxProfile | None" = None,
 ) -> tuple[bytes, bytes, int]:
     """Run ``command`` via the OS shell; return ``(stdout, stderr, returncode)``.
 
-    Uses ``asyncio.create_subprocess_shell`` (the OS picks the shell — see
-    module docstring for the deliberate divergence from ``select_shell``).
-    Returns raw bytes; the caller decides decode policy.
+    **Legacy path (``profile is None``):** uses
+    ``asyncio.create_subprocess_shell`` (the OS picks the shell — see module
+    docstring for the deliberate divergence from ``select_shell``). Behavior
+    is byte-for-byte identical to the pre-F14 implementation; platform tests
+    calling with no profile continue to work unchanged.
 
-    ``env=None`` means inherit the parent environment (today's behavior); a
+    **Sandboxed path (``profile is not None``):** obtains the sandbox backend
+    via ``get_sandbox_backend()``, calls ``backend.prepare_spawn(profile,
+    shell, ["-c", command], ...)`` where ``shell`` comes from
+    ``select_shell()`` (DD7 — honors ``$SHELL``, fallback ``/bin/sh``), then
+    spawns via ``create_subprocess_exec``. Kill/session semantics are
+    identical to the legacy path.
+
+    ``env=None`` means inherit the parent environment (legacy path only); a
     dict replaces the environment entirely.
 
-    ``cwd=None`` means inherit the parent process's cwd (today's behavior); a
-    str or Path is passed to ``create_subprocess_shell`` (coerced to ``str``
-    for cross-platform safety). F4 callers pass a canonicalized cwd validated
-    via ``the_one.tools.execution._cwd_check``.
+    ``cwd=None`` means inherit the parent process's cwd; a str or Path is
+    coerced to ``str`` and passed to the subprocess creation call.
 
     On timeout, kills the subprocess, re-drains pipes via a second
     ``communicate()`` call, and re-raises ``asyncio.TimeoutError``.
     """
-    # ``start_new_session=True`` (POSIX) puts the subprocess in its own
-    # process group so we can SIGKILL the entire group on timeout — otherwise
-    # killing only the shell leaves grandchildren (e.g. the ``sleep`` in
-    # ``sh -c "sleep 5"``) holding the stdout/stderr pipes open, and the
-    # subsequent ``communicate()`` blocks until those grandchildren exit.
-    popen_kwargs: dict[str, object] = {}
-    if env is not None:
-        popen_kwargs["env"] = env
-    if cwd is not None:
-        # ``str(cwd)`` is the safe cross-platform default —
-        # ``create_subprocess_shell`` accepts both str and Path on POSIX, but
-        # str is the common-denominator type Python's subprocess plumbing
-        # handles uniformly across platforms.
-        popen_kwargs["cwd"] = str(cwd)
+    if profile is None:
+        # Legacy path — unchanged behavior (platform tests call here with no profile).
+        popen_kwargs: dict[str, object] = {}
+        if env is not None:
+            popen_kwargs["env"] = env
+        if cwd is not None:
+            popen_kwargs["cwd"] = str(cwd)
+        if os.name == "posix":
+            popen_kwargs["start_new_session"] = True
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            **popen_kwargs,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            _kill_process_tree(proc)
+            await proc.communicate()
+            raise
+        return stdout, stderr, proc.returncode
+
+    # Sandboxed seam path (profile is not None).
+    # Function-level import to avoid any platform↔platform.sandbox import cycle.
+    from the_one.platform.sandbox import get_sandbox_backend
+
+    shell_exe, prefix = select_shell()
+    backend = get_sandbox_backend()
+    spec = backend.prepare_spawn(
+        profile,
+        shell_exe,
+        [*prefix, command],
+        env or {},
+        str(cwd) if cwd is not None else None,
+    )
+
+    session_kwargs: dict[str, object] = {}
     if os.name == "posix":
-        popen_kwargs["start_new_session"] = True
-    proc = await asyncio.create_subprocess_shell(
-        command,
+        session_kwargs["start_new_session"] = True
+
+    proc = await asyncio.create_subprocess_exec(
+        spec.command,
+        *spec.args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        **popen_kwargs,
+        env=spec.env,
+        cwd=spec.cwd,
+        **session_kwargs,
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         _kill_process_tree(proc)
-        # Re-drain pipes and reap the process. ``await proc.wait()`` can hang
-        # here because the cancelled ``communicate()`` left ``StreamReader``
-        # tasks attached to the pipes; a second ``communicate()`` drains and
-        # reaps in one call.
         await proc.communicate()
         raise
     return stdout, stderr, proc.returncode

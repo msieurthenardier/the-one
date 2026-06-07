@@ -1,7 +1,7 @@
 """OS-agnostic sandbox-spawn contract for local MCP stdio servers (F3).
 
 This module defines the cross-platform-ready contract surface for sandboxing
-locally-spawned MCP server subprocesses: the ``MCPSandbox`` ``Protocol``,
+locally-spawned MCP server subprocesses: the ``ToolSandbox`` ``Protocol``,
 the ``SandboxProfile`` policy dataclass, and the ``SpawnSpec`` process-creation
 dataclass. Linux is the only verified backend in this mission (``BubblewrapSandbox``,
 landed by L3); macOS ``sandbox-exec`` and Windows ``AppContainer`` backends
@@ -73,10 +73,10 @@ where backend-specific machinery is hidden inside the wrapped ``command`` /
 Error class
 -----------
 
-``MCPSandboxError`` canonical home is ``the_one/mcp/errors.py``; this package
+``SandboxError`` canonical home is ``the_one/mcp/errors.py``; this package
 re-exports it via ``the_one/platform/sandbox/__init__.py`` for convenience.
 The canonical import path remains
-``from the_one.mcp.errors import MCPSandboxError``.
+``from the_one.mcp.errors import SandboxError``.
 """
 
 from __future__ import annotations
@@ -95,6 +95,17 @@ class SandboxProfile:
     Strict-floor defaults: empty ``writable_paths``, ``network_allowed=False``,
     all three namespace-unshare flags True. ``from_dict`` constructs from a
     plain dict (typically ``MCPSource.config['sandbox']``) per §12 contract.
+
+    New fields (leg 2):
+      * ``readonly_overlay_paths`` — list of paths the bubblewrap backend
+        remounts read-only *on top of* the writable ``--bind`` mounts, so
+        secrets nested under a writable root are re-protected.  Parsed by
+        ``from_dict`` with the same coercion/validation as ``writable_paths``.
+      * ``home`` — HOME value the bubblewrap backend injects via ``--setenv
+        HOME``.  Defaults to ``None``; the backend falls back to ``"/tmp"``
+        when ``None`` (preserving the historical MCP default).  This field is
+        **programmatic-only**: ``from_dict`` does NOT parse it from the dict so
+        operators cannot override HOME via the kv-table (§13 contract).
     """
 
     writable_paths: list[str] = field(default_factory=list)
@@ -102,6 +113,8 @@ class SandboxProfile:
     pid_unshare: bool = True
     ipc_unshare: bool = True
     uts_unshare: bool = True
+    readonly_overlay_paths: list[str] = field(default_factory=list)
+    home: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SandboxProfile:
@@ -113,13 +126,18 @@ class SandboxProfile:
           * Type mismatch on a known field raises ``ValueError`` at
             construction time with a small-model-friendly message naming the
             offending field and the expected type.
-          * ``writable_paths`` entries are coerced to ``str`` via ``str(...)``.
-            Despite Python's permissive ``str(None)`` returning ``"None"``,
-            ``None`` entries are explicitly rejected as non-meaningful path
-            values per the §12 spec.
+          * ``writable_paths`` and ``readonly_overlay_paths`` entries are
+            coerced to ``str`` via ``str(...)``.  Despite Python's permissive
+            ``str(None)`` returning ``"None"``, ``None`` entries are explicitly
+            rejected as non-meaningful path values per the §12 spec.
           * ``isinstance(value, bool)`` is used (NOT ``int``) for the four
             bool fields, so a JSON ``1`` / ``0`` is rejected — matches L1b's
             API-validator strictness.
+          * ``home`` is intentionally absent from ``known``: operators cannot
+            set HOME via the kv-table (§13 contract); any ``home`` key in the
+            dict falls through to the unknown-key debug log, not to the field.
+            Use the dataclass directly (``SandboxProfile(home=...)``
+            programmatically) when a caller needs to override HOME.
         """
         known = {
             "writable_paths",
@@ -127,6 +145,7 @@ class SandboxProfile:
             "pid_unshare",
             "ipc_unshare",
             "uts_unshare",
+            "readonly_overlay_paths",
         }
         extra = set(data) - known
         if extra:
@@ -150,6 +169,23 @@ class SandboxProfile:
             raise ValueError(
                 "SandboxProfile.writable_paths must be a list, got "
                 f"{type(writable_paths_raw).__name__}."
+            )
+
+        readonly_overlay_paths_raw = data.get("readonly_overlay_paths")
+        if readonly_overlay_paths_raw is None:
+            readonly_overlay_paths: list[str] = []
+        elif isinstance(readonly_overlay_paths_raw, list):
+            readonly_overlay_paths = []
+            for entry in readonly_overlay_paths_raw:
+                if entry is None:
+                    raise ValueError(
+                        "SandboxProfile.readonly_overlay_paths: None is not a valid path entry."
+                    )
+                readonly_overlay_paths.append(str(entry))
+        else:
+            raise ValueError(
+                "SandboxProfile.readonly_overlay_paths must be a list, got "
+                f"{type(readonly_overlay_paths_raw).__name__}."
             )
 
         network_allowed = data.get("network_allowed", False)
@@ -183,6 +219,8 @@ class SandboxProfile:
             pid_unshare=pid_unshare,
             ipc_unshare=ipc_unshare,
             uts_unshare=uts_unshare,
+            readonly_overlay_paths=readonly_overlay_paths,
+            # home is intentionally omitted — programmatic-only (§13 contract).
         )
 
 
@@ -206,8 +244,8 @@ class SpawnSpec:
 
 
 @runtime_checkable
-class MCPSandbox(Protocol):
-    """OS-agnostic adapter contract for sandboxing MCP server subprocesses (F3 §11).
+class ToolSandbox(Protocol):
+    """OS-agnostic adapter contract for sandboxing tool subprocesses (F3 §11).
 
     Implementations satisfy the contract structurally; subclassing is not
     required (and is unidiomatic for ``runtime_checkable`` Protocols).
