@@ -1,6 +1,6 @@
 # Mission: Unified Tool-Execution Sandbox
 
-**Status**: active
+**Status**: completed
 
 > **Split rationale.** This mission was carved out of the original "Native Desktop
 > Installers" scope (now Mission 15) so the heaviest, riskiest, and most
