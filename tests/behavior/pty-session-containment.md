@@ -1,9 +1,9 @@
 # Behavior Test: PTY Session Containment
 
 **Slug**: `pty-session-containment`
-**Status**: draft
+**Status**: active
 **Created**: 2026-06-06
-**Last Run**: never
+**Last Run**: 2026-06-07-09-56-42
 
 ## Intent
 
@@ -67,7 +67,8 @@ end-to-end tool path is where a regression would actually bite.
 | 3 | In the session, write and read back a file under `$HOME`: send `echo pty-canary > ~/.pty_canary_$$  && cat ~/.pty_canary_$$`. | Output contains `pty-canary` — a `~`-relative write **persists** and is readable within the session (real HOME is writable; DD3/DD4). |
 | 4 | In the session, attempt a write **outside the allowlist**: send `echo nope > /etc/pty_should_fail`. | Output contains a refusal — `Read-only file system` (or `Permission denied`). The write does **not** succeed: a follow-up `cat /etc/pty_should_fail` reports no such file. Outside-allowlist writes are OS-denied. |
 | 5 | In the session, attempt a write to a **denylisted secret path** under HOME: send `echo nope > ~/.ssh/pty_should_fail` (`~/.ssh` is in the default denylist, re-mounted read-only by the overlay). | Output contains `Read-only file system`. The denylist overlay blocks the write. *(Note: the `--ro-bind-try` overlay enforces write-protection, not read-blocking — this row asserts not-writable, not unreadable, per the Flight-1 DD4/DD5 resolution.)* |
-| 6 | In the session, attempt an **outbound network connection**: send `python3 -c "import socket; socket.create_connection(('1.1.1.1',53),timeout=3)"` (or `curl -sS --max-time 3 http://1.1.1.1` if python is absent). | Output shows the connection is refused at the OS layer — `Network is unreachable` / `ENETUNREACH` (network deny-by-default; `--unshare-net`). It does **not** connect or hang to timeout-then-succeed. |
+| 6 | In the session, inspect the network namespace: send `cat /proc/net/dev` (and optionally `ip addr`). | **Primary (namespace isolation):** only the `lo` loopback interface is present — no `eth0` / external interface — confirming the session is in an isolated network namespace (`--unshare-net`, network deny-by-default). *Rationale (2026-06-07 run): a safety-aligned driving agent will refuse to open a raw outbound socket on command — even to prove the sandbox blocks it — so the live assertion uses the namespace-isolation observable the agent cooperates with. The direct outbound-connect refusal (`ENETUNREACH`) is proven deterministically by `tests/test_pty_sandbox.py` (`@requires_bwrap`); see Out of Scope.* |
+| 6b | *(optional, agent-permitting)* In the session, attempt an outbound connection: `python3 -c "import socket; socket.create_connection(('1.1.1.1',53),timeout=3)"`. | *(optional)* If the driving apparatus will run it: output shows `Network is unreachable` / `ENETUNREACH`. If the apparatus (e.g. a safety-aligned agent) refuses, skip — the namespace-isolation check (step 6) plus the `@requires_bwrap` network test already cover this. |
 | 7 | Identify **this session's** bwrap before closing: via Bash on the host, find the long-lived bwrap that persists across two `shell_session_send` calls (or match on the session's known shell + cwd) and record both its PID and its child shell PID — do NOT just `pgrep bwrap` (other one-shot tool / MCP spawns also produce transient bwrap processes). Then close the session via `shell_session_close` (or `shell_session_kill`); allow a brief settle (~0.5 s) for async PID-namespace teardown. | `[mixed-frame]` (justified: orphan-survival has no in-session surface — the session is gone after close; the host process table is the only read path). After close returns + settle, the **captured** bwrap PID and its sandboxed shell descendant are **gone** — assert specifically that no process matching the captured PID / child-shell PID survives, not merely "no bwrap at all" (DD5; namespace teardown via `--die-with-parent` + single-pid SIGKILL). |
 | 8 | Clean up: via Bash on the host, remove `~/.pty_canary_*` if it persisted on the host (it should, under the real-HOME workspace). | (setup row, no judgment) |
 

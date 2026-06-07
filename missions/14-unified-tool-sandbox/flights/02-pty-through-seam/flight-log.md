@@ -4,9 +4,36 @@
 
 ## Summary
 
-Flight is `ready` (design-reviewed, operator-approved). This log is ready for
-execution notes. The planning-time seam reconnaissance and the behavior-test
-apparatus audit are recorded below so the crew inherits them.
+Flight **landed 2026-06-07**. All four autonomous legs completed + the optional HAT
+accepted via operator review of the live behavior-test run. PTY (the fourth and last
+spawn path) now routes through the shared bubblewrap seam on Linux. Verification:
+12 `@requires_bwrap` tests green (incl. orphan-survival), full suite 3008 passed,
+live `/behavior-test pty-session-containment` 6/7 PASS (1 inconclusive — network —
+covered deterministically by the bwrap suite). Committed `321d6a6`; PR #104.
+
+## Flight Director Notes — Phase 3 (landing)
+
+- **2026-06-07 — Behavior test (FD-run).** Operator chose the live-chat apparatus.
+  Discovered the drive surface (`POST /api/chat` → agent **Sonnet**, which has the
+  `shell_session_*` tools and runs them in a real bwrap PTY). Created the `~/.ssh`
+  denylist fixture in-container (the planning-flagged `--ro-bind-try`-skips-absent
+  precondition). Ran the Witnessed crew (separate Executor + Validator). Result 6/7
+  PASS; checkpoint 6 (network) INCONCLUSIVE because the safety-aligned agent refused
+  to open a raw outbound socket — an apparatus limitation, not a containment failure
+  (network-deny is proven by the `@requires_bwrap` suite). Re-authored the spec's
+  network step to a namespace-isolation observable the agent cooperates with;
+  promoted the spec to `active`. Run log:
+  `tests/behavior/pty-session-containment/runs/2026-06-07-09-56-42.md`.
+- **HAT leg.** Operator reviewed the live Executor↔Sonnet conversations and signed
+  off, waiving the separate guided walk-through as redundant — the HAT's purpose
+  (human acceptance of real behavior) was met by the live run. Leg marked completed.
+- **Landed.** Flight → `landed`; Flight 2 checked off in `mission.md`; PR #104 marked
+  ready for review. Debrief is the separate `/flight-debrief` step (transitions the
+  flight to `completed`).
+- **Spec-quality finding (for the debrief):** behavior tests that drive containment
+  probes through a safety-aligned agent must phrase the "prove the bad thing is
+  blocked" assertion around an observable the agent will cooperate with (namespace
+  state, not a raw exploit attempt) — or the agent's refusal reads as inconclusive.
 
 ---
 
