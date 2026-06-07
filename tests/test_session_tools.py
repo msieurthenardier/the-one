@@ -64,7 +64,7 @@ async def test_start_returns_pty_session_id(monkeypatch, tmp_path) -> None:
     cross = _cross(allowlist=[str(tmp_path)])
     monkeypatch.setattr(
         "the_one.tools.sessions.create_pty_session",
-        lambda cwd=None, shell=None: MockPtySession(),
+        lambda cwd=None, shell=None, profile=None: MockPtySession(),
     )
     tool = ShellSessionStartTool(cfg, cross_configs=cross, agent_name="alpha")
     sid = await tool.execute(cwd=str(tmp_path))
@@ -90,7 +90,7 @@ async def test_start_rejects_cwd_outside_allowlist(monkeypatch, tmp_path) -> Non
     cross = _cross(allowlist=[str(tmp_path)])
     monkeypatch.setattr(
         "the_one.tools.sessions.create_pty_session",
-        lambda cwd=None, shell=None: MockPtySession(),
+        lambda cwd=None, shell=None, profile=None: MockPtySession(),
     )
     tool = ShellSessionStartTool(cfg, cross_configs=cross, agent_name="alpha")
     out = await tool.execute(cwd="/etc")
@@ -110,7 +110,7 @@ async def test_start_max_concurrent_sessions(monkeypatch, tmp_path) -> None:
         )
     monkeypatch.setattr(
         "the_one.tools.sessions.create_pty_session",
-        lambda cwd=None, shell=None: MockPtySession(),
+        lambda cwd=None, shell=None, profile=None: MockPtySession(),
     )
     tool = ShellSessionStartTool(
         cfg, cross_configs=_cross(allowlist=[str(tmp_path)]), agent_name="alpha"
@@ -131,7 +131,7 @@ async def test_start_default_cwd_validates_via_cwd_check(monkeypatch, tmp_path) 
     monkeypatch.setenv("HOME", "/nonexistent-home-for-test")
     monkeypatch.setattr(
         "the_one.tools.sessions.create_pty_session",
-        lambda cwd=None, shell=None: MockPtySession(),
+        lambda cwd=None, shell=None, profile=None: MockPtySession(),
     )
     tool = ShellSessionStartTool(cfg, cross_configs=cross, agent_name="alpha")
     out = await tool.execute()  # no cwd → defaults to $HOME
@@ -307,9 +307,19 @@ async def test_list_returns_newline_joined_sids() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="UnixPtySession requires posix")
-async def test_end_to_end_real_pty_round_trip(tmp_path) -> None:
+async def test_end_to_end_real_pty_round_trip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Spawn a real shell, send ``echo`` through the tool layer, list,
-    close — verify the full chain works without mocks."""
+    close — verify the full chain works without mocks.
+
+    Pinned to passthrough (THE_ONE_SANDBOX_DISABLED=1) by design: under real
+    bwrap, the kernel mounts a fresh tmpfs at ``/tmp``, which shadows any
+    ``tmp_path`` workspace created there — making the session's cwd invisible
+    inside the sandbox regardless of what writable paths the profile carries.
+    This is a tool-layer round-trip test, not a containment test.  Real-bwrap
+    containment is covered by ``tests/test_pty_sandbox.py`` and the
+    ``/behavior-test pty-session-containment`` spec.
+    """
+    monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
     cfg = ExecutionConfig()
     cross = _cross(allowlist=[str(tmp_path)])
     start = ShellSessionStartTool(cfg, cross_configs=cross, agent_name="alpha")

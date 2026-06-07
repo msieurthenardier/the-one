@@ -602,12 +602,12 @@ The repository stores the `Encryptor` **as a reference, not a copy**, so post-ro
 
 For runtime invariants (test-seam pattern, AsyncExitStack composition, `_DEFAULT` sentinel rationale, env-var assembly, sandbox-wrap composition, pool semantics), see `the_one/mcp/README.md`.
 
-### Sandbox seam — platform-wide (M14 F1, authoritative for F4+)
+### Sandbox seam — platform-wide (M14 F1+F2, authoritative for F4+)
 
-**Scope (M14 F1)**: the sandbox is now a platform-wide seam, not an MCP-only one. Three
+**Scope (M14 F1+F2)**: the sandbox is now a platform-wide seam, not an MCP-only one. Four
 spawn paths route through a single `get_sandbox_backend()` factory: built-in `shell` tool,
-built-in `python_exec` tool, and stdio MCP servers. PTY sessions (`shell_session_*`) are
-wired in Flight 2 of M14.
+built-in `python_exec` tool, stdio MCP servers, and PTY `shell_session_*` sessions (wired
+in M14 F2).
 
 **Backend selection (`get_sandbox_backend()` in `the_one/platform/sandbox/factory.py`)**:
 returns a `BubblewrapSandbox` on Linux when `bwrap` is in `$PATH`, and a
@@ -646,6 +646,36 @@ of enforcement is not silent.
    **Operational guardrail**: `THE_ONE_TEST_MODE` MUST NOT appear in any Dockerfile, compose env, entrypoint script, k8s manifest, or CI variable. Presence outside pytest is a deployment defect.
 
 6. **HOME policy** — `BubblewrapSandbox.prepare_spawn` sets `env["HOME"]` from `profile.home` when set, otherwise defaults to `"/tmp"` (MCP safe default — inherited `HOME=/root` would be read-only-but-not-writable under `--ro-bind / /`; subprocess writes to `~/.cache` would EACCES; `/tmp` is writable via `--tmpfs`). The host-workspace profile (`_build_tool_profile`) passes the real `$HOME` so built-in tools get a capable-assistant posture. Operators still cannot override HOME via the kv-table — `SandboxProfile.from_dict` intentionally omits `home` from its parsed-key set.
+
+### the_one/platform/sandbox/
+
+Four-module package implementing the cross-platform sandbox seam (M14 F1+F2):
+
+- **`base.py`** — defines `SandboxProfile` (policy dataclass: `writable_paths`,
+  `readonly_overlay_paths`, `network_allowed`, namespace-unshare flags, `home`),
+  `SpawnSpec` (frozen dataclass: `command/args/env/cwd` + Windows-only `creation_flags`
+  and `attribute_list` for forward-compat), and the `ToolSandbox` `Protocol`
+  (`runtime_checkable`; structurally satisfied — no inheritance required).
+- **`factory.py`** — `get_sandbox_backend() -> ToolSandbox`: sole backend selector.
+  Returns `BubblewrapSandbox` on Linux when `bwrap` is in `$PATH`; falls through to
+  `PassthroughSandbox` on non-Linux, bwrap-absent Linux (one-time WARNING), or test
+  double-flag bypass (`THE_ONE_SANDBOX_DISABLED=1` + `THE_ONE_TEST_MODE=1`). Re-evaluates
+  on every call (not memoized) so test monkeypatching is always visible.
+- **`bubblewrap.py`** — `BubblewrapSandbox`: wraps the target command in a bwrap PID
+  namespace. `prepare_spawn(profile, command, args, env, cwd) -> SpawnSpec` emits the
+  bwrap argv: `--die-with-parent`, `--unshare-user/pid/ipc/uts/net`, `--clearenv`,
+  `--setenv` per env key, `--ro-bind / /`, `--tmpfs /tmp`, `--bind` per `writable_paths`,
+  `--ro-bind-try` per `readonly_overlay_paths` (after writable mounts so overlays win),
+  `--proc /proc`, `--dev /dev`, `[--chdir cwd]`, `--`, then the wrapped command and args.
+- **`passthrough.py`** — `PassthroughSandbox`: no-op backend; returns command/args/env/cwd
+  unchanged. Forward-compat shim for non-Linux hosts and test environments.
+
+**The `prepare_spawn → SpawnSpec` contract** is the seam's public surface. All four spawn
+sites call `get_sandbox_backend().prepare_spawn(profile, command, args, env, cwd)` and
+consume the returned `SpawnSpec` — none construct a backend directly. The four sites are:
+`ShellTool` (`tools/shell.py`), `PythonExecTool` (`tools/python_exec.py`),
+`connect_stdio` in `mcp/transports/stdio.py` (MCP stdio servers), and
+`UnixPtySession.start()` in `platform/pty.py` (PTY `shell_session_*` — added M14 F2).
 
 ### MCP error translation
 
@@ -711,13 +741,14 @@ and materialized by `_build_subprocess_env()`:
 PATH, HOME, USER, LOGNAME, LANG, LC_ALL, TERM, TZ
 ```
 
-Call sites (M14 F1 update):
+Call sites (M14 F1+F2 update):
 - `the_one/tools/shell.py` (ShellTool) — calls `_build_subprocess_env()` and passes the
   filtered env to `run_shell()` / the sandbox seam.
 - `the_one/tools/python_exec.py` (PythonExecTool) — same pattern.
-- `the_one/platform/pty.py::UnixPtySession` — calls `_build_subprocess_env()` directly to
-  avoid a backwards `platform/ → tools/` dependency; PTY sessions are not yet wired
-  through the sandbox seam (M14 Flight 2).
+- `the_one/platform/pty.py::UnixPtySession` — calls `_build_subprocess_env()` in the
+  parent (before `pty.fork()`) and passes the filtered env through
+  `get_sandbox_backend().prepare_spawn(...)` — now wired through the sandbox seam (M14 F2),
+  identical in structure to the one-shot built-in tools.
 
 The platform layer (`run_shell`, `run_python`) receives the already-filtered env from the
 tool layer — it does NOT re-build the allowlist internally.

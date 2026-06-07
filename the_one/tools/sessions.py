@@ -53,6 +53,7 @@ from the_one.tools import _session_registry
 from the_one.tools.base import ConstraintError, Tool
 from the_one.tools.execution import (
     ExecutionConfig,
+    _build_tool_profile,
     _command_check,
     _cwd_check,
     _truncate_output,
@@ -133,10 +134,11 @@ class ShellSessionStartTool(Tool):
             else:
                 target_cwd = Path.home()
             canonical_cwd = _cwd_check(target_cwd, fs_cfg)
+            profile = _build_tool_profile(fs_cfg, exec_cfg)
             # ``create_pty_session`` accepts ``Path | None`` directly —
             # do NOT ``str(canonical_cwd)`` here; the L5a signature is
             # typed to ``Path | None``.
-            session = create_pty_session(cwd=canonical_cwd)
+            session = create_pty_session(cwd=canonical_cwd, profile=profile)
             await session.start()
             sid = _session_registry.new_session_id()
             await _session_registry.register(

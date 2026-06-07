@@ -204,9 +204,11 @@ _None yet — emergent blockers discovered during execution are recorded here._
       tools default to a **host-workspace** profile (writable = filesystem allowlist,
       denylist protected, network opt-in, real `$HOME`). Containment verified via
       `@requires_bwrap` integration tests.
-- [ ] Flight 2: **PTY through the seam** — retrofit the `pty.fork()`/`execvp` path
+- [x] Flight 2: **PTY through the seam** — retrofit the `pty.fork()`/`execvp` path
       so interactive sessions are sandboxed by the same boundary on Linux.
-      Behavior-test PTY-session containment. *(Heaviest flight.)*
+      Behavior-test PTY-session containment. *(Heaviest flight.)* — **landed
+      2026-06-07**; single-path seam, single-pid SIGKILL teardown; 12 `@requires_bwrap`
+      tests + live behavior test (6/7 PASS); PR #104.
 - [ ] Flight 3: **Uniform policy & CLI parity** — ensure the `SandboxProfile`
       applies uniformly across all four spawn types from one policy source; verify a
       CLI-launched tool is sandboxed identically to the web path; consolidate the
