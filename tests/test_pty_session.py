@@ -36,6 +36,26 @@ from the_one.platform.pty import (  # noqa: E402  (after pytestmark skip)
 )
 
 # ---------------------------------------------------------------------------
+# Passthrough pin — DD7
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _pin_to_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin every test in this file to the PassthroughSandbox backend.
+
+    Sets ``THE_ONE_SANDBOX_DISABLED=1`` so ``get_sandbox_backend()``
+    returns passthrough regardless of whether bwrap is present on the
+    host.  Function-scoped (pytest's ``monkeypatch`` is function-scoped)
+    so the env var is restored after each test.
+
+    Must be function-scoped — a module-scoped autouse fixture cannot
+    consume the function-scoped ``monkeypatch`` fixture (pytest raises).
+    """
+    monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
+
+
+# ---------------------------------------------------------------------------
 # ABC contract pins
 # ---------------------------------------------------------------------------
 
@@ -146,9 +166,10 @@ class TestUnixPtySession:
     async def test_env_allowlist_invariant(self, monkeypatch) -> None:
         """``THE_ONE_TEST_LEAK`` set in parent must NOT be visible to the
         spawned shell. ``monkeypatch.setenv`` MUST run before
-        ``UnixPtySession()`` instantiation — ``_build_subprocess_env``
-        reads ``os.environ`` at call time (in the child after fork), so
-        the parent's monkeypatched env at fork-time is what matters."""
+        ``session.start()`` is called — ``_build_subprocess_env`` is now
+        captured in the parent inside ``start()`` (before ``pty.fork()``,
+        for fork-safety — DD1), so the monkeypatched env must be in place
+        before ``start()`` is called, not merely before ``__init__``."""
         monkeypatch.setenv("THE_ONE_TEST_LEAK", "secret-pty-allowlist")
         # Use ``/bin/bash`` explicitly for deterministic ``env`` output
         # regardless of the dev container's ``$SHELL``.

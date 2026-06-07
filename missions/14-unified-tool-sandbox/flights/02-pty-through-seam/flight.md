@@ -1,6 +1,6 @@
 # Flight: PTY Through the Seam
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
@@ -271,22 +271,23 @@ sandbox docs (PTY now sandboxed; the single-path seam; add the
 `platform/sandbox/` subsection the debrief asked for).
 
 ### Checkpoints
-- [ ] `UnixPtySession` accepts a profile; `SpawnSpec` computed pre-fork; child
+- [x] `UnixPtySession` accepts a profile; `SpawnSpec` computed pre-fork; child
       execs through the spec; passthrough reproduces today's start/send/close.
       `test_pty_session.py` pinned to passthrough and green host-native + in-container.
-- [ ] Resolved teardown implemented (single-pid SIGKILL-fast on the wrapped path +
+- [x] Resolved teardown implemented (single-pid SIGKILL-fast on the wrapped path +
       confirm-reaped settle); `close()` returns promptly under bwrap; the
       orphan-survival `@requires_bwrap` test (in `pty-platform-seam`) is green.
-- [ ] `ShellSessionStartTool` builds the profile via `_build_tool_profile` and
+- [x] `ShellSessionStartTool` builds the profile via `_build_tool_profile` and
       threads it into `create_pty_session`; session-tool tests green (mock lambdas
       updated to accept `profile=None`).
-- [ ] `@requires_bwrap` PTY tests prove: write outside allowlist denied; denylisted
+- [x] `@requires_bwrap` PTY tests prove: write outside allowlist denied; denylisted
       secret path not writable; network denied by default and enabled when
       `sandbox_network_allowed=true`; `~`-relative write persists (real HOME);
       no orphan survives `close()`.
 - [ ] `/behavior-test pty-session-containment` passes against a live instance
       (run log captured under `tests/behavior/pty-session-containment/runs/`).
-- [ ] Full suite + ruff green; docs updated.
+      *(Flight-Director-run; pending apparatus confirmation — see flight log.)*
+- [x] Full suite + ruff green; docs updated.
 
 ### Adaptation Criteria
 
@@ -312,7 +313,7 @@ sandbox docs (PTY now sandboxed; the single-path seam; add the
 > **Note:** Tentative; legs are planned and created one at a time as the flight
 > progresses.
 
-- [ ] `pty-platform-seam` - `platform/pty.py`: add `profile` param to
+- [x] `pty-platform-seam` - `platform/pty.py`: add `profile` param to
       `UnixPtySession` / `create_pty_session`; compute `SpawnSpec` in the parent
       via `get_sandbox_backend().prepare_spawn` (carry the `-i` logic into
       `shell_args`); rewrite the forked-child branch to exec through the spec
@@ -326,7 +327,7 @@ sandbox docs (PTY now sandboxed; the single-path seam; add the
       shell PID) and assert it + its descendants are gone after `close()`. Files:
       `the_one/platform/pty.py`, `tests/test_pty_session.py`,
       `tests/test_pty_sandbox.py` (orphan-survival case).
-- [ ] `pty-tool-wiring` - `tools/sessions.py`: `ShellSessionStartTool.execute`
+- [x] `pty-tool-wiring` - `tools/sessions.py`: `ShellSessionStartTool.execute`
       builds `_build_tool_profile(fs_cfg, exec_cfg)` and threads it into
       `create_pty_session(cwd=…, profile=…)`. **Update the `create_pty_session`
       monkeypatch lambdas in `tests/test_session_tools.py` to accept the new
@@ -337,7 +338,7 @@ sandbox docs (PTY now sandboxed; the single-path seam; add the
       default-allowlist production-path unit test (debrief action item; PTY now
       exercises that path). Files: `the_one/tools/sessions.py`,
       `tests/test_session_tools.py`.
-- [ ] `pty-containment-tests` - Extend `tests/test_pty_sandbox.py` with the
+- [x] `pty-containment-tests` - Extend `tests/test_pty_sandbox.py` with the
       remaining `@requires_bwrap` tests mirroring `test_builtin_tool_sandbox.py`:
       write-outside-allowlist-denied, denylist-secret-not-writable (sibling-allowed
       control), network deny-by-default + opt-in, real-HOME persistence. **Create
@@ -346,7 +347,7 @@ sandbox docs (PTY now sandboxed; the single-path seam; add the
       dir would false-pass; mirror `test_builtin_tool_sandbox.py:118`). Workspaces
       under `$HOME` (bwrap lays a fresh tmpfs at `/tmp`). (Orphan-survival already
       landed in `pty-platform-seam`.)
-- [ ] `verify-integration` - Full suite host-native + in-container; ruff gate;
+- [x] `verify-integration` - Full suite host-native + in-container; ruff gate;
       `-m requires_bwrap` PTY run on a bwrap host; **probe the behavior-test
       apparatus then run `/behavior-test pty-session-containment`** and capture the
       run log; confirm passthrough (simulated bwrap-missing) does not error and

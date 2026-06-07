@@ -11,10 +11,11 @@ Public surface:
                               is_alive / last_activity
     UnixPtySession          — concrete Unix implementation using
                               ``pty.fork()`` + child-side ``execvp`` to
-                              enforce the F4 Decision 10 env allowlist.
-                              The fork-then-exec pattern is required because
-                              ``pty.spawn(shell)`` would inherit the full
-                              parent env, defeating the allowlist.
+                              route through the shared sandbox seam
+                              (F14 M14 F2: SpawnSpec computed in parent,
+                              child execs the spec — single-path through
+                              the seam, passthrough reproduces today's
+                              behavior byte-for-byte).
     create_pty_session(...) — platform-dispatching factory; on POSIX returns
                               ``UnixPtySession``; on other platforms is
                               unreachable thanks to the import-time guard.
@@ -90,7 +91,8 @@ class PtySession(ABC):
 
         Implementations must:
 
-        * fork-then-execvp with the hardcoded env allowlist (Decision 10).
+        * route through the sandbox seam (compute SpawnSpec in parent,
+          exec through spec in child — DD1 fork-safety).
         * block until the shell signals readiness (idle-mark — no new bytes
           for ~100ms — OR a hard 2s cap, whichever comes first).
         """
@@ -108,8 +110,9 @@ class PtySession(ABC):
 
     @abstractmethod
     async def close(self) -> None:
-        """Send SIGTERM, wait 1s, SIGKILL if still alive, close
-        master_fd. Idempotent — safe to call multiple times."""
+        """Teardown: SIGKILL-fast on bwrap-wrapped sessions (bwrap doesn't
+        forward SIGTERM); SIGTERM→1s→SIGKILL on passthrough. Idempotent —
+        safe to call multiple times."""
 
     @property
     @abstractmethod
@@ -130,7 +133,12 @@ class PtySession(ABC):
 
 class UnixPtySession(PtySession):
     """Unix concrete ``PtySession`` using ``pty.fork()`` + child-side
-    ``execvp`` to enforce the F4 Decision 10 env allowlist.
+    ``execvp`` routed through the sandbox seam (F14 M14 F2).
+
+    The SpawnSpec is computed in the parent BEFORE ``pty.fork()`` (DD1
+    fork-safety: the factory touches logging locks). The child execs through
+    the spec — passthrough reproduces today's behavior byte-for-byte;
+    bubblewrap wraps the shell in a PID namespace.
 
     Construction is cheap; the subprocess is spawned by ``start()``.
     Tests should always wrap ``await s.close()`` in a ``try/finally`` to
@@ -138,24 +146,36 @@ class UnixPtySession(PtySession):
 
     Args:
         cwd: Optional working directory for the spawned shell. Passed to
-            ``os.chdir`` in the child BEFORE the env clear/exec; chdir
-            failure makes the child ``os._exit(127)`` (parent then sees
-            the session as dead via ``is_alive``).
+            ``spec.cwd`` (bubblewrap uses ``--chdir``; passthrough uses
+            ``os.chdir`` in the child). chdir failure makes the child
+            ``os._exit(127)`` (parent then sees the session as dead via
+            ``is_alive``).
         shell: Optional explicit shell path. Used by tests for
             deterministic ``env`` output. Defaults to ``select_shell()[0]``
             (honors ``$SHELL`` on POSIX).
+        profile: Optional ``SandboxProfile`` controlling sandbox policy
+            (writable paths, network, PID namespace, etc.). When ``None``
+            on a bubblewrap host a strict-floor profile is used (no
+            writable paths). Callers that need a working session on Linux
+            must pass a profile that includes the workspace in
+            ``writable_paths``. The tool layer (Leg 2) always supplies
+            a real profile; unit tests pin to passthrough via
+            ``THE_ONE_SANDBOX_DISABLED=1``.
     """
 
     def __init__(
         self,
         cwd: Path | None = None,
         shell: str | None = None,
+        profile: object | None = None,  # SandboxProfile | None (avoid import at class level)
     ) -> None:
         self._cwd = cwd
         self._shell_override = shell
+        self._profile = profile
         self._pid: int | None = None
         self._master_fd: int | None = None
         self._closed = False
+        self._wrapped: bool = False
         # ``_last_activity`` is set by ``start`` and ``send``. Initialize
         # to construction time so the reaper has a sensible value even if
         # ``start`` somehow doesn't run (shouldn't happen, but defensive).
@@ -167,7 +187,12 @@ class UnixPtySession(PtySession):
 
     async def start(self) -> None:
         """Spawn the shell via ``pty.fork()`` and block until idle-mark
-        or 2s cap, whichever comes first."""
+        or 2s cap, whichever comes first.
+
+        The SpawnSpec is computed HERE (parent, before fork) for fork-safety:
+        ``get_sandbox_backend()`` touches logging locks the child must not
+        acquire (DD1). The child execvp's through the spec unchanged.
+        """
         if os.name != "posix":
             # Belt-and-suspenders. Module-level guard already raised on
             # Windows; this also covers (hypothetical) future os.name
@@ -180,6 +205,32 @@ class UnixPtySession(PtySession):
 
         shell = self._shell_override or select_shell()[0]
         cwd = self._cwd
+
+        # --- Compute SpawnSpec in the parent (before fork) — DD1 ---
+        # Function-level import to avoid any platform↔platform.sandbox
+        # import cycle — mirrors platform/shell.py:123.
+        from the_one.platform.sandbox import get_sandbox_backend
+        from the_one.platform.sandbox.base import SandboxProfile
+
+        # Carry the existing interactive-shell logic into shell_args (it
+        # must be resolved here so the child branch is fork-safe).
+        if os.path.basename(shell) in _INTERACTIVE_SHELL_BASENAMES:
+            shell_args = ["-i"]
+        else:
+            shell_args = []
+
+        prof = self._profile if self._profile is not None else SandboxProfile()
+        backend = get_sandbox_backend()
+        spec = backend.prepare_spawn(
+            prof,
+            shell,
+            shell_args,
+            _build_subprocess_env(),
+            str(cwd) if cwd is not None else None,
+        )
+        # Record whether this session is bwrap-wrapped for the teardown branch
+        # (spec-level ground truth — a future backend variant can't drift this).
+        self._wrapped = spec.command == "bwrap"
 
         try:
             pid, master_fd = pty.fork()
@@ -194,23 +245,14 @@ class UnixPtySession(PtySession):
             # parent atexit handlers / pytest cleanup. Errors written to
             # the slave PTY surface to the parent via the master_fd read.
             try:
-                if cwd is not None:
-                    try:
-                        os.chdir(str(cwd))
-                    except OSError:
-                        # cwd doesn't exist / not a directory / no perms.
-                        # Parent will see EOF on master_fd; ``is_alive``
-                        # returns False shortly after.
-                        os._exit(127)
+                # passthrough: real effect on cwd; bwrap: redundant (--chdir
+                # in spec) but harmless and required for passthrough — do not
+                # remove (DD1).
+                if spec.cwd is not None:
+                    os.chdir(spec.cwd)
                 os.environ.clear()
-                os.environ.update(_build_subprocess_env())
-                # ``-i`` for shells that benefit from it (bash, zsh);
-                # bare invocation otherwise.
-                if os.path.basename(shell) in _INTERACTIVE_SHELL_BASENAMES:
-                    argv = [shell, "-i"]
-                else:
-                    argv = [shell]
-                os.execvp(shell, argv)
+                os.environ.update(spec.env)
+                os.execvp(spec.command, [spec.command, *spec.args])
             except Exception:  # pragma: no cover — exec replaces image
                 # Unreachable under normal operation: ``execvp`` either
                 # replaces the image or raises; on raise we exit so the
@@ -270,7 +312,15 @@ class UnixPtySession(PtySession):
         return result
 
     async def close(self) -> None:
-        """Idempotent SIGTERM-then-SIGKILL teardown. Closes ``master_fd``."""
+        """Idempotent teardown. Closes ``master_fd``.
+
+        SIGKILL-fast on bwrap-wrapped sessions (bwrap doesn't forward
+        SIGTERM to the inner shell; the 1s grace is wasted — DD9).
+        SIGTERM→1s→SIGKILL on passthrough sessions (preserves graceful
+        behavior). No in-close settle — the orphan-assertion settle lives
+        test-side where the async-teardown-vs-/proc race actually needs
+        covering.
+        """
         if self._closed:
             return
         loop = asyncio.get_running_loop()
@@ -413,42 +463,43 @@ class UnixPtySession(PtySession):
                 raise asyncio.TimeoutError(f"PTY read timed out after {timeout}s with no output")
 
     def _close_blocking(self) -> None:
-        """SIGTERM, wait up to 1s, SIGKILL if still alive, close
-        master_fd. Caller wraps in ``run_in_executor``.
+        """Path-dependent teardown. Caller wraps in ``run_in_executor``.
 
         Idempotent: every step catches ``ProcessLookupError`` (child
-        already exited) and ``OSError`` (fd already closed)."""
+        already exited) and ``OSError`` (fd already closed).
+
+        Kill strategy (operates on the LOCAL ``pid`` variable — never on
+        ``self._pid``, which is nilled at the end of this method before
+        close returns):
+
+        * **bwrap-wrapped** (``self._wrapped``): SIGKILL immediately
+          (bwrap does not forward SIGTERM to the inner shell, so the 1s
+          grace period is wasted — DD9), then blocking ``os.waitpid``.
+          Single-pid SIGKILL reaps the whole bwrap PID namespace via
+          ``--die-with-parent`` (bubblewrap.py) — do not switch to
+          killpg; do not drop ``--die-with-parent`` from the
+          profile/backend (DD9).
+        * **passthrough**: SIGTERM → 1s poll → SIGKILL if still alive
+          (preserves graceful behavior; no extra settle — there's no
+          PID namespace to drain).
+        """
         # Mark closed FIRST so concurrent ``is_alive`` checks short-circuit.
         if self._closed:
             return
         self._closed = True
 
+        # Capture local copies BEFORE nilling instance state — callers
+        # must never use self._pid after _close_blocking starts (reviewer medium).
         pid = self._pid
         master_fd = self._master_fd
 
         if pid is not None:
-            # SIGTERM
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pid = None  # already gone
-
-        # Poll up to 1s for graceful exit.
-        if pid is not None:
-            deadline = time.monotonic() + 1.0
-            reaped = False
-            while time.monotonic() < deadline:
-                try:
-                    done, _status = os.waitpid(pid, os.WNOHANG)
-                except ChildProcessError:
-                    reaped = True
-                    break
-                if done != 0:
-                    reaped = True
-                    break
-                time.sleep(0.05)
-            if not reaped:
-                # SIGKILL + blocking reap.
+            if self._wrapped:
+                # bwrap-wrapped path: SIGKILL-fast (no SIGTERM grace).
+                # Single-pid SIGKILL reaps the whole bwrap PID namespace via
+                # --die-with-parent (bubblewrap.py) — do not switch to
+                # killpg; do not drop --die-with-parent from the
+                # profile/backend (DD9).
                 try:
                     os.kill(pid, signal.SIGKILL)
                 except ProcessLookupError:
@@ -457,6 +508,37 @@ class UnixPtySession(PtySession):
                     os.waitpid(pid, 0)
                 except ChildProcessError:
                     pass
+            else:
+                # Passthrough path: SIGTERM-first (preserve graceful behavior).
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pid = None  # already gone
+
+                # Poll up to 1s for graceful exit.
+                if pid is not None:
+                    deadline = time.monotonic() + 1.0
+                    reaped = False
+                    while time.monotonic() < deadline:
+                        try:
+                            done, _status = os.waitpid(pid, os.WNOHANG)
+                        except ChildProcessError:
+                            reaped = True
+                            break
+                        if done != 0:
+                            reaped = True
+                            break
+                        time.sleep(0.05)
+                    if not reaped:
+                        # SIGKILL + blocking reap.
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            os.waitpid(pid, 0)
+                        except ChildProcessError:
+                            pass
 
         # Close master_fd last — once closed, any concurrent reads return
         # immediately.
@@ -473,6 +555,7 @@ class UnixPtySession(PtySession):
 def create_pty_session(
     cwd: Path | None = None,
     shell: str | None = None,
+    profile: object | None = None,  # SandboxProfile | None (avoid import at module level)
 ) -> PtySession:
     """Platform-dispatching factory.
 
@@ -480,7 +563,16 @@ def create_pty_session(
     On other platforms the import-time guard at the top of this module
     already raised, so this branch is unreachable; the explicit check
     here is belt-and-suspenders for defensive programming.
+
+    Args:
+        cwd: Optional working directory for the spawned shell.
+        shell: Optional explicit shell path override.
+        profile: Optional ``SandboxProfile`` controlling sandbox policy.
+            When ``None`` on a bubblewrap host a strict-floor profile is
+            used (no writable paths). The tool layer always supplies a
+            real profile; unit tests pin to passthrough via
+            ``THE_ONE_SANDBOX_DISABLED=1``.
     """
     if os.name == "posix":
-        return UnixPtySession(cwd=cwd, shell=shell)
+        return UnixPtySession(cwd=cwd, shell=shell, profile=profile)
     raise NotImplementedError(f"PTY sessions not supported on os.name={os.name!r}")

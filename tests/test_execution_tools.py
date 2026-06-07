@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from the_one.tools.execution import ExecutionConfig, PythonExecConfig
+from the_one.tools.execution import ExecutionConfig, PythonExecConfig, _build_tool_profile
 from the_one.tools.filesystem import FilesystemConfig
 from the_one.tools.python_exec import PythonExecTool
 from the_one.tools.shell import ShellTool
@@ -366,6 +366,36 @@ class TestPythonExecTool:
         result = await _make_python().execute(code="import os; os.system('sudo whoami')")
         assert result.startswith("[error] [constraint] ")
         assert not result.startswith("[error] command")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# _build_tool_profile — default-allowlist production path (M14 F2 L2)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_build_tool_profile_default_allowlist() -> None:
+    """``_build_tool_profile(FilesystemConfig(), ExecutionConfig())`` produces
+    the expected host-workspace profile on the default-allowlist production
+    path (DD10).
+
+    * ``writable_paths`` — canonical default allowlist: ``[str(Path.home())]``.
+    * ``readonly_overlay_paths`` — canonical default denylist
+      (resolved absolute paths, NOT the ``~/.ssh`` tilde form).
+    * ``network_allowed`` is ``False`` (deny-by-default, DD6).
+    * ``home`` — ``str(Path.home())``.
+
+    ``_build_tool_profile`` never calls the sandbox factory, so the
+    passthrough autouse fixture in this file is irrelevant here — this is a
+    pure unit test of the profile construction logic.
+    """
+    fs_cfg = FilesystemConfig()
+    exec_cfg = ExecutionConfig()
+    profile = _build_tool_profile(fs_cfg, exec_cfg)
+
+    assert profile.writable_paths == [str(Path.home())]
+    assert profile.readonly_overlay_paths == [str(p) for p in fs_cfg._canonical_denylist]
+    assert profile.network_allowed is False
+    assert profile.home == str(Path.home())
 
 
 class TestExecutionToolInstantiation:

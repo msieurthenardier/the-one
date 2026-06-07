@@ -70,8 +70,11 @@ Flight 2)". The security-relevant invariants are:
   (`the_one/tools/shell.py`) and `PythonExecTool`
   (`the_one/tools/python_exec.py`) each call `_build_subprocess_env()`
   and pass the filtered env through the sandbox seam; `pty.py::UnixPtySession`
-  calls it directly (PTY sessions are not yet wired through the seam).
-- **OS-level execution fence (M14 F1)**: `shell` and `python_exec` route
+  builds `_build_subprocess_env()` in the parent and passes it through
+  `get_sandbox_backend().prepare_spawn(...)` identically (M14 F2) — all
+  four spawn paths are now covered.
+- **OS-level execution fence (M14 F1+F2)**: all four spawn paths — `shell`,
+  `python_exec`, MCP stdio servers, and PTY `shell_session_*` — route
   through a `get_sandbox_backend()` factory seam. On Linux with `bwrap`
   present, each invocation runs inside a bubblewrap jail using the
   host-workspace profile: write access limited to the `FilesystemConfig`
@@ -79,7 +82,14 @@ Flight 2)". The security-relevant invariants are:
   writable; read-scoping is deferred), real `$HOME`, network
   deny-by-default (`ExecutionConfig.sandbox_network_allowed` opt-in). On
   non-Linux or bwrap-missing Linux, the seam falls through to
-  `PassthroughSandbox` (observable via a one-time WARNING log).
+  `PassthroughSandbox` (observable via a one-time WARNING log). **PTY
+  teardown**: a single-pid SIGKILL on the bwrap PID reaps the entire bwrap
+  PID namespace via `--die-with-parent`, so `setsid`'d grandchildren are
+  collected by kernel PID-namespace teardown without needing `killpg`.
+  **`--new-session` omission**: the seam deliberately omits `--new-session`
+  for PTY spawns to preserve the controlling tty required for interactive
+  shell use; the accepted tradeoff is that the `TIOCSTI` input-injection
+  surface remains open (recorded design decision).
 - **Web (M05 F5)**: two-layer SSRF enforcement — `_url_check` at the tool
   boundary plus `SSRFGuardedTransport` resolving DNS once and pinning the
   connect target to that IP, refusing loopback / RFC1918 / link-local /
