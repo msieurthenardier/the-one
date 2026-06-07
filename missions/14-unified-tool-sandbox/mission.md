@@ -276,6 +276,10 @@ mode.
       user's real files/network?" is a more concrete decision for the model than
       "is this risky enough to box?", and box-by-default is least-privilege /
       leakage-safe. Depends on Flight 1's seam + the clean profile-derivation hook.
-- [ ] Flight 5 *(optional)*: **Alignment** — hands-on review of sandbox behavior and
-      policy ergonomics, with judgment-call adjustments that benefit from human
-      feedback.
+- [~] Flight 5 *(optional)*: **Alignment** — **NOT RUN** (operator, post-F4 debrief: the
+      boxed work is backend, not UI, and the agentic behavior tests exercise the agent
+      surface more thoroughly than a hands-on session would). The F4-debrief follow-ups
+      (operator `allow_host_access` "disallow unboxing" control + tool-config UI; model
+      guidance tuning; `_build_boxed_profile` network param; reaper-path cleanup test) are
+      recorded in the F4 debrief backlog — pickup as small regular flights / end-of-mission
+      maintenance when desired, not as an alignment pass.

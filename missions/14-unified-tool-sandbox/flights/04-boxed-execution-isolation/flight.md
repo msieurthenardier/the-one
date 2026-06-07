@@ -1,6 +1,6 @@
 # Flight: Agent-Selectable Execution Isolation (Boxed Mode)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
