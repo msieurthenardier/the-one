@@ -57,8 +57,11 @@ def _reset_selection_log_state() -> None:
 def _sandbox_disabled_for_tests() -> bool:
     """Return True when both test double-flags are set (reads env at call time).
 
-    Mirrors the predicate in ``the_one.mcp.transports.stdio`` — the MCP site
-    keeps its own copy until leg 3 reconciles both to this factory.
+    The ``the_one.mcp.transports.stdio`` module keeps its own copy of this
+    predicate intentionally — relocating it would require inverting the
+    ``SandboxError`` / ``MCPClientError`` import-cycle (DD1, deferred to
+    end-of-mission maintenance).  The duplication is a deliberate workaround,
+    not pending reconciliation.
     """
     return (
         os.environ.get("THE_ONE_SANDBOX_DISABLED") == "1"

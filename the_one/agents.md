@@ -1132,6 +1132,16 @@ The four established test patterns (asyncio_mode auto; `monkeypatch.setenv` HOME
 
 Tests inject a fake `SearchBackend` (and other Protocol-keyed services) by overriding `cross_configs[SearchBackend]` on the per-call view — no monkeypatching of module internals. This IS the supported test seam.
 
+### Sandbox testing footguns
+
+Three patterns that cause confusing false-passes or false-failures in `@requires_bwrap` and sandbox-adjacent tests:
+
+1. **Spec-level teardown dispatch** — `self._wrapped = spec.command == "bwrap"` is the single ground truth used by `UnixPtySession.close()` to pick SIGKILL-fast vs SIGTERM→grace teardown. Tests that want to assert teardown behavior must not mock the backend after `start()` returns — the dispatch bit is set during `start()`. Check `_wrapped` directly or rely on the test's observable (e.g. timing) rather than inspecting backend state.
+
+2. **PTY-echo sentinel** — the PTY echoes the command line back on the master fd before the shell runs the command. If a test asserts `"connected"` is in the send output, it will **always pass** (the echo contains "connected" before the shell runs). Use the `"con"+"nected"` string-concat trick to keep the target literal out of the source text sent to the shell. Assert on the OUTPUT portion (after the echo) when the shell output and echo are interleaved. See `test_pty_sandbox.py:test_pty_network_denied_by_default_allowed_when_enabled` for the canonical example.
+
+3. **`@requires_bwrap` workspace must be under `$HOME`, not `/tmp`** — bwrap always mounts a fresh `tmpfs` at `/tmp` (via `--tmpfs /tmp`). Any workspace or file under `/tmp` is invisible inside the sandbox. Always use `home_workspace()` from `tests/_sandbox_fixtures.py` (creates `~/.the-one-test-{suffix}`) for bwrap test workspaces; never use `tmp_path` or `/tmp`-rooted paths. The same applies to denylist secrets: create them under `$HOME` via `make_denylist_secret(workspace)` before bwrap starts, because `--ro-bind-try` silently skips absent paths (see `--ro-bind-try` silent-skip caveat in `SECURITY-MODEL.md`).
+
 ### Browser test isolation
 
 Each browser test gets its own app subprocess on a random port (`socket.bind(('', 0))`) with isolated `tmp_path` data_dir. Teardown sends SIGTERM, escalates to SIGKILL after 10s. Browser navigates to `http://127.0.0.1:{port}` (not `localhost`) to avoid IPv6 first-attempt delay on WSL2.

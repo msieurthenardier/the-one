@@ -19,15 +19,17 @@ Flight Director resolution (DD4/DD5 contradiction):
 
 from __future__ import annotations
 
-import shutil
-import socket
-import subprocess
-import threading
 import time
 from pathlib import Path
 
 import pytest
 
+from tests._sandbox_fixtures import (
+    home_workspace,
+    loopback_server,
+    make_denylist_secret,
+    sleep_pids,
+)
 from the_one.tools.execution import ExecutionConfig
 from the_one.tools.filesystem import FilesystemConfig
 from the_one.tools.python_exec import PythonExecTool
@@ -69,31 +71,24 @@ async def test_write_outside_allowlist_denied(
     # Ensure the factory selects BubblewrapSandbox (not passthrough).
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
-    home = Path.home()
-    workspace = home / ".the-one-test-allowlist-denied"
-    workspace.mkdir(exist_ok=True)
-    sibling = home / ".the-one-test-allowlist-sibling"
-    sibling.mkdir(exist_ok=True)
-    try:
-        outside_file = sibling / "should-not-exist.txt"
-        outside_file.unlink(missing_ok=True)
+    with home_workspace("allowlist-denied") as workspace:
+        with home_workspace("allowlist-sibling") as sibling:
+            outside_file = sibling / "should-not-exist.txt"
+            outside_file.unlink(missing_ok=True)
 
-        fs_cfg = FilesystemConfig(
-            path_allowlist=[str(workspace)],
-            path_denylist=[],
-        )
-        tool = _make_shell(fs_cfg=fs_cfg)
-        result = await tool.execute(
-            command=f"echo forbidden > {outside_file}",
-            cwd=str(workspace),
-        )
-        # The write should not persist on the host — bwrap's rootfs is separate.
-        assert not outside_file.exists(), (
-            f"Write outside allowlist should be contained by bwrap; result: {result!r}"
-        )
-    finally:
-        shutil.rmtree(sibling, ignore_errors=True)
-        shutil.rmtree(workspace, ignore_errors=True)
+            fs_cfg = FilesystemConfig(
+                path_allowlist=[str(workspace)],
+                path_denylist=[],
+            )
+            tool = _make_shell(fs_cfg=fs_cfg)
+            result = await tool.execute(
+                command=f"echo forbidden > {outside_file}",
+                cwd=str(workspace),
+            )
+            # The write should not persist on the host — bwrap's rootfs is separate.
+            assert not outside_file.exists(), (
+                f"Write outside allowlist should be contained by bwrap; result: {result!r}"
+            )
 
 
 @pytest.mark.requires_bwrap
@@ -108,14 +103,8 @@ async def test_denylist_secret_write_denied_sibling_allowed(
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
-    home = Path.home()
-    workspace = home / ".the-one-test-denylist-write"
-    workspace.mkdir(exist_ok=True)
-    try:
-        secret_dir = workspace / "secret"
-        secret_dir.mkdir(exist_ok=True)
-        secret_file = secret_dir / "key"
-        secret_file.write_text("original-content")
+    with home_workspace("denylist-write") as workspace:
+        secret_dir, secret_file = make_denylist_secret(workspace)
 
         ok_file = workspace / "ok.txt"
         ok_file.unlink(missing_ok=True)
@@ -143,8 +132,6 @@ async def test_denylist_secret_write_denied_sibling_allowed(
             cwd=str(workspace),
         )
         assert ok_file.exists(), f"Write to allowlisted sibling must succeed; result: {result!r}"
-    finally:
-        shutil.rmtree(workspace, ignore_errors=True)
 
 
 @pytest.mark.requires_bwrap
@@ -163,36 +150,12 @@ async def test_network_denied_by_default_allowed_when_enabled(
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
-    # Start a minimal TCP server on the host's loopback.
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind(("127.0.0.1", 0))
-    server_sock.listen(5)
-    server_port = server_sock.getsockname()[1]
-    server_sock.settimeout(5.0)
+    with loopback_server() as server_port:
+        with home_workspace("network") as workspace:
+            fs_cfg = FilesystemConfig(path_allowlist=[str(workspace)], path_denylist=[])
 
-    stop_event = threading.Event()
-
-    def _serve() -> None:
-        while not stop_event.is_set():
-            try:
-                conn, _ = server_sock.accept()
-                conn.sendall(b"hello")
-                conn.close()
-            except Exception:
-                break
-
-    t = threading.Thread(target=_serve, daemon=True)
-    t.start()
-
-    home = Path.home()
-    workspace = home / ".the-one-test-network"
-    workspace.mkdir(exist_ok=True)
-    try:
-        fs_cfg = FilesystemConfig(path_allowlist=[str(workspace)], path_denylist=[])
-
-        # Python code that attempts a TCP connect and prints success or failure.
-        connect_code = f"""
+            # Python code that attempts a TCP connect and prints success or failure.
+            connect_code = f"""
 import socket
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -204,39 +167,35 @@ except Exception as e:
     print(f'failed: {{e}}')
 """
 
-        # --- Network denied (default: sandbox_network_allowed=False) ---
-        exec_cfg_deny = ExecutionConfig()  # sandbox_network_allowed=False by default
-        assert exec_cfg_deny.sandbox_network_allowed is False
-        tool_deny = PythonExecTool(
-            exec_cfg_deny,
-            cross_configs={FilesystemConfig: fs_cfg},
-        )
-        result_deny = await tool_deny.execute(
-            code=connect_code,
-            cwd=str(workspace),
-        )
-        assert "failed" in result_deny, (
-            f"Network should be denied when sandbox_network_allowed=False; got: {result_deny!r}"
-        )
+            # --- Network denied (default: sandbox_network_allowed=False) ---
+            exec_cfg_deny = ExecutionConfig()  # sandbox_network_allowed=False by default
+            assert exec_cfg_deny.sandbox_network_allowed is False
+            tool_deny = PythonExecTool(
+                exec_cfg_deny,
+                cross_configs={FilesystemConfig: fs_cfg},
+            )
+            result_deny = await tool_deny.execute(
+                code=connect_code,
+                cwd=str(workspace),
+            )
+            assert "failed" in result_deny, (
+                f"Network should be denied when sandbox_network_allowed=False; got: {result_deny!r}"
+            )
 
-        # --- Network allowed (sandbox_network_allowed=True) ---
-        exec_cfg_allow = ExecutionConfig(sandbox_network_allowed=True)
-        tool_allow = PythonExecTool(
-            exec_cfg_allow,
-            cross_configs={FilesystemConfig: fs_cfg},
-        )
-        result_allow = await tool_allow.execute(
-            code=connect_code,
-            cwd=str(workspace),
-        )
-        assert "connected" in result_allow, (
-            f"Network should be reachable when sandbox_network_allowed=True; got: {result_allow!r}"
-        )
-    finally:
-        stop_event.set()
-        server_sock.close()
-        t.join(timeout=2)
-        shutil.rmtree(workspace, ignore_errors=True)
+            # --- Network allowed (sandbox_network_allowed=True) ---
+            exec_cfg_allow = ExecutionConfig(sandbox_network_allowed=True)
+            tool_allow = PythonExecTool(
+                exec_cfg_allow,
+                cross_configs={FilesystemConfig: fs_cfg},
+            )
+            result_allow = await tool_allow.execute(
+                code=connect_code,
+                cwd=str(workspace),
+            )
+            assert "connected" in result_allow, (
+                "Network should be reachable when sandbox_network_allowed=True; "
+                f"got: {result_allow!r}"
+            )
 
 
 @pytest.mark.requires_bwrap
@@ -255,9 +214,7 @@ async def test_real_home_persistence(
 
     # Create workspace under the real home (not /tmp).
     real_home = Path.home()
-    workspace = real_home / ".the-one-test-home-persist"
-    workspace.mkdir(exist_ok=True)
-    try:
+    with home_workspace("home-persist") as workspace:
         target_file = workspace / "f"
         target_file.unlink(missing_ok=True)
 
@@ -277,8 +234,9 @@ async def test_real_home_persistence(
         assert target_file.read_text().strip() == "x", (
             f"~/f content mismatch: {target_file.read_text()!r}"
         )
-    finally:
-        shutil.rmtree(workspace, ignore_errors=True)
+
+    # Restore real home so subsequent tests see the correct Path.home().
+    monkeypatch.setenv("HOME", str(real_home))
 
 
 @pytest.mark.requires_bwrap
@@ -297,26 +255,11 @@ async def test_timeout_kills_promptly_no_orphan(
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
-    home = Path.home()
-    workspace = home / ".the-one-test-timeout-orphan"
-    workspace.mkdir(exist_ok=True)
-    try:
+    with home_workspace("timeout-orphan") as workspace:
         fs_cfg = FilesystemConfig(path_allowlist=[str(workspace)], path_denylist=[])
         tool = _make_shell(fs_cfg=fs_cfg)
 
-        def _sleep_pids() -> set[str]:
-            """Return PIDs of any 'sleep 30' processes visible in /proc."""
-            try:
-                out = subprocess.check_output(
-                    ["pgrep", "-f", "sleep 30"],
-                    text=True,
-                    stderr=subprocess.DEVNULL,
-                )
-                return set(out.strip().split())
-            except subprocess.CalledProcessError:
-                return set()
-
-        pids_before = _sleep_pids()
+        pids_before = sleep_pids()
 
         t0 = time.monotonic()
         result = await tool.execute(
@@ -333,8 +276,6 @@ async def test_timeout_kills_promptly_no_orphan(
         # Give the process tree a moment to be fully reaped.
         time.sleep(0.5)
 
-        pids_after = _sleep_pids()
+        pids_after = sleep_pids()
         new_pids = pids_after - pids_before
         assert not new_pids, f"Orphan 'sleep 30' processes remain after timeout kill: {new_pids}"
-    finally:
-        shutil.rmtree(workspace, ignore_errors=True)
