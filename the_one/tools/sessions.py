@@ -47,12 +47,15 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from the_one.platform.pty import create_pty_session
 from the_one.tools import _session_registry
 from the_one.tools.base import ConstraintError, Tool
 from the_one.tools.execution import (
     ExecutionConfig,
+    _boxed_cwd_check,
+    _build_boxed_profile,
     _build_tool_profile,
     _command_check,
     _cwd_check,
@@ -81,10 +84,14 @@ class ShellSessionStartTool(Tool):
     description = (
         "Start a new interactive shell session and return a session_id token. "
         "Use shell_session_send to run commands; shell_session_close to "
-        "terminate; shell_session_list to recover handles. Default cwd is "
-        "$HOME; refused if outside the path allowlist. Sessions persist "
-        "across agent turns and idle-reap after the operator-set TTL "
-        "(default 5 min)."
+        "terminate; shell_session_list to recover handles. Default mode is "
+        "boxed (isolated scratch dir, no access to the user's files or "
+        "network); the scratch workspace persists across shell_session_send "
+        "calls within the session, so install-then-use workflows work. Set "
+        "host_access=true only when the session needs the user's real files or "
+        "network access (respects the path allowlist; default cwd is $HOME). "
+        "Sessions persist across agent turns and idle-reap after the "
+        "operator-set TTL (default 5 min)."
     )
     parameters = {
         "type": "object",
@@ -92,7 +99,18 @@ class ShellSessionStartTool(Tool):
             "cwd": {
                 "type": "string",
                 "description": (
-                    "Working directory; defaults to $HOME. Refused if outside the path allowlist."
+                    "Working directory. Boxed: defaults to scratch root, must be "
+                    "within the scratch dir. Host: defaults to $HOME, refused if "
+                    "outside the path allowlist."
+                ),
+            },
+            "host_access": {
+                "type": "boolean",
+                "description": (
+                    "Default false: start a boxed session (isolated scratch "
+                    "workspace, no access to the user's files or network). Set "
+                    "true only when the session concretely needs the user's real "
+                    "files or network access (path-allowlist checked)."
                 ),
             },
         },
@@ -105,6 +123,7 @@ class ShellSessionStartTool(Tool):
     async def execute(
         self,
         cwd: str | None = None,
+        host_access: bool = False,
         **kwargs: Any,
     ) -> str:
         exec_cfg: ExecutionConfig = self._config  # type: ignore[assignment]
@@ -124,29 +143,64 @@ class ShellSessionStartTool(Tool):
                     f"({exec_cfg.max_concurrent_sessions}); close an existing "
                     f"session first"
                 )
-            # Always validate cwd through ``_cwd_check`` — even the $HOME
-            # default, so an operator who narrows ``$HOME`` out of scope
-            # gets a clean refusal rather than a successful session
-            # against a forbidden path.
-            target_cwd: str | Path
-            if cwd is not None:
-                target_cwd = cwd
+
+            # Allocate sid before the branch so boxed sessions can include it
+            # in the scratch dir name for traceability.
+            sid = _session_registry.new_session_id()
+
+            if host_access:
+                # Host-workspace path (escalated): use the operator allowlist.
+                # Always validate cwd through ``_cwd_check`` — even the $HOME
+                # default, so an operator who narrows ``$HOME`` out of scope
+                # gets a clean refusal rather than a successful session
+                # against a forbidden path.
+                target_cwd: str | Path = cwd if cwd is not None else Path.home()
+                canonical_cwd = _cwd_check(target_cwd, fs_cfg)
+                profile = _build_tool_profile(fs_cfg, exec_cfg)
+                cleanup_dir = None
             else:
-                target_cwd = Path.home()
-            canonical_cwd = _cwd_check(target_cwd, fs_cfg)
-            profile = _build_tool_profile(fs_cfg, exec_cfg)
+                # Boxed path (default): persistent scratch, isolated profile.
+                # Function-local settings import mirrors the leg-3 precedent
+                # (_ephemeral_box_scratch) — avoids module-level Settings()
+                # instantiation that would break env-monkeypatching tests.
+                from the_one.config import settings  # function-local — see docstring
+
+                scratch = settings.data_dir / "boxes" / f"{agent_name}-{sid}-{uuid4().hex}"
+                # parents=True: "boxes" parent may already exist (leg 3 creates it too).
+                # No exist_ok on the leaf — UUID collision is loud, which won't happen.
+                scratch.mkdir(parents=True)
+                canonical_cwd = _boxed_cwd_check(cwd, scratch)
+                profile = _build_boxed_profile(scratch)
+                cleanup_dir = scratch
+
             # ``create_pty_session`` accepts ``Path | None`` directly —
             # do NOT ``str(canonical_cwd)`` here; the L5a signature is
             # typed to ``Path | None``.
-            session = create_pty_session(cwd=canonical_cwd, profile=profile)
-            await session.start()
-            sid = _session_registry.new_session_id()
-            await _session_registry.register(
-                agent_name,
-                sid,
-                session,
-                ttl_seconds=exec_cfg.pty_session_idle_ttl_seconds,
+            session = create_pty_session(
+                cwd=canonical_cwd, profile=profile, cleanup_dir=cleanup_dir
             )
+
+            # Inner try/except covers only the start+register sequence, nested
+            # inside the outer try (which keeps the ConstraintError + Exception
+            # handlers below intact).  On any failure after session is
+            # constructed, close() removes the session and its scratch dir so
+            # neither a process nor a scratch directory leaks.
+            try:
+                await session.start()
+                await _session_registry.register(
+                    agent_name,
+                    sid,
+                    session,
+                    ttl_seconds=exec_cfg.pty_session_idle_ttl_seconds,
+                )
+            except Exception:
+                # session.start() succeeded (process may be running) OR failed
+                # (session.close() is safe on a never-started session).
+                # Either way, close() removes the scratch dir via cleanup_dir
+                # and kills any running process.
+                await session.close()
+                raise
+
             return sid
         except ConstraintError as e:
             return f"[error] [constraint] {e}"

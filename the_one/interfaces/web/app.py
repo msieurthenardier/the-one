@@ -90,6 +90,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     configure_logging()
     logger.info("the-one starting; log_level=%s", settings.log_level)
+    # M14 F4 L7: prune orphaned box scratch dirs before any sessions start.
+    # Every child of data_dir/"boxes"/ is an orphan from a prior ungraceful exit
+    # (SIGKILL/OOM) — this process has no live boxed sessions yet. Single-process
+    # assumption applies; concurrent web+CLI sharing the same data_dir is unsupported.
+    from the_one.tools.execution import prune_box_scratch
+
+    prune_box_scratch()
     await init_db()
     conn = await get_connection()
     store = SQLiteAgentStore(conn)

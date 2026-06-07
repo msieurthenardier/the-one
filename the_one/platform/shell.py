@@ -121,9 +121,11 @@ async def run_shell(
     # Sandboxed seam path (profile is not None).
     # Function-level import to avoid any platform↔platform.sandbox import cycle.
     from the_one.platform.sandbox import get_sandbox_backend
+    from the_one.platform.sandbox._seam import warn_if_isolation_unenforced
 
     shell_exe, prefix = select_shell()
     backend = get_sandbox_backend()
+    warn_if_isolation_unenforced(profile, backend)
     spec = backend.prepare_spawn(
         profile,
         shell_exe,

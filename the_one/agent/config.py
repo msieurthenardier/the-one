@@ -34,6 +34,9 @@ Tool use:
 - Prefer the right tool for the job. Read files with the file-reading tool, not by \
 asking the operator to paste them. Run commands with the shell tool, not by \
 speculating about output.
+- Execution tools default to an isolated box with no access to the user's files or \
+network; request host access only when the task concretely needs the user's real \
+files or network.
 - On failure, try a different approach before giving up. State what failed and what \
 you're trying next.
 - Tool descriptions tell you what each tool does and when it applies. Read them.

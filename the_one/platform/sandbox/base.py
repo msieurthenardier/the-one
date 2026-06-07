@@ -106,6 +106,18 @@ class SandboxProfile:
         when ``None`` (preserving the historical MCP default).  This field is
         **programmatic-only**: ``from_dict`` does NOT parse it from the dict so
         operators cannot override HOME via the kv-table (§13 contract).
+
+    New fields (leg 1 / F04):
+      * ``minimal_rootfs`` — when True, the bubblewrap backend replaces the
+        blanket ``--ro-bind / /`` with a minimal RO system set (``/usr`` +
+        merged-usr symlinks + narrowed ``/etc`` entries) and skips mounting the
+        host user filesystem.  This is the "boxed" isolation mode: the spawned
+        process cannot read ``/root``, ``/home``, or any user directory not
+        explicitly listed in ``writable_paths``.  Defaults to ``False``
+        (host-mode: ``--ro-bind / /``; byte-identical to pre-F04 behavior).
+        **Programmatic-only**: ``from_dict`` does NOT parse this field —
+        operators cannot enable boxed mode via the kv-table; the tool layer
+        (legs 2–4) sets it directly on the dataclass.
     """
 
     writable_paths: list[str] = field(default_factory=list)
@@ -115,6 +127,7 @@ class SandboxProfile:
     uts_unshare: bool = True
     readonly_overlay_paths: list[str] = field(default_factory=list)
     home: str | None = None
+    minimal_rootfs: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SandboxProfile:

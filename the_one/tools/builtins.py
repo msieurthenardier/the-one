@@ -14,6 +14,7 @@ from the_one.tools.connector_send import SendToPlatformChannelTool
 from the_one.tools.filesystem import (
     DeleteFileTool,
     EditFileTool,
+    FilesystemConfig,
     GlobTool,
     GrepTool,
     ListDirTool,
@@ -69,6 +70,22 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "fetch_dm_history": FetchDmHistoryTool,
     "list_visible_channels": ListVisibleChannelsTool,
 }
+
+# M14 F4 L7 — ordering-is-policy assertion. The cross-config resolution loop in
+# ``BuiltinToolProvider.get_tools`` walks ``_TOOL_CLASSES`` in declared order and
+# maps each DISTINCT ``cls.Config`` to the FIRST tool name that carries it.
+# ``FilesystemConfig`` is shared by all 9 filesystem tools; the first one wins —
+# currently ``read_file`` (``shell`` is first overall but its Config is
+# ``ExecutionConfig``, not ``FilesystemConfig``). Tool-config tests must therefore
+# key filesystem-policy fields under ``"read_file"``, not ``"shell"`` or any other
+# filesystem tool. Reordering ``_TOOL_CLASSES`` silently changes which tool name
+# resolves ``FilesystemConfig`` — policy consequence, not just cosmetics.
+assert next(n for n, c in _TOOL_CLASSES.items() if c.Config is FilesystemConfig) == "read_file", (
+    "_TOOL_CLASSES ordering changed: the first FilesystemConfig tool is no longer "
+    "'read_file'. The cross-config resolution loop keys FilesystemConfig under the "
+    "first matching tool — tool-config tests and operators keying FS policy under "
+    "'read_file' will silently break. Update this assert AND audit all test fixtures."
+)
 
 # M11 F7 L10: connector tools that receive the per-agent connector
 # context kwargs (``connector_ids``, ``connector_acls``) in

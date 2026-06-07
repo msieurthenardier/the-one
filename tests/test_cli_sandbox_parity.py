@@ -140,6 +140,7 @@ async def test_write_outside_allowlist_contained_via_factory_path(
         await shell_tool.execute(
             command=f"echo forbidden > {outside_file}",
             cwd=str(workspace),
+            host_access=True,
         )
 
         # Assert host-filesystem state — the real containment proof.

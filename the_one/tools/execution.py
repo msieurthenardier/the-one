@@ -25,8 +25,10 @@ L4 wires ``PythonExecTool``; L6 wires the four pty session tools.
 
 from __future__ import annotations
 
+import shutil
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -456,3 +458,135 @@ def _build_tool_profile(fs_cfg: FilesystemConfig, exec_cfg: ExecutionConfig) -> 
         network_allowed=exec_cfg.sandbox_network_allowed,
         home=str(Path.home()),
     )
+
+
+def _build_boxed_profile(scratch: "str | Path") -> "SandboxProfile":
+    """Build a boxed (isolated) ``SandboxProfile`` rooted at *scratch*.
+
+    Unlike the host-workspace sibling ``_build_tool_profile``, the boxed
+    profile has no operator allowlist, no host FS overlay, and
+    **unconditionally disables network access** — the box has no network by
+    definition (not read from ``ExecutionConfig``).
+
+    * ``minimal_rootfs=True`` — backend mounts a minimal read-only rootfs
+      rather than binding the host filesystem.
+    * ``writable_paths`` — ``[str(scratch)]`` only; the box is confined to
+      the scratch directory.
+    * ``readonly_overlay_paths`` — empty; there is no host FS to re-protect.
+    * ``home`` — the scratch directory (no real ``$HOME`` in the box).
+    * ``network_allowed`` — always ``False``.
+
+    The caller (legs 3–4) is responsible for creating *scratch* before
+    calling this function; ``is_dir()`` will fail on a non-existent path.
+    """
+    # Function-level import to avoid any tools↔platform.sandbox import cycle.
+    from the_one.platform.sandbox import SandboxProfile
+
+    # home=str(scratch) is what sets $HOME inside the box: bubblewrap injects
+    # it via --setenv HOME (bubblewrap.py:131); passthrough sets os.environ["HOME"].
+    return SandboxProfile(
+        minimal_rootfs=True,
+        writable_paths=[str(scratch)],
+        readonly_overlay_paths=[],
+        network_allowed=False,
+        home=str(scratch),
+    )
+
+
+def _boxed_cwd_check(cwd: "str | Path | None", scratch: "str | Path") -> Path:
+    """Validate *cwd* is within *scratch* and return the canonical ``Path``.
+
+    Builds an ephemeral ``FilesystemConfig(path_allowlist=[str(scratch)],
+    path_denylist=[])`` — **``path_denylist=[]`` is required**, not
+    stylistic: omitting it would apply the default 19-entry denylist and
+    could block paths inside the scratch — then delegates to
+    ``_filesystem_check(..., CheckMode.DIRECTORY)`` which canonicalises the
+    path and verifies it exists and is a directory.
+
+    Decision (M14 F4): a caller-supplied *cwd* is **honored** if it is a
+    subdirectory of (or equal to) *scratch*, and rejected with
+    ``ConstraintError`` otherwise — symmetric with the host-mode
+    ``_cwd_check`` contract.  When *cwd* is ``None`` the scratch root is
+    used as the working directory.
+
+    The caller (legs 3–4) must create *scratch* before invoking this
+    function; ``is_dir()`` inside ``_filesystem_check`` will raise if the
+    directory does not yet exist.
+    """
+    # Local import mirrors the pattern in _cwd_check (execution.py:353).
+    from the_one.tools.filesystem import CheckMode
+
+    effective_cwd = cwd if cwd is not None else str(scratch)
+    ephemeral_cfg = FilesystemConfig(
+        path_allowlist=[str(scratch)],
+        path_denylist=[],
+    )
+    return _filesystem_check(effective_cwd, ephemeral_cfg, CheckMode.DIRECTORY)
+
+
+def prune_box_scratch() -> None:
+    """Remove every child of ``settings.data_dir / "boxes"`` at process startup.
+
+    Called ONCE at process startup — from the FastAPI lifespan startup and from
+    the CLI ``_run_cli`` startup — when THIS process has no live boxed sessions
+    (the session registry starts empty at startup), so every ``boxes/<…>`` is an
+    orphan left by a prior run (SIGKILL, OOM, or any other ungraceful exit that
+    prevented the per-call or per-session cleanup from running).
+
+    **Single-process-at-a-time assumption**: a concurrent process sharing the same
+    data_dir (e.g. web + CLI running simultaneously) is unsupported and out of
+    scope — a startup prune in one would remove the other's live boxes. Do NOT run
+    this in ``settings.ensure_dirs()``; that is called per ``AgentFactory.create()``
+    and would delete a live session's scratch mid-operation.
+
+    Failures are non-fatal: individual ``shutil.rmtree`` calls use
+    ``ignore_errors=True``; the function logs a count but never raises.
+
+    The ``settings`` import is **function-local** (design-review requirement): a
+    module-level import would eagerly instantiate ``Settings()`` at import time and
+    break env-monkeypatching tests — mirrors the precedent in
+    ``_ephemeral_box_scratch`` and in ``tools/connector_send.py``.
+    """
+    import logging
+
+    from the_one.config import settings  # function-local — see docstring
+
+    base = settings.data_dir / "boxes"
+    if not base.exists():
+        return
+    count = 0
+    for child in list(base.iterdir()):
+        shutil.rmtree(child, ignore_errors=True)
+        count += 1
+    if count:
+        logging.getLogger(__name__).info(
+            "startup-prune: removed %d orphaned box scratch dir(s) from %s", count, base
+        )
+
+
+@contextmanager
+def _ephemeral_box_scratch() -> Iterator[Path]:
+    """Context manager: create a fresh ephemeral scratch dir, yield it, clean up.
+
+    Creates ``settings.data_dir / "boxes" / <uuid4().hex>`` as the scratch root.
+    The ``settings`` import is **function-local** (design-review requirement): a
+    module-level ``from the_one.config import settings`` would eagerly instantiate
+    ``Settings()`` at import time and break env-monkeypatching tests — mirrors the
+    precedent in ``tools/connector_send.py`` / ``tools/connector_history.py``.
+
+    Guarantees ``shutil.rmtree`` in ``finally`` so the scratch dir is removed on
+    both clean return and exception (including timeouts that propagate as
+    ``asyncio.TimeoutError`` out of the ``with`` block in the tool's ``try``).
+    """
+    from uuid import uuid4
+
+    from the_one.config import settings  # function-local — see docstring
+
+    base = settings.data_dir / "boxes"
+    base.mkdir(parents=True, exist_ok=True)
+    scratch = base / uuid4().hex
+    scratch.mkdir()
+    try:
+        yield scratch
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)

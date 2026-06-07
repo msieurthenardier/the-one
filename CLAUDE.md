@@ -89,6 +89,8 @@ See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the project's threat model and in
 
 **Origin allowlist override**: set `THE_ONE_ORIGIN_ALLOWLIST` to a comma-separated list of `scheme://host:port` patterns (port supports `*` wildcard) to extend the default `http://127.0.0.1:*` / `http://localhost:*` allowlist. See `SECURITY-MODEL.md` for the threat-model context.
 
+**Boxed execution mode (M14 F4)**: `shell` and `python_exec` are **box-by-default** — each call runs in a disposable sandbox with a minimal read-only system rootfs, a fresh scratch directory as the only writable location, and network unconditionally off. The agent sets `host_access=true` to escalate out of the box and reach the host workspace (real `$HOME`, operator allowlist, network opt-in). See [SECURITY-MODEL.md](SECURITY-MODEL.md) "Boxed Execution Mode" for the full isolation model, scratch lifecycle, and read-scoping status.
+
 ## Conventions
 
 - Python 3.11+, async throughout

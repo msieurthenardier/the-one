@@ -204,6 +204,19 @@ class TestBasePrompt:
         assert isinstance(BASE_PROMPT, str)
         assert len(BASE_PROMPT) > 0
 
+    def test_contains_isolation_principle(self):
+        """BASE_PROMPT carries the box-by-default / host-access-only contract."""
+        assert "isolated box" in BASE_PROMPT
+        assert "host access" in BASE_PROMPT
+
+    def test_compose_system_prompt_carries_isolation_principle(self):
+        """compose_system_prompt output carries the isolation principle."""
+        from the_one.agent.config import compose_system_prompt
+
+        out = compose_system_prompt(BASE_PROMPT, "")
+        assert "isolated box" in out
+        assert "host access" in out
+
 
 # ===================================================================
 # compose_system_prompt

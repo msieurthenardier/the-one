@@ -215,6 +215,25 @@ being cleared.
 
 **Resolution**: F3 L3 (`debt-and-docs`). Status: **mitigated**.
 
+### Read-scoping — ADVANCED FOR BOXED PATH; host-workspace still open
+
+**Summary**: the "cannot read outside scope" isolation property (agents should not be
+able to read files outside their permitted workspace) has two distinct surfaces.
+
+**Boxed path**: **advanced** (M14 F4). The boxed execution mode (`shell`/`python_exec`
+with `host_access=false`, the box-by-default) uses a minimal rootfs with no user FS
+present — the host home directory and project files are simply absent. The agent cannot
+read them by construction. No denylist or read-scoping enforcement is needed; the mount
+set provides the property.
+
+**Host-workspace path**: **still open**. On the host-workspace mode (`host_access=true`)
+or when running under `PassthroughSandbox`, denylisted paths are bound read-only via
+`--ro-bind-try` (not writable, but potentially readable). A future flight will add
+explicit read enforcement (e.g. `--ro-bind-try` replaced with `--dev-bind-try` + an
+unshared mount namespace that omits the denylisted paths entirely, or a kernel-LSM
+approach). Until then, denylisted secrets are **not writable but are readable** in host
+mode.
+
 ## Flights
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned
