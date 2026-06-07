@@ -26,12 +26,19 @@ append ``[exit code: N]`` for non-zero returncodes (alignment via
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 from pathlib import Path
 
 import pytest
 
-from the_one.tools.execution import ExecutionConfig, PythonExecConfig, _build_tool_profile
+from the_one.tools.execution import (
+    ExecutionConfig,
+    PythonExecConfig,
+    _boxed_cwd_check,
+    _build_boxed_profile,
+    _build_tool_profile,
+)
 from the_one.tools.filesystem import FilesystemConfig
 from the_one.tools.python_exec import PythonExecTool
 from the_one.tools.shell import ShellTool
@@ -129,9 +136,10 @@ class TestShellTool:
         assert "/etc" in result
 
     async def test_cwd_default_is_home(self) -> None:
-        """When ``cwd`` is omitted, the tool uses ``Path.home()`` — the
-        default ``FilesystemConfig.path_allowlist=["~"]`` accepts it."""
-        result = await _make_shell().execute(command="pwd")
+        """When ``cwd`` is omitted on the host-access path, the tool uses
+        ``Path.home()`` — the default ``FilesystemConfig.path_allowlist=["~"]``
+        accepts it.  ``host_access=True`` selects the host-workspace branch."""
+        result = await _make_shell().execute(command="pwd", host_access=True)
         assert result == str(Path.home().resolve())
 
     async def test_relative_cwd_refused_when_outside_allowlist(
@@ -297,9 +305,12 @@ class TestPythonExecTool:
         assert "/etc" in result
 
     async def test_cwd_default_is_home(self) -> None:
-        """When ``cwd`` is omitted, the tool uses ``Path.home()`` — the
-        default ``FilesystemConfig.path_allowlist=["~"]`` accepts it."""
-        result = await _make_python().execute(code="import os; print(os.getcwd())")
+        """When ``cwd`` is omitted on the host-access path, the tool uses
+        ``Path.home()`` — the default ``FilesystemConfig.path_allowlist=["~"]``
+        accepts it.  ``host_access=True`` selects the host-workspace branch."""
+        result = await _make_python().execute(
+            code="import os; print(os.getcwd())", host_access=True
+        )
         assert result == str(Path.home().resolve())
 
     async def test_timeout_clipped_to_max(self) -> None:
@@ -398,6 +409,82 @@ def test_build_tool_profile_default_allowlist() -> None:
     assert profile.home == str(Path.home())
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# _build_boxed_profile + _boxed_cwd_check — M14 F4 L2 (pure functions)
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_build_boxed_profile_shape() -> None:
+    """``_build_boxed_profile(scratch)`` produces the expected isolated profile.
+
+    * ``minimal_rootfs`` — True (backend mounts a minimal read-only rootfs).
+    * ``writable_paths`` — ``[str(scratch)]`` (sole writable mount).
+    * ``home`` — ``str(scratch)`` (no real ``$HOME`` in the box).
+    * ``network_allowed`` — False (unconditionally off in box mode).
+    * ``readonly_overlay_paths`` — empty (no host FS to re-protect).
+
+    Pure function — no ``@requires_bwrap`` needed.
+    """
+    with tempfile.TemporaryDirectory() as scratch_str:
+        scratch = Path(scratch_str)
+        profile = _build_boxed_profile(scratch)
+
+    assert profile.minimal_rootfs is True
+    assert profile.writable_paths == [str(scratch)]
+    assert profile.home == str(scratch)
+    assert profile.network_allowed is False
+    assert profile.readonly_overlay_paths == []
+
+
+def test_build_boxed_profile_str_scratch() -> None:
+    """``_build_boxed_profile`` accepts a plain ``str`` for *scratch*.
+
+    Stringification must be consistent (``str(scratch)``) whether *scratch*
+    is a ``Path`` or already a ``str``.
+    """
+    with tempfile.TemporaryDirectory() as scratch_str:
+        profile = _build_boxed_profile(scratch_str)
+
+    assert profile.writable_paths == [scratch_str]
+    assert profile.home == scratch_str
+
+
+def test_boxed_cwd_check_scratch_root() -> None:
+    """``_boxed_cwd_check(scratch, scratch)`` accepts the scratch root itself."""
+    with tempfile.TemporaryDirectory() as scratch_str:
+        scratch = Path(scratch_str)
+        result = _boxed_cwd_check(scratch_str, scratch)
+    assert result == scratch.resolve()
+
+
+def test_boxed_cwd_check_subdir() -> None:
+    """``_boxed_cwd_check`` accepts a subdirectory of *scratch*."""
+    with tempfile.TemporaryDirectory() as scratch_str:
+        scratch = Path(scratch_str)
+        subdir = scratch / "work"
+        subdir.mkdir()
+        result = _boxed_cwd_check(subdir, scratch)
+    assert result == subdir.resolve()
+
+
+def test_boxed_cwd_check_none_defaults_to_scratch() -> None:
+    """``_boxed_cwd_check(None, scratch)`` defaults *cwd* to the scratch root."""
+    with tempfile.TemporaryDirectory() as scratch_str:
+        scratch = Path(scratch_str)
+        result = _boxed_cwd_check(None, scratch)
+    assert result == scratch.resolve()
+
+
+def test_boxed_cwd_check_outside_scratch_raises() -> None:
+    """``_boxed_cwd_check`` raises ``ConstraintError`` for a *cwd* outside *scratch*."""
+    from the_one.tools.base import ConstraintError
+
+    with tempfile.TemporaryDirectory() as scratch_str:
+        with tempfile.TemporaryDirectory() as outside_str:
+            with pytest.raises(ConstraintError):
+                _boxed_cwd_check(outside_str, scratch_str)
+
+
 class TestExecutionToolInstantiation:
     def test_python_exec_zero_arg_uses_python_exec_config(self) -> None:
         """``PythonExecTool`` post-migration (F4 L4): zero-arg construction
@@ -425,3 +512,53 @@ class TestExecutionToolInstantiation:
         assert isinstance(t._config, ExecutionConfig)
         # Ensure HOME is set so Path.home() resolves; container usually has it.
         assert os.environ.get("HOME") is not None
+
+
+# ===================================================================
+# F4 L5: box-by-default / host_access contract on description strings
+# ===================================================================
+
+
+class TestExecutionToolDescriptionContract:
+    """Lightweight substring checks — no bwrap required.
+
+    Verify that the tool descriptions and host_access parameter descriptions
+    carry the box-by-default / escalate-to-host-access contract so the model
+    sees a coherent isolation guidance across all execution surfaces.
+    """
+
+    def test_shell_description_mentions_isolated_box(self) -> None:
+        """ShellTool.description conveys the box-by-default contract."""
+        assert "isolated box" in ShellTool.description
+
+    def test_shell_description_mentions_host_access(self) -> None:
+        """ShellTool.description tells the model when to escalate."""
+        assert "host_access=true" in ShellTool.description
+
+    def test_shell_host_access_param_default_false_isolated(self) -> None:
+        """ShellTool host_access param description states default=isolated."""
+        desc = ShellTool.parameters["properties"]["host_access"]["description"]
+        assert "isolated box" in desc
+
+    def test_shell_host_access_param_set_true_for_real_files(self) -> None:
+        """ShellTool host_access param description states when to set true."""
+        desc = ShellTool.parameters["properties"]["host_access"]["description"]
+        assert "real" in desc
+
+    def test_python_exec_description_mentions_isolated_box(self) -> None:
+        """PythonExecTool.description conveys the box-by-default contract."""
+        assert "isolated box" in PythonExecTool.description
+
+    def test_python_exec_description_mentions_host_access(self) -> None:
+        """PythonExecTool.description tells the model when to escalate."""
+        assert "host_access=true" in PythonExecTool.description
+
+    def test_python_exec_host_access_param_default_false_isolated(self) -> None:
+        """PythonExecTool host_access param description states default=isolated."""
+        desc = PythonExecTool.parameters["properties"]["host_access"]["description"]
+        assert "isolated box" in desc
+
+    def test_python_exec_host_access_param_set_true_for_real_files(self) -> None:
+        """PythonExecTool host_access param description states when to set true."""
+        desc = PythonExecTool.parameters["properties"]["host_access"]["description"]
+        assert "real" in desc

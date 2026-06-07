@@ -33,6 +33,35 @@ its first ``send``.
 Stdlib-only — no async-pty libraries — per the M01-M04 framework constraint.
 ``send`` is async; internally it uses ``loop.run_in_executor`` to wrap the
 synchronous ``os.write`` + ``select.select`` + ``os.read`` loop.
+
+**Fork-safety convention — "parent-loads, child-execs" (M14 F4 L7)**:
+
+All state that the post-fork child needs must be computed or loaded in the
+PARENT before ``pty.fork()`` is called; the post-fork child must use only
+already-loaded handles and must NEVER perform a fresh import, ``dlopen``, or
+``ctypes.CDLL()`` call.
+
+Rationale: ``pty.fork()`` is a POSIX ``fork()`` — it duplicates the entire
+process image including any held locks (mutexes, import lock, malloc lock).
+A fresh import or ``dlopen`` in the child acquires those same locks; if a
+parent thread was mid-import or mid-allocation at fork time, the child
+inherits the locked state with no thread to release it — deadlock.
+
+Two concrete precedents implemented in this module:
+
+1. **SpawnSpec pre-computation** — ``UnixPtySession.start()`` builds the full
+   ``SpawnSpec`` (via ``get_sandbox_backend().prepare_spawn(…)``) in the
+   parent before the ``pty.fork()`` call. The child uses only the frozen
+   ``spec.command`` / ``spec.args`` / ``spec.env`` values.
+
+2. **libc CDLL handle** — the module-level ``_libc`` singleton (below) is
+   loaded by ``_load_libc()`` at module-import time (parent process, before
+   any fork). The child uses ``_libc.prctl(…)`` directly — it never calls
+   ``ctypes.CDLL()`` itself.
+
+Any future addition that requires native-library access or a new import in
+the child-side code path must be pre-loaded at module level (or at least
+before the ``pty.fork()`` call) to comply with this convention.
 """
 
 from __future__ import annotations
@@ -40,6 +69,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import os
+import shutil
 import sys
 import time
 from abc import ABC, abstractmethod
@@ -195,10 +225,12 @@ class UnixPtySession(PtySession):
         cwd: Path | None = None,
         shell: str | None = None,
         profile: SandboxProfile | None = None,
+        cleanup_dir: Path | None = None,
     ) -> None:
         self._cwd = cwd
         self._shell_override = shell
         self._profile = profile
+        self._cleanup_dir = cleanup_dir
         self._pid: int | None = None
         self._master_fd: int | None = None
         self._closed = False
@@ -237,6 +269,7 @@ class UnixPtySession(PtySession):
         # Function-level import to avoid any platform↔platform.sandbox
         # import cycle — mirrors platform/shell.py:123.
         from the_one.platform.sandbox import get_sandbox_backend
+        from the_one.platform.sandbox._seam import warn_if_isolation_unenforced
         from the_one.platform.sandbox.base import SandboxProfile
 
         # Carry the existing interactive-shell logic into shell_args (it
@@ -248,6 +281,7 @@ class UnixPtySession(PtySession):
 
         prof = self._profile if self._profile is not None else SandboxProfile()
         backend = get_sandbox_backend()
+        warn_if_isolation_unenforced(prof, backend)
         spec = backend.prepare_spawn(
             prof,
             shell,
@@ -600,11 +634,20 @@ class UnixPtySession(PtySession):
         self._pid = None
         self._master_fd = None
 
+        # Single cleanup locus: remove the session's scratch directory (if
+        # any) after the process is gone and the fd is closed.  cleanup_dir
+        # is None for host sessions — ignored.  The self._closed guard in
+        # the async close() ensures _close_blocking runs exactly once, so
+        # rmtree fires exactly once per boxed session lifetime.
+        if self._cleanup_dir is not None:
+            shutil.rmtree(self._cleanup_dir, ignore_errors=True)
+
 
 def create_pty_session(
     cwd: Path | None = None,
     shell: str | None = None,
     profile: SandboxProfile | None = None,
+    cleanup_dir: Path | None = None,
 ) -> PtySession:
     """Platform-dispatching factory.
 
@@ -621,7 +664,11 @@ def create_pty_session(
             used (no writable paths). The tool layer always supplies a
             real profile; unit tests pin to passthrough via
             ``THE_ONE_SANDBOX_DISABLED=1``.
+        cleanup_dir: Optional directory to remove (via ``shutil.rmtree``)
+            when the session closes.  Used by boxed sessions to clean up
+            their persistent scratch directory.  ``None`` for host
+            sessions (no cleanup).
     """
     if os.name == "posix":
-        return UnixPtySession(cwd=cwd, shell=shell, profile=profile)
+        return UnixPtySession(cwd=cwd, shell=shell, profile=profile, cleanup_dir=cleanup_dir)
     raise NotImplementedError(f"PTY sessions not supported on os.name={os.name!r}")

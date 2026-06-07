@@ -600,7 +600,7 @@ class TestConnectorSystemPrompt:
         await store.save(cfg)
         with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
             agent = await factory.create("non-connector-agent")
-        assert agent.system_prompt == BASE_PROMPT
+        assert agent.system_prompt.startswith(BASE_PROMPT)
 
     async def test_connector_attached_tool_enabled_includes_auto_relay_directive(
         self,

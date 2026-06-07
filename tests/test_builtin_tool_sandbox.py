@@ -15,6 +15,15 @@ Flight Director resolution (DD4/DD5 contradiction):
   The overlay enforces write-protection (--ro-bind-try = read-only remount), NOT
   read-blocking.  Criterion (b) asserts the denylist path is not writable; it does
   NOT assert unreadable.  See leg-04 spec for the full resolution note.
+
+F4 L3 additions (boxed one-shot):
+  The ``host_access`` flag (default ``False``) makes every tool call boxed by
+  default.  The new tests in this file verify:
+    (f) boxed shell: cannot read a host canary; scratch is writable; cleanup runs.
+    (g) boxed python_exec: same via the python_exec tool.
+    (h) host_access=True restores the original host-workspace behavior.
+    (i) no cross-call state: two boxed calls get different scratch dirs.
+    (j) cleanup-on-timeout: timed-out boxed call still removes scratch.
 """
 
 from __future__ import annotations
@@ -34,6 +43,17 @@ from the_one.tools.execution import ExecutionConfig
 from the_one.tools.filesystem import FilesystemConfig
 from the_one.tools.python_exec import PythonExecTool
 from the_one.tools.shell import ShellTool
+
+
+def _make_python(
+    exec_cfg: ExecutionConfig | None = None,
+    fs_cfg: FilesystemConfig | None = None,
+) -> PythonExecTool:
+    return PythonExecTool(
+        exec_cfg or ExecutionConfig(),
+        cross_configs={FilesystemConfig: fs_cfg or FilesystemConfig()},
+    )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,6 +104,7 @@ async def test_write_outside_allowlist_denied(
             result = await tool.execute(
                 command=f"echo forbidden > {outside_file}",
                 cwd=str(workspace),
+                host_access=True,
             )
             # The write should not persist on the host — bwrap's rootfs is separate.
             assert not outside_file.exists(), (
@@ -119,6 +140,7 @@ async def test_denylist_secret_write_denied_sibling_allowed(
         await tool.execute(
             command=f"echo tampered > {secret_file}",
             cwd=str(workspace),
+            host_access=True,
         )
         # The secret file's content on the HOST must be unchanged.
         assert secret_file.read_text() == "original-content", (
@@ -130,6 +152,7 @@ async def test_denylist_secret_write_denied_sibling_allowed(
         result = await tool.execute(
             command=f"echo allowed > {ok_file}",
             cwd=str(workspace),
+            host_access=True,
         )
         assert ok_file.exists(), f"Write to allowlisted sibling must succeed; result: {result!r}"
 
@@ -177,6 +200,7 @@ except Exception as e:
             result_deny = await tool_deny.execute(
                 code=connect_code,
                 cwd=str(workspace),
+                host_access=True,
             )
             assert "failed" in result_deny, (
                 f"Network should be denied when sandbox_network_allowed=False; got: {result_deny!r}"
@@ -191,6 +215,7 @@ except Exception as e:
             result_allow = await tool_allow.execute(
                 code=connect_code,
                 cwd=str(workspace),
+                host_access=True,
             )
             assert "connected" in result_allow, (
                 "Network should be reachable when sandbox_network_allowed=True; "
@@ -227,6 +252,7 @@ async def test_real_home_persistence(
         result = await tool.execute(
             command="echo x > ~/f",
             cwd=str(workspace),
+            host_access=True,
         )
         assert target_file.exists(), (
             f"~/f should exist on host after sandbox write; result: {result!r}"
@@ -266,6 +292,7 @@ async def test_timeout_kills_promptly_no_orphan(
             command="sleep 30",
             timeout=1,
             cwd=str(workspace),
+            host_access=True,
         )
         elapsed = time.monotonic() - t0
 
@@ -279,3 +306,200 @@ async def test_timeout_kills_promptly_no_orphan(
         pids_after = sleep_pids()
         new_pids = pids_after - pids_before
         assert not new_pids, f"Orphan 'sleep 30' processes remain after timeout kill: {new_pids}"
+
+
+# ---------------------------------------------------------------------------
+# F4 L3: Boxed one-shot tests (host_access=False default)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_shell_canary_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """(f) Boxed shell: cannot read a host canary; scratch writable; cleanup runs.
+
+    monkeypatch THE_ONE_DATA_DIR to ``tmp_path`` so scratch dirs are created
+    under the test's isolated directory (not the real ``~/.the-one``).
+    """
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.setenv("THE_ONE_DATA_DIR", str(tmp_path))
+
+    with home_workspace("box-shell-canary") as canary_dir:
+        # Plant a canary file in a host dir (outside the box).
+        canary_file = canary_dir / "canary.txt"
+        canary_file.write_text("shell-canary-secret")
+
+        tool = _make_shell()
+
+        # (i) Cannot read the canary — it lives outside the box.
+        result = await tool.execute(
+            command=f"/bin/sh -c 'cat {canary_file} 2>/dev/null || echo absent'",
+        )
+        assert "shell-canary-secret" not in result, (
+            f"Boxed shell must not read host canary; got: {result!r}"
+        )
+        assert "absent" in result, f"Expected 'absent'; got: {result!r}"
+
+        # (ii) Can write within its scratch box (bwrap mounts a fresh tmpfs at /tmp
+        # that IS writable inside the box; test via $HOME which maps to scratch).
+        write_result = await tool.execute(
+            command="/bin/sh -c 'echo box-hello > $HOME/test.txt && echo scratch-ok'",
+        )
+        # The scratch dir is writable — no [error] prefix.
+        assert not write_result.startswith("[error]"), (
+            f"Boxed shell write to scratch must succeed; got: {write_result!r}"
+        )
+
+    # (iii) Scratch dir is gone after the call returns.
+    boxes_dir = tmp_path / "boxes"
+    if boxes_dir.exists():
+        remaining = list(boxes_dir.iterdir())
+        assert not remaining, (
+            f"Scratch dirs must be cleaned up after boxed call; found: {remaining!r}"
+        )
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_python_exec_canary_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """(g) Boxed python_exec: cannot read a host canary; scratch writable; cleanup runs."""
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.setenv("THE_ONE_DATA_DIR", str(tmp_path))
+
+    with home_workspace("box-py-canary") as canary_dir:
+        canary_file = canary_dir / "canary.py"
+        canary_file.write_text("python-canary-secret")
+
+        tool = _make_python()
+
+        # Cannot read canary.
+        result = await tool.execute(
+            code=(
+                f"import os\n"
+                f"try:\n"
+                f"    print(open('{canary_file}').read())\n"
+                f"except Exception:\n"
+                f"    print('absent')\n"
+            ),
+        )
+        assert "python-canary-secret" not in result, (
+            f"Boxed python_exec must not read host canary; got: {result!r}"
+        )
+        assert "absent" in result, f"Expected 'absent'; got: {result!r}"
+
+        # Can write within scratch.
+        write_result = await tool.execute(
+            code=(
+                "import os\n"
+                "home = os.environ.get('HOME', '/')\n"
+                "path = os.path.join(home, 'box-test.txt')\n"
+                "open(path, 'w').write('box-py-hello')\n"
+                "print('wrote', path)\n"
+            ),
+        )
+        assert not write_result.startswith("[error]"), (
+            f"Boxed python_exec write to scratch must succeed; got: {write_result!r}"
+        )
+
+    # Scratch cleanup.
+    boxes_dir = tmp_path / "boxes"
+    if boxes_dir.exists():
+        remaining = list(boxes_dir.iterdir())
+        assert not remaining, (
+            f"Scratch dirs must be cleaned up after boxed call; found: {remaining!r}"
+        )
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_host_access_true_reads_canary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """(h) host_access=True restores the original host-workspace behavior.
+
+    A file planted on the host is readable when ``host_access=True`` is passed
+    (the tool mounts the real home FS via ``_build_tool_profile``).
+    """
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.setenv("THE_ONE_DATA_DIR", str(tmp_path))
+
+    with home_workspace("host-access-canary") as canary_dir:
+        canary_file = canary_dir / "host-canary.txt"
+        canary_file.write_text("host-access-secret")
+
+        fs_cfg = FilesystemConfig(
+            path_allowlist=[str(canary_dir)],
+            path_denylist=[],
+        )
+        tool = _make_shell(fs_cfg=fs_cfg)
+
+        result = await tool.execute(
+            command=f"cat {canary_file}",
+            cwd=str(canary_dir),
+            host_access=True,
+        )
+        assert "host-access-secret" in result, (
+            f"host_access=True must be able to read the host canary; got: {result!r}"
+        )
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_no_cross_call_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """(i) No cross-call state: two boxed calls get different scratch dirs.
+
+    A file written in call 1 is absent in call 2 (fresh ephemeral scratch).
+    """
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.setenv("THE_ONE_DATA_DIR", str(tmp_path))
+
+    tool = _make_shell()
+
+    # Call 1: write a sentinel file to the scratch HOME.
+    result1 = await tool.execute(
+        command="/bin/sh -c 'echo call1 > $HOME/sentinel.txt; echo wrote'",
+    )
+    assert not result1.startswith("[error]"), f"Call 1 write failed: {result1!r}"
+
+    # Call 2: check if the sentinel is present — it must NOT be (fresh scratch).
+    result2 = await tool.execute(
+        command="/bin/sh -c 'test -f $HOME/sentinel.txt && echo found || echo absent'",
+    )
+    assert "absent" in result2, f"Call 2 must not see call 1's scratch; got: {result2!r}"
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_cleanup_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """(j) Cleanup-on-timeout: timed-out boxed call still removes scratch dir.
+
+    The ``with _ephemeral_box_scratch()`` block is inside the tool's ``try``,
+    so the CM's ``finally`` fires before the ``except asyncio.TimeoutError``
+    clause formats the error — scratch is removed regardless.
+    """
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.setenv("THE_ONE_DATA_DIR", str(tmp_path))
+
+    tool = _make_shell()
+
+    result = await tool.execute(
+        command="sleep 30",
+        timeout=1,
+    )
+    assert "timed out" in result.lower(), f"Expected timeout message; got: {result!r}"
+
+    # Scratch must be gone.
+    boxes_dir = tmp_path / "boxes"
+    if boxes_dir.exists():
+        remaining = list(boxes_dir.iterdir())
+        assert not remaining, (
+            f"Scratch dir must be cleaned up even after timeout; found: {remaining!r}"
+        )

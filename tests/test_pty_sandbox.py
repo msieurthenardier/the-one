@@ -5,6 +5,12 @@ processes in the PID namespace — not just the direct shell child.
 Also verifies write-containment, denylist enforcement, network isolation,
 and real-HOME persistence for bwrap-wrapped PTY sessions.
 
+Also covers boxed PTY session properties (M14 F4 L4):
+  * scratch persists across sends (install-then-use semantics).
+  * cleanup on explicit close: scratch dir is gone after close().
+  * host file canary is unreadable from inside a boxed session.
+  * host_access=True session reads the host canary (escalated mode intact).
+
 Key constraints (mirrors test_builtin_tool_sandbox.py module doc):
   * Workspace must be under $HOME (not /tmp): bwrap mounts a fresh tmpfs
     at /tmp so any workspace under /tmp is invisible inside the sandbox.
@@ -39,6 +45,7 @@ from tests._sandbox_fixtures import (
 )
 from the_one.platform.pty import create_pty_session
 from the_one.platform.sandbox.base import SandboxProfile
+from the_one.tools.execution import _build_boxed_profile
 
 # ---------------------------------------------------------------------------
 # Orphan-survival test
@@ -486,6 +493,187 @@ async def test_pty_real_home_persistence(
             assert "pty-home-canary" in canary.read_text(), (
                 f"~/canary.txt content mismatch: {canary.read_text()!r}"
             )
+        finally:
+            try:
+                await session.close()
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Boxed PTY session tests (M14 F4 L4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_pty_session_scratch_persists_across_sends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scratch persists across sends: write in send 1, read in send 2.
+
+    The boxed session's scratch dir must survive for the whole session
+    lifetime — not be removed between sends (unlike one-shot ephemeral scratch).
+    """
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+
+    with home_workspace("pty-box-persist") as scratch:
+        profile = _build_boxed_profile(scratch)
+        session = create_pty_session(cwd=scratch, profile=profile, cleanup_dir=scratch)
+        await session.start()
+        try:
+            # Send 1: write a file into scratch.
+            target = scratch / "session-file.txt"
+            await session.send(f"echo session-data > {target}\n")
+            # Give the shell a moment for the write to propagate to the host bind mount.
+            time.sleep(0.1)
+
+            # Intermediate check: file must be visible on the host before send 2.
+            assert target.exists(), (
+                f"File written in send 1 should exist on host before send 2; {target} not found"
+            )
+
+            # Send 2: verify the file is still present inside the session.
+            out = (await session.send(f"cat {target}\n")).decode(errors="replace")
+            assert "session-data" in out, (
+                f"File written in send 1 must be readable in send 2; got: {out!r}"
+            )
+        finally:
+            try:
+                await session.close()
+            except Exception:
+                pass
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_pty_session_cleanup_on_explicit_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After explicit close(), the boxed session's scratch dir is gone from the host fs."""
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+
+    with home_workspace("pty-box-cleanup") as scratch_parent:
+        # Create a unique scratch dir inside the workspace to serve as cleanup_dir.
+        scratch = scratch_parent / "session-scratch"
+        scratch.mkdir()
+
+        profile = _build_boxed_profile(scratch)
+        # Pass cleanup_dir=scratch so close() removes it.
+        session = create_pty_session(cwd=scratch, profile=profile, cleanup_dir=scratch)
+        await session.start()
+        try:
+            # Write something to confirm the session was live.
+            await session.send("echo alive\n")
+        finally:
+            await session.close()
+
+        # Scratch must be gone — cleanup_dir rmtree ran in _close_blocking.
+        assert not scratch.exists(), (
+            f"Scratch dir must be removed after session.close(); {scratch} still exists"
+        )
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_pty_session_cannot_read_host_home_canary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A boxed session cannot read a file planted in the host home directory.
+
+    The host home dir is NOT in the boxed session's writable_paths and is
+    NOT in the minimal mount set, so it must be absent/unreadable inside
+    the sandbox.
+    """
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+
+    with home_workspace("pty-box-canary-scratch") as scratch:
+        with home_workspace("pty-box-canary-host") as canary_dir:
+            # Plant a canary on the host, outside the sandbox mount set.
+            canary_file = canary_dir / "host-secret.txt"
+            canary_file.write_text("host-secret-content")
+
+            profile = _build_boxed_profile(scratch)
+            session = create_pty_session(cwd=scratch, profile=profile, cleanup_dir=scratch)
+            await session.start()
+            try:
+                out = (
+                    await session.send(f"cat {canary_file} 2>/dev/null || echo absent\n")
+                ).decode(errors="replace")
+                assert "host-secret-content" not in out, (
+                    f"Boxed session must not read host canary; got: {out!r}"
+                )
+            finally:
+                try:
+                    await session.close()
+                except Exception:
+                    pass
+
+            # Canary must still exist on the host.
+            assert canary_file.exists(), "Host canary must be unaffected by boxed session"
+            assert canary_file.read_text() == "host-secret-content"
+
+
+@pytest.mark.requires_bwrap
+async def test_host_access_pty_session_reads_host_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A host-mode PTY session (cleanup_dir=None) can read a file in the host workspace.
+
+    Verify that the host-mode PTY path (cleanup_dir=None, writable_paths
+    covers workspace) is intact after the boxed-mode branching was added.
+    """
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+
+    home_dir = Path.home()
+    with home_workspace("pty-host-canary") as workspace:
+        # Plant a canary in the allowlisted workspace (host mode).
+        canary_file = workspace / "host-canary.txt"
+        canary_file.write_text("host-mode-content")
+
+        # Host profile: workspace is writable, home is real HOME.
+        prof = SandboxProfile(
+            writable_paths=[str(workspace)],
+            network_allowed=False,
+            home=str(home_dir),
+        )
+        # cleanup_dir=None — host session, no scratch cleanup.
+        session = create_pty_session(cwd=workspace, profile=prof, cleanup_dir=None)
+        await session.start()
+        try:
+            out = (await session.send(f"cat {canary_file}\n")).decode(errors="replace")
+            assert "host-mode-content" in out, (
+                f"Host-access session must read the host canary; got: {out!r}"
+            )
+        finally:
+            try:
+                await session.close()
+            except Exception:
+                pass
+
+        # Canary must still exist after the session closes (cleanup_dir=None).
+        assert canary_file.exists(), "Host canary must persist after host-access session close"
+        assert canary_file.read_text() == "host-mode-content"
+
+
+@pytest.mark.requires_bwrap
+async def test_boxed_pty_session_can_write_within_scratch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A boxed session can write files within its scratch directory."""
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+
+    with home_workspace("pty-box-write") as scratch:
+        profile = _build_boxed_profile(scratch)
+        session = create_pty_session(cwd=scratch, profile=profile, cleanup_dir=scratch)
+        await session.start()
+        try:
+            target = scratch / "box-written.txt"
+            await session.send(f"echo box-content > {target}\n")
+            time.sleep(0.1)
+
+            assert target.exists(), (
+                f"File written inside boxed session must be visible on host; {target} not found"
+            )
+            content = target.read_text()
+            assert "box-content" in content, f"Unexpected content in box-written file: {content!r}"
         finally:
             try:
                 await session.close()

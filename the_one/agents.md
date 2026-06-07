@@ -626,8 +626,10 @@ of enforcement is not silent.
 `SandboxProfile` for `shell` and `python_exec`:
 - `writable_paths` = `FilesystemConfig.path_allowlist` (operator-configured workspace).
 - `readonly_overlay_paths` = `FilesystemConfig.path_denylist` (denylisted entries are
-  bound read-only via `--ro-bind-try`; write attempts raise; **read-scoping is deferred
-  to a later flight** — denylisted secrets are not writable, not necessarily unreadable).
+  bound read-only via `--ro-bind-try`; write attempts raise; **read-scoping is satisfied
+  for the boxed path** (box has no user FS — canary files are absent by construction);
+  **host-workspace read-scoping still deferred** — denylisted secrets are not writable,
+  not necessarily unreadable on the host path).
 - `home` = real `$HOME` (the host-workspace profile gives the agent a capable assistant
   posture, not a cage; `/tmp` default is for MCP servers where no real workspace applies).
 - `network_allowed` = `ExecutionConfig.sandbox_network_allowed` (deny-by-default; False
@@ -1131,6 +1133,17 @@ Tests monkeypatch built-in tool registration via `the_one.tools.builtins._TOOL_C
 The four established test patterns (asyncio_mode auto; `monkeypatch.setenv` HOME for tilde-expansion tests; httpx `MockTransport` `_install_mock` recursion avoidance; kill+reap timeout-budget assertions) live in `tests/CONVENTIONS.md`.
 
 Tests inject a fake `SearchBackend` (and other Protocol-keyed services) by overriding `cross_configs[SearchBackend]` on the per-call view — no monkeypatching of module internals. This IS the supported test seam.
+
+**`_TOOL_CLASSES` ordering is policy — cross-Config source note (M14 F4 L7)**: the
+`get_tools` cross-config resolution loop walks `_TOOL_CLASSES` in declared order and maps
+each distinct `cls.Config` to the **first** tool name that carries it. `FilesystemConfig`
+is shared by all 9 filesystem tools (`read_file`, `write_file`, `edit_file`, …), but the
+first one in declaration order is `read_file` (not `shell`, whose Config is
+`ExecutionConfig`). This means tool-config tests that need to set filesystem-policy fields
+(e.g. `path_allowlist`) must key them under `"read_file"`, not `"shell"` or any other
+filesystem tool. Reordering `_TOOL_CLASSES` silently changes which tool name resolves
+`FilesystemConfig` — a policy consequence, not cosmetic. A module-level `assert` in
+`tools/builtins.py` guards this invariant and fires immediately on any reorder.
 
 ### Sandbox testing footguns
 

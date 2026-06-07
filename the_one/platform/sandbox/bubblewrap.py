@@ -7,7 +7,16 @@ plus operator-supplied (command, args, env, cwd) into a bwrap-wrapped
 
 Trust contract:
   * ``--clearenv`` + per-key ``--setenv`` enforces the env-allowlist invariant.
-  * ``--ro-bind / /`` + per-path ``--bind`` defines the FS scope.
+  * Base FS scope (conditional on ``profile.minimal_rootfs``):
+    - ``False`` (host mode, default): ``--ro-bind / /`` binds the full host
+      rootfs read-only.  Byte-identical to the pre-F04 behavior.
+    - ``True`` (boxed mode): replaces ``--ro-bind / /`` with a minimal RO
+      system set — ``--ro-bind /usr /usr``, merged-usr symlinks for
+      ``/bin``/``/sbin``/``/lib``/``/lib64``, ``--ro-bind-try`` for
+      ``/lib32``/``/libx32``, and a narrowed ``/etc`` set via
+      ``--ro-bind-try``.  The host user filesystem (``/root``, ``/home``,
+      ``/app``, ``/var``, etc.) is NOT bound; only paths explicitly listed
+      in ``writable_paths`` are writable.
   * ``--unshare-net`` (when ``network_allowed`` is False) defines network policy.
   * ``--die-with-parent`` defines process supervision.
 
@@ -40,7 +49,14 @@ class BubblewrapSandbox:
         ``--die-with-parent``, ``--unshare-user``, ``[--unshare-pid]``,
         ``[--unshare-ipc]``, ``[--unshare-uts]``, ``[--unshare-net]``,
         ``--clearenv``, ``--setenv KEY VALUE`` per assembled-env entry
-        (sorted by key for test determinism), ``--ro-bind / /``,
+        (sorted by key for test determinism),
+        **base FS scope** (conditional on ``profile.minimal_rootfs``):
+          - ``False`` (host mode): ``--ro-bind / /`` — full host rootfs RO.
+          - ``True`` (boxed mode): ``--ro-bind /usr /usr``,
+            ``--symlink usr/bin /bin``, ``--symlink usr/sbin /sbin``,
+            ``--symlink usr/lib /lib``, ``--symlink usr/lib64 /lib64``,
+            ``--ro-bind-try /lib32 /lib32``, ``--ro-bind-try /libx32 /libx32``,
+            ``--ro-bind-try /etc/ssl /etc/ssl``, ...(narrowed /etc set).
         ``--tmpfs /tmp``, ``--bind PATH PATH`` per
         ``profile.writable_paths`` entry,
         ``--ro-bind-try PATH PATH`` per ``profile.readonly_overlay_paths`` entry
@@ -86,7 +102,14 @@ class BubblewrapSandbox:
             ``--die-with-parent``, ``--unshare-user``, ``[--unshare-pid]``,
             ``[--unshare-ipc]``, ``[--unshare-uts]``, ``[--unshare-net]``,
             ``--clearenv``, ``--setenv KEY VALUE`` per assembled-env entry,
-            ``--ro-bind / /``, ``--tmpfs /tmp``,
+            **base FS scope** (conditional on ``profile.minimal_rootfs``):
+              - ``False`` (host mode, default): ``--ro-bind / /``.
+              - ``True`` (boxed mode): minimal RO system set — ``--ro-bind
+                /usr /usr``, merged-usr ``--symlink`` entries for
+                ``/bin``/``/sbin``/``/lib``/``/lib64``, ``--ro-bind-try``
+                for ``/lib32``/``/libx32``, and narrowed ``/etc`` entries via
+                ``--ro-bind-try``.
+            ``--tmpfs /tmp``,
             ``--bind PATH PATH`` per writable_paths entry,
             ``--ro-bind-try PATH PATH`` per readonly_overlay_paths entry
             (AFTER writable ``--bind`` loop so overlays win; ``--ro-bind-try``
@@ -120,7 +143,44 @@ class BubblewrapSandbox:
         # Sorted iteration for test determinism; bwrap doesn't care about order.
         for key in sorted(assembled_env):
             bwrap_args.extend(["--setenv", key, assembled_env[key]])
-        bwrap_args.extend(["--ro-bind", "/", "/"])
+        if profile.minimal_rootfs:
+            # Boxed mode: bind only the minimal RO system runtime — no host
+            # user filesystem.  The deployment base is merged-usr (Debian
+            # bookworm / python:3.11-slim), so /bin, /sbin, /lib, /lib64 are
+            # already symlinks to the usr/* counterparts on the host.
+            # ``--symlink SRC DEST`` recreates those symlinks inside the box.
+            # If a non-merged-usr host had a real /bin, --symlink would shadow
+            # it — acceptable; the deployment target is merged-usr only.
+            bwrap_args.extend(["--ro-bind", "/usr", "/usr"])
+            for src, dest in (
+                ("usr/bin", "/bin"),
+                ("usr/sbin", "/sbin"),
+                ("usr/lib", "/lib"),
+                ("usr/lib64", "/lib64"),
+            ):
+                bwrap_args.extend(["--symlink", src, dest])
+            # 32-bit compat dirs may be absent; --ro-bind-try skips silently.
+            for opt in ("/lib32", "/libx32"):
+                bwrap_args.extend(["--ro-bind-try", opt, opt])
+            # Narrowed /etc: only the entries required for runtime and name
+            # resolution.  --ro-bind-try skips absent entries (e.g. resolv.conf
+            # when network is off, ld.so.conf.d when not present).
+            for etc in (
+                "/etc/ssl",
+                "/etc/passwd",
+                "/etc/group",
+                "/etc/nsswitch.conf",
+                "/etc/resolv.conf",
+                "/etc/alternatives",
+                "/etc/ld.so.cache",
+                "/etc/ld.so.conf",
+                "/etc/ld.so.conf.d",
+            ):
+                bwrap_args.extend(["--ro-bind-try", etc, etc])
+        else:
+            # Host mode (default): full host rootfs RO.  Byte-identical to
+            # pre-F04 behavior — must not change this branch (contract test).
+            bwrap_args.extend(["--ro-bind", "/", "/"])
         # --tmpfs /tmp BEFORE the --bind loop so writable_paths under /tmp
         # actually persist (the tmpfs lays /tmp first; the --bind layers on
         # top). Pre-A03 ordering had --tmpfs after --bind, silently shadowing

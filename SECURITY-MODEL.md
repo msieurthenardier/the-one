@@ -79,7 +79,8 @@ Flight 2)". The security-relevant invariants are:
   present, each invocation runs inside a bubblewrap jail using the
   host-workspace profile: write access limited to the `FilesystemConfig`
   allowlist, denylisted paths bound read-only via `--ro-bind-try` (not
-  writable; read-scoping is deferred), real `$HOME`, network
+  writable; read-scoping is satisfied for the boxed path — see below;
+  host-workspace read-scoping still deferred), real `$HOME`, network
   deny-by-default (`ExecutionConfig.sandbox_network_allowed` opt-in).
   **`--ro-bind-try` silent-skip caveat**: `--ro-bind-try` (used for
   denylist paths) silently skips a path that does not exist on the host
@@ -129,6 +130,75 @@ Flight 2)". The security-relevant invariants are:
   `_clean_npx`, raises `ValueError` before any path operation.
   Established in F1 M09 Leg 3 after a design-review catch (the original
   draft used the broken char-class allowlist).
+
+## Boxed Execution Mode (M14 F4)
+
+The `shell` and `python_exec` tools support an agent-selectable **boxed** isolation
+mode layered on top of the host-workspace fence described above.
+
+### Isolation model
+
+- **Box-by-default**: both tools default to boxed mode; the agent must explicitly set
+  `host_access=true` to escalate out of the box and reach the host workspace. This is a
+  least-privilege default — the agent must consciously decide it needs the user's real
+  files or network.
+- **True isolation via minimal rootfs**: a boxed spawn uses
+  `SandboxProfile(minimal_rootfs=True, …)` — bubblewrap mounts a minimal read-only
+  system rootfs (`/usr`, `/bin`, `/lib`, `/etc`, `/proc`, `/dev`, `/tmp`) rather than
+  binding the host filesystem. The user's home directory, project files, credentials, and
+  any host data are completely absent. There is no host FS overlay and no denylist to
+  enumerate.
+- **Only writable location is the box's scratch directory**: the scratch dir (`$HOME`
+  inside the box) is the sole writable path. Nothing the agent writes inside the box can
+  escape to the host filesystem except through that directory.
+- **Network unconditionally off**: the boxed profile DOES NOT read
+  `ExecutionConfig.sandbox_network_allowed` — network is always denied inside a box,
+  regardless of operator configuration. (The host-workspace profile reads the config flag;
+  the boxed profile ignores it — `_build_boxed_profile` in `the_one/tools/execution.py`
+  hardcodes `network_allowed=False`.)
+
+### Scratch directory lifecycle
+
+Two scratch patterns, both rooted at `settings.data_dir / "boxes"`:
+
+- **Per-call-ephemeral** (`boxes/<uuid>`): used by `shell` and `python_exec` one-shot
+  tools. Created by `_ephemeral_box_scratch()` context manager; removed by its `finally`
+  block on both clean return and exception (including `asyncio.TimeoutError`). Each tool
+  call gets a fresh scratch and leaves nothing behind on normal exit.
+- **Per-session-persistent** (`boxes/{agent_name}-{session_id}-{uuid}`): used by
+  `shell_session_start` / `shell_session_send`. Created at session start; cleaned up by
+  `_SessionBoxedScratch` on `session.close()`. The scratch persists across sends within a
+  session so the agent can accumulate files between PTY commands.
+
+### Startup prune of orphaned scratch dirs
+
+On ungraceful process exit (SIGKILL, OOM, kernel crash), per-call and per-session cleanup
+may not run, leaving orphaned `boxes/<…>` directories. `prune_box_scratch()` in
+`the_one/tools/execution.py` removes all children of `settings.data_dir / "boxes"` at
+process startup — before any sessions start, so every box present is an orphan from a
+prior run.
+
+Called once from the FastAPI lifespan startup and from the CLI `_run_cli` startup.
+**Single-process-at-a-time assumption**: concurrent web + CLI processes sharing the same
+`data_dir` are unsupported — a startup prune in one would remove the other's live boxes.
+The prune is NOT in `settings.ensure_dirs()` (called per `AgentFactory.create()`) because
+that would delete a live session's scratch mid-operation.
+
+### Read-scoping status
+
+- **Boxed path**: read-scoping is **satisfied** — the box has no user FS at all (minimal
+  rootfs mount), so the agent cannot read outside its scratch directory by construction.
+  No denylist is needed; the host is simply absent.
+- **Host-workspace path**: read-scoping is still **deferred** — denylisted paths are
+  bound read-only via `--ro-bind-try` (not writable) but are potentially readable. A
+  future flight will add read enforcement on the host-workspace path.
+
+### Passthrough degradation
+
+On non-Linux or bwrap-missing Linux, both boxed and host-workspace spawns fall through to
+`PassthroughSandbox`. Passthrough runs the command unisolated; this is logged at WARNING
+level and is observable (never silent). The isolation properties above (no user FS,
+network off) are NOT enforced under passthrough.
 
 ## Secrets
 

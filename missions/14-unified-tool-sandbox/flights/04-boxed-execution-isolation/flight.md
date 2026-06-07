@@ -1,18 +1,18 @@
 # Flight: Agent-Selectable Execution Isolation (Boxed Mode)
 
-**Status**: ready
+**Status**: completed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] On **Linux**, a built-in tool process **cannot read or write outside its
+- [x] On **Linux**, a built-in tool process **cannot read or write outside its
       permitted filesystem scope** — Flight 4 satisfies the **read** half (unmet since
       Flight 1) *for the boxed execution path*: a boxed process has no user FS at all
       (minimal RO system rootfs + tmpfs scratch). Host-workspace read-scoping remains a
       separate concern. *(behavior-test-backed + `@requires_bwrap`)*
-- [ ] Delivers the mission's planned **boxed-mode capability** (Flights list, Flight 4):
+- [x] Delivers the mission's planned **boxed-mode capability** (Flights list, Flight 4):
       the agent can run untrusted / self-generated code in a disposable box distinct from
       host-workspace execution, selected per call.
-- [ ] Existing behavior preserved: host-workspace execution still works when the agent
+- [x] Existing behavior preserved: host-workspace execution still works when the agent
       escalates (`host_access=true`); tests pass; ruff gate passes; MCP sandboxing
       un-regressed.
 
@@ -55,7 +55,7 @@ behavior-test verification of both containment and the agent's selection decisio
       (DD5 — consistent with the mission's passthrough-is-observable philosophy)
 - [x] Does the new isolation profile field error on backends that can't honor it? →
       **No** — silently ignored per the mission's `SandboxProfile` constraint (DD6)
-- [ ] **Apparatus re-confirm before the behavior-test run** (prerequisite, below)
+- [x] **Apparatus re-confirm before the behavior-test run** (prerequisite, below)
 
 ### Design Decisions
 
@@ -222,12 +222,12 @@ re-audited on both axes.**
       **in-container `0.11.0`** (the `@requires_bwrap` suite runs against both: host-native
       + in-container; design-review confirmed the minimal-rootfs path on 0.11.0). Docker
       grants userns caps. Note the two-version spread so a future failure isn't mis-triaged.
-- [ ] **Behavior-test apparatus (DD8) — re-confirm before the run**: running instance +
+- [x] **Behavior-test apparatus (DD8) — re-confirm before the run**: running instance +
       the `sandbox-test` agent reconfigured to expose `host_access` on shell/python_exec/
       shell_session_* (rebuilt tool schema), on a bwrap host; drive surface
       `POST /api/chat`; observe via `docker exec the-one`. (The Flight-3 apparatus agent +
       `~/.ssh/id_test` fixture are still on the instance.)
-- [ ] **Environment**: boxed scratch dirs live under `settings.data_dir / "boxes"` on the
+- [x] **Environment**: boxed scratch dirs live under `settings.data_dir / "boxes"` on the
       container's real fs (NOT `/tmp` — DD3a; that would be masked by the box's
       `--tmpfs /tmp` and invisible to `docker exec`), bound writable into the box. Confirm
       `settings.data_dir` is writable and per-call/per-session dirs are uniquely named
@@ -236,7 +236,7 @@ re-audited on both axes.**
 ### Pre-Flight Checklist
 - [x] All open questions resolved (apparatus re-confirm is a runtime prereq, not an open design Q)
 - [x] Design decisions documented
-- [ ] Prerequisites verified (apparatus re-confirm pending until the behavior-test leg)
+- [x] Prerequisites verified (apparatus re-confirm pending until the behavior-test leg)
 - [x] Validation approach defined (boxed behavior test + `@requires_bwrap` + selection-decision checkpoints)
 - [x] Legs defined
 
@@ -261,22 +261,22 @@ read-scoping proof + per-session persistence + selection decisions) and a consol
 surfaces.
 
 ### Checkpoints
-- [ ] **Backend isolation path** (`@requires_bwrap`): a boxed profile yields a working
+- [x] **Backend isolation path** (`@requires_bwrap`): a boxed profile yields a working
       runtime (boxed `python` imports stdlib + runs) AND cannot read a planted host
       home-file canary; scratch is writable; network is isolated. Green.
-- [ ] **One-shot boxed** (`@requires_bwrap`): `shell`/`python_exec` default to boxed
+- [x] **One-shot boxed** (`@requires_bwrap`): `shell`/`python_exec` default to boxed
       (fresh ephemeral scratch per call, cleaned up); `host_access=true` reproduces
       host-workspace; cross-call state does NOT persist for boxed one-shots.
-- [ ] **Session boxed** (`@requires_bwrap`): `shell_session_start` (boxed) → scratch
+- [x] **Session boxed** (`@requires_bwrap`): `shell_session_start` (boxed) → scratch
       persists across sends (install-then-use works); cleaned on close AND by the reaper;
       `host_access=true` session reproduces host-workspace.
-- [ ] **Model guidance**: tool descriptions + system prompt teach the box-by-default /
+- [x] **Model guidance**: tool descriptions + system prompt teach the box-by-default /
       `host_access`-to-escalate contract; introspected tool schema shows the param.
-- [ ] **Boxed behavior test passes** against a live instance: boxed containment +
+- [x] **Boxed behavior test passes** against a live instance: boxed containment +
       read-scoping (box can't read a user file) + per-session persistence + the agent's
       selection decisions (unambiguous tasks → correct `host_access` choice). Agent-safe
       observables only.
-- [ ] **Debt + docs**: `_TOOL_CLASSES` cross-config note (`agents.md`); `pty.py`
+- [x] **Debt + docs**: `_TOOL_CLASSES` cross-config note (`agents.md`); `pty.py`
       fork-safety + libc-preload convention promoted to a named module-doc convention;
       ordering-is-policy assertion/comment in `builtins.py`; boxed-mode section in
       `SECURITY-MODEL.md`; mission known-issue updated (read-scoping advanced for the
@@ -306,7 +306,7 @@ surfaces.
 
 > **Note:** Tentative; legs are planned one at a time as the flight progresses.
 
-- [ ] `box-backend-isolation` — Add a `SandboxProfile` isolation field (DD6) + the
+- [x] `box-backend-isolation` — Add a `SandboxProfile` isolation field (DD6) + the
       minimal-read-only-system-rootfs path in `platform/sandbox/bubblewrap.py`: branch the
       unconditional `--ro-bind / /` (`bubblewrap.py:123`) so the boxed path instead
       `--ro-bind /usr /usr` + `--symlink usr/{bin,sbin,lib,lib64} /{bin,sbin,lib,lib64}`
@@ -321,7 +321,7 @@ surfaces.
       Files: `platform/sandbox/base.py`, `platform/sandbox/bubblewrap.py`,
       `platform/shell.py` + `platform/interpreter.py` + `platform/pty.py` (WARNING locus),
       `tests/test_sandbox_bubblewrap.py` / `test_sandbox_contract.py`.
-- [ ] `boxed-profile-derivation` — Add a sibling `_build_boxed_profile(scratch)`
+- [x] `boxed-profile-derivation` — Add a sibling `_build_boxed_profile(scratch)`
       (writable=[scratch], home=scratch, network off, `readonly_overlay_paths=[]`,
       isolation field set — DD2a). **Pin the cwd seam**: `_cwd_check` validates against the
       operator `FilesystemConfig` and would self-refuse the scratch (never in the operator
@@ -331,13 +331,13 @@ surfaces.
       check skipped. Decide whether an agent-supplied `cwd` is honored (validated ⊆ scratch)
       or ignored. Files: `tools/execution.py` (sibling builder + boxed cwd handling),
       unit tests.
-- [ ] `one-shot-boxed` — Wire `host_access: bool` (default false) into `shell` +
+- [x] `one-shot-boxed` — Wire `host_access: bool` (default false) into `shell` +
       `python_exec` schemas + `execute()`; box-by-default; per-call ephemeral scratch
       (create + guaranteed cleanup). `host_access=true` → existing host-workspace path.
       Files: `tools/shell.py`, `tools/python_exec.py`, `tools/execution.py`,
       `tests/test_builtin_tool_sandbox.py` (+ `_sandbox_fixtures.py` helper for an
       ephemeral-box context).
-- [ ] `session-boxed` — `host_access` on `shell_session_start`; scratch persists across
+- [x] `session-boxed` — `host_access` on `shell_session_start`; scratch persists across
       sends. **Cleanup owned by `PtySession.close()`** (single locus → all five
       `entry.session.close()` sites clean up for free — DD3) rather than held on
       `_RegistryEntry`. Also **close-on-registration-failure** in
@@ -346,27 +346,27 @@ surfaces.
       shutdown-drain + registration-failure. Files: `tools/sessions.py`,
       `the_one/platform/pty.py` (`close()` scratch removal), `tools/_session_registry.py`
       (if the scratch path must be threaded through), `tests/test_pty_sandbox.py`.
-- [ ] `model-selection-guidance` — Tool descriptions + system-prompt guidance for the
+- [x] `model-selection-guidance` — Tool descriptions + system-prompt guidance for the
       box-by-default / `host_access`-to-escalate contract (when to escalate; default stays
       boxed). Files: `tools/shell.py` / `python_exec.py` / `sessions.py` descriptions,
       `agent/config.py` (BASE_PROMPT/compose_system_prompt), tests for the composed prompt.
-- [ ] `box-behavior-test` — Author `tests/behavior/tool-sandbox-box-isolation.md`
+- [x] `box-behavior-test` — Author `tests/behavior/tool-sandbox-box-isolation.md`
       (boxed containment + read-scoping proof + per-session persistence + agent
       selection-decision checkpoints; agent-safe observables; reuse the Flight-3
       apparatus). Consolidate any shared `@requires_bwrap` box setup into
       `tests/_sandbox_fixtures.py`. Files: new behavior spec, `tests/_sandbox_fixtures.py`.
-- [ ] `box-debt-and-docs` — Flight-3 carry-forwards on shared surfaces + boxed-mode docs:
+- [x] `box-debt-and-docs` — Flight-3 carry-forwards on shared surfaces + boxed-mode docs:
       `_TOOL_CLASSES` cross-config resolution note + ordering-is-policy assertion/comment
       (`agents.md`, `builtins.py`); `pty.py` fork-safety + libc-preload convention
       promoted to a named module-doc convention; boxed-mode section in `SECURITY-MODEL.md`;
       mission known-issue updated (read-scoping advanced for the boxed path, host path
       still open); `CLAUDE.md`. Files: `the_one/agents.md`, `the_one/tools/builtins.py`,
       `the_one/platform/pty.py`, `SECURITY-MODEL.md`, `missions/14-.../mission.md`, `CLAUDE.md`.
-- [ ] `verify-integration` — Full suite host-native + in-container; ruff; `-m
+- [x] `verify-integration` — Full suite host-native + in-container; ruff; `-m
       requires_bwrap`; run `/behavior-test tool-sandbox-box-isolation` + re-run
       `tool-sandbox-containment` (no host-mode regression); confirm passthrough still
       no-error (+ the new no-enforcement WARNING fires off-bwrap).
-- [ ] `uat-and-alignment` *(optional)* — Guided HAT: operator drives the live agent to
+- [~] `uat-and-alignment` *(optional)* — **SKIPPED** (operator: the live behavior test (9/9) + the `@requires_bwrap` suite cover acceptance). Originally: guided HAT to drive the live agent and
       sanity-check box-by-default behavior (does the agent escalate sensibly? does boxed
       multi-step session code work? does a normal "read my file" task escalate?), with
       inline fixes. (Behavior test is primary; this is the human vibe-check on selection
@@ -377,11 +377,11 @@ surfaces.
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed (8 core; optional HAT skipped)
 - [ ] Code merged
-- [ ] Tests passing (full suite, `-m requires_bwrap`, `tool-sandbox-box-isolation`,
+- [x] Tests passing (full suite, `-m requires_bwrap`, `tool-sandbox-box-isolation`,
       `tool-sandbox-containment` un-regressed)
-- [ ] Documentation updated (boxed-mode security model, model-selection guidance,
+- [x] Documentation updated (boxed-mode security model, model-selection guidance,
       carry-forward debt docs)
 
 ### Verification

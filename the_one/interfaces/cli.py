@@ -22,6 +22,11 @@ console = Console()
 
 async def _run_cli() -> None:
     await init_db()
+    # M14 F4 L7: prune orphaned box scratch dirs at startup — mirrors web lifespan.
+    # Single-process assumption: no live boxed sessions exist yet at this point.
+    from the_one.tools.execution import prune_box_scratch
+
+    prune_box_scratch()
     conn = await get_connection()
     store = SQLiteAgentStore(conn)
     await migrate_json_to_sqlite(store)
