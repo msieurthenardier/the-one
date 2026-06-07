@@ -72,7 +72,7 @@ asyncio_mode = "auto"
 # Without this, pytest's default rootdir-prepend caches the nested browser
 # conftest in sys.modules under the bare name "conftest" and shadows the
 # top-level fixtures module.
-# Per-marker deselect math (last verified L0): live=10, browser=288, pixel=12, requires_bwrap=2, total=312
+# Per-marker deselect math (last verified L5): live=15, browser=513, pixel=12, requires_bwrap=7, discord_hat=5, total=552
 addopts = "-m 'not live and not browser and not pixel and not requires_bwrap and not discord_hat' --import-mode=importlib"
 pythonpath = ["tests"]
 markers = [

@@ -267,7 +267,7 @@ class MCPClient:
                 transport-level 401 walked out of a BaseExceptionGroup. resource_metadata_url
                 populated only on the WWW-Authenticate path.
             MCPCapabilityMissing: Server initialize result lacks the tools capability.
-            MCPSandboxError: Stdio transport only — bwrap rejected the spawn (writable_paths
+            SandboxError: Stdio transport only — bwrap rejected the spawn (writable_paths
                 invalid, EPERM on unshare, bwrap missing) before the target exec'd.
         """
         if self._is_alive:
@@ -375,7 +375,7 @@ class MCPClient:
             # an ``Exception`` — BaseExceptionGroup extends BaseException
             # only). Without this catch, the group escapes upward,
             # ``MCPToolProvider.get_tools_for_agent``'s class #2 handler
-            # (which catches MCPSandboxError/MCPConnectionError/
+            # (which catches SandboxError/MCPConnectionError/
             # MCPVersionMismatch) misses it, and the agent build crashes
             # rather than graceful-degrade-skipping the source. Walk the
             # group recursively for an inner 401 to translate to
@@ -496,7 +496,7 @@ class MCPClient:
 
         Suppresses non-MCPClientError teardown exceptions (anyio cancel
         scope drift, broken pipes, etc.) but lets ``MCPClientError``
-        subclasses (notably ``MCPSandboxError`` from F4 leg 02's
+        subclasses (notably ``SandboxError`` from F4 leg 02's
         bwrap-stderr translation) propagate. Translation runs in
         ``connect_stdio``'s `finally` and surfaces during the
         ``transport_stack.aclose()`` walk; that diagnostic — "bwrap

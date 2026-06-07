@@ -519,7 +519,7 @@ class TestMCPClientLifecycle:
         handler missed ``CancelledError`` (PEP 656: extends BaseException
         only, not Exception) and the cancel propagated up through the
         F4 pool's ``_entry_worker`` into ``MCPToolProvider.get_tools_for_agent``
-        whose class #2 handler ``(MCPSandboxError, MCPConnectionError,
+        whose class #2 handler ``(SandboxError, MCPConnectionError,
         MCPVersionMismatch)`` also missed it — agent build crashed
         instead of graceful-degrade-skip. Post-fix, A5's dedicated
         ``except CancelledError`` translates to ``MCPConnectionError``,

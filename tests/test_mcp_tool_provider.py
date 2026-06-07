@@ -47,7 +47,7 @@ from the_one.mcp.errors import (
     MCPAuthRequired,
     MCPConnectionError,
     MCPRegistrationError,
-    MCPSandboxError,
+    SandboxError,
 )
 from the_one.mcp.types import MCPTool, MCPToolResult
 
@@ -267,14 +267,14 @@ class TestMCPClientTool:
         )
 
         async def _failing_acquire(*args, **kwargs):
-            raise MCPSandboxError("bwrap missing")
+            raise SandboxError("bwrap missing")
 
         monkeypatch.setattr("the_one.mcp._tool.acquire", _failing_acquire)
 
         result = await tool.execute()
         assert result.startswith("[error]")
         assert "github" in result
-        assert "MCPSandboxError" in result
+        assert "SandboxError" in result
 
     async def test_execute_propagates_mcp_auth_required(self, monkeypatch) -> None:
         """Cycle-1 test gap #1: MCPAuthRequired must NOT be swallowed
@@ -555,7 +555,7 @@ class TestMCPToolProvider:
 
         async def _stub_acquire(agent_name, source_id, **kwargs):
             if source_id == "src-1":
-                raise MCPSandboxError("bwrap missing")
+                raise SandboxError("bwrap missing")
             return client2
 
         monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)

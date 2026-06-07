@@ -79,7 +79,7 @@ Once the app is up, configure each provider in **Administration → LLM Provider
 
 **Tools** (`the_one/tools/`) — 19 built-in tools: filesystem (read/write/edit/glob/grep), execution (shell + PTY sessions), Python interpreter, web (fetch/download/search), and an HTTP-request escape hatch. Each tool is a `Tool` subclass with a Pydantic `Config` for operator-set defaults; per-agent overrides narrow or substitute fields at runtime.
 
-**MCP** (`the_one/mcp/`) — Model Context Protocol client (M07). Talks to external MCP servers over stdio or streamable-HTTP; sandboxed with bubblewrap by default; OAuth pause-and-replay for servers requiring user authorization.
+**MCP** (`the_one/mcp/`) — Model Context Protocol client (M07). Talks to external MCP servers over stdio or streamable-HTTP; sandboxed with bubblewrap by default; OAuth pause-and-replay for servers requiring user authorization. Built-in execution tools (`shell`, `python_exec`) route through the same bubblewrap seam via a host-workspace profile (M14).
 
 **Connectors** (`the_one/connectors/`) — Bi-directional communication connector framework (M10). Plugin contract + per-(agent, connector) lifecycle pool + encrypted-credentials persistence. Flight 2 ships the operator-visible admin surface (`/api/connectors` REST + Studio editor); real platform plugins (Discord, …) land in subsequent flights.
 

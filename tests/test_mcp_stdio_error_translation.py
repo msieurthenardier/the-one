@@ -11,13 +11,13 @@ Covers:
     UNCHANGED.
   - Bwrap-discriminator gate: a bwrap-side FileNotFoundError-shaped
     failure (bwrap can't find the inner command) is NOT mistranslated
-    as "missing in container" — it surfaces as MCPSandboxError per
+    as "missing in container" — it surfaces as SandboxError per
     F3 §6 directionality contract.
 """
 
 from __future__ import annotations
 
-from the_one.mcp.errors import MCPConnectionError, MCPSandboxError
+from the_one.mcp.errors import MCPConnectionError, SandboxError
 from the_one.mcp.transports import stdio as stdio_module
 from the_one.mcp.transports.stdio import _translate_inner_spawn_error
 
@@ -109,26 +109,26 @@ def test_translate_returns_none_for_empty_stderr_and_no_exc() -> None:
 
 
 def test_bwrap_side_filenotfounderror_does_not_get_mistranslated() -> None:
-    """A bwrap-side failure is gated to MCPSandboxError, not D3.
+    """A bwrap-side failure is gated to SandboxError, not D3.
 
     Simulates the case where bwrap itself reports it cannot find the
     inner command (bwrap's own `bwrap: ...` line in stderr). The bwrap-
     discriminator gate must fire BEFORE D3 translation runs, so the
-    output is MCPSandboxError, not the D3 "missing in container"
+    output is SandboxError, not the D3 "missing in container"
     MCPConnectionError.
 
     Verified by routing through the same translation surface used by the
     actual unwind path: when bwrap stderr is bwrap-prefixed, the upstream
-    helper (`_translate_bwrap_stderr`) returns a `MCPSandboxError`, and
+    helper (`_translate_bwrap_stderr`) returns a `SandboxError`, and
     callers gate `_translate_inner_spawn_error` behind `not
     _BWRAP_OWN_PREFIX_RE.search(stderr)`. This test asserts both halves
     of that contract.
     """
     bwrap_stderr = "bwrap: execvp some-missing-command: No such file or directory\n"
-    # 1. The bwrap-stderr translator returns an MCPSandboxError for this
+    # 1. The bwrap-stderr translator returns a SandboxError for this
     #    text (catalog #2 — generic bwrap failure, prefix-gated).
     sandbox_err = stdio_module._translate_bwrap_stderr(bwrap_stderr)
-    assert isinstance(sandbox_err, MCPSandboxError)
+    assert isinstance(sandbox_err, SandboxError)
 
     # 2. The bwrap-prefix discriminator fires for this text — meaning the
     #    `_translate_on_unwind` callback in `_open_stdio_transport_stack`

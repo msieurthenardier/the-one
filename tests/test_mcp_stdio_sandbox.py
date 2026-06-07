@@ -1,37 +1,43 @@
 """F3 L4: ``connect_stdio`` sandbox-integration tests.
 
-Verifies that the stdio transport wraps every spawn through
-``BubblewrapSandbox.prepare_spawn`` unless the F3 §10 double-flag bypass
-(``THE_ONE_SANDBOX_DISABLED=1`` AND ``THE_ONE_TEST_MODE=1``) is set.
+Verifies that the stdio transport wraps every spawn through the factory-
+selected sandbox backend unless the factory returns ``PassthroughSandbox``
+(double-flag bypass, non-Linux, or bwrap-missing).
 
 Coverage matrix:
 
-* §1   bwrap CLI shape — sandbox is invoked when bypass is OFF and the
-       resulting ``StdioServerParameters`` carries the bwrap-wrapped
-       command/args/env/cwd.
+* §1   bwrap CLI shape — factory returns bubblewrap → the resulting
+       ``StdioServerParameters`` carries the bwrap-wrapped command/args.
 * §2   ``config.sandbox`` round-trip — operator-supplied profile flows
        through ``SandboxProfile.from_dict`` into ``prepare_spawn``.
-* §3   double-flag bypass works — both flags set → sandbox is skipped.
+* §3   double-flag bypass works — both flags set → factory returns
+       passthrough → spawn is NOT wrapped.
 * §4/5 single-flag does NOT bypass — only ``SANDBOX_DISABLED=1`` (no
        ``TEST_MODE``) and only ``TEST_MODE=1`` (no ``SANDBOX_DISABLED``)
-       both keep the sandbox active.
-* §6   ``MCPSandboxError`` propagates — when ``BubblewrapSandbox()``
-       raises (bwrap missing AND bypass not active), ``connect_stdio``
-       does NOT swallow or translate.
-* §7   SDK env preservation — operator's allowlist + config.env +
-       secrets all survive the bwrap ``--clearenv`` + per-key
-       ``--setenv`` round-trip; HOME forced to ``/tmp``.
+       both keep the bubblewrap backend active.
+* §6   bwrap-missing routes to passthrough — when ``shutil.which("bwrap")``
+       returns None and bypass is off, the factory returns passthrough;
+       ``connect_stdio`` does NOT raise ``SandboxError`` (inverted from
+       the prior "raises when bwrap missing" contract — the factory now
+       absorbs bwrap-missing silently). The construction-time raise is still
+       unit-tested at the ``BubblewrapSandbox`` level in
+       ``test_sandbox_bubblewrap.py``; the MCP path no longer triggers it.
+* §7   SDK env preservation — operator's allowlist + config.env + secrets
+       survive the bwrap ``--clearenv`` + per-key ``--setenv`` round-trip;
+       HOME forced to ``/tmp``.
 * §8   real-subprocess integration — drives ``connect_stdio`` against
-       ``/bin/cat`` under real bwrap; success criterion is "anything
-       except ``MCPSandboxError``" (the wrapped target is not a real
-       MCP server, so post-spawn handshake will fail; we only assert
-       the sandbox boundary was crossed). Skipped if ``bwrap`` not
-       available on the test runner.
-* §9   ``SandboxProfile`` validation error propagation — operator
-       submits a type-mismatched ``config.sandbox`` field; ``ValueError``
-       propagates from ``SandboxProfile.from_dict`` and is NOT
-       translated to ``MCPSandboxError`` (programmer/validator
-       boundary, not sandbox-setup boundary).
+       ``/bin/cat`` under real bwrap. Skipped if bwrap not available.
+* §9   ``SandboxProfile`` validation error propagates as ValueError (profile
+       validation runs before ``get_sandbox_backend``, so this behaviour
+       is unchanged from before the factory retrofit).
+
+Backend-selection injection for unit tests: ``patch.object(stdio_module,
+"get_sandbox_backend", lambda: <backend>)`` — returning a real
+``BubblewrapSandbox()`` or ``PassthroughSandbox()`` as the test needs.
+This is hermetic: the factory's lazy ``BubblewrapSandbox`` import is
+bypassed entirely, so tests are not coupled to host bwrap availability.
+Assertions focus on the resulting params (``command == "bwrap"`` vs the
+operator command), not on mock-construction calls.
 """
 
 from __future__ import annotations
@@ -45,10 +51,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from the_one.db.models import MCPSource
-from the_one.mcp.errors import MCPSandboxError
+from the_one.mcp.errors import SandboxError
 from the_one.mcp.transports import stdio as stdio_module
 from the_one.mcp.transports.stdio import connect_stdio
-from the_one.platform.sandbox import SandboxProfile, SpawnSpec
+from the_one.platform.sandbox import BubblewrapSandbox, SandboxProfile, SpawnSpec
+from the_one.platform.sandbox import factory as factory_module
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -130,46 +137,38 @@ def _stub_client_session_factory() -> Any:
 async def test_connect_stdio_invokes_bubblewrap_when_flag_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the double-flag bypass is OFF, ``BubblewrapSandbox`` is
-    instantiated and ``prepare_spawn`` is called with a strict-floor
-    profile + the operator's command/args/env/cwd.
+    """When the double-flag bypass is OFF and the factory returns
+    ``BubblewrapSandbox``, the resulting ``StdioServerParameters``
+    carries the bwrap-wrapped command/args.
+
+    Injection: ``patch.object(stdio_module, "get_sandbox_backend", ...)``
+    returns a real ``BubblewrapSandbox()`` whose ``prepare_spawn`` produces
+    a bwrap-wrapped spec. Asserts on params (``command == "bwrap"``), not
+    on mock-construction calls — the factory's lazy import means patching
+    ``stdio_module.BubblewrapSandbox`` no longer intercepts selection.
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
     # THE_ONE_TEST_MODE may be set by conftest; that's fine — single
     # flag is not enough to bypass.
 
     captured: dict[str, Any] = {}
-    sandbox_instance = MagicMock(name="sandbox-instance")
-    sandbox_instance.prepare_spawn.return_value = SpawnSpec(
-        command="bwrap",
-        args=["--die-with-parent", "--", "/bin/echo", "hello"],
-        env={"PATH": "/usr/bin"},
-        cwd=None,
-    )
-    sandbox_cls = MagicMock(name="BubblewrapSandbox", return_value=sandbox_instance)
+
+    # Force shutil.which to return a path so BubblewrapSandbox.__init__
+    # does not raise on a bwrap-less host.
+    from the_one.platform.sandbox import bubblewrap as bwrap_module
+
+    monkeypatch.setattr(bwrap_module.shutil, "which", lambda _name: "/usr/bin/bwrap")
 
     source = _make_source()
 
     with (
-        patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
+        patch.object(stdio_module, "get_sandbox_backend", lambda: BubblewrapSandbox()),
         patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source) as session:
             assert session is not None
 
-    sandbox_cls.assert_called_once_with()  # zero-arg construction
-    sandbox_instance.prepare_spawn.assert_called_once()
-    call_args = sandbox_instance.prepare_spawn.call_args
-    profile_arg = call_args.args[0]
-    command_arg = call_args.args[1]
-    args_arg = call_args.args[2]
-    cwd_arg = call_args.args[4]
-    assert isinstance(profile_arg, SandboxProfile)
-    assert profile_arg == SandboxProfile()  # strict-floor (config.sandbox absent)
-    assert command_arg == "/bin/echo"
-    assert args_arg == ["hello"]
-    assert cwd_arg is None
     # The StdioServerParameters that reached stdio_client uses bwrap's
     # wrapped command/args, not the bare /bin/echo.
     assert captured["params"].command == "bwrap"
@@ -186,32 +185,43 @@ async def test_connect_stdio_passes_config_sandbox_to_profile(
 ) -> None:
     """``config.sandbox`` is parsed via ``SandboxProfile.from_dict``
     and the resulting profile is handed to ``prepare_spawn``.
+
+    Uses a recording wrapper backend so the profile argument can be
+    inspected without driving real bwrap.
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
     captured: dict[str, Any] = {}
-    sandbox_instance = MagicMock(name="sandbox-instance")
-    sandbox_instance.prepare_spawn.return_value = SpawnSpec(
-        command="bwrap",
-        args=["--", "/bin/echo"],
-        env={},
-        cwd=None,
-    )
-    sandbox_cls = MagicMock(name="BubblewrapSandbox", return_value=sandbox_instance)
+    captured_profile: list[SandboxProfile] = []
+
+    # Recording backend: wraps prepare_spawn to record the profile arg,
+    # then delegates to PassthroughSandbox for a no-op spawn spec.
+    class _RecordingBackend:
+        def prepare_spawn(
+            self,
+            profile: SandboxProfile,
+            command: str,
+            args: list[str],
+            env: dict[str, str],
+            cwd: str | None,
+        ) -> SpawnSpec:
+            captured_profile.append(profile)
+            return SpawnSpec(command=command, args=args, env=env, cwd=cwd)
 
     source = _make_source(
         sandbox={"writable_paths": ["/data"], "network_allowed": True},
     )
 
     with (
-        patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
+        patch.object(stdio_module, "get_sandbox_backend", lambda: _RecordingBackend()),
         patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
             pass
 
-    profile_arg = sandbox_instance.prepare_spawn.call_args.args[0]
+    assert len(captured_profile) == 1
+    profile_arg = captured_profile[0]
     assert profile_arg.writable_paths == ["/data"]
     assert profile_arg.network_allowed is True
     # Defaults preserved for the namespace flags we didn't override.
@@ -229,27 +239,29 @@ async def test_connect_stdio_double_flag_bypass_skips_sandbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Setting BOTH ``THE_ONE_SANDBOX_DISABLED=1`` AND
-    ``THE_ONE_TEST_MODE=1`` skips the sandbox wrap. ``stdio_client``
-    receives the bare ``command/args/env/cwd``, and
-    ``BubblewrapSandbox`` is never instantiated.
+    ``THE_ONE_TEST_MODE=1`` causes the factory to return
+    ``PassthroughSandbox``; ``stdio_client`` receives the bare
+    ``command/args/env/cwd``, not bwrap-wrapped params.
+
+    The mechanism is "factory returns passthrough" (not "BubblewrapSandbox
+    never instantiated"). Let the real factory run under both flags — it
+    returns passthrough without consulting bwrap availability.
     """
     monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
     monkeypatch.setenv("THE_ONE_TEST_MODE", "1")
 
     captured: dict[str, Any] = {}
-    sandbox_cls = MagicMock(name="BubblewrapSandbox")
 
     source = _make_source()
 
     with (
-        patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
         patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
             pass
 
-    sandbox_cls.assert_not_called()
+    # Passthrough → bare operator command reaches stdio_client.
     assert captured["params"].command == "/bin/echo"
     assert captured["params"].args == ["hello"]
 
@@ -263,29 +275,31 @@ async def test_connect_stdio_only_sandbox_disabled_flag_does_not_bypass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Setting only ``THE_ONE_SANDBOX_DISABLED=1`` (without
-    ``THE_ONE_TEST_MODE``) does NOT bypass the sandbox.
+    ``THE_ONE_TEST_MODE``) does NOT bypass the sandbox — factory selects
+    bubblewrap and the spawn is bwrap-wrapped.
     """
     monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
     monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
 
     captured: dict[str, Any] = {}
-    sandbox_instance = MagicMock(name="sandbox-instance")
-    sandbox_instance.prepare_spawn.return_value = SpawnSpec(
-        command="bwrap", args=["--", "/bin/echo"], env={}, cwd=None
-    )
-    sandbox_cls = MagicMock(name="BubblewrapSandbox", return_value=sandbox_instance)
 
     source = _make_source()
 
+    # Force shutil.which so BubblewrapSandbox.__init__ does not raise.
+    from the_one.platform.sandbox import bubblewrap as bwrap_module
+
+    monkeypatch.setattr(bwrap_module.shutil, "which", lambda _name: "/usr/bin/bwrap")
+
     with (
-        patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
+        patch.object(stdio_module, "get_sandbox_backend", lambda: BubblewrapSandbox()),
         patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
             pass
 
-    sandbox_cls.assert_called_once_with()
+    # Single flag → no bypass → bubblewrap selected → bwrap-wrapped params.
+    assert captured["params"].command == "bwrap"
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +311,8 @@ async def test_connect_stdio_only_test_mode_flag_does_not_bypass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Setting only ``THE_ONE_TEST_MODE=1`` (without
-    ``THE_ONE_SANDBOX_DISABLED``) does NOT bypass the sandbox.
+    ``THE_ONE_SANDBOX_DISABLED``) does NOT bypass the sandbox — factory
+    selects bubblewrap and the spawn is bwrap-wrapped.
 
     Clean-room directionality assertion: the conftest's
     ``pytest_configure`` already sets ``THE_ONE_TEST_MODE=1``, so this
@@ -308,53 +323,65 @@ async def test_connect_stdio_only_test_mode_flag_does_not_bypass(
     monkeypatch.setenv("THE_ONE_TEST_MODE", "1")
 
     captured: dict[str, Any] = {}
-    sandbox_instance = MagicMock(name="sandbox-instance")
-    sandbox_instance.prepare_spawn.return_value = SpawnSpec(
-        command="bwrap", args=["--", "/bin/echo"], env={}, cwd=None
-    )
-    sandbox_cls = MagicMock(name="BubblewrapSandbox", return_value=sandbox_instance)
 
     source = _make_source()
 
+    # Force shutil.which so BubblewrapSandbox.__init__ does not raise.
+    from the_one.platform.sandbox import bubblewrap as bwrap_module
+
+    monkeypatch.setattr(bwrap_module.shutil, "which", lambda _name: "/usr/bin/bwrap")
+
     with (
-        patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
+        patch.object(stdio_module, "get_sandbox_backend", lambda: BubblewrapSandbox()),
         patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
             pass
 
-    sandbox_cls.assert_called_once_with()
+    # Single flag → no bypass → bubblewrap selected → bwrap-wrapped params.
+    assert captured["params"].command == "bwrap"
 
 
 # ---------------------------------------------------------------------------
-# §6 — MCPSandboxError propagates from BubblewrapSandbox() construction
+# §6 — bwrap-missing routes to passthrough (INVERTED from prior "raises" test)
 # ---------------------------------------------------------------------------
 
 
-async def test_connect_stdio_propagates_mcpsandbox_error_when_bwrap_missing(
+async def test_connect_stdio_routes_to_passthrough_when_bwrap_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When ``shutil.which("bwrap")`` returns None and the bypass is
-    NOT active, ``BubblewrapSandbox()`` raises ``MCPSandboxError``;
-    ``connect_stdio`` propagates it without swallowing or translating.
+    """When ``shutil.which("bwrap")`` returns None and bypass is NOT
+    active, the factory returns ``PassthroughSandbox``; ``connect_stdio``
+    does NOT raise ``SandboxError`` — it runs unwrapped.
+
+    This is the INVERTED form of the prior "raises when bwrap missing"
+    test, reflecting the mission's core fix: off-Linux / bwrap-missing
+    hosts now degrade to passthrough rather than erroring at construction
+    time. The construction-time raise is still unit-tested at the
+    ``BubblewrapSandbox`` level in ``test_sandbox_bubblewrap.py``; the
+    MCP path no longer triggers it.
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
-    # Force BubblewrapSandbox.__init__ to think bwrap is missing.
-    # The import path inside bubblewrap.py is `import shutil` then
-    # `shutil.which("bwrap")` — patch the `shutil.which` attribute on
-    # the bubblewrap module's bound `shutil`.
-    from the_one.platform.sandbox import bubblewrap as bwrap_module
+    # Simulate bwrap absent at the FACTORY's selection point — the factory
+    # reads factory_module.shutil.which, not the bubblewrap module's copy.
+    monkeypatch.setattr(factory_module.shutil, "which", lambda _name: None)
 
-    monkeypatch.setattr(bwrap_module.shutil, "which", lambda _name: None)
-
+    captured: dict[str, Any] = {}
     source = _make_source()
 
-    with pytest.raises(MCPSandboxError) as exc_info:
-        async with connect_stdio(source):
-            pass
+    # Drive the real factory (no get_sandbox_backend patch) — it should
+    # return PassthroughSandbox when bwrap is absent.
+    with (
+        patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
+        patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
+    ):
+        # Must NOT raise SandboxError — passthrough runs unwrapped.
+        async with connect_stdio(source) as session:
+            assert session is not None
 
-    assert "bubblewrap binary not found" in str(exc_info.value)
+    # Passthrough → bare operator command (not "bwrap").
+    assert captured["params"].command == "/bin/echo"
 
 
 # ---------------------------------------------------------------------------
@@ -378,12 +405,14 @@ async def test_connect_stdio_sdk_default_env_preserved_through_setenv(
 
     captured: dict[str, Any] = {}
     # Use a real BubblewrapSandbox so the --clearenv/--setenv round-trip
-    # is exercised end-to-end, but force `shutil.which("bwrap")` to
-    # return a known truthy value so __init__ doesn't raise even on
-    # hosts without bwrap.
+    # is exercised end-to-end. Patch BOTH the factory's shutil.which AND
+    # the bubblewrap module's shutil.which so that (a) the factory selects
+    # bubblewrap and (b) BubblewrapSandbox.__init__ doesn't raise on a
+    # bwrap-less host.
     from the_one.platform.sandbox import bubblewrap as bwrap_module
 
     monkeypatch.setattr(bwrap_module.shutil, "which", lambda _name: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module.shutil, "which", lambda _name: "/usr/bin/bwrap")
 
     source = _make_source(
         env={"MY_PLAIN": "plain-value"},
@@ -420,7 +449,7 @@ async def test_connect_stdio_real_subprocess_cat_integration(
     """Real-subprocess integration test: drive ``connect_stdio`` against
     a bwrap-wrapped ``/bin/cat``. The wrapped target is not a real MCP
     server, so the SDK's initialize handshake will fail; the success
-    criterion is "anything except ``MCPSandboxError``" (proves the
+    criterion is "anything except ``SandboxError``" (proves the
     sandbox boundary was crossed and the failure is post-spawn).
 
     Uses ``/bin/cat`` (NOT ``/bin/echo``) because cat reads stdin
@@ -441,7 +470,7 @@ async def test_connect_stdio_real_subprocess_cat_integration(
         async with connect_stdio(source) as session:
             await asyncio.wait_for(session.initialize(), timeout=2.0)
 
-    assert not isinstance(exc_info.value, MCPSandboxError), (
+    assert not isinstance(exc_info.value, SandboxError), (
         f"Sandbox setup failed (expected to be crossed): {exc_info.value}"
     )
 
@@ -457,9 +486,14 @@ async def test_connect_stdio_propagates_sandbox_profile_validation_error(
     """When ``config.sandbox`` carries a type-mismatched field (e.g.,
     ``network_allowed=42`` instead of bool), ``SandboxProfile.from_dict``
     raises ``ValueError``; ``connect_stdio`` propagates it without
-    translating to ``MCPSandboxError``. Anchors the F3 §6 boundary:
+    translating to ``SandboxError``. Anchors the F3 §6 boundary:
     profile-shape errors are programmer/validator boundary, not
     sandbox-setup errors.
+
+    ``SandboxProfile.from_dict`` runs BEFORE ``get_sandbox_backend()``
+    in ``_build_stdio_params``, so this behaviour is unchanged by the
+    factory retrofit — a malformed profile raises before the factory is
+    consulted.
 
     In production, L1b's API validator would reject this config before
     persistence; the test bypasses the validator by constructing
@@ -474,4 +508,4 @@ async def test_connect_stdio_propagates_sandbox_profile_validation_error(
             pass
 
     assert "network_allowed" in str(exc_info.value)
-    assert not isinstance(exc_info.value, MCPSandboxError)
+    assert not isinstance(exc_info.value, SandboxError)

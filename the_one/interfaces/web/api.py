@@ -906,7 +906,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
     are optional within the sandbox sub-block. List-shape and bool-shape
     are validated; absolute-path semantics are NOT enforced at the API
     layer — the runtime (``BubblewrapSandbox.prepare_spawn``, F3 L3)
-    raises ``MCPSandboxError`` when bwrap rejects the path at spawn
+    raises ``SandboxError`` when bwrap rejects the path at spawn
     time. Streamable-HTTP sources silently ignore ``config.sandbox``
     (the field is meaningless for non-spawning transports).
     """
@@ -950,7 +950,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
         # type-checking advanced knobs at runtime construction time.
         # Path-shape (absolute / no ``..``) is NOT enforced here per
         # "trust the runtime" — bwrap will reject malformed paths at
-        # spawn time via ``MCPSandboxError`` (L3 lands).
+        # spawn time via ``SandboxError`` (L3 lands).
         if sandbox is not None:
             if not isinstance(sandbox, dict):
                 raise HTTPException(
@@ -1538,8 +1538,8 @@ async def _build_and_test_stdio_mcp(
         MCPAuthRequired,
         MCPCapabilityMissing,
         MCPConnectionError,
-        MCPSandboxError,
         MCPVersionMismatch,
+        SandboxError,
     )
 
     try:
@@ -1587,7 +1587,7 @@ async def _build_and_test_stdio_mcp(
         # Defensive: stdio shouldn't surface auth-required, but if a server
         # somehow does, surface it as a regular error rather than crashing.
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
-    except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing, MCPSandboxError) as e:
+    except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing, SandboxError) as e:
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
     except Exception as e:
         # F9 L2 vibing: defense-in-depth catch-all. Stdio teardown can leak

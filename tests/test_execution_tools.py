@@ -37,6 +37,28 @@ from the_one.tools.python_exec import PythonExecTool
 from the_one.tools.shell import ShellTool
 
 
+@pytest.fixture(autouse=True)
+def _force_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin every test in this file to the passthrough sandbox backend.
+
+    F14 L4: the tools now route through ``get_sandbox_backend()``.  Without
+    this fixture, tests running inside the container (which has bwrap) would
+    silently run under bubblewrap and produce different output (e.g. the env
+    allowlist test would see bubblewrap-filtered env; timeout handling would
+    go through bwrap's process tree).  These unit tests assert today's
+    unwrapped behaviour byte-for-byte — passthrough is the right backend for
+    that contract.  Real bwrap behaviour is asserted in
+    ``tests/test_builtin_tool_sandbox.py`` via ``@requires_bwrap`` tests.
+
+    Mirrors ``test_mcp_stdio_sandbox.py``'s bypass usage (both THE_ONE_SANDBOX_DISABLED
+    and THE_ONE_TEST_MODE must be set; the factory checks both).
+    """
+    monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
+    # THE_ONE_TEST_MODE is already set by conftest.py; re-set here for clarity
+    # and to ensure the double-flag requirement is always satisfied locally.
+    monkeypatch.setenv("THE_ONE_TEST_MODE", "1")
+
+
 def _make_shell(
     exec_cfg: ExecutionConfig | None = None,
     fs_cfg: FilesystemConfig | None = None,

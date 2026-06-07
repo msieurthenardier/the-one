@@ -11,6 +11,8 @@ later legs) plus four module-level helpers the tools call:
 * ``_truncate_output`` — combined stdout+stderr tail-preserving cap formatter
   (F4 Decision 2).
 * ``_build_subprocess_env`` — hardcoded 8-key env allowlist (F4 Decision 10).
+* ``_build_tool_profile`` — construct a host-workspace ``SandboxProfile`` from
+  ``FilesystemConfig`` + ``ExecutionConfig`` (F14 flight 01 leg 4, DD10).
 
 The ``_ENV_ALLOWLIST`` and ``DEFAULT_COMMAND_DENYLIST`` constants are
 module-level and intentionally NOT operator-configurable — Decision 10 (env
@@ -24,9 +26,12 @@ L4 wires ``PythonExecTool``; L6 wires the four pty session tools.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    from the_one.platform.sandbox.base import SandboxProfile
 
 from the_one.platform.env import (  # noqa: F401  (re-export for L3/L4 backward-compat)
     _ENV_ALLOWLIST,
@@ -249,6 +254,17 @@ class ExecutionConfig(BaseModel):
         ),
     ] = 5
 
+    sandbox_network_allowed: Annotated[
+        bool,
+        Narrow,
+        Field(
+            description=(
+                "Allow the sandboxed tool subprocess network access "
+                "(deny-by-default; the agent's dedicated web tools are unaffected)."
+            ),
+        ),
+    ] = False
+
     @model_validator(mode="after")
     def _default_le_max(self) -> "ExecutionConfig":
         """Enforce the cross-field invariant ``default <= max``.
@@ -403,3 +419,40 @@ def _truncate_output(
 
 # ``_build_subprocess_env`` is re-exported at the top of this module from
 # ``the_one.platform.env`` (F4 L5a moved it).
+
+
+def _build_tool_profile(fs_cfg: FilesystemConfig, exec_cfg: ExecutionConfig) -> "SandboxProfile":
+    """Build a host-workspace ``SandboxProfile`` from the tool's Config pair (DD10).
+
+    Maps the operator's ``FilesystemConfig`` allowlist/denylist and the
+    ``ExecutionConfig.sandbox_network_allowed`` flag onto a ``SandboxProfile``
+    suitable for ``get_sandbox_backend().prepare_spawn()``.
+
+    * ``writable_paths`` — the canonical allowlist from ``fs_cfg`` (already
+      ``expanduser`` + ``resolve``'d by ``model_post_init``; bwrap requires
+      real absolute paths).
+    * ``readonly_overlay_paths`` — the canonical denylist (optional-secret paths
+      re-protected as read-only on top of a writable root, DD4).
+    * ``network_allowed`` — ``exec_cfg.sandbox_network_allowed`` (deny-by-default,
+      DD6).
+    * ``home`` — the real home (``str(Path.home())``); the shell tool's default
+      cwd is ``$HOME`` and ``~``-relative writes must persist (DD4).
+    * Namespace flags (``pid_unshare``, ``ipc_unshare``, ``uts_unshare``) left
+      at their ``SandboxProfile`` defaults (all True).
+
+    cwd is not separately injected into ``writable_paths`` because
+    ``_cwd_check`` already constrains cwd to the allowlist, so cwd ⊆ writable
+    by construction.
+
+    Shared by ``ShellTool`` and ``PythonExecTool`` — the hook Flight 4
+    (boxed mode) branches in.
+    """
+    # Function-level import to avoid any tools↔platform.sandbox import cycle.
+    from the_one.platform.sandbox import SandboxProfile
+
+    return SandboxProfile(
+        writable_paths=[str(p) for p in fs_cfg._canonical_allowlist],
+        readonly_overlay_paths=[str(p) for p in fs_cfg._canonical_denylist],
+        network_allowed=exec_cfg.sandbox_network_allowed,
+        home=str(Path.home()),
+    )

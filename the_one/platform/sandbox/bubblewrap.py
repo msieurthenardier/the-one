@@ -1,6 +1,6 @@
 """Bubblewrap-backed Linux sandbox (F3 §8 + §11).
 
-Implements ``MCPSandbox.prepare_spawn`` by compiling a ``SandboxProfile``
+Implements ``ToolSandbox.prepare_spawn`` by compiling a ``SandboxProfile``
 plus operator-supplied (command, args, env, cwd) into a bwrap-wrapped
 ``SpawnSpec``. L4's ``connect_stdio`` feeds the result into
 ``mcp.client.stdio.StdioServerParameters`` for the SDK's transport layer.
@@ -11,23 +11,26 @@ Trust contract:
   * ``--unshare-net`` (when ``network_allowed`` is False) defines network policy.
   * ``--die-with-parent`` defines process supervision.
 
-§13 HOME override: HOME is unconditionally set to ``/tmp`` regardless of
-operator-supplied env. Operators cannot override HOME via the kv-table —
-sandbox policy, not operator-configurable.
+§13 HOME: HOME defaults to ``/tmp`` (MCP safe default — inherited ``/root``
+would be read-only-but-not-writable under ``--ro-bind / /``).  Callers with a
+real workspace pass ``profile.home`` to override (e.g. built-in tools in leg 4
+pass the real ``$HOME``).  Operators cannot override HOME via the kv-table —
+``SandboxProfile.from_dict`` intentionally omits ``home`` from the parsed-key
+set.
 """
 
 from __future__ import annotations
 
 import shutil
 
-from the_one.mcp.errors import MCPSandboxError
+from the_one.mcp.errors import SandboxError
 from the_one.platform.sandbox.base import SandboxProfile, SpawnSpec
 
 
 class BubblewrapSandbox:
     """Linux sandbox backend using bubblewrap (``bwrap``).
 
-    Structurally satisfies ``the_one.platform.sandbox.base.MCPSandbox`` (does
+    Structurally satisfies ``the_one.platform.sandbox.base.ToolSandbox`` (does
     NOT inherit from it; ``runtime_checkable`` Protocols are checked
     structurally). Validates ``bwrap`` presence at construction;
     ``prepare_spawn`` compiles a ``SandboxProfile`` plus operator
@@ -39,24 +42,30 @@ class BubblewrapSandbox:
         ``--clearenv``, ``--setenv KEY VALUE`` per assembled-env entry
         (sorted by key for test determinism), ``--ro-bind / /``,
         ``--tmpfs /tmp``, ``--bind PATH PATH`` per
-        ``profile.writable_paths`` entry, ``--proc /proc``,
-        ``--dev /dev``, ``[--chdir cwd]``, ``--``, ``command``, ``*args``.
+        ``profile.writable_paths`` entry,
+        ``--ro-bind-try PATH PATH`` per ``profile.readonly_overlay_paths`` entry
+        (re-mounts secrets under a writable root read-only; must be AFTER the
+        writable ``--bind`` loop so the overlay wins; ``--ro-bind-try`` skips
+        absent optional-secret paths without crashing the spawn),
+        ``--proc /proc``, ``--dev /dev``,
+        ``[--chdir cwd]``, ``--``, ``command``, ``*args``.
 
-    HOME is unconditionally overridden to ``/tmp`` (sandbox policy, not
-    operator-configurable). Operator-supplied HOME values are silently
-    overridden.
+    HOME defaults to ``/tmp`` (MCP safe default); set ``profile.home`` to
+    override (e.g. built-in tools pass the real ``$HOME``).  Operator-supplied
+    HOME values in the ``env`` dict are always overridden by the profile value.
+    Operators cannot set HOME via the kv-table (``from_dict`` omits it).
 
     Errors raised:
-      * ``MCPSandboxError`` at construction time if ``bwrap`` is not on PATH;
+      * ``SandboxError`` at construction time if ``bwrap`` is not on PATH;
         message text matches the F3 §6 catalog verbatim.
     """
 
     name: str = "bubblewrap"
 
     def __init__(self) -> None:
-        """Validate bwrap presence; raise MCPSandboxError per §6 if missing."""
+        """Validate bwrap presence; raise SandboxError per §6 if missing."""
         if shutil.which("bwrap") is None:
-            raise MCPSandboxError(
+            raise SandboxError(
                 "MCP sandbox setup failed: bubblewrap binary not found in PATH. "
                 "Install with: apt-get install bubblewrap. "
                 "In test environments only, set THE_ONE_SANDBOX_DISABLED=1 "
@@ -79,18 +88,24 @@ class BubblewrapSandbox:
             ``--clearenv``, ``--setenv KEY VALUE`` per assembled-env entry,
             ``--ro-bind / /``, ``--tmpfs /tmp``,
             ``--bind PATH PATH`` per writable_paths entry,
+            ``--ro-bind-try PATH PATH`` per readonly_overlay_paths entry
+            (AFTER writable ``--bind`` loop so overlays win; ``--ro-bind-try``
+            silently skips absent optional-secret paths),
             ``--proc /proc``, ``--dev /dev``,
             ``[--chdir cwd]``, ``--``, ``command``, ``*args``.
 
-        HOME is unconditionally overridden to ``/tmp`` (sandbox policy).
-        ``--setenv`` flags are emitted in sorted-by-key order for test
-        determinism; bwrap itself doesn't care about flag order.
+        HOME is set from ``profile.home`` when provided, else ``/tmp``
+        (MCP safe default — inherited ``/root`` would be read-only under
+        ``--ro-bind / /``).  Operator-supplied HOME in the ``env`` dict is
+        always overridden by the profile value.  ``--setenv`` flags are emitted
+        in sorted-by-key order for test determinism; bwrap itself doesn't care
+        about flag order.
 
         The operator's input ``env`` dict is not mutated — ``dict(env)`` makes
         a copy before applying the HOME override.
         """
         assembled_env = dict(env)
-        assembled_env["HOME"] = "/tmp"
+        assembled_env["HOME"] = profile.home if profile.home is not None else "/tmp"
 
         bwrap_args: list[str] = ["--die-with-parent", "--unshare-user"]
         if profile.pid_unshare:
@@ -113,6 +128,15 @@ class BubblewrapSandbox:
         bwrap_args.extend(["--tmpfs", "/tmp"])
         for path in profile.writable_paths:
             bwrap_args.extend(["--bind", path, path])
+        # readonly_overlay_paths AFTER the writable --bind loop: re-mounts paths
+        # under a writable root as read-only, so secrets nested there are
+        # re-protected. Bind order is last-wins for overlapping mounts.
+        # ``--ro-bind-try`` (not ``--ro-bind``) so a non-existent denylist
+        # path (e.g. ~/.aws, ~/.kube when not configured) is silently skipped
+        # rather than crashing the spawn. F14 L4 refinement; the base-mount
+        # ``--ro-bind / /`` above stays ``--ro-bind`` (root always exists).
+        for path in profile.readonly_overlay_paths:
+            bwrap_args.extend(["--ro-bind-try", path, path])
         bwrap_args.extend(["--proc", "/proc"])
         bwrap_args.extend(["--dev", "/dev"])
         if cwd is not None:

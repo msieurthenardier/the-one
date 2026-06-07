@@ -1,19 +1,19 @@
 # Flight: Sandbox Seam + Built-in Tool Retrofit
 
-**Status**: ready
+**Status**: completed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] All subprocess spawn paths route through one shared sandboxing boundary
+- [x] All subprocess spawn paths route through one shared sandboxing boundary
       *(this flight: shell, Python, MCP stdio — three of four; PTY is Flight 2)*
-- [ ] On Linux, a built-in tool process cannot **write** outside its permitted
+- [x] On Linux, a built-in tool process cannot **write** outside its permitted
       filesystem scope, cannot touch denylisted paths (secrets), and its network
       access is constrained by policy *(read-scoping deferred — see DD5)*
-- [ ] On a platform with no sandbox backend, the app runs through the shared seam
+- [x] On a platform with no sandbox backend, the app runs through the shared seam
       via a passthrough and does not error at construction
-- [ ] The sandbox policy is applied uniformly to built-in tools and MCP servers
+- [x] The sandbox policy is applied uniformly to built-in tools and MCP servers
       from one policy source
-- [ ] Existing behavior preserved: MCP servers still launch, tests pass, ruff gate passes
+- [x] Existing behavior preserved: MCP servers still launch, tests pass, ruff gate passes
 
 ---
 
@@ -161,11 +161,11 @@ backend availability); no separate enable/disable knob beyond the network field.
       a bwrap host; automated CI coverage is a Mission 15 concern.
 
 ### Pre-Flight Checklist
-- [ ] All open questions resolved (one leg-level kill-strategy item remains)
+- [x] All open questions resolved (kill-strategy resolved in Leg 4: killpg+proc.kill suffices)
 - [x] Design decisions documented
 - [x] Prerequisites verified
 - [x] Validation approach defined (`@requires_bwrap` integration + unit tests)
-- [ ] Legs defined
+- [x] Legs defined
 
 ---
 
@@ -187,21 +187,21 @@ network from `ExecutionConfig.sandbox_network_allowed`; real HOME) → `prepare_
 passthrough and add `@requires_bwrap` integration tests proving containment.
 
 ### Checkpoints
-- [ ] Rename complete across importers (incl. docstrings); `MCPClientError`
+- [x] Rename complete across importers (incl. docstrings); `MCPClientError`
       hierarchy + `client.py:511` catch preserved; suite + ruff green.
-- [ ] `PassthroughSandbox` + `get_sandbox_backend()` land; `readonly_overlay_paths`
+- [x] `PassthroughSandbox` + `get_sandbox_backend()` land; `readonly_overlay_paths`
       + profile-driven HOME in the backend; startup backend log; unit tests for
       selection (Linux+bwrap → bubblewrap; missing/non-Linux/test-bypass → passthrough).
-- [ ] MCP stdio path uses the factory; MCP integration tests green; MCP still gets
+- [x] MCP stdio path uses the factory; MCP integration tests green; MCP still gets
       `HOME=/tmp`; simulated bwrap-missing / non-Linux yields passthrough (no error).
-- [ ] ShellTool + PythonExecTool routed through `_build_tool_profile`;
+- [x] ShellTool + PythonExecTool routed through `_build_tool_profile`;
       `@requires_bwrap` tests prove: write outside allowlist denied; a denylisted
-      secret path (e.g. `~/.ssh`) is not writable/readable; network denied by
-      default and enabled when `sandbox_network_allowed=true`; `~`-relative write
-      persists (real HOME); timeout/kill returns promptly under bwrap.
-- [ ] `test_execution_tools.py` pinned to passthrough and green on a bwrap-less host
+      secret path (e.g. `~/.ssh`) is not **writable** (read-scoping deferred per DD5);
+      network denied by default and enabled when `sandbox_network_allowed=true`;
+      `~`-relative write persists (real HOME); timeout/kill returns promptly under bwrap.
+- [x] `test_execution_tools.py` pinned to passthrough and green on a bwrap-less host
       *and* in-container.
-- [ ] Full suite + ruff green.
+- [x] Full suite + ruff green.
 
 ### Adaptation Criteria
 
@@ -223,19 +223,19 @@ passthrough and add `@requires_bwrap` integration tests proving containment.
 > **Note:** Tentative; legs are planned and created one at a time as the flight
 > progresses.
 
-- [ ] `rename-sandbox-abstraction` - Rename `MCPSandbox`→`ToolSandbox`,
+- [x] `rename-sandbox-abstraction` - Rename `MCPSandbox`→`ToolSandbox`,
       `MCPSandboxError`→`SandboxError` across all importers (~18 files) + docstrings
       + tests; **keep the error's home in `mcp/errors.py` and its `MCPClientError`
       parentage**; verify `client.py:511` still catches. Pure symbol rename; suite green.
-- [ ] `sandbox-backend-factory` - Add `PassthroughSandbox` + `get_sandbox_backend()`
+- [x] `sandbox-backend-factory` - Add `PassthroughSandbox` + `get_sandbox_backend()`
       (incl. the test double-flag bypass + startup backend log); add
       `readonly_overlay_paths` to `SandboxProfile` + the bubblewrap `--ro-bind`
       overlay; make the backend `HOME` policy profile-driven. Unit tests for
       selection and for passthrough never raising off-Linux.
-- [ ] `mcp-via-factory` - Retrofit `stdio.py:_build_stdio_params` to use the factory
+- [x] `mcp-via-factory` - Retrofit `stdio.py:_build_stdio_params` to use the factory
       (fold the bypass in); confirm MCP still launches, keeps `HOME=/tmp`, and
       off-Linux routes to passthrough without erroring. `@requires_bwrap` + unit.
-- [ ] `builtin-tool-seam` - Add `_build_tool_profile()` (writable = allowlist;
+- [x] `builtin-tool-seam` - Add `_build_tool_profile()` (writable = allowlist;
       overlay = denylist; network from new `ExecutionConfig.sandbox_network_allowed`;
       real HOME). Route ShellTool (`select_shell()` + exec) and PythonExecTool
       through it; reconcile timeout/kill under bwrap. Pin `test_execution_tools.py`
@@ -244,7 +244,7 @@ passthrough and add `@requires_bwrap` integration tests proving containment.
       timeout-kill). Files: `tools/shell.py`, `tools/python_exec.py`,
       `tools/execution.py`, `platform/shell.py`, `platform/interpreter.py`,
       `tests/test_execution_tools.py`.
-- [ ] `verify-integration` - Full suite host-native + in-container; ruff gate;
+- [x] `verify-integration` - Full suite host-native + in-container; ruff gate;
       confirm passthrough (simulated bwrap-missing) does not error; run
       `-m requires_bwrap` on a bwrap host; update `CLAUDE.md`/`agents.md` notes
       describing the seam, the host-workspace profile, and the
@@ -255,17 +255,21 @@ passthrough and add `@requires_bwrap` integration tests proving containment.
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (incl. `-m requires_bwrap` containment run on a bwrap host)
-- [ ] Documentation updated (seam, host-workspace profile, `sandbox_network_allowed`)
+- [x] Tests passing (incl. `-m requires_bwrap` containment run on a bwrap host)
+- [x] Documentation updated (seam, host-workspace profile, `sandbox_network_allowed`)
 
 ### Verification
 - `@requires_bwrap` integration tests prove, for built-in shell/python: (a) a write
   outside the `FilesystemConfig` allowlist is denied; (b) a denylisted secret path
-  (e.g. `~/.ssh`) is neither writable nor readable; (c) network is denied by default
-  and enabled when `sandbox_network_allowed` is true; (d) a `~`-relative write
-  persists (real HOME); (e) a timed-out command is killed promptly under bwrap.
+  (e.g. `~/.ssh`) is **not writable** — the `--ro-bind-try` overlay enforces
+  write-protection only; read-blocking is deferred to a later flight per DD5
+  *(original draft said "neither writable nor readable" — the `--ro-bind` mechanism
+  cannot block reads; this was a drafting error resolved by the Flight Director in
+  Leg 4; see flight log)*; (c) network is denied by default and enabled when
+  `sandbox_network_allowed` is true; (d) a `~`-relative write persists (real HOME);
+  (e) a timed-out command is killed promptly under bwrap.
 - Unit tests prove the factory selects bubblewrap on Linux+bwrap and passthrough
   otherwise (incl. the test double-flag), and that `PassthroughSandbox` never raises
   off-Linux.

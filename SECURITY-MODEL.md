@@ -66,10 +66,20 @@ Flight 2)". The security-relevant invariants are:
 - **Subprocess environment**: hardcoded 8-key allowlist (`PATH`, `HOME`,
   `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TERM`, `TZ`) lives at
   `the_one/platform/env.py` and is **NOT operator-configurable** by
-  design. See [CLAUDE.md](CLAUDE.md) line 128 for the canonical
-  description and the three enforcement call sites
-  (`shell.py::run_shell`, `interpreter.py::run_python`,
-  `pty.py::UnixPtySession`).
+  design. The allowlist is enforced at the tool layer: `ShellTool`
+  (`the_one/tools/shell.py`) and `PythonExecTool`
+  (`the_one/tools/python_exec.py`) each call `_build_subprocess_env()`
+  and pass the filtered env through the sandbox seam; `pty.py::UnixPtySession`
+  calls it directly (PTY sessions are not yet wired through the seam).
+- **OS-level execution fence (M14 F1)**: `shell` and `python_exec` route
+  through a `get_sandbox_backend()` factory seam. On Linux with `bwrap`
+  present, each invocation runs inside a bubblewrap jail using the
+  host-workspace profile: write access limited to the `FilesystemConfig`
+  allowlist, denylisted paths bound read-only via `--ro-bind-try` (not
+  writable; read-scoping is deferred), real `$HOME`, network
+  deny-by-default (`ExecutionConfig.sandbox_network_allowed` opt-in). On
+  non-Linux or bwrap-missing Linux, the seam falls through to
+  `PassthroughSandbox` (observable via a one-time WARNING log).
 - **Web (M05 F5)**: two-layer SSRF enforcement — `_url_check` at the tool
   boundary plus `SSRFGuardedTransport` resolving DNS once and pinning the
   connect target to that IP, refusing loopback / RFC1918 / link-local /

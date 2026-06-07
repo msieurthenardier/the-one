@@ -11,7 +11,7 @@ Covers:
   - Caplog gate: 0 ``MCPClient.disconnect`` warnings across the stdio
     Test path (F6 baseline preservation; first stdio re-assertion since
     F6 per leg artifact §15).
-  - Error-path: stdio Test surfaces MCPSandboxError/MCPConnectionError as
+  - Error-path: stdio Test surfaces SandboxError/MCPConnectionError as
     structured ``{status: "error", error: ...}`` responses without
     leaking exceptions.
 
@@ -277,8 +277,8 @@ async def test_stdio_test_connect_surfaces_connection_error(client_and_repo) -> 
 
 
 async def test_stdio_test_connect_surfaces_sandbox_error(client_and_repo) -> None:
-    """Stdio Test path translates MCPSandboxError → ``{status: "error"}``."""
-    from the_one.mcp.errors import MCPSandboxError
+    """Stdio Test path translates SandboxError → ``{status: "error"}``."""
+    from the_one.mcp.errors import SandboxError
 
     client, repo = client_and_repo
     await _seed_stdio(repo, "src-stdio-sbox", command="python", args=["-m", "x"])
@@ -288,7 +288,7 @@ async def test_stdio_test_connect_surfaces_sandbox_error(client_and_repo) -> Non
             pass
 
         async def __aenter__(self):
-            raise MCPSandboxError("bwrap rejected spawn (synthetic)")
+            raise SandboxError("bwrap rejected spawn (synthetic)")
 
         async def __aexit__(self, *args):
             return None
@@ -299,7 +299,7 @@ async def test_stdio_test_connect_surfaces_sandbox_error(client_and_repo) -> Non
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "error"
-    assert "MCPSandboxError" in body["error"]
+    assert "SandboxError" in body["error"]
 
 
 async def test_stdio_test_connect_envelopes_unexpected_exception(client_and_repo) -> None:
