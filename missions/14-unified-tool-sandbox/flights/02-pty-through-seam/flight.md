@@ -1,6 +1,6 @@
 # Flight: PTY Through the Seam
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria
