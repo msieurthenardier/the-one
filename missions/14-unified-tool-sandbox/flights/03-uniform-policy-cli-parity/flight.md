@@ -1,6 +1,6 @@
 # Flight: Uniform Policy, CLI Parity & Seam Hardening
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Unified Tool-Execution Sandbox](../../mission.md)
 
 ## Contributing to Criteria

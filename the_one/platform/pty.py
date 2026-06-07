@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import os
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -80,6 +81,27 @@ _READ_CHUNK = 65536
 # not strictly need an interactive prompt — the idle-mark detects readiness
 # regardless of whether a prompt was printed.
 _INTERACTIVE_SHELL_BASENAMES: frozenset[str] = frozenset({"bash", "zsh"})
+
+# Module-level libc singleton — loaded at most once, only on Linux.
+# Loaded in the PARENT (before pty.fork()) per the fork-safety rule (DD1):
+# calling CDLL inside the post-fork child can deadlock on a mutex inherited
+# from a parent thread mid-import.
+_libc: "ctypes.CDLL | None" = None
+
+
+def _get_libc() -> "ctypes.CDLL | None":
+    """Return a cached libc handle on Linux (for PR_SET_PDEATHSIG); None elsewhere.
+
+    Loaded in the PARENT (never in the post-fork child) per the module
+    fork-safety rule (DD1). The pdeathsig is Linux/bwrap-only defense-in-depth;
+    skipping it on non-Linux is correct.
+    """
+    global _libc
+    if sys.platform != "linux":
+        return None
+    if _libc is None:
+        _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    return _libc
 
 
 class PtySession(ABC):
@@ -240,14 +262,14 @@ class UnixPtySession(PtySession):
         # Fork-safety (DD1): load libc HERE, in the PARENT, before pty.fork().
         # Importing ctypes or calling CDLL inside the post-fork child is unsafe —
         # a new dlopen() can deadlock on a mutex inherited from a parent thread
-        # mid-import. ctypes is already imported at module level; we just call
-        # CDLL here in the parent so the handle is available pre-fork.
+        # mid-import. _get_libc() returns None on non-Linux (pdeathsig is
+        # Linux/bwrap-only defense-in-depth; skipping on non-Linux is correct).
         # Primary orphan-reap coverage is bwrap's own --die-with-parent
         # (prctl PR_SET_PDEATHSIG tied to the Python parent). This pre-execvp
         # call closes only the microsecond startup race window before bwrap
         # registers its own handler. Safe only when bwrap is not setuid/setcap
         # (probed by the regression test — those executables clear PDEATHSIG on execve).
-        _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        local_libc = _get_libc()
         _pr_set_pdeathsig = 1  # prctl constant PR_SET_PDEATHSIG (linux/prctl.h)
 
         try:
@@ -272,10 +294,13 @@ class UnixPtySession(PtySession):
                 os.environ.update(spec.env)
                 # Defense-in-depth: set PR_SET_PDEATHSIG so this child (and
                 # everything it execs) receives SIGKILL if the Python parent
-                # dies. The pre-loaded _libc handle is safe to use here (no
-                # new import/dlopen — loaded in the parent above). signal is
-                # already imported at module level.
-                _libc.prctl(_pr_set_pdeathsig, signal.SIGKILL)
+                # dies. The pre-loaded local_libc handle is safe to use here
+                # (no new import/dlopen — loaded in the parent above). signal
+                # is already imported at module level. Linux-only; None on
+                # other platforms (pdeathsig is Linux/bwrap-only).
+                if local_libc is not None:
+                    # Return value intentionally unchecked — non-fatal defense-in-depth.
+                    local_libc.prctl(_pr_set_pdeathsig, signal.SIGKILL)
                 os.execvp(spec.command, [spec.command, *spec.args])
             except Exception:  # pragma: no cover — exec replaces image
                 # Unreachable under normal operation: ``execvp`` either

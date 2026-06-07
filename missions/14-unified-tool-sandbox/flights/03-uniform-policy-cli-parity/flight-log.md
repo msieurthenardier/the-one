@@ -361,6 +361,17 @@ _Unexpected issues will be recorded here._
 
 ## Session Notes
 
+- **Debrief (2026-06-07)**: Flight debriefed (`flight-debrief.md`) — Developer + Architect
+  interviews + test-metrics capture. Outcome: objective achieved, all checkpoints met, 0
+  regressions. Top finding: the optional pdeathsig made `ctypes.CDLL("libc.so.6")`
+  unconditional in `start()` with no macOS guard — a latent non-Linux regression.
+  **Fixed post-debrief** (operator-approved): `pty.py` libc load now gated on
+  `sys.platform == "linux"` via a module-level lazy `_get_libc()` singleton (loaded in the
+  parent, child uses the inherited handle; child-side prctl skipped + return intentionally
+  unchecked off-Linux). bwrap arm still 6/6 green; ruff clean. Flight status `landed` →
+  `completed`. Remaining action items (agents.md cross-config note, fork-safety convention,
+  DD6 cross-repo AUTHORING.md rule, DD1 SandboxError inversion → maintenance) carried in the
+  debrief.
 - **Planning (2026-06-07) — post-review**: After the DD4 finding (orphan window
   already mitigated by bwrap's `--die-with-parent`), operator folded the standalone
   `seam-hardening` leg into `debt-and-docs` — it shrank to a regression test + the
