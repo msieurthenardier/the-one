@@ -238,7 +238,7 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 > and created one at a time as work progresses. This list will evolve based on
 > discoveries during implementation.
 
-- [x] Flight 1: **Host-native runtime readiness** *(landed)* — run the app as a normal host
+- [x] Flight 1: **Host-native runtime readiness** *(completed)* — run the app as a normal host
       process with no Docker anywhere (dev, test, run): wire `Settings.data_dir`
       to an OS-appropriate per-user location (with `~/.the-one` migration);
       external-runtime (`node`/`uv`) detection + actionable non-Docker guidance;

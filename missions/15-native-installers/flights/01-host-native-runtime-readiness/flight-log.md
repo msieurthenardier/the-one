@@ -469,3 +469,35 @@ where orphans die with the runner, so bare pytest + `--timeout` is acceptable th
   scope forks resolved with the operator: keep as one flight; `~/.the-one` migration
   = move/rename; provision bwrap in a dedicated Linux CI job. M14 maintenance recon
   and the host-native bwrap verification (above) completed before legs were locked.
+
+---
+
+## Flight Closeout (Phase 2d / 3)
+
+- **Batched review** (Sonnet, scaled to the security-critical sandbox diff): one
+  BLOCKING finding — `DEFAULT_PATH_DENYLIST`'s `"<data_dir>/secrets"` was a dead entry
+  (the Leg-2 spec wrongly called a live access-control guard a "doc example"). Fixed at
+  root cause: removed the bogus literal, append `canonicalize(settings.data_dir/"secrets")`
+  in `FilesystemConfig.model_post_init` so the agent's secrets dir is denied wherever
+  `data_dir` resolves (default or override) + 3 regression tests. Re-review: confirmed.
+- **Commits** (branch `flight/01-host-native-runtime-readiness`):
+  - `42d27da` flight/01: host-native runtime readiness — 44 files (Flight-1 + artifacts).
+  - `68e3cce` fix(ui): recover orphaned chat/studio working-tree fixes — 2 JS files that
+    were found uncommitted in the working tree (unrelated to M15), included at operator
+    request as a separate, clearly-labeled commit.
+- **PR**: draft #109 → main. First authoritative run of the new `test.yml` (test / browser
+  / bwrap jobs) executes on this PR.
+- **Statuses**: 7 legs → completed; flight → landed; Flight 1 checked in mission.md.
+- **Open follow-ups** (carried, not silently dropped):
+  1. `CLAUDE.md` testing section still says `docker exec the-one pytest` — host-native
+     update blocked by the auto-mode self-modification guard; needs operator authorization.
+  2. ~12 bwrap integration tests use `skipif(which("bwrap"))` not `@requires_bwrap`, so the
+     bwrap CI job doesn't select them — future re-marking pass.
+  3. `test-live` `test_aiat.py` `/app/...` paths assume a container; need host-native paths.
+  4. Non-test Docker Makefile targets (`smoke-runtimes`, `brand-assets`, container
+     lifecycle) remain — later flights retire Docker fully.
+- **Operational lesson** (for the debrief): browser tests must run via
+  `scripts/run-tests.sh` (group-kill), never bare `python -m pytest` — bare pytest orphans
+  the uvicorn/Chromium subtree, and the leaked CPU load fails *other* tests as false flakes.
+
+[COMPLETE:flight]
