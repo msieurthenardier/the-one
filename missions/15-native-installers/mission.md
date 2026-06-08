@@ -1,7 +1,7 @@
 # Mission: Native Desktop Installers
 
-**Status**: planning
-**Depends on**: [Mission 14 — Unified Tool-Execution Sandbox](../14-unified-tool-sandbox/mission.md)
+**Status**: active
+**Depends on**: [Mission 14 — Unified Tool-Execution Sandbox](../14-unified-tool-sandbox/mission.md) — **completed** (debrief 2026-06-07)
 
 > **Split from the original combined scope.** The unified sandbox seam (the heaviest,
 > riskiest piece) was carved out into Mission 14 and runs first. This mission
@@ -14,6 +14,14 @@
 > Mission 14's job) and surfaced the distribution-side risks reflected below: the
 > frozen-app spawn problem, the absence of any pytest CI, the `~/.the-one` path
 > convention, and the host-native bwrap user-namespace requirement.
+>
+> **Dusted off 2026-06-07 (M14 now complete).** Refreshed after Mission 14 landed:
+> the seam M15 builds on is verified M15-ready (see "What Mission 14 handed this
+> mission" below); the owed M14 end-of-mission maintenance is folded into Flight 1
+> rather than run as a separate pass; and the operator preference for fewer
+> confirmation points carries into execution (see Carried Forward from Mission 14).
+> No scope change — M14's completion only strengthens viability, so no fresh
+> Phase-4b re-validation was warranted.
 
 ## Outcome
 
@@ -47,14 +55,19 @@ developer entry point.) This is consequential because today **every** Makefile t
 target runs via `docker exec the-one …` and the only CI workflow is lint-only —
 there is no pytest CI at all yet.
 
-**What Mission 14 hands this mission.** M14 builds the shared sandboxing boundary
-that all four spawn paths (shell, Python, PTY, MCP stdio) route through, enforces
-it on Linux, and adds a passthrough backend + platform guard so non-Linux runs
-without erroring. This mission therefore does **not** create the seam — it (a)
-slots a macOS Seatbelt backend in behind it, (b) makes the Linux backend work
-host-native once Docker is gone (user-namespace probe + graceful degrade), and (c)
-adds a Windows PTY backend through the same boundary. Native Windows still ships
-with the sandbox in passthrough (unenforced) — a documented, accepted gap.
+**What Mission 14 handed this mission (now verified).** M14 is **completed**
+(debrief 2026-06-07). It built the shared sandboxing boundary that all four spawn
+paths (shell, Python, PTY, MCP stdio) route through, enforces it on Linux
+(kernel-verified via bwrap), and added a passthrough backend + selection factory so
+non-Linux runs without erroring. The seam survived all four M14 flights with **zero
+re-architecture**, and the debrief confirms it is **M15-ready by design**: the
+`runtime_checkable` `ToolSandbox` Protocol plus Windows-forward `SpawnSpec` fields
+mean a new per-OS backend slots in **by satisfying the Protocol, with no call-site
+changes**. This mission therefore does **not** create the seam — it (a) slots a
+macOS Seatbelt backend in behind it, (b) makes the Linux backend work host-native
+once Docker is gone (user-namespace probe + graceful degrade), and (c) adds a
+Windows PTY backend through the same boundary. Native Windows still ships with the
+sandbox in passthrough (unenforced) — a documented, accepted gap.
 
 The codebase already anticipates the cross-platform direction:
 `the_one/platform/paths.py` documents that "Windows/macOS support lands in future
@@ -200,20 +213,49 @@ longer assumed to be reached exclusively through a developer's browser.
 
 _None yet — emergent blockers discovered during execution are recorded here._
 
+## Carried Forward from Mission 14
+
+Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
+
+- **Operator preference — fewer confirmation points.** Reserve `AskUserQuestion`
+  for genuine product/scope/architecture decisions where the answer changes *what*
+  gets built. For routine lifecycle confirmations (mark landed→completed, apply an
+  obvious self-evident fix, run the verification a flight already planned), **decide
+  with the sensible default, state the assumption, and proceed** — the operator can
+  reverse it. Carried explicitly into this mission's execution.
+- **Owed M14 maintenance is folded into Flight 1** (see Flight 1) rather than run
+  as a standalone `/routine-maintenance` pass — the `SandboxError` import-cycle
+  relocation gates clean M15 backend error surfaces, so it lands first.
+- **Optional forward-proofing M14 left available** (cheap, do-if-touched, not
+  blocking): add a `network_allowed: bool = False` param to `_build_boxed_profile`
+  (decouples a future boxed-network profile from a code change), and add a
+  `@requires_bwrap` reaper-path boxed-session cleanup test. Pick up opportunistically
+  in whichever flight touches the boxed path.
+
 ## Flights
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned
 > and created one at a time as work progresses. This list will evolve based on
 > discoveries during implementation.
 
-- [ ] Flight 1: **Host-native runtime readiness** — run the app as a normal host
+- [x] Flight 1: **Host-native runtime readiness** *(landed)* — run the app as a normal host
       process with no Docker anywhere (dev, test, run): wire `Settings.data_dir`
       to an OS-appropriate per-user location (with `~/.the-one` migration);
       external-runtime (`node`/`uv`) detection + actionable non-Docker guidance;
       make the Linux sandbox backend work host-native (user-namespace probe +
       graceful degrade); and move the test suite + a new pytest CI host-native
       (replacing the `docker exec` Makefile flow, provisioning Playwright/Chromium
-      on runners).
+      on runners). **Also absorbs the owed Mission 14 end-of-mission maintenance**
+      (folded here instead of a separate `/routine-maintenance` pass): relocate
+      `SandboxError` out of the import cycle in `the_one/mcp/errors.py` (M14 debrief
+      flags this as *"blocks clean M15 backend errors"* — a prerequisite for the
+      Flight 2/3 backend error surfaces), and clear the deferred M14 doc/footgun
+      debt (the non-merged-usr `--symlink` portability caveat + boxed-profile
+      network-off note in `SECURITY-MODEL.md`; the `_TOOL_CLASSES` cross-config
+      note, fork-safety convention, `@requires_bwrap` workspace-under-`$HOME`
+      constraint, and PTY-echo sentinel footgun in `agents.md`/`CLAUDE.md`;
+      investigate the pre-existing `test_connectors_e2e.py::test_e2e_full_lifecycle`
+      flake).
 - [ ] Flight 2: **macOS sandbox backend (Seatbelt)** — add the macOS backend
       behind the Mission-14 seam (via `sandbox-runtime`/Seatbelt) so macOS tool and
       MCP execution is enforced. Behavior-test containment on macOS.

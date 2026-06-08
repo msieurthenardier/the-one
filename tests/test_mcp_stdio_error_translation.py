@@ -2,8 +2,9 @@
 
 Covers:
   - FileNotFoundError (command not on PATH) → MCPConnectionError with
-    operator-actionable message (Dockerfile / `make rebuild` /
-    `docker compose exec ... <pkg-mgr> install` guidance).
+    host-native operator-actionable message: names the missing executable,
+    gives a per-runtime install hint (node/npx/uv/uvx/python/python3
+    known; generic fallback for other commands), no Docker references.
   - Inner-process ModuleNotFoundError surfaced via stderr →
     MCPConnectionError with `command=uvx args=[<pkg>]` guidance.
   - Generic non-zero exit (no FileNotFoundError, no ModuleNotFoundError
@@ -11,31 +12,66 @@ Covers:
     UNCHANGED.
   - Bwrap-discriminator gate: a bwrap-side FileNotFoundError-shaped
     failure (bwrap can't find the inner command) is NOT mistranslated
-    as "missing in container" — it surfaces as SandboxError per
-    F3 §6 directionality contract.
+    as a host-native "missing on PATH" message — it surfaces as
+    SandboxError per F3 §6 directionality contract.
 """
 
 from __future__ import annotations
 
-from the_one.mcp.errors import MCPConnectionError, SandboxError
+import pytest
+
+from the_one.mcp.errors import MCPConnectionError
 from the_one.mcp.transports import stdio as stdio_module
 from the_one.mcp.transports.stdio import _translate_inner_spawn_error
+from the_one.platform.sandbox.errors import SandboxError
 
 # ── Unit tests on _translate_inner_spawn_error ──────────────────────────
 
+_DOCKER_TOKENS = ("Dockerfile", "make rebuild", "docker compose exec", "in the container")
+
 
 def test_translate_filenotfounderror_returns_actionable_connection_error() -> None:
-    """FileNotFoundError → MCPConnectionError with operator-actionable text."""
+    """FileNotFoundError → MCPConnectionError: names the runtime, host-native hint, no Docker."""
     exc = FileNotFoundError(2, "No such file or directory", "uvx")
     err = _translate_inner_spawn_error(exc=exc, stderr_text="", command="uvx")
     assert isinstance(err, MCPConnectionError)
     msg = str(err)
-    # Must mention the missing command, Dockerfile path, and runtime-fetch
-    # alternatives so the operator has a clear remediation.
+    # Must name the missing command and give the runtime-fetch shape tip.
     assert "uvx" in msg
-    assert "Dockerfile" in msg
-    assert "make rebuild" in msg
-    # Cross-platform-readable: no hardcoded shell paths in the operator message.
+    # Must NOT contain Docker guidance.
+    for token in _DOCKER_TOKENS:
+        assert token not in msg, f"Docker token {token!r} found in message: {msg!r}"
+    # Must contain a host-native install hint (astral.sh/uv for uvx).
+    assert "astral.sh/uv" in msg
+
+
+@pytest.mark.parametrize(
+    "command, filename, hint_fragment",
+    [
+        ("node", "node", "nodejs.org"),
+        ("npx", "npx", "nodejs.org"),
+        ("uv", "uv", "astral.sh/uv"),
+        ("uvx", "uvx", "astral.sh/uv"),
+        ("python", "python", "python.org"),
+        ("python3", "python3", "python.org"),
+        ("my-custom-mcp", "my-custom-mcp", "my-custom-mcp"),  # generic fallback
+    ],
+)
+def test_translate_filenotfounderror_per_runtime(
+    command: str, filename: str, hint_fragment: str
+) -> None:
+    """Each known runtime gets a host-native hint; unknown commands get the generic fallback."""
+    exc = FileNotFoundError(2, "No such file or directory", filename)
+    err = _translate_inner_spawn_error(exc=exc, stderr_text="", command=command)
+    assert isinstance(err, MCPConnectionError)
+    msg = str(err)
+    # Missing runtime is named.
+    assert filename in msg
+    # Host-native hint fragment present.
+    assert hint_fragment in msg, f"Expected {hint_fragment!r} in message for {command!r}: {msg!r}"
+    # No Docker tokens.
+    for token in _DOCKER_TOKENS:
+        assert token not in msg, f"Docker token {token!r} found for {command!r}: {msg!r}"
 
 
 def test_translate_filenotfounderror_falls_back_to_command_when_filename_missing() -> None:

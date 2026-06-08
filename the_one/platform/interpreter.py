@@ -39,11 +39,24 @@ if TYPE_CHECKING:
 def resolve_python() -> str:
     """Return the path of the Python interpreter to use for subprocess invocations.
 
-    Returns ``sys.executable``: deterministic, matches the interpreter the
-    agent itself runs under, works on Windows (``python.exe``), macOS, and
-    Linux. Single site for future venv-aware logic.
+    Returns the *resolved* real path of ``sys.executable``: follows symlinks
+    so that a venv interpreter (e.g. ``.venv/bin/python`` → ``/usr/bin/python3.12``)
+    resolves to the real system path.  This is required for boxed
+    (``minimal_rootfs=True``) bwrap spawns: the box mounts only ``/usr``, so
+    the interpreter must resolve to a path inside ``/usr``.  A symlink under
+    ``/home`` or ``/app`` (as produced by ``python -m venv``) is NOT visible
+    inside the box and would cause ``bwrap: execvp …: No such file or directory``.
+
+    On merged-usr Debian/Ubuntu hosts (the deployment target), venv symlinks
+    always resolve into ``/usr``, so no new bind-mount is needed.  If a future
+    host has an interpreter genuinely outside ``/usr``, the boxed spawn will
+    fail at ``execvp`` with a clear error — surfacing the need to add a
+    read-only interpreter bind rather than silently widening the box.
+
+    Works on Windows (``python.exe`` has no symlinks to resolve),
+    macOS, and Linux.  Single site for future venv-aware logic.
     """
-    return sys.executable
+    return str(Path(sys.executable).resolve())
 
 
 async def run_python(

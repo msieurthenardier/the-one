@@ -71,10 +71,11 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from the_one.db.models import MCPSource
-from the_one.mcp.errors import MCPConnectionError, SandboxError
+from the_one.mcp.errors import MCPConnectionError
 from the_one.platform.env import _build_subprocess_env
 from the_one.platform.sandbox import (
     BubblewrapSandbox,
+    SandboxError,
     SandboxProfile,
     ToolSandbox,
     get_sandbox_backend,
@@ -208,13 +209,15 @@ def _translate_bwrap_stderr(stderr_text: str) -> SandboxError | None:
 # Translates two common spawn-failure modes into messages the operator can
 # act on directly. Runs AFTER the F3 §6 bwrap-stderr discriminator so a
 # bwrap-side failure (sandbox profile misconfiguration, EPERM, missing
-# inner command at the bwrap layer) is NOT mistranslated as a "missing in
-# container" message — those continue to surface as SandboxError per
-# the F3 §6 directionality contract. The two D3 cases:
+# inner command at the bwrap layer) is NOT mistranslated as a host-native
+# "missing on PATH" message — those continue to surface as SandboxError
+# per the F3 §6 directionality contract. The two D3 cases:
 #
 #   1. FileNotFoundError on subprocess spawn — the command isn't on PATH.
-#      Translation: "Add to Dockerfile and `make rebuild`, or
-#      `docker compose exec the-one <pkg-mgr> install <pkg>`."
+#      Translation: names the missing executable, gives a host-native
+#      per-runtime install hint (node/npx/uv/uvx/python/python3 known;
+#      generic fallback for other commands), and preserves the
+#      runtime-fetch shape tip (uvx/npx).
 #
 #   2. ModuleNotFoundError surfaced via inner-process stderr (Python's
 #      `python -m foo` when foo isn't installed). Inner-process stderr is
@@ -222,6 +225,29 @@ def _translate_bwrap_stderr(stderr_text: str) -> SandboxError | None:
 #      output; the bwrap-prefix gate ensures we only act on inner-process
 #      stderr. Translation: "Use command=uvx args=[<pkg>] for runtime
 #      install, or pre-install via pip."
+
+# Host-native install hints for known MCP runtimes.
+# Keyed by executable name; used in Pattern-1 FileNotFoundError messages.
+_RUNTIME_INSTALL_HINTS: dict[str, str] = {
+    "node": (
+        "Install Node.js (e.g. from https://nodejs.org or your system package "
+        "manager) so `node` and `npx` are on PATH."
+    ),
+    "npx": (
+        "Install Node.js (e.g. from https://nodejs.org or your system package "
+        "manager) so `npx` is on PATH."
+    ),
+    "uv": ("Install uv (https://docs.astral.sh/uv/) so `uv` and `uvx` are on PATH."),
+    "uvx": ("Install uv (https://docs.astral.sh/uv/) so `uvx` is on PATH."),
+    "python": (
+        "Ensure a Python 3.11+ interpreter is on this app's PATH "
+        "(e.g. install via your system package manager or https://python.org)."
+    ),
+    "python3": (
+        "Ensure a Python 3.11+ interpreter is on this app's PATH "
+        "(e.g. install via your system package manager or https://python.org)."
+    ),
+}
 
 # Captures the missing command name from FileNotFoundError's args, which
 # typically look like ``[Errno 2] No such file or directory: 'foo'`` or a
@@ -283,11 +309,14 @@ def _translate_inner_spawn_error(
         # fall back to the configured command if the OS error doesn't carry
         # one (rare on Linux, possible on Windows variants).
         missing = getattr(exc, "filename", None) or command
+        hint = _RUNTIME_INSTALL_HINTS.get(
+            missing,
+            f"Install `{missing}` and ensure it is on this app's PATH.",
+        )
         return MCPConnectionError(
-            f"The command {missing!r} is not available in the container. "
-            f"Add it to the Dockerfile and run `make rebuild`, or install "
-            f"via `docker compose exec the-one <package-manager> install "
-            f"<pkg>`. For one-off Python/JS MCPs, prefer the runtime-fetch "
+            f"The command `{missing}` was not found on PATH. "
+            f"{hint} "
+            f"For one-off Python/JS MCPs, prefer the runtime-fetch "
             f"shape: command=uvx args=[<pkg>] (Python), command=npx "
             f"args=[-y, <pkg>] (JS)."
         )

@@ -1,0 +1,53 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[all-llms,dev]"
+      - name: Run default suite (host-native)
+        run: python -m pytest tests/ --timeout=300 --tb=short
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[all-llms,dev]"
+      - name: Provision Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Run browser tests (host-native)
+        env:
+          THE_ONE_DEV_MODE: "true"
+        run: python -m pytest -m browser tests/browser/ --timeout=300 --tb=short
+
+  bwrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[all-llms,dev]"
+      - name: Run @requires_bwrap sandbox tests
+        run: python -m pytest -m requires_bwrap tests/ --timeout=300 --tb=short

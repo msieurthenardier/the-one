@@ -59,6 +59,7 @@ def test_factory_returns_bubblewrap_on_linux_with_bwrap(
     """Linux + bwrap present + no test-bypass → BubblewrapSandbox."""
     monkeypatch.setattr(factory_module.sys, "platform", "linux")
     monkeypatch.setattr(factory_module.shutil, "which", lambda _: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "ok")
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
     monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
 
@@ -112,6 +113,7 @@ def test_factory_no_bypass_when_only_one_flag_set(
     """Only ONE test flag set — not a bypass; Linux+bwrap-present → BubblewrapSandbox."""
     monkeypatch.setattr(factory_module.sys, "platform", "linux")
     monkeypatch.setattr(factory_module.shutil, "which", lambda _: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "ok")
     monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
     monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
 
@@ -166,6 +168,7 @@ def test_factory_logs_once_bubblewrap(
     """Bubblewrap selection is logged once (INFO); second call suppressed."""
     monkeypatch.setattr(factory_module.sys, "platform", "linux")
     monkeypatch.setattr(factory_module.shutil, "which", lambda _: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "ok")
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
     monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
 
@@ -252,6 +255,7 @@ def test_factory_backend_name_bubblewrap(monkeypatch: pytest.MonkeyPatch) -> Non
     """Selected BubblewrapSandbox has name == 'bubblewrap'."""
     monkeypatch.setattr(factory_module.sys, "platform", "linux")
     monkeypatch.setattr(factory_module.shutil, "which", lambda _: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "ok")
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
     monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
 
@@ -268,3 +272,78 @@ def test_factory_backend_name_passthrough(monkeypatch: pytest.MonkeyPatch) -> No
 
     backend = get_sandbox_backend()
     assert backend.name == "passthrough"  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# _userns_available() probe outcome → selection mapping
+# ---------------------------------------------------------------------------
+
+
+def test_factory_userns_ok_selects_bubblewrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Linux + bwrap present + userns probe "ok" → BubblewrapSandbox (enforced path)."""
+    monkeypatch.setattr(factory_module.sys, "platform", "linux")
+    monkeypatch.setattr(factory_module.shutil, "which", lambda _: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "ok")
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
+
+    backend = get_sandbox_backend()
+    assert isinstance(backend, BubblewrapSandbox)
+
+
+def test_factory_userns_unavailable_selects_passthrough_with_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Linux + bwrap present + userns "unavailable" → PassthroughSandbox + WARNING once."""
+    monkeypatch.setattr(factory_module.sys, "platform", "linux")
+    monkeypatch.setattr(factory_module.shutil, "which", lambda _: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "unavailable")
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="the_one.platform.sandbox.factory"):
+        backend1 = get_sandbox_backend()
+        backend2 = get_sandbox_backend()
+
+    assert isinstance(backend1, PassthroughSandbox)
+    assert isinstance(backend2, PassthroughSandbox)
+
+    records = [r for r in caplog.records if "user namespaces unavailable" in r.message.lower()]
+    assert len(records) == 1, (
+        f"Expected exactly 1 userns-unavailable WARNING; got {len(records)}: {records}"
+    )
+    assert records[0].levelno == logging.WARNING
+
+
+def test_factory_userns_error_selects_passthrough_with_error_log(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Linux + bwrap present + userns probe "error" → PassthroughSandbox + ERROR once.
+
+    The error log key (passthrough:userns-probe-error) is distinct from the
+    unavailable key (passthrough:userns-unavailable) so operators can tell the
+    two degraded cases apart.
+    """
+    monkeypatch.setattr(factory_module.sys, "platform", "linux")
+    monkeypatch.setattr(factory_module.shutil, "which", lambda _: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "error")
+    monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
+    monkeypatch.delenv("THE_ONE_TEST_MODE", raising=False)
+
+    with caplog.at_level(logging.ERROR, logger="the_one.platform.sandbox.factory"):
+        backend1 = get_sandbox_backend()
+        backend2 = get_sandbox_backend()
+
+    assert isinstance(backend1, PassthroughSandbox)
+    assert isinstance(backend2, PassthroughSandbox)
+
+    records = [r for r in caplog.records if "userns probe errored" in r.message.lower()]
+    assert len(records) == 1, (
+        f"Expected exactly 1 userns-probe-error ERROR; got {len(records)}: {records}"
+    )
+    assert records[0].levelno == logging.ERROR
+    # Confirm the distinct key is different from the unavailable key
+    assert "passthrough:userns-probe-error" in factory_module._LOGGED
+    assert "passthrough:userns-unavailable" not in factory_module._LOGGED

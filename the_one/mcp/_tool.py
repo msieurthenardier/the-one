@@ -32,7 +32,6 @@ from the_one.mcp.errors import (
     MCPConnectionError,
     MCPRegistrationError,
     MCPVersionMismatch,
-    SandboxError,
 )
 from the_one.mcp.types import MCPTool
 from the_one.tools.base import Tool
@@ -155,6 +154,8 @@ class MCPClientTool(Tool):
         :func:`acquire` so post-OAuth re-acquires preserve the agent's
         override (cycle-1 low #5 fix).
         """
+        from the_one.platform.sandbox.errors import SandboxError
+
         try:
             client = await acquire(
                 self._agent_name,

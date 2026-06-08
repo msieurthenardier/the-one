@@ -35,18 +35,20 @@ rebuild-clean: ## Rebuild image + wipe DB volume + restart fresh (HAT prep, no c
 	docker compose up -d the-one
 	@$(MAKE) --no-print-directory verify-serving
 
-# Internal target: reinstall playwright browsers + system deps if missing.
-# Cache lives at /root/.cache/ms-playwright inside the container, which does
-# NOT persist across `docker compose down` / image rebuilds — without this,
-# every rebuild leaves the test suite unable to launch chromium.
+# ── Host interpreter ──────────────────────────────────────────────────
+# Prefer the repo venv when present; fall back to bare python3.
+# Override on the command line: make test PY=python3.11
+PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
+
+# Internal target: install Playwright Chromium into the host Playwright cache
+# (idempotent — ``playwright install chromium`` is a no-op when already present).
+# Run ``make _ensure-playwright`` before browser/pixel targets.
+# Note: ``playwright install-deps chromium`` requires sudo on some hosts — if
+# browser tests fail with missing shared-library errors, run that command once
+# manually as a host-setup prerequisite.
 .PHONY: _ensure-playwright
 _ensure-playwright:
-	@if ! docker exec the-one test -x /root/.cache/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-linux64/chrome-headless-shell 2>/dev/null; then \
-		echo "Installing playwright chromium (cache was wiped by rebuild) ..."; \
-		docker exec the-one playwright install chromium >/dev/null 2>&1; \
-		docker exec the-one playwright install-deps chromium >/dev/null 2>&1; \
-		echo "  ✓ playwright chromium ready"; \
-	fi
+	$(PY) -m playwright install chromium
 
 .PHONY: reset-db
 reset-db: ## Wipe DB volume + restart (DESTRUCTIVE — requires CONFIRM=1)
@@ -106,32 +108,40 @@ brand-assets: ## Derive favicon + topbar icon PNGs from source mascot via Pillow
 	docker exec the-one python /app/scripts/derive_brand_assets.py
 
 # ── Tests ──────────────────────────────────────────────────────────────
+# All test targets run host-native via the repo .venv (see PY variable above).
+# Non-test container-management targets (reset-db, restart, logs, shell,
+# verify-serving, brand-assets, smoke-runtimes) remain on Docker — out of scope
+# for this leg.
 
 .PHONY: test
-test: ## Run all default tests (unit + browser; excludes -m live and -m pixel)
-	docker exec the-one bash /app/scripts/run-tests.sh tests/ -v --tb=short
+test: ## Run all default tests host-native (unit + browser; excludes -m live and -m pixel)
+	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -v --tb=short
 
 .PHONY: test-unit
-test-unit: ## Run unit tests only (excludes browser, live, pixel)
-	docker exec the-one bash /app/scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel' -v --tb=short
+test-unit: ## Run unit tests only host-native (excludes browser, live, pixel)
+	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel' -v --tb=short
 
 .PHONY: test-browser
-test-browser: ## Run browser tests (requires THE_ONE_DEV_MODE=true; uses Playwright; installs playwright if missing)
+test-browser: ## Run browser tests host-native (requires THE_ONE_DEV_MODE=true; uses Playwright)
 	@$(MAKE) --no-print-directory _ensure-playwright
-	docker exec the-one bash /app/scripts/run-tests.sh -m browser tests/browser/ -v --tb=short
+	PYTHON=$(PY) bash scripts/run-tests.sh -m browser tests/browser/ -v --tb=short
 
 .PHONY: test-pixel
-test-pixel: ## Run visual snapshot tests (baselines are gitignored — local regen only; installs playwright if missing)
+test-pixel: ## Run visual snapshot tests host-native (baselines gitignored — local regen only)
 	@$(MAKE) --no-print-directory _ensure-playwright
-	docker exec the-one bash /app/scripts/run-tests.sh -m pixel tests/browser/ -v --tb=short
+	PYTHON=$(PY) bash scripts/run-tests.sh -m pixel tests/browser/ -v --tb=short
+
+.PHONY: test-bwrap
+test-bwrap: ## Run @requires_bwrap sandbox tests host-native (default-deselected; needs bwrap)
+	$(PY) -m pytest -m requires_bwrap tests/ -v --tb=short
 
 .PHONY: test-live
-test-live: ## Run live-LLM tests (AIAT — requires running provider)
-	docker exec the-one pytest -m live tests/test_aiat.py -v --tb=short
+test-live: ## Run live-LLM tests host-native (AIAT — requires a running the-one server; /app/ paths won't resolve on host)
+	$(PY) -m pytest -m live tests/test_aiat.py -v --tb=short
 
 .PHONY: test-discord-hat
-test-discord-hat: ## Run live multi-bot Discord HAT (needs bot tokens + a test guild; SKIPs without env)
-	docker exec the-one pytest -m discord_hat tests/live/discord_hat/ -v --tb=short
+test-discord-hat: ## Run live multi-bot Discord HAT host-native (needs bot tokens + a test guild; SKIPs without env)
+	$(PY) -m pytest -m discord_hat tests/live/discord_hat/ -v --tb=short
 
 # ── Smoke (F9 L2 D2 generic-runtime) ──────────────────────────────────
 
@@ -142,16 +152,16 @@ smoke-runtimes: ## Verify uvx / pipx / npx + their cache volumes (F9 L2 D2)
 # ── Code quality ───────────────────────────────────────────────────────
 
 .PHONY: lint
-lint: ## Ruff check (read-only)
-	docker exec the-one ruff check the_one/ tests/
+lint: ## Ruff check host-native (read-only)
+	$(PY) -m ruff check the_one/ tests/
 
 .PHONY: format
-format: ## Ruff format (writes changes)
-	docker exec the-one ruff format the_one/ tests/
+format: ## Ruff format host-native (writes changes)
+	$(PY) -m ruff format the_one/ tests/
 
 .PHONY: format-check
-format-check: ## Ruff format check (read-only)
-	docker exec the-one ruff format --check the_one/ tests/
+format-check: ## Ruff format check host-native (read-only)
+	$(PY) -m ruff format --check the_one/ tests/
 
 # ── Drift detection (host-side) ────────────────────────────────────────
 

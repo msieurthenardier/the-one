@@ -41,6 +41,14 @@ def user_config_dir(app: str) -> Path:
     POSIX: ``~/.{app}``.
     Windows: ``%APPDATA%/{app}`` if ``APPDATA`` is set and non-empty,
     otherwise ``~/{app}`` as a fallback.
+
+    NOTE: This helper follows a legacy POSIX convention (``~/.{app}``) and
+    has no current production consumer in the_one.  The canonical app
+    data-directory resolver is ``the_one/config.py`` via ``platformdirs``
+    (``platformdirs.user_data_dir("the-one", appauthor=False)``), which
+    produces OS-conventional paths (e.g. ``~/.local/share/the-one`` on
+    Linux, ``~/Library/Application Support/the-one`` on macOS).  Any
+    consolidation of this helper is deferred to a later maintenance pass.
     """
     if os.name == "nt":
         base = os.environ.get("APPDATA") or str(Path.home())

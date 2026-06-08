@@ -43,7 +43,7 @@ trap 'exit 130' INT
 
 # Launch pytest in its own session/process group. setsid makes the child a
 # process-group leader whose PID == PGID, so we can signal the whole tree.
-setsid python -m pytest "$@" &
+setsid "${PYTHON:-python3}" -m pytest "$@" &
 pgid=$!
 
 # Watchdog: kill the pytest group if it outlives the cap. Run it under its OWN

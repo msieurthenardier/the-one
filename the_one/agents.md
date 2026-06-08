@@ -37,7 +37,7 @@ Applies whenever the runtime emits a clear, actionable error that can be matched
 
 Each symbol has ONE canonical import path; lower packages MAY re-export for convenience. Code that touches the symbol's identity (subclassing, isinstance, exception handlers) MUST use the canonical path. Re-export, never re-define.
 
-Example: `SandboxError` is canonical at `the_one.mcp.errors`; `the_one.platform.sandbox.__init__` re-exports for convenience but the canonical import is `from the_one.mcp.errors import SandboxError`.
+Example: `SandboxError` is canonical at `the_one.platform.sandbox.errors`; `the_one.platform.sandbox.__init__` re-exports for convenience but the canonical import is `from the_one.platform.sandbox.errors import SandboxError`.
 
 ### `structural-Protocol-satisfaction`
 
@@ -754,6 +754,19 @@ Call sites (M14 F1+F2 update):
 
 The platform layer (`run_shell`, `run_python`) receives the already-filtered env from the
 tool layer — it does NOT re-build the allowlist internally.
+
+**Fork-safety convention (PTY spawn path)** — `pty.fork()` is a raw POSIX fork. Between
+`fork()` and the subsequent `execvp()` (the OS-level exec that replaces the child image),
+only **async-signal-safe** operations are permitted in the child process. In practice:
+no Python-level memory allocation, no logging, no lock acquisition, no `import`, and no
+calls into the asyncio event loop. Python's allocator, the GIL, and any library mutexes
+are in an undefined state in the child immediately after fork — calling them before exec
+can deadlock or corrupt state silently. Footgun: if the parent process is **multi-threaded**
+at `fork()` time (e.g. asyncio + a thread-pool executor), the child inherits only the
+forking thread's stack while all other threads' locks remain held, making even basic
+C-library calls unsafe before exec. The PTY spawn path is safe today because exec follows
+the fork immediately; any future change that adds work between `fork()` and `exec()` in
+`UnixPtySession._start()` must audit for async-signal-safety.
 
 **NOT operator-configurable** — part of the F4 trust contract: the agent has no path to read or carry through host secrets via subprocess inheritance.
 

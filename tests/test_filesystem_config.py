@@ -3,14 +3,18 @@ integration, model_post_init caching invariant, and ui_hint metadata."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
+from the_one.platform import canonicalize
 from the_one.tools.filesystem import (
     DEFAULT_PATH_DENYLIST,
+    ConstraintError,
     FilesystemConfig,
+    _filesystem_check,
 )
 from the_one.tools.resolver import resolve
 
@@ -170,15 +174,15 @@ class TestCachingInvariant:
             path_allowlist=["~", "/tmp", "/var/data"],
             path_denylist=["/etc", "/proc", "/sys", "/dev"],
         )
-        # 3 + 4 = 7 — counter resets the assertion baseline before reads.
+        # 3 allowlist + 4 explicit denylist + 1 dynamic data_dir/secrets = 8.
         baseline = counter["n"]
-        assert baseline == 7, f"expected 7 init calls, got {baseline}"
+        assert baseline == 8, f"expected 8 init calls, got {baseline}"
 
         # 100 reads of each PrivateAttr — canonicalize must NOT be re-called.
         for _ in range(100):
             _ = cfg._canonical_allowlist
             _ = cfg._canonical_denylist
-        assert counter["n"] == 7, (
+        assert counter["n"] == 8, (
             f"canonicalize re-executed on read: counter went from {baseline} to {counter['n']}"
         )
 
@@ -234,3 +238,80 @@ class TestFrozen:
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
         assert len(cfg._canonical_allowlist) == 1
         assert cfg._canonical_allowlist[0].is_absolute()
+
+
+# ---------------------------------------------------------------------------
+# Regression: data_dir/secrets always denied — tracks live data_dir (M15 F1)
+# ---------------------------------------------------------------------------
+
+
+class TestDataDirSecretsDenylist:
+    """Regression net for the Leg-2 security regression where a placeholder
+    ``"<data_dir>/secrets"`` literal was placed in ``DEFAULT_PATH_DENYLIST``
+    instead of being resolved dynamically.  ``canonicalize("<data_dir>/secrets")``
+    produces a bogus CWD-relative path that matches nothing — removing the
+    ``~/.the-one/secrets`` protection.
+
+    Fix: ``model_post_init`` appends ``canonicalize(str(settings.data_dir /
+    "secrets"))`` to ``_canonical_denylist`` using the LIVE ``settings``
+    singleton, so the protection tracks wherever ``data_dir`` actually
+    resolves (default platformdirs or THE_ONE_DATA_DIR/init override).
+
+    Tests reset the ``_settings`` cache and inject ``THE_ONE_DATA_DIR``
+    so they are hermetic with respect to the real user data directory.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolated_data_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Pin settings.data_dir to a tmp_path sub-dir for each test."""
+        data_dir = tmp_path / "isolated-data-dir"
+        monkeypatch.setenv("THE_ONE_DATA_DIR", str(data_dir))
+        # Reset the PEP 562 lazy-singleton cache so settings re-reads the env var.
+        monkeypatch.setattr("the_one.config._settings", None)
+
+    def test_canonical_denylist_contains_data_dir_secrets(self, tmp_path: Path) -> None:
+        """_canonical_denylist must include canonicalize(settings.data_dir / 'secrets')."""
+        from the_one.config import settings
+
+        expected = canonicalize(str(settings.data_dir / "secrets"))
+        cfg = FilesystemConfig()
+        assert expected in cfg._canonical_denylist, (
+            f"data_dir/secrets ({expected}) missing from _canonical_denylist; "
+            f"denylist = {cfg._canonical_denylist}"
+        )
+
+    def test_canonical_denylist_tracks_data_dir_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When THE_ONE_DATA_DIR is overridden, _canonical_denylist tracks the
+        new location — not the platformdirs default and not the old value."""
+        # Use a distinct sub-dir so the path differs from the autouse fixture's value.
+        alt_data_dir = tmp_path / "alt-data-dir"
+        monkeypatch.setenv("THE_ONE_DATA_DIR", str(alt_data_dir))
+        monkeypatch.setattr("the_one.config._settings", None)  # flush cache again
+
+        from the_one.config import settings
+
+        expected = canonicalize(str(settings.data_dir / "secrets"))
+        assert settings.data_dir == alt_data_dir  # sanity: override took effect
+        cfg = FilesystemConfig()
+        assert expected in cfg._canonical_denylist
+
+    def test_filesystem_check_blocks_access_to_data_dir_secrets(self, tmp_path: Path) -> None:
+        """_filesystem_check must raise ConstraintError for a path inside
+        data_dir/secrets, exercising the full enforcement path."""
+        from the_one.config import settings
+
+        secrets_dir = settings.data_dir / "secrets"
+        secrets_dir.mkdir(parents=True, exist_ok=True)
+        target_file = secrets_dir / "api-key.txt"
+        target_file.write_text("supersecret")
+
+        # Allowlist must include secrets_dir for it to get past the allowlist
+        # check and hit the denylist check (the real protection we are testing).
+        cfg = FilesystemConfig(
+            path_allowlist=[str(settings.data_dir)],
+        )
+        with pytest.raises(ConstraintError) as exc:
+            _filesystem_check(str(target_file), cfg)
+        assert "inside denylist" in str(exc.value)

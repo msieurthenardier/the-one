@@ -30,7 +30,8 @@ import pytest
 from the_one.db.models import MCPSource
 from the_one.mcp import _pool as pool_mod
 from the_one.mcp._pool import acquire
-from the_one.mcp.errors import MCPConnectionError, SandboxError
+from the_one.mcp.errors import MCPConnectionError
+from the_one.platform.sandbox.errors import SandboxError
 
 
 # Autouse cleanup. The project uses pytest-asyncio in `auto` mode (verified

@@ -73,10 +73,10 @@ where backend-specific machinery is hidden inside the wrapped ``command`` /
 Error class
 -----------
 
-``SandboxError`` canonical home is ``the_one/mcp/errors.py``; this package
-re-exports it via ``the_one/platform/sandbox/__init__.py`` for convenience.
-The canonical import path remains
-``from the_one.mcp.errors import SandboxError``.
+``SandboxError`` canonical home is ``the_one/platform/sandbox/errors.py``; this
+package re-exports it via ``the_one/platform/sandbox/__init__.py`` for convenience.
+The canonical import path is
+``from the_one.platform.sandbox.errors import SandboxError``.
 """
 
 from __future__ import annotations

@@ -12,12 +12,12 @@ import shutil
 
 import pytest
 
-from the_one.mcp.errors import SandboxError
 from the_one.platform.sandbox import (
     BubblewrapSandbox,
     SandboxProfile,
     SpawnSpec,
 )
+from the_one.platform.sandbox.errors import SandboxError
 
 _BWRAP_NOT_FOUND_MSG = (
     "sandbox setup failed: bubblewrap binary not found in PATH. "

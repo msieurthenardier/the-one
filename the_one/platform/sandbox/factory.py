@@ -8,11 +8,19 @@ backend for the current runtime environment.  Selection order (first match wins)
 2. Non-Linux host (``sys.platform != "linux"``) — ``PassthroughSandbox``.
 3. ``bwrap`` absent from PATH — ``PassthroughSandbox`` (WARNING: enforcement
    expected but not available on a Linux host).
-4. Otherwise — ``BubblewrapSandbox`` (Linux + bwrap present + no bypass).
+4. ``bwrap`` present but unprivileged user namespaces unavailable
+   (``_userns_available()`` → ``"unavailable"``) — ``PassthroughSandbox``
+   (WARNING: user namespaces unavailable; key ``passthrough:userns-unavailable``).
+5. ``bwrap`` present but userns probe errored (``_userns_available()`` →
+   ``"error"``) — ``PassthroughSandbox`` (ERROR: probe broken; key
+   ``passthrough:userns-probe-error``).
+6. Otherwise — ``BubblewrapSandbox`` (Linux + bwrap present + userns ok + no
+   bypass).
 
 The factory logs the selection **once per process** (not per call).  Repeated
-calls do NOT re-log.  Level: WARNING for the Linux-bwrap-missing case
-(enforcement expected but absent); INFO for all other cases (expected outcome).
+calls do NOT re-log.  Level: WARNING for the Linux-bwrap-missing and
+userns-unavailable cases; ERROR for the userns-probe-error case; INFO for all
+other cases (expected outcome).
 
 DD3 locus note: the one-time unsandboxed WARNING lives here in the factory (not
 inside ``PassthroughSandbox.prepare_spawn`` as DD3 literally phrases it).  The
@@ -30,8 +38,9 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import subprocess
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from the_one.platform.sandbox.base import ToolSandbox
@@ -43,25 +52,87 @@ _logger = logging.getLogger(__name__)
 # Tests reset this via ``_reset_selection_log_state()`` in a fixture.
 _LOGGED: set[str] = set()
 
+# Module-level cache for the userns probe result.  ``None`` means the probe
+# has not been run yet.  The cache is reset together with _LOGGED by
+# ``_reset_selection_log_state()`` so the autouse fixture in
+# ``tests/test_sandbox_factory.py`` covers both automatically.
+_USERNS_PROBE: Literal["ok", "unavailable", "error"] | None = None
+
 
 def _reset_selection_log_state() -> None:
-    """Clear the log-once guard — for tests only.
+    """Clear the log-once guard and the userns probe cache — for tests only.
 
     Call in a fixture (autouse or per-test) so each test can assert that the
     selection log fires exactly once rather than inheriting state from earlier
-    tests in the same process.
+    tests in the same process.  The probe cache is reset here so stale results
+    cannot bleed across tests that stub ``_userns_available``.
     """
+    global _USERNS_PROBE
     _LOGGED.clear()
+    _USERNS_PROBE = None
+
+
+def _userns_available() -> Literal["ok", "unavailable", "error"]:
+    """Probe whether unprivileged user namespaces are usable on this host.
+
+    Returns one of three string literals:
+    * ``"ok"``          — userns work; bwrap containment is viable.
+    * ``"unavailable"`` — userns definitively absent/disabled.
+    * ``"error"``       — probe mechanism failed; cannot determine capability.
+
+    Result is cached in ``_USERNS_PROBE`` after the first real evaluation so the
+    ``bwrap`` probe subprocess runs at most once per process.  The cache is reset
+    by ``_reset_selection_log_state()`` (for test isolation).
+
+    Fast-path: if ``/proc/sys/kernel/unprivileged_userns_clone`` exists **and**
+    reads ``"0"``, return ``"unavailable"`` immediately (definitive kernel knob).
+    If the file is absent (WSL2 case) or reads any other value, fall through to
+    the empirical probe — absent MUST NOT be treated as negative.
+
+    Empirical probe: spawn ``bwrap --unshare-user --ro-bind / / /usr/bin/true``
+    with a 5-second timeout.  ``returncode == 0`` → ``"ok"``; any nonzero code
+    → ``"unavailable"``.  ``OSError``, ``TimeoutExpired``, or other
+    ``SubprocessError`` → ``"error"``.
+    """
+    global _USERNS_PROBE
+    if _USERNS_PROBE is not None:
+        return _USERNS_PROBE
+
+    # Fast-path: check the procfs knob only when it exists and reads "0".
+    _knob = "/proc/sys/kernel/unprivileged_userns_clone"
+    try:
+        with open(_knob) as _f:
+            _val = _f.read().strip()
+        if _val == "0":
+            _USERNS_PROBE = "unavailable"
+            return _USERNS_PROBE
+        # Any other value (e.g. "1"): fall through to the empirical probe.
+    except OSError:
+        # File absent (WSL2) or unreadable — fall through to empirical probe.
+        pass
+
+    # Empirical probe: attempt the real operation.
+    _logger.debug("userns probe: running bwrap --unshare-user empirical check")
+    try:
+        result = subprocess.run(
+            ["bwrap", "--unshare-user", "--ro-bind", "/", "/", "/usr/bin/true"],
+            capture_output=True,
+            timeout=5,
+        )
+        _logger.debug("userns probe: bwrap returncode=%d", result.returncode)
+        _USERNS_PROBE = "ok" if result.returncode == 0 else "unavailable"
+    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+        _USERNS_PROBE = "error"
+
+    return _USERNS_PROBE
 
 
 def _sandbox_disabled_for_tests() -> bool:
     """Return True when both test double-flags are set (reads env at call time).
 
     The ``the_one.mcp.transports.stdio`` module keeps its own copy of this
-    predicate intentionally — relocating it would require inverting the
-    ``SandboxError`` / ``MCPClientError`` import-cycle (DD1, deferred to
-    end-of-mission maintenance).  The duplication is a deliberate workaround,
-    not pending reconciliation.
+    predicate. The duplication is intentional — both modules may need to gate
+    on the double-flag independently without pulling in the other's imports.
     """
     return (
         os.environ.get("THE_ONE_SANDBOX_DISABLED") == "1"
@@ -116,7 +187,30 @@ def get_sandbox_backend() -> "ToolSandbox":
             )
         return PassthroughSandbox()
 
-    # Linux + bwrap present + no test bypass → bubblewrap
+    # Linux + bwrap present → probe for unprivileged user-namespace support.
+    probe = _userns_available()
+    if probe == "unavailable":
+        key = "passthrough:userns-unavailable"
+        if key not in _LOGGED:
+            _LOGGED.add(key)
+            _logger.warning(
+                "sandbox backend: passthrough (user namespaces unavailable on Linux) — "
+                "tool spawns are NOT sandboxed; enable unprivileged userns "
+                "(e.g. sysctl kernel.unprivileged_userns_clone=1 on kernels that expose it)"
+            )
+        return PassthroughSandbox()
+    if probe == "error":
+        key = "passthrough:userns-probe-error"
+        if key not in _LOGGED:
+            _LOGGED.add(key)
+            _logger.error(
+                "sandbox backend: passthrough (userns probe errored) — "
+                "cannot determine sandbox capability; degrading to passthrough "
+                "(tool spawns NOT sandboxed); investigate the probe environment"
+            )
+        return PassthroughSandbox()
+
+    # probe == "ok": Linux + bwrap present + userns ok + no test bypass → bubblewrap
     key = "bubblewrap:linux"
     if key not in _LOGGED:
         _LOGGED.add(key)

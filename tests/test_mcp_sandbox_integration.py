@@ -73,7 +73,8 @@ from tests.fixtures.mcp.hello_server import (
 )
 from the_one.db.models import MCPSource
 from the_one.mcp.client import MCPClient
-from the_one.mcp.errors import MCPCallError, MCPConnectionError, SandboxError
+from the_one.mcp.errors import MCPCallError, MCPConnectionError
+from the_one.platform.sandbox.errors import SandboxError
 
 # ---------------------------------------------------------------------------
 # Module-level constants + helpers

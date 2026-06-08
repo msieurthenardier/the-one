@@ -51,11 +51,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from the_one.db.models import MCPSource
-from the_one.mcp.errors import SandboxError
 from the_one.mcp.transports import stdio as stdio_module
 from the_one.mcp.transports.stdio import connect_stdio
 from the_one.platform.sandbox import BubblewrapSandbox, SandboxProfile, SpawnSpec
 from the_one.platform.sandbox import factory as factory_module
+from the_one.platform.sandbox.errors import SandboxError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -408,11 +408,13 @@ async def test_connect_stdio_sdk_default_env_preserved_through_setenv(
     # is exercised end-to-end. Patch BOTH the factory's shutil.which AND
     # the bubblewrap module's shutil.which so that (a) the factory selects
     # bubblewrap and (b) BubblewrapSandbox.__init__ doesn't raise on a
-    # bwrap-less host.
+    # bwrap-less host.  Also stub _userns_available → "ok" so the factory
+    # reaches BubblewrapSandbox without running the real probe subprocess.
     from the_one.platform.sandbox import bubblewrap as bwrap_module
 
     monkeypatch.setattr(bwrap_module.shutil, "which", lambda _name: "/usr/bin/bwrap")
     monkeypatch.setattr(factory_module.shutil, "which", lambda _name: "/usr/bin/bwrap")
+    monkeypatch.setattr(factory_module, "_userns_available", lambda: "ok")
 
     source = _make_source(
         env={"MY_PLAIN": "plain-value"},

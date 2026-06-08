@@ -278,7 +278,7 @@ async def test_stdio_test_connect_surfaces_connection_error(client_and_repo) -> 
 
 async def test_stdio_test_connect_surfaces_sandbox_error(client_and_repo) -> None:
     """Stdio Test path translates SandboxError → ``{status: "error"}``."""
-    from the_one.mcp.errors import SandboxError
+    from the_one.platform.sandbox.errors import SandboxError
 
     client, repo = client_and_repo
     await _seed_stdio(repo, "src-stdio-sbox", command="python", args=["-m", "x"])

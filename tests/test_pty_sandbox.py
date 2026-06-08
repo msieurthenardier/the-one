@@ -400,16 +400,22 @@ async def test_pty_network_denied_by_default_allowed_when_enabled(
     home_dir = Path.home()
     with loopback_server() as server_port:
         with home_workspace("pty-network") as workspace:
-            # Single-line python3 probe: prints "connected" on success, "failed:<e>" on failure.
+            # Single-line python3 probe: prints "connected" on success, "failed" on failure.
             # String-concat trick ("con"+"nected") keeps the literal word "connected" out of the
             # probe source text — the PTY echoes the command back, and we assert on the OUTPUT
             # line only.  Without the concat, the echo itself would contain "connected" and the
             # deny-path assertion would false-fail.
+            #
+            # Echo is disabled via ``stty -echo`` before the probe so the PTY's idle-mark
+            # does not fire on echoed command bytes before the python3 process produces
+            # output.  On WSL2 / Python 3.12 there is measurable latency (>100ms) between
+            # the PTY echo and execvp — the idle window fires on the echo alone without the
+            # echo-off guard, causing ``send`` to return before the command result arrives.
             connect_cmd = (
                 f"python3 -c 'import socket,sys;"
                 f"s=socket.socket();s.settimeout(2);"
                 f's.connect(("127.0.0.1",{server_port}));print("con"+"nected");s.close()\' '
-                f"2>/dev/null && true || echo 'failed'\n"
+                f"2>/dev/null || echo 'failed'"
             )
 
             # --- Network denied (network_allowed=False) ---
@@ -421,6 +427,7 @@ async def test_pty_network_denied_by_default_allowed_when_enabled(
             session_deny = create_pty_session(shell="/bin/sh", cwd=workspace, profile=prof_deny)
             await session_deny.start()
             try:
+                await session_deny.send("stty -echo")
                 out_deny = (await session_deny.send(connect_cmd, timeout=15.0)).decode(
                     errors="replace"
                 )
@@ -443,6 +450,7 @@ async def test_pty_network_denied_by_default_allowed_when_enabled(
             session_allow = create_pty_session(shell="/bin/sh", cwd=workspace, profile=prof_allow)
             await session_allow.start()
             try:
+                await session_allow.send("stty -echo")
                 out_allow = (await session_allow.send(connect_cmd, timeout=15.0)).decode(
                     errors="replace"
                 )

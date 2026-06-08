@@ -32,8 +32,8 @@ from __future__ import annotations
 
 import shutil
 
-from the_one.mcp.errors import SandboxError
 from the_one.platform.sandbox.base import SandboxProfile, SpawnSpec
+from the_one.platform.sandbox.errors import SandboxError
 
 
 class BubblewrapSandbox:
