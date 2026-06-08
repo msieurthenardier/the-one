@@ -2689,6 +2689,12 @@ App.registerArea({
           tryConsumePendingSelect();
           if (self._selectedAgent) return;
         }
+        // Guard: if the user entered create mode or selected an agent while
+        // loadAll was still in flight (e.g. slow fetchProviderModelCaps on a
+        // live Ollama instance), don't clobber the editor they are already in.
+        // The editor is already correctly rendered and visible from the
+        // doEnterCreateMode / doSelect Promise.all.then() path.
+        if (self._createMode || self._selectedAgent) return;
         // Bare #studio/agents shows the tile grid in the main panel; no
         // agent is auto-selected. The user picks a tile (or +) to enter
         // the editor.
