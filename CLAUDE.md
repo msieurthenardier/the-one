@@ -48,7 +48,7 @@ make up                     # start without rebuilding
 make down                   # stop
 make logs                   # follow container logs
 make shell                  # bash into the container
-make test                   # run all default tests inside the container
+make test                   # run all default tests (host-native, no Docker)
 make test-unit              # unit tests only
 make test-browser           # Playwright browser tests
 make lint                   # ruff check
@@ -122,11 +122,13 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 
 ## Testing
 
-**Canonical command for non-interactive runs**: `docker exec the-one pytest …` (matches the Makefile's `make test*` targets). Do **NOT** use `docker compose exec the-one pytest …` from non-interactive contexts (CI, agents, scripts) — `docker compose exec` defaults to `-it` (interactive + TTY) and hangs forever when stdin isn't a TTY. If you must use compose subcommands, pass `-T` to disable TTY allocation. This applies to anything driven from Claude Code's Bash tool, GitHub Actions, or shell scripts. Interactive shells (operator at terminal) can use either.
+**The test suite runs host-native — no Docker.** (Mission 15 Flight 01 retired the `docker exec` test flow.) Canonical command for non-interactive runs: `make test` (or `make test-unit` / `make test-bwrap` / `make test-browser`), which routes through `scripts/run-tests.sh` and uses the repo `.venv` when present (else `python3`). For ad-hoc single-file/single-test runs, `python -m pytest tests/...` against the project venv is fine.
+
+**Browser tests MUST go through `scripts/run-tests.sh` (i.e. `make test-browser`), never bare `python -m pytest -m browser`.** Browser tests spawn a per-test uvicorn subprocess plus a Playwright node driver + Chromium. Bare `python -m pytest` does NOT group-kill that subtree on interruption — the uvicorn/Chromium children orphan (re-parent to init) and peg a CPU core indefinitely, and the leaked load then starves *other* tests into timeout-failures that look like flakiness. `run-tests.sh` puts pytest in its own process group and SIGKILLs the whole group on exit or at `TEST_TIMEOUT` (default 1200s), so nothing orphans. Set a tighter `TEST_TIMEOUT` for small slices. (Inside CI this matters less — the ephemeral runner is torn down — so the `test.yml` jobs call `python -m pytest` directly with `--timeout`.)
 
 **Always pair pytest with `-x`** for autonomous runs unless you specifically want to see full failure surface — pytest-asyncio's per-test loop teardown can hang if a test leaves orphaned state on a torn-down loop, and `-x` exits on first failure before that hang surfaces. Without `-x`, a single broken test can wedge the suite indefinitely.
 
-**Unit tests** run by default with `docker exec the-one pytest tests/` — fast, no external dependencies, ~213 tests in <6s.
+**Unit tests** run by default with `make test-unit` (host-native `python -m pytest tests/ -m 'not browser and not live and not pixel'`) — fast, no external dependencies.
 
 **`tests/test_mcp_pool.py`** ships 10 pure-unit pool tests + 2 bwrap-dependent integration tests. The integration tests use `@pytest.mark.requires_bwrap` (registered in `pyproject.toml::markers`) and are deselected by default via the `not requires_bwrap` clause in `addopts`. To run the integration tests on a host with bwrap available: `pytest -m requires_bwrap tests/test_mcp_pool.py`.
 
