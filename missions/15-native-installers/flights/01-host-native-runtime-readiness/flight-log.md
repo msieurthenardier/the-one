@@ -538,3 +538,16 @@ failures root-caused and fixed on-branch before merge; none were flakes.
   box" ≠ "suite green on a clean runner" — environment leaks (pre-existing data
   dirs) and boot-relative clocks are invisible locally. The first run of any new
   CI job is part of the flight, not an afterthought.
+
+**Addendum (same closeout, second CI round):** the sysctl fixed userns (15→5
+failures; canary/network/PTY-reap containment all green). The remaining 5 were
+the *documented* `resolve_python()` limit firing: `actions/setup-python`'s
+hostedtoolcache interpreter lives under `/opt`, outside the boxed minimal
+rootfs (`/usr`), so boxed spawns fail at execvp — exactly the failure mode the
+F1 docstring predicted for interpreters genuinely outside `/usr`. Fix: the
+bwrap CI job now builds its venv from the **system** python3 (symlinks resolve
+into `/usr`, the deployment-shaped path) instead of setup-python.
+**Forward note for Flight 5 (packaging):** a frozen app's bundled interpreter
+will ALSO live outside `/usr` — boxed mode on the packaged Linux artifact will
+need a deliberate answer (read-only interpreter bind vs. accepting host-mode),
+not an accident. Recorded in mission Known Issues.

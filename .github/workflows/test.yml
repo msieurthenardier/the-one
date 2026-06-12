@@ -58,10 +58,16 @@ jobs:
         # `-m requires_bwrap` fails. This sysctl restores real kernel-enforced
         # bwrap on the runner.
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
+      - name: Set up venv from the SYSTEM Python (not actions/setup-python)
+        # Deliberate: setup-python's hostedtoolcache interpreter lives under
+        # /opt — outside the boxed-mode minimal rootfs (/usr) — so every
+        # boxed (minimal_rootfs) spawn fails at execvp. A venv created from
+        # the system python3 has symlinks that resolve_python() follows back
+        # into /usr, matching the deployment-shaped path (see
+        # the_one/platform/interpreter.py::resolve_python).
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - run: pip install -e ".[all-llms,dev]"
       - name: Run @requires_bwrap sandbox tests
         run: python -m pytest -m requires_bwrap tests/ --timeout=300 --tb=short

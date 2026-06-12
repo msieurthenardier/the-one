@@ -211,7 +211,14 @@ longer assumed to be reached exclusively through a developer's browser.
 
 ## Known Issues
 
-_None yet — emergent blockers discovered during execution are recorded here._
+- **Boxed mode requires the interpreter inside `/usr`** *(discovered F1 CI
+  closeout, 2026-06-11)*: `minimal_rootfs` mounts only `/usr` + merged-usr
+  symlinks, and `resolve_python()` deliberately fails-loud for interpreters
+  outside it (e.g. GH Actions hostedtoolcache; fixed in CI by venv-from-system-
+  python). **Flight 5 implication**: a frozen app's bundled interpreter also
+  lives outside `/usr` — boxed mode on the packaged Linux artifact needs a
+  deliberate design answer (read-only interpreter-prefix bind vs. documented
+  host-mode fallback), not an accident.
 
 ## Carried Forward from Mission 14
 
