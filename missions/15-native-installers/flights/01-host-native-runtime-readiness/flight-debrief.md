@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-08
 **Flight**: [Host-Native Runtime Readiness](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-06-07 (plan + Legs 1–4) → 2026-06-08 (Legs 5–7, review, commit, PR)
 **Legs Completed**: 7 of 7
 
