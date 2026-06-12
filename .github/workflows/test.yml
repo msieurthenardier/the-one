@@ -1,5 +1,11 @@
 name: test
 
+# Jobs run bare `python -m pytest` (not the local `run-tests.sh` group-kill
+# wrapper) deliberately: GitHub-hosted runners are ephemeral, so any orphaned
+# child processes (uvicorn/Chromium) die with the runner VM. Locally the
+# wrapper is mandatory for browser/long-subprocess tests — do not copy this
+# bare invocation into local docs or Makefile targets.
+
 on:
   pull_request:
   push:
@@ -44,6 +50,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Allow unprivileged user namespaces
+        # Ubuntu 24.04 (ubuntu-latest) restricts unprivileged userns creation
+        # via AppArmor by default. Without this, the factory's empirical
+        # userns probe fails and gracefully degrades to passthrough — tools
+        # then run UNCONFINED and every containment assertion in
+        # `-m requires_bwrap` fails. This sysctl restores real kernel-enforced
+        # bwrap on the runner.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

@@ -6,6 +6,8 @@ connector subsystem work end-to-end?" Future flights MUST keep this passing.
 
 from __future__ import annotations
 
+import time
+
 import aiosqlite
 import pytest
 
@@ -156,7 +158,9 @@ async def test_e2e_full_lifecycle(isolated_db) -> None:
     # M11 F17 L4: _reap_once returns (idle_evicted, dead_evicted); per-agent
     # entries still idle-reap on TTL — no regression from the gateway exemption.
     entry = pool_mod._pool[("agent-e2e", "acct-e2e")]
-    entry.last_activity = 0.0  # ancient
+    # Monotonic-relative aging: 0.0 is *within* TTL on a freshly-booted
+    # host (CI runners) because time.monotonic() starts near zero at boot.
+    entry.last_activity = time.monotonic() - entry.ttl_seconds - 60
     idle_evicted, _dead_evicted = await _reap_once()
     assert ("agent-e2e", "acct-e2e") in idle_evicted
     assert pool_mod._pool == {}

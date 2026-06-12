@@ -501,3 +501,40 @@ where orphans die with the runner, so bare pytest + `--timeout` is acceptable th
   the uvicorn/Chromium subtree, and the leaked CPU load fails *other* tests as false flakes.
 
 [COMPLETE:flight]
+
+## Post-Closeout: PR #109 CI Red → Root-Caused & Fixed (2026-06-11)
+
+The first authoritative `test.yml` run on PR #109 failed 2 of 4 jobs. All
+failures root-caused and fixed on-branch before merge; none were flakes.
+
+- **`test` job — 9 failures, ONE root cause: data-dir isolation never engaged.**
+  `the_one.config.settings` is a PEP 562 *lazy* singleton, but conftest.py's own
+  module-level `the_one` imports instantiate it during conftest import — before
+  `pytest_configure` set `THE_ONE_DATA_DIR`. The singleton cached the real
+  platformdirs XDG path. Green locally only because the dev box's XDG dir
+  existed; on clean runners, pool paths reaching `get_encryptor(settings.data_dir)`
+  hit `FileNotFoundError` (4 direct failures + pool warm-worker deaths surfacing
+  as empty-pool assertions). **Fix**: env isolation moved to conftest module
+  level, above the `the_one` imports, with a do-not-move-back comment.
+- **`test` job — second latent class: uptime-dependent reaper tests.** The
+  `last_activity = 0.0  # ancient` aging idiom is only "ancient" if the host has
+  been up longer than the TTL — `time.monotonic()` starts near zero at boot, so
+  on freshly-booted CI runners (and young WSL2 VMs) 0.0 is *within* the 1800s
+  connector TTL and entries never reap. This **is** the debrief's
+  `test_connectors_e2e` "flake," now fully characterized (also explains why it
+  was 30/30 "clean" locally on a long-uptime box). **Fix**: all TTL>1 aging
+  sites now stamp `time.monotonic() - ttl - 60`; TTL=1 sites left as-is
+  (uptime > 1s always holds). Debrief action item "re-characterize the flake"
+  → closed.
+- **`bwrap` job — 15 failures, one root cause: Ubuntu 24.04 AppArmor.**
+  `ubuntu-latest` now restricts unprivileged userns via AppArmor; the empirical
+  probe correctly degraded to passthrough, so tools ran UNCONFINED and every
+  containment assertion failed — graceful degrade working exactly as designed,
+  in the one place we need enforcement. **Fix**: workflow step
+  `sysctl kernel.apparmor_restrict_unprivileged_userns=0` before the bwrap run.
+- Also closed in passing: debrief action item "comment in test.yml explaining
+  bare pytest is safe on ephemeral runners."
+- **Lesson for M15 Flights 2/3+ (CI matrix expansion)**: "suite green on the dev
+  box" ≠ "suite green on a clean runner" — environment leaks (pre-existing data
+  dirs) and boot-relative clocks are invisible locally. The first run of any new
+  CI job is part of the flight, not an afterthought.

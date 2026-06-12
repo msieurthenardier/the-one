@@ -148,12 +148,15 @@ verified empirically at design time before legs were locked.
       (`test_mcp_sandbox_integration.py`, `test_mcp_stdio_sandbox.py:447`).
 - [ ] Add a guard comment in `_tool.py`/`_tool_provider.py` naming the `mcp/__init__`
       eager-load cycle hazard that requires the lazy `SandboxError` import.
-- [ ] Add a one-line comment to `.github/workflows/test.yml` explaining bare pytest is safe
-      on ephemeral runners (orphans die with the runner).
+- [x] Add a one-line comment to `.github/workflows/test.yml` explaining bare pytest is safe
+      on ephemeral runners (orphans die with the runner) — done in the PR-#109 CI-red
+      closeout (see flight log).
 - [ ] Fix `test-live` `test_aiat.py` `/app/...` paths for host-native (needs a running
       host-native server) — future leg.
 - [ ] Consider deferring `mcp/__init__`'s eager `_tool`/`_tool_provider` imports to remove the
       cycle-hazard class permanently — future maintenance.
-- [ ] Re-characterize the `test_connectors_e2e` flake once on `main` (30/30 clean here; may be
-      resolved by this flight's async/teardown changes).
+- [x] Re-characterize the `test_connectors_e2e` flake — root-caused in the PR-#109 CI-red
+      closeout (see flight log): the `last_activity = 0.0` aging idiom is uptime-dependent
+      (`time.monotonic()` starts near zero at boot, so 0.0 is within TTL on freshly-booted
+      hosts). Fixed by monotonic-relative aging across both pools' tests.
 - [x] CLAUDE.md host-native test-command update — done (`38322b7`).

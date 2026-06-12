@@ -494,9 +494,11 @@ async def test_parallel_warm_multiple_entries(patch_client, monkeypatch):
     assert evicted == []  # all fresh
     assert len(pool_mod._pool) == 3
 
-    # Age entries 1 and 3.
-    c1.last_activity = 0.0
-    c3.last_activity = 0.0
+    # Age entries 1 and 3. Monotonic-relative: 0.0 is *within* the 300s TTL
+    # on a freshly-booted host (CI runners), so it would never reap there.
+    aged = _time.monotonic() - 360
+    c1.last_activity = aged
+    c3.last_activity = aged
     evicted = await pool_mod._reap_once()
     assert set(evicted) == {("agent-a", "src-1"), ("agent-b", "src-1")}
     assert len(pool_mod._pool) == 1
