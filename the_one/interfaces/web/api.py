@@ -1539,8 +1539,8 @@ async def _build_and_test_stdio_mcp(
         MCPCapabilityMissing,
         MCPConnectionError,
         MCPVersionMismatch,
-        SandboxError,
     )
+    from the_one.platform.sandbox.errors import SandboxError
 
     try:
         async with MCPClient(source=source, auth_provider=None) as client:

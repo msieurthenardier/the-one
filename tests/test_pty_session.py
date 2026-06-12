@@ -148,8 +148,16 @@ class TestUnixPtySession:
         the buffer with the echoed bytes and returns successfully on
         idle-mark — masking the timeout-on-empty-buffer code path. We
         send ``stty -echo`` first to force the empty-buffer case.
+
+        Why ``/bin/sh`` (dash) instead of ``/bin/bash``: on WSL2, bash emits
+        bracketed-paste-mode control sequences (``\\x1b[?2004l``) when a
+        command is submitted, even with echo disabled. These sequences fill
+        the buffer and prevent TimeoutError.  ``/bin/sh`` (dash) has no
+        readline/bracketed-paste integration and produces zero output for a
+        blocked ``read x`` with echo off — making the test deterministic
+        across host environments.
         """
-        s = UnixPtySession(shell="/bin/bash")
+        s = UnixPtySession(shell="/bin/sh")
         try:
             await s.start()
             # Drain echoed bytes from the stty command itself; we don't
@@ -267,8 +275,14 @@ class TestReadUntilIdleEdgeCases:
         must clamp to ``0.0`` (not negative). Verified indirectly by
         running a session that times out cleanly with raise rather than
         a ``ValueError``. Echo is disabled first so the buffer stays
-        empty (otherwise idle-mark on echoed input bytes returns early)."""
-        s = UnixPtySession(shell="/bin/bash")
+        empty (otherwise idle-mark on echoed input bytes returns early).
+
+        Why ``/bin/sh`` (dash) instead of ``/bin/bash``: see
+        ``test_send_timeout_raises_when_no_output`` for the rationale —
+        bash on WSL2 emits bracketed-paste control sequences that fill
+        the buffer and prevent TimeoutError. Dash is deterministic.
+        """
+        s = UnixPtySession(shell="/bin/sh")
         try:
             await s.start()
             await s.send("stty -echo")

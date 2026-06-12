@@ -124,14 +124,22 @@ async def test_boxed_canary_unreadable(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.requires_bwrap
 async def test_boxed_root_ls_no_user_dirs(monkeypatch: pytest.MonkeyPatch) -> None:
-    """(d) ls / inside the box contains no home, app, or var.
+    """(d) ls / inside the box contains no app or var; home/root presence is host-conditional.
 
-    Note on /root: inside the Docker container HOME=/root, so the scratch
-    workspace lives at /root/.the-one-test-*.  The --bind mount of that path
-    causes bwrap to auto-create /root as a parent directory.  /root is therefore
-    present in ls / and excluded from the forbidden-dirs check.  The meaningful
-    isolation property — that the CONTENT of /root (canary files, credentials)
-    is not visible — is verified by test_boxed_canary_unreadable (test c).
+    bwrap auto-creates parent directories of any ``--bind`` target.  The scratch
+    workspace (the only ``writable_paths`` entry) lives under the current user's
+    HOME: inside the Docker container that is ``/root``, so bwrap creates ``/root``
+    at ``ls /``.  On a host-native run the workspace lives under ``/home``, so
+    bwrap creates ``/home`` instead.  Both are expected — the bind merely forces
+    the parent directory to be visible, not the content of other subdirectories.
+
+    The meaningful isolation property — that the CONTENT of the home hierarchy
+    (canary files, credentials) is not visible inside the box — is verified
+    separately by test_boxed_canary_unreadable (test c).
+
+    We therefore exclude ``/root`` and ``/home`` from the unconditional forbidden
+    set and assert only that ``/app`` and ``/var`` are absent (no bind target
+    forces either into existence under any expected deployment).
     """
     monkeypatch.delenv("THE_ONE_SANDBOX_DISABLED", raising=False)
 
@@ -140,10 +148,12 @@ async def test_boxed_root_ls_no_user_dirs(monkeypatch: pytest.MonkeyPatch) -> No
         code = "import os; print('\\n'.join(os.listdir('/')))"
         stdout, stderr, rc = await run_python(code, timeout=30.0, env={}, profile=profile)
         entries = stdout.decode(errors="replace").strip().splitlines()
-        # /home, /app, /var must not be present (no bind forces them into existence).
-        # /root is excluded: scratch lives under /root/ in this container, and bwrap
-        # auto-creates /root as the parent of the writable --bind mount.
-        for forbidden in ("home", "app", "var"):
+        # /app and /var must not be present (no bind forces them into existence).
+        # /root is excluded: on a container run the scratch workspace lives under
+        # /root/, so bwrap auto-creates /root as the parent of the writable --bind
+        # mount.  /home is excluded for the analogous host-native reason — the
+        # scratch workspace lives under /home/<user>/ and bwrap auto-creates /home.
+        for forbidden in ("app", "var"):
             assert forbidden not in entries, (
                 f"Forbidden dir /{forbidden} is present in boxed ls /; ls output: {entries!r}"
             )

@@ -29,7 +29,6 @@ import shutil
 import pytest
 
 from the_one.mcp.errors import MCPClientError
-from the_one.mcp.errors import SandboxError as CanonicalSandboxError
 from the_one.platform.sandbox import (
     BubblewrapSandbox,
     PassthroughSandbox,
@@ -38,6 +37,7 @@ from the_one.platform.sandbox import (
     SpawnSpec,
     ToolSandbox,
 )
+from the_one.platform.sandbox.errors import SandboxError as CanonicalSandboxError
 
 
 @pytest.fixture(autouse=True)

@@ -36,6 +36,11 @@ App.registerArea({
     }
     var currentSessionId = null;
     var pendingJoinId = null;
+    // Queued new-session intent: set by startSessionWith when the WS is not
+    // yet OPEN (e.g. during a brief reconnect cycle). Drained by the
+    // session_list handler once the WS comes back up — takes priority over
+    // the normal auto-join of the most-recent session.
+    var pendingStart = null; // { agentName: string|null }
     var sessions = [];
     var pendingApprovals = []; // M11 F17 L9 (Leg E) — left-panel pending section
     var currentAgentName = null;
@@ -225,7 +230,15 @@ App.registerArea({
 
     function startSessionWith(agentName) {
       if (setupIncomplete) return;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // Record intent before sending so the WS reconnect path (session_list
+      // handler) can honour it if the WS drops between the send and the
+      // server's session_joined response. Cleared in session_joined handler.
+      pendingStart = { agentName: agentName || null };
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        // WS is in a reconnect cycle — intent is queued; session_list handler
+        // will drain it once the connection is restored (preempting auto-join).
+        return;
+      }
       currentSessionId = null;
       // M11 F9 L4: reset pending-approval dedup on new-chat creation.
       // renderHistory does NOT run for the new-session path, so the
@@ -847,6 +860,21 @@ App.registerArea({
               App.chat.renderSessionList(
                 sessionListEl, sessions, currentSessionId, _sessionCallbacks, pendingApprovals
               );
+              // Drain queued new-session intent (from startSessionWith while WS
+              // was reconnecting). Takes priority over pendingJoinId and
+              // auto-join so the user's explicit "new chat / switch agent"
+              // action is honoured after a brief reconnect.
+              if (pendingStart) {
+                var startIntent = pendingStart;
+                pendingStart = null;
+                currentSessionId = null;
+                seenApprovalIds = Object.create(null);
+                if (window.App && window.App.router) App.router.replaceSub(null);
+                var startMsg = { action: 'new_session' };
+                if (startIntent.agentName) startMsg.agent_name = startIntent.agentName;
+                ws.send(JSON.stringify(startMsg));
+                return;
+              }
               if (pendingJoinId) {
                 var target = pendingJoinId;
                 pendingJoinId = null;
@@ -867,6 +895,9 @@ App.registerArea({
         if (data.type === 'session_joined') {
           // Stale-join guard: ignore responses for superseded join requests.
           if (currentSessionId && currentSessionId !== data.session_id) return;
+          // Clear the pending new-session intent: the intended session has
+          // now joined successfully (either directly or after a WS reconnect).
+          pendingStart = null;
           App.perf.mark('session-join:received');
           currentSessionId = data.session_id;
           if (window.App && window.App.router) {

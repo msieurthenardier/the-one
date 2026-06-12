@@ -193,6 +193,22 @@ that would delete a live session's scratch mid-operation.
   bound read-only via `--ro-bind-try` (not writable) but are potentially readable. A
   future flight will add read enforcement on the host-workspace path.
 
+### Merged-usr portability caveat
+
+The boxed `minimal_rootfs` branch in `the_one/platform/sandbox/bubblewrap.py` recreates
+the system runtime inside the box using `--ro-bind /usr /usr` plus four `--symlink`
+entries (`usr/bin → /bin`, `usr/sbin → /sbin`, `usr/lib → /lib`, `usr/lib64 → /lib64`).
+This mount set **assumes a merged-usr layout** — i.e. the host's `/bin`, `/sbin`, `/lib`,
+and `/lib64` are already symlinks into `/usr` (Debian bookworm, Ubuntu 22.04+, the
+`python:3.11-slim` image base). On a **non-merged-usr host** (older Debian/Red Hat with
+real split directories at `/bin` and `/lib`), the `--symlink` entries shadow those real
+directories with dangling symlinks pointing to `usr/bin` and `usr/lib` inside the
+box — resulting in a broken dynamic linker or missing tools. Non-merged-usr deployments
+must either add explicit `--ro-bind /bin /bin` (etc.) bind entries to the boxed profile,
+or verify the host layout before running boxed spawns. The deployment target for this
+project is merged-usr only (bookworm/Ubuntu 22.04+); this is a portability note, not a
+current operational gap.
+
 ### Passthrough degradation
 
 On non-Linux or bwrap-missing Linux, both boxed and host-workspace spawns fall through to

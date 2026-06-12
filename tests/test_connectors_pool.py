@@ -38,6 +38,7 @@ fixtures run on the asyncio event loop without per-test decorators.
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -460,7 +461,9 @@ async def test_reap_once_evicts_idle_entries(patch_plugin) -> None:
 
     await agent_acquire("agent-a", "acct-1")
     entry = pool_mod._pool[("agent-a", "acct-1")]
-    entry.last_activity = 0.0  # very old — definitely past any TTL
+    # NOT 0.0: time.monotonic() starts near zero at boot, so 0.0 is *within*
+    # TTL on a freshly-booted host (CI runners) and the entry never reaps.
+    entry.last_activity = time.monotonic() - entry.ttl_seconds - 60
 
     idle_evicted, dead_evicted = await _reap_once()
     assert idle_evicted == [("agent-a", "acct-1")]
@@ -489,7 +492,7 @@ async def test_reap_once_skips_entries_mid_connect(patch_plugin) -> None:
     key = ("agent-a", "acct-mid-connect")
     entry = _RegistryEntry(
         ttl_seconds=10,
-        last_activity=0.0,  # ancient
+        last_activity=time.monotonic() - 70,  # ancient (well past the 10s TTL)
         evict_event=asyncio.Event(),
         client_ready=asyncio.Event(),
         client=None,  # NOT YET CONNECTED
@@ -931,8 +934,10 @@ async def test_alive_account_entry_survives_idle_past_ttl(patch_plugin) -> None:
     account_key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
 
     # Age both past TTL.
-    pool_mod._pool[agent_key].last_activity = 0.0
-    pool_mod._pool[account_key].last_activity = 0.0
+    for _key in (agent_key, account_key):
+        _entry = pool_mod._pool[_key]
+        # Monotonic-relative: 0.0 is within TTL on freshly-booted hosts.
+        _entry.last_activity = time.monotonic() - _entry.ttl_seconds - 60
 
     # The account-keyed client is alive (default _StubClient behaviour).
     assert pool_mod._pool[account_key].client.is_alive()
@@ -1101,7 +1106,9 @@ async def test_agent_acquire_entry_still_reaps_on_ttl(patch_plugin) -> None:
 
     await agent_acquire("agent-a", "acct-1")
     agent_key = ("agent-a", "acct-1")
-    pool_mod._pool[agent_key].last_activity = 0.0  # age past TTL
+    _entry = pool_mod._pool[agent_key]
+    # Monotonic-relative aging: 0.0 is within TTL on freshly-booted hosts.
+    _entry.last_activity = time.monotonic() - _entry.ttl_seconds - 60
 
     idle_evicted, dead_evicted = await _reap_once()
 

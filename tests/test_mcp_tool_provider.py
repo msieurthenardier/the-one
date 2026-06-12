@@ -47,9 +47,9 @@ from the_one.mcp.errors import (
     MCPAuthRequired,
     MCPConnectionError,
     MCPRegistrationError,
-    SandboxError,
 )
 from the_one.mcp.types import MCPTool, MCPToolResult
+from the_one.platform.sandbox.errors import SandboxError
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -54,7 +54,6 @@ from the_one.mcp.errors import (
     MCPConnectionError,
     MCPRegistrationError,
     MCPVersionMismatch,
-    SandboxError,
 )
 from the_one.mcp.types import MCPTool
 from the_one.tools.base import Tool
@@ -304,6 +303,8 @@ class MCPToolProvider:
                 # Path A fallback: acquire + list_tools (failure class #2 —
                 # covers connect AND list_tools). Used when operator has never
                 # refreshed the source-edit page.
+                from the_one.platform.sandbox.errors import SandboxError
+
                 try:
                     client = await acquire(
                         agent_name,

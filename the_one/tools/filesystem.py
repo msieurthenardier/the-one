@@ -44,8 +44,10 @@ DEFAULT_PATH_DENYLIST: tuple[str, ...] = (
     "~/.config/google-chrome",
     "~/.config/Code",
     "~/.config/Slack",
-    # Agent's own internals (1)
-    "~/.the-one/secrets",
+    # Agent's own internals — data_dir/secrets is appended dynamically in
+    # FilesystemConfig.model_post_init using the live settings.data_dir so
+    # the protection tracks wherever data_dir actually resolves (default
+    # platformdirs path OR an explicit THE_ONE_DATA_DIR/init override).
     # Outside ~ — system paths (6)
     "/etc",
     "/proc",
@@ -120,6 +122,18 @@ class FilesystemConfig(BaseModel):
         # canonical paths once and stash them on the private attrs.
         self._canonical_allowlist = [canonicalize(p) for p in self.path_allowlist]
         self._canonical_denylist = [canonicalize(p) for p in self.path_denylist]
+
+        # Always deny the agent's own secrets directory, resolved against the
+        # LIVE data_dir (default platformdirs path or THE_ONE_DATA_DIR/init
+        # override). This must be computed here — not via DEFAULT_PATH_DENYLIST
+        # — because data_dir is dynamic: a placeholder string in the tuple would
+        # canonicalize to a bogus CWD-relative path that matches nothing and
+        # silently removes the protection. Function-local import follows the
+        # pattern used in execution.py/_tool.py to defer config access until
+        # after all modules have loaded (avoids top-level import ordering issues).
+        from the_one.config import settings as _settings  # function-local — see above
+
+        self._canonical_denylist.append(canonicalize(str(_settings.data_dir / "secrets")))
 
 
 def _is_descendant(path: Path, root: Path) -> bool:

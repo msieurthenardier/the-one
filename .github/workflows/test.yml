@@ -1,0 +1,73 @@
+name: test
+
+# Jobs run bare `python -m pytest` (not the local `run-tests.sh` group-kill
+# wrapper) deliberately: GitHub-hosted runners are ephemeral, so any orphaned
+# child processes (uvicorn/Chromium) die with the runner VM. Locally the
+# wrapper is mandatory for browser/long-subprocess tests — do not copy this
+# bare invocation into local docs or Makefile targets.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[all-llms,dev]"
+      - name: Run default suite (host-native)
+        run: python -m pytest tests/ --timeout=300 --tb=short
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[all-llms,dev]"
+      - name: Provision Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Run browser tests (host-native)
+        env:
+          THE_ONE_DEV_MODE: "true"
+        run: python -m pytest -m browser tests/browser/ --timeout=300 --tb=short
+
+  bwrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Allow unprivileged user namespaces
+        # Ubuntu 24.04 (ubuntu-latest) restricts unprivileged userns creation
+        # via AppArmor by default. Without this, the factory's empirical
+        # userns probe fails and gracefully degrades to passthrough — tools
+        # then run UNCONFINED and every containment assertion in
+        # `-m requires_bwrap` fails. This sysctl restores real kernel-enforced
+        # bwrap on the runner.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Set up venv from the SYSTEM Python (not actions/setup-python)
+        # Deliberate: setup-python's hostedtoolcache interpreter lives under
+        # /opt — outside the boxed-mode minimal rootfs (/usr) — so every
+        # boxed (minimal_rootfs) spawn fails at execvp. A venv created from
+        # the system python3 has symlinks that resolve_python() follows back
+        # into /usr, matching the deployment-shaped path (see
+        # the_one/platform/interpreter.py::resolve_python).
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - run: pip install -e ".[all-llms,dev]"
+      - name: Run @requires_bwrap sandbox tests
+        run: python -m pytest -m requires_bwrap tests/ --timeout=300 --tb=short

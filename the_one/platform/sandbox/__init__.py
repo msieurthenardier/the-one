@@ -7,16 +7,16 @@ Public API:
     BubblewrapSandbox: Linux backend
     PassthroughSandbox: no-op backend (non-Linux / test-bypass / bwrap-missing)
     get_sandbox_backend: factory — selects BubblewrapSandbox or PassthroughSandbox
-    SandboxError: exception (canonical home: the_one/mcp/errors.py)
+    SandboxError: exception (canonical home: the_one/platform/sandbox/errors.py)
 
 See ``base.py`` module docstring for the cross-platform capability matrix.
 """
 
 from __future__ import annotations
 
-from the_one.mcp.errors import SandboxError
 from the_one.platform.sandbox.base import SandboxProfile, SpawnSpec, ToolSandbox
 from the_one.platform.sandbox.bubblewrap import BubblewrapSandbox
+from the_one.platform.sandbox.errors import SandboxError
 from the_one.platform.sandbox.factory import get_sandbox_backend
 from the_one.platform.sandbox.passthrough import PassthroughSandbox
 

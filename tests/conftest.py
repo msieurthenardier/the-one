@@ -10,28 +10,45 @@ from typing import Any
 
 import pytest
 
-from the_one.llm.base import LLMProvider, Message
-from the_one.platform.sandbox import SandboxProfile
-from the_one.tools.base import Tool, ToolRegistry
+# ── Environment isolation — MUST run before any `the_one` import below. ──
+# `the_one.config.settings` is a PEP 562 LAZY singleton, instantiated on first
+# attribute access — and the import chain of the `the_one` modules imported
+# below reaches that access DURING conftest import, i.e. before
+# pytest_configure() runs. Setting these env vars at module level (not in
+# pytest_configure) is therefore load-bearing: when it lived in
+# pytest_configure, the singleton cached the real OS-conventional data dir
+# (platformdirs XDG path), and any test reaching `get_encryptor(settings.data_dir)`
+# outside a patched seam wrote into — or crashed on — the operator's real data
+# dir (green on dev boxes where it existed; FileNotFoundError on clean CI
+# runners; see Flight M15-F1 closeout).
+#
+# THE_ONE_TEST_MODE: F3 §10 — the ONLY place the flag is set in non-production
+# code (the companion THE_ONE_SANDBOX_DISABLED is set only by the browser-test
+# CI invocation). `setdefault` preserves explicit CI-set values.
+#
+# THE_ONE_DATA_DIR: M08 F5 L01 — isolate the broad pytest run from any live
+# server's SQLite DB (WAL contention against a live writer caused F1-F4's
+# chronic broad-pytest hang). `setdefault` preserves any explicit override set
+# by CI or by the per-subprocess browser-test isolation in
+# `tests/browser/conftest.py`. A session-persistent tmp dir (one path for the
+# whole pytest run) matches the live-server pattern.
+os.environ.setdefault("THE_ONE_TEST_MODE", "1")
+os.environ.setdefault("THE_ONE_DATA_DIR", tempfile.mkdtemp(prefix="the-one-pytest-"))
+
+from the_one.llm.base import LLMProvider, Message  # noqa: E402
+from the_one.platform.sandbox import SandboxProfile  # noqa: E402
+from the_one.tools.base import Tool, ToolRegistry  # noqa: E402
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent  # tests/conftest.py → project root
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Set ``THE_ONE_TEST_MODE=1`` for all pytest runs (F3 §10).
+    """Apply session-wide runtime patches.
 
-    Per F3 §10, this is the ONLY place the flag is set in non-production
-    code (the companion ``THE_ONE_SANDBOX_DISABLED`` is set only by the
-    Playwright browser-test CI workflow's ``pytest -m browser``
-    invocation). With only ``THE_ONE_TEST_MODE=1``, the sandbox wrap
-    stays active for unit + integration tests in environments where
-    ``bwrap`` is present (dev container post-L1a). The double-flag
-    bypass in ``the_one.platform.sandbox.factory._sandbox_disabled_for_tests``
-    only fires when BOTH flags are set.
-
-    Uses ``setdefault`` so existing values are preserved — the CI
-    workflow may set both flags before pytest runs, and we must not
-    clobber that.
+    Environment isolation (``THE_ONE_TEST_MODE``, ``THE_ONE_DATA_DIR``)
+    lives at module level above — NOT here — because the lazy settings
+    singleton is instantiated during this conftest's own imports, before
+    this hook runs. Do not move it back.
 
     The sibling ``tests/browser/conftest.py`` also defines a
     ``pytest_configure`` (snapshot-update bridge); pytest collects both
@@ -39,21 +56,6 @@ def pytest_configure(config: pytest.Config) -> None:
     so there is no conflict between the two.
     """
     del config  # unused; signature mandated by pytest hookspec
-    os.environ.setdefault("THE_ONE_TEST_MODE", "1")
-    # M08 F5 L01: isolate the broad pytest run from the live container's SQLite
-    # DB. Without this, `the_one.config.Settings()` (instantiated at module
-    # import time in `the_one/config.py:33`) defaults `data_dir` to
-    # `Path.home() / ".the-one"` which inside the `the-one` container resolves
-    # to `/root/.the-one` — the SAME directory uvicorn holds open in WAL mode.
-    # SQLite WAL contention against the live writer caused F1-F4's chronic
-    # broad-pytest hang (futex_wait_queue). `setdefault` preserves any explicit
-    # override set by CI or by the per-subprocess browser-test isolation in
-    # `tests/browser/conftest.py:127`. A session-persistent tmp dir (one path
-    # for the whole pytest run) matches the live-container pattern.
-    os.environ.setdefault(
-        "THE_ONE_DATA_DIR",
-        tempfile.mkdtemp(prefix="the-one-pytest-"),
-    )
     _daemonize_aiosqlite_worker_threads()
 
 
