@@ -160,7 +160,11 @@ class TestShellTool:
         be in the allowlist for the cwd check to pass — ensure consistency
         by not patching HOME/USERPROFILE here (Path.home() and the allowlist
         expansion both read the same env var)."""
-        result = await _make_shell().execute(command="pwd", host_access=True)
+        # Print the cwd in the platform's native path form: ``pwd`` on POSIX,
+        # ``cd`` on Windows. (Git Bash ``pwd.exe`` would print an MSYS path
+        # ``/c/Users/...`` that never equals ``Path.home().resolve()``.)
+        cwd_cmd = "cd" if os.name == "nt" else "pwd"
+        result = await _make_shell().execute(command=cwd_cmd, host_access=True)
         assert result == str(Path.home().resolve())
 
     async def test_relative_cwd_refused_when_outside_allowlist(
@@ -409,7 +413,17 @@ class TestPythonExecTool:
         # is vacuously True. Real subprocess always inherits at least PATH.
         assert len(keys) > 0, f"no env keys parsed from output: {result!r}"
         assert "THE_ONE_TEST_LEAK" not in keys, f"leak: {keys}"
-        assert keys.issubset(expected | runtime_added), f"extras: {keys - expected - runtime_added}"
+        # Windows env-var names are case-insensitive — the OS reports
+        # ``SYSTEMROOT`` while ``_WINDOWS_ENV_ALLOWLIST`` carries ``SystemRoot``.
+        # Compare case-normalized on nt so a pure case difference isn't an extra.
+        if os.name == "nt":
+            norm_keys = {k.upper() for k in keys}
+            norm_allowed = {k.upper() for k in (expected | runtime_added)}
+            assert norm_keys.issubset(norm_allowed), f"extras: {norm_keys - norm_allowed}"
+        else:
+            assert keys.issubset(expected | runtime_added), (
+                f"extras: {keys - expected - runtime_added}"
+            )
 
     async def test_constraint_error_two_clause_envelope(self) -> None:
         """Pin the ``[error] [constraint] ...`` prefix for ConstraintError
