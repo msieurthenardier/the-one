@@ -145,6 +145,38 @@ findings incorporated:
   committed and pushed now to produce the inventory before Leg 2 is designed.
   Cost: one `windows-2022` run (2× billing) — within the DD7-approved envelope.
 
+## Windows Failure Inventory (DD7/DD10 gate — Leg 1 CI, PR #110)
+
+**Captured from the `windows-2022` lane, 2026-06-13** (run 27475519721, job
+81213961283). **The headline result: the suite COLLECTED AND RAN on Windows —
+no ImportError, no collection errors.** The Leg-1 import-cascade unblock works.
+
+- **Linux lanes all green** (test 3m37s, browser 15m, bwrap 1m24s, lint) — zero
+  regression from the split.
+- **Windows: 20 failed, 3014 passed, 9 skipped, 589 deselected, in 25m40s.**
+  (Windows wall-clock ≈ 7× Linux — a DD7 cost data point; still within the
+  2×-billing envelope the operator approved.)
+
+**DD7 verdict: HOLDS. Divert does NOT fire** — 20 failures across 8 files, all
+mechanical/test-side, comfortably ~1 leg of work (Leg 4). No product-blocking
+Windows failure.
+
+**Triage (scopes Leg 4 per DD10):**
+
+| Bucket | Count | Tests | Leg-4 disposition |
+|--------|------:|-------|-------------------|
+| POSIX home-path (`~` → `/home/...`) | 8 | `test_filesystem_tools.py` ×7 tilde-expansion + `test_filesystem_helpers.py` tilde-canonicalize | Parametrize with platform-neutral home, OR confirm `expanduser` behavior is correct on Windows and fix the assertion |
+| cmd.exe command strings | 8 | `test_execution_tools.py` ×6 (env/cwd/timeout/output-cap), `test_platform_shell.py` ×2 (env_override, timeout) | DD10 split: parametrize wrapper tests w/ cmd.exe equivalents; POSIX-gate shell-semantics tests |
+| POSIX file perms (0600) | 1 | `test_encryption.py::test_key_file_permissions` | POSIX-gate (Windows has no chmod 0600 semantics) |
+| **Real test-robustness bug** | 1 | `test_provider_repository.py::test_update_changes_fields` — `updated_at` collides under fast update (identical microsecond timestamp) | Fix properly (monotonic-distinct or `>=`); F1-`last_activity` flavored cross-platform fragility |
+| **Test encoding hygiene** | 1 | `test_token_definitions.py` — `css_path.read_text()` w/o `encoding="utf-8"` → cp1252 `UnicodeDecodeError` on Windows | Add `encoding="utf-8"`. **Leg 4 must also grep PRODUCT code for unencoded `open()`/`read_text()` — same pattern there is a REAL Windows bug** (Flight-5 frozen-app relevant) |
+| Env handling (DD5-adjacent) | 1 | `test_mcp_stdio_sandbox.py::test_connect_stdio_sdk_default_env_preserved_through_setenv` | Inspect in Leg 4 alongside the DD5 Windows env-allowlist work |
+
+The encoding `UnicodeDecodeError` is the inventory's standout find — precisely
+the class of latent Windows bug that running the full suite on Windows (DD7)
+exists to surface. Even though this instance is test-side, it mandates the
+product-code audit noted above.
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
