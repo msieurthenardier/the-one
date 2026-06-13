@@ -174,10 +174,12 @@ async def test_close_reaps_grandchild() -> None:
     Shape mirrors the Unix ``test_pty_close_reaps_namespace_grandchild`` test
     in ``test_pty_sandbox.py``.
 
-    Strategy: the PTY session sends a cmd.exe command that starts a detached
-    grandchild Python process.  The grandchild writes its own PID to a temp
-    file — this is robust in shared CI (``tasklist`` before/after diff
-    false-passes when another python.exe/timeout.exe runs concurrently).
+    Strategy: write a temp .py script for the grandchild (avoids the quoting
+    hazard of ``python -c "..."`` through cmd.exe-through-PTY mangling
+    backslash paths in %TEMP%).  Launch via ``start /b "" "exe" "script"``
+    with both paths quoted.  The grandchild writes its own PID to a temp file
+    — this is robust in shared CI (``tasklist`` before/after diff false-passes
+    when another python.exe/timeout.exe runs concurrently).
     After ``close()``, we assert the grandchild is gone by opening its handle
     and checking whether the process has exited.
     """
@@ -191,22 +193,29 @@ async def test_close_reaps_grandchild() -> None:
     with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
         pid_file = f.name
 
+    sentinel_part = "wro" + "te_pid"
+
+    # Write the grandchild script to a temp .py file — no quoting-through-PTY needed.
+    grandchild_script = (
+        "import os, time\n"
+        f"with open(r'{pid_file}', 'w') as _f:\n"
+        "    _f.write(str(os.getpid()))\n"
+        f"with open(r'{pid_file}', 'a') as _f:\n"
+        f"    _f.write(' {sentinel_part}')\n"
+        "time.sleep(60)\n"
+    )
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as sf:
+        script_path = sf.name
+        sf.write(grandchild_script)
+
     try:
         session = WindowsPtySession()
         try:
             await session.start()
 
-            # Background a grandchild that writes its PID then sleeps 60 s.
-            # Use string-concat on the sentinel to avoid it appearing in the
-            # PTY echo (which would confuse read-back assertions).
-            sentinel_part = "wro" + "te_pid"
-            grandchild_cmd = (
-                f'start /b "" {sys.executable} -c '
-                f'"import os,time; '
-                f"open(r'{pid_file}', 'w').write(str(os.getpid())); "
-                f"open(r'{pid_file}', 'a').write(' {sentinel_part}'); "
-                f'time.sleep(60)"'
-            )
+            # Both exe and script paths are quoted to handle spaces/backslashes
+            # in %TEMP% without quoting-through-PTY mangling.
+            grandchild_cmd = f'start /b "" "{sys.executable}" "{script_path}"'
             await session.send(grandchild_cmd, timeout=15.0)
 
             # Wait up to 5 s for the grandchild to write its PID
@@ -267,6 +276,10 @@ async def test_close_reaps_grandchild() -> None:
 
         try:
             _os.unlink(pid_file)
+        except OSError:
+            pass
+        try:
+            _os.unlink(script_path)
         except OSError:
             pass
 

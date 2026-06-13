@@ -139,6 +139,11 @@ class TestFilesystemCheck:
         calls `expanduser()`. Setting HOME to tmp_path makes `~/foo` resolve
         into the allowlisted scope."""
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME) — patch it so
+        # the resolved path lands inside the allowlisted tmp_path.
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         target = tmp_path / "tilde-doc.txt"
         target.write_text("ok")

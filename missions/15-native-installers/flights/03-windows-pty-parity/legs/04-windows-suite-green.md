@@ -1,6 +1,6 @@
 # Leg: windows-suite-green
 
-**Status**: planning
+**Status**: landed
 **Flight**: [Windows PTY Parity (ConPTY)](../flight.md)
 
 ## Objective
@@ -79,28 +79,57 @@ no test-file churn for a "call it good for now" scope):
 
 ## Triage map — the ~19 in-subset failures
 
-**(A) POSIX home-path `~`-expansion (8) → assert platform-neutral home**
+**(A) `~`-expansion lands outside the allowlist on Windows (8) → patch `USERPROFILE` in setup**
 `test_filesystem_tools.py` ×7 `test_tilde_expansion`,
 `test_filesystem_helpers.py::test_tilde_path_canonicalizes_via_expanduser`.
-Assert against `Path.home()`/`expanduser("~")` dynamically, not a hardcoded
-`/home/...` — the behavior is correct on both OSes; only the expected literal is
-POSIX-shaped.
+**Actual CI failure** (not an assertion problem — corrected at design review via
+the real log): `[error] [constraint] path 'C:\Users\runneradmin\y.txt'
+outside allowlist`. Root cause: the tests monkeypatch `HOME=tmp_path` (which they
+add to the filesystem allowlist), but on Windows `os.path.expanduser("~")`
+resolves to the **real `USERPROFILE`** (`C:\Users\runneradmin`), NOT the
+patched `HOME` — so the write target is the real home, outside the allowlisted
+tmp_path. **Fix (setup-side):** in the test setup, also
+`monkeypatch.setenv("USERPROFILE", str(tmp_path))` (and `HOMEDRIVE`/`HOMEPATH`
+defensively) so `expanduser` resolves into the allowlisted dir on Windows. The
+assertions (`"home content" in result`, `result.startswith("Wrote")`) are
+correct as-is. *(Product-side note, OUT of scope: whether the real Windows user
+home should be in the default FilesystemConfig allowlist is a Flight-5/follow-up
+question — not this leg.)*
 
-**(B) cmd.exe vs POSIX command strings (8) → DD10 split**
-`test_execution_tools.py` ×6, `test_platform_shell.py` ×2. Wrapper-targeting
-(timeout/output-cap/cwd-default) → parametrize with cmd.exe equivalents
-(`true`→`cmd /c (exit 0)`, `env`→`set`, `pwd`→`cd`, `/etc`→`C:\\`); shell-
-semantics-targeting (`$(seq)`, `for…do`) → POSIX-gate.
+**(B) cmd.exe vs POSIX command strings → DD10 split**
+`test_execution_tools.py`, `test_platform_shell.py`. From the real CI messages:
+- `test_output_truncated_at_cap` uses `for i in $(seq 1 200); do…` → cmd.exe:
+  *"i was unexpected at this time."* It targets the *output-cap wrapper*, so
+  **parametrize** with a Windows output generator (`for /l %i in (1,1,200) do
+  @echo line %i`, or a `python -c` loop) rather than POSIX-gating — keeps the
+  cap behavior covered on Windows.
+- `test_cwd_outside_allowlist_refused` (Shell+PythonExec): `/etc`→`D:\etc` on
+  Windows → parametrize the outside path per-OS.
+- `test_cwd_default_is_home`: same USERPROFILE/allowlist issue as Bucket A —
+  the default cwd (home) isn't the allowlisted tmp_path on Windows; fix via the
+  same `USERPROFILE` setup patch.
+- `test_timeout_returns_promptly` / `test_platform_shell` timeout+env: parametrize
+  the command with a cmd.exe equivalent (`timeout`/`set`) or POSIX-gate if it
+  asserts POSIX shell semantics. Triage each against its real message.
 
 **(C) POSIX file perms (1) → POSIX-gate**
 `test_encryption.py::test_key_file_permissions` (0600) → `skipif(os.name != "posix")`.
 
-**(D) DD5 env-allowlist Windows-awareness (2 in-subset) → assert platform set**
-`test_execution_tools.py::{TestShellTool,TestPythonExecTool}::test_env_allowlist_invariant`,
-`test_execution_helpers.py::test_returns_only_allowlisted_keys`. Import the real
-`_ENV_ALLOWLIST`/`_WINDOWS_ENV_ALLOWLIST` and assert the platform-appropriate
-set per `os.name` (union on nt). Keep `test_execution_helpers.py:273`'s
-exact-tuple pin as-is (platform-independent, correct).
+**(D) DD5 env-allowlist (3 in-subset) → split: assertion-side union vs POSIX-gate**
+- `test_execution_helpers.py::test_returns_only_allowlisted_keys` and
+  `test_execution_tools.py::TestPythonExecTool::test_env_allowlist_invariant`:
+  these read the env directly (no shell), so on Windows they see the
+  POSIX+Windows union. **Fix (assertion-side):** assert membership in
+  `set(_ENV_ALLOWLIST) | (set(_WINDOWS_ENV_ALLOWLIST) if os.name == "nt" else set())`.
+  **`_WINDOWS_ENV_ALLOWLIST` is NOT re-exported from `the_one.tools.execution`**
+  (design review) — import it as `from the_one.platform.env import
+  _WINDOWS_ENV_ALLOWLIST`. Keep `test_execution_helpers.py:273`'s exact-tuple
+  pin as-is.
+- `test_execution_tools.py::TestShellTool::test_env_allowlist_invariant`:
+  **POSIX-gate** (`skipif(os.name != "posix")`). It runs the env dump through
+  cmd.exe, which **injects its own vars** (CI showed extras `PROMPT`, `!C:`,
+  …) — so "subprocess env == only our allowlist" is unassertable on Windows.
+  The function-level invariant is already covered by the helper test above.
 
 ## Dropped from Windows scope (deferred, not lost)
 
@@ -127,12 +156,16 @@ exact-tuple pin as-is (platform-independent, correct).
       inline `start /b "" python -c "…"` through cmd.exe-through-PTY mangled the
       Windows backslash path). Re-mechanism it to launch the grandchild from a
       **temp `.py` file** (write the script to a NamedTemporaryFile, then
-      `start /b "" {sys.executable} <script_path>`) so there's no
+      `start /b "" "{sys.executable}" "{script_path}"` — **quote both paths**
+      (design review: spaces/backslashes in `%TEMP%` paths)) so there's no
       quoting-through-PTY; the script writes its own PID + sleeps. Then the
       existing Job-Object reap assertion runs. If still unreliable on CI after
       this, `xfail(reason=…)` and defer the definitive proof to the operator's
       Windows box (do NOT silently drop). The Job Object *code* is unchanged
-      (Leg 3) — this is a test-harness fix only.
+      (Leg 3) — this is a test-harness fix only. **Do NOT touch the existing
+      `test_parent_death_reaps_grandchild` xfail** (it has the same inline-`-c`
+      quoting shape — leave it xfailed; "fixing" it risks a wrong-reason
+      pass/fail).
 - [ ] Linux (`test`/`bwrap`/`browser`) + lint remain green — the triage edits
       must not change POSIX behavior; the full suite still runs on Linux.
 - [ ] The curated `windows` job is wired into branch protection as **required**

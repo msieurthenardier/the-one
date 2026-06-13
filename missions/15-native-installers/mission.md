@@ -219,6 +219,16 @@ longer assumed to be reached exclusively through a developer's browser.
   lives outside `/usr` — boxed mode on the packaged Linux artifact needs a
   deliberate design answer (read-only interpreter-prefix bind vs. documented
   host-mode fallback), not an accident.
+- **`run_shell` timeout-kill is not prompt on Windows** *(discovered F3 L4 CI,
+  2026-06-14)*: the shell-execution timeout fires and returns the correct
+  "timed out" message, but killing the spawned `cmd.exe` does NOT promptly reap
+  its child tree (no process-group / tree kill) — a backgrounded child runs to
+  completion. Parallel to the PTY teardown gap that Leg 3 solved with a Win32
+  Job Object. The prompt-kill regression test (`test_timeout_returns_promptly`)
+  is POSIX-gated for now. **Follow-up (Flight 5 or a maintenance pass)**: give
+  `run_shell`'s Windows path a tree-kill (`taskkill /F /T` or a Job Object,
+  mirroring the PTY backend). Windows ships unsandboxed/best-effort (DD9), so
+  this is a robustness gap, not a containment one.
 
 ## Carried Forward from Mission 14
 

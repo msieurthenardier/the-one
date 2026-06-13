@@ -10,6 +10,9 @@ import pytest
 
 from the_one.platform.shell import run_shell, select_shell
 
+# OS-specific command substitutes for platform-divergent operations.
+_SLEEP_5 = "timeout /t 5 /nobreak >nul" if os.name == "nt" else "sleep 5"
+
 # ---------------------------------------------------------------------------
 # select_shell
 # ---------------------------------------------------------------------------
@@ -70,12 +73,13 @@ class TestRunShell:
     async def test_timeout_raises_and_is_prompt(self) -> None:
         start = time.monotonic()
         with pytest.raises(asyncio.TimeoutError):
-            await run_shell("sleep 5", timeout=0.1)
+            await run_shell(_SLEEP_5, timeout=0.1)
         elapsed = time.monotonic() - start
         # The kill+reap path must not block — must return well under 1s for a
         # 0.1s timeout against a 5s sleep.
         assert elapsed < 1.0, f"run_shell timeout took {elapsed:.3f}s; kill+reap likely broken"
 
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX shell syntax ($FOO variable expansion)")
     async def test_env_override(self) -> None:
         stdout, _, returncode = await run_shell("echo $FOO", timeout=5, env={"FOO": "bar"})
         assert returncode == 0
