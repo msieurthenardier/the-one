@@ -8,8 +8,10 @@ every OS (Windows, macOS, Linux).
 
 The Unix backend (``UnixPtySession``, ``_get_libc``/``_libc`` fork-safety
 singleton) lives in ``the_one.platform.pty_unix`` and is imported lazily
-by ``create_pty_session()`` only on POSIX.  The Windows backend lands in
-M15 F3 Leg 2.
+by ``create_pty_session()`` only on POSIX.  The Windows backend
+(``WindowsPtySession``, ConPTY via pywinpty) lives in
+``the_one.platform.pty_windows`` and is imported lazily by
+``create_pty_session()`` only on Windows (M15 F3 Leg 2).
 
 Public surface:
 
@@ -19,23 +21,28 @@ Public surface:
                               ``os.name == "posix"``; see re-export at
                               the bottom of this module).
     create_pty_session(...) — platform-dispatching factory; on POSIX returns
-                              ``UnixPtySession``; on Windows raises
-                              ``NotImplementedError`` naming Leg 2 (the module
-                              still imports — that is the Leg 1 contract).
+                              ``UnixPtySession``; on Windows returns
+                              ``WindowsPtySession``.
+
+Shared tuning constants — neutral (both backends import these):
+
+    _DEFAULT_IDLE_WINDOW   — idle-stability window (100 ms)
+    _DEFAULT_START_TIMEOUT — hard cap for ``start()`` readiness drain (2 s)
+    _READ_CHUNK            — single recv/read size (65536 bytes)
 
 L5a is the platform primitive — no registry, no reaper, no agent_name. The
 session-tool layer (L5b registry + lifespan; L6 four ``shell_session_*``
 tools) wires this primitive into the agent surface.
 
-PTY readiness: ``start()`` blocks until the master_fd has been idle (no new
-bytes for ~100ms) OR a hard 2-second cap, whichever comes first. This avoids
-brittle prompt-regex matching (different shells / RC files produce different
-prompts) while still giving the agent a clean post-``start()`` state for
-its first ``send``.
+PTY readiness: ``start()`` blocks until the master_fd / socket has been idle
+(no new bytes for ~100ms) OR a hard 2-second cap, whichever comes first. This
+avoids brittle prompt-regex matching (different shells / RC files produce
+different prompts) while still giving the agent a clean post-``start()`` state
+for its first ``send``.
 
 Stdlib-only — no async-pty libraries — per the M01-M04 framework constraint.
 ``send`` is async; internally it uses ``loop.run_in_executor`` to wrap the
-synchronous ``os.write`` + ``select.select`` + ``os.read`` loop.
+synchronous write + read loop.
 """
 
 from __future__ import annotations
@@ -47,6 +54,23 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from the_one.platform.sandbox.base import SandboxProfile
+
+# ---------------------------------------------------------------------------
+# Shared tuning constants — platform-neutral; imported by both pty_unix and
+# pty_windows so neither backend hard-codes these values.
+# ---------------------------------------------------------------------------
+
+# Idle-stability window: if the PTY/socket produces no new bytes for this long
+# (and the buffer is non-empty), the read is considered "done".
+_DEFAULT_IDLE_WINDOW = 0.1  # seconds
+
+# Hard cap for start() readiness drain — some shells never go idle; give up
+# after 2 s and proceed (session still usable).
+_DEFAULT_START_TIMEOUT = 2.0  # seconds
+
+# Single recv/read chunk size.  Smaller than typical kernel PTY buffers so a
+# single read rarely truncates a logical chunk.
+_READ_CHUNK = 65536  # bytes
 
 
 class PtySession(ABC):
@@ -113,8 +137,9 @@ def create_pty_session(
 
     On POSIX (``os.name == "posix"``) returns a ``UnixPtySession``
     (imported lazily so this module carries no POSIX stdlib at module scope).
-    On Windows raises ``NotImplementedError`` naming Leg 2 — the module
-    itself imports cleanly (that is the Leg 1 contract; DD6 cascade unblock).
+    On Windows (``os.name == "nt"``) returns a ``WindowsPtySession``
+    (imported lazily so Linux never imports pty_windows / its top-level
+    ``import winpty``).
 
     Args:
         cwd: Optional working directory for the spawned shell.
@@ -130,7 +155,9 @@ def create_pty_session(
             sessions (no cleanup).
     """
     if os.name == "nt":
-        raise NotImplementedError("WindowsPtySession lands in M15 F3 Leg 2")
+        from the_one.platform.pty_windows import WindowsPtySession
+
+        return WindowsPtySession(cwd=cwd, shell=shell, profile=profile, cleanup_dir=cleanup_dir)
     from the_one.platform.pty_unix import UnixPtySession
 
     return UnixPtySession(cwd=cwd, shell=shell, profile=profile, cleanup_dir=cleanup_dir)

@@ -1,4 +1,4 @@
-"""Platform-neutral PTY dispatch tests (M15 F3 Leg 1).
+"""Platform-neutral PTY dispatch tests (M15 F3 Legs 1-2).
 
 This file is NOT skipped on Windows — it is the authoritative
 import-success assertion on the ``windows-2022`` CI lane (DD7).
@@ -12,11 +12,9 @@ Tests:
 * ``test_dispatch_posix`` (POSIX-only) — ``create_pty_session()`` returns
   a ``UnixPtySession`` instance.
 
-* ``test_dispatch_windows_pending_leg2`` (Windows-only) —
-  ``create_pty_session()`` raises ``NotImplementedError`` mentioning Leg 2.
-  NOTE: Leg 2 INVERTS this assertion — it will flip from ``raises`` to
-  ``returns WindowsPtySession``.  Do not mistake this for a broken test on
-  the Windows CI inventory; it is the intentional Leg 1 stub.
+* ``test_dispatch_windows`` (Windows-only) —
+  ``create_pty_session()`` returns a ``WindowsPtySession`` instance.
+  (Leg 2: inverted from Leg 1's ``raises NotImplementedError`` stub.)
 """
 
 from __future__ import annotations
@@ -56,16 +54,16 @@ def test_dispatch_posix() -> None:
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-only dispatch path")
-def test_dispatch_windows_pending_leg2() -> None:
-    """On Windows, ``create_pty_session()`` raises ``NotImplementedError``
-    mentioning Leg 2.
+def test_dispatch_windows() -> None:
+    """On Windows, ``create_pty_session()`` returns a ``WindowsPtySession``.
 
-    NOTE: Leg 2 INVERTS this assertion — it will flip from ``raises`` to
-    ``returns WindowsPtySession``.  This test will be replaced/removed in
-    Leg 2.  Do not mistake this expected failure for a broken test when
-    reading the Leg 1 Windows CI failure inventory (DD10).
+    Leg 2 inverted this from the Leg 1 stub (which asserted
+    ``NotImplementedError``).  The authoritative backend verification is
+    ``tests/test_pty_windows.py`` (cmd.exe round-trip on the windows-2022
+    CI lane).
     """
     from the_one.platform.pty import create_pty_session
+    from the_one.platform.pty_windows import WindowsPtySession
 
-    with pytest.raises(NotImplementedError, match="Leg 2"):
-        create_pty_session()
+    session = create_pty_session()
+    assert isinstance(session, WindowsPtySession)

@@ -177,6 +177,102 @@ the class of latent Windows bug that running the full suite on Windows (DD7)
 exists to surface. Even though this instance is test-side, it mandates the
 product-code audit noted above.
 
+### Leg 2 — windows-pty-backend
+
+- **Status**: landed (2026-06-13)
+- **Design review** (1 cycle, Developer/Sonnet — read the pywinpty *source*;
+  "approve with changes", 3 highs all incorporated):
+  - [high] **My idle-read design was wrong.** pywinpty `PtyProcess.read()` does a
+    *blocking* `fileobj.recv()` fed by a daemon thread; `read_blocking=False`
+    after spawn is a no-op (closure captures the value at construction).
+    Corrected to the **socket-timeout** mechanism (`fileobj.settimeout` +
+    `recv` + catch `socket.timeout`). This would have burned multiple 25-min CI
+    round-trips to discover empirically — the design review paid for itself.
+  - [high] `terminate(force=True)` returns a bool and does NOT guarantee death
+    (no SIGKILL) → use `proc.close(force=True)` (atomic terminate + socket
+    teardown), catch its `IOError`.
+  - [high] `_ENV_ALLOWLIST` is pinned to an exact 8-tuple
+    (`test_execution_helpers.py:273`) → DD5 must add a **separate**
+    `_WINDOWS_ENV_ALLOWLIST` unioned only on `nt`, leaving the pin green.
+  - Mediums folded: `read()` returns `str` not `bytes` → accumulate raw bytes
+    from `recv`; wrap `write` for `EOFError`; swallow the cmd.exe banner drain's
+    `TimeoutError`; commit the shared constants to `pty.py`; `dimensions` note.
+  - **No 2nd cycle:** the reviewer's findings were prescriptive (exact corrected
+    design), faithfully transcribed; self-verified the incorporation for
+    coherence. Spawning a fresh agent would re-derive the same pywinpty
+    internals. If the read mechanism still misbehaves, CI catches it (the leg
+    budgets 1-2 CI iterations on it).
+- **Implementation outcomes (2026-06-13)**:
+  - **Files changed** (7 files):
+    - `the_one/platform/pty_windows.py` (new) — `WindowsPtySession(PtySession)`
+      implementing `start`/`send`/`close`/`is_alive`/`last_activity`; uses
+      socket-timeout idle-read mechanism (`proc.fileobj.settimeout` + `recv` +
+      `socket.timeout` catch); `close()` uses `proc.close(force=True)` for
+      atomic terminate + socket teardown; `dimensions=(50, 220)` for
+      cmd.exe banner width.
+    - `the_one/platform/pty.py` — three shared constants
+      (`_DEFAULT_IDLE_WINDOW`, `_DEFAULT_START_TIMEOUT`, `_READ_CHUNK`)
+      relocated here from `pty_unix.py`; `create_pty_session()` `nt` branch
+      replaced: imports `WindowsPtySession` and returns it (import kept inside
+      the branch so Linux never loads `pty_windows`); module docstring updated.
+    - `the_one/platform/pty_unix.py` — removed the three constant definitions;
+      imports them from `the_one.platform.pty` instead. `_INTERACTIVE_SHELL_BASENAMES`
+      left in place (Unix-only).
+    - `the_one/platform/env.py` — added `_WINDOWS_ENV_ALLOWLIST` constant
+      (7 Windows-essential keys: `SystemRoot`, `PATHEXT`, `COMSPEC`, `TEMP`,
+      `TMP`, `USERPROFILE`, `USERNAME`); `_build_subprocess_env` unions it in
+      only on `os.name == "nt"`; `_ENV_ALLOWLIST` unchanged (8-tuple pin green);
+      module docstring updated.
+    - `pyproject.toml` — `"pywinpty>=2.0; sys_platform == \"win32\""` added to
+      base `dependencies`. Verified not installed on Linux (env marker works).
+    - `tests/test_pty_dispatch.py` — `test_dispatch_windows_pending_leg2` inverted
+      and renamed to `test_dispatch_windows`; now asserts `isinstance(...,
+      WindowsPtySession)` under `skipif(os.name != "nt")`.
+    - `tests/test_pty_windows.py` (new, `pytestmark` skipif `os.name != "nt"`) —
+      7 tests: `test_start_creates_alive_session`, `test_send_echo_hello_round_trip`,
+      `test_send_second_command_state_persists`, `test_close_makes_session_not_alive`,
+      `test_close_is_idempotent`, `test_last_activity_updated_after_send`,
+      `test_send_after_close_raises_runtime_error`.
+  - **Verification steps (POSIX-side) — all passed**:
+    - `from the_one.platform.pty import create_pty_session, PtySession; print('import ok')`:
+      no error — `pty_windows` not imported on Linux.
+    - `importlib.util.find_spec('winpty')`: prints `None` — pywinpty not installed.
+    - `.venv/bin/python -m pip install -e ".[all-llms,dev]"` on Linux: clean,
+      pywinpty not pulled (env marker `sys_platform == "win32"` honored).
+    - `pytest tests/test_pty_dispatch.py tests/test_execution_tools.py tests/test_execution_helpers.py
+      -x --timeout=60 -q`: **76 passed, 1 skipped** — dispatch + env tests all pass;
+      `test_eight_allowlist_keys_canonical_set` pin stays green.
+    - Full default suite `pytest tests/ --timeout=300 -q`: **3057 passed, 8 skipped,
+      589 deselected** — no regressions (identical count to Leg 1 baseline).
+    - `ruff check` + `ruff format --check` on all changed paths: clean.
+  - **Deviations**: None from the leg spec. The `noqa: F821` comment on
+    `import winpty` suppresses ruff's unresolved-import flag without adding
+    winpty to Linux deps (as the leg directed). The `I001` import-order fix
+    was applied via `ruff --fix` (two files: `pty_unix.py`, `pty_windows.py`).
+  - **Windows-side verification**: deferred to CI post-push per leg design (the
+    implementing agent runs Linux/WSL2; authoritative Windows check is the
+    `windows-2022` lane running `tests/test_pty_windows.py`). Budget 1-2 CI
+    iterations on the socket-timeout read mechanism if needed.
+- **B1 fix (2026-06-13) — `_read_until_idle_blocking` socket.timeout / EOF
+  collision (blocking review finding):**
+  - **Issue:** the `except socket.timeout` handler set `chunk = b""` and fell
+    through to the shared `elif chunk == b"": return bytes(buffer)` branch,
+    causing a timeout (the normal idle-window signal) to be treated as EOF.
+    Result: every `send()` read and the startup banner drain would return after
+    the first 0.1 s window even when more output was still in flight — the
+    idle-stability contract was broken.
+  - **Fix** (`the_one/platform/pty_windows.py`): made the `except socket.timeout`
+    handler fully self-contained — idle-stable check, then timeout-budget check
+    (with `TimeoutError` raise), then `continue`. Removed the `chunk = b""`
+    fall-through. Renamed the data path's `elif chunk == b"":` to a plain
+    `else:` (structurally unreachable via `socket.timeout` now, matches the
+    Unix backend's shape). This mirrors `pty_unix.py`'s structurally separate
+    `else` (select-timeout) vs `if chunk:` (data) branches exactly.
+  - **Verification:** `ruff check` + `ruff format --check` clean; `pytest
+    tests/test_pty_dispatch.py tests/test_execution_tools.py
+    tests/test_execution_helpers.py -x --timeout=60 -q` → **76 passed,
+    1 skipped** — identical to original Leg 2 POSIX baseline, no regressions.
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._

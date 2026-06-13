@@ -57,20 +57,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from the_one.platform.env import _build_subprocess_env
-from the_one.platform.pty import PtySession
+from the_one.platform.pty import (
+    _DEFAULT_IDLE_WINDOW,
+    _DEFAULT_START_TIMEOUT,
+    _READ_CHUNK,
+    PtySession,
+)
 from the_one.platform.shell import select_shell
 
 if TYPE_CHECKING:
     from the_one.platform.sandbox.base import SandboxProfile
-
-# Internal tuning constants. Idle window of 100ms is the recommended PTY
-# readiness signal (Decision-resolution at L5a leg-design); 2s cap is the
-# defense against shells that never go idle (e.g. RC file emits an infinite
-# loop). 65536 is a comfortable single-read size — smaller than typical PTY
-# kernel buffers, so a single ``os.read`` rarely truncates a logical chunk.
-_DEFAULT_IDLE_WINDOW = 0.1
-_DEFAULT_START_TIMEOUT = 2.0
-_READ_CHUNK = 65536
 
 # Shells that benefit from ``-i`` (interactive flag): ``bash`` and ``zsh``
 # both source RC files and emit prompts more reliably with ``-i``. ``dash``

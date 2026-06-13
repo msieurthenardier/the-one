@@ -341,7 +341,7 @@ implementer leans on it (cannot reproduce locally on WSL2/Linux).
    they're honest deselects, not invisible false-skips on the new Windows
    runner; and add the `mcp/__init__` eager-load-cycle guard comments at the
    lazy `SandboxError` import sites (`_tool.py:157`, `_tool_provider.py:306`).
-2. **windows-pty-backend** — `WindowsPtySession` via pywinpty (DD1 dep with the
+2. ✅ **windows-pty-backend** *(completed 2026-06-13)* — `WindowsPtySession` via pywinpty (DD1 dep with the
    `sys_platform` marker; DD3 idle-window read loop; DD4 handle-based
    supervision); `create_pty_session` Windows dispatch (DD2); the DD5 Windows
    env-essential allowlist (backend won't function without `SystemRoot` et al.).
