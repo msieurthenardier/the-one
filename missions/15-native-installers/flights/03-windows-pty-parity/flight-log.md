@@ -91,6 +91,36 @@ findings incorporated:
   Approach doc-drift; noted DD10's third "already-portable" residue. Max 2
   cycles reached; spec locked.
 
+## Flight Director Notes
+
+**2026-06-13 — Flight execution started (`/agentic-workflow`).**
+- Phase file `.flightops/agent-crews/leg-execution.md` loaded; structure valid
+  (Crew / Interaction Protocol / Prompts all present).
+- **Crew-file staleness override (skill–project boundary):** the Implement
+  prompt instructs `docker exec the-one pytest …` — stale, predating Flight 1's
+  full de-Dockerization (the project now tests host-native via
+  `.venv/bin/python -m pytest`, browser/long-subprocess suites via
+  `scripts/run-tests.sh`). Per CLAUDE.md ("Do not rely on crew prompt files to
+  carry skill-required instructions"), the FD issues the correct host-native
+  test invocation directly in every Developer spawn, overriding the crew file's
+  Docker line. (Crew file itself not edited — it's project-owned; the override
+  is per-spawn.)
+- **Reviewer model scaling:** crew default is Haiku. Per F1's standardized
+  "scale reviewer to diff risk" lesson, the FD will use **Sonnet** for legs
+  touching PTY process-supervision / teardown / fork-safety (Legs 2, 3) and the
+  Haiku default for lighter legs (1, 4-docs). No leg here touches the
+  sandbox/denylist security surface (Windows = passthrough).
+- **Structural reality — CI- and operator-gated flight (not fully autonomous):**
+  implementing agents run on Linux/WSL2 and cannot exercise the Windows backend.
+  Windows verification comes only from the `windows-2022` CI lane (push-gated)
+  and, for orphan-reap (Leg 3) and the behavior test (Leg 5), the operator's
+  physical Windows host. The skill's "batch all autonomous legs → one commit"
+  model will be adapted: the branch is pushed after Windows-relevant legs so CI
+  can produce the Leg-1 failure inventory (DD7) and verify the backend before
+  later legs are scoped against it. The adaptation will be logged at the point
+  it's applied, with rationale.
+- Flight status `ready` → `in-flight`. Starting Leg 1 design.
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
