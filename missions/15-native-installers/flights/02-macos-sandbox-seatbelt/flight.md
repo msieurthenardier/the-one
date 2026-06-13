@@ -1,7 +1,38 @@
 # Flight: macOS Sandbox Backend (Seatbelt)
 
-**Status**: planning
+**Status**: planning (**PARKED** 2026-06-13 — see Parking Note)
 **Mission**: [Native Desktop Installers](../../mission.md)
+
+> ## Parking Note (2026-06-13)
+>
+> **Parked in favor of Windows PTY parity (now Flight 3, executed first).**
+> Rationale: the operator runs WSL2 on a native Windows host, so the Windows
+> flight has a *local* test apparatus (hands-on interactive testing + operator
+> can run the behavior test himself) where this flight has none (no macOS
+> hardware; behavior-test backing already deferred to Flight 8). Plus cost:
+> macOS GitHub runners bill at **10×** on private repos vs. Windows **2×**,
+> and a from-scratch backend flight is iterate-heavy. No dependency blocks the
+> swap — both backends slot behind the M14 seam independently. This spec is
+> complete and twice-design-reviewed; it resumes after the Windows flight.
+>
+> **Two ride-alongs migrated OUT of this flight's Leg 1** into the Windows
+> flight, because their F1-debrief deadline is "before the CI matrix expands"
+> — and the Windows matrix now expands first: (1) re-mark the ~12
+> `skipif(which("bwrap"))` integration tests as `@requires_bwrap`; (2) the
+> `mcp/__init__` eager-load-cycle guard comments. When this flight resumes,
+> Leg 1 no longer owns them (verify they were done by the Windows flight).
+>
+> **Dust-off checklist when resuming:**
+> - Re-verify the pinned `macos-15` runner image still exists / is still the
+>   right pin (image deprecation cadence).
+> - Re-check macOS runner pricing (the 10× multiplier and DD9's cost note).
+> - Re-run recon on the DD5/DD6/DD7 couplings (`_seam.py:33`,
+>   `stdio.py:479/:599`, `pty.py:294/:327-328/:587`): the Windows flight will
+>   touch `pty.py` and the seam, and **may have already landed the DD5
+>   capability-attribute refactor** (it's platform-independent) — if so, this
+>   flight's Leg 4 scope shrinks accordingly.
+> - Confirm the `requires_seatbelt` marker isn't already registered (Leg 1
+>   was to add it; check it didn't land early).
 
 ## Contributing to Criteria
 
@@ -294,14 +325,12 @@ and its CI lane is the substrate Legs 2–5 test against.
    portability failures it surfaces; add two one-minute lane smokes: the
    `sandbox-exec` presence/function probe and the SBPL last-match-precedence
    probe (DD3); register the `requires_seatbelt` marker + addopts deselect in
-   `pyproject.toml` now (cheap insurance for Legs 2–4 unit tests);
-   **ride-alongs on the same surface**: re-mark the ~12
-   `skipif(which("bwrap"))` integration tests as `@pytest.mark.requires_bwrap`
-   (`test_mcp_sandbox_integration.py:88`, `test_mcp_stdio_sandbox.py:447`) so
-   they're honest deselects rather than invisible false-skips on macOS runners
-   (F1 debrief deadline: "before the CI matrix expands"), and add the
-   `mcp/__init__` eager-load-cycle guard comments at the lazy `SandboxError`
-   import sites (`_tool.py`, `_tool_provider.py`).
+   `pyproject.toml` now (cheap insurance for Legs 2–4 unit tests).
+   *(The two F1 ride-alongs — `skipif(which("bwrap"))` re-marking and the
+   `mcp/__init__` guard comments — **migrated to the Windows flight** when
+   this flight was parked 2026-06-13; their "before the CI matrix expands"
+   deadline is met by the Windows matrix, which now expands first. On resume,
+   verify they landed there rather than re-doing them.)*
 2. **seatbelt-backend-host-mode** — `SeatbeltSandbox` with host-mode SBPL
    generation (DD3, canonicalized paths) + platform-independent unit tests
    (string-level, run everywhere) + contract-test parity with

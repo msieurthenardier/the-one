@@ -244,6 +244,17 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 > **Note:** These are tentative suggestions, not commitments. Flights are planned
 > and created one at a time as work progresses. This list will evolve based on
 > discoveries during implementation.
+>
+> **Execution-order swap (2026-06-13):** Flight 3 (Windows PTY parity) is being
+> executed **before** Flight 2 (macOS Seatbelt). Flight numbers are kept as
+> stable identities (the macOS spec is already drafted + design-reviewed as
+> Flight 2); only the order changes. Rationale: the operator has a native
+> Windows host (under WSL2) — a *local* test apparatus the macOS flight lacks
+> — and macOS GitHub runners bill at 10× vs. Windows 2× on this private repo.
+> Both backends slot behind the M14 seam independently, so no dependency
+> blocks the swap. Flight 2 is **parked** (see its Parking Note); the two F1
+> ride-alongs whose deadline is "before the CI matrix expands" migrated from
+> Flight 2's Leg 1 into Flight 3 (the Windows matrix expands first).
 
 - [x] Flight 1: **Host-native runtime readiness** *(completed)* — run the app as a normal host
       process with no Docker anywhere (dev, test, run): wire `Settings.data_dir`
@@ -263,13 +274,18 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       constraint, and PTY-echo sentinel footgun in `agents.md`/`CLAUDE.md`;
       investigate the pre-existing `test_connectors_e2e.py::test_e2e_full_lifecycle`
       flake).
-- [ ] Flight 2: **macOS sandbox backend (Seatbelt)** — add the macOS backend
-      behind the Mission-14 seam (via `sandbox-runtime`/Seatbelt) so macOS tool and
-      MCP execution is enforced. Behavior-test containment on macOS.
-- [ ] Flight 3: **Windows PTY parity (ConPTY)** — add a Windows backend to
-      `platform/pty.py` (via `pywinpty`/ConPTY) and a read/idle loop that does not
-      depend on POSIX-only `select`/`fcntl`, routed through the shared seam, bringing
-      interactive shell/session tools to feature parity on Windows.
+- [ ] Flight 2: **macOS sandbox backend (Seatbelt)** *(spec drafted + design-reviewed;
+      **PARKED** — executes after Flight 3)* — add the macOS backend behind the
+      Mission-14 seam via **direct `sandbox-exec` + generated SBPL** (DD1: not the
+      `sandbox-runtime` Node dependency) so macOS tool/PTY/MCP execution is enforced;
+      kernel-verified containment in CI on `macos-15`. Behavior-test backing of the
+      macOS containment criterion deferred to Flight 8 (no operator macOS hardware).
+- [ ] Flight 3: **Windows PTY parity (ConPTY)** *(executes first — see order swap)* —
+      add a Windows backend to `platform/pty.py` (via `pywinpty`/ConPTY) and a
+      read/idle loop that does not depend on POSIX-only `select`/`fcntl`, routed
+      through the shared seam, bringing interactive shell/session tools to feature
+      parity on Windows. Absorbs the two migrated F1 ride-alongs
+      (`skipif(which("bwrap"))` re-marking; `mcp/__init__` guard comments).
 - [ ] Flight 4: **Native application window** — launch uvicorn in-process and open
       a chromeless native web-view window pointed at the local server, with a
       system-browser fallback; handle app lifecycle (port selection,

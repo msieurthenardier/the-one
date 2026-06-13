@@ -53,6 +53,14 @@ findings incorporated:
   fd leak flagged as a Leg 4 decision point, stdio SDK default-env merge
   precision, factory log keys noted test-pinned.
 
+## Parked (2026-06-13)
+
+Parked immediately after design review, before any leg execution, in favor of
+executing the Windows PTY flight (Flight 3) first. Full rationale + dust-off
+checklist in the flight spec's Parking Note. No code was written; the spec and
+its two design-review cycles stand. Two F1 ride-alongs migrated out of Leg 1
+into Flight 3 (deadline "before the CI matrix expands" — Windows matrix first).
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
