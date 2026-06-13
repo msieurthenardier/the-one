@@ -400,6 +400,17 @@ review catches). Linux lanes all green.
 - Next: commit + push → windows-2022 lane is the DD-OQ empirical answer
   (close-reap; nested-job behavior; parent-death xfail).
 
+**2026-06-13 — Out-of-flight CI maintenance (operator request): Node 20 → Node 24 actions.**
+GitHub force-migrates Node-20 actions on 2026-06-16; the deprecation warnings
+surfaced on every CI run this flight. Bumped `actions/checkout@v4 → @v5` (first
+node24 major; minimal jump) and `actions/setup-python@v5 → @v6` (v5 is node20,
+v6 is node24) across `lint.yml` + `test.yml` (9 pins). Verified each target
+declares `runs.using: node24` via the actions' `action.yml`. Committed
+separately (clearly labeled), not folded into a leg — unrelated to PTY parity,
+F1 "orphaned-fixes separate commit" precedent. Pushed onto flight/03 (rides the
+existing CI/PR); the push supersedes the in-progress Leg-3 run — the replacement
+run covers Leg 3 + the action bump together (one Windows run, not two).
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
