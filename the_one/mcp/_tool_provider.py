@@ -303,6 +303,9 @@ class MCPToolProvider:
                 # Path A fallback: acquire + list_tools (failure class #2 —
                 # covers connect AND list_tools). Used when operator has never
                 # refreshed the source-edit page.
+                # Lazy import (NOT module-top): `the_one.mcp.__init__` eagerly imports
+                # this module (`_tool_provider`), so a top-level SandboxError import
+                # re-opens the mcp/__init__ eager-load cycle. Keep it function-local.
                 from the_one.platform.sandbox.errors import SandboxError
 
                 try:

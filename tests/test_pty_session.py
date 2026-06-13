@@ -1,9 +1,8 @@
 """Tests for ``the_one.platform.pty`` (F4 L5a).
 
 Pin the ``PtySession`` ABC contract and the ``UnixPtySession``
-concrete implementation. The Windows-guard test is symmetric:
-on Posix it asserts the import succeeds; on Windows (skipped on
-this Linux dev container) it would assert the import-time raise.
+concrete implementation. Platform-neutral dispatch tests (including the
+inverted Windows-import assertion) live in ``tests/test_pty_dispatch.py``.
 
 All tests use ``try/finally: await s.close()`` to avoid leaking
 child processes between tests — a leaked PTY child can lock the
@@ -21,15 +20,15 @@ import os
 
 import pytest
 
-# Skip the entire module on non-Posix platforms — ``UnixPtySession``
-# requires ``pty.fork()`` and the module-level Windows guard would
-# raise ``NotImplementedError`` on import.
-pytestmark = pytest.mark.skipif(
-    os.name != "posix",
-    reason="UnixPtySession requires POSIX (pty.fork)",
-)
+# Skip the entire module on non-POSIX platforms — ``UnixPtySession``
+# requires ``pty.fork()`` which is POSIX-only. Placed BEFORE the
+# ``UnixPtySession`` import so the file skips cleanly on Windows without a
+# collection-time ImportError (``allow_module_level=True`` is required for
+# module-scope pytest.skip calls).
+if os.name != "posix":
+    pytest.skip("UnixPtySession requires POSIX (pty.fork)", allow_module_level=True)
 
-from the_one.platform.pty import (  # noqa: E402  (after pytestmark skip)
+from the_one.platform.pty import (  # noqa: E402  (after POSIX skip guard)
     PtySession,
     UnixPtySession,
     create_pty_session,
@@ -233,31 +232,6 @@ class TestUnixPtySession:
                 await s.start()
         finally:
             await s.close()
-
-
-# ---------------------------------------------------------------------------
-# Windows guard — pin the import-time raise on Windows.
-# ---------------------------------------------------------------------------
-
-
-class TestWindowsGuard:
-    """On Windows, importing ``the_one.platform.pty`` must raise
-    ``NotImplementedError`` at IMPORT time. On Posix (this dev container)
-    the test is skipped; the module-level ``pytestmark`` already filters
-    out the rest of this file's Posix-specific tests on Windows."""
-
-    @pytest.mark.skipif(
-        os.name != "nt",
-        reason="Windows-only guard test",
-    )
-    def test_import_raises_on_windows(self) -> None:  # pragma: no cover
-        # Force re-import to trigger the guard. Importing the module
-        # under ``importlib`` catches the raise without polluting the
-        # parent test module's import state.
-        import importlib
-
-        with pytest.raises(NotImplementedError):
-            importlib.import_module("the_one.platform.pty")
 
 
 # ---------------------------------------------------------------------------

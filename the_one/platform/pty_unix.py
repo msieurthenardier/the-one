@@ -1,0 +1,557 @@
+"""Unix PTY session implementation — POSIX-only backend.
+
+This module is the concrete Unix backend for the platform-neutral
+``PtySession`` ABC defined in ``the_one.platform.pty``.  It is imported
+only on POSIX; ``the_one.platform.pty`` guards the import behind
+``os.name == "posix"`` (via the POSIX back-compat re-export and the
+``create_pty_session`` dispatcher).
+
+The ``UnixPtySession`` implementation is the ``pty.fork()`` + child-side
+``execvp`` backend from M14 F4 L5a, moved byte-identically from
+``pty.py`` as part of the M15 F3 Leg 1 platform-neutral split (DD2).
+No logic change — this is a mechanical move.
+
+**Fork-safety convention — "parent-loads, child-execs" (M14 F4 L7)**:
+
+All state that the post-fork child needs must be computed or loaded in the
+PARENT before ``pty.fork()`` is called; the post-fork child must use only
+already-loaded handles and must NEVER perform a fresh import, ``dlopen``, or
+``ctypes.CDLL()`` call.
+
+Rationale: ``pty.fork()`` is a POSIX ``fork()`` — it duplicates the entire
+process image including any held locks (mutexes, import lock, malloc lock).
+A fresh import or ``dlopen`` in the child acquires those same locks; if a
+parent thread was mid-import or mid-allocation at fork time, the child
+inherits the locked state with no thread to release it — deadlock.
+
+Two concrete precedents implemented in this module:
+
+1. **SpawnSpec pre-computation** — ``UnixPtySession.start()`` builds the full
+   ``SpawnSpec`` (via ``get_sandbox_backend().prepare_spawn(…)``) in the
+   parent before the ``pty.fork()`` call. The child uses only the frozen
+   ``spec.command`` / ``spec.args`` / ``spec.env`` values.
+
+2. **libc CDLL handle** — the module-level ``_libc`` singleton (below) is
+   loaded by ``_get_libc()`` at module-import time (parent process, before
+   any fork). The child uses ``_libc.prctl(…)`` directly — it never calls
+   ``ctypes.CDLL()`` itself.
+
+Any future addition that requires native-library access or a new import in
+the child-side code path must be pre-loaded at module level (or at least
+before the ``pty.fork()`` call) to comply with this convention.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import ctypes
+import fcntl
+import os
+import pty
+import select
+import shutil
+import signal
+import sys
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from the_one.platform.env import _build_subprocess_env
+from the_one.platform.pty import PtySession
+from the_one.platform.shell import select_shell
+
+if TYPE_CHECKING:
+    from the_one.platform.sandbox.base import SandboxProfile
+
+# Internal tuning constants. Idle window of 100ms is the recommended PTY
+# readiness signal (Decision-resolution at L5a leg-design); 2s cap is the
+# defense against shells that never go idle (e.g. RC file emits an infinite
+# loop). 65536 is a comfortable single-read size — smaller than typical PTY
+# kernel buffers, so a single ``os.read`` rarely truncates a logical chunk.
+_DEFAULT_IDLE_WINDOW = 0.1
+_DEFAULT_START_TIMEOUT = 2.0
+_READ_CHUNK = 65536
+
+# Shells that benefit from ``-i`` (interactive flag): ``bash`` and ``zsh``
+# both source RC files and emit prompts more reliably with ``-i``. ``dash``
+# (which is ``/bin/sh`` on Debian/Ubuntu) emits a "can't access tty" warning
+# under some configurations when invoked with ``-i``; the F4 use case does
+# not strictly need an interactive prompt — the idle-mark detects readiness
+# regardless of whether a prompt was printed.
+_INTERACTIVE_SHELL_BASENAMES: frozenset[str] = frozenset({"bash", "zsh"})
+
+# Module-level libc singleton — loaded at most once, only on Linux.
+# Loaded in the PARENT (before pty.fork()) per the fork-safety rule (DD1):
+# calling CDLL inside the post-fork child can deadlock on a mutex inherited
+# from a parent thread mid-import.
+_libc: "ctypes.CDLL | None" = None
+
+
+def _get_libc() -> "ctypes.CDLL | None":
+    """Return a cached libc handle on Linux (for PR_SET_PDEATHSIG); None elsewhere.
+
+    Loaded in the PARENT (never in the post-fork child) per the module
+    fork-safety rule (DD1). The pdeathsig is Linux/bwrap-only defense-in-depth;
+    skipping it on non-Linux is correct.
+    """
+    global _libc
+    if sys.platform != "linux":
+        return None
+    if _libc is None:
+        _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    return _libc
+
+
+class UnixPtySession(PtySession):
+    """Unix concrete ``PtySession`` using ``pty.fork()`` + child-side
+    ``execvp`` routed through the sandbox seam (F14 M14 F2).
+
+    The SpawnSpec is computed in the parent BEFORE ``pty.fork()`` (DD1
+    fork-safety: the factory touches logging locks). The child execs through
+    the spec — passthrough reproduces today's behavior byte-for-byte;
+    bubblewrap wraps the shell in a PID namespace.
+
+    Construction is cheap; the subprocess is spawned by ``start()``.
+    Tests should always wrap ``await s.close()`` in a ``try/finally`` to
+    avoid leaking child processes between tests.
+
+    Args:
+        cwd: Optional working directory for the spawned shell. Passed to
+            ``spec.cwd`` (bubblewrap uses ``--chdir``; passthrough uses
+            ``os.chdir`` in the child). chdir failure makes the child
+            ``os._exit(127)`` (parent then sees the session as dead via
+            ``is_alive``).
+        shell: Optional explicit shell path. Used by tests for
+            deterministic ``env`` output. Defaults to ``select_shell()[0]``
+            (honors ``$SHELL`` on POSIX).
+        profile: Optional ``SandboxProfile`` controlling sandbox policy
+            (writable paths, network, PID namespace, etc.). When ``None``
+            on a bubblewrap host a strict-floor profile is used (no
+            writable paths). Callers that need a working session on Linux
+            must pass a profile that includes the workspace in
+            ``writable_paths``. The tool layer (Leg 2) always supplies
+            a real profile; unit tests pin to passthrough via
+            ``THE_ONE_SANDBOX_DISABLED=1``.
+    """
+
+    def __init__(
+        self,
+        cwd: Path | None = None,
+        shell: str | None = None,
+        profile: SandboxProfile | None = None,
+        cleanup_dir: Path | None = None,
+    ) -> None:
+        self._cwd = cwd
+        self._shell_override = shell
+        self._profile = profile
+        self._cleanup_dir = cleanup_dir
+        self._pid: int | None = None
+        self._master_fd: int | None = None
+        self._closed = False
+        self._wrapped: bool = False
+        # ``_last_activity`` is set by ``start`` and ``send``. Initialize
+        # to construction time so the reaper has a sensible value even if
+        # ``start`` somehow doesn't run (shouldn't happen, but defensive).
+        self._last_activity = time.monotonic()
+
+    # ------------------------------------------------------------------
+    # PtySession protocol implementation
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Spawn the shell via ``pty.fork()`` and block until idle-mark
+        or 2s cap, whichever comes first.
+
+        The SpawnSpec is computed HERE (parent, before fork) for fork-safety:
+        ``get_sandbox_backend()`` touches logging locks the child must not
+        acquire (DD1). The child execvp's through the spec unchanged.
+        """
+        if os.name != "posix":
+            # Belt-and-suspenders. Module-level guard already raised on
+            # Windows; this also covers (hypothetical) future os.name
+            # values that aren't "posix".
+            raise NotImplementedError(
+                f"UnixPtySession requires os.name == 'posix' (got {os.name!r})"
+            )
+        if self._pid is not None:
+            raise RuntimeError("session already started")
+
+        shell = self._shell_override or select_shell()[0]
+        cwd = self._cwd
+
+        # --- Compute SpawnSpec in the parent (before fork) — DD1 ---
+        # Function-level import to avoid any platform↔platform.sandbox
+        # import cycle — mirrors platform/shell.py:123.
+        from the_one.platform.sandbox import get_sandbox_backend
+        from the_one.platform.sandbox._seam import warn_if_isolation_unenforced
+        from the_one.platform.sandbox.base import SandboxProfile
+
+        # Carry the existing interactive-shell logic into shell_args (it
+        # must be resolved here so the child branch is fork-safe).
+        if os.path.basename(shell) in _INTERACTIVE_SHELL_BASENAMES:
+            shell_args = ["-i"]
+        else:
+            shell_args = []
+
+        prof = self._profile if self._profile is not None else SandboxProfile()
+        backend = get_sandbox_backend()
+        warn_if_isolation_unenforced(prof, backend)
+        spec = backend.prepare_spawn(
+            prof,
+            shell,
+            shell_args,
+            _build_subprocess_env(),
+            str(cwd) if cwd is not None else None,
+        )
+        # Record whether this session is bwrap-wrapped for the teardown branch
+        # (spec-level ground truth — a future backend variant can't drift this).
+        self._wrapped = spec.command == "bwrap"
+
+        # Fork-safety (DD1): load libc HERE, in the PARENT, before pty.fork().
+        # Importing ctypes or calling CDLL inside the post-fork child is unsafe —
+        # a new dlopen() can deadlock on a mutex inherited from a parent thread
+        # mid-import. _get_libc() returns None on non-Linux (pdeathsig is
+        # Linux/bwrap-only defense-in-depth; skipping on non-Linux is correct).
+        # Primary orphan-reap coverage is bwrap's own --die-with-parent
+        # (prctl PR_SET_PDEATHSIG tied to the Python parent). This pre-execvp
+        # call closes only the microsecond startup race window before bwrap
+        # registers its own handler. Safe only when bwrap is not setuid/setcap
+        # (probed by the regression test — those executables clear PDEATHSIG on execve).
+        local_libc = _get_libc()
+        _pr_set_pdeathsig = 1  # prctl constant PR_SET_PDEATHSIG (linux/prctl.h)
+
+        try:
+            pid, master_fd = pty.fork()
+        except OSError as exc:
+            # ``pty.fork()`` can fail under resource limits (RLIMIT_NPROC,
+            # FD exhaustion). Surface with context so the caller can tell
+            # this from a downstream ``send`` failure.
+            raise RuntimeError(f"pty.fork() failed: {exc}") from exc
+
+        if pid == 0:
+            # Child branch — ``os._exit`` on any failure to avoid running
+            # parent atexit handlers / pytest cleanup. Errors written to
+            # the slave PTY surface to the parent via the master_fd read.
+            try:
+                # passthrough: real effect on cwd; bwrap: redundant (--chdir
+                # in spec) but harmless and required for passthrough — do not
+                # remove (DD1).
+                if spec.cwd is not None:
+                    os.chdir(spec.cwd)
+                os.environ.clear()
+                os.environ.update(spec.env)
+                # Defense-in-depth: set PR_SET_PDEATHSIG so this child (and
+                # everything it execs) receives SIGKILL if the Python parent
+                # dies. The pre-loaded local_libc handle is safe to use here
+                # (no new import/dlopen — loaded in the parent above). signal
+                # is already imported at module level. Linux-only; None on
+                # other platforms (pdeathsig is Linux/bwrap-only).
+                if local_libc is not None:
+                    # Return value intentionally unchecked — non-fatal defense-in-depth.
+                    local_libc.prctl(_pr_set_pdeathsig, signal.SIGKILL)
+                os.execvp(spec.command, [spec.command, *spec.args])
+            except Exception:  # pragma: no cover — exec replaces image
+                # Unreachable under normal operation: ``execvp`` either
+                # replaces the image or raises; on raise we exit so the
+                # parent sees a quick EOF. ``BaseException`` would catch
+                # ``SystemExit`` from ``os._exit``; we explicitly want
+                # ``Exception`` to let ``SystemExit`` propagate out.
+                os._exit(127)
+            # Should never reach here.
+            os._exit(127)  # pragma: no cover
+
+        # Parent branch
+        self._pid = pid
+        self._master_fd = master_fd
+        # Non-blocking master_fd so ``os.read`` raises ``BlockingIOError``
+        # rather than blocking when the buffer is empty. ``select.select``
+        # remains the wait primitive.
+        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+        # Drain the prompt. Discard the bytes — we only care that the
+        # shell has gone idle. Use the leg-spec readiness window: 100ms
+        # idle, hard 2s cap.
+        try:
+            await self._read_until_idle(
+                timeout=_DEFAULT_START_TIMEOUT,
+                idle_window=_DEFAULT_IDLE_WINDOW,
+            )
+        except asyncio.TimeoutError:
+            # No bytes at all in 2s — accepted. Some shells in some
+            # configurations don't emit a prompt on stdout (notably
+            # non-interactive ``sh``). The session is still usable.
+            pass
+
+        self._last_activity = time.monotonic()
+
+    async def send(self, input: str, timeout: float = 30.0) -> bytes:
+        """Write ``input`` (newline-appended if not already terminated)
+        to the shell; read response until idle or timeout.
+
+        Returns raw bytes. Raises ``asyncio.TimeoutError`` on no-output
+        windows. Raises ``RuntimeError`` if the session is closed or
+        the subprocess has exited.
+        """
+        if self._closed or not self.is_alive:
+            raise RuntimeError("session not active")
+        if not input.endswith("\n"):
+            input = input + "\n"
+        payload = input.encode()
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            self._send_blocking,
+            payload,
+            timeout,
+        )
+        self._last_activity = time.monotonic()
+        return result
+
+    async def close(self) -> None:
+        """Idempotent teardown. Closes ``master_fd``.
+
+        SIGKILL-fast on bwrap-wrapped sessions (bwrap doesn't forward
+        SIGTERM to the inner shell; the 1s grace is wasted — DD9).
+        SIGTERM→1s→SIGKILL on passthrough sessions (preserves graceful
+        behavior). No in-close settle — the orphan-assertion settle lives
+        test-side where the async-teardown-vs-/proc race actually needs
+        covering.
+        """
+        if self._closed:
+            return
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._close_blocking)
+
+    @property
+    def is_alive(self) -> bool:
+        """True if the subprocess is still running.
+
+        Returns False after ``close()`` or once ``os.waitpid`` reports
+        the child has exited. Catches ``ChildProcessError`` (kernel
+        removed the entry between calls) and treats as dead.
+        """
+        if self._closed or self._pid is None:
+            return False
+        try:
+            done, _status = os.waitpid(self._pid, os.WNOHANG)
+        except ChildProcessError:
+            # Kernel removed the entry between calls; treat as dead.
+            self._closed = True
+            return False
+        if done == 0:
+            return True
+        # ``done == self._pid`` means the child has exited.
+        self._closed = True
+        return False
+
+    @property
+    def last_activity(self) -> float:
+        """Monotonic timestamp of the most recent ``send`` return (or
+        ``start()`` completion if no ``send`` has happened yet)."""
+        return self._last_activity
+
+    # ------------------------------------------------------------------
+    # Blocking helpers (run via ``loop.run_in_executor``)
+    # ------------------------------------------------------------------
+
+    def _send_blocking(self, payload: bytes, timeout: float) -> bytes:
+        """Synchronous write-then-read. Caller wraps in
+        ``run_in_executor``."""
+        assert self._master_fd is not None  # set by ``start``
+        os.write(self._master_fd, payload)
+        return self._read_until_idle_blocking(
+            timeout=timeout,
+            idle_window=_DEFAULT_IDLE_WINDOW,
+        )
+
+    async def _read_until_idle(
+        self,
+        timeout: float,
+        idle_window: float,
+    ) -> bytes:
+        """Async wrapper around ``_read_until_idle_blocking``."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            self._read_until_idle_blocking,
+            timeout,
+            idle_window,
+        )
+
+    def _read_until_idle_blocking(
+        self,
+        timeout: float,
+        idle_window: float,
+    ) -> bytes:
+        """Read from ``master_fd`` until the stream goes idle for
+        ``idle_window`` seconds (and the buffer is non-empty) OR the
+        ``timeout`` budget is exhausted.
+
+        Returns the accumulated bytes. Raises ``asyncio.TimeoutError``
+        if the timeout elapses with no bytes received.
+
+        Edge cases:
+        * On ``OSError(EIO)`` (slave PTY closed when shell exited): returns
+          the buffer accumulated so far (may be empty).
+        * On ``BlockingIOError`` / ``OSError(EAGAIN)`` from ``os.read``:
+          treats as no-data this iteration and continues.
+        * ``select.select`` timeout is clamped to ``max(0.0, ...)`` to
+          avoid ``ValueError`` once the budget is exhausted.
+        """
+        assert self._master_fd is not None  # set by ``start``
+        master_fd = self._master_fd
+        buffer = bytearray()
+        start_time = time.monotonic()
+        last_byte_time = start_time
+
+        while True:
+            now = time.monotonic()
+            elapsed = now - start_time
+            remaining = timeout - elapsed
+            # Clamp non-negative — ``select.select`` raises ``ValueError``
+            # on negative timeouts.
+            select_timeout = max(0.0, min(idle_window, remaining))
+
+            try:
+                ready, _, _ = select.select([master_fd], [], [], select_timeout)
+            except (OSError, ValueError):
+                # ``ValueError`` means master_fd was already closed;
+                # ``OSError`` (e.g. EBADF) covers the same. Return what
+                # we have.
+                return bytes(buffer)
+
+            if ready:
+                try:
+                    chunk = os.read(master_fd, _READ_CHUNK)
+                except BlockingIOError:
+                    # No data despite ``select`` returning ready (rare,
+                    # but possible on some PTY implementations under
+                    # contention). Continue.
+                    continue
+                except OSError as exc:
+                    # EIO: slave PTY closed (shell exited). Return
+                    # accumulated bytes — caller decides whether the
+                    # partial read is enough.
+                    if exc.errno in (5,):  # EIO
+                        return bytes(buffer)
+                    # EAGAIN under non-blocking is harmless; re-loop.
+                    if exc.errno in (11, 35):  # EAGAIN / EWOULDBLOCK
+                        continue
+                    raise
+                if chunk:
+                    buffer.extend(chunk)
+                    last_byte_time = time.monotonic()
+                else:
+                    # Zero-byte read → EOF on the master fd (unusual).
+                    return bytes(buffer)
+            else:
+                # No data this window. If buffer is non-empty AND the
+                # last-byte time is at least ``idle_window`` ago, we're
+                # idle-stable: return.
+                if buffer and (time.monotonic() - last_byte_time) >= idle_window:
+                    return bytes(buffer)
+
+            # Timeout budget check (after each iteration so a single
+            # idle-window doesn't busy-loop past the cap).
+            if time.monotonic() - start_time >= timeout:
+                if buffer:
+                    return bytes(buffer)
+                raise asyncio.TimeoutError(f"PTY read timed out after {timeout}s with no output")
+
+    def _close_blocking(self) -> None:
+        """Path-dependent teardown. Caller wraps in ``run_in_executor``.
+
+        Idempotent: every step catches ``ProcessLookupError`` (child
+        already exited) and ``OSError`` (fd already closed).
+
+        Kill strategy (operates on the LOCAL ``pid`` variable — never on
+        ``self._pid``, which is nilled at the end of this method before
+        close returns):
+
+        * **bwrap-wrapped** (``self._wrapped``): SIGKILL immediately
+          (bwrap does not forward SIGTERM to the inner shell, so the 1s
+          grace period is wasted — DD9), then blocking ``os.waitpid``.
+          Single-pid SIGKILL reaps the whole bwrap PID namespace via
+          ``--die-with-parent`` (bubblewrap.py) — do not switch to
+          killpg; do not drop ``--die-with-parent`` from the
+          profile/backend (DD9).
+        * **passthrough**: SIGTERM → 1s poll → SIGKILL if still alive
+          (preserves graceful behavior; no extra settle — there's no
+          PID namespace to drain).
+        """
+        # Mark closed FIRST so concurrent ``is_alive`` checks short-circuit.
+        if self._closed:
+            return
+        self._closed = True
+
+        # Capture local copies BEFORE nilling instance state — callers
+        # must never use self._pid after _close_blocking starts (reviewer medium).
+        pid = self._pid
+        master_fd = self._master_fd
+
+        if pid is not None:
+            if self._wrapped:
+                # bwrap-wrapped path: SIGKILL-fast (no SIGTERM grace).
+                # Single-pid SIGKILL reaps the whole bwrap PID namespace via
+                # --die-with-parent (bubblewrap.py) — do not switch to
+                # killpg; do not drop --die-with-parent from the
+                # profile/backend (DD9).
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
+            else:
+                # Passthrough path: SIGTERM-first (preserve graceful behavior).
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pid = None  # already gone
+
+                # Poll up to 1s for graceful exit.
+                if pid is not None:
+                    deadline = time.monotonic() + 1.0
+                    reaped = False
+                    while time.monotonic() < deadline:
+                        try:
+                            done, _status = os.waitpid(pid, os.WNOHANG)
+                        except ChildProcessError:
+                            reaped = True
+                            break
+                        if done != 0:
+                            reaped = True
+                            break
+                        time.sleep(0.05)
+                    if not reaped:
+                        # SIGKILL + blocking reap.
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            os.waitpid(pid, 0)
+                        except ChildProcessError:
+                            pass
+
+        # Close master_fd last — once closed, any concurrent reads return
+        # immediately.
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+
+        self._pid = None
+        self._master_fd = None
+
+        # Single cleanup locus: remove the session's scratch directory (if
+        # any) after the process is gone and the fd is closed.  cleanup_dir
+        # is None for host sessions — ignored.  The self._closed guard in
+        # the async close() ensures _close_blocking runs exactly once, so
+        # rmtree fires exactly once per boxed session lifetime.
+        if self._cleanup_dir is not None:
+            shutil.rmtree(self._cleanup_dir, ignore_errors=True)

@@ -43,7 +43,6 @@ operator command), not on mock-construction calls.
 from __future__ import annotations
 
 import asyncio
-import shutil
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -444,7 +443,7 @@ async def test_connect_stdio_sdk_default_env_preserved_through_setenv(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not available")
+@pytest.mark.requires_bwrap
 async def test_connect_stdio_real_subprocess_cat_integration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

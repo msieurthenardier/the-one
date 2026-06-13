@@ -154,6 +154,9 @@ class MCPClientTool(Tool):
         :func:`acquire` so post-OAuth re-acquires preserve the agent's
         override (cycle-1 low #5 fix).
         """
+        # Lazy import (NOT module-top): `the_one.mcp.__init__` eagerly imports this
+        # module (`_tool`), so a top-level SandboxError import re-opens the
+        # mcp/__init__ eager-load cycle. Keep it function-local.
         from the_one.platform.sandbox.errors import SandboxError
 
         try:

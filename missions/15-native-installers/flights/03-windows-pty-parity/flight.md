@@ -324,7 +324,7 @@ implementer leans on it (cannot reproduce locally on WSL2/Linux).
 
 > Tentative breakdown — refined per-leg at design time (`/leg`).
 
-1. **windows-import-unblock** — Split-module restructure (DD2): move
+1. ✅ **windows-import-unblock** *(completed 2026-06-13)* — Split-module restructure (DD2): move
    `UnixPtySession` to `platform/pty_unix.py` (byte-identical, mechanical),
    reduce `platform/pty.py` to the ABC + `create_pty_session` dispatcher with
    no module-scope platform stdlib, delete the import-time guard; confirm the

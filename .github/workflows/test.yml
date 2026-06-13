@@ -44,6 +44,23 @@ jobs:
           THE_ONE_DEV_MODE: "true"
         run: python -m pytest -m browser tests/browser/ --timeout=300 --tb=short
 
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash   # Git Bash on the runner — avoids PowerShell stripping
+                      # the quotes in `pip install -e ".[all-llms,dev]"` and
+                      # obscuring the real test inventory behind an install fail.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[all-llms,dev]"
+      - name: Run default suite (Windows — failure-inventory gate, non-required)
+        run: python -m pytest tests/ --timeout=300 --tb=short
+
   bwrap:
     runs-on: ubuntu-latest
     steps:

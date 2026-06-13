@@ -121,6 +121,30 @@ findings incorporated:
   it's applied, with rationale.
 - Flight status `ready` → `in-flight`. Starting Leg 1 design.
 
+## Flight Director Notes (continued)
+
+**2026-06-13 — Leg 1 complete; CI-gating adaptation applied.**
+- **Code review** (Reviewer/Sonnet — scaled up from the Haiku default because the
+  leg *moves the fork-safety machinery* under a byte-identical invariant, where
+  Haiku could rubber-stamp): `[HANDOFF:confirmed]`. All 12 acceptance criteria
+  met; byte-identical move verified (constants, `_get_libc`/prctl, both teardown
+  paths); cycle safe + ordering comment present; no POSIX regression (3057
+  passed); the new `pty_unix.py` even corrected a stale `_load_libc()` docstring
+  typo. No fix cycle needed.
+- **Deviation (Developer):** the leg cited "nine decorators" in
+  `test_mcp_sandbox_integration.py`; the file actually had **12**
+  `@requires_bwrap` usages — all converted. A now-unused `import shutil` in
+  `test_mcp_stdio_sandbox.py` was removed to satisfy lint. Both benign.
+- **CI-gating adaptation (pre-registered in FD Notes, now applied):** reverting
+  from the skill's batch "all legs → one commit" model to a **per-leg
+  review→commit→push cadence** for this flight. Rationale: the `windows-2022`
+  lane is the only authoritative check that the module imports on Windows and is
+  the source of the DD7/DD10 failure inventory that scopes Leg 4 — and Leg 2's
+  backend can only be CI-verified, not run locally (implementing agents are on
+  Linux/WSL2). Batching would design Legs 2-5 blind to Windows reality. Leg 1 is
+  committed and pushed now to produce the inventory before Leg 2 is designed.
+  Cost: one `windows-2022` run (2× billing) — within the DD7-approved envelope.
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
@@ -135,4 +159,82 @@ _None yet._
 
 ## Leg Progress
 
-_Pending leg design._
+### Leg 1 — windows-import-unblock
+
+- **Status**: landed (2026-06-13)
+- **Design review** (1 cycle, Developer/Sonnet, "approve with changes" — all
+  incorporated; no second cycle needed, fixes were precision not architecture):
+  - [high] `tools/_session_registry.py:33-35` docstring would become a stale
+    lie (claims `PtySession` raises on Windows / registry Unix-only) → added as
+    a docstring-update target + acceptance criterion.
+  - [med] `windows-2022` CI job risks PowerShell stripping the quotes in
+    `pip install -e ".[all-llms,dev]"` → added `defaults.run.shell: bash`.
+  - [med] bwrap re-mark left implementer guessing → resolved concretely against
+    `test_pty_sandbox.py:55` convention: drop the `skipif` fallback, use
+    `@pytest.mark.requires_bwrap`; delete the module-scope alias and update all
+    nine decorators in the integration file.
+  - Suggestions folded: `platform/__init__.py` docstring acceptance criterion;
+    explicit nine-decorator callout; `test_session_tools.py:456` per-test skipif
+    stays (no spurious module guard); `test_dispatch_windows_pending_leg2` gets
+    an inline "Leg 2 inverts this" comment.
+  - Designer call on the ABC-location question: keep `PtySession` in `pty.py`
+    with the reviewer-confirmed-safe POSIX re-export cycle + an explicit
+    ordering comment (minimal surface); `pty_abc.py` neutral module declined,
+    revisitable in Leg 2.
+- **Implementation outcomes (2026-06-13)**:
+  - **Files changed** (9 files):
+    - `the_one/platform/pty_unix.py` (new) — `UnixPtySession` + fork-safety
+      machinery moved byte-identically from `pty.py`; imports `PtySession` from
+      `the_one.platform.pty`.
+    - `the_one/platform/pty.py` — reduced to platform-neutral dispatcher:
+      `PtySession` ABC + `create_pty_session`; no module-scope POSIX stdlib;
+      import-time guard deleted; POSIX back-compat re-export added with ordering
+      comment; `create_pty_session()` raises `NotImplementedError("WindowsPtySession
+      lands in M15 F3 Leg 2")` on `os.name == "nt"`.
+    - `the_one/platform/__init__.py` — module docstring `pty` line updated (no
+      longer "raises on Windows"); POSIX-guard comment clarified.
+    - `the_one/tools/_session_registry.py` — docstring updated: `PtySession` now
+      imports cleanly on all platforms; Windows exercise lands in Leg 2.
+    - `tests/test_pty_session.py` — `pytestmark` replaced with
+      `allow_module_level` skip before the `UnixPtySession` import; `TestWindowsGuard`
+      class removed (inverted intent covered in `test_pty_dispatch.py`).
+    - `tests/test_pty_dispatch.py` (new) — platform-neutral: `test_module_imports_
+      on_current_platform`, `test_dispatch_posix`, `test_dispatch_windows_pending_leg2`
+      (with inline "Leg 2 inverts this" comment).
+    - `tests/test_mcp_sandbox_integration.py` — module-scope `requires_bwrap`
+      alias line deleted; all 12 `@requires_bwrap` decorators replaced with
+      `@pytest.mark.requires_bwrap`.
+    - `tests/test_mcp_stdio_sandbox.py` — `@pytest.mark.skipif(shutil.which("bwrap")
+      is None, …)` at line 447 replaced with `@pytest.mark.requires_bwrap`; unused
+      bare `import shutil` removed (lint clean).
+    - `the_one/mcp/_tool.py` + `_tool_provider.py` — cycle-hazard comments added
+      above the lazy `SandboxError` imports naming the `mcp/__init__` eager-load
+      cycle.
+    - `.github/workflows/test.yml` — `windows` job added on `windows-2022` with
+      `shell: bash` default, no `-x`, non-required.
+  - **Verification steps — all passed**:
+    - `pytest tests/test_pty_session.py tests/test_pty_dispatch.py -x --timeout=60 -q`:
+      18 passed, 1 skipped.
+    - POSIX import smoke: `from the_one.platform.pty import PtySession, UnixPtySession,
+      create_pty_session` → `posix import ok`.
+    - Windows import simulation (os.name='nt' patch + reload): `nt import ok`.
+    - Cascade smoke: `import the_one.tools.sessions; import the_one.agent.factory`
+      → `cascade import ok`.
+    - `pytest -m requires_bwrap tests/ --timeout=300 -q`: **41 passed, 3 skipped,
+      3603 deselected** (re-marked tests correctly selected; 31+ threshold exceeded).
+    - Full default suite `pytest tests/ --timeout=300 -q`: **3057 passed, 1 skipped,
+      589 deselected** — no regressions.
+    - `ruff check` + `ruff format --check` on all modified paths: clean.
+  - **Deviations**: One minor deviation from leg guidance — the leg spec cited
+    "nine decorators" in `test_mcp_sandbox_integration.py` but the actual file
+    had **12** `@requires_bwrap` decorators (the leg design review counted only
+    the un-skipped tests #1-9, not counting #6b/6c/6d which also carried the
+    alias decorator). All 12 were converted. Also, removing the `@requires_bwrap`
+    alias from `test_mcp_sandbox_integration.py` left no `shutil` usage in
+    `test_mcp_stdio_sandbox.py`'s module scope (the existing `shutil` uses there
+    are via `bwrap_module.shutil`/`factory_module.shutil`), so the bare `import
+    shutil` was removed to keep lint clean — this was the right call per the leg's
+    "ruff check clean" acceptance criterion.
+  - **Windows-side verification**: deferred to CI post-push per leg design (the
+    implementing agent runs Linux/WSL2; authoritative Windows check is the
+    `windows-2022` lane). FD captures inventory before scoping Leg 4.
