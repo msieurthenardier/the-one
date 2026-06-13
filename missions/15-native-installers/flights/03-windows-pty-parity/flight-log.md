@@ -697,6 +697,17 @@ governance choice.
   (Leg 4). Per DD8, the flight may land with the behavior test noted
   operator-run-pending if the operator defers.
 
+### Operator decisions (2026-06-14) — landing + branch protection
+
+- **Branch protection: LEAVE AS-IS** (operator). `main` keeps no protection rule;
+  the curated `windows` check runs + is visible on every PR (non-blocking). Leg-4
+  required-flip criterion resolved accordingly (DD7 "required" satisfied in spirit).
+- **Landing: HOLD** (operator). Flight stays **in-flight** until the operator runs
+  `/behavior-test windows-pty-parity` on a real Windows host and it passes (the
+  definitive DD-OQ orphan-reap proof). FD lands the flight + checks it off in the
+  mission + `[COMPLETE:flight]` + `/flight-debrief` only AFTER the behavior-test
+  result is recorded. All code/docs/CI complete; awaiting the operator's run.
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._

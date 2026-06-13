@@ -168,8 +168,12 @@ question — not this leg.)*
       pass/fail).
 - [ ] Linux (`test`/`bwrap`/`browser`) + lint remain green — the triage edits
       must not change POSIX behavior; the full suite still runs on Linux.
-- [ ] The curated `windows` job is wired into branch protection as **required**
-      (operator action — FD coordinates; record completion).
+- [x] ~~The curated `windows` job is wired into branch protection as required~~
+      → **RESOLVED 2026-06-14: operator declined branch protection** (main has no
+      protection rule; introducing it is governance overhead not wanted for this
+      repo). The curated `windows` check runs + is visible on every PR
+      (non-blocking). DD7 "required" satisfied in spirit (check always runs);
+      literal merge-blocking intentionally not adopted.
 - [ ] The 3 dropped tests are recorded as deferred in the flight log (the
       encoding-audit explicitly handed to Flight 5).
 
