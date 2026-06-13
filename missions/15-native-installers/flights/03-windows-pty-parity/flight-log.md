@@ -411,6 +411,56 @@ F1 "orphaned-fixes separate commit" precedent. Pushed onto flight/03 (rides the
 existing CI/PR); the push supersedes the in-progress Leg-3 run — the replacement
 run covers Leg 3 + the action bump together (one Windows run, not two).
 
+**2026-06-14 — PIVOT: DD7 narrowed (full Windows suite → curated platform-relevant subset).**
+Operator-directed under CI-minutes / throttling pressure, after a read-only
+test-suite cost review. Findings that drove it:
+- The `windows-2022` lane (~25 min × 2× billing ≈ 50 billed-min/run) is the
+  dominant CI cost; macOS (Flight 2, parked) would be 10×.
+- Of the ~3050 tests running on Windows, only **~427 (~14%) exercise
+  OS-divergent behavior**. The other ~86% (DB layer ~489, connectors ~560,
+  provider/web/LLM/MCP-protocol) are platform-agnostic — green on Linux ⇒
+  ~zero additional Windows signal.
+**Decision:** full suite stays the source of truth on **Linux**; Windows (and,
+on dust-off, macOS Flight-2 DD9) runs ONLY the curated platform-relevant subset
+(`test_platform_*`, `test_pty*`, `test_filesystem*`, `test_config*`,
+`test_execution*`, `test_encryption`, `test_sandbox_factory/contract`,
+`test_logging_config`). Est. Windows run ~25 min → ~5 min (~80% cut).
+**Folded into Leg 4** (re-scoped below) per the skill's mid-flight scope-change
+guidance — original DD7 framing preserved as commentary in flight.md, not
+rewritten. Recommendations B (tiered full-suite on merge/nightly), C (overlap
+audit, coverage-guided), D (path filters) reviewed and **deferred** ("call it
+good for now"). One noted residue: `test_token_definitions` (cp1252 encoding)
+drops off the Windows lane under curation, so the product-code unencoded-open
+audit it flagged is **deferred to Flight 5** (frozen Windows app) rather than
+done here — recorded so it isn't silently lost.
+
+### Leg 3 — CI result (windows-2022, combined run 27479301813)
+
+**2026-06-13/14 — Job Object teardown lands; orphan-reap DD-OQ partially answered.**
+- `test_pty_windows.py .......Fx`: the **7 Leg-2 round-trip tests still pass**
+  (backend + Job Object plumbing import/run cleanly), `test_parent_death_reaps_
+  grandchild` **xfailed as designed**, but `test_close_reaps_grandchild`
+  **FAILED on its precondition** — "Grandchild did not write PID … within 5 s".
+- **Diagnosis: test-harness bug, NOT a Job Object failure.** The reap assertion
+  was never reached — the grandchild never launched/wrote its PID. Root cause is
+  the `start /b "" {python} -c "<one-liner>"` mechanism: Windows backslash paths
+  (`C:\Users\RUNNER~1\…`) + nested quotes mangled when sent through
+  cmd.exe-through-PTY. The Job Object code itself is correct-by-construction
+  (KILL_ON_JOB_CLOSE) and the round-trip proves the start()/close() job
+  plumbing runs without error.
+- **Disposition:** fold the orphan-test-mechanism fix into **Leg 4** (the test
+  lives in `test_pty_windows`, which stays in the curated Windows subset) so it
+  rides Leg 4's single curated Windows run rather than a separate ~25-min Leg-3
+  cycle (cost-conscious). Fix = launch the grandchild from a **temp `.py` file**
+  (no quoting-through-PTY), not an inline `-c` one-liner. If still unreliable in
+  CI after that, `xfail` with reason + defer the definitive orphan-reap proof to
+  the operator's Windows box (DD-OQ always named it the supplementary/definitive
+  check; the operator runs it alongside the Leg-5 behavior test).
+- Also confirmed: **Node-24 action bump green** on all Linux lanes (test/browser/
+  bwrap/lint ran on checkout@v5 + setup-python@v6). Windows suite count
+  3020 passed / 22 failed / 1 xfailed (the 22 are the Leg-4 triage set; the
+  close-reap F is the harness bug folded into Leg 4).
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._

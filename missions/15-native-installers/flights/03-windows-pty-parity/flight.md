@@ -167,7 +167,15 @@ Windows for the first time. Leg 1's acceptance explicitly verifies the cascade
 the `windows-2022` runner, and that the default suite **collects** there (the
 prerequisite for DD7).
 
-**DD7 — Windows CI: full default suite on `windows-2022` (pinned), required.**
+> **DD7 REVISED 2026-06-14 → curated platform-relevant subset (not full suite).**
+> Under CI-minutes / throttling pressure (operator), the Windows lane is
+> narrowed from the full default suite to the OS-divergent subset only — the
+> ~86%-platform-agnostic majority (DB/connectors/web/LLM/MCP-protocol) gives
+> near-zero Windows signal if green on Linux. The full suite stays the source of
+> truth on Linux. See the FD Note "DD7 narrowed" and the re-scoped Leg 4. The
+> original full-suite framing below is preserved as the planning record.
+
+**DD7 (original) — Windows CI: full default suite on `windows-2022` (pinned), required.**
 Operator decision (mirrors the macOS DD9 choice). Recon supports feasibility:
 non-PTY Windows portability is largely already done (deps have win_amd64
 wheels; every POSIX import is guarded; paths via `platformdirs`), and once
@@ -352,7 +360,7 @@ implementer leans on it (cannot reproduce locally on WSL2/Linux).
    orphan after `close()` and after parent-death. **Empirically verified on
    `windows-2022` CI and the operator's host** (the F1 design-time-verification
    lesson). Confirm `_wrapped` is never True on Windows (dead bwrap branch).
-4. **windows-suite-green** — Make the full default suite **green** on
+4. **windows-suite-green** *(DD7 REVISED → curated platform-subset, not full suite; see the leg + FD Note "DD7 narrowed")* — Make the full default suite **green** on
    `windows-2022`: refactor PTY functional tests to run on Windows (containment
    tests already `@requires_bwrap`-deselected — DD9); triage Leg 1's failure
    inventory per DD10 (parametrize wrapper tests, POSIX-gate shell-semantics
