@@ -290,7 +290,7 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       `sandbox-runtime` Node dependency) so macOS tool/PTY/MCP execution is enforced;
       kernel-verified containment in CI on `macos-15`. Behavior-test backing of the
       macOS containment criterion deferred to Flight 8 (no operator macOS hardware).
-- [ ] Flight 3: **Windows PTY parity (ConPTY)** *(executes first — see order swap)* —
+- [x] Flight 3: **Windows PTY parity (ConPTY)** *(landed 2026-06-14; behavior-test backing deferred to post-installer acceptance — Flight 7/8)* —
       add a Windows backend to `platform/pty.py` (via `pywinpty`/ConPTY) and a
       read/idle loop that does not depend on POSIX-only `select`/`fcntl`, routed
       through the shared seam, bringing interactive shell/session tools to feature

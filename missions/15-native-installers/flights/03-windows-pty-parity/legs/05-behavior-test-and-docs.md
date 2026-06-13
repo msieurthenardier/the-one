@@ -1,6 +1,6 @@
 # Leg: behavior-test-and-docs
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Windows PTY Parity (ConPTY)](../flight.md)
 
 ## Objective
@@ -64,9 +64,12 @@ and run the final verify-integration pass.
       add-new-file rule, never-taken bwrap branch).
 - [ ] Mission Known Issues reviewed; the `run_shell` gap + orphan-reap-CI-harness
       note are present and accurate.
-- [ ] **Operator runs `/behavior-test windows-pty-parity`** on a Windows instance
-      → pass (or dispositioned: any failing row recorded as a known issue with
-      operator sign-off). Run log committed; referenced from the flight log.
+- [x] ~~Operator runs `/behavior-test windows-pty-parity` this flight~~ →
+      **DEFERRED 2026-06-14 (operator): run against the real Windows installer**
+      (Flight 7/8 acceptance), not a pip-dev-install — a stronger apparatus. Spec
+      authored + ready (`tests/behavior/windows-pty-parity.md`). The DD-OQ
+      orphan-reap is CI-proven at the plumbing level (Job Object code correct;
+      round-trip 7/7); its definitive tree-reap proof rides the deferred run.
 - [ ] verify-integration: all CI lanes green (test/browser/bwrap/lint + curated
       windows); the app/CLI import cascade succeeds on Windows (Leg-1 contract
       holds); no Linux/macOS regression.

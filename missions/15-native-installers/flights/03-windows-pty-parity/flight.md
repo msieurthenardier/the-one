@@ -1,6 +1,6 @@
 # Flight: Windows PTY Parity (ConPTY)
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 > **Executes before Flight 2** (macOS Seatbelt) per the 2026-06-13 order swap —

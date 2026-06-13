@@ -708,6 +708,32 @@ governance choice.
   mission + `[COMPLETE:flight]` + `/flight-debrief` only AFTER the behavior-test
   result is recorded. All code/docs/CI complete; awaiting the operator's run.
 
+### Flight Closeout (2026-06-14)
+
+- **Behavior-test decision REVISED (operator):** defer `/behavior-test
+  windows-pty-parity` until the **real Windows installer** exists (Flight 7/8
+  acceptance) rather than run it against a pip-dev-install now — a stronger,
+  more representative apparatus, and aligned with the mission's Flight 7
+  ("end-to-end acceptance behavior tests on each target platform") + Flight 8
+  (alignment on real machines). Mirrors how the macOS flight (F2) deferred its
+  behavior test. Spec is authored + ready.
+- **DD-OQ orphan-reap disposition:** CI-proven at the plumbing level (Job Object
+  code correct-by-construction; `test_pty_windows` round-trip 7/7; start()/close()
+  job lifecycle runs clean). The **definitive tree-reap proof** (grandchild gone
+  after close / parent-death) rides the deferred behavior test on the real
+  artifact. Honest, tracked — not silently dropped.
+- **Flight LANDED.** All 5 legs code/docs complete; curated `windows-2022` lane
+  green (398 passed, ~42s); Linux test/bwrap/browser/lint green; no regression;
+  the app/CLI import cascade succeeds on Windows (the enabling Leg-1 win). DD7
+  cost cut delivered (~25 min → ~42 s Windows). Branch protection: left as-is
+  (operator). PR #110 → ready for review.
+- **Forward-pointers (recorded so nothing is lost):** (1) behavior test → run in
+  Flight 7/8 on the installer; (2) `run_shell` Windows tree-kill gap → Flight 5/
+  maintenance (mission Known Issues); (3) Flight 2 macOS dust-off → apply the same
+  DD7 curation to its DD9 (parking checklist).
+
+[COMPLETE:flight]
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
