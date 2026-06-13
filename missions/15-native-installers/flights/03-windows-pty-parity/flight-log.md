@@ -600,6 +600,103 @@ real messages + fixes:
 POSIX re-verified green (52 passed in the touched files); lint clean. Pushed →
 ~2-min curated re-run to confirm green.
 
+### Leg 4 — CURATED WINDOWS LANE GREEN (run 27481065888)
+
+**2026-06-14 — windows: 398 passed / 12 skipped / 2 xfailed / 0 failed in ~42s.**
+test/bwrap/lint green; browser (Linux long pole) passing as usual. The DD7
+curation delivered: **~25 min → ~42 s** Windows test step. Leg 4 code complete.
+
+**Branch-protection "required" flip — OPERATOR DECISION (not done autonomously):**
+`main` currently has **NO branch protection rule** at all. So "make the curated
+`windows` job required" is not a flip — it would *introduce* branch protection,
+a repo-governance change affecting every merge. For a cost-conscious solo-ish
+repo that's the operator's call. Two sensible options:
+  (a) **Leave as-is** — the curated `windows` check runs + is visible on every
+      PR, just non-blocking. Sufficient for a solo maintainer; zero governance
+      overhead. **Default.**
+  (b) **Introduce branch protection** with required checks. Ready command:
+      `gh api -X PUT repos/msieurthenardier/the-one/branches/main/protection
+      -f 'required_status_checks[strict]=true'
+      -f 'required_status_checks[checks][][context]=windows' …` (+ test/browser/
+      bwrap/lint). 
+Recorded as an open operator decision; Leg 4 lands on the code+CI being green
+regardless. The DD7 "required" wording is satisfied in spirit (curated check
+runs on every PR); literal branch-protection enforcement awaits the operator's
+governance choice.
+
+### Leg 5 — behavior-test-and-docs (DOCS portion)
+
+- **Status**: landed (2026-06-13)
+- **Scope**: documentation updates only — no backend/test code changes. The
+  behavior-test spec (`tests/behavior/windows-pty-parity.md`) was already authored
+  at leg design; operator runs it on a real Windows host.
+
+- **Files changed** (4 files):
+  - `SECURITY-MODEL.md` — added "Windows: interactive tools run unsandboxed (M15 F3 —
+    DD9)" subsection after "Passthrough degradation". Content: interactive tools run
+    UNSANDBOXED (passthrough; DD9; not a regression); the Win32 Job Object
+    (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) is *lifecycle teardown* (reaps the cmd.exe
+    process tree on `close()` AND on parent-death), NOT a containment boundary; the
+    `run_shell` non-PTY Windows tree-kill gap documented (timeout fires but child tree
+    not promptly reaped; robustness gap; Flight-5 follow-up; tracked in mission Known
+    Issues).
+  - `the_one/agents.md` — added "Windows PTY backend (M15 F3)" subsection after the
+    existing PTY session lifecycle section (replacing the stale one-liner
+    `Windows: UnixPtySession raises NotImplementedError…`). Covers:
+    `WindowsPtySession` via pywinpty/ConPTY; split-module structure
+    (`pty.py` dispatcher / `pty_unix.py` / `pty_windows.py`); socket-timeout
+    idle-read mechanism with explicit WARNING that `read_blocking` after spawn is a
+    no-op; `_WINDOWS_ENV_ALLOWLIST` in `platform/env.py` (cmd.exe essentials, unioned
+    only on nt); curated `windows-2022` CI lane + THE RULE (new platform-divergent
+    test file → must be added to `test.yml` curated list); `_wrapped` always False on
+    Windows; DD9 passthrough reference.
+  - `CLAUDE.md` — added "Windows PTY (M15 F3)" paragraph in the Security posture
+    section. Summary orientation pointing to `agents.md` for the full reference;
+    key facts: pywinpty/ConPTY dependency, unsandboxed DD9, split-module layout,
+    socket-timeout read, `read_blocking`-after-spawn no-op warning.
+  - `missions/15-native-installers/legs/05-behavior-test-and-docs.md` — status
+    updated: `ready` → `in-flight` → `landed`.
+
+- **Mission Known Issues review**: confirmed the `run_shell` Windows tree-kill gap
+  entry is present and accurate in `missions/15-native-installers/mission.md`
+  (discovered F3 L4 CI 2026-06-14; flight-5 follow-up noted). No changes needed.
+
+- **CLAUDE.md self-modification guard**: the edit succeeded without being blocked.
+
+- **Regression guard**: `pytest tests/ --timeout=300 -q` → **3057 passed, 10 skipped,
+  589 deselected, 0 failed** — identical to Leg 4 baseline; docs-only edits have no
+  test impact, as expected.
+
+- **Behavior test**: `tests/behavior/windows-pty-parity.md` confirmed present. The
+  operator runs `/behavior-test windows-pty-parity` on a real Windows instance; run
+  log will be written to `tests/behavior/windows-pty-parity/runs/{ts}.md` after
+  execution. The behavior test is the definitive orphan-reap proof (DD-OQ); if it
+  passes, the DD-OQ is fully resolved.
+
+- **Deviations**: None from leg spec.
+
+### Leg 5 — behavior spec + docs (code-complete; behavior run = operator gate)
+
+- **Behavior spec authored** (FD, at leg design): `tests/behavior/windows-pty-parity.md`
+  — functional parity via the real `shell_session_*` tool path on Windows, and
+  its orphan-reap rows (steps 6-8, `tasklist` after close + parent-death) are the
+  **definitive DD-OQ proof** the Leg-3 CI harness couldn't give.
+- **Docs implemented** (Developer/Sonnet): SECURITY-MODEL.md Windows subsection
+  (passthrough/unsandboxed DD9; Job Object = lifecycle teardown not containment;
+  run_shell tree-kill gap), agents.md + CLAUDE.md Windows PTY notes (pywinpty/
+  ConPTY, socket-timeout read + the read_blocking-no-op warning, split-module,
+  _WINDOWS_ENV_ALLOWLIST, curated-CI add-new-file rule, never-taken bwrap branch).
+  CLAUDE.md guard did NOT block this time. Full suite 3057 passed / 0 regression.
+- **Docs accuracy review** (Reviewer/Sonnet): `[HANDOFF:confirmed]` — every claim
+  cross-checked against shipped code (factory passthrough, KILL_ON_JOB_CLOSE-only,
+  socket-timeout read, env keys, curated lane, run_shell gap). One non-blocking
+  nit fixed (spec "7/7" → "7 functional + 2 xfail").
+- **Remaining = operator gates** (cannot be done from the Linux dev/CI env):
+  (1) run `/behavior-test windows-pty-parity` on a Windows instance (definitive
+  orphan-reap + parity proof); (2) the branch-protection "required" decision
+  (Leg 4). Per DD8, the flight may land with the behavior test noted
+  operator-run-pending if the operator defers.
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._

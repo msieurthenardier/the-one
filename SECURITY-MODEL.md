@@ -216,6 +216,35 @@ On non-Linux or bwrap-missing Linux, both boxed and host-workspace spawns fall t
 level and is observable (never silent). The isolation properties above (no user FS,
 network off) are NOT enforced under passthrough.
 
+### Windows: interactive tools run unsandboxed (M15 F3 — DD9)
+
+On Windows, the sandbox factory (`get_sandbox_backend()`) returns `PassthroughSandbox`
+— there is no AppContainer or equivalent backend. All four spawn paths (including
+`shell_session_*` PTY sessions) run **unisolated** on Windows. This is a documented,
+accepted gap (DD9), not a regression — the Linux bubblewrap enforcement path is the
+production containment boundary; Windows ships at PTY feature parity without sandbox
+enforcement. WSL2 users inherit the full Linux sandbox path.
+
+**Win32 Job Object is lifecycle teardown, NOT containment.** The
+`WindowsPtySession` backend (`the_one/platform/pty_windows.py`) assigns the spawned
+`cmd.exe` process to a Win32 Job Object configured with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` immediately after spawn. This Job Object serves
+one purpose: *lifecycle reaping*. When `close()` calls `CloseHandle` on the job, the OS
+kills every surviving process in the tree (including backgrounded grandchildren). If the
+Python process dies without calling `close()`, the OS automatically closes the job handle
+and fires the same reap — this is the parent-crash guarantee (analogous to bwrap's
+`--die-with-parent` on Unix). The Job Object does **not** restrict what the session can
+read, write, or access over the network. It is not a containment boundary.
+
+**Known gap — `run_shell` (non-PTY) Windows tree-kill.** The one-shot shell-execution
+tool (`run_shell` / `ShellTool`) fires its timeout and returns the correct error, but
+killing the spawned `cmd.exe` does **not** promptly reap its child tree on Windows (no
+process-group or tree kill). A backgrounded child process will run to completion. This
+is a robustness gap, tracked in the Mission 15 Known Issues; a `taskkill /F /T` or
+Job Object fix for the `run_shell` Windows path is planned as a Flight-5 follow-up.
+It does not affect the PTY backend (which has Job Object teardown) and is consistent
+with the unsandboxed Windows posture.
+
 ## Secrets
 
 - **LLM provider API keys**: encrypted at rest via `Encryptor` (Fernet

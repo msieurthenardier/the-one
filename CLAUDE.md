@@ -91,6 +91,18 @@ See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the project's threat model and in
 
 **Boxed execution mode (M14 F4)**: `shell` and `python_exec` are **box-by-default** — each call runs in a disposable sandbox with a minimal read-only system rootfs, a fresh scratch directory as the only writable location, and network unconditionally off. The agent sets `host_access=true` to escalate out of the box and reach the host workspace (real `$HOME`, operator allowlist, network opt-in). See [SECURITY-MODEL.md](SECURITY-MODEL.md) "Boxed Execution Mode" for the full isolation model, scratch lifecycle, and read-scoping status.
 
+**Windows PTY (M15 F3)**: interactive shell sessions use `WindowsPtySession` via
+`pywinpty`/ConPTY (`pywinpty>=2.0; sys_platform == "win32"`). Windows is **unsandboxed**
+— the sandbox factory returns `PassthroughSandbox` on non-Linux (DD9; see
+`SECURITY-MODEL.md`). The PTY split-module structure: `platform/pty.py` = neutral ABC +
+`create_pty_session` dispatcher; `platform/pty_unix.py` = `UnixPtySession`;
+`platform/pty_windows.py` = `WindowsPtySession`. The idle-read mechanism uses
+`proc.fileobj.settimeout()` + `recv()` + catch `socket.timeout` — NOT `proc.read()`.
+**Do NOT set `read_blocking` after spawn** — pywinpty's read thread captures the flag at
+construction; setting it later is a no-op (silent regression trap). See `the_one/agents.md`
+"Windows PTY backend (M15 F3)" for the full developer reference (env allowlist, curated
+CI lane rule, `_wrapped`-always-False).
+
 ## Conventions
 
 - Python 3.11+, async throughout

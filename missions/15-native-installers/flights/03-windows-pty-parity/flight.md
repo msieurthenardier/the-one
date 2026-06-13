@@ -360,7 +360,7 @@ implementer leans on it (cannot reproduce locally on WSL2/Linux).
    orphan after `close()` and after parent-death. **Empirically verified on
    `windows-2022` CI and the operator's host** (the F1 design-time-verification
    lesson). Confirm `_wrapped` is never True on Windows (dead bwrap branch).
-4. **windows-suite-green** *(DD7 REVISED → curated platform-subset, not full suite; see the leg + FD Note "DD7 narrowed")* — Make the full default suite **green** on
+4. ✅ **windows-suite-green** *(code complete 2026-06-14; curated lane green; required-flip = open operator decision)* *(DD7 REVISED → curated platform-subset, not full suite; see the leg + FD Note "DD7 narrowed")* — Make the full default suite **green** on
    `windows-2022`: refactor PTY functional tests to run on Windows (containment
    tests already `@requires_bwrap`-deselected — DD9); triage Leg 1's failure
    inventory per DD10 (parametrize wrapper tests, POSIX-gate shell-semantics
