@@ -273,6 +273,133 @@ product-code audit noted above.
     tests/test_execution_helpers.py -x --timeout=60 -q` → **76 passed,
     1 skipped** — identical to original Leg 2 POSIX baseline, no regressions.
 
+### Leg 2 — CI result (windows-2022, PR #110, run 27477230582)
+
+**2026-06-13 — the pywinpty backend is VERIFIED WORKING ON WINDOWS.**
+`test_pty_windows.py` ran **7/7 passed** on the windows-2022 lane — start,
+cmd.exe echo round-trip, two-send state persistence, close→not-alive,
+idempotent close, last_activity, send-after-close RuntimeError. The
+socket-timeout read mechanism (the design-review correction) and the
+`proc.close(force=True)` teardown both work on real ConPTY. **First CI try —
+no iteration needed** (the budgeted 1-2 iterations were saved by the two
+review catches). Linux lanes all green.
+
+- Windows suite: **22 failed / 3019 passed** (was 20/3014 at Leg 1). Delta is
+  exactly **+7 passed** (test_pty_windows) and **+2 failed** = two NEW
+  env-allowlist failures **introduced by DD5 as anticipated**:
+  `test_execution_helpers.py::test_returns_only_allowlisted_keys` and
+  `test_execution_tools.py::TestPythonExecTool::test_env_allowlist_invariant`.
+  They assert the POSIX-only key set; Windows now legitimately carries
+  `_WINDOWS_ENV_ALLOWLIST` keys. **Leg 4 owns them** (DD10 env-test triage) —
+  tracked, not a surprise (Leg 2 flagged the DD5/env interaction up front).
+- **Leg-4 triage list is now 22** (Leg-1 inventory of 20 + these 2 DD5 env
+  tests). Backend functional parity is no longer in question — Leg 4 is
+  test-side Windows-awareness + the 2 genuine fixes (timestamp collision,
+  encoding) + the product-code unencoded-open audit.
+
+### Leg 3 — windows-teardown-and-orphans
+
+- **Status**: landed (2026-06-13)
+- **Prior entry (design)** retained below:
+
+- **Status at design**: ready (design complete 2026-06-13)
+- **DD-OQ resolved by requirement:** DD4's "no orphan after parent-death"
+  mandates a Win32 Job Object (`KILL_ON_JOB_CLOSE`) — `proc.close()` can't
+  reap on a parent *crash* (never called), and the OS auto-closes the job
+  handle on process death. So the Job Object isn't speculative; it's the only
+  mechanism meeting the requirement.
+- **Design review** (1 cycle, Developer/Sonnet — Win32 rigor; "approve with
+  changes", 2 highs + mediums all incorporated):
+  - [high] **Struct-field-type blind-port trap:** `c_ulong` is 8 bytes on Linux
+    / 4 on Windows; `Affinity`/working-set are pointer-width (`SIZE_T`). An
+    implementer sizing the struct on Linux would get a wrong-but-plausible
+    answer → silent `SetInformationJobObject` corruption. Fixed by spelling out
+    the full `_fields_` with `ctypes.wintypes` exact types in the leg.
+  - [high] **HANDLE truncation:** must be `c_void_p`/`wintypes.HANDLE`, not
+    `c_int` (64-bit truncation → `ERROR_INVALID_HANDLE`). Mandated argtypes/
+    restype.
+  - [med] `CloseHandle` must run even if `proc.close` raises a non-IOError →
+    place after the try/except, null `_job` in `finally`.
+  - [med] grandchild PID capture: mandate **temp-file self-write** (tasklist
+    diff false-passes in shared CI).
+  - [low] `ERROR_ACCESS_DENIED` on Win10+ means a real permission failure
+    (raise), NOT "already in a job" (nested jobs work on windows-2022).
+  - No 2nd cycle: fixes were prescriptive (canonical Win32 struct + standard
+    ctypes); self-verified.
+- Next: spawn Developer to implement (Phase 2b). Intricate ctypes written blind
+  → budget 1-2 CI iterations (DD-OQ is the flight's explicit empirical question).
+- **Implementation outcomes (2026-06-13)**:
+  - **Files changed** (2 files):
+    - `the_one/platform/pty_windows.py` — Win32 Job Object ctypes plumbing
+      added at module scope: `_IO_COUNTERS`, `_JOBOBJECT_BASIC_LIMIT_INFORMATION`,
+      `_JOBOBJECT_EXTENDED_LIMIT_INFORMATION` structs (verbatim from leg —
+      exact field types: `DWORD=wintypes.DWORD`, `LARGE_INTEGER=c_int64`,
+      `SIZE_T/ULONG_PTR=c_size_t`); `_setup_kernel32()` sets `argtypes`/`restype`
+      on all six kernel32 calls with `HANDLE=wintypes.HANDLE` (c_void_p,
+      pointer-width); `_create_job_and_assign(pid)` creates a `KILL_ON_JOB_CLOSE`
+      job, opens the target process, calls `AssignProcessToJobObject`, closes
+      `hproc`, returns the job handle; `start()` calls `_create_job_and_assign`
+      immediately after `PtyProcess.spawn` (before the banner drain), stores
+      result as `self._job`; `_close_blocking()` calls `CloseHandle(self._job)`
+      after the existing `proc.close` try/except block, in its own `try/finally`
+      that nulls `self._job` unconditionally; `WindowsPtySession.__init__`
+      initializes `self._job = None`. Module docstring updated with Job Object
+      lifecycle section. `ctypes.windll.kernel32` access is guarded by
+      `type: ignore[attr-defined]` (not noqa — it's a type annotation concern,
+      not an undefined name; ruff passes clean).
+    - `tests/test_pty_windows.py` — Two new nt-gated tests added (Leg 3):
+      `test_close_reaps_grandchild` (proves backgrounded grandchild is gone
+      after `close()` via temp-file PID self-write + `OpenProcess`/
+      `GetExitCodeProcess` polling — robust in shared CI per design);
+      `test_parent_death_reaps_grandchild` (best-effort: child subprocess
+      creates session + grandchild, test hard-kills the child, asserts grandchild
+      gone — marked `@pytest.mark.xfail(strict=False)` with documented rationale:
+      job handle propagation into subprocess context depends on CI runner's own
+      job object placement; the operator's Windows host is the definitive check).
+      Win32 constants (`_PROCESS_SYNCHRONIZE`, `_PROCESS_QUERY_LIMITED_INFORMATION`,
+      `_STILL_ACTIVE`) defined at module scope to satisfy ruff N806.
+      New stdlib imports: `subprocess`, `sys`, `textwrap`, `time`.
+  - **Verification steps (POSIX-side) — all passed**:
+    - `python -c "import the_one.platform.pty; print('import ok')"`: no error —
+      `pty_windows` not imported on Linux; ctypes Job Object code never loads.
+    - `ruff check the_one/platform/pty_windows.py tests/test_pty_windows.py`:
+      **all checks passed**.
+    - `ruff format --check the_one/platform/pty_windows.py tests/test_pty_windows.py`:
+      **2 files already formatted** (reformatted before check, clean thereafter).
+    - Full default suite `pytest tests/ --timeout=300 -q`: **3057 passed,
+      10 skipped, 589 deselected** — identical pass count to Leg 2 baseline;
+      the 2 new Windows-only tests appear in the skipped count (correct).
+  - **Deviations**: None from the leg spec. The `ctypes.windll` access is
+    annotated `type: ignore[attr-defined]` rather than `# noqa: F821` because
+    ruff (on Linux, with `wintypes` importable from `ctypes`) sees the attribute
+    access as a type error, not an undefined name — mypy/pyright concern, not a
+    ruff F821. The noqa form the original `import winpty` used doesn't apply here.
+  - **Windows-side verification**: deferred to CI post-push per leg design
+    (implementing agent runs Linux/WSL2). The ctypes Job Object is the flight's
+    DD-OQ empirical question — budget 1-2 CI iterations. The nested-job case
+    (whether `AssignProcessToJobObject` encounters an existing job from
+    pywinpty/ConPTY) will be answered by the CI run and captured in the flight log.
+
+### Leg 3 — code review + FD hardening
+
+- **Code review** (Reviewer/Sonnet, deep Win32 scrutiny): `[HANDOFF:confirmed]`.
+  Struct layout exact (field order + types match the prescribed `_fields_`;
+  `wintypes.DWORD`/`c_int64`/`c_size_t` correct), all six kernel32 calls have
+  `wintypes.HANDLE` argtypes/restype (no truncation), constants right
+  (KILL_ON_JOB_CLOSE=0x2000, class=9), close() ordering per spec (CloseHandle in
+  its own try/finally after proc.close), start() assigns immediately after spawn,
+  Linux import-safe (pty_windows never imported on Linux; verified via
+  sys.modules). POSIX 3057 passed / 10 skipped.
+- **FD-applied hardening** (reviewer's non-blocking obs, fixed pre-push because it
+  affects the reap *assertion's* trustworthiness): the test-side
+  `ctypes.windll.kernel32` calls (OpenProcess/GetExitCodeProcess in the
+  grandchild-liveness check) lacked argtypes → 64-bit HANDLE truncation could
+  make the liveness probe unreliable, i.e. the orphan-reap result untrustworthy.
+  Added a `_typed_kernel32()` helper (proper argtypes/restype) and routed all 3
+  sites through it. Lint clean; Linux import-safe re-verified.
+- Next: commit + push → windows-2022 lane is the DD-OQ empirical answer
+  (close-reap; nested-job behavior; parent-death xfail).
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._

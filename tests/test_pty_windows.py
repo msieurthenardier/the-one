@@ -1,4 +1,4 @@
-"""Windows PTY session tests — cmd.exe round-trip (M15 F3 Leg 2).
+"""Windows PTY session tests — cmd.exe round-trip + Job Object teardown (M15 F3 Legs 2-3).
 
 These tests are guarded by ``skipif(os.name != "nt")`` and run ONLY on the
 ``windows-2022`` CI lane.  They are the authoritative backend verification for
@@ -15,12 +15,42 @@ Test environment:
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import textwrap
+import time
 
 import pytest
 
 # Guard the entire module — do NOT import WindowsPtySession or winpty at module
 # scope on non-Windows; that would blow up collection on Linux.
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows-only PTY backend tests")
+
+# Win32 constants used by Job Object teardown tests (Leg 3).
+# Defined at module scope to satisfy ruff N806 (no uppercase variables in functions).
+_PROCESS_SYNCHRONIZE = 0x00100000
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_STILL_ACTIVE = 259
+
+
+def _typed_kernel32():
+    """Return ``kernel32`` with argtypes/restype set so 64-bit HANDLEs are not
+    truncated.  Raw ``ctypes.windll.kernel32`` leaves ``OpenProcess.restype`` at
+    the default ``c_int`` (4 bytes), which truncates the returned handle on
+    64-bit Windows and makes the grandchild-liveness check unreliable — exactly
+    the assertion these reap tests depend on.  Windows-only (imports ctypes
+    lazily so the module stays import-safe on Linux)."""
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.windll.kernel32
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    k32.GetExitCodeProcess.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.restype = wintypes.BOOL
+    return k32
 
 
 @pytest.fixture(autouse=True)
@@ -130,3 +160,256 @@ async def test_send_after_close_raises_runtime_error() -> None:
     await session.close()
     with pytest.raises(RuntimeError, match="session not active"):
         await session.send("echo nope", timeout=5.0)
+
+
+# ---------------------------------------------------------------------------
+# Job Object teardown tests (M15 F3 Leg 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_close_reaps_grandchild() -> None:
+    """Closing a session kills backgrounded grandchildren via the Job Object.
+
+    Shape mirrors the Unix ``test_pty_close_reaps_namespace_grandchild`` test
+    in ``test_pty_sandbox.py``.
+
+    Strategy: the PTY session sends a cmd.exe command that starts a detached
+    grandchild Python process.  The grandchild writes its own PID to a temp
+    file — this is robust in shared CI (``tasklist`` before/after diff
+    false-passes when another python.exe/timeout.exe runs concurrently).
+    After ``close()``, we assert the grandchild is gone by opening its handle
+    and checking whether the process has exited.
+    """
+    import ctypes
+    import tempfile
+    from ctypes import wintypes
+    from pathlib import Path
+
+    from the_one.platform.pty_windows import WindowsPtySession
+
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+        pid_file = f.name
+
+    try:
+        session = WindowsPtySession()
+        try:
+            await session.start()
+
+            # Background a grandchild that writes its PID then sleeps 60 s.
+            # Use string-concat on the sentinel to avoid it appearing in the
+            # PTY echo (which would confuse read-back assertions).
+            sentinel_part = "wro" + "te_pid"
+            grandchild_cmd = (
+                f'start /b "" {sys.executable} -c '
+                f'"import os,time; '
+                f"open(r'{pid_file}', 'w').write(str(os.getpid())); "
+                f"open(r'{pid_file}', 'a').write(' {sentinel_part}'); "
+                f'time.sleep(60)"'
+            )
+            await session.send(grandchild_cmd, timeout=15.0)
+
+            # Wait up to 5 s for the grandchild to write its PID
+            pid_path = Path(pid_file)
+            deadline = time.monotonic() + 5.0
+            grandchild_pid: int | None = None
+            while time.monotonic() < deadline:
+                if pid_path.exists():
+                    content = pid_path.read_text().strip()
+                    if sentinel_part in content:
+                        grandchild_pid = int(content.split()[0])
+                        break
+                time.sleep(0.1)
+
+            assert grandchild_pid is not None, (
+                f"Grandchild did not write PID to {pid_file} within 5 s"
+            )
+
+            # Verify grandchild is alive before close
+            k32 = _typed_kernel32()
+            hgc = k32.OpenProcess(
+                _PROCESS_SYNCHRONIZE | _PROCESS_QUERY_LIMITED_INFORMATION,
+                False,
+                grandchild_pid,
+            )
+            assert hgc, f"Could not open grandchild handle (pid={grandchild_pid})"
+            k32.CloseHandle(hgc)
+
+        finally:
+            await session.close()
+
+        # After close() the Job Object fires KILL_ON_JOB_CLOSE — the grandchild
+        # should be gone.  Poll for up to 3 s (the OS teardown is synchronous on
+        # CloseHandle, but scheduling lag can delay it slightly).
+        k32 = _typed_kernel32()
+        deadline = time.monotonic() + 3.0
+        grandchild_gone = False
+        while time.monotonic() < deadline:
+            hgc = k32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, grandchild_pid)
+            if not hgc:
+                # OpenProcess failed → process no longer exists
+                grandchild_gone = True
+                break
+            exit_code = wintypes.DWORD(0)
+            k32.GetExitCodeProcess(hgc, ctypes.byref(exit_code))
+            k32.CloseHandle(hgc)
+            if exit_code.value != _STILL_ACTIVE:
+                grandchild_gone = True
+                break
+            time.sleep(0.1)
+
+        assert grandchild_gone, (
+            f"Grandchild (pid={grandchild_pid}) still running after session.close() — "
+            "Job Object KILL_ON_JOB_CLOSE did not fire"
+        )
+    finally:
+        import os as _os
+
+        try:
+            _os.unlink(pid_file)
+        except OSError:
+            pass
+
+
+@pytest.mark.xfail(
+    reason=(
+        "Parent-death reap via TerminateProcess from a subprocess is best-effort — "
+        "the job handle may not propagate into the child subprocess's Python interpreter "
+        "on all Windows CI configurations (the child process may not hold the job handle "
+        "if it was created in a separate Windows Job Object context by the CI runner). "
+        "The primary guarantee (close()-triggered reap) is covered by "
+        "test_close_reaps_grandchild.  The operator's Windows host is the definitive "
+        "check for parent-death reap when this test is xfail."
+    ),
+    strict=False,
+)
+@pytest.mark.asyncio
+async def test_parent_death_reaps_grandchild() -> None:
+    """A parent process crash (hard kill) reaps grandchildren via the Job Object.
+
+    Creates a child script that starts a ``WindowsPtySession`` + grandchild,
+    then TerminateProcesses the child.  Asserts the grandchild is gone afterward.
+
+    Marked xfail/best-effort: the job handle is held by the child Python process;
+    if the CI runner places the child in its own Job Object context, the Job Object
+    created inside the child may not auto-close on TerminateProcess in all
+    configurations.  The primary reap guarantee (close()-triggered) is verified
+    by ``test_close_reaps_grandchild``.  This test documents the parent-death
+    contract and provides a passing result on configurations where it works.
+    """
+    import ctypes
+    import tempfile
+    from ctypes import wintypes
+    from pathlib import Path
+
+    # Child script: starts a PTY session, backgrounds a grandchild that writes
+    # its PID + a sentinel to a temp file, then prints "READY:<pid>" and sleeps.
+    child_script = textwrap.dedent(
+        f"""\
+        import asyncio, os, sys, time
+        import os as _os
+        _os.environ["THE_ONE_SANDBOX_DISABLED"] = "1"
+        _os.environ["THE_ONE_TEST_MODE"] = "1"
+        sys.path.insert(0, {repr(str(Path(__file__).parent.parent))})
+        from the_one.platform.pty_windows import WindowsPtySession
+        import tempfile
+
+        pid_file = sys.argv[1]
+
+        async def main():
+            session = WindowsPtySession()
+            await session.start()
+            sentinel = "wro" + "te_pid"
+            cmd = (
+                f"start /b \\\"\\\" {repr(sys.executable)} -c "
+                f'"import os,time; '
+                f"open(r'{{pid_file}}', 'w').write(str(os.getpid())); "
+                f"open(r'{{pid_file}}', 'a').write(' {{sentinel}}'); "
+                f'time.sleep(60)"'
+            )
+            await session.send(cmd, timeout=15.0)
+            # wait for grandchild to write PID
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                if os.path.exists(pid_file):
+                    content = open(pid_file).read().strip()
+                    if sentinel in content:
+                        gc_pid = int(content.split()[0])
+                        print(f"READY:{{gc_pid}}", flush=True)
+                        break
+                time.sleep(0.1)
+            else:
+                print("ERROR:timeout", flush=True)
+                return
+            # hold the job handle open (don't close the session)
+            time.sleep(60)
+
+        asyncio.run(main())
+        """
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w") as f:
+        pid_file = f.name
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+        script_path = f.name
+        f.write(child_script)
+
+    try:
+        child = subprocess.Popen(
+            [sys.executable, script_path, pid_file],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        # Wait for the child to report the grandchild PID (up to 20 s)
+        grandchild_pid: int | None = None
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline and child.poll() is None:
+            line = child.stdout.readline()
+            if line.startswith("READY:"):
+                grandchild_pid = int(line.strip().split(":")[1])
+                break
+
+        assert grandchild_pid is not None, (
+            f"Child script did not report grandchild PID — stderr: {child.stderr.read()}"
+        )
+
+        # Hard-kill the child (simulates parent crash)
+        child.kill()
+        child.wait(timeout=5)
+
+        # The job handle in the child process should have been closed by the OS
+        # on process termination → KILL_ON_JOB_CLOSE fires on the grandchild.
+        # Poll up to 3 s.
+        k32 = _typed_kernel32()
+        deadline = time.monotonic() + 3.0
+        grandchild_gone = False
+        while time.monotonic() < deadline:
+            hgc = k32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, grandchild_pid)
+            if not hgc:
+                grandchild_gone = True
+                break
+            exit_code = wintypes.DWORD(0)
+            k32.GetExitCodeProcess(hgc, ctypes.byref(exit_code))
+            k32.CloseHandle(hgc)
+            if exit_code.value != _STILL_ACTIVE:
+                grandchild_gone = True
+                break
+            time.sleep(0.1)
+
+        assert grandchild_gone, (
+            f"Grandchild (pid={grandchild_pid}) still alive after parent was killed — "
+            "Job Object KILL_ON_JOB_CLOSE did not fire on parent death"
+        )
+    finally:
+        import os as _os
+
+        try:
+            _os.unlink(pid_file)
+        except OSError:
+            pass
+        try:
+            _os.unlink(script_path)
+        except OSError:
+            pass

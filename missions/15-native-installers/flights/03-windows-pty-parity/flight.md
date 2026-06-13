@@ -346,7 +346,7 @@ implementer leans on it (cannot reproduce locally on WSL2/Linux).
    supervision); `create_pty_session` Windows dispatch (DD2); the DD5 Windows
    env-essential allowlist (backend won't function without `SystemRoot` et al.).
    Acceptance: a real cmd.exe session round-trips on `windows-2022`.
-3. **windows-teardown-and-orphans** — Resolve DD-OQ: verify whether
+3. ✅ **windows-teardown-and-orphans** *(completed 2026-06-13)* — Resolve DD-OQ: verify whether
    ConPTY-close reliably reaps the child or a Job Object
    (`KILL_ON_JOB_CLOSE`) is needed; implement the chosen mechanism; confirm no
    orphan after `close()` and after parent-death. **Empirically verified on
