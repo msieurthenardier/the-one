@@ -1,6 +1,6 @@
 # Flight: Native Application Window
 
-**Status**: planning
+**Status**: ready
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 ## Contributing to Criteria
@@ -290,9 +290,11 @@ MCP.
    start/bind/serve, readiness, close→drain, port cases, fallback path — DD6);
    docs (the new windowed entry, the DD8 transparent-app principle, the Linux
    WebKitGTK system-dep + browser-fallback note for F5, the browser-CI change);
-   verify-integration (all lanes green; `serve`/`chat` unchanged). **Optional
-   HAT/alignment**: operator opens the real window and confirms chromeless/
-   native feel + single-instance + clean close (offer; see Phase-4 question).
+   verify-integration (all lanes green; `serve`/`chat` unchanged). **HAT/alignment (operator opted in 2026-06-14, marked optional)**: a guided
+   manual smoke — the operator opens the real chromeless window on their machine
+   and confirms native feel + single-instance + clean close. The rendered window
+   has no CI apparatus (DD6), so this is the only rendered-window check this
+   flight; deeper coverage is Flight 7 / the next mission's gated MCP.
 
 ### Verification
 

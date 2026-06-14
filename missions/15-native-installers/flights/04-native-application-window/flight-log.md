@@ -92,6 +92,14 @@ installed code, not just the docs.
   (gated inner steps → job goes green on skip; no shim needed) + the push-lane
   base/ref note. Max 2 cycles; spec locked.
 
+## Crew Sign-off (Phase 6)
+
+Operator approved the spec → **ready** (2026-06-14). Confirmed: (1) single-
+instance default stands — **one the-one per port** (a `the-one serve` daemon and
+the window won't double-bind 8484; the window opens onto the running instance;
+no app change); (2) the **optional HAT is included** (operator opts in to the
+rendered-window manual smoke in Leg 4). No spec changes required by the sign-off.
+
 ## Decisions
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
