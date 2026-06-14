@@ -141,8 +141,16 @@ binaries = [
 excludes = ["nacl"]
 
 
-a = Analysis(
-    ["frozen_entry.py"],
+# TWO EXEs in one one-dir bundle (operator-HAT fix). DD6 originally pinned a single
+# multi-call exe with console=True, but a console-subsystem exe pops a blank console
+# window when the Start-menu shortcut launches the GUI (`the-one.exe app`). Fix:
+#   * the-one.exe      — console=True  — the CLI (chat|serve|doctor|version) + the CI
+#                        packaged-smoke (reads its stdout). Behavior unchanged.
+#   * the-one-app.exe  — console=False — the WINDOWED launcher the shortcut uses;
+#                        opens the webview with NO console window. Always runs `app`.
+# Both share the same collection inputs; MERGE de-dupes the shared payload so the
+# ~38 MB of deps isn't bundled twice in the one-dir.
+_analysis_kwargs = dict(
     pathex=[_REPO_ROOT],
     binaries=binaries,
     datas=datas,
@@ -154,19 +162,27 @@ a = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(a.pure)
+a_cli = Analysis(["frozen_entry.py"], **_analysis_kwargs)
+a_gui = Analysis(["frozen_entry_gui.py"], **_analysis_kwargs)
 
-# Single multi-call EXE (DD6 pin): ONE exe, `the-one.exe`, dispatches every
-# subcommand (chat|serve|app|version|doctor) via cli_entry() on argv. The Leg-3
-# Start-menu shortcut invokes `the-one.exe app`; the CLI is the same binary.
-# No second exe. console=True keeps a console for the CLI subcommands; the
-# windowed `app` subcommand opens its own webview regardless.
-exe = EXE(
-    pyz,
-    a.scripts,
+# De-dupe shared binaries/datas/pyz across the two exes: a_cli owns the shared
+# files; a_gui references them (so the one-dir carries one copy).
+MERGE(  # noqa: F821  (PyInstaller spec global)
+    (a_cli, "the-one", "the-one"),
+    (a_gui, "the-one-app", "the-one-app"),
+)
+
+pyz_cli = PYZ(a_cli.pure)
+pyz_gui = PYZ(a_gui.pure)
+
+# version= intentionally omitted on both — a bare string breaks the build (it needs
+# a VSVersionInfo resource, out of scope; see module docstring).
+exe_cli = EXE(
+    pyz_cli,
+    a_cli.scripts,
     [],
     exclude_binaries=True,  # one-dir: binaries live in the COLLECT dir
-    name=APP_NAME,  # the-one.exe  (the-one v{APP_VERSION})
+    name=APP_NAME,  # the-one.exe  (console — CLI + CI smoke)
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -177,14 +193,33 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # version= intentionally omitted — see module docstring (a bare string here
-    # breaks the build; it needs a VSVersionInfo resource, out of scope).
+)
+
+exe_gui = EXE(
+    pyz_gui,
+    a_gui.scripts,
+    [],
+    exclude_binaries=True,
+    name=f"{APP_NAME}-app",  # the-one-app.exe  (windowed — Start-menu shortcut)
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,  # windowed: NO console window when launching the GUI
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
 )
 
 coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
+    exe_cli,
+    exe_gui,
+    a_cli.binaries,
+    a_cli.datas,
+    a_gui.binaries,
+    a_gui.datas,
     strip=False,
     upx=True,
     upx_exclude=[],

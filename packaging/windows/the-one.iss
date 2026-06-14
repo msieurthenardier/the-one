@@ -82,17 +82,18 @@ Source: "..\..\dist\the-one\*"; DestDir: "{app}"; Flags: recursesubdirs createal
 Source: "installer-assets\the-one.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-; Start-menu shortcut -> the windowed app (the-one.exe app, DD3) — NOT bare the-one
-; (which would drop to chat). Same single multi-call exe also serves the CLI:
+; Start-menu shortcut -> the WINDOWED launcher the-one-app.exe (console=False, no
+; stray console window — operator-HAT fix). It always runs the `app` path, so no
+; Parameters needed. The console the-one.exe remains the CLI:
 ;   the-one.exe chat | serve | doctor | version   (run from {app}; no extra shortcut)
-Name: "{group}\GleepGlorp AI"; Filename: "{app}\the-one.exe"; Parameters: "app"; IconFilename: "{app}\the-one.ico"
+Name: "{group}\GleepGlorp AI"; Filename: "{app}\the-one-app.exe"; IconFilename: "{app}\the-one.ico"
 Name: "{group}\Uninstall GleepGlorp AI"; Filename: "{uninstallexe}"
 ; Desktop shortcut gated behind the desktopicon [Tasks] checkbox.
-Name: "{autodesktop}\GleepGlorp AI"; Filename: "{app}\the-one.exe"; Parameters: "app"; IconFilename: "{app}\the-one.ico"; Tasks: desktopicon
+Name: "{autodesktop}\GleepGlorp AI"; Filename: "{app}\the-one-app.exe"; IconFilename: "{app}\the-one.ico"; Tasks: desktopicon
 
 [Run]
 ; Optional post-install launch checkbox (skipped on silent installs).
-Filename: "{app}\the-one.exe"; Parameters: "app"; Description: "Launch GleepGlorp AI"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\the-one-app.exe"; Description: "Launch GleepGlorp AI"; Flags: nowait postinstall skipifsilent
 
 ; Uninstall: the Inno default removes the install tree ({app}) and both shortcuts.
 ; No custom [UninstallDelete] needed — everything lives under {app}.
