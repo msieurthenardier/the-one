@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-14
 **Flight**: [Windows PTY Parity (ConPTY)](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-06-13 (plan + Legs 1–3) → 2026-06-14 (Legs 4–5, land, PR #110 ready)
 **Legs Completed**: 5 of 5
 
