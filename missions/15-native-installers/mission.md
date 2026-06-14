@@ -229,6 +229,10 @@ longer assumed to be reached exclusively through a developer's browser.
   `run_shell`'s Windows path a tree-kill (`taskkill /F /T` or a Job Object,
   mirroring the PTY backend). Windows ships unsandboxed/best-effort (DD9), so
   this is a robustness gap, not a containment one.
+  **F5 disposition (2026-06-14, Leg 5):** held **OUT** of Flight 5 — wiring a Job
+  Object into `create_subprocess_shell`'s non-PTY proc is more than a one-liner and
+  does not ride along in the freeze-seam leg; it is a robustness gap, not a freeze
+  blocker. **Carried to F7 (Linux packaging) / a maintenance pass.**
 
 ## Carried Forward from Mission 14
 
@@ -330,7 +334,10 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
         check belongs here/Flight 7, not in the unit browser suite. The **full
         browser suite's "full tier" runs on RELEASES (Flight 6), not nightly**
         (releases don't exist yet — see Flight 6).
-- [ ] Flight 5: **Packaging & installer — Windows** — the cross-cutting freeze
+- [x] Flight 5: **Packaging & installer — Windows** *(landed 2026-06-14; freeze
+      runtime seam + `.spec` + Inno installer + CI packaged-smoke — the frozen-app
+      child-spawn fix proven green on the `windows-2022` runner; optional operator HAT
+      deferred to F9)* — the cross-cutting freeze
       runtime seam (built here, reused by F6/F7) + the Windows installer. Freeze
       the app + dependencies with **PyInstaller (one-dir)**; bundle the web static
       assets; build the **`clean_subprocess_env()`** child-env sanitizer (restore

@@ -4,13 +4,15 @@
 
 ## Summary
 
-Flight planned 2026-06-14. Status: `in-flight`. Windows-first packaging — the
-cross-cutting freeze runtime seam (`clean_subprocess_env` child-env sanitizer,
+Flight planned 2026-06-14. Status: **`landed` 2026-06-14**. Windows-first packaging —
+the cross-cutting freeze runtime seam (`clean_subprocess_env` child-env sanitizer,
 frozen-detection, `resolve_python` frozen fix, unencoded-I/O audit, the `the-one
 doctor` diagnostic) built here and reused by F6 (macOS) / F7 (Linux), plus the
 PyInstaller `.spec`, the Inno Setup installer, and a CI packaged-smoke that proves
 the frozen-app child-spawn fix against the packaged binary on a `windows-2022`
-runner. No legs executed yet.
+runner. **All 5 legs complete; the `windows-packaged-smoke` job is green (the frozen
+child-spawn fix proven on the packaged binary, the Inno installer builds). Optional
+operator HAT deferred to F9.** PR #112 (base `flight/04`).
 
 ---
 
@@ -330,6 +332,52 @@ actionable `FrozenInterpreterError`. Two **non-blocking** observations (a redund
 harmless freeze-order test whose real contract is covered by the adjacent exec-guard
 test; the intentional two-name `python`/`python3` probe) — neither warrants a fix cycle.
 No fix/re-review loop needed. Proceeding to commit + draft PR.
+
+### 2026-06-14 — CI packaged-smoke closeout (PR #112)
+
+The autonomous batch committed (`22da0f4`); draft PR #112 opened (base `flight/04`,
+scoped to this flight). The `windows-2022` `windows-packaged-smoke` job — the
+spawn-fix's only real proof — went green after **three CI-surfaced fixes**, each a
+latent build issue that can only manifest on a real Windows freeze (exactly why DD5
+made this CI the gate):
+
+1. **`mcp.cli`/typer** (`a170f7b`): `collect_submodules("mcp")` imported mcp's optional
+   CLI subpackage (needs `typer`/`mcp[cli]`, unused) → `ModuleNotFoundError` aborted the
+   freeze. Fixed: `filter` out `mcp.cli` + `on_error="warn"`.
+2. **Inno pre-installed** (`8e6449b`): `choco install innosetup --version=6.3.3` failed —
+   the runner ships Inno 6.7.1 (≥6.3, `x64compatible`-capable), so choco refused the
+   downgrade. Fixed: drop the pin, use the pre-installed `ISCC.exe`.
+3. **Artifact quota** (`359e44e`): the installer `.exe` built fine but
+   `actions/upload-artifact` hit the **account-level** storage quota (recalculates
+   6–12h). Made the upload `continue-on-error` — the build + three proofs are the job's
+   gates; the artifact is an optional-HAT convenience.
+
+**Final green run (`359e44e`, run 27505987491):** freeze build ✓; frozen
+`the-one doctor` exit 0 + `child spawn: OK` + `RESULT: PASS` ✓ (the DD2 spawn fix proven
+on the *packaged* binary — `uv` correctly reported absent-but-advisory, not a gate);
+frozen `serve` → `/api/info` 200 + version match ✓; single-instance probe ✓; Inno
+installer `.exe` built ✓. Other lanes green: `test`, `windows`, `bwrap`, `lint`.
+`browser` runs (the encoding fix touched `interfaces/web/app.py`) — an unrelated UI
+regression net.
+
+### 2026-06-14 — Leg 5 (docs-and-verify) → `completed` & flight `landed`
+
+- **Tree-kill disposition (DD/Open-Q carry):** the `run_shell` Windows tree-kill is held
+  **OUT** of Flight 5 (more than a one-liner; robustness gap, not a freeze blocker;
+  Windows unsandboxed per DD9) → **carried to F7/maintenance**. Annotated on the mission
+  Known Issue.
+- **Docs:** confirmed `the-one doctor` (CLAUDE.md + README.md) and the Windows
+  build/installer/SmartScreen/CI-smoke docs (`packaging/windows/README.md`) all landed
+  across Legs 1–4. No gaps.
+- **Verification gate:** host-native unit suite green (3115 passed); the `windows-2022`
+  packaged-smoke green (the spawn-fix proof); `serve`/`chat`/`app`/`version` unchanged
+  (Reviewer-confirmed + exercised by the frozen `serve` smoke).
+- **Optional operator HAT:** **deferred to F9** (the comprehensive installer HAT). It is
+  explicitly optional/early-preview; the CI artifact upload hit the account storage quota
+  this run so the real `.exe` isn't downloadable from it, and per the M14 carried-forward
+  operator preference (decide routine lifecycle calls with the sensible default) the
+  early-preview HAT is deferred rather than gating the landing.
+- Flight → `landed`; Flight 5 checked off in mission.md. `[COMPLETE:flight]`.
 
 ---
 

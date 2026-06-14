@@ -1,6 +1,6 @@
 # Flight: Packaging & Installer — Windows
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 ## Contributing to Criteria
