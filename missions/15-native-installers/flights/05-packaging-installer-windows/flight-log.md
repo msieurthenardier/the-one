@@ -383,6 +383,10 @@ it in the bundle. Spec-only change (and its comment). Verified by the CI re-run 
 
 Second CI fix on PR #112: the **Build Inno installer** step failed because `windows-2022` already ships Inno Setup 6.7.1 and `choco install innosetup --version=6.3.3` refused the downgrade and exited 1. Fix: dropped the version pin (tolerant `choco install innosetup -y --no-progress || true`) and used the pre-installed compiler, locating `ISCC.exe` explicitly rather than assuming PATH. Workflow-only change.
 
+### 2026-06-14 — CI installer-artifact upload: account artifact-storage quota (Leg 4)
+
+The **Upload installer artifact** step (`actions/upload-artifact@v4`) failed on PR #112 with an account-level "Artifact storage quota has been hit" condition (recalculated every 6-12h) — not a code/workflow defect; the freeze build and all three packaged-smoke proofs (the job's gates) plus the Inno installer build all passed. Disposition: marked the upload step `continue-on-error: true` (best-effort) since the artifact is an operator-HAT convenience deferred to F9; build+smoke remain green and gate the job, and the upload still attempts (will succeed once quota frees up). Workflow-only change.
+
 _(further unexpected issues will be recorded here)_
 
 ---

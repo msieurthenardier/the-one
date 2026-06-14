@@ -289,8 +289,16 @@ jobs:
           VER=$(python -c "import the_one; print(the_one.__version__)")
           "$ISCC" //DAppVersion=$VER packaging/windows/the-one.iss
           test -f "packaging/windows/Output/the-one-setup-$VER.exe"
+      # Best-effort: the installer artifact is an operator-HAT convenience (the
+      # comprehensive installer HAT is deferred to F9). This job's load-bearing
+      # gates are the freeze build + the three packaged-smoke proofs above, which
+      # already passed by this point. A transient account-wide artifact-storage
+      # quota failure (recalculated every 6-12h) must not red the central-proof
+      # job, so the upload is non-blocking; it still attempts and will succeed on
+      # future runs once quota frees up.
       - name: Upload installer artifact
         if: steps.changes.outputs.run == 'true'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: the-one-windows-installer
