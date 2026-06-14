@@ -104,6 +104,23 @@ rendered-window manual smoke in Leg 4). No spec changes required by the sign-off
 
 _Pending execution — planning-time decisions live in flight.md Design Decisions._
 
+## Flight Director Notes
+
+**2026-06-14 — Flight execution started (`/agentic-workflow`).**
+- Branch `flight/04-native-application-window` **stacked on `flight/03`** (operator
+  is cascading all M15 PRs after this flight). Crew file valid.
+- **Crew-file test-command override (same as F3):** the Implement prompt says
+  `docker exec the-one pytest …` — stale (Docker retired in F1). FD issues
+  host-native `.venv/bin/python -m pytest …` directly per spawn.
+- **Cadence: NORMAL batch model** (not CI-platform-gated — the launcher logic is
+  Linux-testable with the window mocked, DD6). Defer code review + commit to
+  Phase 2d (one review, one commit), unlike F3's per-leg-push CI-gating cadence.
+- **Reviewer scaling:** Sonnet for the launcher legs (1, 2 — threading + the
+  shutdown-drain-join is delicate); Haiku-default acceptable for the CI leg (3)
+  and docs (4). No security surface.
+- **Leg 4 HAT is interactive** (operator opts in) — guided manually, not spawned.
+- Flight `ready` → `in-flight`. Starting Leg 1 design.
+
 ## Deviations
 
 _None yet._
