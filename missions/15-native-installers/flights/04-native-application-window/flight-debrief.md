@@ -2,7 +2,7 @@
 
 **Date**: 2026-06-14
 **Flight**: [Native Application Window](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-06-14 (plan + 4 legs + 2d review + land, single day)
 **Legs Completed**: 4 of 4
 

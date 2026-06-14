@@ -1,6 +1,6 @@
 # Flight: Native Application Window
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 ## Contributing to Criteria
