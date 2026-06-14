@@ -140,7 +140,15 @@ _Pending execution — planning-time decisions live in flight.md Design Decision
 
 ## Deviations
 
-_None yet._
+- **Leg 3 path-filter: `dorny/paths-filter` → inline `git diff`** (FD fix, post-2d,
+  surfaced by PR-#111 CI). The action failed `Resource not accessible by
+  integration` — its PR-mode changed-files lookup needs `pull-requests: read`
+  the token lacks — AND it is a **Node-20 action** (force-migrated 2026-06-16,
+  the same deprecation we just fixed elsewhere). Replaced it with a
+  dependency-free inline `git diff` step (`fetch-depth: 0` + grep on
+  `the_one/interfaces/web/|tests/browser/|pyproject.toml`; missing/unreachable
+  base → run-everything). Avoids both the permission and the Node-version churn.
+  Same cost behavior (skips green-fast on non-UI changes). Re-verified on CI.
 
 ## Anomalies
 
