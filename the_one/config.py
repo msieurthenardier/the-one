@@ -22,8 +22,34 @@ def _default_data_dir() -> Path:
     return Path(platformdirs.user_data_dir("the-one", appauthor=False))
 
 
+def _resolve_env_file() -> str:
+    """Choose the ``env_file`` pydantic-settings reads at class-definition time.
+
+    M15 F5 L1 (DD8) — frozen ``.env`` anchoring. A frozen, double-clicked app
+    has an unpredictable CWD, so a bare relative ``.env`` would silently never
+    be found. When frozen, anchor ``.env`` to the per-user data directory (the
+    same ``platformdirs`` location ``_default_data_dir`` uses) so it is found
+    regardless of CWD. When NOT frozen, keep the relative ``.env`` (today's
+    dev/source behavior, byte-for-byte).
+
+    This MUST be computed at *import* time (here) rather than referencing
+    ``_default_data_dir`` as an instance method: pydantic-settings resolves
+    ``env_file`` from ``model_config`` when the ``Settings`` *class* is defined,
+    before any instance exists. ``THE_ONE_*`` environment variables keep working
+    regardless of which file (if any) is found — they take precedence over the
+    ``.env`` file in pydantic-settings' source ordering.
+    """
+    # Avoid an import cycle: read the frozen flag directly (the platform layer
+    # imports nothing from config, so importing it here is one-directional).
+    from the_one.platform.env import is_frozen
+
+    if is_frozen():
+        return str(_default_data_dir() / ".env")
+    return ".env"
+
+
 class Settings(BaseSettings):
-    model_config = {"env_prefix": "THE_ONE_", "env_file": ".env", "extra": "ignore"}
+    model_config = {"env_prefix": "THE_ONE_", "env_file": _resolve_env_file(), "extra": "ignore"}
 
     # Web
     host: str = "127.0.0.1"

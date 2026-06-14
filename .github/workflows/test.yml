@@ -142,3 +142,148 @@ jobs:
       - run: pip install -e ".[all-llms,dev]"
       - name: Run @requires_bwrap sandbox tests
         run: python -m pytest -m requires_bwrap tests/ --timeout=300 --tb=short
+
+  windows-packaged-smoke:
+    # Freezes the one-dir from packaging/windows/the-one.spec, proves the DD2
+    # child-spawn fix against the REAL frozen binary (the spawn-fix's only true
+    # apparatus — a checkout interpreter can't exercise a PyInstaller bundle),
+    # then builds + uploads the Inno installer. This is the load-bearing
+    # verification of Flight 5: a red `doctor` step here is the flight's Divert
+    # signal (the packaged spawn-fix regressed). Authored on a Linux host where
+    # none of this can run — the observed green run lands when this PR's CI does.
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash   # Git Bash on the runner — matches the `windows` job:
+                      # avoids PowerShell stripping the quotes in
+                      # `pip install -e ".[gui,all-llms]"` and obscuring a real
+                      # install failure behind a quoting artifact.
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history so the path-filter diff can reach the base
+      # Path-filter (mirrors the `browser` job's inline git-diff): the freeze +
+      # smoke is expensive (PyInstaller bundle + Inno install), so most PRs
+      # (connectors/DB/MCP/agent) skip it. The filtered set is the realistic
+      # blast radius for the packaged spawn-fix: packaging/** + the runtime
+      # SEAM files (env/interpreter/shell/stdio/diagnostics/main/app) + the
+      # smoke's own PASS-CRITERIA files (__init__.py = version asserted in
+      # proof-b & installer name; config.py = the 8484 port; web/app.py = the
+      # /api/info endpoint) + pyproject.toml (dep changes). MAINTENANCE NOTE: if
+      # you add a NEW seam file, add it to the grep below or the smoke won't run
+      # on the PR that changes it. Missing/unreachable base (first push, new
+      # branch) → run everything (conservative-safe), same as `browser`.
+      - name: Detect packaging-relevant changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"   # no usable base → run it
+            exit 0
+          fi
+          if git diff --name-only "$BASE" HEAD \
+               | grep -qE '^(packaging/|pyproject\.toml$|the_one/platform/env\.py$|the_one/platform/interpreter\.py$|the_one/platform/shell\.py$|the_one/mcp/transports/stdio\.py$|the_one/diagnostics\.py$|the_one/main\.py$|the_one/interfaces/app\.py$|the_one/interfaces/web/app\.py$|the_one/config\.py$|the_one/__init__\.py$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v6
+        if: steps.changes.outputs.run == 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+      # The [gui] extra is REQUIRED — without pywebview→pythonnet the spec's
+      # collect_* import-fails at build time. The existing `windows` job installs
+      # only .[all-llms,dev] (no [gui]), so this job has its own install line.
+      - name: Install GUI freeze deps + PyInstaller
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          pip install -e ".[gui,all-llms]"
+          pip install pyinstaller
+      # Build the frozen one-dir from the checked-in spec. `test -f` fails the
+      # job fast if the bundle exe name drifts; any PyInstaller error (incl. a
+      # missing pywinpty .pyd/winpty.dll — the Divert trigger) already exits
+      # non-zero and fails the job.
+      - name: Build frozen one-dir (PyInstaller)
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -eo pipefail
+          pyinstaller --noconfirm packaging/windows/the-one.spec
+          test -f dist/the-one/the-one.exe
+      # PROOF (a) — frozen doctor. The doctor's own exit code is the gate;
+      # `set -o pipefail` ensures `tee` can't mask a non-zero exit. grep both
+      # `child spawn: OK` (clean_subprocess_env + PATH augmentation work on the
+      # packaged binary) AND `RESULT: PASS` (also covers the frozen
+      # resolve_python interpreter gate, not just child-spawn).
+      - name: Packaged-smoke (a) — frozen doctor
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -eo pipefail
+          ./dist/the-one/the-one.exe doctor | tee doctor.out
+          grep -q "child spawn: OK" doctor.out
+          grep -q "RESULT: PASS" doctor.out
+      # PROOF (b) — frozen serve answers /api/info. Background the frozen serve
+      # and poll with an httpx Python probe (NOT curl): httpx is a runtime dep
+      # and is the exact path the product polls with, so there's no
+      # Git-Bash-curl assumption. Assert 200 + version == the_one.__version__.
+      # 30s timeout → job fails clearly rather than hanging.
+      - name: Packaged-smoke (b) — frozen serve /api/info
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -eo pipefail
+          # Background the native .exe; it is reaped via taskkill in proof (c).
+          ./dist/the-one/the-one.exe serve &
+          python - <<'PY'
+          import time, sys, httpx, the_one
+          for _ in range(30):
+              try:
+                  r = httpx.get("http://127.0.0.1:8484/api/info", timeout=2.0)
+                  if r.status_code == 200:
+                      assert r.json()["version"] == the_one.__version__, r.json()
+                      sys.exit(0)
+              except Exception:
+                  pass
+              time.sleep(1)
+          sys.exit("frozen serve did not answer /api/info 200 within 30s")
+          PY
+      # PROOF (c) — single-instance decision input. With the frozen serve still
+      # up, assert the Flight-4 probe (run from the runner's installed SOURCE,
+      # not the frozen exe) sees the frozen instance as ours: it advertises an
+      # our-version /api/info, so a second `app` launch's _select_port returns
+      # (port, True) and starts no second server. This proves the INPUT the
+      # second launch keys on; the frozen binary's own _select_port (rendered
+      # second-launch) is the F9 operator HAT (DD5 — no GUI HAT this flight).
+      # Teardown: `taskkill //F //IM` is Windows-native and MSYS-escaped (the
+      # leading `//` keeps Git Bash from path-munging `/F`/`/IM`); `kill "$!"` on
+      # a native .exe under Git Bash is unreliable. Best-effort (`|| true`) —
+      # the runner is ephemeral so this is hygiene, not correctness; a teardown
+      # failure must not fail the job.
+      - name: Packaged-smoke (c) — single-instance probe + teardown
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -eo pipefail
+          python -c "from the_one.interfaces.app import _select_port; p,ours=_select_port('127.0.0.1',8484); assert ours,(p,ours)"
+          taskkill //F //IM the-one.exe || true
+      # Inno installer build — runs AFTER the smoke so we never ship an unproven
+      # build. Pin Inno Setup 6.3.3 (a real published chocolatey version, >=6.3
+      # for the `x64compatible` arch token the .iss uses). The `//D` double-slash
+      # is the MSYS escape for a leading `/D` — Git Bash would otherwise mangle a
+      # bare `/DAppVersion` into a Windows path. Do NOT "fix" it back to `/D`.
+      - name: Build Inno installer
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -eo pipefail
+          choco install innosetup --version=6.3.3 -y
+          VER=$(python -c "import the_one; print(the_one.__version__)")
+          iscc //DAppVersion=$VER packaging/windows/the-one.iss
+          test -f "packaging/windows/Output/the-one-setup-$VER.exe"
+      - name: Upload installer artifact
+        if: steps.changes.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: the-one-windows-installer
+          path: packaging/windows/Output/*.exe

@@ -45,6 +45,7 @@ pip install -e ".[all-llms,dev]"
 cp .env.example .env  # edit THE_ONE_LLM_* for your provider of choice
 the-one chat          # CLI
 the-one serve         # web UI at http://localhost:8484
+the-one doctor        # diagnose the runtime spawn seam (child spawn, interpreter, node/uv/python on PATH)
 ```
 
 **Docker** (production-shaped path):
@@ -83,6 +84,8 @@ sudo apt install python3-gi gir1.2-webkit2-4.1
 **System-browser fallback**: if no WebView backend is present (e.g., a headless server or a Linux box without WebKitGTK installed), `the-one app` falls back to opening the system browser and keeps the server running until you press Ctrl-C.
 
 **Single-instance behaviour**: `the-one app` does NOT start a second server when one is already running on the configured port. A second `the-one app` invocation (or `the-one app` while `the-one serve` is already up) detects the running instance and opens a new window onto it. One server, any number of windows.
+
+**Windows packaging**: to freeze a standalone Windows bundle (one-dir `the-one.exe`), see [`packaging/windows/README.md`](packaging/windows/README.md) — must build on native Windows.
 
 ### Supported LLMs
 

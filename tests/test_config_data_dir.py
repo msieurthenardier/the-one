@@ -296,3 +296,36 @@ def test_no_migration_when_paths_equal(tmp_path, monkeypatch, _cache_reset):
     # No rename should have happened — legacy still there under original name.
     assert legacy.is_dir()
     assert (legacy / "the-one.db").read_text() == "content"
+
+
+# ---------------------------------------------------------------------------
+# M15 F5 L1 (DD8): frozen ``.env`` anchoring.
+#
+# pydantic-settings reads ``env_file`` from ``model_config`` at class-definition
+# time, so the choice is made by the module-level ``_resolve_env_file`` helper.
+# We test that helper directly (the class-def-time binding is exercised on the
+# real source-checkout via test_relative_when_not_frozen at import).
+# ---------------------------------------------------------------------------
+
+
+def test_env_file_relative_when_not_frozen(monkeypatch):
+    """Non-frozen (source/dev) keeps the relative ``.env`` — today's behavior."""
+    from the_one import config as config_mod
+    from the_one.platform import env as env_mod
+
+    monkeypatch.delattr(env_mod.sys, "frozen", raising=False)
+    monkeypatch.delattr(env_mod.sys, "_MEIPASS", raising=False)
+    assert config_mod._resolve_env_file() == ".env"
+
+
+def test_env_file_anchored_to_data_dir_when_frozen(monkeypatch, tmp_path):
+    """Frozen anchors ``.env`` to the per-user data dir so an unpredictable CWD
+    doesn't silently drop ``.env``."""
+    from the_one import config as config_mod
+    from the_one.platform import env as env_mod
+
+    monkeypatch.setattr(env_mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(env_mod.sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
+    _patch_platformdirs(monkeypatch, tmp_path / "data")
+    resolved = config_mod._resolve_env_file()
+    assert resolved == str(tmp_path / "data" / ".env")

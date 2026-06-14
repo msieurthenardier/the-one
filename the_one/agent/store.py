@@ -45,13 +45,13 @@ class FilesystemConfigStore:
         path = self._path(name)
         if not path.exists():
             raise KeyError(f"Agent config not found: {name}")
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         return AgentConfig.model_validate(data)
 
     def save(self, config: AgentConfig) -> None:
         self.agents_dir.mkdir(parents=True, exist_ok=True)
         path = self._path(config.name)
-        path.write_text(json.dumps(config.model_dump(), indent=2) + "\n")
+        path.write_text(json.dumps(config.model_dump(), indent=2) + "\n", encoding="utf-8")
 
     def delete(self, name: str) -> None:
         path = self._path(name)
@@ -73,9 +73,9 @@ class FilesystemConfigStore:
             raise KeyError(f"Agent config not found: {old_name}")
         if new_path.exists():
             raise ValueError(f"Agent config already exists: {new_name}")
-        data = json.loads(old_path.read_text())
+        data = json.loads(old_path.read_text(encoding="utf-8"))
         data["name"] = new_name
-        new_path.write_text(json.dumps(data, indent=2) + "\n")
+        new_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         old_path.unlink()
 
     def _path(self, name: str) -> Path:
