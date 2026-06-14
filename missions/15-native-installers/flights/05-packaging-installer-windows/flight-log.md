@@ -379,6 +379,10 @@ submodule that fails to import warns instead of aborting. Did **not** add
 it in the bundle. Spec-only change (and its comment). Verified by the CI re-run of the
 `windows-packaged-smoke` job on PR #112.
 
+### 2026-06-14 — CI Inno installer failure: version pin downgrade (Leg 4)
+
+Second CI fix on PR #112: the **Build Inno installer** step failed because `windows-2022` already ships Inno Setup 6.7.1 and `choco install innosetup --version=6.3.3` refused the downgrade and exited 1. Fix: dropped the version pin (tolerant `choco install innosetup -y --no-progress || true`) and used the pre-installed compiler, locating `ISCC.exe` explicitly rather than assuming PATH. Workflow-only change.
+
 _(further unexpected issues will be recorded here)_
 
 ---

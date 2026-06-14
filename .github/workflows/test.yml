@@ -269,17 +269,25 @@ jobs:
           python -c "from the_one.interfaces.app import _select_port; p,ours=_select_port('127.0.0.1',8484); assert ours,(p,ours)"
           taskkill //F //IM the-one.exe || true
       # Inno installer build — runs AFTER the smoke so we never ship an unproven
-      # build. Pin Inno Setup 6.3.3 (a real published chocolatey version, >=6.3
-      # for the `x64compatible` arch token the .iss uses). The `//D` double-slash
-      # is the MSYS escape for a leading `/D` — Git Bash would otherwise mangle a
-      # bare `/DAppVersion` into a Windows path. Do NOT "fix" it back to `/D`.
+      # build. The windows-2022 runner already ships Inno Setup >=6.3 (currently
+      # 6.7.1), which supports the `x64compatible` arch token the .iss needs, so
+      # we use the pre-installed compiler. We do NOT pin a version: pinning an
+      # older version (e.g. 6.3.3) makes choco refuse to "downgrade" and exit 1,
+      # failing the step before iscc runs. The unpinned `choco install ... || true`
+      # is a tolerant ensure-present that no-ops when Inno is already installed.
+      # ISCC is not guaranteed on PATH, so we locate it explicitly. The `//D`
+      # double-slash is the MSYS escape for a leading `/D` — Git Bash would
+      # otherwise mangle a bare `/DAppVersion` into a Windows path. Do NOT "fix"
+      # it back to `/D`.
       - name: Build Inno installer
         if: steps.changes.outputs.run == 'true'
         run: |
           set -eo pipefail
-          choco install innosetup --version=6.3.3 -y
+          choco install innosetup -y --no-progress || true
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          [ -f "$ISCC" ] || ISCC="$(command -v iscc)"
           VER=$(python -c "import the_one; print(the_one.__version__)")
-          iscc //DAppVersion=$VER packaging/windows/the-one.iss
+          "$ISCC" //DAppVersion=$VER packaging/windows/the-one.iss
           test -f "packaging/windows/Output/the-one-setup-$VER.exe"
       - name: Upload installer artifact
         if: steps.changes.outputs.run == 'true'
