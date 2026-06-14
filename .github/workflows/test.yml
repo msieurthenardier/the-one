@@ -32,14 +32,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # Path-filter: the browser suite (~15 min) only needs to run when the
+      # web UI changes. Most PRs (connectors/DB/MCP/agent) don't touch it.
+      # ADD any new UI surface to the `ui` filter below, or the browser
+      # suite won't run on PRs that change it. First push to a new branch →
+      # before-SHA is all-zeros → the action treats everything as changed →
+      # the suite RUNS (conservative-safe, intentional).
+      - name: Detect UI changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            ui:
+              - 'the_one/interfaces/web/**'
+              - 'tests/browser/**'
+              - 'pyproject.toml'   # covers Playwright pin bumps
       - uses: actions/setup-python@v6
+        if: steps.changes.outputs.ui == 'true'
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -e ".[all-llms,dev]"
+      - name: Install dependencies
+        if: steps.changes.outputs.ui == 'true'
+        run: pip install -e ".[all-llms,dev]"
       - name: Provision Chromium
+        if: steps.changes.outputs.ui == 'true'
         run: python -m playwright install --with-deps chromium
       - name: Run browser tests (host-native)
+        if: steps.changes.outputs.ui == 'true'
         env:
           THE_ONE_DEV_MODE: "true"
         run: python -m pytest -m browser tests/browser/ --timeout=300 --tb=short

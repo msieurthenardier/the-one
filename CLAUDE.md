@@ -71,6 +71,10 @@ Four layers compose bottom-up: **Interfaces** (CLI + Web/FastAPI) → **Agent** 
 
 Full module map, layer internals, tool-authorship contract, constraint surfaces (Filesystem/Execution/Web Configs), cross-Config dispatch, PTY session lifecycle, MCP F2/F3 contracts, MCP error translation, operator workflows — all in `the_one/agents.md`. Don't duplicate that material here.
 
+## Desktop launcher (`the-one app`)
+
+`the_one/interfaces/app.py` (M15 F4). `uvicorn.Server` on a **daemon thread** + `pywebview` on the **main thread**. The shared `_graceful_shutdown(server, thread)` helper sets `server.should_exit = True` then joins the thread (60s timeout); **no-op when `server is None`** (window-only client — attached to an existing server, owns nothing to drain). `_select_port` uses a connect-probe + startup-retry to classify the configured port as: free (start new server) / ours-by-version (attach a window only) / foreign (bind-0 a free port). `_webview_available` probes the Linux WebKit2 typelib via `gi.require_version` without importing Gtk/WebKit2 (importing can touch a display connection and hang headless). `pywebview` is the optional `[gui]` extra — `import webview` is **lazy** inside `run()`, NOT at module top-level; the base install is GTK-free. See `the_one/agents.md` "Desktop launcher" for the full contract reference.
+
 ## Configuration
 
 Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, dev_mode. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.

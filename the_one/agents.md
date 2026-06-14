@@ -21,6 +21,41 @@ Rules: `config.py` is the leaf (imported by everything, imports nothing). `llm/`
 
 ---
 
+## Desktop launcher (`the-one app` / `the_one/interfaces/app.py`)
+
+M15 F4 added `the-one app`, a windowed launch path implemented in `the_one/interfaces/app.py`. Key architecture points:
+
+**Thread model**: `uvicorn.Server` runs on a **daemon thread**; `pywebview` (via `webview.start()`) runs on the **main thread**. The main thread blocks until the window closes, then `_graceful_shutdown` drives the server to completion.
+
+**`_graceful_shutdown(server, thread, timeout=60.0)`**: sets `server.should_exit = True`, then `thread.join(timeout)` to wait for the lifespan drain. **No-op when `server is None`** — callers pass `(None, None)` when this `the-one app` process is a window-only client (it opened a window onto an already-running server; it owns no local server to drain). Distinct from the `finally:` block being present: the `finally` always calls `_graceful_shutdown`; when `server is None` the function returns immediately.
+
+**`_select_port(host, port, retries=3, delay=0.3) → (port, is_our_instance)`**: uses a **connect-probe** (not a bind-probe with `SO_REUSEADDR`, which gives a false "free" on a `TIME_WAIT` socket). Three cases:
+
+| Case | Condition | Return |
+|------|-----------|--------|
+| (a) Free | Port not occupied | `(port, False)` — start a new server on the configured port |
+| (b) Ours | Occupied, `/api/info` responds 200 with matching `__version__` | `(port, True)` — attach a window to the existing server; do NOT start a second server |
+| (c) Foreign | Occupied, but not a matching the-one (or a different the-one version) | `(bind-0 free port, False)` — start a new server on an OS-assigned free port; coexistence with the foreign process |
+
+The startup-retry loop (3 attempts, 0.3s delay) covers a the-one that just bound but hasn't completed lifespan startup yet — without it, a racing `the-one app` could misclassify a starting instance as "foreign" and bind a second port.
+
+**`_webview_available() → bool`**: **typelib-only probe** — does NOT import `Gtk` or `WebKit2`, which would initialize GLib, touch a display connection, and hang on headless machines. On `win32`/`darwin`, returns `True` unconditionally (WebView2 / WKWebView assumed present). On Linux: calls `gi.require_version("WebKit2", ver)` for versions `4.1`, `4.0`, `6.0` — catches `ImportError` (no `gi`) and `ValueError` (typelib absent). Returns `True` on the first version that succeeds.
+
+**`[gui]` extra and lazy import**: `pywebview` is an **optional** dependency declared in `pyproject.toml` as `[gui]`. It is imported **lazily** inside `run()` — `import webview` — NOT at module top-level. This keeps the Linux CI install GTK-free (the default `pip install -e ".[all-llms,dev]"` does not pull in `pywebview`, and therefore does not touch WebKitGTK or GLib). The module-level `import the_one.interfaces.app` is safe in any environment. Installing the extra: `pip install 'the-one[gui]'` (or `-e ".[all-llms,dev,gui]"` for dev).
+
+**Browser-CI path-filter**: the `browser` job in `.github/workflows/test.yml` is gated on file changes via `dorny/paths-filter`. The current `ui` filter covers:
+
+```yaml
+ui:
+  - 'the_one/interfaces/web/**'
+  - 'tests/browser/**'
+  - 'pyproject.toml'
+```
+
+**Maintenance rule**: if you add a new UI surface (e.g. a new JS/CSS/HTML entrypoint outside `the_one/interfaces/web/`, or new browser test directories), add it to the `ui` filter in `.github/workflows/test.yml` or the browser suite will NOT run on PRs that only touch that surface. The launcher itself (`the_one/interfaces/app.py`) is covered by the default `test` job (not the `browser` job), because it has no Playwright-driven tests.
+
+---
+
 ## Project Conventions
 
 Named project-wide patterns. Apply across the codebase, not only where they were first introduced. Reviewers flag deviations by name.

@@ -56,6 +56,34 @@ make logs             # follow container logs
 make down             # stop
 ```
 
+### Desktop window
+
+GleepGlorp AI can open as a **chromeless native window** (no browser chrome, no URL bar) instead of a browser tab:
+
+```bash
+pip install 'the-one[gui]'
+the-one app
+```
+
+The window is backed by the platform's built-in WebView — no Chromium bundled, no extra download:
+
+| Platform | Backend |
+|----------|---------|
+| Windows  | WebView2 (ships with Windows 10+ / Edge) |
+| macOS    | WKWebView (built-in) |
+| Linux    | WebKitGTK — requires system packages (see below) |
+
+**Linux system packages** (Ubuntu/Debian):
+
+```bash
+sudo apt install python3-gi gir1.2-webkit2-4.1
+# Ubuntu 20.04 / older distros: gir1.2-webkit2-4.0
+```
+
+**System-browser fallback**: if no WebView backend is present (e.g., a headless server or a Linux box without WebKitGTK installed), `the-one app` falls back to opening the system browser and keeps the server running until you press Ctrl-C.
+
+**Single-instance behaviour**: `the-one app` does NOT start a second server when one is already running on the configured port. A second `the-one app` invocation (or `the-one app` while `the-one serve` is already up) detects the running instance and opens a new window onto it. One server, any number of windows.
+
 ### Supported LLMs
 
 GleepGlorp AI talks to four LLM providers out of the box. Pick whichever fits your setup; the app doesn't ship with any of them installed.

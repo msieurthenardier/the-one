@@ -269,24 +269,24 @@ MCP.
 
 > Tentative breakdown — refined per-leg at design time (`/leg`).
 
-1. **windowed-launcher-core** — the `uvicorn.Server`-on-daemon-thread +
+1. ✅ **windowed-launcher-core** — the `uvicorn.Server`-on-daemon-thread +
    `/api/info` readiness gate + chromeless pywebview window + window-close →
    `should_exit` → **graceful lifespan-drain** shutdown (DD2/DD8). **Establish
    the `should_exit`+`join(timeout=30)`+drain as a SHARED shutdown helper** —
    Leg 2's fallback stop-path reuses it (the one hidden coupling; avoids two
    drifting shutdown paths). The `pywebview` dependency with platform env markers
    (DD1); the new `the-one app` entry (DD3). Leave `serve`/`chat` byte-identical.
-2. **port-single-instance-and-fallback** — free-port selection + the
+2. ✅ **port-single-instance-and-fallback** — free-port selection + the
    `/api/info` 200+version our-the-one probe + single-instance behaviour
    (second-window-onto-running-instance; DD4); the WebView-backend probe +
    `webbrowser.open` fallback whose stop-path **reuses Leg 1's shared shutdown
    helper** (SIGINT→should_exit→join; DD5). Resolves the mission Open Question.
    *(May split into single-instance vs fallback at `/leg` time — they share no
    logic; designer's call.)*
-3. **browser-ci-path-filter-and-dedup** — path-filter the `browser` job to
+3. ✅ **browser-ci-path-filter-and-dedup** — path-filter the `browser` job to
    UI-touching paths; targeted (light) dedup of the most redundant browser tests
    (DD7). No coupling to the launcher; separate surface.
-4. **tests-docs-and-verify** — launcher-logic unit tests (window mocked: uvicorn
+4. ✅ **tests-docs-and-verify** *(impl=Leg 4 docs-verify-and-hat)* — launcher-logic unit tests (window mocked: uvicorn
    start/bind/serve, readiness, close→drain, port cases, fallback path — DD6);
    docs (the new windowed entry, the DD8 transparent-app principle, the Linux
    WebKitGTK system-dep + browser-fallback note for F5, the browser-CI change);

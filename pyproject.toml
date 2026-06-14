@@ -50,6 +50,10 @@ dependencies = [
 openai = ["openai>=2.16"]
 anthropic = ["anthropic>=0.40"]
 all-llms = ["openai>=2.16", "anthropic>=0.40"]
+gui = [
+    "pywebview[gtk]>=5,<6; sys_platform == 'linux'",
+    "pywebview>=5,<6; sys_platform != 'linux'",
+]
 # urllib3 floor is a toolchain-only CVE fix (reaches the tree solely via
 # requests, pulled by dev/test tooling — pip-audit/cachecontrol/pytest-base-url;
 # NOT in the runtime closure). Closes PYSEC-2026-142, PYSEC-2026-141.
