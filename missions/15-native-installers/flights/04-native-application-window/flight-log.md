@@ -150,6 +150,24 @@ _Pending execution — planning-time decisions live in flight.md Design Decision
   base → run-everything). Avoids both the permission and the Node-version churn.
   Same cost behavior (skips green-fast on non-UI changes). Re-verified on CI.
 
+## Flight Closeout (2026-06-14)
+
+- **All CI lanes green** (PR #111): test / bwrap / lint / **windows** (curated, ~2min)
+  / **browser** — the browser suite RAN this PR (pyproject changed → the inline
+  path-filter correctly triggered it) and passed, giving positive verify-
+  integration (not just the skip path). Full suite 3074 passed; serve/chat/version
+  byte-identical.
+- **HAT: operator-run-pending** (DD6). The rendered chromeless window is the only
+  rendered-window check; deferred to the operator's machine when convenient — the
+  flight lands on the green CI + 17 launcher unit tests. The Origin-allowlist risk
+  (Leg 1) is validated in that HAT.
+- **Flight LANDED.** PR #111 → ready for review (stacked on #110; cascades to main).
+  Forward-pointers recorded: F5 must handle the Linux WebKitGTK AppImage-hostility
+  (prefer .deb/.rpm system-dep); the next mission's gated MCP is the programmatic
+  UI-testing apparatus.
+
+[COMPLETE:flight]
+
 ## Anomalies
 
 _None yet._

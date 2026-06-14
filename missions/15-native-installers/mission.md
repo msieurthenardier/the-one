@@ -296,7 +296,7 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       through the shared seam, bringing interactive shell/session tools to feature
       parity on Windows. Absorbs the two migrated F1 ride-alongs
       (`skipif(which("bwrap"))` re-marking; `mcp/__init__` guard comments).
-- [ ] Flight 4: **Native application window** — launch uvicorn in-process and open
+- [x] Flight 4: **Native application window** *(landed 2026-06-14; windowed-launch via `the-one app`; rendered-window HAT operator-run-pending)* — launch uvicorn in-process and open
       a chromeless native web-view window pointed at the local server, with a
       system-browser fallback; handle app lifecycle (port selection,
       single-instance, clean shutdown).

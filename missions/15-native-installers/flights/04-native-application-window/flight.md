@@ -1,14 +1,15 @@
 # Flight: Native Application Window
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Launching the installed app opens the agent UI in a **native application
-      window**, falling back to the system browser only when no native web view
-      is available. *(the windowed-launch capability — the "installed app" wiring
-      is Flight 5; rendered-window acceptance is Flight 7 / the next mission's MCP)*
+- [x] Launching the app opens the agent UI in a **native application window**,
+      falling back to the system browser when no WebView is available — the
+      **windowed-launch capability** is delivered (`the-one app`). *(The "installed
+      app" packaging is Flight 5; rendered-window acceptance is the operator HAT /
+      Flight 7 / the next mission's gated MCP.)*
 
 ---
 

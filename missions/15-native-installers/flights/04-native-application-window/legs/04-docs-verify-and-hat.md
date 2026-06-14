@@ -64,7 +64,10 @@ opens the real chromeless window and confirms the native feel + single-instance
       instance); the window closes cleanly (no hung process); a basic UI action
       that POSTs works (the Origin check). Result + any disposition recorded;
       if deferred (no display handy), note "HAT operator-run-pending" — the
-      flight may still land per DD6.
+      flight may still land per DD6. **DISPOSITION (2026-06-14): operator-run-
+      pending** — flight landed on green CI + the launcher unit tests; the
+      rendered-window HAT is run on the operator's machine when convenient
+      (the next mission's gated MCP is the deeper apparatus).
 
 ## Verification Steps
 
