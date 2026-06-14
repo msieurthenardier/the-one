@@ -300,6 +300,19 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       a chromeless native web-view window pointed at the local server, with a
       system-browser fallback; handle app lifecycle (port selection,
       single-instance, clean shutdown).
+      - **Planning input (browser-test strategy, operator-directed 2026-06-14):**
+        the browser suite (513 tests, ~15 min — now the CI long pole) tests the
+        SAME web UI that ships inside the native window, so it stays valuable —
+        but (a) **path-filter the browser CI job to UI-touching PRs only**
+        (`interfaces/web/**`, templates, the relevant API): most PRs
+        (connectors/DB/MCP/agent) don't touch the UI and pay 15 min for ~zero
+        signal; (b) **dedup redundant browser tests** (e.g. `test_markdown` 91,
+        overlapping editor flows — coverage-guided); (c) note the renderer shift —
+        the native window uses Edge WebView2/WKWebView/WebKitGTK, so
+        Playwright-Chromium becomes a *logic proxy*; the real-WebView acceptance
+        check belongs here/Flight 7, not in the unit browser suite. The **full
+        browser suite's "full tier" runs on RELEASES (Flight 6), not nightly**
+        (releases don't exist yet — see Flight 6).
 - [ ] Flight 5: **Packaging & installers** — freeze the app + dependencies and
       produce per-OS installer artifacts (Windows, macOS `.dmg`, Linux AppImage);
       bundle the web static assets; resolve/scrub frozen-environment vars so
@@ -309,6 +322,11 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 - [ ] Flight 6: **Release pipeline (CI/CD)** — GitHub Actions matrix builds the
       three installers on a release tag and publishes them to GitHub Releases;
       signing steps are present but conditional/no-op until certificates exist.
+      - **Planning input (operator-directed 2026-06-14):** add the **full browser
+        suite as a release-gated tier** here — once the release flow exists, the
+        full 513-test browser run executes on a release (tag) rather than every
+        PR (PRs run only the path-filtered subset from Flight 4). This is the
+        "full tier" deferred from the Flight-4 browser-test tiering decision.
 - [ ] Flight 7: **First-run UX, docs & acceptance** — first-run experience, per-OS
       install + unsigned-app-workaround documentation, replacing the remaining
       Docker-flavored runtime error messages, and end-to-end acceptance behavior
