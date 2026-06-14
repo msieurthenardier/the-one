@@ -65,7 +65,18 @@ uvicorn_datas, uvicorn_bins, uvicorn_hidden = collect_all("uvicorn")
 
 # mcp (model-context-protocol SDK, pinned 1.27.0): submodules cover its
 # dynamically-dispatched transports/handlers.
-mcp_hidden = collect_submodules("mcp")
+#
+# Exclude the optional `mcp.cli` subpackage: its __init__ imports `typer` (the
+# mcp[cli] extra), which the app does NOT use and which is not installed. Without
+# the filter, PyInstaller's isolated submodule walk imports mcp.cli, hits
+# ModuleNotFoundError: typer, and aborts the entire freeze. on_error="warn" is a
+# belt-and-suspenders so any OTHER optional mcp submodule that fails to import
+# only warns instead of killing the build.
+mcp_hidden = collect_submodules(
+    "mcp",
+    filter=lambda name: not name.startswith("mcp.cli"),
+    on_error="warn",
+)
 
 # pywinpty (Windows ConPTY backend): collect the native binaries — the
 # _winpty ABI .pyd and its sibling winpty.dll.  NOTE: collect_dynamic_libs only

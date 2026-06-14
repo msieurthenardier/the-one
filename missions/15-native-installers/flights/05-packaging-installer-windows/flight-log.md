@@ -360,7 +360,26 @@ _(departures from the planned approach will be recorded here)_
 
 ## Anomalies
 
-_(unexpected issues will be recorded here)_
+### 2026-06-14 — CI freeze failure: mcp.cli / typer optional-extra (Leg 2)
+
+The `windows-packaged-smoke` CI job (PR #112) failed at the **Build frozen one-dir
+(PyInstaller)** step with `ModuleNotFoundError: No module named 'typer'`. Root cause:
+`packaging/windows/the-one.spec` called `collect_submodules("mcp")`, and PyInstaller's
+isolated submodule walk recursively imported mcp's optional CLI subpackage
+(`mcp.cli`), whose `__init__` imports `typer` (the `mcp[cli]` extra). `typer` is not
+installed and the app does not use the mcp CLI, so the isolated collection subprocess
+raised `ModuleNotFoundError` and aborted the whole `.spec`.
+
+**Fix:** changed the call to
+`collect_submodules("mcp", filter=lambda name: not name.startswith("mcp.cli"), on_error="warn")`.
+The `filter` stops PyInstaller importing/recursing into `mcp.cli` (so `typer` is never
+imported); `on_error="warn"` is a belt-and-suspenders so any other optional `mcp`
+submodule that fails to import warns instead of aborting. Did **not** add
+`typer`/`mcp[cli]` to project deps — the app doesn't use the mcp CLI and we don't want
+it in the bundle. Spec-only change (and its comment). Verified by the CI re-run of the
+`windows-packaged-smoke` job on PR #112.
+
+_(further unexpected issues will be recorded here)_
 
 ---
 
