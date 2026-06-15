@@ -21,8 +21,12 @@ jobs:
     # Freezes the one-dir from packaging/windows/the-one.spec, proves the DD2
     # child-spawn fix against the REAL frozen binary (the spawn-fix's only true
     # apparatus — a checkout interpreter can't exercise a PyInstaller bundle), then
-    # builds + uploads the Inno installer. Tag-gated: runs on `v*` tags only.
+    # builds the Inno installer, then publishes a GitHub Release with the .exe
+    # attached. Tag-gated: runs on `v*` tags only.
     runs-on: windows-2022
+    permissions:
+      contents: write # required for `gh release create`/`upload` (the GITHUB_TOKEN
+        # is read-only by default).
     defaults:
       run:
         shell: bash # Git Bash on the runner — avoids PowerShell stripping the quotes
@@ -101,12 +105,25 @@ jobs:
           VER=$(python -c "import the_one; print(the_one.__version__)")
           "$ISCC" //DAppVersion=$VER packaging/windows/the-one.iss
           test -f "packaging/windows/Output/the-one-setup-$VER.exe"
-      # Upload the release installer as a workflow artifact. Best-effort: a transient
-      # account-wide artifact-storage quota (recalculated every 6-12h) must not red the
-      # build. (Flight 8 turns this into a proper GitHub Release asset.)
-      - name: Upload installer artifact
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: the-one-windows-installer
-          path: packaging/windows/Output/*.exe
+      # Publish a GitHub Release for the tag with the installer attached. Release
+      # ASSETS are stored separately from Actions artifacts — they do NOT count against
+      # the Actions artifact-storage quota — so this is the right home for the
+      # distributable .exe. Runs only after the freeze + smoke + Inno build pass, so a
+      # red build never publishes a release. Idempotent: create the release if it
+      # doesn't exist (e.g. the tag was pushed before this workflow landed), then
+      # upload --clobber so a re-run replaces the asset.
+      - name: Publish GitHub Release with installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          VER=$(python -c "import the_one; print(the_one.__version__)")
+          EXE="packaging/windows/Output/the-one-setup-$VER.exe"
+          test -f "$EXE"
+          TAG="${{ github.ref_name }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "$TAG — Windows installer" \
+              --generate-notes
+          fi
+          gh release upload "$TAG" "$EXE" --clobber
