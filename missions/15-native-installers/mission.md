@@ -279,7 +279,16 @@ longer assumed to be reached exclusively through a developer's browser.
   does not ride along in the freeze-seam leg; it is a robustness gap, not a freeze
   blocker. **Carried to F7 (Linux packaging) / a maintenance pass.**
 
-## Carried Forward from Mission 14
+- **Desktop single-instance silently defers to a no-window the-one** *(discovered F6
+  Leg-6 HAT, 2026-06-15)*: when a headless `the-one serve` (no window) already holds
+  `8484`, launching the desktop app POSTs `/api/window/focus`, gets `{"focused": false}`,
+  and **silently exits** — no window, no message. Desktop-vs-desktop single-instance is
+  correct (raises the running window); only the no-window-`serve` case is wrong. The
+  operator chose to **land F6 and defer this** (HAT, 2026-06-15). **Follow-up**: settle
+  the coexistence behavior (open a window onto the existing server / notify-and-exit /
+  own free port) and harden the `is_ours` branch so it never silently no-ops — a small
+  Leg in a follow-up flight. (Distinct from, but related to, the operator's broader point
+  that the unauthenticated localhost API is the next mission's "secure the API" work.)
 
 Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 
@@ -397,8 +406,9 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       child-process** through a tool (the spawn-fix's only real proof). Rendered-
       window + full operator HAT against the real installer deferred to the
       comprehensive end-of-mission acceptance (F9).
-- [ ] Flight 6: **Windows native app hardening — desktop presence & lifecycle**
-      *(NEW — depth-first pivot 2026-06-15; builds on F4's native window, not F5's
+- [x] Flight 6: **Windows native app hardening — desktop presence & lifecycle**
+      *(landed 2026-06-15; operator HAT pass — tray/background-run, single-instance
+      focus, window-state, splash deferred to F7; builds on F4's native window, not F5's
       packaging)* — make the installed Windows app behave like a real always-on
       desktop app, behind a **single composable cross-platform desktop-shell module**
       (`the_one/interfaces/desktop/`, pywebview + pystray, OS quirks isolated as

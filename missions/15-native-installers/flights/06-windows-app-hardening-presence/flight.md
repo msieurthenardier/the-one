@@ -1,6 +1,6 @@
 # Flight: Windows Native App Hardening — Desktop Presence & Lifecycle
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 ## Contributing to Criteria
@@ -303,7 +303,7 @@ clear the Origin allowlist (DD4).
       tray + Quit-to-exit, `/api/window/focus`, `window-state.json`) and reconcile the
       stale Leg-number reference in `the-one.spec`'s docstring. The frozen-artifact
       gate before the HAT.
-- [ ] `hat-and-gui-behavior-test` *(optional, interactive)* — author is done in
+- [x] `hat-and-gui-behavior-test` *(interactive)* — author is done in
       planning; run the `windows-desktop-presence` Witnessed behavior test +
       operator HAT on the real Windows app (tray, close-to-tray-keeps-serving,
       relaunch-focuses, geometry-restore, theme-persists). Fix inline; land with the
@@ -315,11 +315,12 @@ clear the Origin allowlist (DD4).
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged (feature branch `flight/06-windows-app-hardening-presence`)
-- [ ] Tests passing (host-native pytest + `windows-2022` packaged-smoke)
-- [ ] Documentation updated (CLAUDE.md / README / agents.md: the tray/background-run
-      behavior, the Quit-to-exit model, `/api/window/focus`, window-state file)
+- [x] All legs completed (6/6)
+- [ ] Code merged — draft PR #115 marked ready; awaiting merge to `main`
+- [x] Tests passing (host-native pytest green; frozen `the-one doctor` desktop-shell
+      gate green on Concourse builds #13–#16; operator HAT pass)
+- [x] Documentation updated (CLAUDE.md / README / agents.md: tray/background-run,
+      Quit-to-exit, `/api/window/focus`, `window-state.json`)
 
 ### Verification
 

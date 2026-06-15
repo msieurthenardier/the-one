@@ -1,9 +1,9 @@
 # Behavior Test: Windows Desktop Presence & Lifecycle
 
 **Slug**: `windows-desktop-presence`
-**Status**: draft
+**Status**: active
 **Created**: 2026-06-15
-**Last Run**: never
+**Last Run**: 2026-06-15-18-00-00 (pass — operator-driven HAT, F6 Leg 6)
 
 ## Intent
 

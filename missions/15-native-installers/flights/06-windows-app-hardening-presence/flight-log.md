@@ -7,8 +7,13 @@
 Flight created 2026-06-15 (planning). Introduces a single composable desktop-shell
 module (`the_one/interfaces/desktop/`) adding system-tray presence + background-run,
 single-instance focus, and window-state persistence to the F4 native window.
-Phase-5b Architect review complete (approve-with-changes; all changes incorporated).
-Awaiting operator sign-off, then execution via `/agentic-workflow`.
+**LANDED 2026-06-15.** All 6 legs completed; operator HAT passed on a real Windows
+install (run log `tests/behavior/windows-desktop-presence/runs/2026-06-15-18-00-00.md`).
+The HAT surfaced + fixed five defects CI couldn't see (stdio crash, window-state
+restore crash, on-show resize, installer over-the-top, + the operator-side stale
+container). One non-blocking edge case deferred (single-instance vs a no-window
+`serve` — mission Known Issues). Draft PR #115 marked ready. Debrief pending
+(`/flight-debrief`).
 
 ---
 
