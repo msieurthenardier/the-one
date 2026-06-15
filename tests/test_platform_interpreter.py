@@ -14,7 +14,19 @@ import time
 
 import pytest
 
-from the_one.platform.interpreter import resolve_python, run_python
+from the_one.platform import env as env_mod
+from the_one.platform import interpreter as interp_mod
+from the_one.platform.interpreter import (
+    _PYTHON_OVERRIDE_ENV,
+    FrozenInterpreterError,
+    resolve_python,
+    run_python,
+)
+
+
+def _freeze(monkeypatch: pytest.MonkeyPatch, bundle: str = "/bundle") -> None:
+    monkeypatch.setattr(env_mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(env_mod.sys, "_MEIPASS", bundle, raising=False)
 
 
 class TestResolvePython:
@@ -22,6 +34,60 @@ class TestResolvePython:
         result = resolve_python()
         assert isinstance(result, str)
         assert result != ""
+
+
+class TestResolvePythonFrozen:
+    """M15 F5 L1 (DD3): when frozen, resolve a real external interpreter, never
+    ``sys.executable`` (which is the frozen app)."""
+
+    def test_resolves_from_path_when_frozen(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        _freeze(monkeypatch)
+        monkeypatch.delenv(_PYTHON_OVERRIDE_ENV, raising=False)
+        fake = tmp_path / "python3"
+        fake.write_text("#!/bin/sh\n")
+        fake.chmod(0o755)
+        # ``which`` resolves ``python3`` against whatever PATH the cleaned env
+        # carries; stub it to return our fake.
+        monkeypatch.setattr(
+            interp_mod.shutil,
+            "which",
+            lambda cmd, path=None: str(fake) if cmd == "python3" else None,
+        )
+        result = resolve_python()
+        assert result == str(fake.resolve())
+
+    def test_honors_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        _freeze(monkeypatch)
+        custom = tmp_path / "mypython"
+        custom.write_text("#!/bin/sh\n")
+        custom.chmod(0o755)
+        monkeypatch.setenv(_PYTHON_OVERRIDE_ENV, str(custom))
+        monkeypatch.setattr(
+            interp_mod.shutil,
+            "which",
+            lambda cmd, path=None: str(custom) if cmd == str(custom) else None,
+        )
+        assert resolve_python() == str(custom.resolve())
+
+    def test_raises_actionable_non_docker_error_when_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze(monkeypatch)
+        monkeypatch.delenv(_PYTHON_OVERRIDE_ENV, raising=False)
+        monkeypatch.setattr(interp_mod.shutil, "which", lambda cmd, path=None: None)
+        with pytest.raises(FrozenInterpreterError) as exc:
+            resolve_python()
+        msg = str(exc.value).lower()
+        assert "install python" in msg or "set the_one_python" in msg
+        assert "docker" not in msg
+
+    def test_non_frozen_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delattr(env_mod.sys, "frozen", raising=False)
+        monkeypatch.delattr(env_mod.sys, "_MEIPASS", raising=False)
+        # Falls back to sys.executable — a real, non-empty path.
+        assert resolve_python() != ""
 
 
 class TestRunPython:

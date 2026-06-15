@@ -20,6 +20,11 @@ the-one chat
 # Run web server (port 8484)
 the-one serve
 
+# Diagnose the runtime spawn seam (esp. inside a frozen/packaged build):
+# spawns a probe child, resolves the external Python interpreter, detects
+# node/uv/python on PATH. Prints PASS/FAIL; exits non-zero on failure.
+the-one doctor
+
 # Tests
 python -m pytest tests/ --tb=short -q
 python -m pytest tests/test_example.py -q          # single file
@@ -106,6 +111,30 @@ See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the project's threat model and in
 construction; setting it later is a no-op (silent regression trap). See `the_one/agents.md`
 "Windows PTY backend (M15 F3)" for the full developer reference (env allowlist, curated
 CI lane rule, `_wrapped`-always-False).
+
+**Frozen-runtime seam (M15 F5)**: a packaged (PyInstaller) double-clicked app launches with
+a stripped `PATH` and a bundle dir (`sys._MEIPASS` / the exe's dir) prepended — neither of
+which lets it spawn the real `node`/`uv`/`python` runtimes the agent needs. The seam lives in
+`platform/env.py`: `is_frozen()` + `clean_subprocess_env()` (strip the bundle dir from the
+front of the child `PATH`, then augment with common runtime install dirs plus a
+`THE_ONE_EXTRA_PATH` operator override). It is applied inside `_build_subprocess_env()`, so
+**every** spawn path (MCP stdio, shell, python-exec, PTY) inherits the sanitized env with no
+per-call-site change; when not frozen it is a no-op. The MCP transport re-applies
+`strip_bundle_dir_from_path()` at the caller *after* `build_stdio_environ`'s merge so an
+operator-supplied `PATH` can't re-introduce the bundle dir (strip always wins; augmentation
+yields to an explicit operator `PATH`). PyInstaller's loader-path leakage
+(`LD_LIBRARY_PATH`/`DYLD_*`/`*_ORIG`) is defeated **by construction** — those keys are not in
+the env allowlist, so no restore-`*_ORIG` code exists (an invariant test enforces it). When
+frozen, `resolve_python()` resolves a real *external* interpreter (`THE_ONE_PYTHON` override or
+`python`/`python3` on the augmented PATH) and raises an actionable error if none is found; the
+POSIX shell/`execvp` path resolves to an absolute binary. Frozen builds anchor `.env` to the
+per-user data dir (CWD is unpredictable when double-clicked); `THE_ONE_*` env vars always work.
+`the-one doctor` is the diagnostic that exercises all of this end-to-end (and the apparatus the
+Windows packaged-smoke CI reads).
+
+**Windows packaging (M15 F5)**: the checked-in PyInstaller one-dir spec + frozen entry live in
+`packaging/windows/` (build artifacts — never imported by `the_one/`); must build on native
+Windows. See `packaging/windows/README.md`.
 
 ## Conventions
 

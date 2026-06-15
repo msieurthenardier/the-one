@@ -130,7 +130,19 @@ def run() -> None:
             # "transparent web-underneath" = absence of browser chrome, not a
             # borderless window. Explicit guards against a pywebview default change.
             webview.create_window("GleepGlorp AI", url, frameless=False)
-            webview.start()  # blocks until window closes
+            # Persist localStorage/cookies (e.g. the theme preference) across app
+            # restarts AND reinstalls. pywebview defaults to private_mode=True — an
+            # ephemeral profile that drops all web storage between launches, so a
+            # localStorage-backed setting like the theme resets every restart. Point
+            # the webview at a stable per-user profile dir under data_dir (outside the
+            # install dir, and migrated with the rest of the user's data) so settings
+            # survive. (M15 F5 post-landing fix: theme didn't survive restart/reinstall.)
+            storage_dir = settings.data_dir / "webview"
+            storage_dir.mkdir(parents=True, exist_ok=True)
+            webview.start(  # blocks until window closes
+                private_mode=False,
+                storage_path=str(storage_dir),
+            )
         else:
             webbrowser.open(url)
             if server is not None:

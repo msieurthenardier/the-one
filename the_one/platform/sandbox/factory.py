@@ -101,6 +101,8 @@ def _userns_available() -> Literal["ok", "unavailable", "error"]:
     # Fast-path: check the procfs knob only when it exists and reads "0".
     _knob = "/proc/sys/kernel/unprivileged_userns_clone"
     try:
+        # Linux-only procfs knob (ASCII); explicit encoding unnecessary, left
+        # as-is — revisit at F7 (M15 F5 L1 encoding audit, DD4).
         with open(_knob) as _f:
             _val = _f.read().strip()
         if _val == "0":

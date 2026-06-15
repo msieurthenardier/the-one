@@ -43,6 +43,7 @@ operator command), not on mock-construction calls.
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -51,7 +52,9 @@ import pytest
 
 from the_one.db.models import MCPSource
 from the_one.mcp.transports import stdio as stdio_module
-from the_one.mcp.transports.stdio import connect_stdio
+from the_one.mcp.transports.stdio import build_stdio_environ, connect_stdio
+from the_one.platform import env as env_mod
+from the_one.platform.env import strip_bundle_dir_from_path
 from the_one.platform.sandbox import BubblewrapSandbox, SandboxProfile, SpawnSpec
 from the_one.platform.sandbox import factory as factory_module
 from the_one.platform.sandbox.errors import SandboxError
@@ -510,3 +513,38 @@ async def test_connect_stdio_propagates_sandbox_profile_validation_error(
 
     assert "network_allowed" in str(exc_info.value)
     assert not isinstance(exc_info.value, SandboxError)
+
+
+# ---------------------------------------------------------------------------
+# §10 M15 F5 L1 (DD2): frozen bundle-dir strip survives the build_stdio_environ
+# merge, even when operator config sets PATH. build_stdio_environ stays pure.
+# ---------------------------------------------------------------------------
+
+
+def _freeze_seam(monkeypatch: pytest.MonkeyPatch, bundle: str = "/bundle") -> None:
+    monkeypatch.setattr(env_mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(env_mod.sys, "_MEIPASS", bundle, raising=False)
+
+
+def test_build_stdio_environ_stays_pure_merge() -> None:
+    """build_stdio_environ must remain a plain merge — uncoupled from the freeze
+    seam. An operator PATH in config wins the merge as-is (no strip inside)."""
+    source = _make_source(env={"PATH": f"/bundle{os.pathsep}/op/bin"})
+    merged = build_stdio_environ(source, {"PATH": "/usr/bin", "HOME": "/h"})
+    # Pure merge: config.env PATH overrides allowlist PATH; no strip applied here.
+    assert merged["PATH"] == f"/bundle{os.pathsep}/op/bin"
+    assert merged["HOME"] == "/h"
+
+
+def test_bundle_strip_survives_merge_at_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The caller re-applies strip_bundle_dir_from_path AFTER the merge, so an
+    operator PATH that re-introduces the bundle dir is still sanitized — strip
+    always wins (DD2)."""
+    _freeze_seam(monkeypatch, bundle="/bundle")
+    source = _make_source(env={"PATH": f"/bundle{os.pathsep}/op/bin"})
+    merged = build_stdio_environ(source, {"PATH": "/usr/bin"})
+    # This mirrors transports/stdio.py:_build_stdio_params line ~430.
+    sanitized = strip_bundle_dir_from_path(merged)
+    entries = sanitized["PATH"].split(os.pathsep)
+    assert "/bundle" not in entries
+    assert "/op/bin" in entries

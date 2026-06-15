@@ -72,7 +72,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from the_one.db.models import MCPSource
 from the_one.mcp.errors import MCPConnectionError
-from the_one.platform.env import _build_subprocess_env
+from the_one.platform.env import _build_subprocess_env, strip_bundle_dir_from_path
 from the_one.platform.sandbox import (
     BubblewrapSandbox,
     SandboxError,
@@ -427,7 +427,12 @@ def _build_stdio_params(source: MCPSource) -> tuple[StdioServerParameters, ToolS
     # F1 validator restricts cwd to str|None; SDK also accepts pathlib.Path
     # but we don't surface that — keeps the contract tight at the API edge.
     cwd: str | None = source.config.get("cwd")
-    env = build_stdio_environ(source, _build_subprocess_env())
+    # M15 F5 L1 (DD2): re-apply the bundle-dir strip AFTER the merge so an
+    # operator-supplied ``PATH`` in MCP server config can never re-introduce the
+    # frozen bundle dir. ``build_stdio_environ`` stays pure (uncoupled from the
+    # freeze seam); the strip-always-wins rule is enforced here at the caller.
+    # No-op when not frozen.
+    env = strip_bundle_dir_from_path(build_stdio_environ(source, _build_subprocess_env()))
 
     # Always build the profile — passthrough ignores it, bubblewrap applies it.
     # (Prior code skipped from_dict on the bypass path; the new code validates
