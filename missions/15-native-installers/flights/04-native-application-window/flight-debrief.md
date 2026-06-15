@@ -208,3 +208,31 @@ the operator HAT (DD6). The rendered-window checkpoint is the **operator HAT
   weighted** given the operator's stated next-mission MCP UI-testing apparatus —
   avoided premature Xvfb+WebKitGTK CI infrastructure against a surface that will
   be superseded.
+
+---
+
+## Follow-up — Cross-Flight Note (added 2026-06-15, from the F5 debrief)
+
+**A latent F4 design omission surfaced in F5: the native window did not persist web
+storage.** Flight 5 (Windows packaging) produced the first *persistent installed
+binary*, and an operator HAT found that the **theme preference reset on every app
+restart/reinstall**. Root cause traces to **this flight (F4)**, DD3: the
+`webview.start()` call introduced here was invoked with no arguments, so pywebview's
+**default `private_mode=True`** applied — an *ephemeral* profile that discards
+`localStorage`/cookies between launches. It didn't surface in F4 because F4 was
+verified from a source checkout, where the browser's own profile persists
+`localStorage` across process restarts; only a frozen, installed, relaunched binary
+exposes the ephemeral-profile behavior.
+
+- **Fix (landed in F5, commit `9dbe8a2`):** `webview.start(private_mode=False,
+  storage_path=str(settings.data_dir / "webview"))` — a persistent per-user webview
+  profile under the platformdirs data dir (outside the install dir, migrated with
+  other user data), so storage survives restart *and* reinstall. A launcher test now
+  asserts the persistence config.
+- **Lesson for future window/webview work (carry into F6/F7 and any `webview.start()`
+  change):** the `private_mode`/`storage_path` choice is a **first-class decision**,
+  not a default to accept implicitly — pywebview's privacy-first default is the wrong
+  one for a desktop app that must remember user settings. The rendered-window behavior
+  that DD6 deferred (no CI apparatus) is exactly where this hid; it reinforces the F5
+  recommendation to author a **Witnessed GUI behavior test** (theme-persists-across-
+  restart is one of its steps) before F6/F7 inherit this code.
