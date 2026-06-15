@@ -273,7 +273,35 @@ _(none yet)_
 
 ## Anomalies
 
-_(none yet)_
+### Frozen windowed-app stdio crash (M15 F6 review-fix, 2026-06-15)
+
+**Discovered by:** HAT operator on a real Windows machine running the frozen
+windowed build (`the-one-app.exe`, PyInstaller `console=False`).
+
+**Root cause:** PyInstaller's `console=False` EXE has no console attached, so
+it sets `sys.stdout` and `sys.stderr` to `None` at process start.  Uvicorn's
+`ColourizedFormatter.__init__` (uvicorn/logging.py line 42) calls
+`sys.stdout.isatty()` during `uvicorn.Config(...)` setup →
+`AttributeError: 'NoneType' object has no attribute 'isatty'` →
+`ValueError: Unable to configure formatter 'default'` → `run_desktop()` crashes
+before the server starts.
+
+**Traceback path:** `packaging/windows/frozen_entry_gui.py:24` → `the_one/main.py`
+(`cli_entry`) → `the_one/interfaces/desktop/shell.py:160` (`uvicorn.Config(...)`)
+→ `uvicorn/logging.py:42` (`sys.stdout.isatty()`).
+
+**Pre-existing latent bug:** F4 never ran the rendered-window HAT; the console
+build and host-native tests always have a real stdout so the crash is invisible
+in CI.  Only the frozen `console=False` launch path is affected.
+
+**Fix:** Added `ensure_stdio_streams()` to `the_one/platform/env.py`.  It
+replaces any `None` stream with a line-buffered append file at
+`settings.data_dir / "logs" / "the-one-app.log"` (devnull fallback on any
+error).  Called at the top of `packaging/windows/frozen_entry_gui.py` (primary,
+before `cli_entry()`) and at the start of `run_desktop()` (defensive, idempotent
+second call for any non-frozen-entry launch path).  A real file object's
+`.isatty()` returns `False` — satisfies uvicorn's color-detection check with no
+crash.  New test: `tests/test_frozen_stdio.py` (7 tests, all green).
 
 ---
 

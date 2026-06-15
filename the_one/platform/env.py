@@ -43,6 +43,59 @@ import os
 import sys
 from pathlib import Path
 
+# ---------------------------------------------------------------------------
+# M15 F6 review-fix — frozen windowed-app stdio guard.
+#
+# PyInstaller ``console=False`` (the windowed EXE) sets ``sys.stdout`` and
+# ``sys.stderr`` to ``None`` because there is no console attached. Uvicorn's
+# ``ColourizedFormatter.__init__`` calls ``sys.stdout.isatty()`` immediately
+# on ``uvicorn.Config(...)`` → ``AttributeError: 'NoneType' object has no
+# attribute 'isatty'`` → ``ValueError: Unable to configure formatter 'default'``
+# → ``run_desktop()`` crashes before the server even starts.
+#
+# ``ensure_stdio_streams()`` replaces any ``None`` stream with a line-buffered
+# append file under ``settings.data_dir / "logs"`` so that:
+#
+# 1. The crash is gone (a real file object's ``.isatty()`` returns False).
+# 2. Future windowed-app crashes are diagnosable via the log file.
+# 3. The function is idempotent — a no-op when both streams are already real.
+# 4. Import failures for ``the_one.config`` (very early call) are handled:
+#    fall back to ``os.devnull`` so startup can never itself crash.
+#
+# Call sites:
+#   - ``packaging/windows/frozen_entry_gui.py`` — at the very top, before
+#     ``cli_entry()`` is invoked (and therefore before any uvicorn import).
+#   - ``the_one/interfaces/desktop/shell.py::run_desktop()`` — defensive
+#     second call before ``uvicorn.Config(...)`` (idempotent; covers any
+#     entry path that doesn't go through the frozen GUI entry).
+# ---------------------------------------------------------------------------
+
+
+def ensure_stdio_streams() -> None:
+    """Redirect None sys.stdout/stderr to a log file (or devnull on error).
+
+    Idempotent — a no-op when both streams are already non-None.  Intended for
+    the frozen windowed build (console=False), where PyInstaller sets both
+    streams to None.  Call as early as possible — before any uvicorn import.
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return  # fast-path: both streams real; nothing to do
+
+    try:
+        from the_one.config import settings  # noqa: PLC0415 (late import intentional)
+
+        log_dir = settings.data_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "the-one-app.log"
+        _replacement = open(log_path, "a", buffering=1, encoding="utf-8")  # noqa: SIM115, WPS515
+    except Exception:  # pragma: no cover — safety net; tested via devnull path
+        _replacement = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+
+    if sys.stdout is None:
+        sys.stdout = _replacement
+    if sys.stderr is None:
+        sys.stderr = _replacement
+
 # F4 Decision 10: hardcoded subprocess env allowlist. Eight keys; not
 # operator-configurable. See module docstring.
 # IMPORTANT: do NOT add Windows keys here — test_execution_helpers.py:273

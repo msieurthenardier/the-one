@@ -15,7 +15,15 @@ from __future__ import annotations
 import multiprocessing
 import sys
 
-from the_one.main import cli_entry
+# M15 F6 review-fix: redirect None stdout/stderr to a log file BEFORE anything
+# imports uvicorn.  PyInstaller console=False sets both streams to None; uvicorn
+# calls sys.stdout.isatty() during Config() setup → AttributeError → crash.
+# ensure_stdio_streams() is idempotent so the double-call in run_desktop() is safe.
+from the_one.platform.env import ensure_stdio_streams
+
+ensure_stdio_streams()
+
+from the_one.main import cli_entry  # noqa: E402 (must come after stdio fix)
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()  # DD7: no-op off-Windows; fork-bomb insurance

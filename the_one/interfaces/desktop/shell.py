@@ -134,6 +134,14 @@ def focus_window() -> bool:
 def run_desktop() -> None:
     global _really_quit, _desktop_window
 
+    # M15 F6 review-fix: defensive second call (idempotent).  Covers any entry
+    # path that doesn't go through frozen_entry_gui.py (e.g. a future launcher
+    # script or test harness that calls run_desktop() directly).  The primary
+    # call is in packaging/windows/frozen_entry_gui.py before cli_entry().
+    from the_one.platform.env import ensure_stdio_streams  # noqa: PLC0415
+
+    ensure_stdio_streams()
+
     # Reset process-local state on each launch (e.g. if run_desktop() is called
     # more than once in tests after a reload).
     _really_quit = False
