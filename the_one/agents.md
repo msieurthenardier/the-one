@@ -43,6 +43,16 @@ The startup-retry loop (3 attempts, 0.3s delay) covers a the-one that just bound
 
 **`[gui]` extra and lazy import**: `pywebview` is an **optional** dependency declared in `pyproject.toml` as `[gui]`. It is imported **lazily** inside `run()` — `import webview` — NOT at module top-level. This keeps the Linux CI install GTK-free (the default `pip install -e ".[all-llms,dev]"` does not pull in `pywebview`, and therefore does not touch WebKitGTK or GLib). The module-level `import the_one.interfaces.app` is safe in any environment. Installing the extra: `pip install 'the-one[gui]'` (or `-e ".[all-llms,dev,gui]"` for dev).
 
+**M15 F6 desktop-shell additions** (`the_one/interfaces/desktop/`):
+
+- **Close-to-tray / background run**: closing the window (pressing ×) hides it to the system tray rather than exiting the process. The app keeps running in the background; the tray icon stays visible. A first-run balloon notification explains this behaviour (marker file in the data dir suppresses it on subsequent launches).
+
+- **Quit from tray menu is the real exit**: the tray menu has two items: "Show" (brings the window back to focus) and "Quit". **Quit is the only way to fully exit the process** — closing the window does NOT terminate the app.
+
+- **Single-instance focus** (`/api/window/focus`): a second `the-one app` invocation that detects a running our-version instance (case (b) above) does NOT open a new window. Instead it POSTs to `http://{host}:{port}/api/window/focus` on the running server, which calls `focus_window()` → `window.show()` + `window.restore()` to bring the existing window to front, then exits immediately. One server, one window.
+
+- **Window-state persistence** (`window-state.json`): the window's size and position are saved to `{data_dir}/window-state.json` on close (via the `_on_closing` hook) and restored on the next launch via `load_state()` + `clamp_to_bounds()`. `clamp_to_bounds` computes the union of all screens and clamps the saved geometry into visible bounds — negative-origin monitors (common on Windows multi-monitor setups) are handled correctly.
+
 **Browser-CI path-filter**: the `browser` job in `.github/workflows/test.yml` is gated on file changes via `dorny/paths-filter`. The current `ui` filter covers:
 
 ```yaml

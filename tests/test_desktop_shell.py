@@ -1,4 +1,4 @@
-"""Launcher-core unit tests for the_one/interfaces/app.py.
+"""Launcher-core unit tests for the_one/interfaces/desktop/shell.py.
 
 webview is NOT installed on this host — it is mocked via sys.modules injection
 so the tests exercise the launcher logic without any GUI dependency.
@@ -74,7 +74,7 @@ def test_wait_until_serving_returns_when_server_ready() -> None:
     """_wait_until_serving returns once the server answers 200 at /api/info."""
     import uvicorn
 
-    from the_one.interfaces.app import _wait_until_serving
+    from the_one.interfaces.desktop.shell import _wait_until_serving
 
     port = _free_port()
     config = uvicorn.Config(_trivial_asgi, host="127.0.0.1", port=port, log_level="error")
@@ -91,7 +91,7 @@ def test_wait_until_serving_returns_when_server_ready() -> None:
 
 def test_wait_until_serving_raises_on_timeout() -> None:
     """_wait_until_serving raises RuntimeError when nothing is listening."""
-    from the_one.interfaces.app import _wait_until_serving
+    from the_one.interfaces.desktop.shell import _wait_until_serving
 
     port = _free_port()  # nothing listening on this port
     with pytest.raises(RuntimeError, match="did not become ready"):
@@ -103,7 +103,7 @@ def test_wait_until_serving_raises_on_timeout() -> None:
 
 def test_graceful_shutdown_sets_should_exit_and_joins() -> None:
     """_graceful_shutdown sets server.should_exit=True and calls thread.join."""
-    from the_one.interfaces.app import _graceful_shutdown
+    from the_one.interfaces.desktop.shell import _graceful_shutdown
 
     fake_server: Any = MagicMock()
     fake_thread: Any = MagicMock()
@@ -116,7 +116,7 @@ def test_graceful_shutdown_sets_should_exit_and_joins() -> None:
 
 def test_graceful_shutdown_noop_with_server_none() -> None:
     """_graceful_shutdown returns immediately (no-op) when server is None."""
-    from the_one.interfaces.app import _graceful_shutdown
+    from the_one.interfaces.desktop.shell import _graceful_shutdown
 
     fake_thread: Any = MagicMock()
 
@@ -133,7 +133,7 @@ def test_select_port_case_a_free_port() -> None:
     """_select_port returns (configured_port, False) when nothing is listening."""
     import httpx
 
-    from the_one.interfaces.app import _select_port
+    from the_one.interfaces.desktop.shell import _select_port
 
     port = _free_port()  # nothing listening — port is free
 
@@ -150,7 +150,7 @@ def test_select_port_case_b_our_instance() -> None:
     import httpx
 
     from the_one import __version__
-    from the_one.interfaces.app import _select_port
+    from the_one.interfaces.desktop.shell import _select_port
 
     port = _free_port()
 
@@ -169,7 +169,7 @@ def test_select_port_case_c_foreign_process() -> None:
     """_select_port returns a bind-0 free port with False when a foreign process holds the port."""
     import httpx
 
-    from the_one.interfaces.app import _select_port
+    from the_one.interfaces.desktop.shell import _select_port
 
     # Bind a socket to simulate a foreign process holding the port
     occupied_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -199,7 +199,7 @@ def test_select_port_case_c_foreign_process() -> None:
 
 def test_webview_available_returns_true_on_win32(monkeypatch: pytest.MonkeyPatch) -> None:
     """_webview_available returns True on win32 without any gi check."""
-    import the_one.interfaces.app as launcher_module
+    import the_one.interfaces.desktop.shell as launcher_module
 
     monkeypatch.setattr(sys, "platform", "win32")
     # Remove gi from sys.modules to confirm it's never imported
@@ -210,7 +210,7 @@ def test_webview_available_returns_true_on_win32(monkeypatch: pytest.MonkeyPatch
 
 def test_webview_available_returns_true_on_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
     """_webview_available returns True on darwin without any gi check."""
-    import the_one.interfaces.app as launcher_module
+    import the_one.interfaces.desktop.shell as launcher_module
 
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.delitem(sys.modules, "gi", raising=False)
@@ -222,7 +222,7 @@ def test_webview_available_returns_false_when_gi_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_webview_available returns False on Linux when gi is not installed."""
-    import the_one.interfaces.app as launcher_module
+    import the_one.interfaces.desktop.shell as launcher_module
 
     monkeypatch.setattr(sys, "platform", "linux")
     # Simulate gi not installed: inject a module that raises ImportError on import
@@ -235,7 +235,7 @@ def test_webview_available_returns_false_when_webkit_typelib_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_webview_available returns False on Linux when gi is present but WebKit2 typelib missing."""
-    import the_one.interfaces.app as launcher_module
+    import the_one.interfaces.desktop.shell as launcher_module
 
     monkeypatch.setattr(sys, "platform", "linux")
 
@@ -250,7 +250,7 @@ def test_webview_available_returns_true_when_webkit_typelib_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_webview_available returns True on Linux when gi + WebKit2 typelib present."""
-    import the_one.interfaces.app as launcher_module
+    import the_one.interfaces.desktop.shell as launcher_module
 
     monkeypatch.setattr(sys, "platform", "linux")
 
@@ -270,7 +270,7 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """run() creates a window, starts webview, and calls _graceful_shutdown."""
-    from the_one.interfaces import app as launcher_module
+    import the_one.interfaces.desktop.shell as launcher_module
 
     # Redirect data_dir so the webview-profile mkdir lands in a tmp dir, not the
     # real per-user data location.
@@ -287,7 +287,7 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
                             with patch("threading.Thread") as mock_thread_cls:
                                 mock_thread = MagicMock()
                                 mock_thread_cls.return_value = mock_thread
-                                launcher_module.run()
+                                launcher_module.run_desktop()
 
     # webview.create_window was called once with the expected title
     webview_mock.create_window.assert_called_once()
@@ -311,33 +311,35 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     mock_shutdown.assert_called_once()
 
 
-def test_run_case_b_no_server_started(
+def test_run_case_b_posts_focus_and_returns_without_window(
     webview_mock: MagicMock,
 ) -> None:
-    """run() case (b): is_our_instance=True → NO server started, window opens at running URL."""
-    from the_one.config import settings
-    from the_one.interfaces import app as launcher_module
+    """run() case (b): is_ours=True → POSTs /api/window/focus and returns; no window created."""
+    import httpx
 
-    expected_url = f"http://{settings.host}:{settings.port}/"
+    from the_one.config import settings
+    import the_one.interfaces.desktop.shell as launcher_module
+
+    expected_url = f"http://{settings.host}:{settings.port}/api/window/focus"
 
     with patch.object(launcher_module, "_select_port", return_value=(settings.port, True)):
-        with patch.object(launcher_module, "_webview_available", return_value=True):
-            with patch.object(launcher_module, "_graceful_shutdown") as mock_shutdown:
-                with patch("uvicorn.Server") as mock_server_cls:
-                    launcher_module.run()
+        with patch.object(httpx, "post") as mock_post:
+            with patch("uvicorn.Server") as mock_server_cls:
+                launcher_module.run_desktop()
 
-    # No uvicorn.Server should have been constructed (case b: window-only client)
+    # No uvicorn.Server should have been constructed (returned before server start)
     mock_server_cls.assert_not_called()
 
-    # But create_window should have been called with the running instance's URL
-    webview_mock.create_window.assert_called_once()
-    call_args = webview_mock.create_window.call_args
-    assert call_args.args[1] == expected_url
+    # No window created — returned before create_window
+    webview_mock.create_window.assert_not_called()
 
-    # _graceful_shutdown called once (should be a no-op since server=None)
-    mock_shutdown.assert_called_once()
-    # Verify it was called with server=None
-    assert mock_shutdown.call_args.args[0] is None
+    # httpx.post called with the focus URL; no Origin header (header-less loopback)
+    mock_post.assert_called_once()
+    call_args = mock_post.call_args
+    assert call_args.args[0] == expected_url
+    # Verify no Origin header was passed (default: no headers kwarg, or empty headers)
+    headers = call_args.kwargs.get("headers", {})
+    assert "origin" not in {k.lower() for k in headers}
 
 
 def test_run_fallback_calls_webbrowser_open_and_joins(
@@ -348,7 +350,7 @@ def test_run_fallback_calls_webbrowser_open_and_joins(
     import webbrowser as webbrowser_mod
 
     from the_one.config import settings
-    from the_one.interfaces import app as launcher_module
+    import the_one.interfaces.desktop.shell as launcher_module
 
     expected_url = f"http://{settings.host}:{settings.port}/"
 
@@ -366,7 +368,7 @@ def test_run_fallback_calls_webbrowser_open_and_joins(
                                     with patch.object(signal_mod, "signal") as mock_signal:
                                         # Make thread.join a no-op so the test doesn't block
                                         mock_thread.join.return_value = None
-                                        launcher_module.run()
+                                        launcher_module.run_desktop()
 
     # webbrowser.open called with the local URL
     mock_open.assert_called_once_with(expected_url)
@@ -379,33 +381,28 @@ def test_run_fallback_calls_webbrowser_open_and_joins(
     mock_thread.join.assert_called_once()
 
 
-def test_run_case_b_no_backend_opens_browser_and_returns(
+def test_run_case_b_is_ours_posts_focus_and_returns_no_browser(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """run() case (b)+no-backend: webbrowser.open at running URL; no server; no join."""
+    """run() case (b): is_ours=True → POSTs focus and returns; no browser, no server."""
+    import httpx
     import webbrowser as webbrowser_mod
 
     from the_one.config import settings
-    from the_one.interfaces import app as launcher_module
-
-    expected_url = f"http://{settings.host}:{settings.port}/"
+    import the_one.interfaces.desktop.shell as launcher_module
 
     with patch.object(launcher_module, "_select_port", return_value=(settings.port, True)):
-        with patch.object(launcher_module, "_webview_available", return_value=False):
-            with patch.object(launcher_module, "_graceful_shutdown") as mock_shutdown:
-                with patch("uvicorn.Server") as mock_server_cls:
-                    with patch.object(webbrowser_mod, "open") as mock_open:
-                        launcher_module.run()
+        with patch.object(httpx, "post") as mock_post:
+            with patch("uvicorn.Server") as mock_server_cls:
+                with patch.object(webbrowser_mod, "open") as mock_open:
+                    launcher_module.run_desktop()
 
-    # No server constructed
+    # No server constructed, no browser opened
     mock_server_cls.assert_not_called()
+    mock_open.assert_not_called()
 
-    # Browser opened at the running URL
-    mock_open.assert_called_once_with(expected_url)
-
-    # _graceful_shutdown called with server=None (no-op)
-    mock_shutdown.assert_called_once()
-    assert mock_shutdown.call_args.args[0] is None
+    # Focus POST was issued
+    mock_post.assert_called_once()
 
 
 def test_run_raises_system_exit_when_webview_missing(
@@ -428,7 +425,7 @@ def test_run_raises_system_exit_when_webview_missing(
     # Reload the module fresh to avoid any cached module-level state
     import importlib
 
-    import the_one.interfaces.app as launcher_mod
+    import the_one.interfaces.desktop.shell as launcher_mod
 
     importlib.reload(launcher_mod)
 
@@ -442,4 +439,4 @@ def test_run_raises_system_exit_when_webview_missing(
                         with patch("threading.Thread", return_value=MagicMock()):
                             with patch("builtins.__import__", side_effect=_import_raiser):
                                 with pytest.raises(SystemExit, match="pywebview is not installed"):
-                                    launcher_mod.run()
+                                    launcher_mod.run_desktop()

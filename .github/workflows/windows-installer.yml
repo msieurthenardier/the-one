@@ -60,6 +60,7 @@ jobs:
           set -eo pipefail
           ./dist/the-one/the-one.exe doctor | tee doctor.out
           grep -q "child spawn: OK" doctor.out
+          grep -q "desktop shell: OK" doctor.out
           grep -q "RESULT: PASS" doctor.out
       # PROOF (b) — frozen serve answers /api/info. Background the frozen serve and
       # poll with an httpx Python probe (NOT curl — httpx is a runtime dep and the

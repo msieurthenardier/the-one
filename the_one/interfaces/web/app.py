@@ -1636,6 +1636,15 @@ async def info() -> dict[str, Any]:
     return {"version": __version__, "base_prompt": BASE_PROMPT}
 
 
+@app.post("/api/window/focus")
+async def window_focus() -> dict[str, Any]:
+    # Lazy import: the web app must stay importable without the GUI stack
+    # (serve mode, CI). The desktop module pulls pywebview only when present.
+    from the_one.interfaces.desktop.shell import focus_window
+
+    return {"focused": focus_window()}
+
+
 @app.get("/api/selftest")
 async def selftest() -> dict[str, Any]:
     """Run a quick smoke test: can the agent chat and use tools?"""

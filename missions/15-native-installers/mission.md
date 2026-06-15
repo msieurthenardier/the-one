@@ -22,8 +22,38 @@
 > confirmation points carries into execution (see Carried Forward from Mission 14).
 > No scope change — M14's completion only strengthens viability, so no fresh
 > Phase-4b re-validation was warranted.
+>
+> **Mission re-scoped to Windows-only (2026-06-15).** Two sequential operator
+> decisions this day reshaped the mission. **(1) Depth-first-on-Windows:** after F5
+> landed the Windows installer, rather than spreading packaging to macOS/Linux next,
+> the operator chose to first **harden the Windows native app into a polished,
+> "right" desktop experience** — system-tray/background presence, splash screen,
+> custom window chrome, window-state + single-instance focus — built behind a
+> **single composable cross-platform desktop-shell module** (`the_one/interfaces/
+> desktop/`, pywebview + pystray, OS quirks isolated as functions; chosen over a
+> per-OS-backend split per the F4 debrief's "pywebview *is* the abstraction"
+> lesson). **(2) Windows-only:** on reflection the operator then **pulled macOS and
+> Linux out of this mission entirely** — both the macOS Seatbelt sandbox (the parked
+> Flight 2) and the macOS/Linux packaging flights migrate to a **follow-up mission
+> (not yet created)**. M15's outcome narrows to: a polished, hardened, installable
+> **Windows** desktop app with a tag-driven release.
+>
+> The cross-platform **Outcome / Success Criteria / Constraints / Environment** text
+> below is a **pre-narrowing snapshot** — superseded by this note, and annotated
+> inline (→ follow-up mission) where it would otherwise read as live multi-platform
+> scope. The **Flights list** is the live, Windows-only roadmap. The desktop-shell
+> module is still built cross-platform-clean so the follow-up mission ports it
+> rather than reworking it — that, not in-mission reuse, is now the "abstract now"
+> payoff. In-body cross-references to old flight numbers are pre-re-scope snapshots.
 
 ## Outcome
+
+> *Windows-only re-scope (2026-06-15): the live outcome is the **Windows** slice of
+> the paragraph below — a Windows installer, native window, host data, ConPTY parity,
+> frozen-child spawn, CLI, and a tag-driven Windows release. The macOS-Seatbelt
+> enforcement and the "all three platforms" installer/release language are deferred to
+> the follow-up mission. Docker retirement + host-native dev/test already landed (F1)
+> and stays.*
 
 A non-technical user on Windows, macOS, or Linux can download a single installer,
 run it, and end up with GleepGlorp AI as a real desktop application — launched
@@ -105,6 +135,21 @@ longer assumed to be reached exclusively through a developer's browser.
   be enabled later without rework.
 
 ## Success Criteria
+
+> *Windows-only re-scope (2026-06-15) — how to read the list below:*
+> - *Wherever a criterion says "macOS / Linux / all three platforms," read it as
+>   **Windows (x64) only** for this mission; the other-platform obligations move to
+>   the follow-up mission.*
+> - *The **macOS Seatbelt enforcement** criterion ("Sandbox enforcement … active on
+>   macOS") is **fully deferred** to the follow-up mission. (Linux host-native
+>   enforcement already landed in F1 and stays; native Windows remains the documented
+>   passthrough gap.)*
+> - *Re-scope **adds** one criterion to reflect the new hardening focus:*
+>   - *[ ] The installed Windows app behaves like a polished, always-on desktop
+>     app — system-tray presence with background-run (close-to-tray, quit from the
+>     tray menu), a launch splash, themed window chrome, persisted window state, and
+>     single-instance focus (a relaunch raises the running window). **(HAT +
+>     Witnessed GUI behavior-test backed; F6/F7.)***
 
 - [ ] A user can install the app on **Windows (x64)**, **macOS (Apple Silicon)**,
       or **Linux (x64)** from a single downloadable installer artifact, with **no
@@ -305,12 +350,13 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       constraint, and PTY-echo sentinel footgun in `agents.md`/`CLAUDE.md`;
       investigate the pre-existing `test_connectors_e2e.py::test_e2e_full_lifecycle`
       flake).
-- [ ] Flight 2: **macOS sandbox backend (Seatbelt)** *(spec drafted + design-reviewed;
-      **PARKED** — executes after Flight 3)* — add the macOS backend behind the
+- [→] Flight 2: **macOS sandbox backend (Seatbelt)** *(**MIGRATED out of M15** —
+      Windows-only re-scope 2026-06-15)* — was: add the macOS backend behind the
       Mission-14 seam via **direct `sandbox-exec` + generated SBPL** (DD1: not the
-      `sandbox-runtime` Node dependency) so macOS tool/PTY/MCP execution is enforced;
-      kernel-verified containment in CI on `macos-15`. Behavior-test backing of the
-      macOS containment criterion deferred to Flight 8 (no operator macOS hardware).
+      `sandbox-runtime` Node dependency); kernel-verified containment in CI on
+      `macos-15`. The drafted + design-reviewed spec under
+      `flights/02-macos-sandbox-seatbelt/` stays on disk as a parked artifact but is
+      **no longer in M15 scope** — it moves to the follow-up macOS/Linux mission.
 - [x] Flight 3: **Windows PTY parity (ConPTY)** *(landed 2026-06-14; behavior-test backing deferred to post-installer acceptance — Flight 7/8)* —
       add a Windows backend to `platform/pty.py` (via `pywinpty`/ConPTY) and a
       read/idle loop that does not depend on POSIX-only `select`/`fcntl`, routed
@@ -351,35 +397,56 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       child-process** through a tool (the spawn-fix's only real proof). Rendered-
       window + full operator HAT against the real installer deferred to the
       comprehensive end-of-mission acceptance (F9).
-- [ ] Flight 6: **Packaging & installer — macOS** — reuse the F5 freeze seam; add
-      the macOS freeze recipe (`.app` bundle via PyInstaller `BUNDLE`) + a `.dmg`
-      (create-dmg/hdiutil); handle the macOS-specific env quirks (Finder-launched
-      **stripped PATH** via a login-shell PATH capture; `DYLD_LIBRARY_PATH`
-      sanitization in `clean_subprocess_env`); document the unsigned-app Gatekeeper
-      "is damaged" `xattr -dr com.apple.quarantine` workaround. Packaged smoke on
-      a `macos-14` runner.
-- [ ] Flight 7: **Packaging & installer — Linux** — reuse the F5 freeze seam; build
-      `.deb`/`.rpm` via **fpm** with `Depends: python3-gi, gir1.2-webkit2-4.1,
-      gir1.2-gtk-3.0` (WebKitGTK as a **system dependency**, not bundled — AppImage
-      is WebKitGTK-hostile; browser fallback is the safety net); `.desktop` entry +
-      icon; PyInstaller `excludes` so WebKit isn't partially bundled; resolve the
-      **boxed-mode interpreter-prefix** Known Issue (the frozen interpreter lives
-      outside `/usr` → `minimal_rootfs` boxed spawns fail at `execvp` — needs a
-      read-only interpreter-prefix bind or documented host-mode fallback, not an
-      accident). Packaged smoke on an `ubuntu-latest` runner / clean container.
-- [ ] Flight 8: **Release pipeline (CI/CD)** — GitHub Actions matrix builds the
-      three installers on a release tag and publishes them to GitHub Releases;
-      signing steps are present but conditional/no-op until certificates exist.
+- [ ] Flight 6: **Windows native app hardening — desktop presence & lifecycle**
+      *(NEW — depth-first pivot 2026-06-15; builds on F4's native window, not F5's
+      packaging)* — make the installed Windows app behave like a real always-on
+      desktop app, behind a **single composable cross-platform desktop-shell module**
+      (`the_one/interfaces/desktop/`, pywebview + pystray, OS quirks isolated as
+      functions — chosen over a per-OS-backend split per the F4 "pywebview *is* the
+      abstraction" lesson; built cross-platform-clean so the follow-up mission ports
+      it). Scope: **system-tray icon + background-run** (close-to-tray with a
+      first-run "still running" notice, quit from the tray menu — the tray event-loop
+      vs. pywebview GUI-loop integration, pystray on a detached thread with pywebview
+      owning the main thread, is the lead risk); **single-instance focus** (a second
+      launch raises the running window via a new `/api/window/focus` endpoint and
+      exits, instead of opening a duplicate — closes F4's duplicate-window gap,
+      reusing `_select_port`'s `is_ours`; the endpoint must clear the Origin
+      allowlist); **window-state persistence** (size/position JSON under `data_dir`,
+      clamped to visible bounds on restore). Validation: pytest for the focus
+      endpoint / state serialization / module wiring + an **operator HAT** and a
+      **Witnessed GUI behavior-test** spec (folds in the owed F4/F5
+      theme-persists-across-restart check). Packaged-smoke on the `windows-2022`
+      runner.
+- [ ] Flight 7: **Windows native app hardening — visual polish** *(NEW — depth-first
+      pivot 2026-06-15)* — make the app *look* finished: a **splash/loading window**
+      shown while uvicorn boots and dismissed when the UI is ready; **custom window
+      chrome** (frameless + an HTML titlebar in vanilla JS — no build step — with
+      min/max/close wired through pywebview's JS API); app **icon/branding polish**.
+      Extends the F6 desktop-shell seam; the chrome work is the main web-UI surface.
+> *The packaging flights **"— macOS" and "— Linux"** (former F8/F9) and the macOS
+> Seatbelt backend (F2) **migrated to the follow-up macOS/Linux mission** (Windows-only
+> re-scope, 2026-06-15). Their design notes — F5 freeze-seam reuse, `.app`/`.dmg`,
+> `.deb`/`.rpm` via fpm, WebKitGTK-as-system-dependency, the boxed-mode
+> interpreter-prefix Known Issue, and the per-OS unsigned-app workarounds — travel
+> with them. The release/acceptance/alignment flights below renumber down and narrow
+> to Windows.*
+
+- [ ] Flight 8: **Windows release pipeline (CI/CD)** — finalize the tag-driven
+      **Windows** release: a `v*` tag builds the Inno installer and publishes it to a
+      GitHub Release (the build + `gh release` flow already exists from F5's
+      `windows-installer.yml` — this flight hardens/formalizes it, e.g. signing steps
+      present but conditional/no-op until a certificate exists, and version/asset
+      hygiene). *(No cross-OS build matrix — that returns with the follow-up mission.)*
       - **Planning input (operator-directed 2026-06-14):** add the **full browser
-        suite as a release-gated tier** here — once the release flow exists, the
-        full 513-test browser run executes on a release (tag) rather than every
+        suite as a release-gated tier** here — once the release flow is formalized,
+        the full 513-test browser run executes on a release (tag) rather than every
         PR (PRs run only the path-filtered subset from Flight 4). This is the
         "full tier" deferred from the Flight-4 browser-test tiering decision.
-- [ ] Flight 9: **First-run UX, docs & acceptance** — first-run experience, per-OS
-      install + unsigned-app-workaround documentation, replacing the remaining
-      Docker-flavored runtime error messages, and end-to-end acceptance behavior
-      tests on each target platform (the **comprehensive operator HAT against the
-      real installers** lands here).
+- [ ] Flight 9: **Windows first-run UX, docs & acceptance** — first-run experience,
+      **Windows** install + unsigned-app/SmartScreen-workaround documentation,
+      replacing the remaining Docker-flavored runtime error messages, and end-to-end
+      acceptance behavior tests on Windows (the **comprehensive operator HAT against
+      the real Windows installer** lands here).
 - [ ] Flight 10 *(optional)*: **Alignment** — hands-on session installing the real
-      artifacts on real machines, tuning first-run UX, and making judgment-call
-      adjustments that benefit from human feedback.
+      Windows artifact on a real machine, tuning first-run UX, and making
+      judgment-call adjustments that benefit from human feedback.

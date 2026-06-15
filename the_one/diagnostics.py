@@ -1,4 +1,4 @@
-"""``the-one doctor`` — frozen-runtime spawn diagnostic (M15 F5 L1, DD5).
+"""``the-one doctor`` — frozen-runtime spawn diagnostic (M15 F5, DD5).
 
 A small, LLM-free diagnostic that runs *inside* the (potentially frozen)
 process and verifies the runtime seam end-to-end:
@@ -14,7 +14,7 @@ process and verifies the runtime seam end-to-end:
 
 It prints a structured PASS/FAIL report (including an unambiguous
 ``child spawn: OK``/``child spawn: FAIL`` line) and exits non-zero on any
-failure. Leg 4's CI packaged-smoke reads exactly this exit code + stdout.
+failure. The CI packaged-smoke reads exactly this exit code + stdout.
 
 No agent loop, no LLM, no network.
 """
@@ -117,6 +117,44 @@ def detect_runtimes(env: dict[str, str]) -> list[ProbeResult]:
     return results
 
 
+def _probe_desktop_shell() -> ProbeResult:
+    """Import the desktop-tray module (and its pystray/PIL deps) as a smoke check.
+
+    On success prints ``desktop shell: OK`` — confirming pystray + Pillow are
+    bundled and importable.  On ``ImportError`` the behaviour depends on context:
+
+    - **Frozen** (``is_frozen()`` is True): the freeze MUST include the ``[gui]``
+      extra, so a failed import is a hard gate → ``ok=False`` (``RESULT: FAIL``).
+    - **Not frozen** (dev host): the ``[gui]`` extra may legitimately be absent;
+      the line reads ``skipped`` and is informational only → ``ok=True``
+      (``RESULT: PASS`` still prints).
+
+    Either way this function never raises — all exceptions are caught.
+    """
+    try:
+        import the_one.interfaces.desktop.tray  # noqa: F401 (import-only probe)
+        import pystray  # noqa: F401
+        import PIL  # noqa: F401
+        return ProbeResult("desktop shell", True, "pystray + PIL importable")
+    except ImportError as exc:
+        if is_frozen():
+            return ProbeResult(
+                "desktop shell",
+                False,
+                f"import failed in frozen build (gui extra missing from bundle?): {exc}",
+            )
+        return ProbeResult(
+            "desktop shell",
+            True,
+            "skipped (gui extra not installed)",
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Unexpected error: be safe, never crash doctor.
+        if is_frozen():
+            return ProbeResult("desktop shell", False, f"unexpected error: {exc}")
+        return ProbeResult("desktop shell", True, f"skipped — unexpected error: {exc}")
+
+
 def _probe_interpreter() -> ProbeResult:
     """Verify a real external Python interpreter is resolvable.
 
@@ -156,7 +194,10 @@ def run_doctor(out=None) -> int:
     # Load-bearing gates.
     spawn = _probe_child_spawn(env)
     interp = _probe_interpreter()
-    gates = [spawn, interp]
+    # Desktop-shell probe: gate only when frozen (frozen build must include [gui]);
+    # on a dev host the [gui] extra may legitimately be absent → informational only.
+    desktop = _probe_desktop_shell()
+    gates = [spawn, interp, desktop]
 
     for res in gates:
         status = "OK" if res.ok else "FAIL"

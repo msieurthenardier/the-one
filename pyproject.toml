@@ -53,6 +53,8 @@ all-llms = ["openai>=2.16", "anthropic>=0.40"]
 gui = [
     "pywebview[gtk]>=5,<6; sys_platform == 'linux'",
     "pywebview>=5,<6; sys_platform != 'linux'",
+    "pystray>=0.19",
+    "pillow>=10.0",
 ]
 # urllib3 floor is a toolchain-only CVE fix (reaches the tree solely via
 # requests, pulled by dev/test tooling — pip-audit/cachecontrol/pytest-base-url;
