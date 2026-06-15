@@ -36,9 +36,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import signal
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from the_one.platform.env import _build_subprocess_env, is_frozen
 
 if TYPE_CHECKING:
     from the_one.platform.sandbox.base import SandboxProfile
@@ -53,6 +56,12 @@ def select_shell() -> tuple[str, list[str]]:
 
     On Windows (``os.name == "nt"``): returns ``("cmd.exe", ["/c"])``.
 
+    **Frozen posture (M15 F5 L1, DD3):** on POSIX, when frozen, resolve the
+    shell to an *absolute path* (via the frozen-augmented PATH, falling back to
+    ``/bin/sh``) so there is no bare-name exec against a stripped GUI PATH. The
+    Windows ``cmd.exe`` path already resolves via Win32 and is left unchanged.
+    Non-frozen behavior is byte-for-byte identical to before.
+
     ``os.name`` is used (not ``sys.platform``) because it cleanly maps
     Linux/macOS/WSL to ``"posix"`` and Windows to ``"nt"``.
     """
@@ -60,6 +69,13 @@ def select_shell() -> tuple[str, list[str]]:
         return ("cmd.exe", ["/c"])
     # POSIX (Linux, macOS, WSL).
     shell = os.environ.get("SHELL") or "/bin/sh"
+    if is_frozen() and not os.path.isabs(shell):
+        # Resolve the bare shell name against the frozen-augmented PATH so the
+        # post-fork execvp doesn't hit a stripped PATH. Fall back to /bin/sh
+        # (an absolute, ~universally-present POSIX shell).
+        search_path = _build_subprocess_env().get("PATH") or None
+        resolved = shutil.which(shell, path=search_path)
+        shell = resolved or "/bin/sh"
     return (shell, ["-c"])
 
 

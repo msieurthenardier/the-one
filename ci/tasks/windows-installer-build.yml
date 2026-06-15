@@ -1,0 +1,48 @@
+# Windows installer build task — runs on the Concourse `platform: windows` worker.
+# Consumes the `repo` git input, produces `installer/the-one-setup-<ver>.exe`.
+# Toolchain is provisioned per-run via choco (Python 3.11 to match CI; Inno Setup).
+platform: windows
+
+inputs:
+  - name: repo
+
+outputs:
+  - name: installer
+
+run:
+  path: powershell
+  args:
+    - -NoProfile
+    - -ExecutionPolicy
+    - Bypass
+    - -Command
+    - |
+      $ErrorActionPreference = "Stop"
+      Write-Host "=== [1/6] provision toolchain (choco: Python 3.11 + Inno Setup) ==="
+      choco install python311 -y --no-progress
+      choco install innosetup -y --no-progress
+      $py = "C:\Python311\python.exe"
+      if (!(Test-Path $py)) { throw "python311 not at $py" }
+      & $py --version
+      Set-Location repo
+      Write-Host "=== [2/6] pip install deps + pyinstaller ==="
+      & $py -m pip install --upgrade pip --quiet
+      & $py -m pip install -e ".[gui,all-llms]" --quiet
+      & $py -m pip install pyinstaller --quiet
+      Write-Host "=== [3/6] freeze (pyinstaller one-dir) ==="
+      & $py -m PyInstaller --noconfirm packaging/windows/the-one.spec
+      if (!(Test-Path "dist\the-one\the-one.exe")) { throw "freeze produced no exe" }
+      Write-Host "=== [4/6] smoke: frozen doctor (build gate) ==="
+      & "dist\the-one\the-one.exe" doctor
+      if ($LASTEXITCODE -ne 0) { throw "frozen doctor failed ($LASTEXITCODE)" }
+      Write-Host "=== [5/6] build Inno installer ==="
+      $ver = (& $py -c "import the_one; print(the_one.__version__)").Trim()
+      $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+      if (!(Test-Path $iscc)) { throw "ISCC not at $iscc" }
+      & $iscc "/DAppVersion=$ver" packaging\windows\the-one.iss
+      $exe = "packaging\windows\Output\the-one-setup-$ver.exe"
+      if (!(Test-Path $exe)) { throw "installer not produced: $exe" }
+      Write-Host "=== [6/6] stage artifact for s3 put ==="
+      Copy-Item $exe "..\installer\"
+      Get-ChildItem "..\installer\" | Format-Table Name,Length
+      Write-Host "BUILD OK: the-one-setup-$ver.exe"

@@ -229,6 +229,10 @@ longer assumed to be reached exclusively through a developer's browser.
   `run_shell`'s Windows path a tree-kill (`taskkill /F /T` or a Job Object,
   mirroring the PTY backend). Windows ships unsandboxed/best-effort (DD9), so
   this is a robustness gap, not a containment one.
+  **F5 disposition (2026-06-14, Leg 5):** held **OUT** of Flight 5 — wiring a Job
+  Object into `create_subprocess_shell`'s non-PTY proc is more than a one-liner and
+  does not ride along in the freeze-seam leg; it is a robustness gap, not a freeze
+  blocker. **Carried to F7 (Linux packaging) / a maintenance pass.**
 
 ## Carried Forward from Mission 14
 
@@ -265,6 +269,23 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 > blocks the swap. Flight 2 is **parked** (see its Parking Note); the two F1
 > ride-alongs whose deadline is "before the CI matrix expands" migrated from
 > Flight 2's Leg 1 into Flight 3 (the Windows matrix expands first).
+>
+> **Packaging split — Windows-first (2026-06-14):** The original single Flight 5
+> ("Packaging & installers" for all three OSes at once) is **split into one
+> packaging flight per OS**, executed Windows-first. Planning recon (PyInstaller
+> + the frozen-app child-spawn problem, per-OS native-dep surfaces — Windows
+> pywinpty ABI, macOS Gatekeeper/Finder-PATH, Linux WebKitGTK wiring) confirmed
+> all-three-in-one is a multi-week flight, not the 1–3 day target, and would
+> leave three half-debugged toolchains with a behavior surface that can't be
+> isolated. Windows goes first: the operator has a native Windows box (a *local*
+> HAT apparatus the other OSes lack) and Windows runners bill at 2× vs. macOS
+> 10×. The **cross-cutting freeze runtime seam** (the `clean_subprocess_env`
+> child-env sanitizer, frozen-detection, the `resolve_python()` frozen fix, the
+> unencoded-I/O audit) is built **once** in the Windows flight and reused by the
+> macOS and Linux flights, which then add only their OS-specific freeze recipe +
+> installer + env quirks. Downstream flights renumber (the release-pipeline flight
+> moves to Flight 8); the original per-OS packaging intent is preserved across
+> Flights 5–7.
 
 - [x] Flight 1: **Host-native runtime readiness** *(completed)* — run the app as a normal host
       process with no Docker anywhere (dev, test, run): wire `Settings.data_dir`
@@ -296,7 +317,7 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       through the shared seam, bringing interactive shell/session tools to feature
       parity on Windows. Absorbs the two migrated F1 ride-alongs
       (`skipif(which("bwrap"))` re-marking; `mcp/__init__` guard comments).
-- [ ] Flight 4: **Native application window** — launch uvicorn in-process and open
+- [x] Flight 4: **Native application window** *(landed 2026-06-14; windowed-launch via `the-one app`; rendered-window HAT operator-run-pending)* — launch uvicorn in-process and open
       a chromeless native web-view window pointed at the local server, with a
       system-browser fallback; handle app lifecycle (port selection,
       single-instance, clean shutdown).
@@ -313,13 +334,40 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
         check belongs here/Flight 7, not in the unit browser suite. The **full
         browser suite's "full tier" runs on RELEASES (Flight 6), not nightly**
         (releases don't exist yet — see Flight 6).
-- [ ] Flight 5: **Packaging & installers** — freeze the app + dependencies and
-      produce per-OS installer artifacts (Windows, macOS `.dmg`, Linux AppImage);
-      bundle the web static assets; resolve/scrub frozen-environment vars so
-      spawned child processes find `node`/`uv` and resolve libraries correctly;
-      ship the CLI alongside. Behavior-test the **packaged** artifact (launch +
-      real child-process spawn).
-- [ ] Flight 6: **Release pipeline (CI/CD)** — GitHub Actions matrix builds the
+- [x] Flight 5: **Packaging & installer — Windows** *(landed 2026-06-14; freeze
+      runtime seam + `.spec` + Inno installer + CI packaged-smoke — the frozen-app
+      child-spawn fix proven green on the `windows-2022` runner; optional operator HAT
+      deferred to F9)* — the cross-cutting freeze
+      runtime seam (built here, reused by F6/F7) + the Windows installer. Freeze
+      the app + dependencies with **PyInstaller (one-dir)**; bundle the web static
+      assets; build the **`clean_subprocess_env()`** child-env sanitizer (restore
+      PyInstaller's `*_ORIG` lib-path vars / drop the bundle-injected ones,
+      augment `PATH`) + frozen-detection so every spawn path (MCP stdio, shell,
+      interpreter, PTY) finds `node`/`uv` and children don't inherit the bundle's
+      libs; fix the `resolve_python()` frozen footgun and the unencoded-I/O sites;
+      produce an **Inno Setup** installer with a Start-menu shortcut → `the-one
+      app`; ship the CLI alongside. **CI packaged-smoke proof** on the Windows
+      runner: build the frozen artifact, launch it, and spawn a **real
+      child-process** through a tool (the spawn-fix's only real proof). Rendered-
+      window + full operator HAT against the real installer deferred to the
+      comprehensive end-of-mission acceptance (F9).
+- [ ] Flight 6: **Packaging & installer — macOS** — reuse the F5 freeze seam; add
+      the macOS freeze recipe (`.app` bundle via PyInstaller `BUNDLE`) + a `.dmg`
+      (create-dmg/hdiutil); handle the macOS-specific env quirks (Finder-launched
+      **stripped PATH** via a login-shell PATH capture; `DYLD_LIBRARY_PATH`
+      sanitization in `clean_subprocess_env`); document the unsigned-app Gatekeeper
+      "is damaged" `xattr -dr com.apple.quarantine` workaround. Packaged smoke on
+      a `macos-14` runner.
+- [ ] Flight 7: **Packaging & installer — Linux** — reuse the F5 freeze seam; build
+      `.deb`/`.rpm` via **fpm** with `Depends: python3-gi, gir1.2-webkit2-4.1,
+      gir1.2-gtk-3.0` (WebKitGTK as a **system dependency**, not bundled — AppImage
+      is WebKitGTK-hostile; browser fallback is the safety net); `.desktop` entry +
+      icon; PyInstaller `excludes` so WebKit isn't partially bundled; resolve the
+      **boxed-mode interpreter-prefix** Known Issue (the frozen interpreter lives
+      outside `/usr` → `minimal_rootfs` boxed spawns fail at `execvp` — needs a
+      read-only interpreter-prefix bind or documented host-mode fallback, not an
+      accident). Packaged smoke on an `ubuntu-latest` runner / clean container.
+- [ ] Flight 8: **Release pipeline (CI/CD)** — GitHub Actions matrix builds the
       three installers on a release tag and publishes them to GitHub Releases;
       signing steps are present but conditional/no-op until certificates exist.
       - **Planning input (operator-directed 2026-06-14):** add the **full browser
@@ -327,10 +375,11 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
         full 513-test browser run executes on a release (tag) rather than every
         PR (PRs run only the path-filtered subset from Flight 4). This is the
         "full tier" deferred from the Flight-4 browser-test tiering decision.
-- [ ] Flight 7: **First-run UX, docs & acceptance** — first-run experience, per-OS
+- [ ] Flight 9: **First-run UX, docs & acceptance** — first-run experience, per-OS
       install + unsigned-app-workaround documentation, replacing the remaining
       Docker-flavored runtime error messages, and end-to-end acceptance behavior
-      tests on each target platform.
-- [ ] Flight 8 *(optional)*: **Alignment** — hands-on session installing the real
+      tests on each target platform (the **comprehensive operator HAT against the
+      real installers** lands here).
+- [ ] Flight 10 *(optional)*: **Alignment** — hands-on session installing the real
       artifacts on real machines, tuning first-run UX, and making judgment-call
       adjustments that benefit from human feedback.

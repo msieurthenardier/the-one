@@ -45,6 +45,47 @@ class TestSelectShell:
         monkeypatch.setenv("SHELL", "")
         assert select_shell() == ("/bin/sh", ["-c"])
 
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX-only frozen posture")
+    def test_posix_frozen_resolves_bare_shell_to_absolute(self, monkeypatch) -> None:
+        """M15 F5 L1 (DD3): when frozen, a bare-name $SHELL must resolve to an
+        absolute path so the post-fork execvp doesn't hit a stripped PATH."""
+        from the_one.platform import env as env_mod
+        from the_one.platform import shell as shell_mod
+
+        monkeypatch.setattr(env_mod.sys, "frozen", True, raising=False)
+        monkeypatch.setattr(env_mod.sys, "_MEIPASS", "/bundle", raising=False)
+        monkeypatch.setenv("SHELL", "bash")  # bare name
+        monkeypatch.setattr(
+            shell_mod.shutil,
+            "which",
+            lambda cmd, path=None: "/usr/bin/bash" if cmd == "bash" else None,
+        )
+        shell, args = select_shell()
+        assert shell == "/usr/bin/bash"
+        assert os.path.isabs(shell)
+        assert args == ["-c"]
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX-only frozen posture")
+    def test_posix_frozen_unresolvable_falls_back_to_bin_sh(self, monkeypatch) -> None:
+        from the_one.platform import env as env_mod
+        from the_one.platform import shell as shell_mod
+
+        monkeypatch.setattr(env_mod.sys, "frozen", True, raising=False)
+        monkeypatch.setattr(env_mod.sys, "_MEIPASS", "/bundle", raising=False)
+        monkeypatch.setenv("SHELL", "nonexistent-shell")
+        monkeypatch.setattr(shell_mod.shutil, "which", lambda cmd, path=None: None)
+        shell, _ = select_shell()
+        assert shell == "/bin/sh"
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX-only frozen posture")
+    def test_posix_non_frozen_leaves_bare_shell(self, monkeypatch) -> None:
+        from the_one.platform import env as env_mod
+
+        monkeypatch.delattr(env_mod.sys, "frozen", raising=False)
+        monkeypatch.delattr(env_mod.sys, "_MEIPASS", raising=False)
+        monkeypatch.setenv("SHELL", "/bin/bash")
+        assert select_shell() == ("/bin/bash", ["-c"])
+
 
 # ---------------------------------------------------------------------------
 # run_shell

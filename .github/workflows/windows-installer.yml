@@ -1,0 +1,112 @@
+name: windows-installer
+
+# Build + smoke-test the Windows installer ONLY on a version tag pushed to main
+# (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
+#
+# Day-to-day installer builds run in the local Concourse `the-one` team (unlimited,
+# on every push). GitHub builds the release artifact only when a version is cut — so
+# routine PRs/pushes don't burn a ~10-min Windows freeze here. (The unit-test CI lives
+# in test.yml and still runs on every PR / main push.)
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-installer:
+    # Freezes the one-dir from packaging/windows/the-one.spec, proves the DD2
+    # child-spawn fix against the REAL frozen binary (the spawn-fix's only true
+    # apparatus — a checkout interpreter can't exercise a PyInstaller bundle), then
+    # builds + uploads the Inno installer. Tag-gated: runs on `v*` tags only.
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash # Git Bash on the runner — avoids PowerShell stripping the quotes
+          # in `pip install -e ".[gui,all-llms]"` and obscuring a real install failure.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      # The [gui] extra is REQUIRED — without pywebview→pythonnet the spec's collect_*
+      # import-fails at build time.
+      - name: Install GUI freeze deps + PyInstaller
+        run: |
+          pip install -e ".[gui,all-llms]"
+          pip install pyinstaller
+      # Build the frozen one-dir from the checked-in spec. `test -f` fails fast if the
+      # bundle exe name drifts; any PyInstaller error (incl. a missing pywinpty
+      # .pyd/winpty.dll) already exits non-zero and fails the job.
+      - name: Build frozen one-dir (PyInstaller)
+        run: |
+          set -eo pipefail
+          pyinstaller --noconfirm packaging/windows/the-one.spec
+          test -f dist/the-one/the-one.exe
+      # PROOF (a) — frozen doctor. The doctor's own exit code is the gate; pipefail
+      # ensures `tee` can't mask a non-zero exit. grep both `child spawn: OK`
+      # (clean_subprocess_env + PATH augmentation work on the packaged binary) AND
+      # `RESULT: PASS` (also covers the frozen resolve_python interpreter gate).
+      - name: Packaged-smoke (a) — frozen doctor
+        run: |
+          set -eo pipefail
+          ./dist/the-one/the-one.exe doctor | tee doctor.out
+          grep -q "child spawn: OK" doctor.out
+          grep -q "RESULT: PASS" doctor.out
+      # PROOF (b) — frozen serve answers /api/info. Background the frozen serve and
+      # poll with an httpx Python probe (NOT curl — httpx is a runtime dep and the
+      # exact path the product polls with). Assert 200 + version == the_one.__version__.
+      - name: Packaged-smoke (b) — frozen serve /api/info
+        run: |
+          set -eo pipefail
+          ./dist/the-one/the-one.exe serve &
+          python - <<'PY'
+          import time, sys, httpx, the_one
+          for _ in range(30):
+              try:
+                  r = httpx.get("http://127.0.0.1:8484/api/info", timeout=2.0)
+                  if r.status_code == 200:
+                      assert r.json()["version"] == the_one.__version__, r.json()
+                      sys.exit(0)
+              except Exception:
+                  pass
+              time.sleep(1)
+          sys.exit("frozen serve did not answer /api/info 200 within 30s")
+          PY
+      # PROOF (c) — single-instance decision input. With the frozen serve still up,
+      # assert the Flight-4 probe (run from the runner's installed SOURCE) sees the
+      # frozen instance as ours (advertises an our-version /api/info). Teardown:
+      # `taskkill //F //IM` is Windows-native + MSYS-escaped; best-effort (ephemeral
+      # runner → hygiene, not correctness).
+      - name: Packaged-smoke (c) — single-instance probe + teardown
+        run: |
+          set -eo pipefail
+          python -c "from the_one.interfaces.app import _select_port; p,ours=_select_port('127.0.0.1',8484); assert ours,(p,ours)"
+          taskkill //F //IM the-one.exe || true
+      # Inno installer — AFTER the smoke so we never ship an unproven build. The
+      # windows-2022 runner already ships Inno Setup >=6.3 (currently 6.7.1, which
+      # supports the `x64compatible` arch token); do NOT pin a version (pinning a
+      # downgrade makes choco exit 1). ISCC isn't guaranteed on PATH, so locate it.
+      # `//D` is the MSYS escape for a leading `/D` — do NOT "fix" it back to `/D`.
+      - name: Build Inno installer
+        run: |
+          set -eo pipefail
+          choco install innosetup -y --no-progress || true
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          [ -f "$ISCC" ] || ISCC="$(command -v iscc)"
+          VER=$(python -c "import the_one; print(the_one.__version__)")
+          "$ISCC" //DAppVersion=$VER packaging/windows/the-one.iss
+          test -f "packaging/windows/Output/the-one-setup-$VER.exe"
+      # Upload the release installer as a workflow artifact. Best-effort: a transient
+      # account-wide artifact-storage quota (recalculated every 6-12h) must not red the
+      # build. (Flight 8 turns this into a proper GitHub Release asset.)
+      - name: Upload installer artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: the-one-windows-installer
+          path: packaging/windows/Output/*.exe

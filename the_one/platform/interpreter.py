@@ -27,25 +27,51 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import signal
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from the_one.platform.env import _build_subprocess_env, is_frozen
+
 if TYPE_CHECKING:
     from the_one.platform.sandbox.base import SandboxProfile
+
+# Operator override for the external interpreter (M15 F5 L1, DD3). Read from raw
+# ``os.environ`` — same plumbing-level convention as ``THE_ONE_EXTRA_PATH``.
+_PYTHON_OVERRIDE_ENV = "THE_ONE_PYTHON"
+
+
+class FrozenInterpreterError(RuntimeError):
+    """No external Python interpreter could be resolved from a frozen app.
+
+    Raised by :func:`resolve_python` when running frozen and neither
+    ``THE_ONE_PYTHON`` nor a ``python``/``python3`` on the (augmented) PATH
+    resolves to a real interpreter. The message is operator-actionable and
+    deliberately non-Docker (Mission 15 retired Docker).
+    """
 
 
 def resolve_python() -> str:
     """Return the path of the Python interpreter to use for subprocess invocations.
 
-    Returns the *resolved* real path of ``sys.executable``: follows symlinks
-    so that a venv interpreter (e.g. ``.venv/bin/python`` → ``/usr/bin/python3.12``)
-    resolves to the real system path.  This is required for boxed
-    (``minimal_rootfs=True``) bwrap spawns: the box mounts only ``/usr``, so
-    the interpreter must resolve to a path inside ``/usr``.  A symlink under
-    ``/home`` or ``/app`` (as produced by ``python -m venv``) is NOT visible
-    inside the box and would cause ``bwrap: execvp …: No such file or directory``.
+    **Frozen app (M15 F5 L1, DD3):** ``sys.executable`` is the frozen app
+    binary, NOT a Python interpreter — returning it would re-launch the app.
+    Instead resolve a *real external* interpreter by absolute path: honor the
+    ``THE_ONE_PYTHON`` override, else search the frozen-augmented PATH (via the
+    cleaned subprocess env) for ``python3``/``python`` with ``shutil.which``. If
+    none is found, raise :class:`FrozenInterpreterError` with actionable,
+    non-Docker guidance (install Python or set ``THE_ONE_PYTHON``).
+
+    **Non-frozen (unchanged):** returns the *resolved* real path of
+    ``sys.executable``: follows symlinks so that a venv interpreter (e.g.
+    ``.venv/bin/python`` → ``/usr/bin/python3.12``) resolves to the real system
+    path.  This is required for boxed (``minimal_rootfs=True``) bwrap spawns: the
+    box mounts only ``/usr``, so the interpreter must resolve to a path inside
+    ``/usr``.  A symlink under ``/home`` or ``/app`` (as produced by
+    ``python -m venv``) is NOT visible inside the box and would cause
+    ``bwrap: execvp …: No such file or directory``.
 
     On merged-usr Debian/Ubuntu hosts (the deployment target), venv symlinks
     always resolve into ``/usr``, so no new bind-mount is needed.  If a future
@@ -56,7 +82,49 @@ def resolve_python() -> str:
     Works on Windows (``python.exe`` has no symlinks to resolve),
     macOS, and Linux.  Single site for future venv-aware logic.
     """
+    if is_frozen():
+        return _resolve_frozen_python()
     return str(Path(sys.executable).resolve())
+
+
+def _resolve_frozen_python() -> str:
+    """Resolve a real external interpreter for a frozen app, or raise.
+
+    Searches ``THE_ONE_PYTHON`` then ``python3``/``python`` on the
+    frozen-augmented PATH. Returns an absolute path. Raises
+    :class:`FrozenInterpreterError` (actionable, non-Docker) when none is found.
+    """
+    # The cleaned subprocess env carries the frozen-augmented, bundle-stripped
+    # PATH; resolve interpreters against it (not the app's stripped GUI PATH).
+    search_path = _build_subprocess_env().get("PATH") or None
+
+    override = os.environ.get(_PYTHON_OVERRIDE_ENV, "").strip()
+    candidates: list[str]
+    if override:
+        candidates = [override]
+    else:
+        candidates = ["python3", "python"]
+
+    for cand in candidates:
+        # An override given as an absolute/relative path resolves directly;
+        # a bare name resolves against the augmented PATH.
+        found = shutil.which(cand, path=search_path)
+        if found:
+            return str(Path(found).resolve())
+
+    if override:
+        detail = (
+            f"the interpreter set in {_PYTHON_OVERRIDE_ENV}={override!r} was not "
+            f"found or is not executable"
+        )
+    else:
+        detail = "no `python3`/`python` interpreter was found on PATH"
+    raise FrozenInterpreterError(
+        "The packaged app needs an external Python interpreter to run Python "
+        f"tools, but {detail}. Install Python 3.11+ (https://python.org or your "
+        f"system package manager) so `python`/`python3` is on PATH, or set "
+        f"{_PYTHON_OVERRIDE_ENV} to the absolute path of a Python interpreter."
+    )
 
 
 async def run_python(

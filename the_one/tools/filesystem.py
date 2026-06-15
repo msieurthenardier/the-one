@@ -409,7 +409,7 @@ class WriteFileTool(Tool):
         try:
             canonical = _filesystem_check_write_path(path, cfg)
             canonical.parent.mkdir(parents=True, exist_ok=True)
-            canonical.write_text(content)
+            canonical.write_text(content, encoding="utf-8")
             return f"Wrote {len(content)} bytes to {canonical}"
         except ConstraintError as e:
             return f"[error] [constraint] {e}"
@@ -503,7 +503,7 @@ class EditFileTool(Tool):
                     "add surrounding context to make the match unique"
                 )
             new_text = text.replace(old_string, new_string, 1)
-            canonical.write_text(new_text)
+            canonical.write_text(new_text, encoding="utf-8")
             return _format_edit_preview(canonical, text, old_string, new_string)
         except ConstraintError as e:
             return f"[error] [constraint] {e}"
