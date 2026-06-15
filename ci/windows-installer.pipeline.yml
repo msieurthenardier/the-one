@@ -19,9 +19,9 @@
 # If `docker compose down/up` reassigns minio's IP, update that Vault value:
 #   fly/MCP set_secret concourse/the-one/windows-installer/minio endpoint=<ip:9000>
 #
-# NOTE: `branch` tracks the packaging work. Point it at `main` once the Windows
-# packaging lands there; until then it tracks the flight branch that carries
-# packaging/windows/* and ci/tasks/windows-installer-build.yml.
+# NOTE: tracks `main` — the Windows packaging landed there (M15 F5, v0.2.1). The
+# pipeline builds the installer on every push to main (the flight branches are merged
+# and deleted).
 
 resources:
   - name: repo
@@ -29,7 +29,7 @@ resources:
     icon: github
     source:
       uri: git@github.com:msieurthenardier/the-one.git
-      branch: flight/05-packaging-installer-windows
+      branch: main
       private_key: ((github-deploy-key.private_key))
 
 jobs:
