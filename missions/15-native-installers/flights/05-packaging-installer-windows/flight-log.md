@@ -442,6 +442,34 @@ unrelated to this flight's code).
 - The fix→rebuild→publish loop is ~5–7 min end-to-end, which is how the console-window
   fix above was turned around quickly.
 
+### 2026-06-15 — Operator finding: theme setting didn't survive restart/reinstall (FIXED)
+
+Second post-landing defect from real installed use: the UI **theme preference reset on
+every app restart**, and a reinstall behaved the same.
+
+- **Cause:** the theme is stored **only in browser `localStorage`** (`theme-preference`,
+  `interfaces/web/static/js/theme.js`) — no backend persistence. The native window
+  called `webview.start()` with no args, so pywebview's **default `private_mode=True`**
+  applied: an *ephemeral* profile that drops `localStorage`/cookies between launches.
+  So the localStorage-backed setting never survived a relaunch. (The system-browser
+  fallback path was unaffected — the real browser persists its own storage.)
+- **Fix (commit `9dbe8a2`):** start the webview with `private_mode=False` and a stable
+  `storage_path` under `settings.data_dir` (`<data_dir>/webview`). data_dir is the
+  per-user OS location (e.g. `%LOCALAPPDATA%\the-one`), **outside** the install dir, so
+  the profile survives both **restart** (now a persistent profile) and **reinstall**
+  (reinstall only touches the install dir; data_dir is migrated with other user data).
+  Files: `the_one/interfaces/app.py` (the `webview.start` call), plus
+  `tests/test_app_launcher.py` extended to assert the persistence config
+  (`private_mode is False`, `storage_path == <data_dir>/webview`, dir created) so it
+  can't silently regress. Host suite + ruff green.
+- **Class of bug (note for F6/F7 + a debrief):** this is the same family as the
+  console-window finding — a **rendered-window behavior** the packaged-smoke can't see
+  (it exercises `doctor`/`serve`, not the GUI/webview session). Both argue for the F9
+  comprehensive operator HAT, and F6/F7 inherit the corrected `webview.start` call.
+- **Scope note:** minimal fix — theme stays a client-side (`localStorage`) preference;
+  it now persists because the webview profile does. Server-side preference storage (for
+  cross-surface sync) was **not** added — out of scope for this defect.
+
 ---
 
 ## Decisions
