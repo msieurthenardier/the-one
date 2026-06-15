@@ -152,16 +152,30 @@ malware detection. A code-signing step can be added later (conditional on a cert
 secret) by uncommenting the inert `SignTool=` / `SignedUninstaller` hook in
 `the-one.iss` — no `.iss` rework required.
 
-## CI packaged-smoke (`windows-packaged-smoke` job)
+## Where the installer is built
 
-The `windows-packaged-smoke` job in
-[`.github/workflows/test.yml`](../../.github/workflows/test.yml) is the
-load-bearing verification of this flight: it freezes the one-dir on a
-`windows-2022` runner and **proves the DD2 child-spawn fix against the real
-frozen binary** — the spawn-fix's only true apparatus (a checkout interpreter
-can't exercise a PyInstaller bundle). It runs the freeze + smoke **before**
-building the installer, so a red smoke never ships an unproven build, then builds
-and uploads the Inno installer as the `the-one-windows-installer` artifact.
+Two places build the frozen installer; both run the same freeze + packaged-smoke:
+
+- **Local Concourse (primary, unlimited).** A pipeline in the `the-one` Concourse
+  team (`ci/windows-installer.pipeline.yml` + `ci/tasks/windows-installer-build.yml`)
+  polls the branch, builds on a `platform: windows` worker, and publishes the `.exe`
+  to a local minio bucket. This is the day-to-day build — it runs on every push, with
+  no GitHub artifact-storage quota.
+- **GitHub Actions (release only).** The `build-windows-installer` job in
+  [`.github/workflows/windows-installer.yml`](../../.github/workflows/windows-installer.yml)
+  runs **only on a version tag** (`v*` pushed to `main`, e.g. `git tag v0.2.0 && git
+  push origin v0.2.0`). Routine PRs/pushes do **not** trigger it — they run the unit
+  CI in `test.yml`. (Flight 8 evolves this into the full release pipeline that
+  publishes a GitHub Release asset.)
+
+## CI packaged-smoke (the freeze proof)
+
+The installer build **proves the DD2 child-spawn fix against the real frozen
+binary** — the spawn-fix's only true apparatus (a checkout interpreter can't
+exercise a PyInstaller bundle). It runs the freeze + smoke **before** building the
+installer, so a red smoke never ships an unproven build, then builds the Inno
+installer (and on the GitHub/tag path, uploads it as the `the-one-windows-installer`
+artifact).
 
 What it proves (against `dist/the-one/the-one.exe`, not the checkout):
 
@@ -182,13 +196,9 @@ frozen `resolve_python` gate no longer work in the bundle. That is the flight's
 around it. A build-step failure naming a missing `pywinpty` `_winpty.pyd` /
 `winpty.dll` is the same class of signal (see the pywinpty note below).
 
-The job is **path-filtered** (inline git-diff, like the `browser` job) to
-`packaging/**`, the runtime seam files, the smoke's pass-criteria files
-(`__init__.py`, `config.py`, `interfaces/web/app.py`) and `pyproject.toml`, so
-most PRs don't pay the freeze cost. **Adding a new seam file means adding it to
-that grep** — otherwise the smoke won't run on the PR that changes it. Because
-GitHub Actions cannot run on the Linux dev host, the **observed green run lands
-when the flight's PR opens** and CI executes on `windows-2022`.
+Because GitHub Actions cannot run on the Linux dev host, the GitHub installer build
+is observed only when a tag is cut; the Concourse pipeline is what exercises the
+freeze on every push in the meantime.
 
 ## Notes
 

@@ -470,6 +470,25 @@ every app restart**, and a reinstall behaved the same.
   it now persists because the webview profile does. Server-side preference storage (for
   cross-surface sync) was **not** added — out of scope for this defect.
 
+### 2026-06-15 — Build-trigger policy: GitHub installer build is tag-only
+
+Operator-directed split of where/when the installer builds, now that the local
+Concourse pipeline handles routine builds:
+
+- **GitHub** builds the Windows installer **only on a `v*` version tag** (pushed to
+  `main`). Moved the freeze + packaged-smoke + installer build OUT of `test.yml`'s
+  per-PR `windows-packaged-smoke` job into a dedicated, tag-triggered
+  `.github/workflows/windows-installer.yml` (`on: push: tags: ['v*']`). `test.yml`
+  keeps the unit CI (test/browser/windows/bwrap) on every PR / `main` push; routine
+  PRs no longer pay the ~10-min Windows freeze. This brings forward the Flight-8
+  release-on-tag intent for the Windows artifact.
+- **Concourse** (the `the-one` team pipeline) builds on **every push** — the unlimited,
+  quota-free day-to-day build that publishes to minio. Left to trigger freely per
+  operator preference (no `paths` filter).
+- Supersedes the F5 path-filtered per-PR smoke (DD5's "runs on the PR" framing): the
+  spawn-fix proof now runs on releases (GitHub, on tag) + continuously (Concourse).
+  `packaging/windows/README.md` "Where the installer is built" updated to match.
+
 ---
 
 ## Decisions
