@@ -10,7 +10,11 @@ Tests cover:
 - clamp_to_bounds: negative-origin monitor (secondary monitor at x < 0)
 - clamp_to_bounds: empty screens list → state unchanged
 - run_desktop(): saved state → create_window called with clamped geometry
+  (proxy-list form — the installed pywebview case)
+- run_desktop(): saved state → create_window called with clamped geometry
+  (callable form — other-version form)
 - run_desktop(): no saved state → create_window called with F4 defaults only
+- run_desktop(): webview.screens as plain list does NOT raise (HAT regression)
 - _save_current_geometry wiring: both _on_closing and _on_quit paths
 - capture-skip when shown event not yet set
 
@@ -256,25 +260,8 @@ def test_clamp_to_bounds_multi_monitor_union() -> None:
 # ── shell.py integration: restore on launch ───────────────────────────────────
 
 
-def test_run_desktop_restores_saved_geometry(
-    webview_mock: MagicMock,
-    tmp_path: Any,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """run_desktop() passes width/height/x/y to create_window when saved state exists."""
-    import the_one.interfaces.desktop.shell as launcher_module
-    import the_one.interfaces.desktop.window_state as ws
-
-    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
-    monkeypatch.setattr("the_one.config.settings.data_dir", tmp_path)
-
-    # Write a saved state
-    ws.save_state(1024, 768, x=200, y=150)
-
-    # webview.screens() returns a single 1080p screen
-    screen = _make_screen(0, 0, 1920, 1080)
-    webview_mock.screens.return_value = [screen]
-
+def _run_desktop_with_screens(launcher_module, webview_mock, tmp_path):
+    """Shared helper: call run_desktop() with all infrastructure mocked out."""
     with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
             with patch.object(launcher_module, "_graceful_shutdown"):
@@ -286,6 +273,33 @@ def test_run_desktop_restores_saved_geometry(
                                 mock_thread_cls.return_value = MagicMock()
                                 launcher_module.run_desktop()
 
+
+def test_run_desktop_restores_saved_geometry_screens_as_list(
+    webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_desktop() passes width/height/x/y to create_window when saved state exists.
+
+    webview.screens is a plain list — the proxy_tools installed case.
+    This is the exact form that caused the HAT TypeError when the old code
+    called webview.screens() (parens on a list → TypeError).
+    """
+    import the_one.interfaces.desktop.shell as launcher_module
+    import the_one.interfaces.desktop.window_state as ws
+
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
+    monkeypatch.setattr("the_one.config.settings.data_dir", tmp_path)
+
+    # Write a saved state
+    ws.save_state(1024, 768, x=200, y=150)
+
+    # webview.screens is a plain list (proxy_tools installed form) — NOT callable.
+    screen = _make_screen(0, 0, 1920, 1080)
+    webview_mock.screens = [screen]
+
+    _run_desktop_with_screens(launcher_module, webview_mock, tmp_path)
+
     webview_mock.create_window.assert_called_once()
     call_kwargs = webview_mock.create_window.call_args.kwargs
     assert call_kwargs["width"] == 1024
@@ -293,6 +307,92 @@ def test_run_desktop_restores_saved_geometry(
     assert call_kwargs["x"] == 200
     assert call_kwargs["y"] == 150
     assert call_kwargs["frameless"] is False
+
+
+def test_run_desktop_restores_saved_geometry_screens_as_callable(
+    webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_desktop() passes width/height/x/y when webview.screens is a callable.
+
+    This covers the other-version form where screens() must be called with parens.
+    A plain function is not iterable (list(fn) raises TypeError), so the resolution
+    logic falls through to the callable branch and calls fn().
+    """
+    import the_one.interfaces.desktop.shell as launcher_module
+    import the_one.interfaces.desktop.window_state as ws
+
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
+    monkeypatch.setattr("the_one.config.settings.data_dir", tmp_path)
+
+    # Write a saved state
+    ws.save_state(1024, 768, x=200, y=150)
+
+    # webview.screens is a callable (plain function) returning a list.
+    # list(fn) raises TypeError → resolution falls through to fn() callable branch.
+    screen = _make_screen(0, 0, 1920, 1080)
+    webview_mock.screens = lambda: [screen]
+
+    _run_desktop_with_screens(launcher_module, webview_mock, tmp_path)
+
+    webview_mock.create_window.assert_called_once()
+    call_kwargs = webview_mock.create_window.call_args.kwargs
+    assert call_kwargs["width"] == 1024
+    assert call_kwargs["height"] == 768
+    assert call_kwargs["x"] == 200
+    assert call_kwargs["y"] == 150
+    assert call_kwargs["frameless"] is False
+
+
+def test_run_desktop_screens_as_list_does_not_raise(
+    webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: webview.screens as a plain list must NOT raise TypeError.
+
+    This is the exact failure seen in the HAT logfile:
+      TypeError: 'list' object is not callable
+    when the old code called webview.screens() (with parens) on the installed
+    proxy_tools lazy property that already evaluates to a list.
+    """
+    import the_one.interfaces.desktop.shell as launcher_module
+    import the_one.interfaces.desktop.window_state as ws
+
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
+    monkeypatch.setattr("the_one.config.settings.data_dir", tmp_path)
+
+    ws.save_state(1280, 800, x=100, y=50)
+
+    # Assign a plain Python list — calling it would raise TypeError.
+    screen = _make_screen(0, 0, 1920, 1080)
+    webview_mock.screens = [screen]
+
+    # Must not raise — the restore block must handle the list form without error.
+    _run_desktop_with_screens(launcher_module, webview_mock, tmp_path)
+
+    # Geometry was restored (restore did NOT fall back to defaults due to the crash).
+    call_kwargs = webview_mock.create_window.call_args.kwargs
+    assert call_kwargs.get("width") == 1280, (
+        "Geometry must be applied — restore must NOT fall back to defaults "
+        "when webview.screens is a plain list"
+    )
+
+
+# ── keep old name as an alias so any external references still resolve ─────────
+
+def test_run_desktop_restores_saved_geometry(
+    webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Alias for test_run_desktop_restores_saved_geometry_screens_as_list.
+
+    Retained for backward compatibility with any external test-reference;
+    updated to use the plain-list form that matches the installed pywebview.
+    """
+    test_run_desktop_restores_saved_geometry_screens_as_list(webview_mock, tmp_path, monkeypatch)
 
 
 def test_run_desktop_no_state_uses_defaults(

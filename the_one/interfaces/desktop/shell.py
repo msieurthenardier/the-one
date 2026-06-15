@@ -193,7 +193,18 @@ def run_desktop() -> None:
             _create_kwargs: dict = {"frameless": False}
             if _saved_state is not None:
                 try:
-                    _clamped = clamp_to_bounds(_saved_state, webview.screens())
+                    # The installed pywebview exposes `webview.screens` as a
+                    # proxy_tools lazy property that *already evaluates to* the
+                    # list of Screen objects — it is NOT callable.  Other builds
+                    # (editable source installs, future versions) may expose it as
+                    # a function.  Resolve robustly so both forms work.
+                    _screens = webview.screens
+                    if not isinstance(_screens, (list, tuple)):
+                        try:
+                            _screens = list(_screens)  # proxy-list / iterable → materialise
+                        except TypeError:
+                            _screens = _screens()      # callable form
+                    _clamped = clamp_to_bounds(_saved_state, _screens)
                     _create_kwargs["width"] = _clamped["width"]
                     _create_kwargs["height"] = _clamped["height"]
                     if "x" in _clamped:
@@ -235,10 +246,14 @@ def run_desktop() -> None:
                 try:
                     w, h, x, y = window.width, window.height, window.x, window.y
                 except Exception:
-                    log.warning("window_state: could not read geometry; skipping save", exc_info=True)
+                    log.warning("window_state: capture failed", exc_info=True)
                     return
                 from the_one.interfaces.desktop.window_state import save_state
-                save_state(w, h, x, y)
+                try:
+                    save_state(w, h, x, y)
+                    log.debug("window_state: saved geometry %sx%s @ %s,%s", w, h, x, y)
+                except Exception:
+                    log.warning("window_state: capture failed", exc_info=True)
 
             def _on_closing() -> bool:
                 """pywebview closing handler: hide to tray instead of destroying.
@@ -286,10 +301,16 @@ def run_desktop() -> None:
                 return False  # cancel destroy — app keeps serving
 
             def _on_show(icon) -> None:
-                """Tray "Show" menu callback: restore the window."""
+                """Tray "Show" menu callback: show the window.
+
+                The window was hidden via close-to-tray (not minimized), so
+                show() is sufficient.  restore() is intentionally omitted here —
+                it snapped the window size on each show when the window was merely
+                hidden.  focus_window() keeps show()+restore() for the
+                single-instance-focus path where the window may be minimized.
+                """
                 if _desktop_window is not None:
                     _desktop_window.show()
-                    _desktop_window.restore()
 
             def _on_quit(icon) -> None:
                 """Tray "Quit" menu callback: graceful full exit.

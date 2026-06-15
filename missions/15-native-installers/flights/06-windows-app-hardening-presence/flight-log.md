@@ -273,6 +273,73 @@ _(none yet)_
 
 ## Anomalies
 
+### Window-state restore crash: webview.screens called as function on a proxy-list (M15 F6 HAT fix, 2026-06-15)
+
+**Discovered by:** HAT operator logfile on a real Windows machine running the
+frozen build.
+
+**Traceback:**
+```
+WARNING the_one.interfaces.desktop.shell: window_state: restore failed; using defaults
+  File "the_one/interfaces/desktop/shell.py", line 196, in run_desktop
+  File "proxy_tools/__init__.py", line 131, in <lambda>
+TypeError: 'list' object is not callable
+```
+
+**Root cause:** The Leg-4 implementation called `webview.screens()` (with
+parens), consistent with the API surface described in the Leg-4 design review.
+The *installed* pywebview exposes `webview.screens` as a `proxy_tools` lazy
+module property that **already evaluates to the list of Screen objects** — it is
+not a function.  Calling it with `()` attempts to call a list → `TypeError`.
+The outer `except Exception` catch logged "restore failed; using defaults" and
+fell back to defaults, so the window opened at defaults on every launch despite
+a correctly-written `window-state.json` on disk.
+
+Geometry *capture* was unaffected — `window-state.json` was being written
+correctly after each close.  Only restore was broken.
+
+**Root-cause of the root cause:** The Leg-4 design-review API claim (`screens`
+is a callable) was wrong for the installed build.  The unit-test mock used
+`webview_mock.screens.return_value = [screen]`, which exercises the mock's
+`__call__` path and hid the incompatibility — the mock never revealed whether
+the real `screens` attribute is a list or a function.
+
+**Fix:** Replaced the direct `webview.screens()` call with a robust resolution
+sequence in `run_desktop()`: (1) read `webview.screens` into `_screens`; (2) if
+it is already a `list`/`tuple`, use it directly (installed pywebview); (3)
+otherwise try `list(_screens)` to materialise a proxy-iterable; (4) catch
+`TypeError` and call `_screens()` as a function (other-version callable form).
+The existing outer `except Exception` remains as the final safety net.
+
+**Fix — resize-on-show:** The tray `_on_show` callback was calling both
+`window.show()` and `window.restore()`.  Since the window is hidden via
+close-to-tray (not minimized), `restore()` was resetting the window's size on
+every Show click.  Removed `restore()` from `_on_show`; kept only `show()`.
+`focus_window()` keeps its `show()+restore()` pair for the single-instance path
+where the window may genuinely be minimized.
+
+**Tests added/updated:**
+- `test_window_state.py`:
+  - `test_run_desktop_restores_saved_geometry_screens_as_list` — plain-list
+    form (the HAT / installed pywebview case).
+  - `test_run_desktop_restores_saved_geometry_screens_as_callable` — callable
+    form (a lambda; `list(fn)` raises TypeError → callable branch).
+  - `test_run_desktop_screens_as_list_does_not_raise` — regression: asserts
+    restore does not throw and geometry is applied when `webview.screens` is a
+    plain list.
+  - Kept `test_run_desktop_restores_saved_geometry` as an alias pointing at the
+    list-form test.
+- `test_desktop_tray.py`:
+  - `test_show_callback_calls_window_show_not_restore` — asserts `show()` is
+    called and `restore()` is NOT called from `_on_show`.
+
+**Test results:** 83 passed, 0 failures, 0 errors (host-native,
+`tests/test_window_state.py tests/test_desktop_shell.py
+tests/test_desktop_tray.py tests/test_window_focus.py
+tests/test_frozen_stdio.py tests/test_doctor.py`, `--timeout=30`). ✓
+
+---
+
 ### Frozen windowed-app stdio crash (M15 F6 review-fix, 2026-06-15)
 
 **Discovered by:** HAT operator on a real Windows machine running the frozen

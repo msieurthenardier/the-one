@@ -629,7 +629,7 @@ def test_tray_failure_no_closing_handler_registered(
     )
 
 
-def test_show_callback_calls_window_show_and_restore(
+def test_show_callback_calls_window_show_not_restore(
     shell_module: Any,
     webview_mock: MagicMock,
     pystray_mock: MagicMock,
@@ -637,7 +637,13 @@ def test_show_callback_calls_window_show_and_restore(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The Show tray-menu callback calls window.show() and window.restore()."""
+    """The Show tray-menu callback calls window.show() but NOT window.restore().
+
+    The window was hidden via close-to-tray (not minimized), so show() is
+    sufficient.  The old restore() call was snapping the window size on each
+    show.  focus_window() keeps show()+restore() for the single-instance-focus
+    path where the window may actually be minimized.
+    """
     import the_one.interfaces.desktop.tray as tray_mod
 
     mock_window, closing_event = _make_mock_window()
@@ -659,4 +665,4 @@ def test_show_callback_calls_window_show_and_restore(
     captured_on_show(mock_icon)
 
     mock_window.show.assert_called_once()
-    mock_window.restore.assert_called_once()
+    mock_window.restore.assert_not_called()
