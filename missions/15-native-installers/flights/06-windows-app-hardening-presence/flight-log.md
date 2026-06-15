@@ -372,6 +372,37 @@ crash.  New test: `tests/test_frozen_stdio.py` (7 tests, all green).
 
 ---
 
+### Over-the-top install blocked by running app (M15 F6 HAT, 2026-06-15)
+
+**Discovered by:** HAT operator — installing a new build over a running install failed
+with file-copy errors; `the-one-app.exe` remained running after the installer attempted
+to close it.
+
+**Root cause:** F6 Leg 2 changed WM_CLOSE to hide the app to the tray instead of
+quitting it.  Inno Setup's built-in "close the running application" step sends WM_CLOSE
+(same signal as the title-bar X button), which now only hides the window.  The background
+process stays alive, holding file locks on the install directory, and the installer's
+file-copy step fails.
+
+**Fix:** Two-layer defence added to `packaging/windows/the-one.iss`:
+
+1. `[Setup]` directives (Inno 6.3+, build host has 6.7.1):
+   - `CloseApplications=force` — after the Restart Manager's graceful-close attempt,
+     force-terminates any process still locking install-dir files.
+   - `RestartApplications=no` — prevents the Restart Manager from relaunching the old
+     binary after the upgrade (the `[Run]` post-install entry handles user-initiated
+     launch).
+
+2. `[Code]` backstop (`PrepareToInstall` → `KillRunning`): runs before any files are
+   copied; calls `taskkill /F /IM the-one-app.exe` and `taskkill /F /IM the-one.exe`
+   via `{sys}\taskkill.exe`.  Return code is ignored (exit 128 = "not found" is fine).
+   The installer image is `the-one-setup-<ver>.exe`, so neither kill target matches it.
+
+**Scope:** `packaging/windows/the-one.iss` only — no Python source changes, no new tests
+(packaging-only fix; real validation at the next Windows HAT build).
+
+---
+
 ## Flight Director Notes
 
 ### 2026-06-15 — Execution kickoff (/agentic-workflow)

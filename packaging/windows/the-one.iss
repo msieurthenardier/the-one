@@ -58,6 +58,14 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; pick admin deliberately for a Program Files install; per-user is out of scope now.
 PrivilegesRequired=admin
 WizardStyle=modern
+; F6 HAT fix: close-to-tray means WM_CLOSE only hides the running app, so the
+; installer's normal graceful-close step leaves the process alive and files locked.
+; CloseApplications=force tells the Restart Manager to gracefully close then forcibly
+; terminate any process locking install-dir files. RestartApplications=no prevents
+; the Restart Manager from relaunching the old binary after the upgrade completes
+; (the post-install [Run] entry handles optional user-initiated launch instead).
+CloseApplications=force
+RestartApplications=no
 
 ; --- Signing hook (inert — unsigned this round) ---------------------------
 ; The mission imposes no code-signing this round, so the build is unsigned and
@@ -97,3 +105,26 @@ Filename: "{app}\the-one-app.exe"; Description: "Launch GleepGlorp AI"; Flags: n
 
 ; Uninstall: the Inno default removes the install tree ({app}) and both shortcuts.
 ; No custom [UninstallDelete] needed — everything lives under {app}.
+
+[Code]
+// F6 HAT fix: close-to-tray makes WM_CLOSE hide rather than quit the running app,
+// so the Restart Manager may not flag the background process as a locker. This
+// backstop force-terminates both the windowed launcher (the-one-app.exe) and the
+// CLI entry-point (the-one.exe) before files are copied. taskkill /F is best-effort
+// — RC is ignored so a "process not found" (exit 128) does not abort the install.
+// The installer image is the-one-setup-<ver>.exe, so neither target matches it.
+procedure KillRunning;
+var
+  RC: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM the-one-app.exe', '',
+       SW_HIDE, ewWaitUntilTerminated, RC);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM the-one.exe', '',
+       SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  KillRunning;
+  Result := '';
+end;
