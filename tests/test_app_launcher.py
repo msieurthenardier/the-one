@@ -266,9 +266,15 @@ def test_webview_available_returns_true_when_webkit_typelib_present(
 
 def test_run_calls_create_window_start_and_graceful_shutdown(
     webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """run() creates a window, starts webview, and calls _graceful_shutdown."""
     from the_one.interfaces import app as launcher_module
+
+    # Redirect data_dir so the webview-profile mkdir lands in a tmp dir, not the
+    # real per-user data location.
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
 
     with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
@@ -292,6 +298,14 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
 
     # webview.start was called (blocks main thread in production; is a no-op mock here)
     webview_mock.start.assert_called_once()
+    # Persistence config (M15 F5 post-landing fix): start() must run with a
+    # NON-private profile pinned to a stable per-user storage_path, so localStorage
+    # (e.g. the theme preference) survives restarts/reinstalls. Default
+    # private_mode=True would drop it every launch.
+    start_kwargs = webview_mock.start.call_args.kwargs
+    assert start_kwargs.get("private_mode") is False
+    assert start_kwargs.get("storage_path") == str(tmp_path / "webview")
+    assert (tmp_path / "webview").is_dir()
 
     # _graceful_shutdown was called exactly once
     mock_shutdown.assert_called_once()
