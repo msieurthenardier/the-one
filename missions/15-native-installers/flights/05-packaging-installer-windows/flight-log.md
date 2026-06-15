@@ -381,6 +381,69 @@ regression net.
 
 ---
 
+## Post-Landing
+
+Items discovered/landed **after** the flight was marked `landed` — kept here as
+append-only ground truth (the flight does not re-open; these inform F6/F7 and a future
+debrief). The flight's `landed` status stands.
+
+### 2026-06-15 — Operator HAT finding: stray console window on GUI launch (FIXED)
+
+The deferred operator HAT (DD5 / F9) was effectively run early — the operator installed
+the real `.exe` on a Windows box and launched it from the Start-menu shortcut. **Defect:**
+a blank console window appeared alongside the app window.
+
+- **Cause:** the single multi-call `the-one.exe` is a console-subsystem binary
+  (`.spec` `console=True`, the DD6 pin). Windows always allocates a console window for
+  such a binary, so even the windowed `app` path popped a stray `cmd` window. The CI/
+  Concourse packaged-smoke never caught this — it exercises `the-one.exe doctor`/`serve`
+  (where a console is wanted), not the *rendered-window* GUI launch (the apparatus DD5
+  explicitly deferred).
+- **Fix (commit `a4fce19`):** build **two exes** in the one-dir instead of one —
+  `the-one.exe` (`console=True`, unchanged — the CLI + the smoke target) and a new
+  **`the-one-app.exe`** (`console=False`, windowed) built from
+  `packaging/windows/frozen_entry_gui.py` (forces the `app` path). `MERGE` de-dupes the
+  shared native payload. The Inno shortcuts (Start-menu / Desktop / post-install launch)
+  now point at `the-one-app.exe` (no params). This supersedes the DD6 "single multi-call
+  exe / no second exe" pin; DD6's intent (CLI in the same bundle) is preserved — the CLI
+  is still `the-one.exe` in the same install dir.
+- **Trade-off:** bundle grew ~38 MB → ~56 MB (two PYZ bytecode archives; `MERGE` de-dupes
+  binaries/data, not the per-exe pure-Python archive). Accepted. A leaner single-windowed-
+  exe + parent-console re-attach (`AttachConsole`) is the alternative if size matters
+  later — recorded for F6/F7, which inherit this `.spec` shape.
+- **Verification:** rebuilt via the Concourse pipeline (below), build #3 — frozen
+  `doctor` smoke still `RESULT: PASS` / `child spawn: OK` (the console `the-one.exe`
+  intact), installer republished. Files touched: `packaging/windows/the-one.spec`,
+  `packaging/windows/frozen_entry_gui.py` (new), `packaging/windows/the-one.iss`.
+  **Operator re-test of the rendered window (no console) is the confirming step.**
+
+### 2026-06-15 — Concourse pipeline-as-code for the Windows installer build
+
+Standing infrastructure added so the installer rebuilds on push without the GitHub
+Actions artifact-storage quota that blocked the F4-era CI upload (an account-level limit,
+unrelated to this flight's code).
+
+- **What:** `ci/windows-installer.pipeline.yml` + `ci/tasks/windows-installer-build.yml`
+  — a pipeline in the project's dedicated **the-one Concourse team**. A `git` resource
+  (read-only deploy key) polls the branch and auto-triggers; the build runs on a
+  `platform: windows` worker (choco-provisions Python 3.11 + Inno Setup → PyInstaller
+  freeze → frozen-`doctor` smoke gate → `iscc`); the `.exe` is published to a local
+  **minio** (S3) bucket via an `mc` task.
+- **Two environment gotchas solved (both reusable for F6/F7 if they go this route):**
+  1. The Concourse `s3` resource **hangs** uploading to minio (aws-sdk path-style/checksum
+     vs minio) — replaced with a native `mc cp` task.
+  2. Concourse build containers use **external DNS (8.8.8.8)**, so the compose service
+     name `minio` does not resolve inside them — `mc` must address minio by its
+     compose-network **IP** (sourced from a Vault var; same pattern the `epipen`
+     pipelines use). If `docker compose down/up` reassigns the IP, that Vault value needs
+     updating.
+- **Secrets** (deploy key, minio creds) live in Vault, not the repo. This is local-dev
+  CI infrastructure; the pipeline is the build apparatus, not part of the shipped product.
+- The fix→rebuild→publish loop is ~5–7 min end-to-end, which is how the console-window
+  fix above was turned around quickly.
+
+---
+
 ## Decisions
 
 ### iscc installer build consolidated into Leg 4's CI
