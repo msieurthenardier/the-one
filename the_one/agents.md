@@ -800,7 +800,72 @@ The `_sessions: dict[str, Session]` in `the_one/interfaces/web/app.py` is the wa
 - **TTL**: `THE_ONE_WEB_SESSION_IDLE_TTL_SECONDS` env var, read at call time via `os.environ.get`, int-parse with fallback to 1800 (30 min). See `.env.example`.
 - **Lifespan**: reaper started just after `start_periodic_sweep()` on startup; `_web_session_reaper_shutdown_drain()` called on shutdown after in-flight task drains, before PTY registry drain.
 
-Windows: `UnixPtySession` raises `NotImplementedError("Windows ConPTY support deferred")` on import under `os.name == "nt"`.
+### Windows PTY backend (M15 F3)
+
+`WindowsPtySession` (`the_one/platform/pty_windows.py`) is the Windows concrete
+implementation of `PtySession`. It spawns `cmd.exe` via `pywinpty`'s `PtyProcess`
+(ConPTY-backed, Windows 10 1809+ / Server 2019+). The platform dependency is
+`pywinpty>=2.0; sys_platform == "win32"` — installed only on Windows via the env
+marker in `pyproject.toml`.
+
+**Split-module structure.** The PTY subsystem is split across three files:
+- `platform/pty.py` — platform-neutral ABC (`PtySession`) + `create_pty_session()`
+  factory dispatcher. No POSIX-only stdlib at module scope; imports on every OS.
+- `platform/pty_unix.py` — `UnixPtySession` (POSIX concrete backend). Never imported
+  on Windows.
+- `platform/pty_windows.py` — `WindowsPtySession` (Windows/ConPTY concrete backend).
+  Never imported on Linux or macOS (the factory's `os.name == "nt"` guard keeps it out
+  of the Linux import cascade). The top-level `import winpty` is therefore safe.
+
+**Socket-timeout idle-read mechanism (ConPTY-specific).** The obvious approach
+(`proc.read()` or setting `read_blocking=False`) does NOT work for idle detection.
+`PtyProcess.read()` performs a blocking `fileobj.recv()` fed by an internal daemon
+thread; the `read_blocking`/`PYWINPTY_BLOCK` flag is captured by that thread's closure
+at construction time — changing it after spawn is a **no-op**.
+
+**WARNING:** do NOT call `proc.read_blocking = False` (or `proc.read_blocking = True`)
+after `PtyProcess.spawn` — the thread has already captured the flag and will not observe
+the change. A future maintainer who sees `read_blocking` in the pywinpty API and tries
+to use it for idle detection will introduce a silent regression.
+
+The correct approach (used by `_read_until_idle_blocking`): call
+`proc.fileobj.settimeout(idle_window)` then `proc.fileobj.recv(_READ_CHUNK)` directly
+(raw bytes, bypassing `proc.read()`). Catch `socket.timeout` as the "no data this
+window" signal; catch empty `recv` or `EOFError` as EOF.
+
+**`_WINDOWS_ENV_ALLOWLIST` in `platform/env.py`.** In addition to the POSIX 8-key
+`_ENV_ALLOWLIST` (`PATH`, `HOME`, `USER`, etc.), `_build_subprocess_env` unions in
+`_WINDOWS_ENV_ALLOWLIST` on `os.name == "nt"`:
+`SystemRoot`, `PATHEXT`, `COMSPEC`, `TEMP`, `TMP`, `USERPROFILE`, `USERNAME`.
+These are non-secret OS essentials that `cmd.exe` requires to function correctly.
+`_ENV_ALLOWLIST` is NOT modified — `test_execution_helpers.py:273` pins it to the exact
+8-key POSIX tuple and that pin must stay green.
+
+**Curated `windows-2022` CI lane (DD7 revised — 2026-06-13).** The `windows` job in
+`.github/workflows/test.yml` runs a curated file list (~427 tests, ~42 s) rather than
+the full suite (~3050 tests, ~25 min). The full suite remains the source of truth on
+Linux; the Windows lane covers only the platform-divergent OS surface
+(`test_platform_*`, `test_pty*`, `test_filesystem*`, `test_config*`,
+`test_execution*`, `test_encryption`, `test_sandbox_factory/contract`,
+`test_logging_config`).
+
+**THE RULE:** if you add a new test file that exercises platform-divergent behavior
+(PTY/shell, env allowlist, filesystem paths, encryption, execution, sandbox factory),
+you MUST add it to the curated file list in the `windows` job of
+`.github/workflows/test.yml` — or it will NOT run on Windows. The maintenance comment
+in `test.yml` states this rule inline. Platform-agnostic test files (DB layer,
+connectors, provider/LLM/MCP-protocol) are legitimately absent from the curated list.
+
+**`_wrapped` is always `False` on Windows.** `UnixPtySession._wrapped` is set at
+`start()` time from `spec.command == "bwrap"` and controls SIGKILL-fast vs
+SIGTERM-grace teardown. On Windows, `PassthroughSandbox` never produces a `bwrap`
+command, so `self._wrapped` is structurally `False` and the bwrap teardown branch is
+never taken.
+
+**Windows is unsandboxed (DD9).** The sandbox factory returns `PassthroughSandbox`
+on non-Linux; `warn_if_isolation_unenforced` still fires for boxed profiles (the seam
+contract is preserved). See `SECURITY-MODEL.md` "Windows: interactive tools run
+unsandboxed" for the full model, including the Job Object lifecycle semantics.
 
 ### Origin allowlist
 

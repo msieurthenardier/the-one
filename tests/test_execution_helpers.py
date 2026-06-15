@@ -6,10 +6,12 @@ Helpers are tested in isolation; L3-L6 wire them into tools.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
+from the_one.platform.env import _WINDOWS_ENV_ALLOWLIST
 from the_one.tools.base import ConstraintError
 from the_one.tools.execution import (
     _ENV_ALLOWLIST,
@@ -254,8 +256,11 @@ class TestBuildSubprocessEnv:
         monkeypatch.setenv("THE_ONE_TEST_LEAK", "secret")
         env = _build_subprocess_env()
         assert "THE_ONE_TEST_LEAK" not in env
+        # On Windows the env helper unions in _WINDOWS_ENV_ALLOWLIST; assert
+        # membership in the combined set so the test passes on both platforms.
+        allowed = set(_ENV_ALLOWLIST) | (set(_WINDOWS_ENV_ALLOWLIST) if os.name == "nt" else set())
         for k in env:
-            assert k in _ENV_ALLOWLIST
+            assert k in allowed
 
     def test_setenv_allowlisted_key_appears(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LANG", "C.UTF-8")

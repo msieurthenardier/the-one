@@ -219,6 +219,16 @@ longer assumed to be reached exclusively through a developer's browser.
   lives outside `/usr` — boxed mode on the packaged Linux artifact needs a
   deliberate design answer (read-only interpreter-prefix bind vs. documented
   host-mode fallback), not an accident.
+- **`run_shell` timeout-kill is not prompt on Windows** *(discovered F3 L4 CI,
+  2026-06-14)*: the shell-execution timeout fires and returns the correct
+  "timed out" message, but killing the spawned `cmd.exe` does NOT promptly reap
+  its child tree (no process-group / tree kill) — a backgrounded child runs to
+  completion. Parallel to the PTY teardown gap that Leg 3 solved with a Win32
+  Job Object. The prompt-kill regression test (`test_timeout_returns_promptly`)
+  is POSIX-gated for now. **Follow-up (Flight 5 or a maintenance pass)**: give
+  `run_shell`'s Windows path a tree-kill (`taskkill /F /T` or a Job Object,
+  mirroring the PTY backend). Windows ships unsandboxed/best-effort (DD9), so
+  this is a robustness gap, not a containment one.
 
 ## Carried Forward from Mission 14
 
@@ -244,6 +254,17 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 > **Note:** These are tentative suggestions, not commitments. Flights are planned
 > and created one at a time as work progresses. This list will evolve based on
 > discoveries during implementation.
+>
+> **Execution-order swap (2026-06-13):** Flight 3 (Windows PTY parity) is being
+> executed **before** Flight 2 (macOS Seatbelt). Flight numbers are kept as
+> stable identities (the macOS spec is already drafted + design-reviewed as
+> Flight 2); only the order changes. Rationale: the operator has a native
+> Windows host (under WSL2) — a *local* test apparatus the macOS flight lacks
+> — and macOS GitHub runners bill at 10× vs. Windows 2× on this private repo.
+> Both backends slot behind the M14 seam independently, so no dependency
+> blocks the swap. Flight 2 is **parked** (see its Parking Note); the two F1
+> ride-alongs whose deadline is "before the CI matrix expands" migrated from
+> Flight 2's Leg 1 into Flight 3 (the Windows matrix expands first).
 
 - [x] Flight 1: **Host-native runtime readiness** *(completed)* — run the app as a normal host
       process with no Docker anywhere (dev, test, run): wire `Settings.data_dir`
@@ -263,17 +284,35 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       constraint, and PTY-echo sentinel footgun in `agents.md`/`CLAUDE.md`;
       investigate the pre-existing `test_connectors_e2e.py::test_e2e_full_lifecycle`
       flake).
-- [ ] Flight 2: **macOS sandbox backend (Seatbelt)** — add the macOS backend
-      behind the Mission-14 seam (via `sandbox-runtime`/Seatbelt) so macOS tool and
-      MCP execution is enforced. Behavior-test containment on macOS.
-- [ ] Flight 3: **Windows PTY parity (ConPTY)** — add a Windows backend to
-      `platform/pty.py` (via `pywinpty`/ConPTY) and a read/idle loop that does not
-      depend on POSIX-only `select`/`fcntl`, routed through the shared seam, bringing
-      interactive shell/session tools to feature parity on Windows.
+- [ ] Flight 2: **macOS sandbox backend (Seatbelt)** *(spec drafted + design-reviewed;
+      **PARKED** — executes after Flight 3)* — add the macOS backend behind the
+      Mission-14 seam via **direct `sandbox-exec` + generated SBPL** (DD1: not the
+      `sandbox-runtime` Node dependency) so macOS tool/PTY/MCP execution is enforced;
+      kernel-verified containment in CI on `macos-15`. Behavior-test backing of the
+      macOS containment criterion deferred to Flight 8 (no operator macOS hardware).
+- [x] Flight 3: **Windows PTY parity (ConPTY)** *(landed 2026-06-14; behavior-test backing deferred to post-installer acceptance — Flight 7/8)* —
+      add a Windows backend to `platform/pty.py` (via `pywinpty`/ConPTY) and a
+      read/idle loop that does not depend on POSIX-only `select`/`fcntl`, routed
+      through the shared seam, bringing interactive shell/session tools to feature
+      parity on Windows. Absorbs the two migrated F1 ride-alongs
+      (`skipif(which("bwrap"))` re-marking; `mcp/__init__` guard comments).
 - [ ] Flight 4: **Native application window** — launch uvicorn in-process and open
       a chromeless native web-view window pointed at the local server, with a
       system-browser fallback; handle app lifecycle (port selection,
       single-instance, clean shutdown).
+      - **Planning input (browser-test strategy, operator-directed 2026-06-14):**
+        the browser suite (513 tests, ~15 min — now the CI long pole) tests the
+        SAME web UI that ships inside the native window, so it stays valuable —
+        but (a) **path-filter the browser CI job to UI-touching PRs only**
+        (`interfaces/web/**`, templates, the relevant API): most PRs
+        (connectors/DB/MCP/agent) don't touch the UI and pay 15 min for ~zero
+        signal; (b) **dedup redundant browser tests** (e.g. `test_markdown` 91,
+        overlapping editor flows — coverage-guided); (c) note the renderer shift —
+        the native window uses Edge WebView2/WKWebView/WebKitGTK, so
+        Playwright-Chromium becomes a *logic proxy*; the real-WebView acceptance
+        check belongs here/Flight 7, not in the unit browser suite. The **full
+        browser suite's "full tier" runs on RELEASES (Flight 6), not nightly**
+        (releases don't exist yet — see Flight 6).
 - [ ] Flight 5: **Packaging & installers** — freeze the app + dependencies and
       produce per-OS installer artifacts (Windows, macOS `.dmg`, Linux AppImage);
       bundle the web static assets; resolve/scrub frozen-environment vars so
@@ -283,6 +322,11 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 - [ ] Flight 6: **Release pipeline (CI/CD)** — GitHub Actions matrix builds the
       three installers on a release tag and publishes them to GitHub Releases;
       signing steps are present but conditional/no-op until certificates exist.
+      - **Planning input (operator-directed 2026-06-14):** add the **full browser
+        suite as a release-gated tier** here — once the release flow exists, the
+        full 513-test browser run executes on a release (tag) rather than every
+        PR (PRs run only the path-filtered subset from Flight 4). This is the
+        "full tier" deferred from the Flight-4 browser-test tiering decision.
 - [ ] Flight 7: **First-run UX, docs & acceptance** — first-run experience, per-OS
       install + unsigned-app-workaround documentation, replacing the remaining
       Docker-flavored runtime error messages, and end-to-end acceptance behavior

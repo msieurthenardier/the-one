@@ -30,9 +30,11 @@ Lock-and-await deadlock avoidance:
     other registry operations for that window — unacceptable for a
     multi-agent surface.
 
-Module imports ``PtySession`` from ``the_one.platform.pty``, which raises
-``NotImplementedError`` at import time on Windows. The registry is
-therefore Unix-only for F4; Windows ConPTY support is deferred.
+Module imports ``PtySession`` from ``the_one.platform.pty``, which now
+imports cleanly on all platforms (M15 F3 Leg 1 split-module refactor).
+The registry therefore collects on Windows too; the concrete Windows PTY
+backend (``WindowsPtySession``) lands with Leg 2, after which the registry
+becomes fully exercisable on Windows.
 """
 
 from __future__ import annotations

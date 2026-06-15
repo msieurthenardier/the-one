@@ -28,6 +28,10 @@ class TestGetEncryptor:
         key_path = tmp_path / "encryption.key"
         assert key_path.exists()
 
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
     def test_key_file_permissions(self, tmp_path: Path) -> None:
         get_encryptor(tmp_path)
         key_path = tmp_path / "encryption.key"

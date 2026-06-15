@@ -83,10 +83,6 @@ from the_one.platform.sandbox.errors import SandboxError
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _BWRAP_REQUIRED_REASON = "bwrap required for real-subprocess sandbox integration"
 
-# Tests #1-9 are real-subprocess; gate at module scope so collection still
-# works on hosts without bwrap. Test #10 is in-process and runs unconditionally.
-requires_bwrap = pytest.mark.skipif(shutil.which("bwrap") is None, reason=_BWRAP_REQUIRED_REASON)
-
 
 def _build_naughty_source(
     *,
@@ -235,7 +231,7 @@ _SHOULD_SKIP_EPERM_TESTS = _has_sys_admin() or _can_unshare_user_namespace()
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_sandbox_refuses_fs_write_outside_writable_paths() -> None:
     """Strict-floor profile (writable_paths=[]) refuses writes outside /tmp.
 
@@ -268,7 +264,7 @@ async def test_sandbox_refuses_fs_write_outside_writable_paths() -> None:
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_sandbox_allows_fs_write_when_path_in_writable_paths(
     writable_scratch_dir: Path,
 ) -> None:
@@ -303,7 +299,7 @@ async def test_sandbox_allows_fs_write_when_path_in_writable_paths(
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_sandbox_env_allowlist_invariant_with_home_override() -> None:
     """dump_env() returns only allowlist + operator-config + HOME=/tmp.
 
@@ -344,7 +340,7 @@ async def test_sandbox_env_allowlist_invariant_with_home_override() -> None:
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_sandbox_network_refused_under_unshare_net() -> None:
     """try_connect under network_allowed=False returns network-unreachable.
 
@@ -378,7 +374,7 @@ async def test_sandbox_network_refused_under_unshare_net() -> None:
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 @pytest.mark.skipif(
     not _has_outbound_network(),
     reason="test runner has no outbound network; can't validate network_allowed=True",
@@ -405,7 +401,7 @@ async def test_sandbox_network_allowed_when_network_allowed_true() -> None:
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 @pytest.mark.skip(
     reason=(
         "F5 L01: SDK task-group cross-task deadlock (F6 A5) routes SandboxError "
@@ -454,7 +450,7 @@ async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 @pytest.mark.skip(
     reason=(
         "F5 L01: same F6 A5 SDK task-group cross-task deadlock as "
@@ -519,7 +515,7 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 @pytest.mark.skipif(
     _SHOULD_SKIP_EPERM_TESTS,
     reason=(
@@ -556,7 +552,7 @@ async def test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3() -> None:
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_inner_process_failure_does_not_translate_to_sandbox_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -627,7 +623,7 @@ async def test_inner_process_failure_does_not_translate_to_sandbox_error(
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_sandbox_dump_env_no_secret_leakage_via_test_runner_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -663,7 +659,7 @@ async def test_sandbox_dump_env_no_secret_leakage_via_test_runner_env(
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_sandbox_with_naughty_tools_flag_registers_three_tools() -> None:
     """list_tools with --with-naughty-tools sees all 5 tools.
 
@@ -692,7 +688,7 @@ async def test_sandbox_with_naughty_tools_flag_registers_three_tools() -> None:
 # ---------------------------------------------------------------------------
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_sandbox_without_naughty_tools_flag_omits_naughty_tools() -> None:
     """list_tools WITHOUT --with-naughty-tools sees only echo + add.
 

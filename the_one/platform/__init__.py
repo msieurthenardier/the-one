@@ -8,8 +8,8 @@ Public API:
     shell: select_shell, run_shell
     interpreter: resolve_python, run_python
     tempdirs: temp_dir, user_home, user_config_dir
-    pty: PtySession, UnixPtySession, create_pty_session (POSIX-only;
-         importing on Windows raises NotImplementedError)
+    pty: PtySession, UnixPtySession, create_pty_session (imports on all
+         platforms; POSIX backend via pty_unix; Windows backend lands F3 L2)
 """
 
 from __future__ import annotations
@@ -34,10 +34,10 @@ __all__ = [
     "user_home",
 ]
 
-# PTY session surface — POSIX-only. Importing on Windows would raise at
-# import time inside ``the_one.platform.pty``; guarding here keeps the
-# package importable on Windows for non-PTY consumers (e.g. ``paths``,
-# ``tempdirs``).
+# PTY session surface — POSIX-only re-export. ``the_one.platform.pty`` now
+# imports cleanly on all platforms (M15 F3 Leg 1); the guard here preserves
+# the package's POSIX-only re-export of ``UnixPtySession`` (which does not
+# exist on non-POSIX — the Windows backend lands in F3 Leg 2).
 if os.name == "posix":
     from the_one.platform.pty import (  # noqa: E402
         PtySession,

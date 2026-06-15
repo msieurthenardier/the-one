@@ -19,8 +19,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -31,8 +31,8 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -44,10 +44,49 @@ jobs:
           THE_ONE_DEV_MODE: "true"
         run: python -m pytest -m browser tests/browser/ --timeout=300 --tb=short
 
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash   # Git Bash on the runner — avoids PowerShell stripping
+                      # the quotes in `pip install -e ".[all-llms,dev]"` and
+                      # obscuring the real test inventory behind an install fail.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[all-llms,dev]"
+      # WINDOWS CURATED SUBSET (DD7 revised — 2026-06-13)
+      # ---------------------------------------------------------------
+      # This explicit file list is the Windows-relevant OS-divergent surface.
+      # MAINTENANCE NOTE: if you add a NEW test file that exercises
+      # platform-divergent behavior (filesystem paths, env allowlist,
+      # PTY/shell, encryption, execution), add it here too — or it will
+      # NOT run on Windows.  The full suite stays the source of truth on
+      # Linux; this lane covers only the ~427-test OS-divergent subset.
+      # (Future refinement: a `cross_platform` pytest marker could
+      # auto-include new files; deferred to keep this leg's churn low.)
+      - name: Run platform-relevant subset (Windows — DD7 revised)
+        run: |
+          python -m pytest --timeout=300 --tb=short \
+            tests/test_platform_paths.py tests/test_platform_shell.py \
+            tests/test_platform_interpreter.py tests/test_platform_tempdirs.py \
+            tests/test_pty_dispatch.py tests/test_pty_session.py tests/test_pty_windows.py \
+            tests/test_filesystem_tools.py tests/test_filesystem_helpers.py \
+            tests/test_filesystem_config.py \
+            tests/test_config.py tests/test_config_data_dir.py \
+            tests/test_execution_tools.py tests/test_execution_helpers.py \
+            tests/test_execution_config.py \
+            tests/test_encryption.py \
+            tests/test_sandbox_factory.py tests/test_sandbox_contract.py \
+            tests/test_logging_config.py
+
   bwrap:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - name: Allow unprivileged user namespaces

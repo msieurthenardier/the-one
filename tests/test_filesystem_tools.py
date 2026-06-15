@@ -63,6 +63,12 @@ class TestReadFileTool:
         # Path.expanduser reads os.environ["HOME"] via posixpath.expanduser;
         # patching Path.home does NOT affect Path("~").expanduser().
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME) — patch it so
+        # the write target lands inside the allowlisted tmp_path, not the real
+        # home (C:\Users\runneradmin → outside allowlist → constraint error).
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         (tmp_path / "y.txt").write_text("home content")
         result = await ReadFileTool(cfg).execute(path="~/y.txt")
@@ -149,6 +155,10 @@ class TestWriteFileTool:
         # Path.expanduser reads os.environ["HOME"]; setenv is the correct
         # patch target — Path.home is never consulted by expanduser.
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME).
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         result = await WriteFileTool(cfg).execute(path="~/z.txt", content="home")
         assert result.startswith("Wrote")
@@ -196,6 +206,10 @@ class TestListDirTool:
         # Path.expanduser reads os.environ["HOME"]; setenv is the correct
         # patch target — Path.home is never consulted by expanduser.
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME).
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         (tmp_path / "h.txt").write_text("home")
         result = await ListDirTool(cfg).execute(path="~")
@@ -302,6 +316,10 @@ class TestEditFileTool:
 
     async def test_tilde_expansion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME).
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         (tmp_path / "y.txt").write_text("foo bar\n")
         result = await EditFileTool(cfg).execute(
@@ -463,6 +481,10 @@ class TestDeleteFileTool:
 
     async def test_tilde_expansion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME).
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         (tmp_path / "h.txt").write_text("home")
         result = await DeleteFileTool(cfg).execute(path="~/h.txt")
@@ -554,6 +576,10 @@ class TestMoveFileTool:
 
     async def test_tilde_expansion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME).
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         (tmp_path / "src.txt").write_text("home")
         result = await MoveFileTool(cfg).execute(source="~/src.txt", destination="~/dst.txt")
@@ -592,6 +618,10 @@ class TestMkdirTool:
 
     async def test_tilde_expansion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HOME", str(tmp_path))
+        # On Windows, expanduser resolves USERPROFILE (not HOME).
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        monkeypatch.setenv("HOMEDRIVE", tmp_path.drive if tmp_path.drive else "")
+        monkeypatch.setenv("HOMEPATH", str(tmp_path))
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         result = await MkdirTool(cfg).execute(path="~/newdir")
         assert result.startswith("Created")
