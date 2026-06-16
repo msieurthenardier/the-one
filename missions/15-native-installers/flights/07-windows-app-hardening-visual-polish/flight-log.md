@@ -530,3 +530,125 @@ preserve `private_mode=False` + the absolute `storage_path`; keep `_wait_until_s
 browser-fallback path (or document its removal); adapt the 4+ launch tests via the
 extract-and-invoke-`_boot` pattern. Native splash appearance/dismissal/no-orphan still
 HAT-verified on the real install (Leg 7), but the architecture is now de-risked.
+
+---
+
+### 2026-06-16 — Leg 4 HAT fix: `_boot` no-arg call convention + loaded-event race
+
+**Trigger:** Operator HAT on the real Windows install. The splash hung forever and the main
+window never appeared. Windows crash log:
+
+```
+Exception in thread Thread-3 (_boot):
+TypeError: DesktopSession.run.<locals>._boot() missing 1 required positional argument: 'splash_win'
+```
+
+**Root cause (FIX 1):** `_boot` was defined as `def _boot(splash_win) -> None:` but pywebview's
+`webview.start(_boot, ...)` calls it as `_boot()` with NO arguments. The parameter was never
+passed, so `_boot` raised immediately on every launch. The boot thread died before `create_window`
+for the main window was called — leaving the splash (created before `start()`) alive with nothing
+to dismiss it, hence the infinite hang.
+
+The fix: change `_boot` to `def _boot() -> None:` and reference the enclosing-scope `splash`
+closure variable directly (exactly as `_destroy_splash` already did). The `webview.start(_boot, ...)`
+call is unchanged — it was always correct; the bug was the mismatch on the receiving end.
+
+**Race fix (FIX 2):** The loaded→destroy handler was registered AFTER tray wiring. On localhost,
+the main window's `loaded` event can fire during tray setup (`build_tray` + `run_detached` takes
+non-trivial time), before the handler is subscribed — the splash would then never dismiss even if
+`_boot` ran correctly. Fixed by moving `main_win.events.loaded += lambda: _destroy_splash()` to
+immediately after `create_window(main_win)`, before tray wiring.
+
+Additionally added an already-loaded backstop: after registering the handler, check
+`main_win.events.loaded.is_set()` — if the loaded event already fired before the subscription,
+call `_destroy_splash()` immediately. **pywebview 5.4's `Event` class exposes `is_set()`,
+confirmed against the pinned wheel source** (`webview/event.py` in
+`pywebview-5.4-py3-none-any.whl`): `is_set()` delegates to the internal `threading.Event.is_set()`.
+This is the same API already used by the production code for `shown.is_set()` (line 279 in shell.py).
+
+**New `_boot` order** (shell.py `DesktopSession.run()`):
+1. `splash.events.shown.wait(15)` — unchanged
+2. `_wait_until_serving(host, sel_port)` — unchanged
+3. `create_window("GleepGlorp AI", ...)` — unchanged
+4. `main_win.events.loaded += lambda: _destroy_splash()` — **moved up, before tray**
+4a. `if main_win.events.loaded.is_set(): _destroy_splash()` — **new backstop**
+5. Tray wiring (`build_tray`, `run_detached`, `_on_closing`) — unchanged content, now after step 4
+6. Publish `_desktop_window / self._window / api._window` — unchanged
+
+**Test-fidelity correction (why the bug shipped):** All `_boot`-invoking tests called
+`_boot(mock_splash)` — passing the mock splash as a positional argument. This matched the BUGGY
+signature and exercised a code path that pywebview never uses. All invocations changed to `_boot()`
+with NO arguments, exactly matching the real pywebview call convention. Tests now fail if `_boot`
+is ever redefined with a positional parameter — the regression is caught in CI.
+
+Additionally: `_EventCapture` (the `events.loaded` stand-in for the happy-path test) gained an
+`is_set()` method returning `False` by default, so the FIX 2 backstop can be called without
+raising `AttributeError` and without prematurely triggering splash teardown in tests that verify
+the loaded-handler path. Tests that need to exercise the backstop explicitly set `is_set_value=True`.
+
+**Files changed:**
+- `the_one/interfaces/desktop/shell.py` — FIX 1 (`_boot` signature → no params, use closure
+  `splash`); FIX 2 (loaded handler registered before tray, `is_set()` backstop added)
+- `tests/test_desktop_shell.py` — all `_boot(mock_splash)` → `_boot()`; `_EventCapture.is_set()`
+  added; tray-graceful-degrade test uses `_EventCapture` on `events.loaded` to keep backstop from
+  firing; updated test docstrings
+- `tests/test_desktop_tray.py` — all `_boot(mock_splash)` → `_boot()` in helper and tray-failure test
+- `tests/test_desktop_chrome.py` — both `_boot(mock_splash)` → `_boot()`
+- `tests/test_window_state.py` — all `_boot(mock_splash)` → `_boot()` in helper and inline uses
+
+**Test outcomes (post-fix):**
+- Primary regression net (`test_desktop_shell.py test_desktop_tray.py test_window_focus.py
+  test_window_state.py test_desktop_chrome.py -x --timeout=30`): **74 passed, 0 failed**.
+- Broader smoke (`-q -x --timeout=30 -k "desktop or window or interface"`): **92 passed, 10 skipped, 0 failed**.
+
+**Leg status: remains `landed`** (HAT fix applied; leg not set to `completed` — awaiting full
+flight completion at Leg 7 HAT pass).
+
+---
+
+### 2026-06-16 — Leg 4 logo embed: README brand image in splash via base64 data URI
+
+**What was changed**
+
+The splash no longer uses a static `SPLASH_HTML` constant with a CSS diamond placeholder.
+`SPLASH_HTML` was replaced by a `_SPLASH_TEXT_ONLY` fallback constant (same markup) and a
+`_splash_html() -> str` builder function.  The builder:
+
+1. Lazily imports `STATIC_DIR` from `the_one.interfaces.web.app` (inside the function to
+   avoid any circular-import risk at module load; `run()` has already imported `web.app` by
+   splash time).
+2. Resolves `STATIC_DIR / "brand" / "gleepglorp_med.png"` — the same path the web server
+   uses for static assets, which resolves correctly under PyInstaller's `_MEIPASS` because
+   `STATIC_DIR = Path(__file__).parent / "static"` (web/app.py line 80).
+3. Reads the PNG bytes and base64-encodes them, then embeds the result as
+   `<img src="data:image/png;base64,..." alt="GleepGlorp AI">` (240 px wide, centered on
+   the existing `#0f1117` brand-dark background).
+4. On any exception (file not found, permission error, encoding failure): logs a warning and
+   returns `_SPLASH_TEXT_ONLY` unchanged.  A splash-asset failure can NEVER raise or hang boot.
+
+The `create_window` call was updated from `html=SPLASH_HTML` to `html=_splash_html()`, and
+the splash window dimensions bumped to 400×300 (was 320×220) so the 240 px logo is not clipped.
+
+**Freeze-bundle coverage confirmed**
+
+The spec (`packaging/windows/the-one.spec`) uses:
+```python
+collect_data_files("the_one", includes=["interfaces/web/static/**/*"])
+```
+The `**/*` glob recurses through all subdirectories under `static/`, including `brand/`.
+`static/brand/gleepglorp_med.png` is covered — no spec change required.
+
+**New tests** (`tests/test_desktop_shell.py`)
+
+- `test_splash_html_embeds_base64_data_uri_when_asset_present` — monkeypatches `STATIC_DIR`
+  to a tmp directory containing a minimal PNG stub; asserts the data URI appears in the HTML.
+- `test_splash_html_falls_back_to_text_only_when_asset_missing` — monkeypatches `STATIC_DIR`
+  to an empty tmp directory (no brand PNG); asserts `_splash_html()` does not raise and returns
+  valid HTML without a data URI.
+
+**Test outcomes:**
+- Primary regression net (`test_desktop_shell.py test_desktop_tray.py test_window_focus.py
+  test_window_state.py test_desktop_chrome.py -x --timeout=30`): **76 passed, 0 failed**.
+- Broader smoke (`-q -x --timeout=30 -k "desktop or window or interface"`): **94 passed, 10 skipped, 0 failed**.
+
+**Leg status: remains `landed`** (HAT fix in progress — not completed).

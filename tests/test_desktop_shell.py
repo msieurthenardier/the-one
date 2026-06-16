@@ -282,8 +282,10 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     - create_window is now called TWICE: once for the splash (before start()), once
       for the main window (inside _boot, which runs after the GUI loop is up).
     - webview.start() is called with a positional _boot callable.
-    - The test captures _boot from start()'s call_args and invokes it with a mock
-      splash so the main-window creation and tray wiring paths are exercised.
+    - The test captures _boot from start()'s call_args and invokes it with NO ARGS —
+      matching exactly how pywebview calls it — so the correct call convention is
+      exercised (the bug that shipped was _boot defined with a splash_win param that
+      pywebview never passed, causing an immediate TypeError on Windows).
     """
     import the_one.interfaces.desktop.shell as launcher_module
 
@@ -338,16 +340,17 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
 
     # ── Extract and invoke _boot to test the main-window creation path ──────
     # Since webview.start is mocked, _boot never runs automatically. We capture
-    # it and invoke it with a mock splash so the main-window kwargs and tray
-    # wiring can be asserted.
+    # it and invoke it with NO ARGS — exactly how pywebview calls it in production.
+    # The closure ``splash`` (first create_window return value) provides the splash
+    # reference internally; passing args here would be the wrong call convention and
+    # would mask the exact bug that caused the Windows HAT failure.
     _boot = start_args[0]
-    mock_splash2 = _make_splash_mock()
     # Reset create_window side_effect for the _boot invocation (main window call)
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_main_window
 
     with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
-        _boot(mock_splash2)
+        _boot()  # NO args — matches pywebview's real call convention
 
     # Main window: created with title "GleepGlorp AI" and Leg-2 kwargs.
     main_call = webview_mock.create_window.call_args
@@ -361,14 +364,23 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
 
 
 class _EventCapture:
-    """Stand-in for a pywebview event: supports += and .fire()."""
+    """Stand-in for a pywebview event: supports +=, .fire(), and .is_set().
+
+    is_set() returns False by default so the FIX 2 backstop in _boot does not fire
+    during tests that check the loaded→destroy path via .fire().  Set is_set_value=True
+    to exercise the backstop path explicitly.
+    """
 
     def __init__(self) -> None:
         self._handlers: list = []
+        self.is_set_value: bool = False
 
     def __iadd__(self, handler) -> "_EventCapture":
         self._handlers.append(handler)
         return self
+
+    def is_set(self) -> bool:
+        return self.is_set_value
 
     def fire(self, *args, **kwargs):
         result = None
@@ -387,7 +399,11 @@ def test_boot_happy_path_main_window_kwargs_and_loaded_handler(
     This is a dedicated test for the _boot callable extracted from webview.start.
     Verifies: shown.wait called on splash; _wait_until_serving called; main window
     created with title "GleepGlorp AI" and Leg-2 kwargs; loaded handler registered
-    that destroys the splash (firing it calls splash.destroy()).
+    BEFORE tray wiring (FIX 2: avoids race where fast localhost load fires loaded
+    during tray setup before the handler is subscribed); firing loaded calls splash.destroy().
+
+    _boot is invoked with NO ARGS — the correct pywebview call convention.
+    The closure ``splash`` (first create_window return) provides the splash reference.
 
     Note: _wait_until_serving is called from inside _boot (a closure over the
     launcher module's name). The spy patch must remain active when _boot is invoked,
@@ -429,9 +445,10 @@ def test_boot_happy_path_main_window_kwargs_and_loaded_handler(
                                     "the_one.interfaces.desktop.tray.build_tray",
                                     return_value=MagicMock(),
                                 ):
-                                    _boot(mock_splash)
+                                    _boot()  # NO args — pywebview calls _boot() with no arguments
 
-    # splash.events.shown.wait was called (step 1 of _boot)
+    # splash.events.shown.wait was called (step 1 of _boot); splash is the closure
+    # variable (first create_window return), not a parameter.
     mock_splash.events.shown.wait.assert_called_once()
 
     # _wait_until_serving was called from _boot
@@ -490,11 +507,12 @@ def test_boot_error_path_destroys_both_windows(
 
                                 # Invoke _boot INSIDE the patch context so
                                 # _wait_until_serving is still the raising stub.
+                                # NO args — pywebview calls _boot() with no arguments.
                                 _boot = webview_mock.start.call_args.args[0]
                                 webview_mock.create_window.side_effect = None
 
                                 with pytest.raises(RuntimeError, match="server never ready"):
-                                    _boot(mock_splash)
+                                    _boot()  # NO args — matches pywebview's real call convention
 
     # Splash must be destroyed even though the error happened before the main window.
     mock_splash.destroy.assert_called_once()
@@ -521,6 +539,11 @@ def test_boot_error_path_destroys_both_when_main_window_created(
 
     mock_splash = _make_splash_mock()
     mock_main_window = MagicMock()
+    # FIX 2: install a real _EventCapture on events.loaded so is_set() returns False
+    # and the += handler subscription survives without __iadd__ creating a fresh MagicMock.
+    # This preserves the test's intent: splash is destroyed by the loaded event, not the backstop.
+    _loaded_event = _EventCapture()  # is_set_value=False by default
+    mock_main_window.events.loaded = _loaded_event
     webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
 
     with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
@@ -544,12 +567,14 @@ def test_boot_error_path_destroys_both_when_main_window_created(
                                 ):
                                     # build_tray raising is the graceful-degrade path —
                                     # _boot doesn't re-raise it; it logs and continues.
-                                    _boot(mock_splash)
+                                    # NO args — pywebview calls _boot() with no arguments.
+                                    _boot()  # NO args — matches pywebview's real call convention
 
     # Main window was created (tray failure doesn't stop the app).
     assert webview_mock.create_window.called
     # Splash is NOT destroyed here — the error path wasn't hit (tray failure is
     # graceful degrade); splash will be destroyed when the loaded event fires.
+    # (The FIX 2 backstop is disabled via is_set.return_value=False above.)
     mock_splash.destroy.assert_not_called()
 
 
@@ -682,3 +707,68 @@ def test_run_raises_system_exit_when_webview_missing(
                             with patch("builtins.__import__", side_effect=_import_raiser):
                                 with pytest.raises(SystemExit, match="pywebview is not installed"):
                                     launcher_mod.run_desktop()
+
+
+# ── _splash_html ──────────────────────────────────────────────────────────────
+
+
+def test_splash_html_embeds_base64_data_uri_when_asset_present(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_splash_html() embeds a data:image/png;base64, URI when the brand asset is present.
+
+    A minimal 1-byte PNG stub is written to a tmp brand directory; STATIC_DIR is
+    monkeypatched to that directory so _splash_html() finds the asset without
+    touching the real filesystem or requiring a freeze bundle.
+    """
+    import base64
+
+    import the_one.interfaces.desktop.shell as launcher_module
+    import the_one.interfaces.web.app as web_app_module
+
+    # Create a minimal fake PNG asset under tmp_path/brand/
+    brand_dir = tmp_path / "brand"
+    brand_dir.mkdir()
+    fake_png = b"\x89PNG\r\n\x1a\n"  # PNG magic bytes — not a valid PNG, but enough for b64
+    logo_path = brand_dir / "gleepglorp_med.png"
+    logo_path.write_bytes(fake_png)
+
+    # Monkeypatch STATIC_DIR in the web.app module so the lazy import inside
+    # _splash_html() resolves to our tmp directory.
+    monkeypatch.setattr(web_app_module, "STATIC_DIR", tmp_path)
+
+    html = launcher_module._splash_html()
+
+    expected_b64 = base64.b64encode(fake_png).decode("ascii")
+    assert f"data:image/png;base64,{expected_b64}" in html, (
+        "_splash_html() must embed the PNG as a data URI"
+    )
+
+
+def test_splash_html_falls_back_to_text_only_when_asset_missing(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_splash_html() falls back to text-only HTML (no raise) when the asset path is missing.
+
+    STATIC_DIR is pointed at an empty tmp directory so the brand/gleepglorp_med.png
+    path does not exist.  The builder must NOT raise — it logs a warning and returns
+    the text-only fallback constant.
+    """
+    import the_one.interfaces.desktop.shell as launcher_module
+    import the_one.interfaces.web.app as web_app_module
+
+    # Point STATIC_DIR at an empty directory — no brand/gleepglorp_med.png inside.
+    monkeypatch.setattr(web_app_module, "STATIC_DIR", tmp_path)
+
+    html = launcher_module._splash_html()
+
+    # Must return a non-empty HTML string without raising.
+    assert html.strip().startswith("<!DOCTYPE html>"), (
+        "_splash_html() fallback must return valid HTML"
+    )
+    # Must NOT embed a data URI (the asset was absent).
+    assert "data:image/png;base64," not in html, (
+        "_splash_html() fallback must not embed a data URI when the asset is missing"
+    )

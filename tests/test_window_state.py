@@ -295,11 +295,12 @@ def _run_desktop_with_screens(launcher_module, webview_mock, tmp_path):
                                 launcher_module.run_desktop()
 
     # Invoke _boot so the main-window create_window call (with geometry kwargs) runs.
+    # NO args — pywebview calls _boot() with no arguments.
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_main_window
     _boot = webview_mock.start.call_args.args[0]
     with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
-        _boot(mock_splash)
+        _boot()  # NO args — matches pywebview's real call convention
 
 
 def test_run_desktop_restores_saved_geometry_screens_as_list(
@@ -468,11 +469,12 @@ def test_run_desktop_no_state_uses_defaults(
                                 launcher_module.run_desktop()
 
     # Invoke _boot so the main-window create_window call runs.
+    # NO args — pywebview calls _boot() with no arguments.
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_main_window
     _boot = webview_mock.start.call_args.args[0]
     with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
-        _boot(mock_splash)
+        _boot()  # NO args — matches pywebview's real call convention
 
     # create_window called twice: splash (call 0) + main window (call 1).
     assert webview_mock.create_window.call_count == 2
@@ -583,10 +585,11 @@ def test_on_closing_saves_geometry(
                                 launcher_module.run_desktop()
 
     # Invoke _boot so tray wiring (and closing handler registration) runs.
+    # NO args — pywebview calls _boot() with no arguments.
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_window
     _boot = webview_mock.start.call_args.args[0]
-    _boot(mock_splash)
+    _boot()  # NO args — matches pywebview's real call convention
 
     # _on_closing must have been registered on the closing event.
     closing_event = mock_window.events.closing

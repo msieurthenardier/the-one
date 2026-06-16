@@ -209,8 +209,9 @@ def test_api_close_hides_window_when_tray_active(
                                 shell_module.run_desktop()
 
     # Invoke _boot so the main-window creation path runs.
+    # NO args — pywebview calls _boot() with no arguments.
     _boot = webview_mock.start.call_args.args[0]
-    _boot(mock_splash)
+    _boot()  # NO args — matches pywebview's real call convention
 
     assert len(captured_api) == 1, "create_window must be called once with js_api (main window)"
     api = captured_api[0]
@@ -274,8 +275,9 @@ def test_api_close_destroys_when_tray_absent(
                                 shell_module.run_desktop()
 
     # Invoke _boot so tray wiring (build_tray raises → tray absent path) runs.
+    # NO args — pywebview calls _boot() with no arguments.
     _boot = webview_mock.start.call_args.args[0]
-    _boot(mock_splash)
+    _boot()  # NO args — matches pywebview's real call convention
 
     assert len(captured_api) == 1
     api = captured_api[0]

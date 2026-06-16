@@ -28,10 +28,19 @@ _desktop_window = None
 # The splash is a frameless pywebview window shown during the uvicorn boot wait;
 # it is destroyed once the main window's `loaded` event fires.
 # HAT-deferred (Leg 7): visual appearance on real Windows.
-# Leg-5 dependency: if a logo asset is embedded via file:// path it must be
-# collected in the freeze bundle; current implementation uses CSS/HTML only so
-# no bundle asset is required.
-SPLASH_HTML = """<!DOCTYPE html>
+#
+# The brand logo (gleepglorp_med.png) is embedded as a base64 data URI read at
+# runtime from the bundled static asset.  The spec file
+# (packaging/windows/the_one.spec) collects interfaces/web/static/**/* via
+# collect_data_files so gleepglorp_med.png IS in the bundle at
+# static/brand/gleepglorp_med.png.  Resolution uses STATIC_DIR from web.app
+# (a Path(__file__).parent / "static" that resolves under _MEIPASS correctly).
+# The import is lazy (inside the builder function) to avoid circular-import risk
+# at module-load time.  If the asset is unreadable for any reason the builder
+# falls back to the text-only HTML and logs a warning — a splash-asset failure
+# must NEVER raise or hang boot.
+
+_SPLASH_TEXT_ONLY = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -89,6 +98,93 @@ SPLASH_HTML = """<!DOCTYPE html>
   <div class="splash">
     <div class="logo">&#9670;</div>
     <div class="name">GleepGlorp AI</div>
+    <div class="bar"><div class="bar-fill"></div></div>
+    <div class="status">starting…</div>
+  </div>
+</body>
+</html>
+"""
+
+
+def _splash_html() -> str:
+    """Build the splash HTML, embedding the brand logo as a base64 data URI.
+
+    Reads gleepglorp_med.png from the bundled static directory at runtime and
+    inlines it as ``<img src="data:image/png;base64,...">``.  This works both
+    in development (filesystem) and in a PyInstaller freeze (_MEIPASS puts the
+    collected static tree at the same path relative to web/app.py).
+
+    Graceful fallback: any exception during asset resolution/encoding is caught,
+    a warning is logged, and the text-only splash HTML is returned.  A
+    splash-asset problem must never raise or hang boot.
+    """
+    import base64
+
+    try:
+        from the_one.interfaces.web.app import STATIC_DIR  # lazy — safe post web.app import
+
+        logo_path = STATIC_DIR / "brand" / "gleepglorp_med.png"
+        logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        logo_src = f"data:image/png;base64,{logo_b64}"
+    except Exception:
+        log.warning("splash: could not load brand logo — falling back to text-only splash", exc_info=True)
+        return _SPLASH_TEXT_ONLY
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  html, body {{
+    width: 100%; height: 100%;
+    background: #0f1117;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #e8eaf0;
+    user-select: none;
+    -webkit-app-region: drag;
+  }}
+  .splash {{
+    display: flex; flex-direction: column;
+    align-items: center; gap: 18px;
+  }}
+  .logo img {{
+    width: 240px;
+    height: auto;
+    display: block;
+  }}
+  .name {{
+    font-size: 18px; font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #e8eaf0;
+  }}
+  .status {{
+    font-size: 12px; color: #6b7280;
+    letter-spacing: 0.05em;
+  }}
+  .bar {{
+    width: 120px; height: 2px;
+    background: #1e2130;
+    border-radius: 1px;
+    overflow: hidden;
+  }}
+  .bar-fill {{
+    height: 100%;
+    background: linear-gradient(90deg, #6c63ff, #4e46e5);
+    border-radius: 1px;
+    animation: slide 1.4s ease-in-out infinite;
+  }}
+  @keyframes slide {{
+    0%   {{ transform: translateX(-100%); }}
+    50%  {{ transform: translateX(0); }}
+    100% {{ transform: translateX(100%); }}
+  }}
+</style>
+</head>
+<body>
+  <div class="splash">
+    <div class="logo"><img src="{logo_src}" alt="GleepGlorp AI"></div>
     <div class="bar"><div class="bar-fill"></div></div>
     <div class="status">starting…</div>
   </div>
@@ -507,10 +603,10 @@ class DesktopSession:
                 # the splash content must be self-contained (no localhost URL).
                 splash = webview.create_window(
                     "GleepGlorp AI — starting",
-                    html=SPLASH_HTML,
+                    html=_splash_html(),
                     frameless=True,
-                    width=320,
-                    height=220,
+                    width=400,
+                    height=300,
                 )
 
                 # Idempotent splash teardown: a threading.Event guards against a
@@ -533,23 +629,33 @@ class DesktopSession:
 
                 api = self._window_api
 
-                def _boot(splash_win) -> None:
+                def _boot() -> None:
                     """Boot sequence — runs on a background thread after the GUI loop starts.
+
+                    pywebview calls this as _boot() with NO arguments — it must take
+                    no parameters.  The splash window is accessed via the enclosing-scope
+                    ``splash`` closure variable (same as ``_destroy_splash`` already does).
 
                     Order (per DD4 design review):
                     1. splash.events.shown.wait() — so teardown is always safe even if
                        _wait_until_serving returns instantly.
                     2. _wait_until_serving — poll until uvicorn is up.
                     3. create_window for the main UI with Leg-2 kwargs + F6 state-restore.
-                    4. Wire tray + closing handler.
-                    5. Set _desktop_window / self._window / api._window.
-                    6. Register main.events.loaded → destroy splash.
+                    4. Register main.events.loaded → destroy splash IMMEDIATELY after
+                       create_window, before tray wiring, to close the race where the
+                       main window finishes loading during tray setup and the loaded event
+                       fires before the handler is registered.
+                    4a. Backstop: if main_win.events.loaded is already set (load completed
+                        before the subscribe), call _destroy_splash() immediately.
+                        pywebview 5.4 Event exposes is_set() — verified against pinned source.
+                    5. Wire tray + closing handler.
+                    6. Set _desktop_window / self._window / api._window.
                     """
                     global _desktop_window
                     main_win = None
                     try:
                         # Step 1 — ensure splash is shown before any teardown attempt.
-                        splash_win.events.shown.wait(15)
+                        splash.events.shown.wait(15)
 
                         # Step 2 — wait for the app server.
                         _wait_until_serving(host, sel_port)
@@ -564,7 +670,18 @@ class DesktopSession:
                             "GleepGlorp AI", url, js_api=api, **_create_kwargs
                         )
 
-                        # Step 4 — tray wiring.
+                        # Step 4 — register the loaded→destroy handler BEFORE tray wiring
+                        # so a fast localhost load that fires during tray setup still
+                        # dismisses the splash.
+                        main_win.events.loaded += lambda: _destroy_splash()
+
+                        # Step 4a — backstop: if loaded already fired before we subscribed,
+                        # dismiss the splash immediately.
+                        # pywebview 5.4 Event.is_set() delegates to threading.Event.is_set().
+                        if main_win.events.loaded.is_set():
+                            _destroy_splash()
+
+                        # Step 5 — tray wiring.
                         # Degrades gracefully: if tray can't start, skip _on_closing
                         # registration (F4 fallback — X destroys the window directly).
                         try:
@@ -582,13 +699,10 @@ class DesktopSession:
                                 exc_info=True,
                             )
 
-                        # Step 5 — publish window reference.
+                        # Step 6 — publish window reference.
                         _desktop_window = main_win
                         self._window = main_win
                         api._window = main_win
-
-                        # Step 6 — dismiss splash when main UI is ready.
-                        main_win.events.loaded += lambda: _destroy_splash()
 
                     except Exception:
                         log.exception("_boot raised — tearing down to prevent orphaned splash")
