@@ -1,6 +1,6 @@
 # Flight: Windows Native App Hardening — Desktop Presence & Lifecycle
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 ## Contributing to Criteria
