@@ -79,6 +79,57 @@
     border-color: var(--accent);
   }
 
+  /* === Window Chrome — M15 F7 Leg 2 (desktop-only, pywebview frameless) === */
+  /* Drag-region spacer: fills the empty space between the nav buttons and the
+     window controls.  Must NOT contain any interactive children — pywebview has
+     no no-drag exemption so only elements OUTSIDE the drag-region can receive
+     click events reliably.  The native drag-move effect is HAT-verified (Leg 7). */
+  .pywebview-drag-region {
+    flex: 1;
+    /* Intentionally empty — just a draggable spacer. */
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  /* Window control button group (minimize / maximize / close). */
+  .win-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  /* Individual window control button — styled to match the topbar theme. */
+  .win-ctrl-btn {
+    width: 32px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--panel-radius-sm);
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition:
+      background-color var(--motion-base) var(--ease-tactile),
+      color var(--motion-base) var(--ease-tactile);
+  }
+  .win-ctrl-btn:hover {
+    background-color: var(--accent-translucent);
+    color: var(--fg);
+  }
+  .win-ctrl-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  /* Close button: red on hover (universal OS convention). */
+  .win-ctrl-close:hover {
+    background-color: var(--status-danger);
+    color: var(--fg-on-danger);
+  }
+
   /* === Nav pending-approval badge (M11 F17 L9 — Leg E) === */
   /* Pill badge on the Chat nav button; hidden at count=0 via JS display:none. */
   .nav-pending-badge {

@@ -61,9 +61,34 @@
           badgeHtml +
         '</button>';
     }
+
+    // Window-chrome (M15 F7 Leg 2, DD2): inject a dedicated drag-region spacer
+    // and window control buttons ONLY when the pywebview bridge is present.
+    // Guarded here (inside renderTopBar) so the controls re-appear on every
+    // render call.  renderTopBar() is also re-run on the pywebviewready event
+    // (registered below the DOMContentLoaded block) because the initial render
+    // fires before the bridge is injected.
+    //
+    // Layout contract: the drag-region is a sibling of the nav buttons and the
+    // window controls — it MUST NOT contain them.  pywebview has no no-drag
+    // exemption; keeping interactive elements outside the drag-region element
+    // is the only reliable way to prevent drag from swallowing their clicks.
+    // The native drag-move effect and frameless-resize are HAT-verified (Leg 7).
+    var windowControlsHtml = '';
+    if (window.pywebview) {
+      windowControlsHtml =
+        '<div class="pywebview-drag-region" aria-hidden="true"></div>' +
+        '<div class="win-controls" data-testid="win-controls">' +
+          '<button class="win-ctrl-btn" data-testid="win-ctrl-minimize" aria-label="Minimize" onclick="window.pywebview.api.minimize()">&#x2013;</button>' +
+          '<button class="win-ctrl-btn" data-testid="win-ctrl-maximize" aria-label="Maximize" onclick="window.pywebview.api.toggle_maximize()">&#x25A1;</button>' +
+          '<button class="win-ctrl-btn win-ctrl-close" data-testid="win-ctrl-close" aria-label="Close" onclick="window.pywebview.api.close()">&#x2715;</button>' +
+        '</div>';
+    }
+
     topbar.innerHTML =
       '<img src="/static/brand/gleepglorp_banner.png" alt="GleepGlorp AI" class="app-topbar-banner">' +
-      '<div class="app-topbar-actions">' + buttonsHtml + '</div>';
+      '<div class="app-topbar-actions">' + buttonsHtml + '</div>' +
+      windowControlsHtml;
 
     // Wire each button to a direct hash navigation.
     var buttons = topbar.querySelectorAll('.app-picker-button');
@@ -215,6 +240,15 @@
     var parsed = parseHash(location.hash);
     if (!parsed.area || !areas[parsed.area]) return; // skip-link / unknown area
     switchTo(parsed.area, parsed.sub);
+  });
+
+  // Re-render the topbar when the pywebview bridge becomes available.
+  // DOMContentLoaded fires before the bridge is injected; this second render
+  // is what actually draws the window controls and drag-region element inside
+  // the native window.  Safe to call multiple times (renderTopBar rebuilds
+  // innerHTML each time, so no duplicates).
+  window.addEventListener('pywebviewready', function () {
+    renderTopBar();
   });
 
   document.addEventListener('DOMContentLoaded', function () {

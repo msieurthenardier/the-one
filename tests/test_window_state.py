@@ -306,7 +306,9 @@ def test_run_desktop_restores_saved_geometry_screens_as_list(
     assert call_kwargs["height"] == 768
     assert call_kwargs["x"] == 200
     assert call_kwargs["y"] == 150
-    assert call_kwargs["frameless"] is False
+    assert call_kwargs["frameless"] is True  # window-chrome leg (DD2)
+    assert call_kwargs.get("easy_drag") is False
+    assert call_kwargs.get("js_api") is not None
 
 
 def test_run_desktop_restores_saved_geometry_screens_as_callable(
@@ -342,7 +344,9 @@ def test_run_desktop_restores_saved_geometry_screens_as_callable(
     assert call_kwargs["height"] == 768
     assert call_kwargs["x"] == 200
     assert call_kwargs["y"] == 150
-    assert call_kwargs["frameless"] is False
+    assert call_kwargs["frameless"] is True  # window-chrome leg (DD2)
+    assert call_kwargs.get("easy_drag") is False
+    assert call_kwargs.get("js_api") is not None
 
 
 def test_run_desktop_screens_as_list_does_not_raise(
@@ -422,12 +426,14 @@ def test_run_desktop_no_state_uses_defaults(
 
     webview_mock.create_window.assert_called_once()
     call_kwargs = webview_mock.create_window.call_args.kwargs
-    # No geometry kwargs beyond frameless when state is absent
+    # No geometry kwargs beyond window-chrome kwargs when state is absent
     assert "width" not in call_kwargs
     assert "height" not in call_kwargs
     assert "x" not in call_kwargs
     assert "y" not in call_kwargs
-    assert call_kwargs["frameless"] is False
+    assert call_kwargs["frameless"] is True  # window-chrome leg (DD2)
+    assert call_kwargs.get("easy_drag") is False
+    assert call_kwargs.get("js_api") is not None
 
 
 # ── _save_current_geometry wiring ─────────────────────────────────────────────

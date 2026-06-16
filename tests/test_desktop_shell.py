@@ -293,8 +293,12 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     webview_mock.create_window.assert_called_once()
     call_args = webview_mock.create_window.call_args
     assert call_args.args[0] == "GleepGlorp AI"
-    # Native frame (title bar), no browser chrome — DD8.
-    assert call_args.kwargs.get("frameless") is False
+    # Frameless custom chrome (window-chrome leg, DD2): frameless=True,
+    # easy_drag=False (dedicated .pywebview-drag-region handles drag),
+    # js_api= exposes minimize/toggle_maximize/close to the web UI.
+    assert call_args.kwargs.get("frameless") is True
+    assert call_args.kwargs.get("easy_drag") is False
+    assert call_args.kwargs.get("js_api") is not None
 
     # webview.start was called (blocks main thread in production; is a no-op mock here)
     webview_mock.start.assert_called_once()
