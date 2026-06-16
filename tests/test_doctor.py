@@ -1,4 +1,4 @@
-"""Tests for ``the-one doctor`` (M15 F5 L1, DD5) — ``the_one.diagnostics``.
+"""Tests for ``the-one doctor`` (M15 F5, DD5) — ``the_one.diagnostics``.
 
 The doctor must (a) spawn a probe child through the real spawn env, (b) detect
 runtimes, (c) print a structured PASS/FAIL with a ``child spawn: OK``/``FAIL``
@@ -10,11 +10,13 @@ to pass before a frozen binary exists — plus simulated-failure paths.
 from __future__ import annotations
 
 import io
+import sys
+import types
 
 import pytest
 
 from the_one import diagnostics
-from the_one.diagnostics import ProbeResult, detect_runtimes, run_doctor
+from the_one.diagnostics import ProbeResult, _probe_desktop_shell, detect_runtimes, run_doctor
 
 
 class TestRunDoctorHost:
@@ -101,3 +103,90 @@ class TestDispatch:
         with pytest.raises(SystemExit) as exc:
             main_mod.cli_entry()
         assert exc.value.code == 3
+
+
+# ── Desktop-shell doctor probe (M15 F6 L5) ───────────────────────────────────
+
+
+def _make_stub_module(name: str) -> types.ModuleType:
+    """Return a trivial stub module for sys.modules injection."""
+    mod = types.ModuleType(name)
+    return mod
+
+
+class TestProbeDesktopShell:
+    """Unit tests for the new ``_probe_desktop_shell`` doctor line."""
+
+    def test_ok_path_when_imports_present(self) -> None:
+        """When the desktop tray module and its deps are importable → ok=True, 'OK' in output."""
+        # Inject stubs into sys.modules so the lazy imports inside
+        # _probe_desktop_shell succeed without a real [gui] install.
+        stubs = {
+            "pystray": _make_stub_module("pystray"),
+            "PIL": _make_stub_module("PIL"),
+        }
+        # the_one.interfaces.desktop.tray is a real module; ensure it's importable
+        # (it only lazily imports pystray/PIL itself, so no stub needed for the
+        # tray module on this path — the real module imports cleanly).
+        with pytest.MonkeyPatch.context() as mp:
+            for name, mod in stubs.items():
+                mp.setitem(sys.modules, name, mod)
+            result = _probe_desktop_shell()
+        assert result.ok is True
+        assert "OK" in result.detail or "importable" in result.detail
+
+    def test_skip_path_when_import_absent_not_frozen(self) -> None:
+        """When pystray is missing on a non-frozen host → ok=True (informational skip)."""
+        with pytest.MonkeyPatch.context() as mp:
+            # Remove pystray from sys.modules so the import raises ImportError.
+            mp.delitem(sys.modules, "pystray", raising=False)
+            # Ensure is_frozen() returns False.
+            mp.setattr(diagnostics, "is_frozen", lambda: False)
+            # Make pystray unimportable by inserting a bad entry that will
+            # be restored after the context.  We shadow via a None sentinel
+            # which Python treats as "module not found" when __import__ hits it.
+            mp.setitem(sys.modules, "pystray", None)  # type: ignore[arg-type]
+            result = _probe_desktop_shell()
+        assert result.ok is True
+        assert "skipped" in result.detail
+
+    def test_skip_keeps_result_pass_in_run_doctor(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-frozen skip → RESULT: PASS in the full doctor output."""
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_desktop_shell",
+            lambda: ProbeResult("desktop shell", True, "skipped (gui extra not installed)"),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code == 0
+        assert "RESULT: PASS" in text
+        assert "desktop shell: OK" in text
+
+    def test_frozen_import_fail_is_result_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Frozen build with missing pystray → ok=False → RESULT: FAIL."""
+        # Stub _probe_desktop_shell to return the frozen-fail outcome and verify
+        # run_doctor promotes it to RESULT: FAIL.
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_desktop_shell",
+            lambda: ProbeResult(
+                "desktop shell",
+                False,
+                "import failed in frozen build (gui extra missing from bundle?)",
+            ),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code != 0
+        assert "desktop shell: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_doctor_desktop_line_present_in_output(self) -> None:
+        """The desktop shell line appears in run_doctor output on this host."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        text = buf.getvalue()
+        assert "desktop shell:" in text

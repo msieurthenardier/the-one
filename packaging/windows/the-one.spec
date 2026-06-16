@@ -17,7 +17,7 @@ IMPORTANT — build host: PyInstaller must run on **native Windows** (not WSL2).
 The load-bearing native deps (pywinpty, pywebview->pythonnet) only install on
 Windows, and the collect_* helpers below import those packages at *build time*.
 On this Linux host the spec is authored and statically validated (py_compile)
-only; the build-and-launch proof on windows-2022 is performed by Leg 4's CI
+only; the build-and-launch proof on windows-2022 is performed by the CI
 packaged-smoke, which consumes this spec.
 
 Version: the dist-dir / EXE name and the comments here read the runtime source
@@ -82,12 +82,25 @@ mcp_hidden = collect_submodules(
 # _winpty ABI .pyd and its sibling winpty.dll.  NOTE: collect_dynamic_libs only
 # grabs binaries, NOT the pure-Python `winpty` submodules, so the import name is
 # added to hiddenimports below as well.
-# Leg-4 build note: if the build warns that the _winpty .pyd or winpty.dll is
-# missing from the bundle, fall back to an explicit --add-binary / binaries
-# tuple pointing at the installed pywinpty package (the flight's DD7 Divert
-# criterion). collect_dynamic_libs returns [] off-Windows / when pywinpty is
-# absent, which is why this spec cannot be freeze-validated on Linux.
+# Build note: if the build warns that the _winpty .pyd or winpty.dll is missing
+# from the bundle, fall back to an explicit --add-binary / binaries tuple pointing
+# at the installed pywinpty package (the flight's DD7 Divert criterion).
+# collect_dynamic_libs returns [] off-Windows / when pywinpty is absent, which is
+# why this spec cannot be freeze-validated on Linux.
 winpty_bins = collect_dynamic_libs("winpty")
+
+# pystray (system-tray icon): collect all submodules but tolerate import
+# failures for platform-only backends.  pystray ships backend subpackages
+# (_xorg, _gtk, _appindicator, _darwin) that import Linux/macOS-only deps
+# (Xlib, gi, AppKit) at module scope.  Without on_error="warn" the collect
+# walk imports those backends on Windows, hits ModuleNotFoundError, and aborts
+# the entire freeze — the same failure mode handled for mcp.cli at line 75.
+pystray_hidden = collect_submodules("pystray", on_error="warn")
+
+# Pillow (PIL): the pyinstaller-hooks-contrib PIL hook handles _imaging +
+# plugins.  No explicit collect_submodules("PIL") is needed here — keeping
+# PyInstaller and pyinstaller-hooks-contrib current is the contract.  Add an
+# explicit collect only if a frozen build proves a plugin is missing.
 
 # Web static assets (DD8): the 78-file tree under
 # the_one/interfaces/web/static must land at the same package-relative path in
@@ -120,8 +133,21 @@ hiddenimports = [
     # aiosqlite + the stdlib sqlite3 C-extension backing it.
     "aiosqlite",
     "sqlite3",
+    # pystray Windows backend — the collect_submodules walk covers the package
+    # tree but a redundant explicit entry ensures the win32 backend is present.
+    "pystray._win32",
+    "pystray._util.win32",
+    # Desktop subpackage: tray.py, notice.py, and window_state.py are imported
+    # LAZILY inside function bodies (shell.py / _on_closing / _on_quit), so
+    # PyInstaller's static analysis does NOT reach them from the top-level
+    # import of the_one.interfaces.web.app. Without this, a frozen build would
+    # silently omit those modules → guaranteed `desktop shell: RESULT: FAIL`
+    # from `the-one doctor` on first launch. collect_submodules picks up all
+    # current and future members of the desktop package in one declaration.
+    *collect_submodules("the_one.interfaces.desktop"),
     *uvicorn_hidden,
     *mcp_hidden,
+    *pystray_hidden,
 ]
 
 datas = [
