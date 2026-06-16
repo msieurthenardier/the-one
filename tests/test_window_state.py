@@ -260,8 +260,29 @@ def test_clamp_to_bounds_multi_monitor_union() -> None:
 # ── shell.py integration: restore on launch ───────────────────────────────────
 
 
+def _make_splash_mock() -> MagicMock:
+    """Return a mock splash window whose events.shown.wait() is a no-op."""
+    splash = MagicMock()
+    splash.events.shown.wait.return_value = True
+    return splash
+
+
 def _run_desktop_with_screens(launcher_module, webview_mock, tmp_path):
-    """Shared helper: call run_desktop() with all infrastructure mocked out."""
+    """Shared helper: call run_desktop() with all infrastructure mocked out.
+
+    Adapted for M15 F7 Leg 4 splash restructure: webview.start() now receives a
+    _boot callable containing main-window creation.  This helper extracts _boot
+    from start()'s call_args and invokes it so the geometry kwargs end up on the
+    main-window create_window call.  The splash create_window call comes first;
+    assertions should use call_args_list[-1] (the main-window call) not
+    call_args (which would be the most-recent call — also the main-window call
+    since _boot runs after run_desktop returns here).
+    """
+    mock_splash = _make_splash_mock()
+    mock_main_window = MagicMock()
+    # First create_window = splash; second (in _boot) = main window.
+    webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
+
     with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
             with patch.object(launcher_module, "_graceful_shutdown"):
@@ -272,6 +293,13 @@ def _run_desktop_with_screens(launcher_module, webview_mock, tmp_path):
                             with patch("threading.Thread") as mock_thread_cls:
                                 mock_thread_cls.return_value = MagicMock()
                                 launcher_module.run_desktop()
+
+    # Invoke _boot so the main-window create_window call (with geometry kwargs) runs.
+    webview_mock.create_window.side_effect = None
+    webview_mock.create_window.return_value = mock_main_window
+    _boot = webview_mock.start.call_args.args[0]
+    with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
+        _boot(mock_splash)
 
 
 def test_run_desktop_restores_saved_geometry_screens_as_list(
@@ -300,8 +328,12 @@ def test_run_desktop_restores_saved_geometry_screens_as_list(
 
     _run_desktop_with_screens(launcher_module, webview_mock, tmp_path)
 
-    webview_mock.create_window.assert_called_once()
-    call_kwargs = webview_mock.create_window.call_args.kwargs
+    # create_window called twice: splash (call 0) + main window (call 1, inside _boot).
+    # Assert on the MAIN window call (call_args_list[-1]) — that's where geometry kwargs live.
+    assert webview_mock.create_window.call_count == 2, (
+        "create_window must be called twice: once for splash, once for main window"
+    )
+    call_kwargs = webview_mock.create_window.call_args_list[-1].kwargs
     assert call_kwargs["width"] == 1024
     assert call_kwargs["height"] == 768
     assert call_kwargs["x"] == 200
@@ -338,8 +370,9 @@ def test_run_desktop_restores_saved_geometry_screens_as_callable(
 
     _run_desktop_with_screens(launcher_module, webview_mock, tmp_path)
 
-    webview_mock.create_window.assert_called_once()
-    call_kwargs = webview_mock.create_window.call_args.kwargs
+    # create_window called twice: splash (call 0) + main window (call 1, inside _boot).
+    assert webview_mock.create_window.call_count == 2
+    call_kwargs = webview_mock.create_window.call_args_list[-1].kwargs
     assert call_kwargs["width"] == 1024
     assert call_kwargs["height"] == 768
     assert call_kwargs["x"] == 200
@@ -377,7 +410,8 @@ def test_run_desktop_screens_as_list_does_not_raise(
     _run_desktop_with_screens(launcher_module, webview_mock, tmp_path)
 
     # Geometry was restored (restore did NOT fall back to defaults due to the crash).
-    call_kwargs = webview_mock.create_window.call_args.kwargs
+    # Assert on the MAIN window call (call_args_list[-1]) — splash is call 0.
+    call_kwargs = webview_mock.create_window.call_args_list[-1].kwargs
     assert call_kwargs.get("width") == 1280, (
         "Geometry must be applied — restore must NOT fall back to defaults "
         "when webview.screens is a plain list"
@@ -404,7 +438,12 @@ def test_run_desktop_no_state_uses_defaults(
     tmp_path: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """run_desktop() calls create_window with F4 defaults only when no saved state."""
+    """run_desktop() calls create_window with F4 defaults only when no saved state.
+
+    Adapted for Leg 4 splash restructure: create_window is called twice (splash +
+    main window).  The main-window call (call_args_list[-1]) must have no geometry
+    kwargs — only the window-chrome defaults.
+    """
     import the_one.interfaces.desktop.shell as launcher_module
 
     monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
@@ -412,6 +451,10 @@ def test_run_desktop_no_state_uses_defaults(
     # Ensure no window-state.json exists (tmp_path is fresh)
 
     webview_mock.screens.return_value = [_make_screen(0, 0, 1920, 1080)]
+
+    mock_splash = _make_splash_mock()
+    mock_main_window = MagicMock()
+    webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
 
     with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
         with patch.object(launcher_module, "_webview_available", return_value=True):
@@ -424,8 +467,16 @@ def test_run_desktop_no_state_uses_defaults(
                                 mock_thread_cls.return_value = MagicMock()
                                 launcher_module.run_desktop()
 
-    webview_mock.create_window.assert_called_once()
-    call_kwargs = webview_mock.create_window.call_args.kwargs
+    # Invoke _boot so the main-window create_window call runs.
+    webview_mock.create_window.side_effect = None
+    webview_mock.create_window.return_value = mock_main_window
+    _boot = webview_mock.start.call_args.args[0]
+    with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
+        _boot(mock_splash)
+
+    # create_window called twice: splash (call 0) + main window (call 1).
+    assert webview_mock.create_window.call_count == 2
+    call_kwargs = webview_mock.create_window.call_args_list[-1].kwargs
     # No geometry kwargs beyond window-chrome kwargs when state is absent
     assert "width" not in call_kwargs
     assert "height" not in call_kwargs
@@ -507,8 +558,10 @@ def test_on_closing_saves_geometry(
     monkeypatch.setattr(notice_mod, "_marker_path", lambda: marker)
     marker.touch()
 
+    mock_splash = _make_splash_mock()
     mock_window = _make_mock_window(shown=True)
-    webview_mock.create_window.return_value = mock_window
+    # First create_window = splash; second (in _boot) = mock_window.
+    webview_mock.create_window.side_effect = [mock_splash, mock_window]
     webview_mock.screens.return_value = [_make_screen(0, 0, 1920, 1080)]
 
     # Provide a fake build_tray that returns a MagicMock icon (so run_detached
@@ -528,6 +581,12 @@ def test_on_closing_saves_geometry(
                         with patch("uvicorn.Server", return_value=MagicMock()):
                             with patch("threading.Thread", return_value=MagicMock()):
                                 launcher_module.run_desktop()
+
+    # Invoke _boot so tray wiring (and closing handler registration) runs.
+    webview_mock.create_window.side_effect = None
+    webview_mock.create_window.return_value = mock_window
+    _boot = webview_mock.start.call_args.args[0]
+    _boot(mock_splash)
 
     # _on_closing must have been registered on the closing event.
     closing_event = mock_window.events.closing

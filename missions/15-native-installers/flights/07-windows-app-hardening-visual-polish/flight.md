@@ -241,8 +241,9 @@ behavior identical. Then build on the class:
       `window.pywebview`-gated); `js_api` min/max/close (close → close-to-tray).
 - [ ] `window-resize` *(conditional)* — re-implement edge-resize if the spike shows
       `resizable=True` doesn't suffice on the frameless window.
-- [ ] `splash-screen` — frameless splash during the boot wait; dismissed on the main
-      window `loaded`; error-path teardown guard.
+- [x] `splash-screen` — frameless splash during the boot wait; dismissed on the main
+      window `loaded`; error-path teardown guard. *Landed (host-native). HAT-deferred:
+      splash actually appears/dismisses/never-orphans on real Windows (Leg 7).*
 - [x] `freeze-and-icon` — **regenerate `the-one.ico` to include 256/128/64** (from
       `static/brand/icon-512.png`); set `icon='installer-assets/the-one.ico'` on `exe_gui`;
       confirm chrome/splash assets in the bundle; packaged-smoke on the `windows-2022` runner.

@@ -23,6 +23,79 @@ _really_quit: bool = False
 # The pywebview Window object; populated in run_desktop() for use by callbacks.
 _desktop_window = None
 
+# ── Splash screen ─────────────────────────────────────────────────────────────
+# Inline HTML rendered before the app server is up (no localhost URL, no CDN).
+# The splash is a frameless pywebview window shown during the uvicorn boot wait;
+# it is destroyed once the main window's `loaded` event fires.
+# HAT-deferred (Leg 7): visual appearance on real Windows.
+# Leg-5 dependency: if a logo asset is embedded via file:// path it must be
+# collected in the freeze bundle; current implementation uses CSS/HTML only so
+# no bundle asset is required.
+SPLASH_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0f1117;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #e8eaf0;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+  .splash {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 18px;
+  }
+  .logo {
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, #6c63ff 0%, #4e46e5 100%);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+  }
+  .name {
+    font-size: 18px; font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #e8eaf0;
+  }
+  .status {
+    font-size: 12px; color: #6b7280;
+    letter-spacing: 0.05em;
+  }
+  .bar {
+    width: 120px; height: 2px;
+    background: #1e2130;
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6c63ff, #4e46e5);
+    border-radius: 1px;
+    animation: slide 1.4s ease-in-out infinite;
+  }
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    50%  { transform: translateX(0); }
+    100% { transform: translateX(100%); }
+  }
+</style>
+</head>
+<body>
+  <div class="splash">
+    <div class="logo">&#9670;</div>
+    <div class="name">GleepGlorp AI</div>
+    <div class="bar"><div class="bar-fill"></div></div>
+    <div class="status">starting…</div>
+  </div>
+</body>
+</html>
+"""
+
 
 def _wait_until_serving(host: str, port: int, timeout: float = 15.0) -> None:
     """Poll /api/info until the app actually serves (lifespan startup done)."""
@@ -342,7 +415,17 @@ class DesktopSession:
     # ── main run sequence ─────────────────────────────────────────────────────
 
     def run(self) -> None:
-        """Execute the full desktop launch sequence."""
+        """Execute the full desktop launch sequence.
+
+        Splash-screen restructure (M15 F7 Leg 4 — DD4 two-window model):
+        1. Create a small branded splash window BEFORE webview.start().
+        2. Pass _boot to webview.start() so it runs after the GUI loop is up.
+        3. _boot runs on a background thread: waits for the server, creates the
+           main window, wires the tray and closing handler, then registers the
+           main window's `loaded` event to destroy the splash.
+        4. Splash teardown is idempotent (threading.Event guard) and the error
+           path destroys both windows so the GUI loop always returns cleanly.
+        """
         global _really_quit, _desktop_window
 
         # Reset process-local state on each launch (e.g. if run_desktop() is called
@@ -371,7 +454,6 @@ class DesktopSession:
         server = uvicorn.Server(uvicorn.Config(app, host=host, port=sel_port, log_level="info"))
         thread = threading.Thread(target=server.run, daemon=True)
         thread.start()
-        _wait_until_serving(host, sel_port)
         try:
             if _webview_available():
                 try:
@@ -382,11 +464,8 @@ class DesktopSession:
                         "Install the desktop extra: pip install 'the-one[gui]'"
                     ) from exc
 
-                # ── Window-state restore ─────────────────────────────────────────
-                # Load the saved geometry (if any), clamp to current screen bounds,
-                # then pass width/height/x/y into create_window so the window reopens
-                # where the user left it.  If no state exists, fall through to
-                # create_window with only F4 defaults (no extra kwargs).
+                # ── Window-state restore (pre-compute before _boot so _boot is
+                #    a plain closure with no GUI-thread work) ──────────────────
                 from the_one.interfaces.desktop.window_state import (
                     clamp_to_bounds,
                     load_state,
@@ -420,51 +499,106 @@ class DesktopSession:
                             _create_kwargs["y"] = _clamped["y"]
                     except Exception:
                         log.warning("window_state: restore failed; using defaults", exc_info=True)
+                # ── / Window-state restore ───────────────────────────────────
 
-                # frameless=True: custom HTML titlebar (DD2 window-chrome leg).
-                # resizable=True: let the OS handle edge-resize — DD3 spike; if edge-
-                #   resize is lost on the real Windows install, Leg 3 (window-resize)
-                #   re-implements it.
-                # easy_drag=False: disables pywebview's whole-window drag listener
-                #   (only activates on 'chromium' platform anyway; inoperative on
-                #   Windows 'edgechromium' — kept as the defensive documented value).
-                #   Drag is handled by the dedicated .pywebview-drag-region element.
-                # js_api: exposes minimize / toggle_maximize / close to the web UI.
-                # Wiring order: build api → pass js_api=api to create_window →
-                #   after it returns, store window on session AND on the api.
-                #   pywebview returns from create_window before the GUI loop starts;
-                #   methods only fire after pywebviewready (no race).
-                # ── / Window-state restore ───────────────────────────────────────────
-                api = self._window_api
-                _desktop_window = webview.create_window(
-                    "GleepGlorp AI", url, js_api=api, **_create_kwargs
+                # ── Splash setup ─────────────────────────────────────────────
+                # Create the splash BEFORE start() — it becomes visible once the
+                # GUI loop is running (inside start()).  The server isn't up yet so
+                # the splash content must be self-contained (no localhost URL).
+                splash = webview.create_window(
+                    "GleepGlorp AI — starting",
+                    html=SPLASH_HTML,
+                    frameless=True,
+                    width=320,
+                    height=220,
                 )
-                self._window = _desktop_window
-                api._window = _desktop_window
 
-                # ── Tray lifecycle wiring ────────────────────────────────────────────
-                # Build the pystray icon and wire the close-to-tray + Quit callbacks.
-                # This entire block degrades gracefully on failure: if the tray can't
-                # start (no backend, import error), we log a warning and skip
-                # registering the `closing` handler — the window's X then falls back
-                # to pywebview's default destroy (F4 behavior).
+                # Idempotent splash teardown: a threading.Event guards against a
+                # double-fire from the `loaded` handler racing the error path.
+                # (The loaded handler runs on a daemon thread; a plain bool flag
+                # has a TOCTOU window.)
+                _splash_closed = threading.Event()
 
-                # Try to start the tray icon on a detached thread (DD2).
-                try:
-                    from the_one.interfaces.desktop.tray import build_tray
+                def _destroy_splash() -> None:
+                    """Destroy the splash window — idempotent (safe to call twice)."""
+                    if _splash_closed.is_set():
+                        return
+                    _splash_closed.set()
+                    try:
+                        splash.destroy()
+                    except Exception:
+                        log.debug("splash.destroy() raised (already gone)", exc_info=True)
 
-                    self._icon = build_tray(on_show=self._on_show, on_quit=self._on_quit)
-                    self._icon.run_detached()  # non-blocking; starts background thread
-                    # Only register the closing handler when the tray is active.
-                    _desktop_window.events.closing += self._on_closing
-                except Exception:
-                    log.warning(
-                        "System tray unavailable — close button will exit the app (F4 fallback)",
-                        exc_info=True,
-                    )
-                    # _on_closing NOT registered → window's X uses pywebview default destroy.
+                # ── / Splash setup ───────────────────────────────────────────
 
-                # ── / Tray lifecycle wiring ──────────────────────────────────────────
+                api = self._window_api
+
+                def _boot(splash_win) -> None:
+                    """Boot sequence — runs on a background thread after the GUI loop starts.
+
+                    Order (per DD4 design review):
+                    1. splash.events.shown.wait() — so teardown is always safe even if
+                       _wait_until_serving returns instantly.
+                    2. _wait_until_serving — poll until uvicorn is up.
+                    3. create_window for the main UI with Leg-2 kwargs + F6 state-restore.
+                    4. Wire tray + closing handler.
+                    5. Set _desktop_window / self._window / api._window.
+                    6. Register main.events.loaded → destroy splash.
+                    """
+                    global _desktop_window
+                    main_win = None
+                    try:
+                        # Step 1 — ensure splash is shown before any teardown attempt.
+                        splash_win.events.shown.wait(15)
+
+                        # Step 2 — wait for the app server.
+                        _wait_until_serving(host, sel_port)
+
+                        # Step 3 — create the main window.
+                        # frameless=True: custom HTML titlebar (DD2 window-chrome leg).
+                        # resizable=True: let the OS handle edge-resize — DD3 spike.
+                        # easy_drag=False: disabled; drag handled by .pywebview-drag-region.
+                        # js_api: exposes minimize / toggle_maximize / close to the web UI.
+                        # Wiring order: build api → pass js_api=api → store window.
+                        main_win = webview.create_window(
+                            "GleepGlorp AI", url, js_api=api, **_create_kwargs
+                        )
+
+                        # Step 4 — tray wiring.
+                        # Degrades gracefully: if tray can't start, skip _on_closing
+                        # registration (F4 fallback — X destroys the window directly).
+                        try:
+                            from the_one.interfaces.desktop.tray import build_tray
+
+                            self._icon = build_tray(
+                                on_show=self._on_show, on_quit=self._on_quit
+                            )
+                            self._icon.run_detached()
+                            main_win.events.closing += self._on_closing
+                        except Exception:
+                            log.warning(
+                                "System tray unavailable — close button will exit the app"
+                                " (F4 fallback)",
+                                exc_info=True,
+                            )
+
+                        # Step 5 — publish window reference.
+                        _desktop_window = main_win
+                        self._window = main_win
+                        api._window = main_win
+
+                        # Step 6 — dismiss splash when main UI is ready.
+                        main_win.events.loaded += lambda: _destroy_splash()
+
+                    except Exception:
+                        log.exception("_boot raised — tearing down to prevent orphaned splash")
+                        _destroy_splash()
+                        if main_win is not None:
+                            try:
+                                main_win.destroy()
+                            except Exception:
+                                log.debug("main_win.destroy() raised in error path", exc_info=True)
+                        raise
 
                 # Persist localStorage/cookies (e.g. the theme preference) across app
                 # restarts AND reinstalls. pywebview defaults to private_mode=True — an
@@ -475,11 +609,17 @@ class DesktopSession:
                 # survive. (M15 F5 post-landing fix: theme didn't survive restart/reinstall.)
                 storage_dir = settings.data_dir / "webview"
                 storage_dir.mkdir(parents=True, exist_ok=True)
-                webview.start(  # blocks until window closes (or Quit → destroy)
+                webview.start(  # blocks until all windows closed (or Quit → destroy)
+                    _boot,
                     private_mode=False,
                     storage_path=str(storage_dir),
                 )
             else:
+                # Browser-fallback path: no pywebview, no splash.  Keep the
+                # _wait_until_serving call here (it moved into _boot for the webview
+                # path, so it must remain explicitly on this branch — otherwise the
+                # browser would open before the server is ready).
+                _wait_until_serving(host, sel_port)
                 webbrowser.open(url)
                 if server is not None:
                     # Main thread is free (no GUI loop) — install a SIGINT handler

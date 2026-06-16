@@ -57,6 +57,13 @@ def _make_mock_window() -> tuple[MagicMock, _EventCapture]:
     return mock_window, closing_event
 
 
+def _make_splash_mock() -> MagicMock:
+    """Return a mock splash window whose events.shown.wait() is a no-op."""
+    splash = MagicMock()
+    splash.events.shown.wait.return_value = True
+    return splash
+
+
 # ── shared mock-module fixtures ───────────────────────────────────────────────
 
 
@@ -239,16 +246,25 @@ def _run_desktop_with_tray(
 ) -> tuple[MagicMock, _EventCapture]:
     """Helper: run shell_module.run_desktop() with mocks wired, return (window, closing_event).
 
+    Adapted for M15 F7 Leg 4 splash restructure: webview.start() now receives a
+    _boot callable that contains the main-window creation and tray wiring.  Since
+    start() is mocked, _boot never runs automatically — this helper extracts _boot
+    from start()'s call_args and invokes it with a mock splash so all the wiring
+    assertions (closing handler, window reference) remain meaningful.
+
     If ``fake_build_tray`` is provided it is installed as the build_tray patch.
     If the caller already patched tray_mod.build_tray before calling this helper,
     pass ``fake_build_tray=None`` (the default) and the existing patch is kept.
-    If neither is set, a default no-op icon is used.
     """
     if mock_window is None or closing_event is None:
         mock_window, closing_event = _make_mock_window()
 
     monkeypatch.setattr(shell_module.settings, "data_dir", tmp_path)
-    webview_mock.create_window.return_value = mock_window
+
+    # The first create_window call returns the splash mock; the second (inside
+    # _boot, which we invoke manually below) returns the real mock_window.
+    mock_splash = _make_splash_mock()
+    webview_mock.create_window.side_effect = [mock_splash, mock_window]
 
     if fake_build_tray is not None:
         monkeypatch.setattr(tray_mod, "build_tray", fake_build_tray)
@@ -266,6 +282,15 @@ def _run_desktop_with_tray(
                             with patch("threading.Thread") as _mock_thread_cls:
                                 _mock_thread_cls.return_value = MagicMock()
                                 shell_module.run_desktop()
+
+    # Extract _boot and invoke it so main-window creation + tray wiring runs.
+    # After run_desktop() the side_effect list is exhausted; reset to return
+    # mock_window directly for the _boot create_window call.
+    webview_mock.create_window.side_effect = None
+    webview_mock.create_window.return_value = mock_window
+
+    _boot = webview_mock.start.call_args.args[0]
+    _boot(mock_splash)
 
     return mock_window, closing_event
 
@@ -601,6 +626,10 @@ def test_tray_failure_no_closing_handler_registered(
 
     The window's X then uses pywebview's default destroy — F4 fallback.
     The app must NOT crash.
+
+    Adapted for Leg 4 splash restructure: tray wiring now runs inside _boot, so
+    the test extracts _boot from webview.start() and invokes it to reach the tray
+    code path.  Assertions on the closing event are unchanged.
     """
     import the_one.interfaces.desktop.tray as tray_mod
 
@@ -610,7 +639,9 @@ def test_tray_failure_no_closing_handler_registered(
     monkeypatch.setattr(tray_mod, "build_tray", MagicMock(side_effect=RuntimeError("no backend")))
 
     monkeypatch.setattr(shell_module.settings, "data_dir", tmp_path)
-    webview_mock.create_window.return_value = mock_window
+
+    mock_splash = _make_splash_mock()
+    webview_mock.create_window.side_effect = [mock_splash, mock_window]
 
     with patch.object(shell_module, "_select_port", return_value=(8484, False)):
         with patch.object(shell_module, "_webview_available", return_value=True):
@@ -623,6 +654,12 @@ def test_tray_failure_no_closing_handler_registered(
                                 _mock_thread_cls.return_value = MagicMock()
                                 # Must not raise.
                                 shell_module.run_desktop()
+
+    # Invoke _boot so tray wiring runs (build_tray raises → tray-unavailable path).
+    webview_mock.create_window.side_effect = None
+    webview_mock.create_window.return_value = mock_window
+    _boot = webview_mock.start.call_args.args[0]
+    _boot(mock_splash)
 
     assert len(closing_event.registered) == 0, (
         "closing handler must NOT be registered when tray construction fails"

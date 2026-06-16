@@ -149,6 +149,13 @@ def test_api_toggle_maximize_noop_when_window_is_none(shell_module: Any) -> None
 # ── _WindowApi.close → close-to-tray when tray active ────────────────────────
 
 
+def _make_splash_mock_chrome() -> MagicMock:
+    """Return a mock splash window whose events.shown.wait() is a no-op."""
+    splash = MagicMock()
+    splash.events.shown.wait.return_value = True
+    return splash
+
+
 def test_api_close_hides_window_when_tray_active(
     shell_module: Any,
     webview_mock: MagicMock,
@@ -157,7 +164,13 @@ def test_api_close_hides_window_when_tray_active(
     tmp_path: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """close() routes to close-to-tray path: hides the window when tray is active."""
+    """close() routes to close-to-tray path: hides the window when tray is active.
+
+    Adapted for Leg 4 splash restructure: create_window is now called twice (splash
+    + main window inside _boot).  The test captures js_api from the MAIN window call
+    by filtering out None (the splash has no js_api).  _boot is extracted from
+    webview.start() and invoked so the main-window creation and tray wiring run.
+    """
     import the_one.interfaces.desktop.notice as notice_mod
     import the_one.interfaces.desktop.tray as tray_mod
 
@@ -166,20 +179,20 @@ def test_api_close_hides_window_when_tray_active(
     monkeypatch.setattr(notice_mod, "_marker_path", lambda: marker)
     marker.touch()
 
+    mock_splash = _make_splash_mock_chrome()
     mock_window = MagicMock()
     mock_icon = MagicMock()
     monkeypatch.setattr(shell_module.settings, "data_dir", tmp_path)
-    webview_mock.create_window.return_value = mock_window
 
     # Wire a real session so we can grab the _window_api after run.
     captured_api: list = []
 
-    real_create_window = webview_mock.create_window.side_effect
-
     def _capture_create_window(*args, **kwargs):
         api = kwargs.get("js_api")
-        captured_api.append(api)
-        return mock_window
+        if api is not None:
+            captured_api.append(api)
+        # Return splash for first call (no js_api), mock_window for second.
+        return mock_splash if api is None else mock_window
 
     webview_mock.create_window.side_effect = _capture_create_window
     monkeypatch.setattr(tray_mod, "build_tray", lambda **kw: mock_icon)
@@ -195,7 +208,11 @@ def test_api_close_hides_window_when_tray_active(
                                 mock_thr_cls.return_value = MagicMock()
                                 shell_module.run_desktop()
 
-    assert len(captured_api) == 1, "create_window must be called with js_api"
+    # Invoke _boot so the main-window creation path runs.
+    _boot = webview_mock.start.call_args.args[0]
+    _boot(mock_splash)
+
+    assert len(captured_api) == 1, "create_window must be called once with js_api (main window)"
     api = captured_api[0]
 
     # Calling close() on the api should hide the window (close-to-tray path).
@@ -220,19 +237,23 @@ def test_api_close_destroys_when_tray_absent(
 
     When the tray failed to start, hiding into a non-existent tray would make
     the app unrecoverable.  The close() must fall back to a real destroy.
+
+    Adapted for Leg 4 splash restructure: _boot is extracted from webview.start()
+    and invoked so tray wiring (which now runs inside _boot) is exercised.
     """
     import the_one.interfaces.desktop.tray as tray_mod
 
+    mock_splash = _make_splash_mock_chrome()
     mock_window = MagicMock()
     monkeypatch.setattr(shell_module.settings, "data_dir", tmp_path)
-    webview_mock.create_window.return_value = mock_window
 
     captured_api: list = []
 
     def _capture_create_window(*args, **kwargs):
         api = kwargs.get("js_api")
-        captured_api.append(api)
-        return mock_window
+        if api is not None:
+            captured_api.append(api)
+        return mock_splash if api is None else mock_window
 
     webview_mock.create_window.side_effect = _capture_create_window
 
@@ -251,6 +272,10 @@ def test_api_close_destroys_when_tray_absent(
                             with patch("threading.Thread") as mock_thr_cls:
                                 mock_thr_cls.return_value = MagicMock()
                                 shell_module.run_desktop()
+
+    # Invoke _boot so tray wiring (build_tray raises → tray absent path) runs.
+    _boot = webview_mock.start.call_args.args[0]
+    _boot(mock_splash)
 
     assert len(captured_api) == 1
     api = captured_api[0]

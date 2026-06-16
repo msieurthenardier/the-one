@@ -385,3 +385,148 @@ design-review fixes (destroy both on error; `threading.Event`-guarded idempotent
 `shown.wait()` first; preserve `private_mode=False`/`storage_path`; keep `_wait_until_serving` on
 the browser-fallback path or document its removal). If two windows DON'T coexist / splash won't
 close: take the **DD4 divert** (static/native splash or defer) and re-decide with the operator.
+
+### 2026-06-16 — Leg 4: splash-screen implementation
+
+**Status: landed (host-native tests green; HAT-deferred items noted below)**
+
+#### What was implemented
+
+1. **`SPLASH_HTML` constant** (`the_one/interfaces/desktop/shell.py`, module level) — a
+   self-contained inline HTML string with a brand-colored (`#0f1117` background, `#6c63ff`/
+   `#4e46e5` gradient accent) frameless splash: logo diamond, "GleepGlorp AI" heading,
+   animated loading bar, "starting…" status text. No external refs (no CDN, no localhost URL —
+   the server isn't up yet). Pure CSS animation. No bundle asset required (no file:// path).
+
+2. **`DesktopSession.run()` restructured** (M15 F7 Leg 4 — DD4 two-window model):
+   - `_wait_until_serving(host, sel_port)` removed from the pre-webview-start synchronous path.
+   - Splash created BEFORE `webview.start()`:
+     `webview.create_window("GleepGlorp AI — starting", html=SPLASH_HTML, frameless=True, width=320, height=220)`.
+   - `threading.Event` `_splash_closed` created to guard idempotent `_destroy_splash()` helper.
+   - `_boot(splash_win)` closure defined:
+     - Step 1: `splash_win.events.shown.wait(15)` (ensures teardown is always safe).
+     - Step 2: `_wait_until_serving(host, sel_port)` (moved here from pre-start).
+     - Step 3: `webview.create_window("GleepGlorp AI", url, js_api=api, **_create_kwargs)` with
+       the same Leg-2 `frameless=True, resizable=True, easy_drag=False, js_api=api` kwargs plus
+       the F6 window-state-restore geometry kwargs.
+     - Step 4: tray wiring (same `build_tray + run_detached + _on_closing` block).
+     - Step 5: sets `_desktop_window`, `self._window`, `api._window`.
+     - Step 6: `main_win.events.loaded += lambda: _destroy_splash()` (splash dismissed when
+       main UI is ready).
+     - Exception path: `_destroy_splash()` + `main_win.destroy()` (if created) + re-raise
+       so the GUI loop returns rather than hanging on an orphaned splash.
+   - `webview.start(_boot, private_mode=False, storage_path=str(storage_dir))` — `_boot`
+     passed as first positional arg; persistence config preserved exactly.
+   - **Browser-fallback path**: `_wait_until_serving` kept explicitly on the `else` branch so
+     the behavior is unchanged on the no-webview path (moved into `_boot` on the webview path
+     only). Comment added explaining why.
+
+3. **Window-state geometry pre-computed before `_boot`** — `load_state()` / `clamp_to_bounds()`
+   / `_create_kwargs` assembly runs in `run()` (before `webview.start()`), not inside `_boot`,
+   so the `_boot` closure captures the already-resolved kwargs dict. This avoids calling
+   `webview.screens` from the background thread (a potential GUI-thread concern).
+
+#### Tests adapted and why
+
+All tests use the **extract-and-invoke-_boot pattern**: capture `_boot` from
+`webview_mock.start.call_args.args[0]`, set up `create_window.side_effect` for the main-window
+call, then invoke `_boot(mock_splash)` to exercise main-window creation, tray wiring, and handler
+registration. `_boot` must be invoked **inside** the active `patch.object` context so spy patches
+on `_wait_until_serving` remain active.
+
+Shared `_make_splash_mock()` helper added to each adapted test file — returns a `MagicMock` with
+`events.shown.wait.return_value = True` (non-blocking in tests).
+
+**`test_desktop_shell.py`** (adapted + 3 new tests):
+- `test_run_calls_create_window_start_and_graceful_shutdown` — adapted: now asserts
+  `create_window` called ≥1 time (splash call), splash call has `html=`, `frameless=True`,
+  no `js_api`; `start` receives a callable `_boot` as positional arg; `private_mode=False`
+  and `storage_path` still asserted; extracts and invokes `_boot` to assert the main-window
+  call carries title "GleepGlorp AI" + Leg-2 kwargs.
+- NEW `test_boot_happy_path_main_window_kwargs_and_loaded_handler` — invokes `_boot` inside the
+  `_wait_until_serving` spy context; asserts `shown.wait` called, spy captures the serving-wait
+  call, main window created with correct kwargs, `loaded` event has a registered handler that
+  fires `splash.destroy()`.
+- NEW `test_boot_error_path_destroys_both_windows` — `_wait_until_serving` raises inside `_boot`;
+  asserts `RuntimeError` propagates and `splash.destroy()` called once.
+- NEW `test_boot_error_path_destroys_both_when_main_window_created` (renamed/reframed) — tray
+  failure (graceful-degrade path); asserts `_boot` doesn't re-raise, main window was created,
+  splash NOT destroyed (no error path triggered; splash dismissed via `loaded` event).
+
+**`test_desktop_tray.py`** (adapted):
+- `_run_desktop_with_tray` helper — updated to set `create_window.side_effect = [mock_splash, mock_window]`,
+  extract `_boot` from `start.call_args.args[0]`, reset side_effect, invoke `_boot(mock_splash)`.
+  All 9 tray/closing tests pass through this helper and continue to assert the same closing-event
+  and callback behavior; the wiring just now runs inside `_boot`.
+- `test_tray_failure_no_closing_handler_registered` — adapted to set `create_window.side_effect`,
+  invoke `_boot` so the tray-unavailable code path (build_tray raises) runs inside `_boot`.
+
+**`test_window_state.py`** (adapted):
+- `_run_desktop_with_screens` helper — updated to set `create_window.side_effect = [mock_splash, mock_main_window]`,
+  invoke `_boot`, reset side_effect. All geometry assertions updated from `assert_called_once()` +
+  `call_args.kwargs` to `call_count == 2` + `call_args_list[-1].kwargs` (the main-window call).
+- `test_run_desktop_no_state_uses_defaults` — adapted inline (same pattern as helper).
+- `test_on_closing_saves_geometry` — adapted to set `create_window.side_effect`, invoke `_boot`
+  so `_on_closing` is registered on the main window's closing event.
+
+**`test_desktop_chrome.py`** (adapted):
+- `test_api_close_hides_window_when_tray_active` — `_capture_create_window` updated to filter
+  calls by `js_api is not None` (splash call returns `None`); extracts and invokes `_boot`.
+- `test_api_close_destroys_when_tray_absent` — same pattern.
+
+#### HAT-deferred items (Leg 7, real Windows)
+
+- **Splash actually appears** on launch (frameless, sized 320×220, brand-colored content).
+- **Splash dismisses** on the main window's `loaded` event (not before).
+- **No orphaned splash** on a boot error (both windows destroy and the process exits).
+- **Splash asset in bundle** — SPLASH_HTML is pure inline HTML/CSS with no external refs;
+  no bundle asset is required. Confirmed via code inspection (no `file://` refs).
+
+#### Leg-5 dependency
+
+SPLASH_HTML uses only inline HTML/CSS — no external asset file. No bundle entry needed for
+the splash content itself. This clears the Leg-5 dependency for the splash. (Any future
+logo embed via `file://` would require a Leg-5 bundle-collect entry.)
+
+#### Deviations / anomalies
+
+- Window-state geometry resolution (`webview.screens`) moved to before `webview.start()` (in
+  `run()`) rather than inside `_boot`. This is safer (no GUI-thread concern for screens access)
+  and simpler (`_boot` receives the already-resolved `_create_kwargs` dict as a closure). The
+  leg spec says "create the main window with the same Leg-2 kwargs + F6 window-state-restore
+  kwargs" — this satisfies that requirement regardless of where the resolution happens.
+- `test_boot_error_path_destroys_both_when_main_window_created` was originally titled to test
+  that "both windows are destroyed when main window exists and an error occurs." Since tray
+  failure is the graceful-degrade path (not an error) and build_tray raising does NOT re-raise,
+  this test was reframed to verify the graceful-degrade path specifically.
+
+#### Test outcomes
+
+- Primary regression net (`test_desktop_shell.py test_desktop_tray.py test_window_focus.py
+  test_window_state.py test_desktop_chrome.py -x --timeout=30`): **74 passed, 0 failed**.
+- Broader smoke (`-q -x --timeout=30 -k "desktop or window or interface"`): **92 passed, 10 skipped, 0 failed**.
+
+---
+
+### 2026-06-16 — Leg-4 splash spike RESULT: viable (proceed with the pywebview splash)
+
+Operator ran the spike on the Windows box. **All four modes passed** (`single`, `two profile`,
+`two none`, `error`): two pywebview windows coexist on one GUI loop, the splash dismisses on the
+main window's `loaded` event, the process exits cleanly when the main window closes, and the
+error path tears down without hanging.
+
+**Key finding — a red herring, now understood:** the first runs failed with WebView2
+`0x8000FFFF E_UNEXPECTED` ("Cannot read and write to its data directory:
+`C:\Python311\spike_webview_profile\EBWebView`"). Cause: the script was run from `C:\Python311`,
+so the **relative** `storage_path` resolved under the non-writable system-Python dir. Fixed by
+using an **absolute writable** profile path (`%TEMP%\spike_webview_profile`). **The real app is
+already safe** — it uses `settings.data_dir / "webview"` (absolute, user-writable). No new
+constraint for Leg 4 beyond "the profile path is absolute + writable," which already holds.
+
+**Decision: implement Leg 4** (DD4 primary design, NOT the divert) with the design-review fixes
+baked in: error path destroys **both** splash+main (not just splash); idempotent splash teardown
+guarded by a `threading.Event`; `splash.events.shown.wait(...)` as the first line of `_boot`;
+preserve `private_mode=False` + the absolute `storage_path`; keep `_wait_until_serving` on the
+browser-fallback path (or document its removal); adapt the 4+ launch tests via the
+extract-and-invoke-`_boot` pattern. Native splash appearance/dismissal/no-orphan still
+HAT-verified on the real install (Leg 7), but the architecture is now de-risked.

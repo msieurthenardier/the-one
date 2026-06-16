@@ -1,12 +1,31 @@
 # Leg: splash-screen
 
-**Status**: planning
+**Status**: landed
 **Flight**: [Windows Native App Hardening — Visual Polish](../flight.md)
 
 ## Objective
 
 Show a small branded splash window while uvicorn boots, and dismiss it when the main UI is
 ready — so launch doesn't present a blank/absent window during the readiness wait.
+
+## Spike result (2026-06-16) — VIABLE, proceed with the pywebview splash
+
+The DD4 two-window model was confirmed on the real Windows install (operator spike, all four
+modes passed): two pywebview windows coexist on one GUI loop, the splash dismisses on the main
+window's `loaded` event, the process exits cleanly, and the error path tears down without
+hanging. The early `E_UNEXPECTED` failures were a **non-writable relative `storage_path`** (run
+from `C:\Python311`), NOT a multi-window or runtime problem — the real app already uses an
+absolute writable profile (`settings.data_dir / "webview"`). **Implement DD4 (not the divert)
+with the fixes below.** Confirmed implementation requirements from the design review:
+- **Error path destroys BOTH windows** (splash AND main if it exists) — destroying only the
+  splash hangs the loop when the main window already exists.
+- **Idempotent splash teardown guarded by a `threading.Event`** (the `loaded` handler runs on a
+  daemon thread and may race the error path — a plain bool flag has a TOCTOU).
+- **`splash.events.shown.wait(...)` as the first line of `_boot`** — so teardown is always safe
+  (splash initialized) even if `_wait_until_serving` returns instantly.
+- **Preserve `private_mode=False` + the absolute `storage_path`** on `webview.start`.
+- **Browser-fallback `_wait_until_serving`** — moving the wait into `_boot` removes it from the
+  no-webview path; either keep a `_wait_until_serving` call there or document the behavior change.
 
 ## Context
 
@@ -164,8 +183,9 @@ native/static splash or defer the splash — re-decide with the operator and log
 **Per this flight's batched model — set status to `landed` (NOT `completed`); do NOT commit or
 signal `[COMPLETE:leg]`.**
 
-- [ ] All non-HAT acceptance criteria verified host-native
-- [ ] HAT-deferred items (splash appears/dismisses/never-orphans) listed in the flight-log entry
-- [ ] Leg-5 dependency noted (splash asset must be in the freeze bundle)
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `landed`; check off this leg in flight.md
+- [x] All non-HAT acceptance criteria verified host-native
+- [x] HAT-deferred items (splash appears/dismisses/never-orphans) listed in the flight-log entry
+- [x] Leg-5 dependency noted (splash asset must be in the freeze bundle — SPLASH_HTML is pure
+      inline HTML/CSS; no bundle asset entry needed)
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `landed`; check off this leg in flight.md
