@@ -282,50 +282,6 @@ def _webview_available() -> bool:
     return False
 
 
-class _WindowApi:
-    """pywebview js_api object — exposes window control to the web UI.
-
-    pywebview strips the first positional arg (``self``) from every method,
-    so these are zero-arg JS calls:
-        window.pywebview.api.minimize()
-        window.pywebview.api.toggle_maximize()
-        window.pywebview.api.close()
-
-    ``_window`` is injected by ``DesktopSession.run()`` AFTER ``create_window``
-    returns (the chicken-and-egg break: we pass this API instance into
-    ``create_window``, so the Window object is not yet available when we
-    construct this object — we set ``api._window`` afterwards).
-    """
-
-    def __init__(self, session: "DesktopSession") -> None:
-        self._session = session  # to reach _close_to_tray()
-        self._window = None      # set by DesktopSession.run() after create_window
-        self._is_maximized: bool = False
-
-    def minimize(self) -> None:
-        """Minimize the window."""
-        if self._window is not None:
-            self._window.minimize()
-
-    def toggle_maximize(self) -> None:
-        """Toggle between maximized and restored.
-
-        pywebview 5.4 has no is_maximized property or toggle_maximize() method —
-        we track state app-side with ``_is_maximized``.
-        """
-        if self._window is None:
-            return
-        if self._is_maximized:
-            self._window.restore()
-            self._is_maximized = False
-        else:
-            self._window.maximize()
-            self._is_maximized = True
-
-    def close(self) -> None:
-        """Close the window (routes to the shared close-to-tray path)."""
-        self._session._close_to_tray()
-
 
 def focus_window() -> bool:
     """Raise and restore the registered desktop window (thread-safe).
@@ -357,7 +313,6 @@ class DesktopSession:
     def __init__(self) -> None:
         self._icon = None    # pystray icon reference (only this session owns it)
         self._window = None  # pywebview Window — set in run() after create_window
-        self._window_api: _WindowApi = _WindowApi(self)
 
     # ── geometry helper ───────────────────────────────────────────────────────
 
@@ -389,8 +344,7 @@ class DesktopSession:
     # ── lifecycle callbacks ───────────────────────────────────────────────────
 
     def _close_to_tray(self) -> bool:
-        """Shared close-to-tray body — called by both ``_on_closing`` and
-        ``_WindowApi.close()``.
+        """Shared close-to-tray body — called by ``_on_closing``.
 
         When the tray is active (``self._icon is not None``): show the
         first-run notice (once), hide the window.  Returns ``True`` when
@@ -405,9 +359,7 @@ class DesktopSession:
 
         IMPORTANT: this method does NOT guard ``_really_quit`` — that flag
         is only checked by ``_on_closing`` (the pywebview events.closing
-        handler path).  ``_WindowApi.close()`` always routes through here
-        directly, bypassing the flag check (the custom close button is the
-        user's explicit close action, same intent as the tray's Quit).
+        handler path, fired by the native OS X button).
         """
         if self._icon is None:
             # Tray failed to start — fall back to a real destroy so the user
@@ -569,9 +521,8 @@ class DesktopSession:
 
                 _saved_state = load_state()
                 _create_kwargs: dict = {
-                    "frameless": True,
+                    "frameless": False,
                     "resizable": True,
-                    "easy_drag": False,
                 }
                 if _saved_state is not None:
                     try:
@@ -627,8 +578,6 @@ class DesktopSession:
 
                 # ── / Splash setup ───────────────────────────────────────────
 
-                api = self._window_api
-
                 def _boot() -> None:
                     """Boot sequence — runs on a background thread after the GUI loop starts.
 
@@ -640,7 +589,7 @@ class DesktopSession:
                     1. splash.events.shown.wait() — so teardown is always safe even if
                        _wait_until_serving returns instantly.
                     2. _wait_until_serving — poll until uvicorn is up.
-                    3. create_window for the main UI with Leg-2 kwargs + F6 state-restore.
+                    3. create_window for the main UI with F6 state-restore (native frame).
                     4. Register main.events.loaded → destroy splash IMMEDIATELY after
                        create_window, before tray wiring, to close the race where the
                        main window finishes loading during tray setup and the loaded event
@@ -649,7 +598,7 @@ class DesktopSession:
                         before the subscribe), call _destroy_splash() immediately.
                         pywebview 5.4 Event exposes is_set() — verified against pinned source.
                     5. Wire tray + closing handler.
-                    6. Set _desktop_window / self._window / api._window.
+                    6. Set _desktop_window / self._window.
                     """
                     global _desktop_window
                     main_win = None
@@ -660,14 +609,9 @@ class DesktopSession:
                         # Step 2 — wait for the app server.
                         _wait_until_serving(host, sel_port)
 
-                        # Step 3 — create the main window.
-                        # frameless=True: custom HTML titlebar (DD2 window-chrome leg).
-                        # resizable=True: let the OS handle edge-resize — DD3 spike.
-                        # easy_drag=False: disabled; drag handled by .pywebview-drag-region.
-                        # js_api: exposes minimize / toggle_maximize / close to the web UI.
-                        # Wiring order: build api → pass js_api=api → store window.
+                        # Step 3 — create the main window (native frame: frameless=False).
                         main_win = webview.create_window(
-                            "GleepGlorp AI", url, js_api=api, **_create_kwargs
+                            "GleepGlorp AI", url, **_create_kwargs
                         )
 
                         # Step 4 — register the loaded→destroy handler BEFORE tray wiring
@@ -702,7 +646,6 @@ class DesktopSession:
                         # Step 6 — publish window reference.
                         _desktop_window = main_win
                         self._window = main_win
-                        api._window = main_win
 
                     except Exception:
                         log.exception("_boot raised — tearing down to prevent orphaned splash")

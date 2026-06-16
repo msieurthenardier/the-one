@@ -292,7 +292,9 @@ def _run_desktop_with_tray(
     _boot = webview_mock.start.call_args.args[0]
     # NO args — pywebview calls _boot() with no arguments; the closure ``splash``
     # (first create_window return) provides the splash reference internally.
-    _boot()
+    # _wait_until_serving must be patched here too — _boot calls it via closure.
+    with patch.object(shell_module, "_wait_until_serving"):
+        _boot()
 
     return mock_window, closing_event
 
@@ -659,10 +661,12 @@ def test_tray_failure_no_closing_handler_registered(
 
     # Invoke _boot so tray wiring runs (build_tray raises → tray-unavailable path).
     # NO args — pywebview calls _boot() with no arguments.
+    # _wait_until_serving must still be patched when _boot runs.
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_window
     _boot = webview_mock.start.call_args.args[0]
-    _boot()  # NO args — matches pywebview's real call convention
+    with patch.object(shell_module, "_wait_until_serving"):
+        _boot()  # NO args — matches pywebview's real call convention
 
     assert len(closing_event.registered) == 0, (
         "closing handler must NOT be registered when tray construction fails"

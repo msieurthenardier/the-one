@@ -296,11 +296,13 @@ def _run_desktop_with_screens(launcher_module, webview_mock, tmp_path):
 
     # Invoke _boot so the main-window create_window call (with geometry kwargs) runs.
     # NO args — pywebview calls _boot() with no arguments.
+    # _wait_until_serving must still be patched when _boot runs.
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_main_window
     _boot = webview_mock.start.call_args.args[0]
-    with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
-        _boot()  # NO args — matches pywebview's real call convention
+    with patch.object(launcher_module, "_wait_until_serving"):
+        with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
+            _boot()  # NO args — matches pywebview's real call convention
 
 
 def test_run_desktop_restores_saved_geometry_screens_as_list(
@@ -339,9 +341,7 @@ def test_run_desktop_restores_saved_geometry_screens_as_list(
     assert call_kwargs["height"] == 768
     assert call_kwargs["x"] == 200
     assert call_kwargs["y"] == 150
-    assert call_kwargs["frameless"] is True  # window-chrome leg (DD2)
-    assert call_kwargs.get("easy_drag") is False
-    assert call_kwargs.get("js_api") is not None
+    assert call_kwargs["frameless"] is False  # native frame (DD2-alt)
 
 
 def test_run_desktop_restores_saved_geometry_screens_as_callable(
@@ -378,9 +378,7 @@ def test_run_desktop_restores_saved_geometry_screens_as_callable(
     assert call_kwargs["height"] == 768
     assert call_kwargs["x"] == 200
     assert call_kwargs["y"] == 150
-    assert call_kwargs["frameless"] is True  # window-chrome leg (DD2)
-    assert call_kwargs.get("easy_drag") is False
-    assert call_kwargs.get("js_api") is not None
+    assert call_kwargs["frameless"] is False  # native frame (DD2-alt)
 
 
 def test_run_desktop_screens_as_list_does_not_raise(
@@ -443,7 +441,7 @@ def test_run_desktop_no_state_uses_defaults(
 
     Adapted for Leg 4 splash restructure: create_window is called twice (splash +
     main window).  The main-window call (call_args_list[-1]) must have no geometry
-    kwargs — only the window-chrome defaults.
+    kwargs — only the native-frame defaults.
     """
     import the_one.interfaces.desktop.shell as launcher_module
 
@@ -470,23 +468,23 @@ def test_run_desktop_no_state_uses_defaults(
 
     # Invoke _boot so the main-window create_window call runs.
     # NO args — pywebview calls _boot() with no arguments.
+    # _wait_until_serving must still be patched when _boot runs.
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_main_window
     _boot = webview_mock.start.call_args.args[0]
-    with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
-        _boot()  # NO args — matches pywebview's real call convention
+    with patch.object(launcher_module, "_wait_until_serving"):
+        with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
+            _boot()  # NO args — matches pywebview's real call convention
 
     # create_window called twice: splash (call 0) + main window (call 1).
     assert webview_mock.create_window.call_count == 2
     call_kwargs = webview_mock.create_window.call_args_list[-1].kwargs
-    # No geometry kwargs beyond window-chrome kwargs when state is absent
+    # No geometry kwargs beyond native-frame kwargs when state is absent
     assert "width" not in call_kwargs
     assert "height" not in call_kwargs
     assert "x" not in call_kwargs
     assert "y" not in call_kwargs
-    assert call_kwargs["frameless"] is True  # window-chrome leg (DD2)
-    assert call_kwargs.get("easy_drag") is False
-    assert call_kwargs.get("js_api") is not None
+    assert call_kwargs["frameless"] is False  # native frame (DD2-alt)
 
 
 # ── _save_current_geometry wiring ─────────────────────────────────────────────
@@ -586,10 +584,12 @@ def test_on_closing_saves_geometry(
 
     # Invoke _boot so tray wiring (and closing handler registration) runs.
     # NO args — pywebview calls _boot() with no arguments.
+    # _wait_until_serving must still be patched when _boot runs.
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_window
     _boot = webview_mock.start.call_args.args[0]
-    _boot()  # NO args — matches pywebview's real call convention
+    with patch.object(launcher_module, "_wait_until_serving"):
+        _boot()  # NO args — matches pywebview's real call convention
 
     # _on_closing must have been registered on the closing event.
     closing_event = mock_window.events.closing

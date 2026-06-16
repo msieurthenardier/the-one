@@ -316,12 +316,11 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     assert webview_mock.create_window.call_count >= 1, "splash create_window must be called"
 
     # Splash window: first call, title contains "starting", html= kwarg present,
-    # frameless=True, no js_api (splash is content-only).
+    # frameless=True (splash is a borderless boot screen).
     splash_call = webview_mock.create_window.call_args_list[0]
     assert "starting" in splash_call.args[0].lower() or "starting" in splash_call.args[0]
     assert splash_call.kwargs.get("frameless") is True
     assert splash_call.kwargs.get("html") is not None
-    assert splash_call.kwargs.get("js_api") is None  # splash has no js_api
 
     # webview.start called with a positional _boot callable + persistence kwargs.
     webview_mock.start.assert_called_once()
@@ -349,15 +348,14 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     webview_mock.create_window.side_effect = None
     webview_mock.create_window.return_value = mock_main_window
 
-    with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
-        _boot()  # NO args — matches pywebview's real call convention
+    with patch.object(launcher_module, "_wait_until_serving"):
+        with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
+            _boot()  # NO args — matches pywebview's real call convention
 
-    # Main window: created with title "GleepGlorp AI" and Leg-2 kwargs.
+    # Main window: created with title "GleepGlorp AI" and native-frame kwargs.
     main_call = webview_mock.create_window.call_args
     assert main_call.args[0] == "GleepGlorp AI"
-    assert main_call.kwargs.get("frameless") is True
-    assert main_call.kwargs.get("easy_drag") is False
-    assert main_call.kwargs.get("js_api") is not None
+    assert main_call.kwargs.get("frameless") is False
 
     # _graceful_shutdown was called exactly once
     mock_shutdown.assert_called_once()
@@ -398,7 +396,7 @@ def test_boot_happy_path_main_window_kwargs_and_loaded_handler(
 
     This is a dedicated test for the _boot callable extracted from webview.start.
     Verifies: shown.wait called on splash; _wait_until_serving called; main window
-    created with title "GleepGlorp AI" and Leg-2 kwargs; loaded handler registered
+    created with title "GleepGlorp AI" and native-frame kwargs; loaded handler registered
     BEFORE tray wiring (FIX 2: avoids race where fast localhost load fires loaded
     during tray setup before the handler is subscribed); firing loaded calls splash.destroy().
 
@@ -454,13 +452,11 @@ def test_boot_happy_path_main_window_kwargs_and_loaded_handler(
     # _wait_until_serving was called from _boot
     assert len(captured_wait_until) == 1
 
-    # Main window created with correct title + Leg-2 kwargs
+    # Main window created with correct title + native-frame kwargs
     main_call = webview_mock.create_window.call_args
     assert main_call.args[0] == "GleepGlorp AI"
-    assert main_call.kwargs.get("frameless") is True
+    assert main_call.kwargs.get("frameless") is False
     assert main_call.kwargs.get("resizable") is True
-    assert main_call.kwargs.get("easy_drag") is False
-    assert main_call.kwargs.get("js_api") is not None
 
     # loaded handler registered on main window to destroy the splash.
     assert len(loaded_event._handlers) == 1, (

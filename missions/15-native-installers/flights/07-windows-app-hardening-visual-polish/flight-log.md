@@ -222,6 +222,40 @@ Windows apparatus is now the gating resource for most of what's left. Breakdown:
 - Batched review + commit (Phase 2d) happens after the last leg that can land; the
   Windows-gated legs that remain open after this session are tracked here for resumption.
 
+### PIVOT (2026-06-16) — DD3 divert to DD2-alt (themed native frame); custom frameless chrome abandoned
+
+**Decision (operator):** abandon the frameless custom-chrome approach (DD2) and take the DD3
+**divert to DD2-alt — a themed native OS frame**. This supersedes DD2 (frameless + custom HTML
+titlebar) and DD3 (frameless resize). DD2/DD3 bodies are left intact as the original framing;
+this note is the live spec for the window chrome going forward.
+
+**Why (HAT evidence on the real Windows install, builds #18–#20):** the frameless custom chrome
+fought WebView2 (edgechromium) on every front:
+- **Controls didn't render** initially — pywebview injects `window.pywebview` on a background
+  thread post-`NavigationCompleted`; in the two-window setup the `pywebviewready` event fired
+  before app.js's listener attached. Fixed with a poll backstop (`_watchBridge`) — controls
+  then rendered.
+- **But the js_api buttons didn't fire**, and **titlebar drag didn't work**: pywebview's drag
+  (`easy_drag` / `.pywebview-drag-region`) only activates on `platform=='chromium'`, not Windows
+  `'edgechromium'`; the CSS `-webkit-app-region: drag` is Electron-only (WebView2 ignores it);
+  and frameless WebView2 loses native edge-resize too. Making it work would require fixing the
+  js_api round-trip plus hand-rolling drag (JS→`Window.move`) and resize (JS grips or a Win32
+  `WM_NCHITTEST` hook) — multiple build/HAT cycles with uncertain polish.
+- Root cause: **pywebview frameless support targets CEF/GTK/Qt, not WebView2.** The DD3 spike
+  (build #18 era) used a bare page and never exercised chrome interaction, so it missed this.
+- **F4/F6 shipped `frameless=False` (native frame) and HAT-passed.** Reverting to the native
+  frame returns to known-good behavior; the frameless switch was the sole source of the jank.
+
+**New live spec (DD2-alt):** main window `frameless=False` (native OS title bar provides
+drag/min/max/close/resize/snap natively; native X → existing `_on_closing` → F6 close-to-tray);
+branding = the window title "GleepGlorp AI" + the brand icon on the title bar/taskbar (Leg 5's
+exe icon). **KEEP** the launch splash (Leg 4) and the brand `.ico` (Leg 5). **REMOVE** the
+custom frameless chrome added in Leg 2: the `#app-topbar` window-control buttons + drag region,
+the `_watchBridge` bridge poll, the `_WindowApi`/`js_api` plumbing, and the win-controls CSS;
+revert `renderTopBar()` to the F6 banner+nav form. Leg 3 (`window-resize`) is **moot** (native
+frame resizes). Implemented in a new leg (`08-themed-native-frame`) since Leg 2 is already
+committed (leg immutability).
+
 ### freeze-and-icon (Leg 5) — host-runnable portion
 
 **Status**: landed (Windows-gated remainder tracked below)
@@ -335,7 +369,8 @@ _(none yet)_
    confirm brand icon + chrome/splash assets in `dist/the-one/`.
 4. **Leg 6 `docs`** — write AFTER the spike + HAT settle the final shape (deferred so docs
    reflect what shipped; F6-debrief "docs as the final leg" lesson).
-5. **Leg 7 HAT + `/behavior-test windows-desktop-chrome`** — operator HAT on the real install.
+5. **Leg 7 HAT + `/behavior-test windows-native-frame-splash`** — operator HAT on the real install.
+   *(Spec renamed from `windows-desktop-chrome` in Leg 8 — PIVOT to native frame.)*
 6. **Flight-completion commit + draft PR** (Phase 2d/3): statuses→`completed`, flight→`landed`,
    PR ready after HAT pass.
 
@@ -717,3 +752,72 @@ Existing 5 tests unchanged. The `test_no_controls_without_pywebview` test now al
 - `tests/browser/test_window_chrome_dom.py` — updated module docstring; added 3 timing tests.
 
 **Leg status: remains `landed`** (HAT fix applied; awaiting operator re-HAT on Windows at Leg 7).
+
+---
+
+### themed-native-frame (Leg 8) — PIVOT execution: revert to native OS frame
+
+**Status**: landed
+
+#### What was reverted / removed (2026-06-16)
+
+PIVOT DD3 → DD2-alt. The frameless custom-chrome from Leg 2 fought WebView2 on the real
+Windows install (js_api buttons didn't fire, titlebar drag was inert, frameless resize lost).
+Leg 8 reverts the main window to `frameless=False` (native OS frame) and removes all
+custom-chrome plumbing.
+
+**Reverted / removed:**
+
+1. **`shell.py`** — `_create_kwargs` changed from `{"frameless": True, "resizable": True,
+   "easy_drag": False}` to `{"frameless": False, "resizable": True}`. `js_api=api` removed
+   from the `create_window(...)` call. `api = self._window_api`, `api._window = main_win`
+   removed from `_boot`. `_WindowApi` class (285–328) and `self._window_api = _WindowApi(self)`
+   in `__init__` removed entirely. Stale `_boot` comments/docstring cleaned up (Leg-2 kwargs,
+   easy_drag/js_api/drag-region comment lines, `api._window` step reference).
+
+2. **`app.js`** — `renderTopBar()` reverted to the F6 banner+nav form: removed the
+   `windowControlsHtml` block (`.win-controls` + `.pywebview-drag-region` injection, the
+   `if (window.pywebview)` gate). Removed the entire `_watchBridge` IIFE + its comment block
+   (pywebviewready listeners + poll backstop, added in the Leg-2 HAT fix).
+
+3. **`components.css`** — removed the `.pywebview-drag-region`, `.win-controls`, `.win-ctrl-btn`,
+   `.win-ctrl-btn:hover`, `.win-ctrl-btn:focus-visible`, `.win-ctrl-close:hover` rules.
+
+4. **Tests removed** — `git rm tests/test_desktop_chrome.py` (8 js_api unit tests, 100%
+   Leg-2-chrome specific); `git rm tests/browser/test_window_chrome_dom.py` (8 Playwright DOM
+   tests for the win-controls).
+
+5. **Test assertions updated** — five MAIN-window `frameless` assertions flipped to `False`:
+   `test_desktop_shell.py` (two locations) and `test_window_state.py` (three tests). Dropped:
+   `easy_drag is False` and `js_api is not None` assertions at all affected sites; the splash
+   `js_api is None` check at `test_desktop_shell.py:324`. KEPT: `resizable is True` assertion
+   and the splash `frameless is True` assertion (splash window stays frameless — correct).
+
+**Kept unchanged:**
+
+- Launch splash (`_splash_html()` / `_boot` / `_destroy_splash()`) — Leg 4, intact.
+- Brand `.ico` on `exe_gui` — Leg 5, intact.
+- `_on_closing` registered on `main_win.events.closing` — F6 close-to-tray fully preserved:
+  native X → `_on_closing` → `_close_to_tray()` → hide to tray. `_close_to_tray()` and
+  tray-absent fallback unchanged.
+- `self._window = main_win` and `_desktop_window = main_win` — used by `focus_window` and
+  window-state persistence, unchanged.
+
+#### Behavior-spec rename
+
+`tests/behavior/windows-desktop-chrome.md` → `tests/behavior/windows-native-frame-splash.md`
+(via `git mv`). Slug field inside changed to `windows-native-frame-splash`. Spec fully revised:
+Intent, Observables, Out of Scope drop the frameless/custom-titlebar/js_api/window.pywebview
+language; Step 1 = native-framed window (OS title bar) opens after splash; Steps 3–6 = native
+title-bar min/max/close + drag + edge-resize; Step 7 = native X hides to tray (F6 path).
+Steps 2, 8–10 kept with minor wording updates. References updated in: leg `07-hat-and-gui-behavior-test.md`,
+`flight.md` (DD6, Verification, legs list), and the forward-looking reference in this flight log.
+
+#### Test results
+
+- Primary regression net (`test_desktop_shell.py test_desktop_tray.py test_window_focus.py
+  test_window_state.py -x --timeout=30`): **68 passed, 0 failed**.
+- Broader smoke (`-q -x --timeout=30 -k "desktop or window or interface"`):
+  **86 passed, 10 skipped, 0 failed**.
+- Dead-reference grep (`grep -rn "_WindowApi|js_api|_watchBridge|win-controls|win-ctrl|pywebview-drag-region|pywebviewready|easy_drag|toggle_maximize|_window_api" the_one/ tests/`):
+  **no hits** — clean.

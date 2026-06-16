@@ -137,7 +137,7 @@ F6 close-to-tray) and a drag region, shown only inside the native window; and a 
   apparatus** (only a human on Windows can *act*: click/drag/resize, and *observe*: the
   native window's response + the visuals; chrome-devtools can drive the HTML buttons but
   cannot observe native min/max/drag/resize). So: an **operator HAT** + a new
-  **`windows-desktop-chrome`** Witnessed behavior-test spec, run on the real frozen build.
+  **`windows-native-frame-splash`** Witnessed behavior-test spec, run on the real frozen build.
 - Rationale: same DD6 calculus as F6, which caught five bugs; visual polish is even more
   HAT-dependent.
 - Trade-off: the visuals aren't CI-regression-gated; the HAT-before-merge gate covers it
@@ -172,7 +172,7 @@ F6 close-to-tray) and a drag region, shown only inside the native window; and a 
 - [ ] All open questions resolved (three are scoped leg spikes — chrome resize, js_api/drag, splash multi-window)
 - [ ] Design decisions documented
 - [ ] Prerequisites verified
-- [ ] Validation approach defined (pytest + HAT + `windows-desktop-chrome` behavior test)
+- [ ] Validation approach defined (pytest + HAT + `windows-native-frame-splash` behavior test)
 - [ ] Legs defined
 
 ---
@@ -195,7 +195,7 @@ behavior identical. Then build on the class:
   window's `loaded` event, with an error-path teardown guard.
 - **Freeze + icon (Leg 5)**: `icon=the-one.ico` on `exe_gui`; confirm the titlebar/splash
   web assets are in the bundle (web static is already collected); packaged-smoke.
-- **HAT (Leg 6)**: operator HAT + `windows-desktop-chrome` behavior test on the frozen build.
+- **HAT (Leg 6)**: operator HAT + `windows-native-frame-splash` behavior test on the frozen build.
 
 ### Checkpoints
 
@@ -210,7 +210,7 @@ behavior identical. Then build on the class:
 - [ ] Splash shows during boot and dismisses when the UI loads; no orphaned splash on error.
 - [ ] Frozen app launches with the brand taskbar icon; chrome/splash don't break the freeze.
       *(Host portion done: .ico has 256/128/64, exe_gui has icon=, spec py_compiles. Packaged-smoke Windows-gated — Leg 7.)*
-- [ ] Operator HAT + `windows-desktop-chrome` pass on the real install.
+- [ ] Operator HAT + `windows-native-frame-splash` pass on the real install.
 
 ### Adaptation Criteria
 
@@ -254,8 +254,11 @@ behavior identical. Then build on the class:
       record the resolved spike runtime-forms (resize/js_api/drag/multi-window) back into
       the flight DDs so the mac/Linux port doesn't re-spike. *(Separate leg — not folded
       into freeze, per the F6 debrief lesson.)*
+- [x] `themed-native-frame` — revert main window to `frameless=False`; remove `_WindowApi`/`js_api`/
+      win-controls/`_watchBridge`; keep splash + brand icon; update tests + behavior spec →
+      `windows-native-frame-splash`. *Landed (host-native tests green).*
 - [ ] `hat-and-gui-behavior-test` *(interactive)* — operator HAT + `/behavior-test
-      windows-desktop-chrome` on the frozen build.
+      windows-native-frame-splash` on the frozen build.
 
 ---
 
@@ -274,8 +277,8 @@ behavior identical. Then build on the class:
 - **CI / host-native**: the adapted F6 suites + new `js_api`/titlebar/splash unit tests
   pass; `serve`/`chat`/`version` byte-identical; `windows-2022` packaged-smoke builds +
   launches the frozen app with the brand icon.
-- **Operator HAT + Witnessed behavior test** (`/behavior-test windows-desktop-chrome`):
-  on the real installed app — frameless window with themed titlebar; minimize / maximize-
-  restore / close-to-tray buttons work; titlebar drags the window; window resizes; splash
-  shows on launch and dismisses when ready; taskbar shows the brand icon; no regression in
-  the F6 behaviors. Run-log path recorded in the flight log.
+- **Operator HAT + Witnessed behavior test** (`/behavior-test windows-native-frame-splash`):
+  on the real installed app — native OS title bar with brand name + icon; native min/max/
+  close/drag/resize work; native X hides to tray; splash shows on launch and dismisses when
+  ready; taskbar shows the brand icon; no regression in the F6 behaviors. Run-log path
+  recorded in the flight log.

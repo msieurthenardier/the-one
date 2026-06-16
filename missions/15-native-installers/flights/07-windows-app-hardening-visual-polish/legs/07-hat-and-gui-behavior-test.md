@@ -5,9 +5,9 @@
 
 ## Objective
 
-Operator HAT on the real installed Windows app + the `windows-desktop-chrome` Witnessed
-behavior test — verify the F7 visual polish (frameless titlebar, window controls, splash,
-brand taskbar icon) and confirm no F6 regression, on apparatus that has no CI proxy (DD6).
+Operator HAT on the real installed Windows app + the `windows-native-frame-splash` Witnessed
+behavior test — verify the F7 visual polish (native OS frame + title, splash, brand taskbar
+icon) and confirm no F6 regression, on apparatus that has no CI proxy (DD6).
 
 ## Context
 
@@ -15,11 +15,12 @@ brand taskbar icon) and confirm no F6 regression, on apparatus that has no CI pr
   Director guides the operator through the spec steps one at a time, fixes failures inline
   (new commit, no amend; re-verify the step), and lands only when all steps pass (or the
   operator accepts a failure as a known issue, recorded here + in the flight log).
-- The step table is canonical in the behavior spec: `tests/behavior/windows-desktop-chrome.md`
+- The step table is canonical in the behavior spec: `tests/behavior/windows-native-frame-splash.md`
   (10 steps + an optional multi-DPI variant).
-- Verifies the HAT-deferred items from Legs 2/4/5: frameless edge-resize (DD3), native
-  drag-move, min/max/close→tray, splash appear/dismiss/no-orphan, crisp brand taskbar icon,
-  and the browser-mode "no fake controls" gate — plus F6 geometry/theme regression.
+- Verifies the F7 items: native frame (OS title bar, drag/min/max/close/resize), close→tray
+  via native X, splash appear/dismiss/no-orphan, crisp brand taskbar/title-bar icon,
+  browser-mode unchanged — plus F6 geometry/theme regression. Frameless/js_api/drag-region
+  items are moot (DD3 divert → DD2-alt).
 
 ## Apparatus / Preconditions
 
@@ -30,23 +31,25 @@ brand taskbar icon) and confirm no F6 regression, on apparatus that has no CI pr
 
 ## Acceptance Criteria (= the behavior-test steps; pass each)
 
-- [ ] Step 1 — splash appears then dismisses; main window opens frameless with the themed titlebar
+- [ ] Step 1 — splash appears then dismisses; main window opens with native OS title bar ("GleepGlorp AI")
 - [ ] Step 2 — taskbar shows the GleepGlorp brand icon (not generic)
-- [ ] Step 3 — custom minimize works; taskbar restore works
-- [ ] Step 4 — custom maximize/restore works
-- [ ] Step 5 — titlebar drag moves the window; nav buttons AND window controls still fire (no click-swallow)
-- [ ] Step 6 — edge/corner resize works (or the DD3-agreed fallback is confirmed → decides Leg 3)
-- [ ] Step 7 — custom close hides to tray (process alive, `/api/info` 200) — F6 close-to-tray preserved
+- [ ] Step 3 — native minimize works; taskbar restore works
+- [ ] Step 4 — native maximize/restore works
+- [ ] Step 5 — native titlebar drag moves the window; nav buttons still fire (no interference)
+- [ ] Step 6 — native edge/corner resize works
+- [ ] Step 7 — native close (X) hides to tray (process alive, `/api/info` 200) — F6 close-to-tray preserved
 - [ ] Step 8 — tray restore + Quit exits cleanly (`/api/info` refused) — F6 teardown intact
-- [ ] Step 9 — plain browser shows NO custom window controls (pywebview-gated render)
+- [ ] Step 9 — plain browser shows no custom window controls (no win-controls rendered; native frame only)
 - [ ] Step 10 — F6 regression: geometry restored on relaunch; theme persists
 
 ## Verification
 
 Operator-driven Witnessed run. The Flight Director records a run log at
-`tests/behavior/windows-desktop-chrome/runs/{ts}.md` with per-step verdicts + the operator's
+`tests/behavior/windows-native-frame-splash/runs/{ts}.md` with per-step verdicts + the operator's
 observations, and links it from the flight log. A failing step blocks landing unless the
 operator accepts it as a known issue (recorded with disposition).
+
+Spec path: `tests/behavior/windows-native-frame-splash.md`.
 
 ---
 
@@ -58,5 +61,6 @@ flight→`landed`, mission check-off, revert the Concourse pipeline `repo` branc
 flight-completion commit + draft PR marked ready.
 
 - [ ] All 10 behavior-test steps pass (or known-issue dispositions recorded)
-- [ ] Run log written under `tests/behavior/windows-desktop-chrome/runs/`
+- [ ] Run log written under `tests/behavior/windows-native-frame-splash/runs/`
 - [ ] Flight log updated with the HAT outcome + run-log path
+- [ ] Leg 8 (`themed-native-frame`) verified as its prerequisite; spec is `windows-native-frame-splash`
