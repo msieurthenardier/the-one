@@ -319,3 +319,69 @@ _(none yet)_
   spikes / mock the real type (DD7); HAT-before-merge + crash-log already in place (DD6).
 - Lead risk: frameless-window resize on Windows (DD3 spike).
 - Behavior-test spec authored inline: `tests/behavior/windows-desktop-chrome.md`.
+
+### 2026-06-16 — Session 1 close-out (checkpoint commit) + Windows-phase handoff
+
+**Landed this session (autonomous, on Linux): Legs 1, 2, 5(code).** Reviewer-confirmed
+(71 tests green). **Checkpoint commit `feb1019`** on `flight/07-windows-app-hardening-visual-polish`
+(legs `landed`, NOT `completed` — flight not landing yet; HAT pending). Not pushed; no PR yet
+(draft PR opens at flight completion after the HAT, per the skill's "all legs complete" gate).
+
+**Open work — all Windows/operator-gated (resume here):**
+1. **Leg 4 splash spike (do first — gates Leg 4).** Run the spike below on the Windows box.
+2. **Leg 3 `window-resize`** — conditional on the Leg-2 chrome HAT (does `resizable=True` keep
+   edge-resize on the frameless install?). Only opens if resize is lost.
+3. **Leg 5 packaged-smoke** — `windows-2022` Concourse runner: build the frozen artifact,
+   confirm brand icon + chrome/splash assets in `dist/the-one/`.
+4. **Leg 6 `docs`** — write AFTER the spike + HAT settle the final shape (deferred so docs
+   reflect what shipped; F6-debrief "docs as the final leg" lesson).
+5. **Leg 7 HAT + `/behavior-test windows-desktop-chrome`** — operator HAT on the real install.
+6. **Flight-completion commit + draft PR** (Phase 2d/3): statuses→`completed`, flight→`landed`,
+   PR ready after HAT pass.
+
+#### Leg-4 splash multi-window spike (operator runs on Windows)
+
+Goal: confirm DD4's two-window pywebview model works on the real install BEFORE committing the
+`webview.start(func=_boot)` restructure of the HAT-passed launch path. Mirrors `_boot` closely
+so the result transfers. From the `the-one` repo on the Windows box with the gui extra
+installed (`pip install -e ".[gui]"`), run a throwaway script:
+
+```python
+# spike_splash.py — DELETE after the spike; do not commit.
+import threading, time, webview
+
+SPLASH_HTML = "<html><body style='margin:0;background:#111;color:#eee;font-family:sans-serif'>" \
+              "<div style='display:flex;height:100vh;align-items:center;justify-content:center'>" \
+              "GleepGlorp AI — starting…</div></body></html>"
+
+splash = webview.create_window("splash", html=SPLASH_HTML, frameless=True, width=420, height=260)
+main_win = None
+
+def boot():
+    splash.events.shown.wait(15)          # (review fix) ensure splash exists before work
+    time.sleep(2.0)                        # stand-in for _wait_until_serving
+    global main_win
+    main_win = webview.create_window("GleepGlorp AI", "https://example.com",
+                                     frameless=True, resizable=True, easy_drag=False)
+    main_win.events.loaded += lambda: splash.destroy()   # dismiss splash when main loads
+
+webview.start(boot, private_mode=False, storage_path=None)  # storage_path=None → default profile
+```
+
+**Observe and record back here:**
+- (a) Do BOTH windows appear — splash first, then the main window? (two windows coexist on one loop)
+- (b) Does the splash **close on the main window's `loaded`** event, reliably?
+- (c) When the main window is then closed, does the process **exit cleanly** (loop returns)?
+- (d) Try a failure path: make `boot` raise after the splash shows but before/after creating
+      `main_win` — does the app **hang showing only the splash** (confirms the review's
+      "destroy BOTH windows on error" requirement)? 
+- (e) Any **WebView2 profile lock/corruption** warnings with two windows sharing one
+      `storage_path` (try a real `storage_path` dir, not None)?
+- (f) Does `create_window(main)` from the `boot` thread ever **hang** (the no-timeout
+      `_main_window_created.wait()`) when the wait is near-instant?
+
+If (a)+(b)+(c) pass and (d) is handled by destroying both windows: **implement Leg 4** with the
+design-review fixes (destroy both on error; `threading.Event`-guarded idempotent splash destroy;
+`shown.wait()` first; preserve `private_mode=False`/`storage_path`; keep `_wait_until_serving` on
+the browser-fallback path or document its removal). If two windows DON'T coexist / splash won't
+close: take the **DD4 divert** (static/native splash or defer) and re-decide with the operator.
