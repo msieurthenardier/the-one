@@ -242,14 +242,65 @@
     switchTo(parsed.area, parsed.sub);
   });
 
-  // Re-render the topbar when the pywebview bridge becomes available.
-  // DOMContentLoaded fires before the bridge is injected; this second render
-  // is what actually draws the window controls and drag-region element inside
-  // the native window.  Safe to call multiple times (renderTopBar rebuilds
-  // innerHTML each time, so no duplicates).
-  window.addEventListener('pywebviewready', function () {
-    renderTopBar();
-  });
+  // Robust pywebview bridge detection (M15 F7 Leg 2 HAT fix).
+  //
+  // HAT finding: the frameless main window (created INSIDE _boot — a background
+  // thread spawned by webview.start()) showed no window-chrome controls.
+  // Root cause: pywebview injects window.pywebview on a SECOND background thread
+  // (inject_pywebview → generate_js_object thread) that runs after NavigationCompleted.
+  // For the second window in a two-window setup the timing is unpredictable: the
+  // injection thread can run before OR after DOMContentLoaded, and the pywebviewready
+  // event can fire before this script's listener is attached (already-fired, silently
+  // missed forever under the old single-listener scheme).
+  //
+  // pywebview 5.4 source (finish.js) dispatches pywebviewready on `window`:
+  //   window.dispatchEvent(new CustomEvent('pywebviewready'));
+  // (for qtwebengine it fires after QWebChannel is ready; all other platforms fire immediately)
+  //
+  // This helper covers every timing case:
+  //   (a) bridge already present when this function runs → render immediately.
+  //   (b) bridge not yet present → listen for pywebviewready on BOTH window and
+  //       document (belt-and-suspenders in case any backend deviates) AND start a
+  //       100ms poll backstop that calls renderTopBar() once the bridge appears.
+  //   (c) no bridge ever (plain browser) → poll times out silently; no controls render.
+  //
+  // DESKTOP-ONLY: in a real browser window.pywebview is never set, so no controls
+  // ever render and the poll exits harmlessly after ~10 s.
+  (function _watchBridge() {
+    // (a) Already present at script-eval / DOMContentLoaded time.
+    if (window.pywebview) {
+      renderTopBar();
+      return;
+    }
+
+    var _bridgeRendered = false;
+
+    function _onBridgeReady() {
+      if (_bridgeRendered) return;
+      _bridgeRendered = true;
+      renderTopBar();
+    }
+
+    // (b1) Event listeners — on both window and document.
+    window.addEventListener('pywebviewready', _onBridgeReady);
+    document.addEventListener('pywebviewready', _onBridgeReady);
+
+    // (b2/c) Poll backstop: catches "event fired before listener attached" and
+    // "bridge present but event never dispatched". Stops once bridge is detected
+    // or after ~10 s (100 × 100 ms). In plain browser mode window.pywebview is
+    // never set and the poll times out silently — no controls rendered.
+    var _pollCount = 0;
+    var _pollMax = 100; // 100 × 100 ms = 10 s
+    var _pollInterval = setInterval(function () {
+      _pollCount++;
+      if (window.pywebview) {
+        clearInterval(_pollInterval);
+        _onBridgeReady();
+      } else if (_pollCount >= _pollMax) {
+        clearInterval(_pollInterval);
+      }
+    }, 100);
+  }());
 
   document.addEventListener('DOMContentLoaded', function () {
     renderTopBar();

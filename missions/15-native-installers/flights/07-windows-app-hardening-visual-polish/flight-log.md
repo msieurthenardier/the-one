@@ -652,3 +652,68 @@ The `**/*` glob recurses through all subdirectories under `static/`, including `
 - Broader smoke (`-q -x --timeout=30 -k "desktop or window or interface"`): **94 passed, 10 skipped, 0 failed**.
 
 **Leg status: remains `landed`** (HAT fix in progress — not completed).
+
+---
+
+### 2026-06-16 — Leg 2 HAT fix: robust pywebview bridge detection (window-chrome controls)
+
+**HAT-found symptom**
+
+On the real Windows install, the frameless main window showed the normal top bar (banner + nav tabs) but NO window-chrome controls — no minimize/maximize/close buttons and no drag region. `renderTopBar()` ran (the nav bar rendered), but `window.pywebview` was falsy at every call to `renderTopBar()`, so the `if (window.pywebview)` guard produced no output.
+
+**Root cause — pinned source diagnosis**
+
+Reading the pywebview 5.4 wheel (`pywebview-5.4-py3-none-any.whl`, extracted from the uv.lock-pinned URL):
+
+1. **Injection path:** `edgechromium.py`'s `on_navigation_completed` calls `inject_pywebview(renderer, window)` (`util.py:162`). That function spawns a *second background thread* (`Thread(target=generate_js_object)`) which calls `window.run_js(api_js)` (sets `window.pywebview`) then `window.run_js(finish_script)`.
+
+2. **Event target and name:** `finish.js` (last file loaded) dispatches:
+   ```js
+   window.dispatchEvent(new CustomEvent('pywebviewready'));
+   ```
+   The event fires on **`window`** — matching the app.js listener. For `qtwebengine` it fires after `QWebChannel` is ready; all other platforms (including `edgechromium` / WebView2) fire immediately after `api.js` runs.
+
+3. **The real-world timing race for the second window:** The main window is created inside `_boot` — a background thread spawned by `webview.start()`. The page loads and DOMContentLoaded fires. app.js evaluates synchronously and registers `window.addEventListener('pywebviewready', …)`. THEN `on_navigation_completed` fires and `inject_pywebview` spawns its own thread. Under fast localhost loading the injection thread can run near-instantly — but more importantly: `generate_js_object` calls `run_js()` (which marshals to the WinForms UI thread via `Invoke()`), runs `api.js` (sets `window.pywebview`), then runs `finish.js` (dispatches `pywebviewready`). Under the two-window timing the WinForms message queue can process the injection before app.js's `DOMContentLoaded` callback has run, or the event can fire between DOM parse and the script's listener registration — depending on how quickly the second window's WebView2 initializes. Result: `pywebviewready` fires before the listener is attached → silently missed → controls never render.
+
+4. **Why tests didn't catch it:** `add_init_script` runs before ANY page script (Playwright's design). So in the test, `window.pywebview` is always set at script-eval time — the `if (window.pywebview)` check at DOMContentLoaded is always true. The unit/Playwright tests never exercised the post-navigation-completed injection path.
+
+**Fix — robust bridge detection (`app.js`)**
+
+Replaced the single `window.addEventListener('pywebviewready', …)` with a `_watchBridge()` IIFE that covers all timing cases:
+
+- **(a)** `window.pywebview` already set at IIFE eval (script-eval time or before DOMContentLoaded) → `renderTopBar()` immediately.
+- **(b)** Not yet present → register listeners on **both** `window` AND `document` (belt-and-suspenders for any backend variation).
+- **(c)** Poll backstop: `setInterval(100ms, max 100 ticks = 10s)` — calls `renderTopBar()` once `window.pywebview` appears and clears itself. Catches "event fired before listener attached" and any backend that sets the bridge without dispatching the event.
+- **Browser mode (d):** `window.pywebview` is never set; poll times out silently after 10s; no controls render — behavior unchanged.
+
+A `_bridgeRendered` flag ensures `renderTopBar()` is called at most once by the helper (the event and poll are deduped). `renderTopBar()` itself is idempotent (rebuilds innerHTML each call) so calling it from multiple paths (DOMContentLoaded + bridge detection) is safe.
+
+**CSS audit result**
+
+Inspected `#app-topbar`, `.pywebview-drag-region`, `.win-controls`, and `.win-ctrl-btn` rules in `base.css` and `components.css`:
+- `#app-topbar` is `display: flex; align-items: center; justify-content: space-between` — flex row, not overflowed, no clip.
+- `.pywebview-drag-region` is `flex: 1` — fills space, not hidden.
+- `.win-controls` is `display: flex; align-items: center; gap: 4px; flex-shrink: 0` — visible, not `display: none`.
+- No rule hides or positions controls off-screen.
+- **CSS is not the cause.** The failure was purely the JS bridge-detection timing.
+
+**Test additions (`tests/browser/test_window_chrome_dom.py`)**
+
+Three new `@pytest.mark.browser` tests covering the timing paths the original 5 tests missed:
+
+- `test_controls_render_when_bridge_present_before_domcontentloaded` — `add_init_script` (bridge at script-eval), NO manual event dispatch → controls render via path (a). Isolates the synchronous IIFE check.
+- `test_controls_render_when_bridge_set_after_load_via_event` — no `add_init_script`; after page load, sets `window.pywebview` and dispatches `pywebviewready` (mirrors `finish.js` exactly) → controls appear via event listeners. Isolates path (b).
+- `test_controls_render_when_bridge_set_after_load_via_poll` — no `add_init_script`; after page load, sets `window.pywebview` with NO event dispatch → controls appear within 3s via poll backstop. Isolates path (c).
+
+Existing 5 tests unchanged. The `test_no_controls_without_pywebview` test now also covers path (d) — poll times out, no controls.
+
+**Test outcomes**
+
+- Primary regression net (`test_desktop_shell.py test_desktop_tray.py test_window_focus.py test_window_state.py test_desktop_chrome.py -x --timeout=30`): **76 passed, 0 failed**.
+- New browser tests will be run as part of Leg 7 (browser tests excluded from host-native default run; `@pytest.mark.browser` — requires `THE_ONE_DEV_MODE=true` and Playwright).
+
+**Files changed**
+- `the_one/interfaces/web/static/js/app.js` — replaced single `pywebviewready` listener with `_watchBridge()` IIFE (event+document listener + poll backstop).
+- `tests/browser/test_window_chrome_dom.py` — updated module docstring; added 3 timing tests.
+
+**Leg status: remains `landed`** (HAT fix applied; awaiting operator re-HAT on Windows at Leg 7).

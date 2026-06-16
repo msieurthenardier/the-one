@@ -13,9 +13,17 @@ Verifies that:
 5. When window.pywebview is absent (plain browser), neither .pywebview-drag-region
    nor .win-controls appears in #app-topbar.
 
-The pywebviewready event is dispatched manually after the stub is installed to
-trigger the second renderTopBar() call (the DOMContentLoaded render fires before
-add_init_script takes effect; pywebviewready is what draws the controls).
+HAT-fix (Leg 2 re-open): the original tests only covered the "bridge present at
+load" path via add_init_script. The real HAT failure on the Windows second window
+was a timing bug: pywebview injects window.pywebview AFTER NavigationCompleted on
+a background thread, so the pywebviewready event can fire before the listener is
+registered (already-fired, silently missed). Three new timing tests cover:
+  (a) bridge present before DOMContentLoaded → controls render immediately.
+  (b) bridge absent at load, set later + pywebviewready dispatched → controls
+      appear via the event listener path.
+  (c) bridge absent at load, set later, NO event dispatched → controls appear
+      via the poll backstop (window.pywebview polled every 100ms).
+  (d) no bridge ever → no controls (browser mode, poll times out silently).
 
 These tests are marked @pytest.mark.browser and excluded from the default CI run
 (see pyproject.toml addopts). The native drag-move effect and frameless resize are
@@ -157,3 +165,106 @@ def test_no_controls_without_pywebview(app_clean: str, page: Page) -> None:
     # Neither element should exist.
     assert page.locator("#app-topbar .pywebview-drag-region").count() == 0
     assert page.locator("#app-topbar .win-controls").count() == 0
+
+
+# ── HAT-fix timing tests (M15 F7 Leg 2 re-open) ─────────────────────────────
+#
+# These tests exercise the three timing paths fixed by the robust bridge
+# detection helper (_watchBridge IIFE) — the scenarios the original tests
+# missed because add_init_script always made the bridge present at load.
+
+
+@pytest.mark.browser
+def test_controls_render_when_bridge_present_before_domcontentloaded(
+    app_clean: str, page: Page
+) -> None:
+    """(a) Bridge present before DOMContentLoaded → controls render immediately.
+
+    Simulates the case where pywebview injects window.pywebview before or
+    during script evaluation (path (a) in _watchBridge — the IIFE's synchronous
+    check fires and calls renderTopBar() without waiting for any event).
+    add_init_script runs before any page script, so window.pywebview is set
+    before app.js's IIFE evaluates.
+    """
+    # Bridge present at script-eval time: _watchBridge (a) path, no event needed.
+    page.add_init_script(_PYWEBVIEW_STUB)
+    page.goto(app_clean, wait_until="domcontentloaded")
+    # No manual event dispatch — controls must render via the synchronous (a) path.
+    page.wait_for_selector("#app-topbar .pywebview-drag-region", timeout=5000)
+    expect(page.locator("#app-topbar .win-controls")).to_have_count(1)
+    expect(page.locator("#app-topbar .win-controls .win-ctrl-btn")).to_have_count(3)
+
+
+@pytest.mark.browser
+def test_controls_render_when_bridge_set_after_load_via_event(
+    app_clean: str, page: Page
+) -> None:
+    """(b) Bridge absent at load, set later + pywebviewready fired → controls appear.
+
+    Simulates the real WebView2 timing: pywebview injects window.pywebview on a
+    background thread AFTER NavigationCompleted. No init_script — bridge is absent
+    when app.js evaluates. Then the test sets window.pywebview and dispatches
+    pywebviewready (exactly what pywebview's finish.js does), which _watchBridge's
+    event listeners catch.
+    """
+    # No add_init_script — bridge absent at script-eval time.
+    page.goto(app_clean, wait_until="domcontentloaded")
+    page.wait_for_selector("#app-topbar .app-picker-button", timeout=8000)
+
+    # No controls yet — bridge not present.
+    assert page.locator("#app-topbar .win-controls").count() == 0
+
+    # Inject bridge then dispatch pywebviewready (mirrors finish.js exactly).
+    page.evaluate(
+        """
+        window.pywebview = {
+          api: {
+            minimize: function() {},
+            toggle_maximize: function() {},
+            close: function() {}
+          }
+        };
+        window.dispatchEvent(new CustomEvent('pywebviewready'));
+        """
+    )
+    # Controls must appear via the event-listener path.
+    page.wait_for_selector("#app-topbar .pywebview-drag-region", timeout=5000)
+    expect(page.locator("#app-topbar .win-controls")).to_have_count(1)
+    expect(page.locator("#app-topbar .win-controls .win-ctrl-btn")).to_have_count(3)
+
+
+@pytest.mark.browser
+def test_controls_render_when_bridge_set_after_load_via_poll(
+    app_clean: str, page: Page
+) -> None:
+    """(c) Bridge absent at load, set later, NO event dispatched → controls via poll.
+
+    Simulates the edge case where the pywebviewready event fires before the
+    listener is attached (already-fired, missed) but window.pywebview was set.
+    The poll backstop in _watchBridge detects window.pywebview within 100ms
+    and calls renderTopBar() without waiting for any event.
+    """
+    # No add_init_script — bridge absent at script-eval time.
+    page.goto(app_clean, wait_until="domcontentloaded")
+    page.wait_for_selector("#app-topbar .app-picker-button", timeout=8000)
+
+    # No controls yet.
+    assert page.locator("#app-topbar .win-controls").count() == 0
+
+    # Set window.pywebview WITHOUT dispatching any event — poll backstop must detect it.
+    page.evaluate(
+        """
+        window.pywebview = {
+          api: {
+            minimize: function() {},
+            toggle_maximize: function() {},
+            close: function() {}
+          }
+        };
+        """
+    )
+    # Controls must appear within the poll interval (100ms × up to 100 ticks = 10s).
+    # Use a generous 3s timeout — on CI the first poll tick (100ms) should be enough.
+    page.wait_for_selector("#app-topbar .pywebview-drag-region", timeout=3000)
+    expect(page.locator("#app-topbar .win-controls")).to_have_count(1)
+    expect(page.locator("#app-topbar .win-controls .win-ctrl-btn")).to_have_count(3)
