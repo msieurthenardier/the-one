@@ -1,0 +1,29 @@
+---
+# Full default test suite — mirrors the GitHub Actions "test" job (test.yml).
+# Runs bare `python -m pytest tests/` (no group-kill wrapper — Concourse task
+# containers are ephemeral per build, so orphaned uvicorn children die with
+# the container, exactly as the GH test.yml header documents for ephemeral runners).
+# Default-suite deselection (not live, not browser, not pixel, not requires_bwrap,
+# not discord_hat) is applied automatically via addopts in pyproject.toml.
+# Runnable two ways:
+#   fly -t the-one execute -c ci/tasks/test.yml -i repo=.   (local tree)
+#   as a task in ci/the-one.pipeline.yml                            (git resource)
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: python
+    tag: "3.11"
+
+inputs:
+  - name: repo
+
+run:
+  path: bash
+  args:
+    - -ceu
+    - |
+      cd repo
+      pip install -e ".[all-llms,dev]"
+      python -m pytest tests/ --timeout=300 --tb=short

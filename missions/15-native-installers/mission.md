@@ -445,17 +445,25 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 > with them. The release/acceptance/alignment flights below renumber down and narrow
 > to Windows.*
 
-- [ ] Flight 8: **Windows release pipeline (CI/CD)** — finalize the tag-driven
-      **Windows** release: a `v*` tag builds the Inno installer and publishes it to a
-      GitHub Release (the build + `gh release` flow already exists from F5's
-      `windows-installer.yml` — this flight hardens/formalizes it, e.g. signing steps
-      present but conditional/no-op until a certificate exists, and version/asset
-      hygiene). *(No cross-OS build matrix — that returns with the follow-up mission.)*
-      - **Planning input (operator-directed 2026-06-14):** add the **full browser
-        suite as a release-gated tier** here — once the release flow is formalized,
-        the full 513-test browser run executes on a release (tag) rather than every
-        PR (PRs run only the path-filtered subset from Flight 4). This is the
-        "full tier" deferred from the Flight-4 browser-test tiering decision.
+- [x] Flight 8: **CI cost-shift — move day-to-day CI to local Concourse**
+      *(landed 2026-06-17 — reframes the original "Windows release pipeline (CI/CD)"
+      entry below; routine CI now on the local Concourse `the-one` pipeline, GitHub Actions
+      finalized release-only. Post-merge: first green `ci` on `main` + destroy the paused
+      `windows-installer` pipeline — see the flight's `ci/README.md`)* — the project
+      **exhausted its GitHub Actions minutes** (F7's PR #119
+      CI was all-red purely from an Actions billing failure). Move routine CI
+      (lint/test/browser/windows-subset, spike-permitting bwrap) to the local Concourse
+      `the-one` team and finalize GitHub Actions as **release-only** (the `v*`-tag
+      installer). Modeled on the operator's prior goldfinch CI-cost-shift. Goldfinch
+      push-to-main model (per-PR gating via pre-push `fly execute`), installer auto-on-main
+      kept + manual/on-demand for branches, spike-gated bwrap port.
+      - *Original placeholder (now mostly satisfied / superseded):* the tag-driven Windows
+        release **already shipped in F5** (`windows-installer.yml`: `v*` → Inno installer →
+        GitHub Release); this flight keeps it as the sole active GitHub workflow (signing
+        stays conditional/deferred per mission constraints). The deferred *"full browser
+        suite as a release-gated tier"* is **superseded** — on free Concourse the full
+        browser suite runs on every `main` push (the tiering existed only to ration Actions
+        minutes).
 - [ ] Flight 9: **Windows first-run UX, docs & acceptance** — first-run experience,
       **Windows** install + unsigned-app/SmartScreen-workaround documentation,
       replacing the remaining Docker-flavored runtime error messages, and end-to-end

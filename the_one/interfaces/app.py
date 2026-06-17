@@ -9,6 +9,8 @@ from the_one.interfaces.desktop.shell import (  # noqa: F401
     _select_port,
     _wait_until_serving,
     _webview_available,
+)
+from the_one.interfaces.desktop.shell import (
     run_desktop as run,
 )
 

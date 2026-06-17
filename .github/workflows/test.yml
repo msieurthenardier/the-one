@@ -6,10 +6,11 @@ name: test
 # wrapper is mandatory for browser/long-subprocess tests — do not copy this
 # bare invocation into local docs or Makefile targets.
 
+# Routine tests run on local Concourse (the-one pipeline). This workflow is kept as a
+# manual break-glass fallback only — its PR/push triggers were removed in M15 F8 to stop
+# consuming GitHub Actions minutes. Pre-push gate: fly -t the-one execute -c ci/tasks/test.yml -i repo=.
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: test-${{ github.ref }}

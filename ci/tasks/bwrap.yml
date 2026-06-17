@@ -1,0 +1,52 @@
+---
+# Bubblewrap sandbox test lane — mirrors the GitHub Actions "bwrap" job (test.yml).
+# Runs the full `requires_bwrap` suite with real kernel-enforced containment.
+#
+# RELOCATION RATIONALE (DD4 / Leg-1 spike):
+#   Concourse places the build workspace at /tmp/build/<id>/repo/.  The bwrap backend
+#   emits `--ro-bind / /` (full host rootfs, read-only) then `--tmpfs /tmp`, which
+#   shadows everything under /tmp inside the sandbox.  test_mcp_sandbox_integration.py
+#   derives _PROJECT_ROOT from Path(__file__).resolve().parent.parent — resolving to
+#   the Concourse workspace path — and sets that as the MCP server's cwd and PYTHONPATH.
+#   On GitHub Actions the workspace is under /home/runner/work/... (not /tmp) so it
+#   survives the overlay.  The fix is NOT to edit the tests (they are correct: they
+#   assume a non-/tmp checkout, which is the normal condition on GH) but to adapt the
+#   CI environment: copy the checkout to /opt/the-one before install + run so
+#   _PROJECT_ROOT resolves outside /tmp and the full RO bind exposes it in the sandbox.
+#
+# PRIVILEGE REQUIREMENT:
+#   This task carries NO `privileged:` field — privilege is supplied externally:
+#   - Standalone smoke:  fly -t the-one execute -p -c ci/tasks/bwrap.yml -i repo=.
+#   - Pipeline step:     privileged: true on the task step in ci/the-one.pipeline.yml
+#   The shared linux worker blocks unprivileged user namespaces; a privileged container
+#   grants the nested userns capability required by bubblewrap.
+#
+# NOTE on /tmp data dir: conftest.py sets THE_ONE_DATA_DIR to a mkdtemp() path for
+# the pytest runner process — harmless here because the runner itself runs outside
+# bwrap.  Only the bwrap-spawned subprocess paths must avoid /tmp, which relocation
+# of the checkout to /opt/the-one handles.
+#
+# Runnable two ways:
+#   fly -t the-one execute -p -c ci/tasks/bwrap.yml -i repo=.   (local tree, -p required)
+#   as a privileged task step in ci/the-one.pipeline.yml                 (git resource)
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: python
+    tag: "3.11"
+
+inputs:
+  - name: repo
+
+run:
+  path: bash
+  args:
+    - -ceu
+    - |
+      apt-get update && apt-get install -y bubblewrap
+      cp -a repo /opt/the-one
+      python -m venv /opt/venv
+      cd /opt/the-one && /opt/venv/bin/pip install -e ".[all-llms,dev]"
+      cd /opt/the-one && /opt/venv/bin/python -m pytest -m requires_bwrap tests/ --timeout=300 --tb=short --log-cli-level=INFO

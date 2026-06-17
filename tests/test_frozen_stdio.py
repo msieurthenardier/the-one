@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-from the_one.platform import env as env_mod
 from the_one.platform.env import ensure_stdio_streams
 
 
@@ -64,9 +63,7 @@ class TestEnsureStdioStreams:
     # stdout is None
     # ------------------------------------------------------------------
 
-    def test_replaces_null_stdout(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_replaces_null_stdout(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """When sys.stdout is None, it must be replaced with a writable stream."""
         self._patch_data_dir(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "stdout", None)
@@ -83,9 +80,7 @@ class TestEnsureStdioStreams:
     # stderr is None
     # ------------------------------------------------------------------
 
-    def test_replaces_null_stderr(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_replaces_null_stderr(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """When sys.stderr is None, it must be replaced with a writable stream."""
         self._patch_data_dir(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "stderr", None)
@@ -140,9 +135,7 @@ class TestEnsureStdioStreams:
     # idempotent — second call is a no-op
     # ------------------------------------------------------------------
 
-    def test_idempotent_second_call(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_idempotent_second_call(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """A second call must not replace the already-real stream a first call installed."""
         self._patch_data_dir(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "stdout", None)
@@ -157,9 +150,7 @@ class TestEnsureStdioStreams:
     # fallback to devnull when settings import fails
     # ------------------------------------------------------------------
 
-    def test_devnull_fallback_on_import_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_devnull_fallback_on_import_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If the settings import raises, fall back to devnull — never crash startup."""
         import builtins  # noqa: PLC0415
 

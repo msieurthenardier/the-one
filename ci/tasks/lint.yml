@@ -1,0 +1,26 @@
+---
+# Lint task — mirrors the GitHub Actions "lint" job (lint.yml).
+# Runs ruff check + ruff format --check on the_one/ and tests/.
+# Runnable two ways:
+#   fly -t the-one execute -c ci/tasks/lint.yml -i repo=.   (local tree)
+#   as a task in ci/the-one.pipeline.yml                            (git resource)
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: python
+    tag: "3.11"
+
+inputs:
+  - name: repo
+
+run:
+  path: bash
+  args:
+    - -ceu
+    - |
+      cd repo
+      pip install ruff==0.15.15
+      ruff check the_one/ tests/
+      ruff format --check the_one/ tests/

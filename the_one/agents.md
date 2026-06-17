@@ -73,16 +73,9 @@ Do **not** attempt frameless custom chrome via pywebview on Windows — it does 
 
 The mac/Linux desktop port should use the **native OS frame** (`frameless=False`, DD2-alt) for the same reasons.
 
-**Browser-CI path-filter**: the `browser` job in `.github/workflows/test.yml` is gated on file changes via `dorny/paths-filter`. The current `ui` filter covers:
+**Browser CI**: the `browser` lane (`ci/tasks/browser.yml`) runs the full browser suite on **every push to `main`** via Concourse — no path-filter (the path-filter that rationed the GH Actions browser job to UI-only changes no longer applies; Concourse ephemeral workers make the rationing unnecessary). The GitHub Actions `test.yml` browser job is now `workflow_dispatch`-only break-glass. See `ci/README.md` for the CI topology.
 
-```yaml
-ui:
-  - 'the_one/interfaces/web/**'
-  - 'tests/browser/**'
-  - 'pyproject.toml'
-```
-
-**Maintenance rule**: if you add a new UI surface (e.g. a new JS/CSS/HTML entrypoint outside `the_one/interfaces/web/`, or new browser test directories), add it to the `ui` filter in `.github/workflows/test.yml` or the browser suite will NOT run on PRs that only touch that surface. The launcher itself (`the_one/interfaces/app.py`) is covered by the default `test` job (not the `browser` job), because it has no Playwright-driven tests.
+**Maintenance rule**: the Concourse `browser` lane runs all tests under `tests/browser/`. No path-filter configuration to update when adding new UI surfaces or browser test directories. The launcher itself (`the_one/interfaces/app.py`) is covered by the `test` lane (not the `browser` lane), because it has no Playwright-driven tests.
 
 ---
 
@@ -906,20 +899,21 @@ These are non-secret OS essentials that `cmd.exe` requires to function correctly
 `_ENV_ALLOWLIST` is NOT modified — `test_execution_helpers.py:273` pins it to the exact
 8-key POSIX tuple and that pin must stay green.
 
-**Curated `windows-2022` CI lane (DD7 revised — 2026-06-13).** The `windows` job in
-`.github/workflows/test.yml` runs a curated file list (~427 tests, ~42 s) rather than
-the full suite (~3050 tests, ~25 min). The full suite remains the source of truth on
-Linux; the Windows lane covers only the platform-divergent OS surface
+**Curated Windows CI lane (DD7 revised — 2026-06-13).** The `windows-tests` lane
+(`ci/tasks/windows-tests.yml`) runs a curated file list (~427 tests) on the Concourse
+`platform: windows` worker rather than the full suite. The full suite remains the
+source of truth on Linux; the Windows lane covers only the platform-divergent OS surface
 (`test_platform_*`, `test_pty*`, `test_filesystem*`, `test_config*`,
 `test_execution*`, `test_encryption`, `test_sandbox_factory/contract`,
-`test_logging_config`).
+`test_logging_config`). (Formerly the `windows` job in `.github/workflows/test.yml`,
+now `workflow_dispatch`-only break-glass — see `ci/README.md`.)
 
 **THE RULE:** if you add a new test file that exercises platform-divergent behavior
 (PTY/shell, env allowlist, filesystem paths, encryption, execution, sandbox factory),
-you MUST add it to the curated file list in the `windows` job of
-`.github/workflows/test.yml` — or it will NOT run on Windows. The maintenance comment
-in `test.yml` states this rule inline. Platform-agnostic test files (DB layer,
-connectors, provider/LLM/MCP-protocol) are legitimately absent from the curated list.
+you MUST add it to the curated file list in `ci/tasks/windows-tests.yml` — or it will
+NOT run on Windows. The maintenance comment in that task file states this rule inline.
+Platform-agnostic test files (DB layer, connectors, provider/LLM/MCP-protocol) are
+legitimately absent from the curated list.
 
 **`_wrapped` is always `False` on Windows.** `UnixPtySession._wrapped` is set at
 `start()` time from `spec.command == "bwrap"` and controls SIGKILL-fast vs
