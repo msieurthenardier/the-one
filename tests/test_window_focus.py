@@ -19,10 +19,8 @@ webview is NOT installed on this host — mocked via unittest.mock.
 from __future__ import annotations
 
 import sys
-from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from starlette.testclient import TestClient
 
 # ── focus_window() unit tests ─────────────────────────────────────────────────
@@ -137,9 +135,7 @@ def test_run_desktop_is_ours_posts_focus_url_and_returns() -> None:
     sys.modules["webview"] = webview_mock
 
     try:
-        with patch.object(
-            shell_mod, "_select_port", return_value=(8484, True)
-        ):
+        with patch.object(shell_mod, "_select_port", return_value=(8484, True)):
             with patch.object(httpx, "post") as mock_post:
                 with patch("uvicorn.Server") as mock_server_cls:
                     shell_mod.run_desktop()
@@ -177,12 +173,8 @@ def test_run_desktop_is_ours_returns_cleanly_when_post_raises() -> None:
     sys.modules["webview"] = webview_mock
 
     try:
-        with patch.object(
-            shell_mod, "_select_port", return_value=(8484, True)
-        ):
-            with patch.object(
-                httpx, "post", side_effect=httpx.ConnectError("refused")
-            ):
+        with patch.object(shell_mod, "_select_port", return_value=(8484, True)):
+            with patch.object(httpx, "post", side_effect=httpx.ConnectError("refused")):
                 with patch("uvicorn.Server") as mock_server_cls:
                     # Must not raise
                     shell_mod.run_desktop()

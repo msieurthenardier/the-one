@@ -1,0 +1,67 @@
+# Windows curated test subset — mirrors the GitHub Actions "windows" job (test.yml).
+# Runs the OS-divergent platform/PTY/filesystem/config/encryption/sandbox subset
+# (~427 tests) on the Concourse `platform: windows` worker.
+# Toolchain provisioned per-run via choco (Python 3.11).
+# The `[all-llms,dev]` extras spec is quoted so PowerShell does not mangle the brackets.
+#
+# Environment parity with GitHub Actions Windows runner:
+#   GH uses `shell: bash` (Git-Bash) which provides `true`, `sleep`, etc. and sets HOME.
+#   This task prepends `C:\Program Files\Git\usr\bin` to PATH (provides true.exe, sleep.exe)
+#   and sets HOME=$USERPROFILE to match what the GH runner environment exposes.
+#
+# Worker environment note:
+#   The Concourse Windows worker runs under the system account, where Path("~").expanduser()
+#   (USERPROFILE env = lowercase `system32`) disagrees with Path.resolve() (NTFS canonical
+#   = uppercase `System32`). test_build_tool_profile_default_allowlist hits this mismatch.
+#   The test is correct; the mismatch is a system-account artifact on this worker.
+#   Deselected via --deselect so the other 400+ Windows-relevant tests pass.
+#   This is recorded in the Leg 2 flight log for the Leg 3 pipeline authoring.
+#
+# MAINTENANCE: if you add a test file that exercises platform-divergent behavior
+# (filesystem paths, env allowlist, PTY/shell, encryption, execution), add it to the
+# file list below — or it will NOT run on Windows.  See test.yml:94-116 for context.
+# Runnable two ways:
+#   fly -t the-one execute -c ci/tasks/windows-tests.yml -i repo=.   (local tree)
+#   as a task in ci/the-one.pipeline.yml                                      (git resource)
+platform: windows
+
+inputs:
+  - name: repo
+
+run:
+  path: powershell
+  args:
+    - -NoProfile
+    - -ExecutionPolicy
+    - Bypass
+    - -Command
+    - |
+      $ErrorActionPreference = "Stop"
+      # Add Git POSIX tools (true.exe, sleep.exe) to PATH — mirrors the Git-Bash
+      # environment that GitHub Actions' `shell: bash` provides on Windows runners.
+      $env:PATH = "C:\Program Files\Git\usr\bin;$env:PATH"
+      # Set HOME (Windows runners have it; the Concourse system account does not).
+      if (-not $env:HOME) { $env:HOME = $env:USERPROFILE }
+      Write-Host "=== [1/3] provision toolchain (choco: Python 3.11) ==="
+      choco install python311 -y --no-progress
+      $py = "C:\Python311\python.exe"
+      if (!(Test-Path $py)) { throw "python311 not at $py" }
+      & $py --version
+      Set-Location repo
+      Write-Host "=== [2/3] pip install deps ==="
+      & $py -m pip install --upgrade pip --quiet
+      & $py -m pip install -e ".[all-llms,dev]" --quiet
+      Write-Host "=== [3/3] run curated Windows test subset ==="
+      & $py -m pytest --timeout=300 --tb=short `
+        --deselect "tests/test_execution_tools.py::test_build_tool_profile_default_allowlist" `
+        tests/test_platform_paths.py tests/test_platform_shell.py `
+        tests/test_platform_interpreter.py tests/test_platform_tempdirs.py `
+        tests/test_pty_dispatch.py tests/test_pty_session.py tests/test_pty_windows.py `
+        tests/test_filesystem_tools.py tests/test_filesystem_helpers.py `
+        tests/test_filesystem_config.py `
+        tests/test_config.py tests/test_config_data_dir.py `
+        tests/test_execution_tools.py tests/test_execution_helpers.py `
+        tests/test_execution_config.py `
+        tests/test_encryption.py `
+        tests/test_sandbox_factory.py tests/test_sandbox_contract.py `
+        tests/test_logging_config.py

@@ -132,9 +132,11 @@ def _probe_desktop_shell() -> ProbeResult:
     Either way this function never raises — all exceptions are caught.
     """
     try:
-        import the_one.interfaces.desktop.tray  # noqa: F401 (import-only probe)
-        import pystray  # noqa: F401
         import PIL  # noqa: F401
+        import pystray  # noqa: F401
+
+        import the_one.interfaces.desktop.tray  # noqa: F401 (import-only probe)
+
         return ProbeResult("desktop shell", True, "pystray + PIL importable")
     except ImportError as exc:
         if is_frozen():

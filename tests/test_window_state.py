@@ -24,13 +24,11 @@ pattern as test_desktop_shell.py).
 
 from __future__ import annotations
 
-import json
 import sys
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -59,9 +57,7 @@ def webview_mock(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
 # ── load_state / save_state round-trip ───────────────────────────────────────
 
 
-def test_save_and_load_round_trip_with_x_y(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_save_and_load_round_trip_with_x_y(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """save_state writes JSON; load_state reads it back with x and y."""
     import the_one.interfaces.desktop.window_state as ws
 
@@ -419,6 +415,7 @@ def test_run_desktop_screens_as_list_does_not_raise(
 
 # ── keep old name as an alias so any external references still resolve ─────────
 
+
 def test_run_desktop_restores_saved_geometry(
     webview_mock: MagicMock,
     tmp_path: Any,
@@ -694,7 +691,9 @@ def test_save_current_geometry_skips_when_geometry_raises(
     mock_window.events.shown = shown_event
 
     # Make width raise an exception
-    type(mock_window).width = property(lambda self: (_ for _ in ()).throw(RuntimeError("gui not ready")))
+    type(mock_window).width = property(
+        lambda self: (_ for _ in ()).throw(RuntimeError("gui not ready"))
+    )
 
     save_called = []
 

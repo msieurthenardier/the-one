@@ -127,7 +127,9 @@ def _splash_html() -> str:
         logo_b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
         logo_src = f"data:image/png;base64,{logo_b64}"
     except Exception:
-        log.warning("splash: could not load brand logo — falling back to text-only splash", exc_info=True)
+        log.warning(
+            "splash: could not load brand logo — falling back to text-only splash", exc_info=True
+        )
         return _SPLASH_TEXT_ONLY
 
     return f"""<!DOCTYPE html>
@@ -282,7 +284,6 @@ def _webview_available() -> bool:
     return False
 
 
-
 def focus_window() -> bool:
     """Raise and restore the registered desktop window (thread-safe).
 
@@ -311,7 +312,7 @@ class DesktopSession:
     """
 
     def __init__(self) -> None:
-        self._icon = None    # pystray icon reference (only this session owns it)
+        self._icon = None  # pystray icon reference (only this session owns it)
         self._window = None  # pywebview Window — set in run() after create_window
 
     # ── geometry helper ───────────────────────────────────────────────────────
@@ -335,6 +336,7 @@ class DesktopSession:
             log.warning("window_state: capture failed", exc_info=True)
             return
         from the_one.interfaces.desktop.window_state import save_state
+
         try:
             save_state(w, h, x, y)
             log.debug("window_state: saved geometry %sx%s @ %s,%s", w, h, x, y)
@@ -536,7 +538,7 @@ class DesktopSession:
                             try:
                                 _screens = list(_screens)  # proxy-list / iterable → materialise
                             except TypeError:
-                                _screens = _screens()      # callable form
+                                _screens = _screens()  # callable form
                         _clamped = clamp_to_bounds(_saved_state, _screens)
                         _create_kwargs["width"] = _clamped["width"]
                         _create_kwargs["height"] = _clamped["height"]
@@ -610,9 +612,7 @@ class DesktopSession:
                         _wait_until_serving(host, sel_port)
 
                         # Step 3 — create the main window (native frame: frameless=False).
-                        main_win = webview.create_window(
-                            "GleepGlorp AI", url, **_create_kwargs
-                        )
+                        main_win = webview.create_window("GleepGlorp AI", url, **_create_kwargs)
 
                         # Step 4 — register the loaded→destroy handler BEFORE tray wiring
                         # so a fast localhost load that fires during tray setup still
@@ -631,9 +631,7 @@ class DesktopSession:
                         try:
                             from the_one.interfaces.desktop.tray import build_tray
 
-                            self._icon = build_tray(
-                                on_show=self._on_show, on_quit=self._on_quit
-                            )
+                            self._icon = build_tray(on_show=self._on_show, on_quit=self._on_quit)
                             self._icon.run_detached()
                             main_win.events.closing += self._on_closing
                         except Exception:

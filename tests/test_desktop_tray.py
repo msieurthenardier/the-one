@@ -17,8 +17,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ── Event capture helper ──────────────────────────────────────────────────────
+
 
 class _EventCapture:
     """Simple stand-in for pywebview's event attribute.
@@ -156,7 +156,7 @@ def test_build_tray_returns_icon_with_show_and_quit(
     on_quit = MagicMock()
 
     # build_tray calls pystray.Icon(...) — the mock records the call.
-    icon = tray_module.build_tray(on_show=on_show, on_quit=on_quit)
+    tray_module.build_tray(on_show=on_show, on_quit=on_quit)
 
     # pystray.Icon was called once.
     pystray_mock.Icon.assert_called_once()
@@ -199,7 +199,9 @@ def test_notice_shown_false_before_marker(tmp_path: Path, monkeypatch: pytest.Mo
     """notice_shown() returns False when no marker file exists."""
     import the_one.interfaces.desktop.notice as notice_mod
 
-    monkeypatch.setattr(notice_mod, "_marker_path", lambda: tmp_path / ".close_to_tray_notice_shown")
+    monkeypatch.setattr(
+        notice_mod, "_marker_path", lambda: tmp_path / ".close_to_tray_notice_shown"
+    )
     assert notice_mod.notice_shown() is False
 
 
@@ -215,7 +217,9 @@ def test_notice_shown_true_after_mark(tmp_path: Path, monkeypatch: pytest.Monkey
     assert marker.exists()
 
 
-def test_mark_notice_shown_creates_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mark_notice_shown_creates_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """mark_notice_shown() creates data_dir (and parents) if missing."""
     import the_one.interfaces.desktop.notice as notice_mod
 
@@ -323,8 +327,13 @@ def test_closing_handler_hides_window_and_returns_false(
     marker.touch()
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
-        mock_window=mock_window, closing_event=closing_event,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert len(closing_event.registered) == 1, "_on_closing must be registered once"
@@ -352,8 +361,13 @@ def test_closing_handler_returns_true_when_really_quit(
     monkeypatch.setattr(tray_mod, "build_tray", lambda **kw: mock_icon)
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
-        mock_window=mock_window, closing_event=closing_event,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert len(closing_event.registered) == 1
@@ -392,8 +406,13 @@ def test_closing_handler_returns_true_on_hide_failure(
     marker.touch()
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
-        mock_window=mock_window, closing_event=closing_event,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert len(closing_event.registered) == 1
@@ -426,8 +445,13 @@ def test_first_run_notice_shown_once_then_silent(
     monkeypatch.setattr(tray_mod, "build_tray", lambda **kw: mock_icon)
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
-        mock_window=mock_window, closing_event=closing_event,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert len(closing_event.registered) == 1
@@ -469,8 +493,13 @@ def test_first_run_notice_notify_arg_order(
     monkeypatch.setattr(tray_mod, "notify", _fake_notify)
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
-        mock_window=mock_window, closing_event=closing_event,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     closing_event.fire()
@@ -505,9 +534,14 @@ def test_quit_sets_really_quit_stops_icon_destroys_window(
         return MagicMock()
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
         fake_build_tray=_fake_build_tray,
-        mock_window=mock_window, closing_event=closing_event,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert captured_on_quit is not None
@@ -554,9 +588,14 @@ def test_quit_icon_stop_raises_but_destroy_still_called(
         return MagicMock()
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
         fake_build_tray=_fake_build_tray,
-        mock_window=mock_window, closing_event=closing_event,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert captured_on_quit is not None
@@ -599,9 +638,14 @@ def test_quit_stop_called_even_when_destroy_raises(
         return MagicMock()
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
         fake_build_tray=_fake_build_tray,
-        mock_window=mock_window, closing_event=closing_event,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert captured_on_quit is not None
@@ -699,9 +743,14 @@ def test_show_callback_calls_window_show_not_restore(
         return MagicMock()
 
     _run_desktop_with_tray(
-        shell_module, webview_mock, tray_mod, monkeypatch, tmp_path,
+        shell_module,
+        webview_mock,
+        tray_mod,
+        monkeypatch,
+        tmp_path,
         fake_build_tray=_fake_build_tray,
-        mock_window=mock_window, closing_event=closing_event,
+        mock_window=mock_window,
+        closing_event=closing_event,
     )
 
     assert captured_on_show is not None

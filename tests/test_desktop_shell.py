@@ -580,8 +580,8 @@ def test_run_case_b_posts_focus_and_returns_without_window(
     """run() case (b): is_ours=True → POSTs /api/window/focus and returns; no window created."""
     import httpx
 
-    from the_one.config import settings
     import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.config import settings
 
     expected_url = f"http://{settings.host}:{settings.port}/api/window/focus"
 
@@ -612,8 +612,8 @@ def test_run_fallback_calls_webbrowser_open_and_joins(
     import signal as signal_mod
     import webbrowser as webbrowser_mod
 
-    from the_one.config import settings
     import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.config import settings
 
     expected_url = f"http://{settings.host}:{settings.port}/"
 
@@ -648,11 +648,12 @@ def test_run_case_b_is_ours_posts_focus_and_returns_no_browser(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """run() case (b): is_ours=True → POSTs focus and returns; no browser, no server."""
-    import httpx
     import webbrowser as webbrowser_mod
 
-    from the_one.config import settings
+    import httpx
+
     import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.config import settings
 
     with patch.object(launcher_module, "_select_port", return_value=(settings.port, True)):
         with patch.object(httpx, "post") as mock_post:

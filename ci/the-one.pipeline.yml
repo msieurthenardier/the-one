@@ -1,0 +1,84 @@
+---
+# Concourse pipeline — unified CI + Windows installer build for the-one.
+# Replaces the old Docker-era `the-one` pipeline (id 15, dormant since 2026-04-23)
+# and supersedes the standalone `windows-installer` pipeline (id 17) after it proves
+# green on main (see post-merge teardown steps in the flight log).
+#
+# Set/update:  ci/set-pipeline.sh   (wraps `fly set-pipeline -p the-one`)
+#
+# Secrets resolve from Vault at team-level concourse/the-one/* (promoted from
+# concourse/the-one/windows-installer/* during leg 3 Phase B):
+#   - github-deploy-key.private_key   (read-only SSH deploy key for this repo)
+#   - minio.access_key / minio.secret_key / minio.endpoint / minio.bucket
+# No credentials live in this file.
+#
+# The `repo` git resource POLLS GitHub (the Concourse web node is localhost-only, so
+# webhook push is not possible) and both jobs auto-trigger on each new commit to main.
+#
+# Publish: Concourse build containers use external DNS (8.8.8.8) so the compose
+# service name `minio` does NOT resolve inside them. minio is reached by its
+# compose-network IP via ((minio.endpoint)) (same approach the windows-installer
+# pipeline uses). If `docker compose down/up` reassigns minio's IP, update that
+# Vault value: fly/MCP set_secret concourse/the-one/minio endpoint=<ip:9000>
+
+resources:
+  - name: repo
+    type: git
+    icon: github
+    source:
+      uri: git@github.com:msieurthenardier/the-one.git
+      branch: main
+      private_key: ((github-deploy-key.private_key))
+
+jobs:
+  - name: ci
+    public: true
+    plan:
+      - get: repo
+        trigger: true
+      - in_parallel:
+          fail_fast: false
+          steps:
+            - task: lint
+              file: repo/ci/tasks/lint.yml
+            - task: test
+              file: repo/ci/tasks/test.yml
+            - task: browser
+              file: repo/ci/tasks/browser.yml
+            - task: windows-tests
+              file: repo/ci/tasks/windows-tests.yml
+            # bwrap: privileged required — worker blocks unprivileged userns; see ci/tasks/bwrap.yml
+            - task: bwrap
+              privileged: true
+              file: repo/ci/tasks/bwrap.yml
+
+  - name: build-windows-installer
+    plan:
+      - get: repo
+        trigger: true
+        passed: [ci]
+      - task: build
+        file: repo/ci/tasks/windows-installer-build.yml
+      - task: publish-to-minio
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: minio/mc
+          inputs:
+            - name: installer
+          params:
+            MINIO_KEY: ((minio.access_key))
+            MINIO_SECRET: ((minio.secret_key))
+            MINIO_ENDPOINT: ((minio.endpoint))
+            MINIO_BUCKET: ((minio.bucket))
+          run:
+            path: sh
+            args:
+              - -ec
+              - |
+                export MC_HOST_minio="http://${MINIO_KEY}:${MINIO_SECRET}@${MINIO_ENDPOINT}"
+                mc cp installer/the-one-setup-*.exe "minio/${MINIO_BUCKET}/"
+                echo "=== published to minio/${MINIO_BUCKET} ==="
+                mc ls "minio/${MINIO_BUCKET}/"

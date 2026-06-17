@@ -96,6 +96,7 @@ def ensure_stdio_streams() -> None:
     if sys.stderr is None:
         sys.stderr = _replacement
 
+
 # F4 Decision 10: hardcoded subprocess env allowlist. Eight keys; not
 # operator-configurable. See module docstring.
 # IMPORTANT: do NOT add Windows keys here — test_execution_helpers.py:273
