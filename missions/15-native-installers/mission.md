@@ -466,11 +466,16 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
         suite as a release-gated tier"* is **superseded** — on free Concourse the full
         browser suite runs on every `main` push (the tiering existed only to ration Actions
         minutes).
-- [ ] Flight 9: **Windows first-run UX, docs & acceptance** — first-run experience,
-      **Windows** install + unsigned-app/SmartScreen-workaround documentation,
-      replacing the remaining Docker-flavored runtime error messages, and end-to-end
-      acceptance behavior tests on Windows (the **comprehensive operator HAT against
-      the real Windows installer** lands here).
+- [x] Flight 9: **Windows install docs & mission closeout** *(landed 2026-06-17 —
+      **re-scoped to documentation-only**; see `flights/09-windows-install-docs-closeout/`)* —
+      end-user **Windows** install + unsigned-app/SmartScreen-workaround guide, replacing the
+      remaining Docker-flavored operator messages, and a final reference-doc pass. The original
+      bundling ("first-run UX … acceptance behavior tests … comprehensive operator HAT") was
+      narrowed: the **HAT is already satisfied** (operator installed the F8 MinIO artifact and
+      confirmed it works), no new first-run UX is built, and the two carry-forward edge-case Known
+      Issues (single-instance no-window-`serve`; `run_shell` Windows tree-kill) are **deferred as
+      accepted Known Issues** to a maintenance pass (operator decision). After F9 lands + debriefs,
+      the mission closes via `/mission-debrief`.
 - [ ] Flight 10 *(optional)*: **Alignment** — hands-on session installing the real
       Windows artifact on a real machine, tuning first-run UX, and making
       judgment-call adjustments that benefit from human feedback.

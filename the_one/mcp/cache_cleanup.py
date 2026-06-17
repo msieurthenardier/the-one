@@ -29,12 +29,12 @@ Design notes (architect-approved):
   from prior failed installs). After the caller's refcount guard +
   ``repo.delete``, the env hash for the deleted source is provably
   unreachable, so prune sweeps it cleanly.
-- **pipx delegates to uv.** pipx 1.12 in this container shells out to
+- **pipx delegates to uv.** pipx 1.12 shells out to
   ``uv tool run``; the cache that ``pipx run <pkg>`` writes lives under
-  ``/root/.cache/uv/environments-v2``, the same place ``uvx`` populates.
+  ``~/.cache/uv/environments-v2``, the same place ``uvx`` populates.
   :func:`_clean_pipx` therefore forwards to :func:`_clean_uvx`.
 - **Operator visibility.** Cleanup outcomes log at WARNING (not INFO)
-  so they surface in ``docker compose logs the-one`` under uvicorn's
+  so they surface in the host-native uvicorn log output under uvicorn's
   default root-logger threshold, without forcing operators to lower
   the threshold globally.
 """
@@ -290,8 +290,8 @@ async def cleanup_runtime_cache(runtime: str, package: str, *, timeout_s: float 
     """Dispatch to the per-runtime cleanup helper, swallowing all errors.
 
     Logs at WARNING on success/no-op/failure so cleanup outcomes surface
-    in ``docker compose logs`` without operators having to lower the
-    root logger threshold below uvicorn's default WARNING. WARNING isn't
+    in the host-native uvicorn log output without operators having to lower
+    the root logger threshold below uvicorn's default WARNING. WARNING isn't
     semantically perfect for "operation succeeded normally" — we use it
     purely for visibility (the alternative would be a structured
     response field, which is out of scope per the silent-UX decision).

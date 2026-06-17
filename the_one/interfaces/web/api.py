@@ -3795,8 +3795,8 @@ async def _provider_repo() -> LLMProviderRepository:
 
 # Provider types that skip URL safety validation. ``mock`` has no real URL;
 # ``ollama`` is local-by-design and operators frequently point it at
-# ``http://host.docker.internal:11434`` or similar non-localhost hostnames
-# that are nonetheless trusted.
+# ``http://localhost:11434`` or a LAN hostname / IP address
+# that is nonetheless trusted.
 _URL_VALIDATION_SKIPPED_TYPES = frozenset({"mock", "ollama"})
 
 
