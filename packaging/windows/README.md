@@ -122,14 +122,27 @@ installer artifact (Leg 4's CI uploads it from `packaging/windows/Output/`).
 
 ### Installer icon
 
-The installer/shortcut icon is
-[`installer-assets/the-one.ico`](./installer-assets/the-one.ico) — a byte-for-byte
-copy of `the_one/interfaces/web/static/brand/favicon.ico` (the only `.ico` in the
-repo; 16/32/48 multi-size). Copying it here keeps the installer out of the app's
-live static tree and localizes a future icon swap. The `.iss` installs it into
-`{app}` so the shortcut and Add/Remove-Programs entry have a durable icon target
-(the frozen exe carries no embedded icon resource — the Leg-2 `.spec` omits
-`EXE(icon=)`).
+[`installer-assets/the-one.ico`](./installer-assets/the-one.ico) is a multi-size
+brand icon (256/128/64/48/32/16 px) generated from the 512 px brand master
+(`the_one/interfaces/web/static/brand/icon-512.png`). It is used in two places:
+
+- **Baked into `exe_gui`** (`EXE(icon=...)` in `the-one.spec`): the windowed
+  `the-one-app.exe` carries the brand icon as an embedded PE resource, giving the
+  window title bar, taskbar button, and Alt-Tab switcher the brand icon on Windows.
+  The CLI exe (`exe_cli`) does NOT carry the icon — console windows don't display it.
+- **Installed by the Inno installer**: the `.iss` copies the `.ico` into `{app}` so
+  the Start-menu shortcut and Add/Remove-Programs entry have a durable icon target
+  independent of the exe resource.
+
+**Regenerating the icon** (after a brand master change):
+
+```powershell
+python packaging/windows/regenerate_icon.py
+```
+
+Requires Pillow (`pip install Pillow`). Reads `icon-512.png`, writes
+`installer-assets/the-one.ico`. Commit the updated `.ico` alongside the brand master
+change.
 
 ### Privileges
 

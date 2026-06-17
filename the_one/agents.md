@@ -53,6 +53,26 @@ The startup-retry loop (3 attempts, 0.3s delay) covers a the-one that just bound
 
 - **Window-state persistence** (`window-state.json`): the window's size and position are saved to `{data_dir}/window-state.json` on close (via the `_on_closing` hook) and restored on the next launch via `load_state()` + `clamp_to_bounds()`. `clamp_to_bounds` computes the union of all screens and clamps the saved geometry into visible bounds — negative-origin monitors (common on Windows multi-monitor setups) are handled correctly.
 
+**M15 F7 desktop-shell additions** (`the_one/interfaces/desktop/shell.py`):
+
+- **`DesktopSession` class**: all per-launch window/tray/quit lifecycle state lives in `DesktopSession`. `run()` is the entry point; it starts the server thread, creates the splash, passes `_boot` to `webview.start()`, and drives `_graceful_shutdown` in a `finally`. `run_desktop()` (the CLI entry) instantiates `DesktopSession().run()`.
+
+- **Launch splash**: a small frameless branded window (`frameless=True`, 400×300) is created **before** `webview.start()` and is visible during the uvicorn boot wait. It embeds the brand logo (`gleepglorp_med.png`) as a base64 data URI (falls back to text-only HTML if the asset is unreadable). The splash is destroyed when the main window's `loaded` event fires (idempotent `threading.Event` guard against a double-fire race).
+
+- **Native OS frame** (DD3 divert → DD2-alt): the main window uses `_create_kwargs = {"frameless": False, "resizable": True}` — a standard OS-framed window with native title bar, native min/max/close controls, and native resize. The native X hides the window to the tray via the F6 `_on_closing` handler (`frameless=False` + close-to-tray fully compatible). A frameless custom-chrome approach was attempted (Leg 2) and reverted (Leg 8) — see the footgun note below.
+
+- **Brand `.ico`**: `packaging/windows/regenerate_icon.py` generates `packaging/windows/installer-assets/the-one.ico` (256/128/64/48/32/16 px multi-size) from the 512 px brand master (`icon-512.png`). The `.ico` is embedded in the windowed exe via `EXE(icon=...)` in `the-one.spec` (`exe_gui` only — not the CLI exe), giving the window and taskbar/Alt-Tab the brand icon. Regenerate the `.ico` by running `python packaging/windows/regenerate_icon.py` on any host with Pillow installed.
+
+**pywebview frameless custom-chrome footgun (Windows WebView2 / edgechromium)**
+
+Do **not** attempt frameless custom chrome via pywebview on Windows — it does not work reliably on the `edgechromium` (WebView2) backend:
+
+- `easy_drag` / `.pywebview-drag-region` activate drag only on `platform == 'chromium'` (the Linux/macOS CEF backend). On `edgechromium`, the drag region is silently ignored — the frameless window is not draggable.
+- CSS `-webkit-app-region: drag` is Electron-only and has no effect in pywebview's WebView2 host.
+- `js_api` button callbacks (min / max / close via `window.pywebview.api.*`) require `pywebviewready` to have fired AND the `js_api` object to be exposed on the correct window. `pywebviewready` can fire before a second window's page listener attaches — a race difficult to close in the two-window (splash + main) model.
+
+The mac/Linux desktop port should use the **native OS frame** (`frameless=False`, DD2-alt) for the same reasons.
+
 **Browser-CI path-filter**: the `browser` job in `.github/workflows/test.yml` is gated on file changes via `dorny/paths-filter`. The current `ui` filter covers:
 
 ```yaml

@@ -1,6 +1,6 @@
 # Leg: themed-native-frame
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Windows Native App Hardening — Visual Polish](../flight.md)
 
 ## Objective

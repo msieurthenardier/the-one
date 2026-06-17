@@ -1,6 +1,7 @@
 # Leg: window-chrome
 
-**Status**: landed
+**Status**: completed *(superseded by Leg 8 — DD3 divert to a native frame; the frameless
+custom chrome this leg added was removed. Retained as the executed record of the attempt.)*
 **Flight**: [Windows Native App Hardening — Visual Polish](../flight.md)
 
 ## Objective

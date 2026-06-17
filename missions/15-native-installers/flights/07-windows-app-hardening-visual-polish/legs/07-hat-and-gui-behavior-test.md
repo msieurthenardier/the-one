@@ -1,6 +1,6 @@
 # Leg: hat-and-gui-behavior-test
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Windows Native App Hardening — Visual Polish](../flight.md)
 
 ## Objective

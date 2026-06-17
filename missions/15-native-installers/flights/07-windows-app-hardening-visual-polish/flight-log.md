@@ -821,3 +821,64 @@ Steps 2, 8–10 kept with minor wording updates. References updated in: leg `07-
   **86 passed, 10 skipped, 0 failed**.
 - Dead-reference grep (`grep -rn "_WindowApi|js_api|_watchBridge|win-controls|win-ctrl|pywebview-drag-region|pywebviewready|easy_drag|toggle_maximize|_window_api" the_one/ tests/`):
   **no hits** — clean.
+
+---
+
+### docs (Leg 6)
+
+**Status**: landed
+
+#### Implementation (2026-06-16)
+
+Updated living project docs to reflect the shipped F7 shape — native OS frame, launch splash,
+brand `.ico`, `DesktopSession` lifecycle. No source or test changes.
+
+**Files changed:**
+
+- **`the_one/agents.md`** — Extended the "Desktop launcher" section with two new subsections:
+  (1) M15 F7 additions (`DesktopSession` class, launch splash, native OS frame
+  `frameless=False`, brand `.ico` + `regenerate_icon.py` reference);
+  (2) "pywebview frameless custom-chrome footgun" note (WebView2/`easy_drag`/drag-region/
+  `js_api`/`pywebviewready` race details; mac/Linux port guidance to use native frame).
+
+- **`CLAUDE.md`** — Extended the Desktop launcher paragraph with M15 F7 additions:
+  `DesktopSession` class, launch splash, native OS-framed window (`frameless=False`),
+  brand `.ico`, pointer to the footgun note in `agents.md`.
+
+- **`README.md`** — Fixed "chromeless native window" → "native desktop window" (the old
+  wording implied a custom frameless chrome; the window has a native OS frame). Added a
+  "Launch splash" bullet describing the branded splash during boot.
+
+- **`packaging/windows/README.md`** — Rewrote the "Installer icon" section: documents that
+  the brand `.ico` is now baked into `exe_gui` (window/taskbar/Alt-Tab icon), and adds an
+  explicit "Regenerating the icon" step referencing `packaging/windows/regenerate_icon.py`.
+
+**Stale-claim grep result** (no "shipped frameless chrome" claims remain):
+
+```
+grep -rin "frameless|custom titlebar|js_api|win-control" *.md the_one/agents.md docs/
+```
+
+All remaining `frameless` hits are accurate: the splash (`frameless=True` — correct), the
+main window (`frameless=False` — correct), and the footgun note (warning NOT to use frameless).
+No hits for `custom titlebar`, `js_api`, or `win-control` in living docs.
+
+---
+
+### 2026-06-17 — HAT PASSED; flight LANDED
+
+- **`/behavior-test windows-native-frame-splash` HAT: PASS (10/10)** on the real Windows install,
+  Concourse build #22 (`flight/07`, commit `e266d28`). Run log:
+  `tests/behavior/windows-native-frame-splash/runs/2026-06-17-00-47-21.md`. Spec → `active`.
+- The HAT caught three real defects across builds #18–#22 (none reproducible in host-native unit
+  tests — DD6/DD7 value): the `_boot` no-arg crash (hung splash), the `pywebviewready`-race
+  (controls not rendering), and ultimately the frameless/WebView2 incompatibility → the **DD3
+  divert to DD2-alt (native frame)**. Build #22 (native frame) passed all steps.
+- **Legs final:** 1 (refactor), 4 (splash), 5 (freeze+icon), 6 (docs), 7 (HAT), 8 (native frame)
+  → `completed`. 2 (window-chrome) → `completed` but **superseded** by Leg 8 (frameless chrome
+  removed). 3 (window-resize) → **not needed** (native frame resizes). Flight → `landed`;
+  Flight 7 checked off in `mission.md`.
+- Host-native pytest: 68 desktop-suite green. `windows-2022` packaged-smoke: green (build #22).
+- Concourse `windows-installer` pipeline `repo` branch reverted `flight/07` → `main` (HAT done).
+- Flight-completion commit + draft PR (marked ready — HAT passed) follow. Debrief is a separate
+  `/flight-debrief` step (transitions the flight `landed` → `completed`).

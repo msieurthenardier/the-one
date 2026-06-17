@@ -59,7 +59,7 @@ make down             # stop
 
 ### Desktop window
 
-GleepGlorp AI can open as a **chromeless native window** (no browser chrome, no URL bar) instead of a browser tab:
+GleepGlorp AI can open as a **native desktop window** (no browser chrome, no URL bar) instead of a browser tab:
 
 ```bash
 pip install 'the-one[gui]'
@@ -80,6 +80,8 @@ The window is backed by the platform's built-in WebView — no Chromium bundled,
 sudo apt install python3-gi gir1.2-webkit2-4.1
 # Ubuntu 20.04 / older distros: gir1.2-webkit2-4.0
 ```
+
+**Launch splash**: while the backend starts up, a small branded splash window is shown. It disappears automatically once the main window has loaded.
 
 **System-browser fallback**: if no WebView backend is present (e.g., a headless server or a Linux box without WebKitGTK installed), `the-one app` falls back to opening the system browser and keeps the server running until you press Ctrl-C.
 

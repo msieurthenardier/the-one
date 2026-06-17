@@ -1,14 +1,24 @@
 # Flight: Windows Native App Hardening — Visual Polish
 
-**Status**: in-flight
+**Status**: landed
+
+> **PIVOT during execution (2026-06-16) — DD3 divert to DD2-alt (themed native frame).** The
+> frameless custom-chrome approach (DD2/DD3 below, and Leg 2) was abandoned after the HAT showed
+> it fights Windows WebView2 (drag/resize/js_api inert on edgechromium). The shipped window is a
+> **native OS frame** (`frameless=False`, the F4/F6 known-good window) + the launch splash + the
+> brand icon. DD2/DD3 and the frameless checkpoints below are preserved as the original plan;
+> the live record is the flight-log "PIVOT" entry + Leg 8 (`themed-native-frame`). HAT passed on
+> build #22 (run log: `tests/behavior/windows-native-frame-splash/runs/2026-06-17-00-47-21.md`).
+
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] *(Re-scope addition, 2026-06-15)* The installed Windows app behaves like a
-      polished, always-on desktop app — this flight delivers the **visual** half:
-      a launch **splash**, **custom window chrome** (frameless + themed titlebar), and
-      **icon/branding** polish. *(HAT + Witnessed GUI behavior-test backed)*
+- [x] *(Re-scope addition, 2026-06-15)* The installed Windows app behaves like a
+      polished, always-on desktop app — this flight delivers the **visual** half: a launch
+      **splash**, a **branded native window** (DD2-alt — native OS frame + brand title-bar/taskbar
+      icon; the originally-planned frameless custom titlebar was diverted), and **icon/branding**
+      polish. *(HAT-passed; `windows-native-frame-splash` Witnessed behavior-test backed)*
 
 > The presence/lifecycle half (tray, background-run, single-instance focus,
 > window-state) landed in **F6**. F7 extends the F6 desktop-shell.
@@ -239,8 +249,8 @@ behavior identical. Then build on the class:
 - [x] `window-chrome` *(lead risk — opens with the frameless-resize + js_api/drag spike)* —
       `frameless=True`; titlebar controls + drag in `#app-topbar` (vanilla JS,
       `window.pywebview`-gated); `js_api` min/max/close (close → close-to-tray).
-- [ ] `window-resize` *(conditional)* — re-implement edge-resize if the spike shows
-      `resizable=True` doesn't suffice on the frameless window.
+- [—] `window-resize` *(conditional — NOT NEEDED)* — mooted by the DD3 divert: the native
+      OS frame (Leg 8) provides edge-resize, so no hand-rolled resize was required.
 - [x] `splash-screen` — frameless splash during the boot wait; dismissed on the main
       window `loaded`; error-path teardown guard. *Landed (host-native). HAT-deferred:
       splash actually appears/dismisses/never-orphans on real Windows (Leg 7).*
@@ -249,15 +259,14 @@ behavior identical. Then build on the class:
       confirm chrome/splash assets in the bundle; packaged-smoke on the `windows-2022` runner.
       *Host-runnable portion landed. Windows-gated remainder (packaged-smoke: icon renders on
       window/taskbar; chrome/splash web assets verified in bundle) tracked for Leg 7 HAT.*
-- [ ] `docs` — update `agents.md`/`README.md`/`CLAUDE.md` for the `DesktopSession`
-      structure, frameless chrome + titlebar controls, the `js_api`, and the splash;
-      record the resolved spike runtime-forms (resize/js_api/drag/multi-window) back into
-      the flight DDs so the mac/Linux port doesn't re-spike. *(Separate leg — not folded
-      into freeze, per the F6 debrief lesson.)*
+- [x] `docs` — update `agents.md`/`README.md`/`CLAUDE.md`/`packaging/windows/README.md` for
+      the shipped shape: `DesktopSession` lifecycle, native OS frame (`frameless=False`),
+      launch splash, brand `.ico`; pywebview/WebView2 frameless footgun note; `regenerate_icon.py`
+      discoverable from the packaging README. *(Separate leg — per F6 debrief lesson. Landed.)*
 - [x] `themed-native-frame` — revert main window to `frameless=False`; remove `_WindowApi`/`js_api`/
       win-controls/`_watchBridge`; keep splash + brand icon; update tests + behavior spec →
       `windows-native-frame-splash`. *Landed (host-native tests green).*
-- [ ] `hat-and-gui-behavior-test` *(interactive)* — operator HAT + `/behavior-test
+- [x] `hat-and-gui-behavior-test` *(interactive — PASSED build #22)* — operator HAT + `/behavior-test
       windows-native-frame-splash` on the frozen build.
 
 ---
@@ -266,11 +275,13 @@ behavior identical. Then build on the class:
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged (feature branch `flight/07-windows-app-hardening-visual-polish`)
-- [ ] Tests passing (host-native pytest + `windows-2022` packaged-smoke)
-- [ ] Documentation updated (agents.md / README / CLAUDE.md: the frameless chrome +
-      titlebar controls, the splash, the `js_api`, the `DesktopSession` structure)
+- [x] All legs completed (Leg 3 `window-resize` mooted by the DD3 divert — native frame resizes)
+- [ ] Code merged — draft PR open on `flight/07-windows-app-hardening-visual-polish`, marked
+      ready after the HAT pass; merge pending review
+- [x] Tests passing (host-native pytest 68 green; `windows-2022` packaged-smoke green — build #22)
+- [x] Documentation updated (agents.md / README / CLAUDE.md / packaging/windows/README.md:
+      DesktopSession lifecycle, native OS frame, launch splash, brand `.ico`,
+      pywebview/WebView2 frameless footgun note, `regenerate_icon.py` reference)
 
 ### Verification
 

@@ -1,10 +1,10 @@
 # Behavior Test: Windows Native Frame & Splash
 
 **Slug**: `windows-native-frame-splash`
-**Status**: draft
+**Status**: active
 **Created**: 2026-06-15
 **Revised**: 2026-06-16 (PIVOT DD2-alt — native OS frame replaces frameless custom chrome)
-**Last Run**: never
+**Last Run**: 2026-06-17-00-47-21 (pass — [run log](windows-native-frame-splash/runs/2026-06-17-00-47-21.md))
 
 ## Intent
 

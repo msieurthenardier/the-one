@@ -1,6 +1,6 @@
 # Leg: freeze-and-icon
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Windows Native App Hardening — Visual Polish](../flight.md)
 
 ## Objective
