@@ -1,6 +1,6 @@
 # Flight: CI cost-shift — move day-to-day CI to local Concourse
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 > **Reframes the placeholder Flight 8 ("Windows release pipeline (CI/CD)").** The
