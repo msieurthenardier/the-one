@@ -54,18 +54,22 @@ pyinstaller --noconfirm packaging/windows/the-one.spec
 
 ## Output
 
-A one-dir bundle (DD1 — **not** one-file):
+A one-dir bundle (DD1 — **not** one-file) containing **two exes**:
 
 ```
 dist/the-one/
-  the-one.exe        # single multi-call exe: the-one.exe [chat|serve|app|version|doctor]
+  the-one.exe        # CLI (console=True): chat|serve|app|version|doctor  — no shortcut
+  the-one-app.exe    # windowed launcher (console=False): always runs `app` — Start-menu shortcut
   ...                # collected binaries, the_one/interfaces/web/static/**, deps
 ```
 
-- `the-one.exe` dispatches every subcommand via `cli_entry()` on argv — there is
-  no second exe. The Start-menu shortcut (Leg 3) invokes `the-one.exe app`.
-- Smoke-check after building: `dist\the-one\the-one.exe doctor` (the
-  frozen-runtime diagnostic) and `dist\the-one\the-one.exe version`.
+- `the-one.exe` is the CLI entry point (all subcommands). Used for `the-one.exe doctor`,
+  `the-one.exe chat`, etc. — no Start-menu shortcut.
+- `the-one-app.exe` is the windowed launcher: `console=False`, no console window, hard-wired
+  to run `app`. The Inno Setup `[Icons]` block creates the Start-menu (and optional desktop)
+  shortcut pointing at `the-one-app.exe`, not `the-one.exe`.
+- Smoke-check after building: `dist\the-one\the-one.exe doctor` (the frozen-runtime
+  diagnostic) and `dist\the-one\the-one.exe version`.
 
 `dist/the-one/` is also the input the Leg 3 Inno Setup script points at.
 

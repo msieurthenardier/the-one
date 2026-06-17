@@ -36,9 +36,13 @@ GleepGlorp AI lets you orchestrate your own constellation of AI agents — the k
 
 ## Quickstart
 
-You'll need Python 3.11+ (for the local path) or Docker + Docker Compose (for the container path), plus at least one LLM provider configured — see [Supported LLMs](#supported-llms) below.
+You'll need at least one LLM provider configured — see [Supported LLMs](#supported-llms) below.
 
-**Local Python** (simpler path for tinkering):
+**Windows installer** (end-user path):
+
+Download and run the installer — no Python, no command line. See [docs/windows-install.md](docs/windows-install.md) for the full walkthrough (download, SmartScreen click-through, first launch, CLI reference).
+
+**Local Python** (dev / source path, all platforms):
 
 ```bash
 pip install -e ".[all-llms,dev]"
@@ -48,14 +52,10 @@ the-one serve         # web UI at http://localhost:8484
 the-one doctor        # diagnose the runtime spawn seam (child spawn, interpreter, node/uv/python on PATH)
 ```
 
-**Docker** (production-shaped path):
-
-```bash
-cp .env.example .env
-make rebuild          # build image + start container at localhost:8484
-make logs             # follow container logs
-make down             # stop
-```
+> **Docker (retired — M15 F1):** the Docker container path was the original production-shaped
+> deployment and is no longer maintained. Historical commands (`make rebuild` / `make logs` /
+> `make down`) still work if you have the image, but Docker is not the recommended runtime.
+> The host-native `pip` path and the Windows installer are the supported options.
 
 ### Desktop window
 
@@ -92,6 +92,8 @@ sudo apt install python3-gi gir1.2-webkit2-4.1
 **Window-state persistence**: the window size and position are saved to `window-state.json` under the data directory and restored on the next launch (clamped to visible screen bounds).
 
 **Windows packaging**: to freeze a standalone Windows bundle (one-dir `the-one.exe`), see [`packaging/windows/README.md`](packaging/windows/README.md) — must build on native Windows.
+
+**Install on Windows:** see [docs/windows-install.md](docs/windows-install.md) — download, SmartScreen click-through, first launch, and CLI reference.
 
 ### Supported LLMs
 

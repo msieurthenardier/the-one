@@ -17,7 +17,7 @@ def _default_data_dir() -> Path:
 
     Linux:   ~/.local/share/the-one
     macOS:   ~/Library/Application Support/the-one
-    Windows: %APPDATA%\\the-one
+    Windows: %LOCALAPPDATA%\\the-one
     """
     return Path(platformdirs.user_data_dir("the-one", appauthor=False))
 

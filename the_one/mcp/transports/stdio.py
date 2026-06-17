@@ -189,15 +189,18 @@ def _translate_bwrap_stderr(stderr_text: str) -> SandboxError | None:
     if _BWRAP_EPERM_UNSHARE_RE.search(stderr_text):
         return SandboxError(
             "MCP sandbox setup failed: namespace creation refused "
-            "(EPERM on unshare). The container likely lacks the "
-            "privilege grants required by §10."
+            "(EPERM on unshare). Check that bubblewrap is installed "
+            "and unprivileged user namespaces are enabled on this host "
+            "(e.g. sysctl kernel.unprivileged_userns_clone=1 on kernels "
+            "that expose that knob, or sysctl "
+            "kernel.apparmor_restrict_unprivileged_userns=0 on Ubuntu 24.04+)."
         )
     # bwrap printed something to stderr that we don't recognise → catalog #2.
     snippet = stderr_text.strip()[:500]
     return SandboxError(
         "MCP sandbox setup failed: bubblewrap exited non-zero. "
-        "Check that the dev/CI environment has cap_add: SYS_ADMIN "
-        "AND security_opt: seccomp:unconfined per F3 design decision §10. "
+        "Verify bubblewrap is installed (apt-get install bubblewrap) "
+        "and unprivileged user namespaces are enabled on this host. "
         f"bwrap stderr: {snippet!r}"
     )
 
