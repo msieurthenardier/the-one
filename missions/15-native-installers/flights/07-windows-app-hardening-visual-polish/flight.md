@@ -1,6 +1,6 @@
 # Flight: Windows Native App Hardening — Visual Polish
 
-**Status**: landed
+**Status**: completed
 
 > **PIVOT during execution (2026-06-16) — DD3 divert to DD2-alt (themed native frame).** The
 > frameless custom-chrome approach (DD2/DD3 below, and Leg 2) was abandoned after the HAT showed
