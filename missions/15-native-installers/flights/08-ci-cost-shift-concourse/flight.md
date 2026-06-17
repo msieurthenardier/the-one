@@ -15,7 +15,7 @@
 > old F8 "full browser suite as a release-gated tier" idea is **superseded** — see DD5.
 
 ## Contributing to Criteria
-- [ ] The app builds, runs, and is **tested host-natively in CI**; the developer `pip`
+- [x] The app builds, runs, and is **tested host-natively in CI**; the developer `pip`
       install path remains supported and the existing test suite passes. *(This flight
       keeps that CI green while relocating it from GitHub Actions to local Concourse — the
       product's Docker-independence is unchanged; only the CI host moves.)*
@@ -196,12 +196,12 @@ as the template).
       Concourse worker is GREEN (port it) or RED (keep on Actions).
 - [x] Every `ci/tasks/<x>.yml` passes standalone via `fly execute -i repo=.` against the
       current working tree.
-- [ ] The `the-one` pipeline is set + unpaused; a real `ci` build (triggered by a push to
+- [x] The `the-one` pipeline is set + unpaused; a real `ci` build (triggered by a push to
       `main` or a manual run) goes **green** end-to-end.
-- [ ] `build-windows-installer` produces an installer and publishes it to MinIO,
+- [x] `build-windows-installer` produces an installer and publishes it to MinIO,
       `passed: [ci]`; the old standalone `windows-installer` pipeline is **destroyed** (no
       double auto-build on `main`).
-- [ ] Opening/updating a PR triggers **no** `lint`/`test` (full-suite) GitHub Actions runs
+- [x] Opening/updating a PR triggers **no** `lint`/`test` (full-suite) GitHub Actions runs
       (the single `bwrap` job may remain on the RED path); a `v*` tag still triggers
       `windows-installer.yml`.
 - [x] `ci/README.md` documents the pre-push `fly execute` gate and on-demand installer.
@@ -276,9 +276,9 @@ as the template).
 
 ### Completion Checklist
 - [x] All legs completed
-- [ ] Code merged
-- [ ] Concourse `ci` build green on `main`; installer published to MinIO
-- [ ] GitHub Actions no longer triggered by PRs/pushes (release workflow intact)
+- [x] Code merged
+- [x] Concourse `ci` build green on `main`; installer published to MinIO
+- [x] GitHub Actions no longer triggered by PRs/pushes (release workflow intact)
 - [x] Documentation updated (`ci/README.md`)
 
 ### Verification

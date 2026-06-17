@@ -77,6 +77,25 @@ become `workflow_dispatch`-only; no bwrap job stays on Actions).
 
 ---
 
+## Post-Merge Verification — COMPLETE (2026-06-17)
+
+PR #121 squash-merged to `main` (`76659fb`). The deferred post-merge verification then ran live
+and **passed end-to-end** — the unified pipeline works on a real `main` commit:
+- **`the-one/ci/2` succeeded** (11m22s) — all 5 lanes (lint/test/browser/windows-tests/bwrap)
+  green as real pipeline steps (forced via `fly check-resource -r the-one/repo`; `ci/1` had
+  errored at 12:18 pre-merge, when `main` lacked the `ci/tasks/*` files — expected).
+- **`the-one/build-windows-installer/1` succeeded** (8m7s) — `passed:[ci]` auto-trigger; the
+  `publish-to-minio` step put the fresh `.exe` in the `the-one-installers` bucket. **Operator
+  confirmed the installer works.**
+- **Standalone `windows-installer` pipeline destroyed** (operator-authorized) — the `the-one`
+  team now has exactly one pipeline. No double-build risk; cutover fully complete.
+
+All flight.md post-merge checkpoints + completion items are now checked except "release tag
+builds the installer" (the `v*`-tag `windows-installer.yml` path is intact but unexercised —
+GitHub Actions billing is out until the 1st; not in this flight's scope to prove).
+
+---
+
 ## Flight Review & Landing (2026-06-17)
 
 **Phase 2d — single flight review (Sonnet reviewer, fresh context).** Reviewed all uncommitted
