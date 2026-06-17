@@ -1,6 +1,6 @@
 # Flight: Windows install docs & mission closeout
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Native Desktop Installers](../../mission.md)
 
 > **Re-scoped from the mission roadmap's "Flight 9: Windows first-run UX, docs & acceptance"
