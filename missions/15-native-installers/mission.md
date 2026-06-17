@@ -448,8 +448,10 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
 - [x] Flight 8: **CI cost-shift — move day-to-day CI to local Concourse**
       *(landed 2026-06-17 — reframes the original "Windows release pipeline (CI/CD)"
       entry below; routine CI now on the local Concourse `the-one` pipeline, GitHub Actions
-      finalized release-only. Post-merge: first green `ci` on `main` + destroy the paused
-      `windows-installer` pipeline — see the flight's `ci/README.md`)* — the project
+      finalized release-only. Post-merge complete (2026-06-17): `ci` green on `main`
+      (build #2, 11m22s), installer published to MinIO (build #1), and the standalone
+      `windows-installer` pipeline destroyed — the `the-one` team now has one unified
+      pipeline. See the flight's `ci/README.md`)* — the project
       **exhausted its GitHub Actions minutes** (F7's PR #119
       CI was all-red purely from an Actions billing failure). Move routine CI
       (lint/test/browser/windows-subset, spike-permitting bwrap) to the local Concourse
