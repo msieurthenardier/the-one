@@ -38,8 +38,10 @@ AppVersion={#AppVersion}
 AppVerName=GleepGlorp AI {#AppVersion}
 DefaultDirName={autopf}\GleepGlorp AI
 DefaultGroupName=GleepGlorp AI
-; Branded Add/Remove-Programs entry. The exe carries no embedded icon resource
-; (the Leg-2 .spec omits EXE(icon=)), so point at the installed .ico.
+; Branded Add/Remove-Programs entry. The windowed exe (the-one-app.exe) now embeds
+; the brand icon via EXE(icon=) in the .spec (DD5 / Leg 5). UninstallDisplayIcon
+; still uses the separately-installed {app}\the-one.ico for Add/Remove-Programs
+; registration, which is correct — that entry points at the install-dir copy.
 UninstallDisplayIcon={app}\the-one.ico
 OutputBaseFilename=the-one-setup-{#AppVersion}
 ; Resolves to packaging\windows\Output\ (relative to this .iss). Leg 4's CI globs

@@ -427,12 +427,16 @@ Lessons and follow-through items inherited from the M14 debrief (2026-06-07):
       **Witnessed GUI behavior-test** spec (folds in the owed F4/F5
       theme-persists-across-restart check). Packaged-smoke on the `windows-2022`
       runner.
-- [ ] Flight 7: **Windows native app hardening — visual polish** *(NEW — depth-first
-      pivot 2026-06-15)* — make the app *look* finished: a **splash/loading window**
-      shown while uvicorn boots and dismissed when the UI is ready; **custom window
-      chrome** (frameless + an HTML titlebar in vanilla JS — no build step — with
-      min/max/close wired through pywebview's JS API); app **icon/branding polish**.
-      Extends the F6 desktop-shell seam; the chrome work is the main web-UI surface.
+- [x] Flight 7: **Windows native app hardening — visual polish** *(landed 2026-06-17; HAT
+      passed build #22)* — make the app *look* finished: a **splash/loading window** shown
+      while uvicorn boots and dismissed when the UI is ready; app **icon/branding polish**
+      (256-px brand `.ico` on the windowed exe); and a **branded native window**. *Mid-flight
+      DD3 divert (2026-06-16): the originally-planned **frameless custom chrome** (HTML titlebar
+      + pywebview js_api controls) was abandoned — it fights Windows WebView2 (drag/resize/js_api
+      inert on edgechromium) — in favor of **DD2-alt: a native OS frame** (the F4/F6 known-good
+      window; drag/min/max/close/resize all native, native X → close-to-tray). The `DesktopSession`
+      refactor + splash + icon all shipped; the custom chrome did not.* Extends the F6
+      desktop-shell seam.
 > *The packaging flights **"— macOS" and "— Linux"** (former F8/F9) and the macOS
 > Seatbelt backend (F2) **migrated to the follow-up macOS/Linux mission** (Windows-only
 > re-scope, 2026-06-15). Their design notes — F5 freeze-seam reuse, `.app`/`.dmg`,

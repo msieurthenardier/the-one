@@ -61,6 +61,7 @@
           badgeHtml +
         '</button>';
     }
+
     topbar.innerHTML =
       '<img src="/static/brand/gleepglorp_banner.png" alt="GleepGlorp AI" class="app-topbar-banner">' +
       '<div class="app-topbar-actions">' + buttonsHtml + '</div>';
