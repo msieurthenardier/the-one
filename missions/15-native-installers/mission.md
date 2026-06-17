@@ -1,7 +1,8 @@
 # Mission: Native Desktop Installers
 
-**Status**: active
+**Status**: completed
 **Depends on**: [Mission 14 — Unified Tool-Execution Sandbox](../14-unified-tool-sandbox/mission.md) — **completed** (debrief 2026-06-07)
+**Completed**: 2026-06-17 — Windows-only scope delivered; see [mission-debrief.md](mission-debrief.md). macOS/Linux + Seatbelt deferred to a follow-up mission.
 
 > **Split from the original combined scope.** The unified sandbox seam (the heaviest,
 > riskiest piece) was carved out into Mission 14 and runs first. This mission
