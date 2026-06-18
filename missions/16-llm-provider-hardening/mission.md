@@ -111,7 +111,7 @@ Questions ("harden vs. `any-llm`").
 
 ## Success Criteria
 
-- [ ] A tool whose `input_schema` uses top-level `oneOf/allOf/anyOf` (or omits a
+- [x] A tool whose `input_schema` uses top-level `oneOf/allOf/anyOf` (or omits a
       top-level `type`) no longer fails the whole Anthropic turn — the schema is
       sanitized before send, and if a schema genuinely can't be sent the failure
       names the offending tool rather than a bare index. *(#122; behavior- or
@@ -271,7 +271,7 @@ Confirmed by the Flight 1 spike (2026-06-17):
       counting, …). Output: a prioritized capability-gap backlog that drives the
       capability flights below. *(read-only recon, like F1; bounds the "implement
       whatever the SDKs expose" scope.)*
-- [ ] Flight 2 **(HIGH — the real Anthropic bug): Anthropic tool `input_schema`
+- [x] Flight 2 **(HIGH — the real Anthropic bug): Anthropic tool `input_schema`
       compatibility (#122)** — sanitize tool `input_schema` before sending to
       Anthropic: wrap/flatten top-level `oneOf/allOf/anyOf` and ensure a top-level
       `type`; isolate and **name the offending tool** instead of failing the whole

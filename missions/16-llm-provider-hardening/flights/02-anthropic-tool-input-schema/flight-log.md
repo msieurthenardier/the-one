@@ -177,6 +177,14 @@ plus a `BadRequestError → tool-name` defensive net. Real-world trigger (goldfi
   no secrets or operator paths leaked. No fix cycles needed. Legs 01–04 → `completed` and
   checked off in flight.md. Committing the flight; flight status held `in-flight` pending
   the operator's call on the optional `uat-and-alignment` leg before landing.
+- 2026-06-18 — Flight committed (`216b098`), draft PR **#127** opened (base `main`).
+  Operator chose to **land now, skip the optional `uat-and-alignment`** (leg 04's live
+  first-party verification already satisfies the core #122 acceptance criterion). Doc check
+  (Phase 3): **N/A** — internal provider-layer robustness fix, no new commands / endpoints /
+  config / agent-facing contract; no CLAUDE.md/README change warranted. Flight status →
+  **landed**; mission Flight 2 + the #122 success criterion checked off. PR #127 marked
+  ready for review. `[COMPLETE:flight]`. The flight debrief is the separate `/flight-debrief`
+  step (transitions the flight to `completed`).
 
 ## Decisions
 

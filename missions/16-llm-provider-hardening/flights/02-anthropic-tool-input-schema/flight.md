@@ -1,6 +1,6 @@
 # Flight: Anthropic Tool `input_schema` Compatibility (#122)
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
