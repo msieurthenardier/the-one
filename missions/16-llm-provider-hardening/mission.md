@@ -116,10 +116,12 @@ Questions ("harden vs. `any-llm`").
       sanitized before send, and if a schema genuinely can't be sent the failure
       names the offending tool rather than a bare index. *(#122; behavior- or
       fixture-test-backed against the real Anthropic constraint)*
-- [ ] **Per-SDK capability audit exists** enumerating, for Anthropic / OpenAI /
+- [x] **Per-SDK capability audit exists** enumerating, for Anthropic / OpenAI /
       Ollama / OpenRouter, the capabilities the official SDK exposes vs. what the
       `LLMProvider` layer currently wires through — yielding a prioritized gap
-      backlog. *(the bound on "implement whatever the SDKs expose")*
+      backlog. *(the bound on "implement whatever the SDKs expose")* **— DONE by
+      Flight 1B** (`flights/01b-provider-capability-audit/flight-log.md`: consolidated
+      matrix + operator-ratified backlog A1–A5/B1–B4 + routed #122/#105/F5).
 - [ ] **Each prioritized capability gap is either implemented behind the
       `LLMProvider` contract or explicitly deferred** with a recorded reason — so
       the provider layer's coverage of its SDKs is intentional, not accidental.
@@ -263,14 +265,15 @@ Confirmed by the Flight 1 spike (2026-06-17):
       confirmed hole #2 (#105) and captured the gemma text-form fixture; settled
       build-vs-adopt → **hand-roll** (any-llm rejected). Output: confirmed root
       causes + go/no-go below. See `flights/01-recon-root-cause-spike/`.
-- [ ] Flight 1B: **Provider capability audit** — enumerate, per official SDK
-      (Anthropic / OpenAI / Ollama / OpenRouter), the capabilities the SDK exposes
-      vs. what `the_one/llm/` wires through (extended thinking, prompt caching,
-      structured outputs / JSON mode, vision/multimodal, reasoning effort, document
-      inputs, parallel tool calls, stop sequences, streaming events, token
+- [x] Flight 1B: **Provider capability audit** — **LANDED.** Enumerate, per official
+      SDK (Anthropic / OpenAI / Ollama / OpenRouter), the capabilities the SDK
+      exposes vs. what `the_one/llm/` wires through (extended thinking, prompt
+      caching, structured outputs / JSON mode, vision/multimodal, reasoning effort,
+      document inputs, parallel tool calls, stop sequences, streaming events, token
       counting, …). Output: a prioritized capability-gap backlog that drives the
       capability flights below. *(read-only recon, like F1; bounds the "implement
-      whatever the SDKs expose" scope.)*
+      whatever the SDKs expose" scope.)* See
+      `flights/01b-provider-capability-audit/`.
 - [ ] Flight 2 **(HIGH — the real Anthropic bug): Anthropic tool `input_schema`
       compatibility (#122)** — sanitize tool `input_schema` before sending to
       Anthropic: wrap/flatten top-level `oneOf/allOf/anyOf` and ensure a top-level
