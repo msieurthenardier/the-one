@@ -2,10 +2,157 @@
 
 from __future__ import annotations
 
+import copy
+import logging
+
 import httpx
 import pytest
 
 from the_one.llm.base import Message, Role
+
+# Leg-01 ``press_key`` fixture, reused verbatim (top-level ``anyOf`` is the
+# #122 trigger the leg-01 sanitizer flattens). Kept inline so this test file
+# carries no cross-test dependency on test_schema_sanitize.py.
+PRESS_KEY_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "wcId": {"type": "integer", "description": "webContents id of the target tab"},
+        "name": {"type": "string", "description": "friendly key name (preferred) ..."},
+        "key": {"type": "string", "description": "accepted alias for `name` ..."},
+        "modifiers": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["control", "shift", "alt", "meta"]},
+            "description": "optional modifier keys held during the press ...",
+        },
+    },
+    "required": ["wcId"],
+    "anyOf": [{"required": ["name"]}, {"required": ["key"]}],
+}
+
+
+def _press_key_tool_def() -> dict:
+    """Canonical tool_def whose ``parameters`` is the press_key schema."""
+    return {
+        "name": "press_key",
+        "description": "Press a key in a browser tab.",
+        "parameters": copy.deepcopy(PRESS_KEY_INPUT_SCHEMA),
+    }
+
+
+class TestToolSchemaAnthropicSanitize:
+    """Leg 03: the OpenRouter ``tool_schema`` override sanitizes tool
+    ``parameters`` for ``anthropic/*`` routes only (the leg-01 kernel,
+    gated by the model slug). ``tool_schema`` is pure and synchronous —
+    construct the provider directly, no network.
+
+    This single override is the shared chokepoint for both ``complete()``
+    (``openai_provider.py:130``) and ``stream()`` (``:182``) — wiring it
+    once covers both entry points.
+    """
+
+    def test_anthropic_route_sanitizes(self):
+        """press_key anyOf → no top-level anyOf, type:object."""
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        prov = OpenRouterProvider(model="anthropic/claude-3.5-haiku", api_key="x")
+        result = prov.tool_schema(_press_key_tool_def())
+
+        params = result["function"]["parameters"]
+        assert "anyOf" not in params, "top-level anyOf must be flattened on the anthropic route"
+        assert params["type"] == "object"
+        # The flattened shape still carries the original properties.
+        assert set(params["properties"]) == {"wcId", "name", "key", "modifiers"}
+
+    def test_non_anthropic_route_untouched(self):
+        """A non-anthropic slug (openai/gpt-4o) preserves the top-level
+        anyOf — the sanitizer does not run, schemas pass verbatim."""
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        prov = OpenRouterProvider(model="openai/gpt-4o", api_key="x")
+        result = prov.tool_schema(_press_key_tool_def())
+
+        params = result["function"]["parameters"]
+        # Untouched: identical to the input schema, anyOf preserved.
+        assert params == PRESS_KEY_INPUT_SCHEMA
+        assert params["anyOf"] == [{"required": ["name"]}, {"required": ["key"]}]
+
+    def test_non_mutation_of_caller_parameters(self):
+        """DD2: after tool_schema(...), the caller's original
+        ``tool_def['parameters']`` is is-identical and byte-unchanged."""
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        prov = OpenRouterProvider(model="anthropic/claude-3.5-haiku", api_key="x")
+        tool_def = _press_key_tool_def()
+        original_params = tool_def["parameters"]
+        original_snapshot = copy.deepcopy(original_params)
+
+        result = prov.tool_schema(tool_def)
+
+        # Same object identity (base builds a fresh dict but assigns the same
+        # parameters object; the override reassigns the fresh dict's key to the
+        # sanitizer's deep-copied output, leaving the caller's object alone).
+        assert tool_def["parameters"] is original_params
+        # Byte-unchanged: the sanitizer's flattening did not leak back.
+        assert tool_def["parameters"] == original_snapshot
+        # And the returned (sanitized) parameters are a distinct object.
+        assert result["function"]["parameters"] is not original_params
+
+    def test_unsanitizable_falls_back_no_raise_and_warns(self, caplog):
+        """An anthropic/* route converting a genuinely-unsanitizable schema
+        (top-level bare ``$ref``) must NOT propagate UnsanitizableToolSchema;
+        it returns the ORIGINAL parameters (so the request 400s at the API
+        exactly as today) AND emits a WARN naming the tool."""
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        prov = OpenRouterProvider(model="anthropic/claude-3.5-haiku", api_key="x")
+        bad_params = {"$ref": "#/$defs/Thing"}
+        tool_def = {
+            "name": "lookup_thing",
+            "description": "A tool with an unsanitizable bare $ref schema.",
+            "parameters": copy.deepcopy(bad_params),
+        }
+
+        with caplog.at_level(logging.WARNING, logger="the_one.llm.openrouter_provider"):
+            # Must return normally — no exception escapes.
+            result = prov.tool_schema(tool_def)
+
+        # Falls back to the original (un-sanitized) parameters.
+        assert result["function"]["parameters"] == bad_params
+        # A WARN naming the tool was emitted on the module logger.
+        warnings = [
+            r
+            for r in caplog.records
+            if r.name == "the_one.llm.openrouter_provider" and r.levelno == logging.WARNING
+        ]
+        assert warnings, "expected a WARN on the unsanitizable fallback path"
+        assert "lookup_thing" in warnings[0].getMessage()
+
+    def test_clean_schema_near_no_op(self):
+        """A flat-object schema on an anthropic/* route passes through with
+        substance intact (type:object, properties unchanged). No combinator
+        here, so no merge note is added — assert on properties, not whole-dict
+        equality (a flattened schema may gain a merge note in general)."""
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        prov = OpenRouterProvider(model="anthropic/claude-sonnet-4.6", api_key="x")
+        clean = {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "search text"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["query"],
+        }
+        tool_def = {
+            "name": "search",
+            "description": "Search.",
+            "parameters": copy.deepcopy(clean),
+        }
+        result = prov.tool_schema(tool_def)
+
+        params = result["function"]["parameters"]
+        assert params["type"] == "object"
+        assert params["properties"] == clean["properties"]
 
 
 @pytest.fixture(autouse=True)

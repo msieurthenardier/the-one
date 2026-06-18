@@ -11,6 +11,7 @@ would trigger the OpenAI SDK env-var fallback.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, ClassVar
 
@@ -18,8 +19,11 @@ import httpx
 import openai
 
 from the_one.llm import openrouter_api
+from the_one.llm._schema_sanitize import UnsanitizableToolSchema, sanitize_tool_schema
 from the_one.llm.openai_provider import DEFAULT_OPENAI_TIMEOUT, OpenAIProvider
 from the_one.llm.registry import register_provider
+
+logger = logging.getLogger(__name__)
 
 # F7 L04: per-provider bytes-per-token for the mid-stream usage byte-
 # heuristic. Most OpenRouter-routed models are OpenAI-compat, so the
@@ -116,6 +120,33 @@ class OpenRouterProvider(OpenAIProvider):
         # because we intentionally skip ``super().__init__()`` above
         # (Decision 5: no-leak invariant on OPENAI_API_KEY).
         self._init_provider_state()
+
+    def tool_schema(self, tool_def: dict[str, Any]) -> dict[str, Any]:
+        result = super().tool_schema(tool_def)  # OpenAI function shape
+        # #122: OpenRouter forwards tool schemas verbatim to the provider
+        # backend; the Anthropic backend (incl. via Bedrock) rejects a
+        # top-level oneOf/allOf/anyOf. Sanitize only for anthropic/* routes —
+        # other backends accept the combinators and we must not degrade them.
+        if self.model.startswith("anthropic/"):
+            try:
+                result["function"]["parameters"] = sanitize_tool_schema(
+                    result["function"].get("parameters")
+                )
+            except UnsanitizableToolSchema as exc:
+                # Minimal scope (operator 2026-06-18): no DD5 drop-and-proceed
+                # on this path. Leave the original schema so the request 400s
+                # at the API exactly as today — no worse than pre-fix. Warn so
+                # the otherwise-silent #122 rejection is diagnosable (this is
+                # observability, NOT drop-and-proceed — the tool is still sent).
+                logger.warning(
+                    "Tool %r has an input_schema that cannot be sanitized for the "
+                    "Anthropic route %r (%s); sending it unmodified — the Anthropic "
+                    "backend will likely reject it (#122).",
+                    tool_def.get("name", "<unnamed>"),
+                    self.model,
+                    exc.reason,
+                )
+        return result
 
     async def _resolve_max_context_tokens(self) -> None:
         # Override OpenAIProvider's prefix-table resolver — OpenRouter
