@@ -109,8 +109,9 @@ test: ## Run all default tests host-native (unit + browser; excludes -m live and
 	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -v --tb=short
 
 .PHONY: test-unit
-test-unit: ## Run unit tests only host-native (excludes browser, live, pixel)
-	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel' -v --tb=short
+test-unit: ## Run unit tests only host-native (excludes browser, live, pixel, requires_bwrap, discord_hat)
+	# Keep this -m in sync with pyproject.toml addopts' default-deselect set.
+	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap and not discord_hat' -v --tb=short
 
 .PHONY: test-browser
 test-browser: ## Run browser tests host-native (requires THE_ONE_DEV_MODE=true; uses Playwright)

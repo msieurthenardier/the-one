@@ -7,6 +7,16 @@ var cannot leak into the OpenRouter client.
 
 The constructor deliberately does NOT call ``super().__init__()``; that
 would trigger the OpenAI SDK env-var fallback.
+
+#122 route asymmetry (Flight 4, DD3). On an ``anthropic/*`` route a tool whose
+``input_schema`` is *genuinely unsanitizable* is forwarded unmodified with a
+WARN (see ``tool_schema`` below) — it is *not* dropped, unlike the
+Anthropic-direct path (``anthropic_provider.py`` DD5 drop-and-proceed). This is
+an intentional minimal-scope decision: the common ``anyOf``/``oneOf``/``allOf``
+case is fixed on *both* paths; only the rare unsanitizable case diverges, where
+forwarding is no worse than today (the request 400s at the backend exactly as it
+did pre-fix). Pinned by the forward-with-WARN test in the cross-provider
+conformance suite (``tests/test_llm_provider_cross_provider_conformance.py``).
 """
 
 from __future__ import annotations

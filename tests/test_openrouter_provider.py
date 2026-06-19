@@ -9,25 +9,11 @@ import httpx
 import pytest
 
 from the_one.llm.base import Message, Role
+from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
 
-# Leg-01 ``press_key`` fixture, reused verbatim (top-level ``anyOf`` is the
-# #122 trigger the leg-01 sanitizer flattens). Kept inline so this test file
-# carries no cross-test dependency on test_schema_sanitize.py.
-PRESS_KEY_INPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "wcId": {"type": "integer", "description": "webContents id of the target tab"},
-        "name": {"type": "string", "description": "friendly key name (preferred) ..."},
-        "key": {"type": "string", "description": "accepted alias for `name` ..."},
-        "modifiers": {
-            "type": "array",
-            "items": {"type": "string", "enum": ["control", "shift", "alt", "meta"]},
-            "description": "optional modifier keys held during the press ...",
-        },
-    },
-    "required": ["wcId"],
-    "anyOf": [{"required": ["name"]}, {"required": ["key"]}],
-}
+# Leg-01 ``press_key`` fixture (top-level ``anyOf`` is the #122 trigger the
+# leg-01 sanitizer flattens), shared across the conformance suite via
+# ``tests/fixtures/tool_schemas.py`` (DD6).
 
 
 def _press_key_tool_def() -> dict:

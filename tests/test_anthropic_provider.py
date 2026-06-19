@@ -23,11 +23,11 @@ import logging
 from typing import Any
 
 import anthropic
-import httpx
 import pytest
 
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.base import Message
+from tests.fixtures.tool_schemas import make_bad_request
 
 _LOGGER_NAME = "the_one.llm.anthropic_provider"
 
@@ -35,12 +35,6 @@ _LOGGER_NAME = "the_one.llm.anthropic_provider"
 # --------------------------------------------------------------------------
 # Fixtures / helpers
 # --------------------------------------------------------------------------
-
-
-def _mk_bad_request(msg: str) -> anthropic.BadRequestError:
-    """Construct a BadRequestError (``response``/``body`` are required kwonly)."""
-    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-    return anthropic.BadRequestError(msg, response=httpx.Response(400, request=req), body=None)
 
 
 class _StubContentBlock:
@@ -247,7 +241,7 @@ async def test_temperature_branch_fires_first(monkeypatch):
     """A BadRequestError containing 'temperature' triggers the existing retry
     (temperature popped, second call succeeds, no name-mapping)."""
     rec = _CreateRecorder(
-        side_effects=[_mk_bad_request("temperature: unsupported")],
+        side_effects=[make_bad_request("temperature: unsupported")],
         default_response=_StubResponse(),
     )
     prov = _provider_with_create(monkeypatch, rec)
@@ -262,7 +256,7 @@ async def test_temperature_branch_fires_first(monkeypatch):
 
 async def test_tools_n_maps_to_name_complete(monkeypatch):
     """A tools.N schema-400 is re-raised naming kwargs['tools'][N]['name']."""
-    err = _mk_bad_request("tools.1.custom.input_schema: invalid")
+    err = make_bad_request("tools.1.custom.input_schema: invalid")
     rec = _CreateRecorder(side_effects=[err])
     prov = _provider_with_create(monkeypatch, rec)
     tools = [
@@ -282,7 +276,7 @@ async def test_tools_n_maps_to_name_complete(monkeypatch):
 async def test_index_shift_maps_post_drop_complete(monkeypatch):
     """With a tool dropped before the offending one, tools.1 maps against the
     post-drop list (names the right tool, not the pre-drop index-1 tool)."""
-    err = _mk_bad_request("tools.1.custom.input_schema: invalid")
+    err = make_bad_request("tools.1.custom.input_schema: invalid")
     rec = _CreateRecorder(side_effects=[err])
     prov = _provider_with_create(monkeypatch, rec)
     tools = [
@@ -301,8 +295,8 @@ async def test_index_shift_maps_post_drop_complete(monkeypatch):
 async def test_temperature_retry_second_call_name_maps_complete(monkeypatch):
     """First 400 on temperature, retry 400s on tools.N → retry failure is also
     name-mapped (complete() only)."""
-    temp_err = _mk_bad_request("temperature: unsupported")
-    tools_err = _mk_bad_request("tools.0.custom.input_schema: invalid")
+    temp_err = make_bad_request("temperature: unsupported")
+    tools_err = make_bad_request("tools.0.custom.input_schema: invalid")
     rec = _CreateRecorder(side_effects=[temp_err, tools_err])
     prov = _provider_with_create(monkeypatch, rec)
     tools = [_tool("only_tool", {"type": "object", "properties": {"x": {"type": "string"}}})]
@@ -318,7 +312,7 @@ async def test_temperature_retry_second_call_name_maps_complete(monkeypatch):
 async def test_unparseable_index_falls_back_to_original_complete(monkeypatch):
     """A tools.N error whose index is out of range → original error re-raised
     unchanged (no name-mapping, no IndexError)."""
-    err = _mk_bad_request("tools.9.custom.input_schema: invalid")
+    err = make_bad_request("tools.9.custom.input_schema: invalid")
     rec = _CreateRecorder(side_effects=[err])
     prov = _provider_with_create(monkeypatch, rec)
     tools = [_tool("only", {"type": "object", "properties": {"x": {"type": "string"}}})]
@@ -331,7 +325,7 @@ async def test_unparseable_index_falls_back_to_original_complete(monkeypatch):
 
 async def test_non_tools_n_reraised_unchanged_complete(monkeypatch):
     """A non-temperature, non-tools.N BadRequestError is re-raised unchanged."""
-    err = _mk_bad_request("messages.0: something unrelated")
+    err = make_bad_request("messages.0: something unrelated")
     rec = _CreateRecorder(side_effects=[err])
     prov = _provider_with_create(monkeypatch, rec)
     tools = [_tool("t", {"type": "object", "properties": {"x": {"type": "string"}}})]
@@ -444,7 +438,7 @@ async def test_streaming_happy_path_smoke(monkeypatch):
 
 async def test_tools_n_maps_to_name_stream(monkeypatch):
     """A submission-time tools.N 400 in stream() is re-raised naming the tool."""
-    err = _mk_bad_request("tools.1.custom.input_schema: invalid")
+    err = make_bad_request("tools.1.custom.input_schema: invalid")
     rec = _StreamRecorder([lambda: _StreamCM([], None, raise_on_enter=err)])
     prov = _provider_with_stream(monkeypatch, rec)
     tools = [
@@ -464,7 +458,7 @@ async def test_tools_n_maps_to_name_stream(monkeypatch):
 
 async def test_non_tools_n_reraised_unchanged_stream(monkeypatch):
     """A non-temperature, non-tools.N 400 in stream() is re-raised unchanged."""
-    err = _mk_bad_request("messages.0: unrelated")
+    err = make_bad_request("messages.0: unrelated")
     rec = _StreamRecorder([lambda: _StreamCM([], None, raise_on_enter=err)])
     prov = _provider_with_stream(monkeypatch, rec)
     tools = [_tool("t", {"type": "object", "properties": {"x": {"type": "string"}}})]
@@ -479,7 +473,7 @@ async def test_non_tools_n_reraised_unchanged_stream(monkeypatch):
 async def test_temperature_branch_fires_first_stream(monkeypatch):
     """A submission-time temperature 400 in stream() triggers the retry; the
     retry's stream succeeds (temperature popped)."""
-    temp_err = _mk_bad_request("temperature: unsupported")
+    temp_err = make_bad_request("temperature: unsupported")
     final = _StubResponse(content=[_StubContentBlock("text", text="ok")], usage=None)
     rec = _StreamRecorder(
         [

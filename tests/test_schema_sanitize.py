@@ -16,25 +16,11 @@ from the_one.llm._schema_sanitize import (
     UnsanitizableToolSchema,
     sanitize_tool_schema,
 )
+from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
 
-# The real-world trigger: goldfinch's ``press_key`` tool input_schema,
-# inlined verbatim (source: goldfinch ``src/main/automation/mcp-tools.js``) so
-# the test carries no cross-repo dependency.
-PRESS_KEY_INPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "wcId": {"type": "integer", "description": "webContents id of the target tab"},
-        "name": {"type": "string", "description": "friendly key name (preferred) ..."},
-        "key": {"type": "string", "description": "accepted alias for `name` ..."},
-        "modifiers": {
-            "type": "array",
-            "items": {"type": "string", "enum": ["control", "shift", "alt", "meta"]},
-            "description": "optional modifier keys held during the press ...",
-        },
-    },
-    "required": ["wcId"],
-    "anyOf": [{"required": ["name"]}, {"required": ["key"]}],
-}
+# The real-world trigger: goldfinch's ``press_key`` tool input_schema (top-level
+# ``anyOf`` alongside a top-level ``type``; the #122 trigger). Shared across the
+# conformance suite via ``tests/fixtures/tool_schemas.py`` (DD6).
 
 # Merge note the sanitizer appends to ``description`` when a top-level
 # combinator was flattened.

@@ -177,7 +177,7 @@ spans the agent layer too.
       calls, **including** when the model emits the call as text/JSON in
       `content` rather than a structured `tool_calls` array. *(test-backed with a
       recorded/fixtured Gemma response for the loose-format case)*
-- [ ] A **cross-provider tool-use conformance test** exists and passes for
+- [x] A **cross-provider tool-use conformance test** exists and passes for
       Anthropic, OpenAI, Ollama, and Mock — asserting that a request→tool_call→
       tool_result→final-answer round-trip works uniformly through the
       `LLMProvider` contract. *(this is the regression net that stops future
@@ -343,7 +343,7 @@ Discovered during Flight 2 (2026-06-18):
       gemma3:4b) plus Hermes-tag / bare-JSON variants, normalized into structured
       `ToolCall`s. **Do not** try to offer tools to non-tool-capable models —
       Ollama rejects them. Fixtured regression from the captured response.
-- [ ] Flight 4: **Cross-provider tool-use conformance suite** — a shared,
+- [x] Flight 4: **Cross-provider tool-use conformance suite** — a shared,
       provider-parametrized test asserting the request→tool_call→tool_result→
       final round-trip works uniformly across Anthropic/OpenAI/Ollama/Mock. Now
       also the regression net guarding the #122 and #105 fixes.
