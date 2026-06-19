@@ -11,9 +11,9 @@ Verify that the Chat UI per-session "Routing audit" panel renders entries from `
 
 ## Preconditions
 
-- The-one container is running on `http://localhost:8484` and the Chat UI loads at that URL (verified by an active probe: the operator opens the URL in a browser and sees Chat render OR the welcome screen).
+- The-one is running host-native on `http://localhost:8484` and the Chat UI loads at that URL (verified by an active probe: the operator opens the URL in a browser and sees Chat render OR the welcome screen).
 - The operator has the chrome-devtools MCP browser session attached to that URL.
-- The build under test includes F13 L1+L2+L3+L4+L5 commits (verified by checking `docker exec the-one git grep -nE 'routing-audit|routingAudit' the_one/interfaces/web/static/js/areas/` returns at least 6 hits AND `docker exec the-one git grep -n 'session_metadata' the_one/interfaces/web/api.py` returns the detail-endpoint composition site).
+- The build under test includes F13 L1+L2+L3+L4+L5 commits (verified by running `git grep -nE 'routing-audit|routingAudit' the_one/interfaces/web/static/js/areas/` directly in the repo — returns at least 6 hits AND `git grep -n 'session_metadata' the_one/interfaces/web/api.py` returns the detail-endpoint composition site).
 - A test chat session exists with **multi-disposition routing entries** seeded in `session_metadata["routing"]`. The seed should include at least 4 entries — one each for the four canonical dispositions:
   - `stepped` — the engaged path (`{"ts": "...", "agent": "<name>", "rule_index": 0, "scope": "channel", "match": null, "reason": "matched", "disposition": "stepped"}`)
   - `command-intercepted` — built-in command short-circuit (add `"intercept_source": "builtin"`)

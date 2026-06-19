@@ -52,9 +52,9 @@ the-one serve         # web UI at http://localhost:8484
 the-one doctor        # diagnose the runtime spawn seam (child spawn, interpreter, node/uv/python on PATH)
 ```
 
-> **Docker (retired — M15 F1):** the Docker container path was the original production-shaped
-> deployment and is no longer maintained. Historical commands (`make rebuild` / `make logs` /
-> `make down`) still work if you have the image, but Docker is not the recommended runtime.
+> **Docker fully removed (M15 F1 / M16 F3):** the Docker deployment path was retired for the
+> Windows installer and host-native runtime; its scaffolding has now been removed entirely.
+> The app runs host-native via `the-one serve` (or `make up` for a backgrounded dev server).
 > The host-native `pip` path and the Windows installer are the supported options.
 
 ### Desktop window

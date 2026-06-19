@@ -38,6 +38,38 @@
 > vs. what the-one wires through; the gap list becomes the capability-flight
 > backlog (prioritized by the operator). The two confirmed bugs are the immediate
 > work; the capability coverage is the broader goal.
+>
+> **★ Agent-layer scope expansion (operator-authorized, Flight 3 Leg 08, 2026-06-19).**
+> Flight 3 Leg 08 deliberately expands into `the_one/agent/` (new
+> `agent/degraded_tools.py`, a `DEGRADED_BASE_PROMPT` in `agent/config.py`, and a
+> degraded-branch change in `agent/core.py`) to inject a **direct tool protocol**
+> for non-tool-capable models (`supports_tools=False`, e.g. gemma3:4b) — two
+> behavior-test runs proved recognizer-only recovery is best-effort, not reliable,
+> so the durable fix is telling the model the catalog + one parseable call format
+> upstream. Narrowly scoped to tool exposure / prompt for non-tool models; does NOT
+> touch the iteration/auth-pause logic or the `LLMProvider` contract. See the
+> Flight 3 leg-08 spec + flight-log Decisions.
+
+> **★ Agent-loop iteration-logic expansion (operator-authorized, Flight 3 Leg 09, 2026-06-19).**
+> Flight 3 Leg 09 expands further — into the agent loop's **iteration/dispatch
+> logic** in `agent/core.py` `_run_iterations` (which the prior legs deliberately
+> left untouched) — to add a degraded-path **redundant-tool-call backstop**: detect
+> when a non-tool-capable model re-emits a call whose result it already holds and
+> terminates with an empty message, suppress the re-dispatch, and synthesize a
+> non-empty closing answer. Scoped to the `not supports_tools` branch; does NOT
+> alter the auth-pause/`_deferred_tool_calls` flow or the `LLMProvider` contract.
+
+> **★ Outcome framing corrected (operator, 2026-06-19).** The original Outcome /
+> Constraints wording — "the agent loop … is untouched; changes confined to
+> `the_one/llm/` … nothing else" — was **incorrect**. The mission's real expected
+> outcome is to **leverage the full set of tools and abilities each LLM exposes**,
+> which *inherently* impacts the agent loop (tool exposure, dispatch, iteration) —
+> not just the provider layer. The **"hand-rolled, no framework"** decision still
+> stands (the loop is *extended*, not replaced; auth-pause + sandbox safety
+> invariants preserved), but the **"agent-loop-untouched / `the_one/llm/`-only"**
+> boundary does **not**. Outcome + Constraints updated below. The Flight 3
+> leg-08/09 banners above are therefore the *first instances* of expected
+> capability-driven loop work — not out-of-scope exceptions.
 
 ## Outcome
 
@@ -48,10 +80,15 @@ conversation driven by an **open/local model (e.g. Gemma via Ollama)** reliably
 executes tool calls, including the cases where the model emits a tool call as
 loose text instead of a structured `tool_calls` array. And the provider layer
 stops carrying **hand-maintained model tables that silently drift** out of date.
-The agent loop, tool registry, MCP integration, and sandbox are untouched — the
-changes are confined to the `the_one/llm/` adapters, the `Message` protocol, and
-the persistence codec that serializes it (the new thinking field has to
-round-trip through storage).
+Delivering this is **not** confined to the provider layer: fully leveraging what
+each LLM can do — extended thinking, structured outputs, vision, and reliable
+tool use for tool-capable *and* non-tool-capable models — **inherently reaches
+into the agent loop** (tool exposure, dispatch, iteration), the `Message`
+protocol, and the persistence codec, alongside the `the_one/llm/` adapters. What
+stays fixed is the **architecture**: the loop remains **hand-rolled** (no agent
+framework) and the provider layer keeps wrapping the official vendor SDKs. The
+loop is *extended* where a capability requires it — it is not replaced, and its
+safety invariants (auth-pause semantics, the sandbox) are preserved.
 
 ## Context
 
@@ -103,11 +140,14 @@ well-architected and maps almost 1:1 onto how `pi-ai` is built:
    limits have to come from a generated/cached catalog rather than a live call.)
 
 **Strategic decisions already settled (do not re-litigate; recorded as
-constraints):** stay in Python; keep the hand-rolled loop/registry/MCP/sandbox;
-do **not** adopt an agent framework; keep wrapping the **official vendor SDKs**
-rather than reimplementing wire protocols. The only genuinely open
-build-vs-adopt question left is narrow and provider-layer-local — see Open
-Questions ("harden vs. `any-llm`").
+constraints):** stay in Python; keep the **hand-rolled** architecture (do **not**
+adopt an agent framework); keep wrapping the **official vendor SDKs** rather than
+reimplementing wire protocols. **"Hand-rolled" means *not a framework* — it does
+not mean the agent loop is frozen.** Leveraging the LLMs' full capabilities
+inherently extends the loop (tool exposure, dispatch, iteration), as Flight 3
+demonstrated; that work is in scope. The build-vs-adopt question ("harden vs.
+`any-llm`") was resolved provider-layer-local, but capability work legitimately
+spans the agent layer too.
 
 ## Success Criteria
 
@@ -165,10 +205,13 @@ Questions ("harden vs. `any-llm`").
 
 ## Constraints
 
-- **No agent framework.** The hand-rolled agent loop, tool registry, MCP
-  integration, and sandbox stay. This mission touches `the_one/llm/`, the
-  `Message` protocol, and the persistence codec that serializes it — nothing
-  else.
+- **No agent framework (but the loop is not frozen).** The architecture stays
+  **hand-rolled** — do not adopt LangChain/LiteLLM/etc. or replace the loop. But
+  the mission changes whatever leveraging an LLM capability requires: the
+  `the_one/llm/` adapters, the `Message` protocol, the persistence codec, **and
+  the agent loop / tool exposure / dispatch** (e.g. Flight 3's degraded tool
+  protocol + redundant-call backstop). Extending the hand-rolled loop is in
+  scope; adopting a framework is not.
 - **Stay in Python.** The language decision is settled (the TS-ness of the
   reference tools is about CLI distribution/frontend ergonomics, not this
   project's exec-heavy/sandboxed/packaged shape — and not the cause of any bug
@@ -188,8 +231,10 @@ Questions ("harden vs. `any-llm`").
   contract (including the `__MASKED__` API-key sentinel in the provider edit
   form).
 - **Out of scope**: adopting a full agent framework; a TypeScript rewrite;
-  adding new providers; changing the agent loop's iteration/auth-pause logic;
-  changing the web UI beyond surfacing thinking content.
+  adding new providers; **regressing** the agent loop's
+  auth-pause/`_deferred_tool_calls` semantics or the sandbox (the loop *may* be
+  extended for capability work — see the Outcome — but these safety invariants
+  must be preserved); changing the web UI beyond surfacing thinking content.
 
 ## Environment Requirements
 
@@ -277,7 +322,7 @@ Confirmed by the Flight 1 spike (2026-06-17):
       `type`; isolate and **name the offending tool** instead of failing the whole
       turn. (Optionally folds in #122's bundled UI enhancement — a copy-button on
       chat error bubbles — or split that out.) Closes the bug the operator hit.
-- [ ] Flight 3: **Open-model tool-use robustness (Ollama/Gemma) (#105)** — add a
+- [x] Flight 3: **Open-model tool-use robustness (Ollama/Gemma) (#105)** — add a
       **text-form tool-call recovery parser** that runs when `supports_tools()` is
       `False`: detect the ` ```tool ` fenced Python-call block (captured from
       gemma3:4b) plus Hermes-tag / bare-JSON variants, normalized into structured

@@ -19,9 +19,9 @@ value is refused at the surface they interact with.
 
 ## Preconditions
 
-- the-one container is running on `http://localhost:8484`, built from the Flight-1 branch
-  (`make rebuild` after the Flight-1 edits — the image is baked, so source edits are not live
-  until a rebuild). Verified by an active probe: the operator opens the URL and sees Studio
+- the-one is running host-native on `http://localhost:8484`, on the Flight-1 branch
+  (`make restart` after the Flight-1 edits — `the one serve` has no `--reload`, so a restart
+  picks up source edits). Verified by an active probe: the operator opens the URL and sees Studio
   render.
 - At least one agent exists (the dev `mock` provider suffices). The test uses whichever agent
   the operator points it at; the agent's name is supplied at run time.

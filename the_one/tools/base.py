@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
 from pydantic import BaseModel
 
 from the_one.tools.resolver import _EmptyConfig
+
+logger = logging.getLogger(__name__)
+
+# Sentinel key under which the recovery kernel parks recovered positional
+# args (e.g. gemma's ``shell("echo …")``). Defined LOCALLY here — NOT imported
+# from ``the_one.llm._toolcall_recovery`` — to keep ``the_one/tools`` from
+# importing ``the_one/llm`` (the kernel is a leaf and must stay one). The
+# literal is duplicated, not imported, in either direction; the kernel keeps
+# its own identical ``POSITIONAL_ARGS_KEY``.
+POSITIONAL_ARGS_KEY = "__positional_args__"
 
 
 class ConstraintError(Exception):
@@ -102,6 +113,56 @@ class Tool(ABC):
     async def execute(self, **kwargs: Any) -> str:
         """Run the tool and return a string result."""
         ...
+
+    def bind_positional_args(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Map recovered positional args onto this tool's named parameters.
+
+        M16 F03 L07 (#105): the recovery kernel parks positional args (e.g.
+        gemma's ``shell("echo …")``) under ``POSITIONAL_ARGS_KEY`` because it
+        is schema-less and cannot name them. This method — which lives on the
+        ``Tool`` because the parameter schema lives here — binds those
+        positionals onto ``self.parameters["properties"]`` names in
+        **declaration order**, skipping any name already supplied as a keyword
+        (keyword args always win).
+
+        Pure and total over ``dict`` input: returns a **new** dict (never
+        mutates the input) with the sentinel removed and the bound names added.
+
+        Edge handling (DD-C):
+        - No sentinel → return an equivalent dict unchanged (no-op; every
+          existing structured call passes through untouched).
+        - Tool with no ``properties`` → leave the sentinel as-is (a no-arg tool
+          called with args should still surface as an error downstream).
+        - More positionals than free slots → bind what fits, leave the
+          remainder under the sentinel + a ``logger.warning`` (never silently
+          dropped).
+        """
+        if POSITIONAL_ARGS_KEY not in arguments:
+            return dict(arguments)
+
+        positional = arguments[POSITIONAL_ARGS_KEY]
+        bound = {k: v for k, v in arguments.items() if k != POSITIONAL_ARGS_KEY}
+
+        properties = self.parameters.get("properties", {}) if self.parameters else {}
+        # Declaration-order property names not already supplied as keywords —
+        # keyword args win, so a name already present is not a bindable slot.
+        slots = [name for name in properties if name not in bound]
+
+        n = min(len(positional), len(slots))
+        for name, value in zip(slots[:n], positional[:n]):
+            bound[name] = value
+
+        leftover = positional[n:]
+        if leftover:
+            bound[POSITIONAL_ARGS_KEY] = leftover
+            logger.warning(
+                "tool %r: %d recovered positional arg(s) had no parameter slot "
+                "to bind to; left under %s",
+                self.name,
+                len(leftover),
+                POSITIONAL_ARGS_KEY,
+            )
+        return bound
 
     def to_schema(self) -> dict[str, Any]:
         return {

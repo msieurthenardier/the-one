@@ -15,37 +15,38 @@ still hold; the prose interpretation has shifted.
 
 **Scope**: Two tiers.
 
-- **Tier 1** (required, per F6 flight §7): in-repo dev-container procedure against `mcp-server-fetch`. The binary go/no-go for retiring the F2-known-issue (`MCPClient transport close failed` warning) from `missions/07-mcp-integration/mission.md::Known Issues`.
+- **Tier 1** (required, per F6 flight §7): in-repo host-native procedure against `mcp-server-fetch`. The binary go/no-go for retiring the F2-known-issue (`MCPClient transport close failed` warning) from `missions/07-mcp-integration/mission.md::Known Issues`.
 - **Tier 2** (binding for F6.5 close): live Cloudflare API MCP procedure against F6.5's Test connection button + F5's DCR happy path. Per F6.5 Design Decision §4 — flight cannot land without this PASS. Replaces the prior GitHub manual-entry procedure (deleted at F6.5 L0+L1 along with the manual-entry OAuth surface).
 
 **Prerequisites**:
 
 ```bash
-# Inside the project root
-docker compose ps                              # the-one service shows (healthy)
-docker compose exec the-one which bwrap        # → /usr/bin/bwrap
-docker compose exec the-one python -c "import mcp_server_fetch; print('OK')"
+# Inside the project root. Start the host-native dev server if it isn't up:
+make up                                        # → backgrounds the-one + verify-serving
+which bwrap                                    # → /usr/bin/bwrap
+.venv/bin/python -c "import mcp_server_fetch; print('OK')"
 # If the import fails:
-docker compose exec the-one pip install mcp-server-fetch
+.venv/bin/pip install mcp-server-fetch
 # WARNING: the install downgrades httpx to 0.27.x. F5 OAuth is import-clean
 # under that version but has not been runtime-tested. If F5 OAuth breaks at
 # runtime post-install, file a follow-up flight to pin httpx>=0.28 in the
-# Dockerfile and bump mcp-server-fetch's compat range.
+# venv and bump mcp-server-fetch's compat range.
 ```
 
 ---
 
-## Tier 1 — Required (in-dev-container, ~10 min)
+## Tier 1 — Required (host-native, ~10 min)
 
 ### Pre-flight
 
-Open a shell at the project root. The procedure assumes the dev container at `localhost:8484` (default `the_one.config::settings.port`).
+Open a shell at the project root. The procedure assumes the host-native dev server at `localhost:8484` (default `the_one.config::settings.port`), launched via `make up` — it writes its stdout/stderr to the persistent log file `.the-one.log` (overridable via `THE_ONE_LOGFILE`).
 
-Capture the start timestamp so the post-run log scan is bounded:
+The host log accumulates across the whole `make up` session, so the post-run scans below are bounded by a **line-count marker** captured now (rather than a `--since` timestamp): record how many lines the log already has, then scan only lines added after that point with `tail -n +`.
 
 ```bash
-HAT_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo "HAT_START=$HAT_START"   # e.g. 2026-05-08T11:30:00Z
+HAT_LOG=${THE_ONE_LOGFILE:-.the-one.log}
+HAT_START_LINE=$(( $(wc -l < "$HAT_LOG" 2>/dev/null || echo 0) + 1 ))
+echo "HAT_LOG=$HAT_LOG HAT_START_LINE=$HAT_START_LINE"   # scan from this line onward
 ```
 
 ### Step 1 — Pre-state: register the MCP source
@@ -67,7 +68,7 @@ FETCH_ID=$(curl -s http://localhost:8484/api/mcp-sources | jq -r '.[] | select(.
 echo "FETCH_ID=$FETCH_ID"
 ```
 
-**Verify**: `FETCH_ID` is a non-empty UUID-shaped string. If you get an error, paste the response + the relevant `docker compose logs --tail=20 the-one` and stop here.
+**Verify**: `FETCH_ID` is a non-empty UUID-shaped string. If you get an error, paste the response + the relevant tail of the host log (`tail -n 20 "$HAT_LOG"`) and stop here.
 
 ### Step 2 — Configure two agents with attach + override
 
@@ -109,7 +110,7 @@ curl -s -X PUT http://localhost:8484/api/agents/hat_agent_b \
 Build agent A and inspect its tool registry. The MCP tools appear under the prefixed namespace `mcp__fetch_local__*`.
 
 ```bash
-docker compose exec the-one python <<'PY'
+.venv/bin/python <<'PY'
 import asyncio
 from the_one.agent.factory import AgentFactory
 from the_one.agent.store import SQLiteAgentStore
@@ -136,7 +137,7 @@ PY
 
 Note (F10): the LLM does NOT see these MCP tools in its `tools=` array at session start. The agent must call `search_tools` to load them into the model-visible set (the unified `search_tools` covers both built-in and MCP catalogs). This HAT step validates registry membership, not model-visibility.
 
-If you see zero MCP tools but no Python error: check `docker compose logs --tail=50 the-one` for a `WARNING: MCP source 'fetch_local' failed to connect` (failure class #2 — graceful-degrade kicked in). Diagnose + report.
+If you see zero MCP tools but no Python error: check `tail -n 50 "$HAT_LOG"` for a `WARNING: MCP source 'fetch_local' failed to connect` (failure class #2 — graceful-degrade kicked in). Diagnose + report.
 
 ### Step 4 — Tool-call dispatch + per-agent isolation
 
@@ -147,7 +148,7 @@ Open the chat UI for agent A in a browser at `http://localhost:8484/chat?agent=h
 Watch the response. The tool call should round-trip through the F4 pool to the bwrap-spawned subprocess and return the page text. Then **immediately** check the subprocess count:
 
 ```bash
-docker compose exec the-one pgrep -af mcp_server_fetch
+pgrep -af mcp_server_fetch
 ```
 
 **Verify**: exactly **one** PID running.
@@ -155,7 +156,7 @@ docker compose exec the-one pgrep -af mcp_server_fetch
 Now open a second tab to `http://localhost:8484/chat?agent=hat_agent_b` and send the same prompt. After the response lands:
 
 ```bash
-docker compose exec the-one pgrep -af mcp_server_fetch
+pgrep -af mcp_server_fetch
 ```
 
 **Verify**: now **two** PIDs (one per agent — F4's per-`(agent, source)` keying with distinct env overrides forces distinct subprocesses).
@@ -171,7 +172,7 @@ curl -s -X DELETE "http://localhost:8484/api/mcp-sources/$FETCH_ID" -w 'HTTP %{h
 Now rebuild agent A and inspect the tool registry:
 
 ```bash
-docker compose exec the-one python <<'PY'
+.venv/bin/python <<'PY'
 import asyncio
 from the_one.agent.factory import AgentFactory
 from the_one.agent.store import SQLiteAgentStore
@@ -192,27 +193,27 @@ PY
 
 **Verify**: zero `mcp__fetch_local__*` tools. The agent rebuild succeeded (no exception); the deleted source's tools are absent.
 
-Also check the docker logs for the expected WARNING:
+Also check the host log for the expected WARNING (scan only lines added since the `HAT_START_LINE` marker):
 
 ```bash
-docker compose logs --since="$HAT_START" the-one 2>&1 | grep -E "deleted MCP source|failed to connect"
+tail -n +"$HAT_START_LINE" "$HAT_LOG" 2>&1 | grep -E "deleted MCP source|failed to connect"
 ```
 
 **Verify**: at least one log line matching `agent 'hat_agent_a' references deleted MCP source <FETCH_ID>; skipping`.
 
 ### Caplog gate — the binary go/no-go for F2-known-issue retirement
 
-This is the F2-known-issue retirement decision point. Scan the docker logs from `HAT_START` to now for the verbatim warning string F5 L1 sought to retire:
+This is the F2-known-issue retirement decision point. Scan the host log from the `HAT_START_LINE` marker to the end for the verbatim warning string F5 L1 sought to retire:
 
 ```bash
-docker compose logs --since="$HAT_START" the-one 2>&1 \
+tail -n +"$HAT_START_LINE" "$HAT_LOG" 2>&1 \
   | grep "MCPClient transport close failed" \
   | wc -l
 ```
 
 **Decision**:
 - Count is **0** → **PASS**. F2-known-issue retirement gate satisfied. Report PASS.
-- Count is **> 0** → **FAIL**. Capture the matching lines (`docker compose logs --since="$HAT_START" the-one 2>&1 | grep "MCPClient transport close failed"`) and report FAIL.
+- Count is **> 0** → **FAIL**. Capture the matching lines (`tail -n +"$HAT_START_LINE" "$HAT_LOG" 2>&1 | grep "MCPClient transport close failed"`) and report FAIL.
 
 ### Cleanup (optional)
 
@@ -254,8 +255,14 @@ Manual operator verification against `https://mcp.cloudflare.com/mcp` via F6.5's
 ### Setup
 
 1. Operator has a Cloudflare account (free-tier acceptable — sign up at <https://dash.cloudflare.com/sign-up> if needed).
-2. `the-one` dev container is up at `http://localhost:8484` (verify: `docker compose ps`).
+2. The host-native `the-one` dev server is up at `http://localhost:8484` (verify: `make verify-serving`, or start it with `make up`).
 3. Operator's browser allows popups for `localhost:8484`.
+4. Capture a host-log line marker for the caplog gate below:
+   ```bash
+   HAT_LOG=${THE_ONE_LOGFILE:-.the-one.log}
+   T2_START_LINE=$(( $(wc -l < "$HAT_LOG" 2>/dev/null || echo 0) + 1 ))
+   echo "HAT_LOG=$HAT_LOG T2_START_LINE=$T2_START_LINE"
+   ```
 
 ### Procedure
 
@@ -274,9 +281,9 @@ Manual operator verification against `https://mcp.cloudflare.com/mcp` via F6.5's
 
 ### Caplog gate
 
-After Step 7, check the dev container logs for `MCPClient.disconnect` warnings:
+After Step 7, check the host log (from the `T2_START_LINE` marker) for `MCPClient.disconnect` warnings:
 ```bash
-docker compose logs the-one --since 30m | grep -i "transport close failed\|disconnect" | wc -l
+tail -n +"$T2_START_LINE" "$HAT_LOG" | grep -i "transport close failed\|disconnect" | wc -l
 ```
 
 Expected: 0 occurrences. Carry-forward from F6 Tier-1 HAT — F4's worker-task-per-entry pattern + F5 L1's dispatcher-owned-stack mechanism work as designed against real subprocess teardown.

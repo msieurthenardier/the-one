@@ -18,8 +18,8 @@ is observable through the surfaces an operator uses.
 
 ## Preconditions
 
-- the-one container running on `http://localhost:8484`, rebuilt from the Flight-2 branch
-  (`make rebuild` after the F2 edits — image-baked). Verified by an active probe.
+- the-one is running host-native on `http://localhost:8484`, on the Flight-2 branch
+  (`make restart` after the F2 edits — a restart picks up source edits). Verified by an active probe.
 - Two agents exist (the dev `mock` provider suffices): a **target** agent to purge and a
   **bystander** agent that must remain untouched. Their names are supplied at run time.
 - Operator has the Chrome MCP browser session attached to that URL.

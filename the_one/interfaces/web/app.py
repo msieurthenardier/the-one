@@ -202,9 +202,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # configuration now lives on the connector.config row (added by the
     # v26 migration; edited per-connector via the Studio connector
     # editor at F13 L4). If the operator's environment still sets either
-    # legacy env var (e.g. carried over in docker-compose.yml from the
-    # F7 L12 HAT), surface a one-time deprecation warning so the dead
-    # env var is visible without breaking startup.
+    # legacy env var (e.g. carried over in a host shell profile or .env
+    # from the F7 L12 HAT), surface a one-time deprecation warning so the
+    # dead env var is visible without breaking startup.
     _legacy_pid = os.environ.get("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID")
     _legacy_model = os.environ.get("THE_ONE_INFERENCE_MODEL")
     if _legacy_pid or _legacy_model:
@@ -403,7 +403,7 @@ _WEB_SESSION_REAPER_INTERVAL_SECONDS = 30.0
 
 # Set of in-flight per-message processing tasks spawned by the WebSocket
 # handler. Tracked so FastAPI's lifespan teardown can cancel them on
-# shutdown (otherwise a `make rebuild` mid-tool-call would leave a
+# shutdown (otherwise a `make restart` mid-tool-call would leave a
 # detached coroutine). Tasks self-discard on completion via `add_done_callback`.
 _inflight_tasks: set[asyncio.Task] = set()
 

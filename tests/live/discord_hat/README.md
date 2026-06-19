@@ -69,8 +69,9 @@ For Discord bots, **Application ID == Bot User ID**. This is the id you put
 in `THE_ONE_HAT_BOT_USER_ID`. The driver uses it to construct `@mention`
 strings (`<@<id>>`) and to address DMs to the-one.
 
-Alternatively, once the connector is warm, `docker logs the-one` shows the
-gateway READY event with the bot's user id.
+Alternatively, once the connector is warm, the host log (`make logs`, or
+`grep 'READY' .the-one.log`) shows the gateway READY event with the bot's
+user id.
 
 ---
 
@@ -115,20 +116,19 @@ set -a; . tests/live/discord_hat/.env.hat; set +a
 set -a; . tests/live/discord_hat/.env.hat; set +a
 make test-discord-hat
 
-# Or directly via docker exec (matches the Makefile target):
-docker exec the-one pytest -m discord_hat tests/live/discord_hat/ -v --tb=short
+# Or directly (matches the Makefile target — runs host-native against .venv):
+.venv/bin/python -m pytest -m discord_hat tests/live/discord_hat/ -v --tb=short
 
 # Single scenario:
-docker exec the-one pytest tests/live/discord_hat/test_smoke.py -v -s --timeout 300
+.venv/bin/python -m pytest tests/live/discord_hat/test_smoke.py -v -s --timeout 300
 
 # Smoke only (fastest — just premises + topology, no ACL mutation):
-docker exec the-one pytest tests/live/discord_hat/test_smoke.py -v -s --timeout 120
+.venv/bin/python -m pytest tests/live/discord_hat/test_smoke.py -v -s --timeout 120
 ```
 
-**Use `docker exec the-one pytest …`** — NOT `docker compose exec` in
-non-interactive contexts. `docker compose exec` defaults to `-it` (interactive
-+ TTY) and hangs forever when stdin is not a TTY. Pass `-T` to disable TTY
-if you must use compose.
+Prefer `make test-discord-hat` — it sources the env and runs the suite
+host-native against the repo `.venv`. The raw `.venv/bin/python -m pytest …`
+forms above are for running a single scenario in isolation.
 
 ---
 
@@ -191,11 +191,11 @@ client connects). It is NOT read fresh on every dispatch — the value is
 captured in the closure at startup.
 
 **Consequence:** if you change `ingest_bots` on the connector (via the Admin
-UI or the API), the running container is still using the old value. You MUST
-restart the container for the new setting to take effect:
+UI or the API), the running process is still using the old value. You MUST
+restart the-one for the new setting to take effect:
 
 ```bash
-docker restart the-one
+make restart
 # or:
 make down && make up
 ```
@@ -245,8 +245,8 @@ hardcoded in source) precisely to make re-provisioning a one-file change.
 The-one's Discord connector by default ignores bot-authored messages
 (`ingest_bots=false`). The test connector MUST have `ingest_bots=true` for
 the burner bots to be ingested as peers. After changing this setting, restart
-the container (see connect-time closure above). If the smoke sees no session
-after timeout, `ingest_bots` is the first suspect — check `docker logs the-one`.
+the-one (see connect-time closure above). If the smoke sees no session
+after timeout, `ingest_bots` is the first suspect — check the host log (`make logs`).
 
 **Both Connector Agent 1 and Connector Agent 2 must be attached.**  
 The multi-user and multi-channel scenarios assert on routing to specific

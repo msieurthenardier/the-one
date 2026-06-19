@@ -37,10 +37,11 @@ security posture below are deliberate design choices, not gaps to fix.
 
 ## Network Bind
 
-- Default `host=127.0.0.1` (localhost only).
-- `docker-compose.yml` overrides to `0.0.0.0` so the dev container is
-  reachable from the host loopback. This is intentional for the dev form
-  factor; the operator owns the docker bridge network.
+- Default `host=127.0.0.1` (localhost only). Host-native (`the-one serve` /
+  `make up`) binds this default, so the dev server is reachable only on the
+  loopback unless the operator overrides `THE_ONE_HOST`. Exposing the app on a
+  routable interface is the operator's choice and the operator owns host
+  firewalling.
 - A future production form factor (e.g., desktop app) reverts to
   localhost-only. Any deployment exposing the app over a network is
   responsible for fronting it with a reverse proxy that adds auth — that
@@ -258,8 +259,8 @@ with the unsandboxed Windows posture.
   when the operator hasn't touched the field. See [CLAUDE.md](CLAUDE.md)
   "`__MASKED__` sentinel for API key updates".
 - `.env` is gitignored.
-- No secrets land in `.env.example`, `Dockerfile`, or
-  `docker-compose.yml`.
+- No secrets land in any committed file (e.g. `.env.example`, which carries
+  placeholders only).
 
 ## What This Model Excludes
 

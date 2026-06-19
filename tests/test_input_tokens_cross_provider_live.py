@@ -14,21 +14,20 @@ fault.
 Marker: ``@pytest.mark.live`` — deselected from default CI. Run with
 ``pytest -m live`` and the relevant provider credentials set in env.
 
-Operator invocation examples (run from inside the ``the-one``
-container, or via ``docker exec``):
+Operator invocation examples (run host-native against the repo venv,
+credentials supplied via env):
 
     # Single provider
-    docker exec -e ANTHROPIC_API_KEY=sk-... the-one \\
-        pytest -m live \\
+    ANTHROPIC_API_KEY=sk-... .venv/bin/python -m pytest -m live \\
         tests/test_input_tokens_cross_provider_live.py::test_anthropic_input_tokens_monotonic -v
 
     # All available providers (each test self-skips when its
     # credentials are absent)
-    docker exec -e ANTHROPIC_API_KEY=sk-... \\
-        -e OPENAI_API_KEY=sk-... \\
-        -e LIVE_OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 \\
-        -e OPENROUTER_API_KEY=sk-or-... \\
-        the-one pytest -m live \\
+    ANTHROPIC_API_KEY=sk-... \\
+        OPENAI_API_KEY=sk-... \\
+        LIVE_OLLAMA_BASE_URL=http://localhost:11434/v1 \\
+        OPENROUTER_API_KEY=sk-or-... \\
+        .venv/bin/python -m pytest -m live \\
         tests/test_input_tokens_cross_provider_live.py -v
 
 Per-provider model overrides (useful when the default model isn't
