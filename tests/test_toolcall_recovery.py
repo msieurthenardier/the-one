@@ -35,16 +35,12 @@ def test_gemma_fenced_python_call_kwargs():
 
 def test_untagged_fence_single_call():
     content = "```\nget_weather(city='Paris')\n```"
-    assert recover_tool_calls(content) == [
-        {"name": "get_weather", "arguments": {"city": "Paris"}}
-    ]
+    assert recover_tool_calls(content) == [{"name": "get_weather", "arguments": {"city": "Paris"}}]
 
 
 def test_python_fence_single_call():
     content = "```python\nget_weather(city='Paris')\n```"
-    assert recover_tool_calls(content) == [
-        {"name": "get_weather", "arguments": {"city": "Paris"}}
-    ]
+    assert recover_tool_calls(content) == [{"name": "get_weather", "arguments": {"city": "Paris"}}]
 
 
 def test_tool_code_fence_positional_shell_call():
@@ -66,9 +62,7 @@ def test_tool_code_fence_positional_shell_call():
 def test_positional_args_carried_not_dropped(caplog):
     with caplog.at_level(logging.WARNING):
         result = recover_tool_calls("```tool\nget_weather('Paris')\n```")
-    assert result == [
-        {"name": "get_weather", "arguments": {POSITIONAL_ARGS_KEY: ["Paris"]}}
-    ]
+    assert result == [{"name": "get_weather", "arguments": {POSITIONAL_ARGS_KEY: ["Paris"]}}]
     assert any("positional" in r.message for r in caplog.records)
 
 
@@ -106,9 +100,7 @@ def test_dotted_function_name_preserved():
 
 def test_hermes_single_and_multi():
     single = '<tool_call>{"name": "get_weather", "arguments": {"city": "Paris"}}</tool_call>'
-    assert recover_tool_calls(single) == [
-        {"name": "get_weather", "arguments": {"city": "Paris"}}
-    ]
+    assert recover_tool_calls(single) == [{"name": "get_weather", "arguments": {"city": "Paris"}}]
 
     multi = (
         '<tool_call>{"name": "get_weather", "arguments": {"city": "Paris"}}</tool_call>'
@@ -142,9 +134,7 @@ def test_hermes_missing_name_skipped():
         '<tool_call>{"arguments": {"city": "Paris"}}</tool_call>'
         '<tool_call>{"name": "get_time", "arguments": {}}</tool_call>'
     )
-    assert recover_tool_calls(content) == [
-        {"name": "get_time", "arguments": {}}
-    ]
+    assert recover_tool_calls(content) == [{"name": "get_time", "arguments": {}}]
 
 
 def test_hermes_arguments_missing_defaults_empty():
@@ -159,13 +149,10 @@ def test_hermes_arguments_missing_defaults_empty():
 
 def test_bare_json_shapes():
     plain = '{"name": "get_weather", "arguments": {"city": "Paris"}}'
-    assert recover_tool_calls(plain) == [
-        {"name": "get_weather", "arguments": {"city": "Paris"}}
-    ]
+    assert recover_tool_calls(plain) == [{"name": "get_weather", "arguments": {"city": "Paris"}}]
 
     function_wrapper = (
-        '{"type": "function", "function": '
-        '{"name": "get_weather", "arguments": {"city": "Paris"}}}'
+        '{"type": "function", "function": {"name": "get_weather", "arguments": {"city": "Paris"}}}'
     )
     assert recover_tool_calls(function_wrapper) == [
         {"name": "get_weather", "arguments": {"city": "Paris"}}
@@ -181,8 +168,7 @@ def test_bare_json_only_whole_content():
     # A tool-call-shaped JSON object embedded in surrounding prose must NOT
     # fire the bare-JSON recognizer (DD2 whole-content gate).
     content = (
-        'Here is the call: {"name": "get_weather", "arguments": {"city": "Paris"}} '
-        "and that is all."
+        'Here is the call: {"name": "get_weather", "arguments": {"city": "Paris"}} and that is all.'
     )
     assert recover_tool_calls(content) == []
 
@@ -194,10 +180,7 @@ def test_bare_json_only_whole_content():
 
 def test_multi_call_ordered():
     # Two fenced calls of the same format → ordered 2-element list.
-    content = (
-        "```tool\nget_weather(city='Paris')\n```\n"
-        "```tool\nget_time(tz='UTC')\n```"
-    )
+    content = "```tool\nget_weather(city='Paris')\n```\n```tool\nget_time(tz='UTC')\n```"
     assert recover_tool_calls(content) == [
         {"name": "get_weather", "arguments": {"city": "Paris"}},
         {"name": "get_time", "arguments": {"tz": "UTC"}},
@@ -211,9 +194,7 @@ def test_cross_format_first_recognizer_wins():
         "```tool\nget_weather(city='Paris')\n```\n"
         '<tool_call>{"name": "get_time", "arguments": {"tz": "UTC"}}</tool_call>'
     )
-    assert recover_tool_calls(content) == [
-        {"name": "get_time", "arguments": {"tz": "UTC"}}
-    ]
+    assert recover_tool_calls(content) == [{"name": "get_time", "arguments": {"tz": "UTC"}}]
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +282,10 @@ def test_recover_and_strip_multi_fence_all_stripped_in_order():
 
 
 def test_recover_and_strip_hermes_stripped():
-    content = 'before <tool_call>{"name": "get_weather", "arguments": {"city": "Paris"}}</tool_call> after'
+    content = (
+        'before <tool_call>{"name": "get_weather", "arguments": {"city": "Paris"}}'
+        "</tool_call> after"
+    )
     stripped, calls = recover_and_strip(content)
     assert calls == [{"name": "get_weather", "arguments": {"city": "Paris"}}]
     assert "<tool_call>" not in stripped

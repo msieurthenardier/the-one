@@ -188,16 +188,12 @@ class TestBindPositionalArgs:
         tool = _ShellLikeTool()
         # `command` already supplied as a keyword → positional fills the next
         # free declaration-order slot (`cwd`), keyword `command` is preserved.
-        out = tool.bind_positional_args(
-            {"command": "ls", POSITIONAL_ARGS_KEY: ["/tmp"]}
-        )
+        out = tool.bind_positional_args({"command": "ls", POSITIONAL_ARGS_KEY: ["/tmp"]})
         assert out == {"command": "ls", "cwd": "/tmp"}
 
     def test_multiple_positionals_bind_in_declaration_order(self) -> None:
         tool = _ShellLikeTool()
-        out = tool.bind_positional_args(
-            {POSITIONAL_ARGS_KEY: ["echo hi", "/tmp", 5]}
-        )
+        out = tool.bind_positional_args({POSITIONAL_ARGS_KEY: ["echo hi", "/tmp", 5]})
         assert out == {"command": "echo hi", "cwd": "/tmp", "timeout": 5}
 
     def test_overflow_leaves_remainder_under_sentinel_and_warns(
@@ -206,9 +202,7 @@ class TestBindPositionalArgs:
         tool = _ShellLikeTool()
         # 5 positionals, only 4 properties → 1 leftover.
         with caplog.at_level(logging.WARNING):
-            out = tool.bind_positional_args(
-                {POSITIONAL_ARGS_KEY: ["a", "b", 1, True, "extra"]}
-            )
+            out = tool.bind_positional_args({POSITIONAL_ARGS_KEY: ["a", "b", 1, True, "extra"]})
         assert out["command"] == "a"
         assert out["cwd"] == "b"
         assert out["timeout"] == 1
@@ -224,9 +218,7 @@ class TestBindPositionalArgs:
     def test_real_shell_tool_binds_command(self) -> None:
         from the_one.tools.shell import ShellTool
 
-        out = ShellTool().bind_positional_args(
-            {POSITIONAL_ARGS_KEY: ["echo hi"]}
-        )
+        out = ShellTool().bind_positional_args({POSITIONAL_ARGS_KEY: ["echo hi"]})
         assert out == {"command": "echo hi"}
 
 

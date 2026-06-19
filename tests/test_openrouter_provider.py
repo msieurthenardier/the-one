@@ -8,8 +8,8 @@ import logging
 import httpx
 import pytest
 
-from the_one.llm.base import Message, Role
 from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
+from the_one.llm.base import Message, Role
 
 # Leg-01 ``press_key`` fixture (top-level ``anyOf`` is the #122 trigger the
 # leg-01 sanitizer flattens), shared across the conformance suite via

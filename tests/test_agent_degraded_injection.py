@@ -170,9 +170,7 @@ class TestDegradedInjection:
 
     async def test_self_messages_unmutated_and_tail_passthrough(self) -> None:
         llm = CapturingLLM([Message.assistant("ok")], supports=False)
-        agent = Agent(
-            llm=llm, tools=_registry_with_virtuals(), system_prompt=_system_prompt()
-        )
+        agent = Agent(llm=llm, tools=_registry_with_virtuals(), system_prompt=_system_prompt())
         original_system = agent.messages[0].content
 
         await _collect(agent, "hello there")
@@ -229,9 +227,7 @@ class TestDegradedInjection:
 class TestCapableUnchanged:
     async def test_no_addendum_and_messages_are_self_messages(self) -> None:
         llm = CapturingLLM([Message.assistant("ok")], supports=True)
-        agent = Agent(
-            llm=llm, tools=_registry_with_virtuals(), system_prompt=_system_prompt()
-        )
+        agent = Agent(llm=llm, tools=_registry_with_virtuals(), system_prompt=_system_prompt())
 
         await _collect(agent, "do a thing")
 

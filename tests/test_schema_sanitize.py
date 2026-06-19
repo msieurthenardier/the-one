@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import copy
 
+from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
 from the_one.llm._schema_sanitize import (
     UnsanitizableToolSchema,
     sanitize_tool_schema,
 )
-from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
 
 # The real-world trigger: goldfinch's ``press_key`` tool input_schema (top-level
 # ``anyOf`` alongside a top-level ``type``; the #122 trigger). Shared across the

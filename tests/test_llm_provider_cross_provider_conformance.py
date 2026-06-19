@@ -295,14 +295,14 @@ def test_cross_provider_same_schema_sanitized_vs_verbatim():
     assert or_anthropic_schema["type"] == "object"
 
     # --- Verbatim routes: the top-level `anyOf` combinator is preserved. ---
-    openai_schema = OpenAIProvider(model="gpt-4o", api_key="x").tool_schema(
-        _press_key_tool_def()
-    )["function"]["parameters"]
+    openai_schema = OpenAIProvider(model="gpt-4o", api_key="x").tool_schema(_press_key_tool_def())[
+        "function"
+    ]["parameters"]
     assert "anyOf" in openai_schema
 
-    ollama_schema = OllamaProvider(
-        model="qwen2.5:7b", base_url="http://t:11434"
-    ).tool_schema(_press_key_tool_def())["function"]["parameters"]
+    ollama_schema = OllamaProvider(model="qwen2.5:7b", base_url="http://t:11434").tool_schema(
+        _press_key_tool_def()
+    )["function"]["parameters"]
     assert "anyOf" in ollama_schema
 
     or_openai_schema = OpenRouterProvider(model="openai/gpt-4o", api_key="x").tool_schema(
@@ -488,9 +488,7 @@ def test_unsanitizable_schema_forward_with_warn_vs_drop(caplog):
     with caplog.at_level(logging.WARNING, logger="the_one.llm.openrouter_provider"):
         result = orp.tool_schema(copy.deepcopy(td))
     assert result["function"]["parameters"] == UNSANITIZABLE_ANYOF_SCHEMA
-    or_warns = [
-        r for r in caplog.records if r.name == "the_one.llm.openrouter_provider"
-    ]
+    or_warns = [r for r in caplog.records if r.name == "the_one.llm.openrouter_provider"]
     assert or_warns, "expected a WARN on the OpenRouter forward path"
 
     caplog.clear()

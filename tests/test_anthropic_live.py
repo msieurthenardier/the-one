@@ -37,10 +37,10 @@ import re
 import anthropic
 import pytest
 
+from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
 from the_one.llm._schema_sanitize import sanitize_tool_schema
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.base import Message, Role
-from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
 
 pytestmark = pytest.mark.live
 

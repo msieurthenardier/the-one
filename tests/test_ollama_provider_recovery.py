@@ -105,9 +105,7 @@ def _patch_chat_stream(monkeypatch, chunks) -> None:
 
 
 async def _run_stream(monkeypatch, content_pieces, tool_call_deltas=None):
-    _patch_chat_stream(
-        monkeypatch, _stream_chunks(content_pieces, tool_call_deltas)
-    )
+    _patch_chat_stream(monkeypatch, _stream_chunks(content_pieces, tool_call_deltas))
     prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1")
     chunks = []
     async for ch in prov.stream([Message(role=Role.USER, content="hi")]):
@@ -194,10 +192,7 @@ async def test_complete_no_false_positive_on_prose(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_complete_multi_call_recovered_in_order(monkeypatch):
-    content = (
-        "```tool\nget_weather(city='Paris')\n```\n"
-        "```tool\nget_time(zone='UTC')\n```"
-    )
+    content = "```tool\nget_weather(city='Paris')\n```\n```tool\nget_time(zone='UTC')\n```"
     msg = await _run_complete(monkeypatch, content)
     assert [tc.name for tc in msg.tool_calls] == ["get_weather", "get_time"]
     assert [tc.id for tc in msg.tool_calls] == ["get_weather_0", "get_time_1"]
@@ -248,9 +243,7 @@ async def test_stream_strips_recognized_block(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stream_strip_preserves_surrounding_prose(monkeypatch):
-    final, _ = await _run_stream(
-        monkeypatch, ["Checking.\n", GEMMA_FIXTURE, "\nDone."]
-    )
+    final, _ = await _run_stream(monkeypatch, ["Checking.\n", GEMMA_FIXTURE, "\nDone."])
     assert len(final.message.tool_calls) == 1
     assert "```tool" not in final.message.content
     assert "Checking." in final.message.content
@@ -285,10 +278,7 @@ async def test_stream_no_false_positive_on_prose(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stream_multi_call_recovered_in_order(monkeypatch):
-    content = (
-        "```tool\nget_weather(city='Paris')\n```\n"
-        "```tool\nget_time(zone='UTC')\n```"
-    )
+    content = "```tool\nget_weather(city='Paris')\n```\n```tool\nget_time(zone='UTC')\n```"
     final, _ = await _run_stream(monkeypatch, [content])
     tcs = final.message.tool_calls
     assert [tc.name for tc in tcs] == ["get_weather", "get_time"]
