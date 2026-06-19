@@ -1,28 +1,33 @@
 #!/usr/bin/env bash
-# F9 L2 D2 smoke test — verify generic-runtime container model.
+# F9 L2 D2 smoke test — verify the generic-runtime model host-native.
 #
-# Runs INSIDE the container (designed to be invoked via
-# `docker compose exec the-one bash scripts/smoke_runtime_caches.sh` or
-# directly inside an interactive shell). Verifies:
+# Runs host-native (invoked via `make smoke-runtimes` or directly).
+# Verifies:
 #
-#   1. uvx / pipx / npx CLIs resolve on PATH (Dockerfile installed them)
-#   2. cache directories exist at the documented paths (volumes mounted)
+#   1. uvx / pipx / npx CLIs resolve on PATH
+#   2. cache directories exist at the documented host paths
 #   3. uvx end-to-end: `uvx mcp-server-time --help` runs (proves the
-#      install pipeline works — first run fetches into /root/.cache/uv,
+#      install pipeline works — first run fetches into the uv cache,
 #      subsequent runs hit cache)
-#   4. cache files actually written by step 3 (volume is being used)
+#   4. cache files actually written by step 3 (cache dir is being used)
 #
-# Cache PERSISTENCE-across-restart is verified by running this script
-# BEFORE and AFTER `docker compose restart the-one`: step 3's second run
-# will be fast if the volume persisted. The script does not run
-# `docker compose restart` itself (it runs INSIDE the container; the
-# operator drives the restart from the host).
+# Host-native intent (M16 F03 L06): the original premise was that the
+# generic-runtime caches PERSIST across `docker compose restart` (named
+# volumes). Host-native there is no container restart — the caches live in
+# the operator's host home (XDG / $HOME), so they persist by default. The
+# check is therefore narrowed to cache-population + reuse on the host:
+# step 3 populates the uv cache, step 4 confirms it. Re-running the script
+# exercises the cache-hit (fast) path.
 #
 # Exit non-zero on any failure so `make` integration / CI can gate on it.
 
 set -euo pipefail
 
-echo "── F9 L2 D2 runtime smoke ──────────────────────────────────────────"
+UV_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/uv"
+PIPX_HOME_DIR="$HOME/.local/share/pipx"
+NPM_CACHE_DIR="${npm_config_cache:-$HOME/.npm}"
+
+echo "── F9 L2 D2 runtime smoke (host-native) ────────────────────────────"
 echo ""
 
 # Step 1: CLIs resolve.
@@ -37,14 +42,12 @@ for cmd in uvx pipx npx; do
 done
 echo ""
 
-# Step 2: cache dirs (created on demand by the runtimes; the named volumes
-# mount the parent paths regardless, so we just verify the mountpoints
-# resolve).
-echo "[2/4] Checking cache directories are reachable ..."
-for path in /root/.cache/uv /root/.local/share/pipx /root/.npm; do
-    parent=$(dirname "$path")
+# Step 2: host cache dirs (created on demand by the runtimes; we just verify
+# the paths are creatable / reachable).
+echo "[2/4] Checking host cache directories are reachable ..."
+for path in "$UV_CACHE_DIR" "$PIPX_HOME_DIR" "$NPM_CACHE_DIR"; do
     if ! mkdir -p "$path" 2>/dev/null; then
-        echo "  ✗ Cannot create $path (volume mount failed?)"
+        echo "  ✗ Cannot create $path"
         exit 1
     fi
     echo "  ✓ $path reachable"
@@ -55,7 +58,7 @@ echo ""
 # the canonical L2 secondary target per the leg artifact's "Cloudflare-
 # state-equivalent for stdio" section.
 echo "[3/4] Running 'uvx mcp-server-time --help' end-to-end ..."
-echo "      (first run: fetches into /root/.cache/uv; subsequent: cache-hit)"
+echo "      (first run: fetches into $UV_CACHE_DIR; subsequent: cache-hit)"
 if ! uvx mcp-server-time --help >/tmp/uvx_smoke.out 2>&1; then
     echo "  ✗ uvx invocation failed:"
     cat /tmp/uvx_smoke.out
@@ -72,18 +75,16 @@ echo "  ✓ uvx mcp-server-time --help completed successfully"
 echo ""
 
 # Step 4: confirm cache was populated by step 3.
-echo "[4/4] Verifying /root/.cache/uv received cache content ..."
-if [ -z "$(ls -A /root/.cache/uv 2>/dev/null || true)" ]; then
-    echo "  ✗ /root/.cache/uv is empty after uvx run — cache volume mounted?"
+echo "[4/4] Verifying $UV_CACHE_DIR received cache content ..."
+if [ -z "$(ls -A "$UV_CACHE_DIR" 2>/dev/null || true)" ]; then
+    echo "  ✗ $UV_CACHE_DIR is empty after uvx run"
     exit 1
 fi
-cache_entries=$(ls /root/.cache/uv | wc -l)
-echo "  ✓ /root/.cache/uv contains $cache_entries top-level entries"
+cache_entries=$(ls "$UV_CACHE_DIR" | wc -l)
+echo "  ✓ $UV_CACHE_DIR contains $cache_entries top-level entries"
 echo ""
 
 echo "── Smoke PASSED ────────────────────────────────────────────────────"
 echo ""
-echo "Persistence check (operator drives from host):"
-echo "  1. Note the timing of step 3 above (first run = slow fetch)"
-echo "  2. Run: docker compose restart the-one"
-echo "  3. Re-run this script — step 3 should be fast (cache-hit)"
+echo "Reuse check: re-run this script — step 3 should be fast (cache-hit"
+echo "against the host cache populated above)."

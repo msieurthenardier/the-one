@@ -1,44 +1,50 @@
 # the-one — local dev convenience targets.
 #
-# Why this file exists: the Dockerfile `COPY the_one/` bakes JS/CSS/Python
-# into the image at build time. Editing source on the host does NOT update
-# the running container at port 8484 — `make rebuild` is required for
-# changes to surface. (Tests spawn their own uvicorn subprocess via the
-# conftest fixtures; that path is independent of the container.)
+# Why this file exists: the-one runs host-native via `the-one serve`
+# (console script → `uvicorn.run(app, settings.host, settings.port)`).
+# `make up` launches it in the background against the repo venv; `make
+# restart` is how source edits take effect (the `serve` entry has no
+# `--reload`). Tests spawn their own uvicorn subprocess via the conftest
+# fixtures; that path is independent of the `make up` server.
 
 .DEFAULT_GOAL := help
-
-# ── Container lifecycle ────────────────────────────────────────────────
-
-.PHONY: up
-up: ## Start the-one (no rebuild)
-	docker compose up -d the-one
-
-.PHONY: down
-down: ## Stop the-one
-	docker compose down
-
-.PHONY: rebuild
-rebuild: ## Rebuild image + restart (REQUIRED after editing JS/CSS/Python)
-	docker compose build the-one
-	docker compose up -d the-one
-	@$(MAKE) --no-print-directory verify-serving
-
-.PHONY: rebuild-browsers
-rebuild-browsers: rebuild _ensure-playwright  ## Rebuild dev container + ensure Playwright Chromium present
-
-.PHONY: rebuild-clean
-rebuild-clean: ## Rebuild image + wipe DB volume + restart fresh (HAT prep, no confirm gate)
-	docker compose down
-	docker volume rm -f the-one_the_one_data
-	docker compose build the-one
-	docker compose up -d the-one
-	@$(MAKE) --no-print-directory verify-serving
 
 # ── Host interpreter ──────────────────────────────────────────────────
 # Prefer the repo venv when present; fall back to bare python3.
 # Override on the command line: make test PY=python3.11
 PY := $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
+
+THE_ONE_PIDFILE ?= .the-one.pid
+THE_ONE_LOGFILE ?= .the-one.log
+
+# ── App lifecycle (host-native) ───────────────────────────────────────
+
+.PHONY: up
+up: ## Start the-one host-native in the background (PID + log file)
+	@if [ -f $(THE_ONE_PIDFILE) ] && kill -0 $$(cat $(THE_ONE_PIDFILE)) 2>/dev/null; then \
+		echo "already running (pid $$(cat $(THE_ONE_PIDFILE)))"; exit 0; \
+	fi
+	@nohup $(PY) -m the_one.main serve >$(THE_ONE_LOGFILE) 2>&1 & echo $$! >$(THE_ONE_PIDFILE)
+	@echo "started the-one (pid $$(cat $(THE_ONE_PIDFILE))) — log: $(THE_ONE_LOGFILE)"
+	@$(MAKE) --no-print-directory verify-serving
+
+.PHONY: down
+down: ## Stop the-one (by PID)
+	@if [ -f $(THE_ONE_PIDFILE) ] && kill -0 $$(cat $(THE_ONE_PIDFILE)) 2>/dev/null; then \
+		kill $$(cat $(THE_ONE_PIDFILE)) && echo "stopped the-one (pid $$(cat $(THE_ONE_PIDFILE)))"; \
+	else \
+		echo "not running (no live pid in $(THE_ONE_PIDFILE))"; \
+	fi
+	@rm -f $(THE_ONE_PIDFILE)
+
+.PHONY: restart
+restart: ## Restart host-native (picks up source edits — `serve` has no --reload)
+	@$(MAKE) --no-print-directory down
+	@$(MAKE) --no-print-directory up
+
+.PHONY: logs
+logs: ## Follow the host log file
+	@tail -f $(THE_ONE_LOGFILE)
 
 # Internal target: install Playwright Chromium into the host Playwright cache
 # (idempotent — ``playwright install chromium`` is a no-op when already present).
@@ -51,11 +57,11 @@ _ensure-playwright:
 	$(PY) -m playwright install chromium
 
 .PHONY: reset-db
-reset-db: ## Wipe DB volume + restart (DESTRUCTIVE — requires CONFIRM=1)
+reset-db: ## Wipe the host data dir + restart (DESTRUCTIVE — requires CONFIRM=1)
 	@if [ "$(CONFIRM)" != "1" ]; then \
-		echo "✗ Refusing to wipe DB without CONFIRM=1"; \
+		echo "✗ Refusing to wipe the data dir without CONFIRM=1"; \
 		echo ""; \
-		echo "  This will DELETE everything in /root/.the-one inside the container:"; \
+		echo "  This will DELETE everything in the host data dir (settings.data_dir):"; \
 		echo "    • SQLite DB (providers, agents, chat sessions, KBs, MCP sources)"; \
 		echo "    • Encryption key (any backed-up encrypted API keys become unreadable)"; \
 		echo "    • Knowledge base files"; \
@@ -63,27 +69,15 @@ reset-db: ## Wipe DB volume + restart (DESTRUCTIVE — requires CONFIRM=1)
 		echo "  Re-run with: make reset-db CONFIRM=1"; \
 		exit 1; \
 	fi
-	docker compose down
-	docker volume rm -f the-one_the_one_data
-	docker compose up -d the-one
-	@$(MAKE) --no-print-directory verify-serving
-
-.PHONY: restart
-restart: ## Restart container without rebuilding (picks up env var changes only)
-	docker compose restart the-one
-
-.PHONY: logs
-logs: ## Follow container logs
-	docker compose logs -f the-one
-
-.PHONY: shell
-shell: ## Open a bash shell inside the container
-	docker exec -it the-one bash
+	@$(MAKE) --no-print-directory down
+	@dd=$$($(PY) -c "from the_one.config import settings; print(settings.data_dir)"); \
+		echo "wiping $$dd"; rm -rf "$$dd"
+	@$(MAKE) --no-print-directory up
 
 # ── Verification ───────────────────────────────────────────────────────
 
 .PHONY: verify-serving
-verify-serving: ## Sanity-check that the running container serves the current source
+verify-serving: ## Sanity-check that the host-native app serves the current source
 	@echo "Waiting for http://localhost:8484/api/info to come up (max 30s) ..."
 	@for i in $$(seq 1 30); do \
 		if curl -fsS http://localhost:8484/api/info >/dev/null 2>&1; then \
@@ -95,23 +89,20 @@ verify-serving: ## Sanity-check that the running container serves the current so
 		sleep 1; \
 	done
 	@echo "Verifying admin sub-modules served ..."
-	@for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js admin/design-language-page.js admin/design-language/tokens-section.js admin/design-language/typography-section.js admin/design-language/buttons-section.js admin/design-language/fields-section.js admin/design-language/surfaces-section.js admin/design-language/status-section.js admin/design-language/tabs-section.js admin/design-language/modal-section.js admin/design-language/markdown-section.js layout/section-nav.js; do \
+	@for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js admin/design-language-page.js admin/design-language/tokens-section.js admin/design-language/typography-section.js admin/design-language/buttons-section.js admin/design-language/fields-section.js admin/design-language/surfaces-section.js admin/design-language/status-section.js admin/design-language/tabs-section.js admin/design-language/modal-section.js layout/section-nav.js; do \
 		code=$$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8484/static/js/areas/$$f); \
 		if [ "$$code" = "200" ]; then echo "  ✓ $$f served (200)"; \
-		else echo "  ✗ $$f returned $$code — image may be stale, run 'make rebuild'" && exit 1; fi; \
+		else echo "  ✗ $$f returned $$code — not serving; check 'make logs' / 'make restart'" && exit 1; fi; \
 	done
 
 # ── Brand assets ──────────────────────────────────────────────────────
 
 .PHONY: brand-assets
 brand-assets: ## Derive favicon + topbar icon PNGs from source mascot via Pillow
-	docker exec the-one python /app/scripts/derive_brand_assets.py
+	$(PY) scripts/derive_brand_assets.py
 
 # ── Tests ──────────────────────────────────────────────────────────────
 # All test targets run host-native via the repo .venv (see PY variable above).
-# Non-test container-management targets (reset-db, restart, logs, shell,
-# verify-serving, brand-assets, smoke-runtimes) remain on Docker — out of scope
-# for this leg.
 
 .PHONY: test
 test: ## Run all default tests host-native (unit + browser; excludes -m live and -m pixel)
@@ -136,7 +127,7 @@ test-bwrap: ## Run @requires_bwrap sandbox tests host-native (default-deselected
 	$(PY) -m pytest -m requires_bwrap tests/ -v --tb=short
 
 .PHONY: test-live
-test-live: ## Run live-LLM tests host-native (AIAT — requires a running the-one server; /app/ paths won't resolve on host)
+test-live: ## Run live-LLM tests host-native (AIAT — requires a running the-one server)
 	$(PY) -m pytest -m live tests/test_aiat.py -v --tb=short
 
 .PHONY: test-discord-hat
@@ -146,8 +137,8 @@ test-discord-hat: ## Run live multi-bot Discord HAT host-native (needs bot token
 # ── Smoke (F9 L2 D2 generic-runtime) ──────────────────────────────────
 
 .PHONY: smoke-runtimes
-smoke-runtimes: ## Verify uvx / pipx / npx + their cache volumes (F9 L2 D2)
-	docker compose exec -T the-one bash scripts/smoke_runtime_caches.sh
+smoke-runtimes: ## Verify uvx / pipx / npx + their host caches populate and are reused (F9 L2 D2)
+	bash scripts/smoke_runtime_caches.sh
 
 # ── Code quality ───────────────────────────────────────────────────────
 
@@ -185,11 +176,11 @@ audit-bytes:  ## Detect raw U+2028/U+2029 (LSEP/PSEP) chars in tracked .py sourc
 
 .PHONY: help
 help: ## Show this help
-	@echo "the-one — local dev targets"
+	@echo "the-one — local dev targets (host-native)"
 	@echo ""
 	@echo "Common workflow after editing JS/CSS/Python:"
-	@echo "  make rebuild   # rebuild image + restart + verify"
-	@echo "  make logs      # tail logs"
+	@echo "  make restart   # restart the host-native app (no --reload) + verify"
+	@echo "  make logs      # tail the host log file"
 	@echo "  make test      # run the test suite"
 	@echo ""
 	@echo "All targets:"

@@ -38,6 +38,26 @@
 > vs. what the-one wires through; the gap list becomes the capability-flight
 > backlog (prioritized by the operator). The two confirmed bugs are the immediate
 > work; the capability coverage is the broader goal.
+>
+> **★ Agent-layer scope expansion (operator-authorized, Flight 3 Leg 08, 2026-06-19).**
+> Flight 3 Leg 08 deliberately expands into `the_one/agent/` (new
+> `agent/degraded_tools.py`, a `DEGRADED_BASE_PROMPT` in `agent/config.py`, and a
+> degraded-branch change in `agent/core.py`) to inject a **direct tool protocol**
+> for non-tool-capable models (`supports_tools=False`, e.g. gemma3:4b) — two
+> behavior-test runs proved recognizer-only recovery is best-effort, not reliable,
+> so the durable fix is telling the model the catalog + one parseable call format
+> upstream. Narrowly scoped to tool exposure / prompt for non-tool models; does NOT
+> touch the iteration/auth-pause logic or the `LLMProvider` contract. See the
+> Flight 3 leg-08 spec + flight-log Decisions.
+
+> **★ Agent-loop iteration-logic expansion (operator-authorized, Flight 3 Leg 09, 2026-06-19).**
+> Flight 3 Leg 09 expands further — into the agent loop's **iteration/dispatch
+> logic** in `agent/core.py` `_run_iterations` (which the prior legs deliberately
+> left untouched) — to add a degraded-path **redundant-tool-call backstop**: detect
+> when a non-tool-capable model re-emits a call whose result it already holds and
+> terminates with an empty message, suppress the re-dispatch, and synthesize a
+> non-empty closing answer. Scoped to the `not supports_tools` branch; does NOT
+> alter the auth-pause/`_deferred_tool_calls` flow or the `LLMProvider` contract.
 
 ## Outcome
 
@@ -277,7 +297,7 @@ Confirmed by the Flight 1 spike (2026-06-17):
       `type`; isolate and **name the offending tool** instead of failing the whole
       turn. (Optionally folds in #122's bundled UI enhancement — a copy-button on
       chat error bubbles — or split that out.) Closes the bug the operator hit.
-- [ ] Flight 3: **Open-model tool-use robustness (Ollama/Gemma) (#105)** — add a
+- [x] Flight 3: **Open-model tool-use robustness (Ollama/Gemma) (#105)** — add a
       **text-form tool-call recovery parser** that runs when `supports_tools()` is
       `False`: detect the ` ```tool ` fenced Python-call block (captured from
       gemma3:4b) plus Hermes-tag / bare-JSON variants, normalized into structured

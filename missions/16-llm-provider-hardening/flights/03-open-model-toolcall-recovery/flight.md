@@ -1,6 +1,6 @@
 # Flight: Open-Model Tool-Use Robustness — Text-Form Tool-Call Recovery (#105)
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -215,8 +215,8 @@ test confirms the full agent loop executes the tool end-to-end with no raw call 
 - [ ] Recovery kernel + unit suite green (gemma fenced Python-call fixture, Hermes, bare-JSON,
       multi-call, no-false-positive-on-prose, positional best-effort)
 - [ ] Ollama adapter recovers in `complete()` + `stream()`; content-strip; synthesized ids
-- [ ] Degraded round-trip question resolved (round-trips cleanly, or `_to_api_message`
-      adapted)
+- [x] Degraded round-trip question resolved (round-trips cleanly — gemma3:4b accepts the
+      structured tool-history with `tools` omitted; no `_to_api_message` change, contract pinned)
 - [ ] `@pytest.mark.live` test confirms recovery against real gemma3:4b
 - [ ] Behavior test passes: real gemma turn executes the tool; no raw ` ```tool ` block shown
 
@@ -235,13 +235,13 @@ test confirms the full agent loop executes the tool end-to-end with no raw call 
 
 ### Legs
 
-- [ ] `toolcall-recovery-kernel` — new pure, stdlib-only `the_one/llm/_toolcall_recovery.py`
+- [x] `toolcall-recovery-kernel` — new pure, stdlib-only `the_one/llm/_toolcall_recovery.py`
       (DD1–DD3): `recover_tool_calls(content) -> list[dict]` handling the gemma ` ```tool `
       fenced Python-call (ast-based, kwargs first-class), Hermes `<tool_call>` tags, and bare-
       JSON tool-call objects; high-precision (no recovery from prose); multi-call; `[]` on no
       match. Exhaustive unit tests incl. the captured gemma fixture, each format, multi-call,
       positional best-effort, and no-false-positive cases.
-- [ ] `wire-into-ollama-adapter` — call the kernel when structured `tool_calls` is empty; map
+- [x] `wire-into-ollama-adapter` — call the kernel when structured `tool_calls` is empty; map
       recovered dicts → `ToolCall` with synthesized ids (DD4); strip the recognized block from
       returned `content`. **Insertion points (explicit):** in `complete()` after the structured
       parse at `:117-129` and before the `Message.assistant(...)` at `:139`; in `stream()`
@@ -252,24 +252,41 @@ test confirms the full agent loop executes the tool end-to-end with no raw call 
       recovered `tool_calls`, stripped content, a clean structured response is unaffected, and
       **pin the `ToolCall.id` synthesized here so it round-trips to `ToolResult.tool_call_id`**
       (the loop preserves it via `core.py:331-336`).
-- [ ] `degraded-roundtrip-probe` — empirically resolve DD5 against live gemma3:4b: does a
-      follow-up with assistant-`tool_calls` + `role:"tool"` history and `tools=None` get
-      accepted? **Likely** documents "round-trips cleanly, no change"; if rejected, adapt
-      **both** `_to_api_message` branches (DD5): the assistant `tool_calls` message → inline
-      text, and the `role:"tool"` result message → `role:"user"`/`system` prose; pin the gating
-      signal and add a hermetic test for the chosen serialization. (Probe script in `/tmp`, not
-      committed; finding recorded in the flight log Anomalies — Flight 2 `leg 03` pattern.)
-- [ ] `live-verify-gemma` — `@pytest.mark.live` test (deselected by `make test`): drive
+- [x] `degraded-roundtrip-probe` — empirically resolved DD5 against live gemma3:4b: a follow-up
+      with assistant-`tool_calls` + `role:"tool"` history and `tools` omitted is **ACCEPTED (2xx,
+      model replied)** — round-trips cleanly, **no production code change**. No adaptation needed;
+      the structured `_to_api_message` serialization is pinned by a hermetic test
+      (`tests/test_ollama_degraded_roundtrip.py`). Probe was throwaway in `/tmp` (not committed);
+      finding recorded in the flight log (Decisions "DD5 resolved LIVE" + Leg Progress).
+- [x] `live-verify-gemma` — `@pytest.mark.live` test (deselected by `make test`): drive
       `OllamaProvider("gemma3:4b")` against local Ollama with a tool-eliciting prompt and assert
       the returned `Message` carries a **recovered** `ToolCall` **and** that `Message.content`
       no longer contains a raw ` ```tool ` block (recovery fired AND the strip happened, DD4).
       Proves the kernel handles real model output, not just the captured fixture. Self-skips
       when Ollama/gemma3:4b is absent.
-- [ ] `behavior-test-gemma-tool-use` — author (if not already) and **run** the behavior test
+- [x] `behavior-test-gemma-tool-use` — author (if not already) and **run** the behavior test
       `tests/behavior/gemma-tool-use-recovery.md` via `/behavior-test gemma-tool-use-recovery`:
       end-to-end through the running agent (`/api/chat`), a gemma turn that should call a
       built-in tool **executes** it and the final answer reflects the tool output, with **no**
       raw ` ```tool ` block rendered. Run log committed; a failing test blocks the leg.
+- [x] `docker-removal-host-native` *(added mid-flight — operator-directed DIVERSION, 2026-06-18)* —
+      rip out all stale **deployment**-Docker scaffolding (`Dockerfile`, `docker-compose.yml`,
+      `.dockerignore`, the Makefile container-lifecycle targets, the crew `docker exec` prompt line,
+      and Docker-as-deployment prose in `CLAUDE.md` / `SECURITY-MODEL.md` / `tests/HAT.md` / two
+      `scripts/`) and replace each with its host-native equivalent (`the-one serve`, host data-dir
+      reset, host log tail, etc.). Docker was retired for the Windows installer a prior mission but
+      the scaffold lingered and misled execution. **Preserve** tool-sandbox-Docker references and
+      historical artifacts. See flight-log Deviations + leg 06. Executes **before** the behavior test.
+- [x] `gemma-toolcode-positional-fix` *(added after leg-05 behavior test failed; operator: "fix both")* —
+      add `tool_code` to the recovery kernel's recognized fences + schema-aware positional→named arg
+      binding (`Tool.bind_positional_args`) applied via a one-line `_execute_tool` change. Code landed;
+      the behavior-test re-run still failed (gemma format variability) → led to leg 08.
+- [x] `degraded-model-direct-tool-protocol` *(DURABLE FIX — operator-directed MISSION-scope expansion
+      into `the_one/agent/`, 2026-06-19)* — for `supports_tools()=False` models, inject a direct tool
+      protocol (tool catalog + pinned ` ```tool_code\nname(arg="val")\n``` ` format) into the agent
+      loop's degraded branch so the model emits a deterministically-parseable call the kernel recovers.
+      Recognizer-based recovery alone proved best-effort, not reliable (two behavior-test runs). See
+      flight-log Decisions + leg 08. Re-runs the behavior test (must pass before landing).
 - [ ] `uat-and-alignment` *(optional)* — guided hands-on session tuning recovery behavior
       against real gemma output (false-positive feel, multi-call ordering, stripping aesthetics).
 

@@ -11,7 +11,7 @@ Verify the F7 policy gate decides engaged-vs-silent correctly across its decisio
 
 ## Preconditions
 
-- the-one container is running on `http://localhost:8484` and the Studio loads at that URL.
+- the-one is running host-native on `http://localhost:8484` and the Studio loads at that URL.
 - The Discord bot (GleepGlorp) is online and its connector account `58f1fe5a833f` is listed in Studio with `#gleepglorp-text` on the allowlist.
 - Cave Man Bot is attached to the Discord connector account; Sonos Agent is not.
 - Inference provider is set to a local Ollama (e.g. `qwen2.5:7b`) so the inference path runs without external API rate limits.
@@ -22,7 +22,7 @@ Verify the F7 policy gate decides engaged-vs-silent correctly across its decisio
 ## Observables Required
 
 - browser (Studio DOM + Discord channel UI, measured via chrome-devtools MCP)
-- filesystem (the-one SQLite database, measured via `docker exec` — used only in `[mixed-frame]` rows where the user-facing outcome can't distinguish two internal policy decisions)
+- filesystem (the-one SQLite database, read directly on the host — used only in `[mixed-frame]` rows where the user-facing outcome can't distinguish two internal policy decisions)
 
 ## Steps
 

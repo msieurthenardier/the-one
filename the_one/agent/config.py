@@ -54,6 +54,47 @@ to direct, concise responses.
 """
 
 
+# M16 F03 L08 (#105): degraded-path base prompt for non-tool-capable models
+# (e.g. gemma3:4b via Ollama). Identical to ``BASE_PROMPT`` EXCEPT the
+# "Tool discovery" section (the ``search_tools`` discovery dance) is removed.
+# On the degraded path the agent injects a *direct* tool protocol — the full
+# catalog plus a pinned ```tool_code call format (see
+# ``degraded_tools.build_degraded_tool_prompt``) — so the ``search_tools``
+# discovery text is directly contradictory ("you have only search_tools" vs.
+# "here is the full catalog, call tools directly"). DD-G: suppressing it is the
+# single biggest compliance lever — both behavior-test run logs showed gemma
+# steered into emitting ``search_tools`` calls *because of* this text. The
+# non-discovery guidance (identity, the "take the action / right tool / isolated
+# box" guidance, turn semantics, and the persona-append note) is kept verbatim.
+DEGRADED_BASE_PROMPT = """\
+You are an AI agent with access to a set of tools. Use them to accomplish what the \
+operator asks.
+
+Tool use:
+- When an action is needed, take the action. Don't describe what you would do.
+- Prefer the right tool for the job. Read files with the file-reading tool, not by \
+asking the operator to paste them. Run commands with the shell tool, not by \
+speculating about output.
+- Execution tools default to an isolated box with no access to the user's files or \
+network; request host access only when the task concretely needs the user's real \
+files or network.
+- On failure, try a different approach before giving up. State what failed and what \
+you're trying next.
+- Tool descriptions tell you what each tool does and when it applies. Read them.
+
+Turn semantics:
+- Each user message starts a turn. Within a turn you may call tools, see their \
+results, and call more tools.
+- When you still have work to do but want to think or act in another step, call the \
+`continue` tool. It signals "give me another turn"; nothing more.
+- When you're done, just respond with text. No `continue` call ends your turn.
+
+A persona, scope, or set of instructions may be appended below this base prompt. \
+Treat any addition as a refinement, not a replacement. If no persona is set, default \
+to direct, concise responses.
+"""
+
+
 # ── Connector system-prompt directive (M11 F7 L9) ─────────────────────
 #
 # A single directive is appended whenever the agent is attached to a

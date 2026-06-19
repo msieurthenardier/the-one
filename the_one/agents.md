@@ -113,7 +113,7 @@ Reference: `App.perf` in `static/js/perf.js` — `?perf=1` or `localStorage.getI
 
 ### `host-side-bench-drift-detection`
 
-Targets that detect drift between the host bench and the canonical container run on the host (not `docker exec`), surface a clean diagnostic on failure, and are invoked manually (not on every dev iteration). Container-first tooling (`make test`, `make lint`) cannot see host venv drift.
+Targets that detect drift between the host bench and the canonical test environment (the repo `.venv`), surface a clean diagnostic on failure, and are invoked manually (not on every dev iteration). The `make test` / `make lint` chains run host-native against `.venv` and cannot, on their own, see venv drift introduced out-of-band.
 
 Pattern: live under `# ── Drift detection (host-side) ──` in the `Makefile`; use `.venv/bin/python3 -c "..."` (NOT bare `python -c`, which has a PATH foot-gun); exit 0 if clean, non-zero with a clear `ModuleNotFoundError` / `AssertionError` if drift detected. Spec MUST include both a positive probe (clean → exit 0) AND a negative probe (deliberate violation → non-zero) — "clean tree exits 0" alone doesn't prove detection. For `git grep` recursive `**` pathspecs, use the `:(glob)` prefix; git's default mode treats `**` literally.
 
@@ -133,11 +133,11 @@ Example: `LLMProvider.max_context_tokens` (Ollama queries `/api/show` once per m
 
 Generalises to any field where the upstream value is unknown until a per-model / per-session probe completes. Lazily-resolved fields are owned by the provider and must be read through the provider, never copied across a function boundary.
 
-### `container-test-entrypoints-reach-via-make`
+### `host-test-entrypoints-reach-via-make`
 
-Tests run in the container image (the canonical test environment). The `make test-*` targets chain required preconditions; raw `docker exec the-one pytest -m <marker>` bypasses them.
+Tests run host-native against the repo `.venv` (the canonical test environment), driven by `scripts/run-tests.sh`. The `make test-*` targets chain required preconditions; a raw `.venv/bin/python -m pytest -m <marker>` invocation bypasses them.
 
-Concrete foot-gun: `make rebuild` wipes `~/.cache/ms-playwright/`; raw `docker exec the-one pytest -m browser` then produces hundreds of "Executable doesn't exist" errors. `make test-browser` chains `_ensure-playwright` (conditional re-install, no-op when present). Raw `docker exec ... pytest` is a debugging tool — fine for one isolated failure, wrong as the default invocation.
+Concrete foot-gun: if `~/.cache/ms-playwright/` is missing, a raw `.venv/bin/python -m pytest -m browser` produces hundreds of "Executable doesn't exist" errors. `make test-browser` chains `_ensure-playwright` (conditional re-install, no-op when present). A raw pytest invocation is a debugging tool — fine for one isolated failure, wrong as the default invocation.
 
 Before adding a NEW mitigation to a recurring foot-gun, audit whether the existing `make` chain already mitigates and the bug is in invocation form, not infrastructure form.
 
@@ -591,8 +591,9 @@ The Discord connector (and any future connector) emits one structured stdout log
 
 **Grep target for soak evidence**:
 ```
-docker logs the-one | grep -E 'connector\.(inbound|outbound)'
+grep -E 'connector\.(inbound|outbound)' .the-one.log
 ```
+(the host log written by `make up`; `make logs` follows it live.)
 Every inbound message accounts for exactly one `connector.inbound … disposition=…` line; outbound sends for `connector.outbound … disposition=…`. `disposition=dropped` is DEBUG-level (raise log verbosity to see bot-author/self/factory-unavailable noise filters).
 
 **Per-account counters**: `_RegistryEntry.inbound_counters` / `outbound_counters` (`dict[str,int]`) increment best-effort via `record_disposition(account_id, kind, disposition)` in `_pool.py`. Counters reset on pool eviction (accepted — they measure "since the current entry warmed"). Read via `GET /api/connectors/{id}/disposition-counters` → `{warm, inbound, outbound}`.
@@ -701,7 +702,7 @@ of enforcement is not silent.
 
 4. **`SandboxError` boundary** — Failures BEFORE bwrap successfully wraps-and-execs raise `SandboxError` (writable_paths entry doesn't exist, `EPERM` on `unshare`, container lacks §10 privilege grants). Failures AFTER (target spawned but exits non-zero, init handshake fails) raise `MCPConnectionError` / `MCPVersionMismatch`. **Bwrap missing** no longer raises `SandboxError` at construction time — the factory routes to `PassthroughSandbox` (one-time WARNING on Linux; no error). The runtime bwrap-stderr→`SandboxError` translation on the MCP stdio path (catalog messages in `the_one/mcp/errors.py`) still raises `SandboxError` on post-exec bwrap failures. `THE_ONE_SANDBOX_DISABLED` is never read in production paths. Catalog messages (operator-facing, verbatim-tested) live in `the_one/mcp/errors.py`.
 
-5. **Privilege model** — Dev container: `cap_add: [SYS_ADMIN]` AND `security_opt: [seccomp:unconfined]` (BOTH — SYS_ADMIN alone is filtered by docker's default seccomp profile). Browser-test CI: no privilege grants; `THE_ONE_SANDBOX_DISABLED=1` AND `THE_ONE_TEST_MODE=1` (BOTH; set ONLY by `tests/conftest.py::pytest_configure`). Production: no flags — bwrap is mandatory.
+5. **Privilege model** — Dev container (now retired): `cap_add: [SYS_ADMIN]` AND `security_opt: [seccomp:unconfined]` (BOTH — SYS_ADMIN alone is filtered by docker's default seccomp profile). Host-native dev runs bwrap directly with the host's own privileges, so those container grants no longer apply; the seccomp/SYS_ADMIN semantics are retained here as a record of what bwrap needs when it IS containerized. Browser-test CI: no privilege grants; `THE_ONE_SANDBOX_DISABLED=1` AND `THE_ONE_TEST_MODE=1` (BOTH; set ONLY by `tests/conftest.py::pytest_configure`). Production: no flags — bwrap is mandatory.
 
    **Operational guardrail**: `THE_ONE_TEST_MODE` MUST NOT appear in any Dockerfile, compose env, entrypoint script, k8s manifest, or CI variable. Presence outside pytest is a deployment defect.
 
@@ -934,7 +935,9 @@ unsandboxed" for the full model, including the Job Object lifecycle semantics.
 
 A virtual tool (`CONTINUE_SCHEMA`, defined inline in `core.py`) that the LLM calls to indicate it needs another iteration. Not a real tool — the agent loop intercepts it and loops.
 
-**Capability gate**: `Agent.step()` consults `LLMProvider.supports_tools()` once per turn. When tools are unsupported (e.g. Ollama Gemma — `/api/show` capabilities lack `"tools"`), the agent drops EVERYTHING from the wire payload — both real tool schemas AND `CONTINUE_SCHEMA` — and runs a single LLM iteration as plain chat. Silent fallback is deliberate; Studio's red `no tools` chip on the model selector is the only operator-facing signal.
+**Capability gate**: `Agent.step()` consults `LLMProvider.supports_tools()` once per turn. When tools are unsupported (e.g. Ollama Gemma — `/api/show` capabilities lack `"tools"`), the wire `tools=` array stays empty (Ollama 400s if a tools array is offered to a non-tool model). But the degraded path does **not** run as a single-shot toolless chat. M16 F03 L08 (#105): the agent injects a **direct tool protocol** into the system prompt — the full tool catalog (registry minus the virtual `search_tools`/`continue`) plus one pinned ```` ```tool_code ```` call format — so the model emits a parseable call that the leg-01/07 recovery kernel lifts and the loop dispatches. The degraded path is therefore actively tool-using AND multi-iterates as recovered calls return. The injection replaces `messages[0]` on an *ephemeral* request copy (the persisted history is untouched; the catalog re-renders each turn) and swaps the base prompt for `DEGRADED_BASE_PROMPT` (BASE_PROMPT minus the `search_tools` discovery block, which contradicts the direct catalog). Silent fallback is deliberate; Studio's red `no tools` chip on the model selector is the operator-facing signal.
+
+**Degraded redundant-call backstop**: M16 F03 L09 (#105): a degraded model (e.g. gemma3:4b) can get *stuck* — re-emitting a tool call whose result it already has, then terminating with an empty message (no closing answer). `_run_iterations` keeps a turn-local executed-map keyed on `(name, canonical-json(raw args)) → (result content, is_error)`, populated only after a successful, non-paused dispatch. On the degraded path each response's `tool_calls` are partitioned into new vs already-executed; **only new calls dispatch** (the redundant re-emission is dropped). When *all* calls are redundant: if the response has no text, the empty terminal assistant message is **replaced in-place** (not appended) with a synthesized closing surfacing the prior result(s) — so persisted history carries no empty message with orphaned `tool_calls`; if the response *does* have text, that text is the answer and its leftover undispatched `tool_calls` are cleared. The backstop is **gated on `not supports_tools`** — the capable path is byte-identical to before (a capable model may legitimately re-poll changing state, e.g. `shell("date")`). The auth-pause/`_deferred_tool_calls` flow is untouched (the map records only after a non-paused dispatch, so a paused call is never treated as redundant on resume).
 
 ### Model capability surface
 
@@ -950,7 +953,7 @@ The Pull Model dropdown is **deliberately NOT enriched** — `/api/tags` doesn't
 
 ### Dev iteration
 
-The dev container at `localhost:8484` runs `uvicorn ... --reload --reload-dir /app/the_one`. Host edits under `./the_one/` trigger a graceful uvicorn restart within ~1s. `./tests/` is bind-mounted but **not** watched (test edits don't bounce the server). Run tests with `docker exec the-one pytest ...` — fresh interpreters always see latest test code.
+The app runs host-native at `localhost:8484` via `the-one serve` (started by `make up`). `serve` has no `--reload`, so source edits under `./the_one/` take effect on `make restart`. Tests run host-native against the repo `.venv` — `.venv/bin/python -m pytest ...` (or the `make test-*` chains) always see the latest test code.
 
 ---
 
@@ -1318,9 +1321,9 @@ Pydantic Config schemas may declare UI-presentation hints via `Field(json_schema
 
 Public surface: `mark`, `measure`, `captureHeap`, `dump`, `summary`, `reset`. Every method short-circuits when disabled. Measurement procedures and budgets for specific scenarios (area-switch cycles, long-chat rendering, large session-history list, many-agents-in-studio) live in flight design documents, not this file.
 
-### `make rebuild` wipes Playwright Chromium
+### Missing Playwright Chromium breaks raw `-m browser`
 
-After `make rebuild`, `~/.cache/ms-playwright/` is gone — raw `docker exec the-one pytest -m browser` errors with hundreds of "Executable doesn't exist" failures. Recovery: `make _ensure-playwright` (idempotent re-install, ~30-60s). The `make test-browser` chain already chains this; only the raw invocation hits the foot-gun. See `container-test-entrypoints-reach-via-make` convention.
+If `~/.cache/ms-playwright/` is missing — raw `.venv/bin/python -m pytest -m browser` errors with hundreds of "Executable doesn't exist" failures. Recovery: `make _ensure-playwright` (idempotent re-install, ~30-60s). The `make test-browser` chain already chains this; only the raw invocation hits the foot-gun. See `host-test-entrypoints-reach-via-make` convention.
 
 ### `connector-live-status-via-poll`
 

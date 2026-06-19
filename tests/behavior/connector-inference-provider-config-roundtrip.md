@@ -11,12 +11,12 @@ Verify that an operator can configure per-connector inference LLM settings (Prov
 
 ## Preconditions
 
-- The-one container is running on `http://localhost:8484` and Studio loads at that URL (verified by an active probe: the operator opens the URL in a browser and sees the Studio render before invoking the test).
+- The-one is running host-native on `http://localhost:8484` and Studio loads at that URL (verified by an active probe: the operator opens the URL in a browser and sees the Studio render before invoking the test).
 - The operator has the chrome-devtools MCP browser session attached to that URL.
 - The operator has **at least 2 configured LLM providers** in `/api/providers` (verified by an active probe: the operator opens Studio's Providers area and confirms 2+ providers are listed; or runs `curl -s http://localhost:8484/api/providers | jq 'length'` and confirms `>= 2`). The flight spec's L4 Prerequisites already require "at least one configured LLM provider"; this spec asks for two so the dropdown's option-set is more than just the empty placeholder, and the round-trip can verify a non-placeholder selection persists.
 - At least one connector account exists in Studio (any type — Discord, Stub, or other). The test does NOT require the connector to be paired or live — only that it has an editable Session section. If none exists, the operator creates a Stub connector named `Inference-Test Bot` before invoking the test (verified by an active probe: `curl -s http://localhost:8484/api/connectors | jq 'length'` returns `>= 1`).
 - The operator knows the target connector's name (passed in as a parameter at run time or selected during step 1).
-- The build under test includes F13 L1+L2+L3+L4 commits (verified by checking the connector-editor source has the `inference_provider_config_id` reserved-key entry — `docker exec the-one git grep -n 'inference_provider_config_id' the_one/interfaces/web/static/js/areas/studio/connector-editor.js` returns at least 3 hits).
+- The build under test includes F13 L1+L2+L3+L4 commits (verified by checking the connector-editor source has the `inference_provider_config_id` reserved-key entry — `git grep -n 'inference_provider_config_id' the_one/interfaces/web/static/js/areas/studio/connector-editor.js` returns at least 3 hits).
 
 ## Observables Required
 

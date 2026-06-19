@@ -2,13 +2,12 @@
 # run-tests.sh — self-bounding, self-cleaning pytest wrapper.
 #
 # Why this exists:
-#   The dev container has no init/reaper (PID 1 is `uvicorn --reload`). Browser
-#   tests spawn a Playwright node driver + Chromium and a per-test uvicorn
-#   subprocess. If a `docker exec ... pytest` run is interrupted, the in-container
-#   pytest is NOT killed and its Chromium subtree keeps running unbounded —
-#   pegging a CPU core and leaving <defunct> zombies. This wrapper makes every
-#   run self-bounding (wall-clock cap) and self-cleaning (group SIGKILL on
-#   timeout OR on wrapper exit), so no run can orphan a subtree.
+#   Browser tests spawn a Playwright node driver + Chromium and a per-test
+#   uvicorn subprocess. If a host-native pytest run is interrupted (Ctrl-C, an
+#   agent's tool timeout, a killed shell), pytest's spawned Chromium subtree can
+#   keep running unbounded — pegging a CPU core and leaving <defunct> zombies.
+#   This wrapper makes every run self-bounding (wall-clock cap) and self-cleaning
+#   (group SIGKILL on timeout OR on wrapper exit), so no run can orphan a subtree.
 #
 # Mechanism:
 #   pytest runs in its OWN process group via `setsid`. All descendants

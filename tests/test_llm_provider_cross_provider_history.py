@@ -590,7 +590,7 @@ class TestCrossProviderHistoryLive:
 
     Each test is ``@pytest.mark.live``, deselected from default
     ``make test-unit`` runs. Run via ``make test-live`` or
-    ``docker exec the-one pytest tests/test_llm_provider_cross_provider_history.py -m live ...``.
+    ``.venv/bin/python -m pytest tests/test_llm_provider_cross_provider_history.py -m live ...``.
 
     Skip-marked when credentials/services missing via inline
     ``pytest.skip(...)`` at function entry, mirroring the canonical

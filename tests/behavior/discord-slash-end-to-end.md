@@ -11,7 +11,7 @@ Verify the six platform slash commands (`/whoami`, `/agents`, `/help`, `/talk_to
 
 ## Preconditions
 
-- The the-one container is running (the operator's connector worker is up).
+- the-one is running host-native (the operator's connector worker is up).
 - The operator's Discord bot is online, and its connector is configured with the test guild listed in `allowlist.guilds` — so the six slash commands registered for that guild post-L2 (slash-sync reads `allowlist.guilds`). The autocomplete-probe step (step 1) actively verifies this decaying live state before any command row runs; a missing-command probe is a precondition failure, not a confusing mid-test cascade.
 - The dedicated Discord user is logged into the Discord web client in the chrome-devtools MCP browser session, with the test channel open (the channel whose guild is on `allowlist.guilds`).
 - The dedicated Discord user is on the connector's allowlist (peer + channel + guild axes), so all six commands are ACL-permitted for that user post-L1.

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Model-capabilities cache: (base_url, model) → (capabilities_set, fetched_at).
 # Avoids a /api/show round-trip on every chat turn. TTL is short enough that a
-# `make rebuild` or new model pull is reflected within minutes.
+# `make restart` or new model pull is reflected within minutes.
 _CAPABILITIES_TTL = 300  # seconds
 _capabilities_cache: dict[tuple[str, str], tuple[frozenset[str], float]] = {}
 
