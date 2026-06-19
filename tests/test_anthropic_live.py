@@ -40,6 +40,7 @@ import pytest
 from the_one.llm._schema_sanitize import sanitize_tool_schema
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.base import Message, Role
+from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
 
 pytestmark = pytest.mark.live
 
@@ -49,25 +50,9 @@ _skip = pytest.mark.skipif(
     reason="ANTHROPIC_API_KEY not set",
 )
 
-# The real-world #122 trigger: goldfinch's ``press_key`` tool input_schema,
-# inlined verbatim (top-level ``anyOf`` alongside a top-level ``type``).
-# Matches ``tests/test_schema_sanitize.py``'s ``PRESS_KEY_INPUT_SCHEMA`` so the
-# two stay in lockstep without a cross-file import.
-PRESS_KEY_RAW = {
-    "type": "object",
-    "properties": {
-        "wcId": {"type": "integer", "description": "webContents id of the target tab"},
-        "name": {"type": "string", "description": "friendly key name (preferred) ..."},
-        "key": {"type": "string", "description": "accepted alias for `name` ..."},
-        "modifiers": {
-            "type": "array",
-            "items": {"type": "string", "enum": ["control", "shift", "alt", "meta"]},
-            "description": "optional modifier keys held during the press ...",
-        },
-    },
-    "required": ["wcId"],
-    "anyOf": [{"required": ["name"]}, {"required": ["key"]}],
-}
+# The real-world #122 trigger: goldfinch's ``press_key`` tool input_schema
+# (top-level ``anyOf`` alongside a top-level ``type``), shared across the
+# conformance suite via ``tests/fixtures/tool_schemas.py`` (DD6).
 
 
 @_skip
@@ -86,7 +71,7 @@ async def test_real_anthropic_accepts_sanitized_press_key_through_provider() -> 
         tool = {
             "name": "press_key",
             "description": "Press a keyboard key in the target tab.",
-            "parameters": PRESS_KEY_RAW,
+            "parameters": PRESS_KEY_INPUT_SCHEMA,
         }
         result = await provider.complete(
             messages=[Message.user("Say hi.")],
@@ -118,7 +103,7 @@ async def test_real_anthropic_rejects_unsanitized_press_key_direct() -> None:
         native_tool = {
             "name": "press_key",
             "description": "Press a keyboard key in the target tab.",
-            "input_schema": PRESS_KEY_RAW,
+            "input_schema": PRESS_KEY_INPUT_SCHEMA,
         }
         with pytest.raises(anthropic.BadRequestError) as excinfo:
             await provider.client.messages.create(

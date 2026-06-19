@@ -831,3 +831,76 @@ class TestCrossProviderHistoryLive:
         finally:
             await _aclose_provider_client(anthropic)
             await _aclose_provider_client(openrouter)
+
+    @pytest.mark.live
+    async def test_anthropic_tool_result_final_roundtrip_live(self) -> None:
+        """Single-provider two-turn tool→result→final round-trip (M16 F04 L04, DD8).
+
+        How this DIFFERS from ``test_anthropic_with_tools_to_ollama_swap_live``:
+        that test is a CROSS-PROVIDER swap — Anthropic emits a tool_call, a
+        synthetic ToolResult is appended, and the WHOLE history is re-sent
+        through a DIFFERENT provider (Ollama), which never feeds the tool result
+        back to the originating provider to produce a final answer. THIS test is
+        a SAME-provider round-trip: Anthropic emits the tool_call, the test feeds
+        back a real ToolResult, and the SAME Anthropic provider consumes it and
+        produces the final answer (the live analog of the hermetic conformance
+        round-trip). That single-provider two-turn shape is the coverage gap none
+        of the four existing live swap tests fill.
+
+        CONFIDENCE test, not a behavior pin — no exact-content assertions. If the
+        model declines the tool (its choice), the round-trip isn't exercised;
+        handled defensively (assert the turn-1 reply is a valid Message) rather
+        than failing hard.
+        """
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            pytest.skip(
+                "ANTHROPIC_API_KEY not set — operator must export the key to run this live test"
+            )
+
+        anthropic_model = os.environ.get("LIVE_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        provider = AnthropicProvider(model=anthropic_model)
+
+        tool_def = {
+            "name": "get_weather",
+            "description": "Look up the current weather for a city.",
+            "parameters": {
+                "type": "object",
+                "properties": {"city": {"type": "string", "description": "City name"}},
+                "required": ["city"],
+            },
+        }
+        history: list[Message] = [
+            Message.system("You MUST call the get_weather tool to answer."),
+            Message.user("You MUST call the `get_weather` tool for Paris."),
+        ]
+        try:
+            # Turn 1: the model decides whether to call the tool.
+            reply = await provider.complete(
+                history, tools=[tool_def], temperature=0.0, max_tokens=200
+            )
+            assert isinstance(reply, Message)
+            assert reply.role == Role.ASSISTANT
+            history.append(reply)
+
+            if not reply.tool_calls:
+                # Model declined the tool — round-trip not exercised. Do not fail:
+                # the turn-1 reply being a valid Message is the confidence signal.
+                pytest.skip(
+                    "model declined the get_weather tool — same-provider "
+                    "tool→result→final round-trip not exercised this run"
+                )
+
+            # Feed back a real ToolResult for each tool_call, then turn-2 through
+            # the SAME provider for the final answer.
+            for tc in reply.tool_calls:
+                history.append(
+                    Message.tool(ToolResult(tool_call_id=tc.id, content="sunny, 22C"))
+                )
+            final = await provider.complete(
+                history, tools=[tool_def], temperature=0.0, max_tokens=200
+            )
+            assert isinstance(final, Message)
+            assert final.role == Role.ASSISTANT
+            # NO content assertions — model behavior is non-deterministic.
+        finally:
+            await _aclose_provider_client(provider)
