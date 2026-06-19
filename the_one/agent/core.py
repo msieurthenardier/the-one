@@ -4,8 +4,7 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from the_one.agent._context import current_tool_call_id
-from the_one.agent.config import BASE_PROMPT, DEGRADED_BASE_PROMPT
-from the_one.agent.degraded_tools import build_degraded_tool_prompt
+from the_one.agent.config import BASE_PROMPT, CHAT_ONLY_PROMPT
 from the_one.db.codec import truncate_for_event
 from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall, ToolResult
 from the_one.mcp.errors import MCPAuthRequired
@@ -218,18 +217,14 @@ class Agent:
         # in some provider implementations). The schemas computation moves
         # inside the while loop so search-driven additions to _loaded_schemas
         # show up on the next iteration's tools= array.
-        # M16 F03 L08 (#105): if the model can't accept a native tools= array
+        # M16 F03 L08C (#105): if the model can't accept a native tools= array
         # (e.g. Ollama Gemma — Ollama 400s if tools are offered), the degraded
-        # path does NOT run as a single-shot toolless chat. Instead it injects a
-        # DIRECT tool protocol into the system prompt — the full catalog plus a
-        # pinned ```tool_code call format — so the model emits a parseable call
-        # that the leg-01/07 recovery kernel lifts and the loop dispatches. The
-        # wire tools= stays None (the catalog travels in the prompt, not the
-        # wire), but the path is now actively tool-using AND multi-iterates as
-        # recovered calls are dispatched. Studio surfaces the degraded model via
-        # the red "no tools" capability chip on the model selector; the protocol
-        # injection makes that degradation graceful rather than a hard loss of
-        # tool use.
+        # path runs as a CHAT-ONLY conversation: a tool-free system prompt
+        # (CHAT_ONLY_PROMPT, no catalog/protocol) is injected and recovery is
+        # gated OFF at the provider level so spontaneously-emitted tool_code
+        # blocks pass through verbatim as assistant text. The wire tools= stays
+        # None. Studio surfaces the degraded model via the red "no tools"
+        # capability chip on the model selector.
         supports_tools = await self.llm.supports_tools()
 
         # M16 F03 L09 (#105) — CP4 backstop. Turn-local executed-map for the
@@ -248,12 +243,10 @@ class Agent:
             # search-driven mutations to _loaded_schemas from iteration N
             # appear in iteration N+1's tools= array.
             #
-            # M16 F03 L08: on the degraded path build an EPHEMERAL message list
-            # that REPLACES messages[0] (always the system prompt — core.py:92,
-            # :367) with the degraded system prompt (direct-tool-protocol
-            # addendum + a base that omits the search_tools discovery block).
-            # self.messages is NOT mutated — history stays clean and the catalog
-            # re-renders each turn. The wire tools= stays None on this path.
+            # M16 F03 L08C: on the degraded path build an EPHEMERAL message list
+            # that REPLACES messages[0] (always the system prompt) with the
+            # tool-free chat prompt (CHAT_ONLY_PROMPT + persona). self.messages
+            # is NOT mutated. The wire tools= stays None on this path.
             if supports_tools:
                 tool_schemas = self._compute_visible_schemas()
                 request_messages = self.messages
@@ -395,41 +388,38 @@ class Agent:
         return accumulated_text, final_chunk
 
     def _build_degraded_messages(self) -> list[Message]:
-        """Build the ephemeral degraded-path request message list.
+        """Build the ephemeral chat-only request message list for non-tool models.
 
-        M16 F03 L08 (#105): for a non-tool-capable model, REPLACE
-        ``messages[0]`` (always the system prompt) with the degraded system
-        prompt = the direct-tool-protocol addendum (the catalog + the pinned
-        ```tool_code call format) followed by a degraded base prompt that omits
-        the ``search_tools`` discovery block (DD-G). ``self.messages`` is left
-        untouched — only the request copy carries the addendum, and the catalog
-        re-renders each turn.
+        M16 F03 L08C (#105): for a non-tool-capable model (``supports_tools()=False``),
+        REPLACE ``messages[0]`` (always the system prompt) with a tool-free chat prompt
+        — CHAT_ONLY_PROMPT with no catalog, no ``tool_code`` format spec, no
+        ``continue``-tool turn semantics. ``self.messages`` is left untouched.
 
-        Catalog (DD-B): the FULL registry minus the virtual tools
-        ``search_tools`` and ``continue`` (by name) — ``search_tools`` is the
-        discovery dance being replaced; ``continue`` is a turn-control signal
-        with no direct-call meaning.
+        Recovery is gated OFF at the provider level (OllamaProvider.complete() /
+        .stream() gate ``_recover_into_tool_calls`` on ``supports_tools()``), so
+        even if the model spontaneously emits a ``tool_code`` fence the block passes
+        through verbatim as assistant text rather than being parsed and dispatched.
+
+        The swap logic mirrors the prior 08A approach: swap BASE_PROMPT → CHAT_ONLY_PROMPT
+        so the persona (and any connector directive) carry through unchanged. No addendum,
+        no catalog, no `degraded_tools` protocol injection.
+
+        Updates Flight 3 DD2 / DD-G: the degraded path is now conversational-only;
+        the Leg-09 backstop (partition/synthesize logic below) becomes harmless dead code
+        on this path — a non-tool model's recovered tool_calls is always empty, so the
+        ``new`` set is always empty and the backstop never fires. Left in place as it
+        still validates the loop logic for structured-tool_calls inputs in tests. See
+        flight-log for the debrief cleanup note.
         """
-        degraded_catalog = [
-            s for s in self.tools.all_schemas() if s["name"] not in {"search_tools", "continue"}
-        ]
-        addendum = build_degraded_tool_prompt(degraded_catalog)
-        # Reuse the persona that's already baked into self.messages[0] /
-        # self.system_prompt: the capable system prompt is
-        # ``compose_system_prompt(BASE_PROMPT, persona, ...)`` = a "\n\n"-join
-        # whose first part is BASE_PROMPT. Swap that prefix for
-        # DEGRADED_BASE_PROMPT so the persona (and any connector directive)
-        # carry through unchanged while the search_tools discovery block is
-        # dropped. ``replace(..., 1)`` only touches the leading occurrence.
+        # Swap BASE_PROMPT → CHAT_ONLY_PROMPT so the persona and any connector
+        # directive carry through unchanged.
         if self.system_prompt.startswith(BASE_PROMPT):
-            degraded_base = DEGRADED_BASE_PROMPT + self.system_prompt[len(BASE_PROMPT) :]
+            chat_system = CHAT_ONLY_PROMPT + self.system_prompt[len(BASE_PROMPT) :]
         else:
             # Defensive: a system prompt not built from BASE_PROMPT (custom
-            # construction sites / tests). Keep it verbatim — better to leave the
-            # operator's prompt intact than to drop it.
-            degraded_base = self.system_prompt
-        degraded_system = addendum + "\n\n" + degraded_base
-        return [Message.system(degraded_system), *self.messages[1:]]
+            # construction sites / tests). Keep it verbatim.
+            chat_system = self.system_prompt
+        return [Message.system(chat_system), *self.messages[1:]]
 
     async def _dispatch_tool_calls(self, tcs: list[ToolCall]) -> AsyncIterator[Message]:
         """Dispatch a list of tool calls in order.

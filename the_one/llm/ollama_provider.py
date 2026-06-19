@@ -161,10 +161,15 @@ class OllamaProvider(LLMProvider):
             )
 
         content = msg.get("content") or ""
-        # DD2: recover text-form calls only when the structured tool_calls
-        # parse came back empty. DD4: the recognized block is stripped from
-        # the returned content.
-        if not tool_calls:
+        # DD2 (updated by M16 F03 L08C): recover text-form calls only when
+        # the structured tool_calls parse came back empty AND the model is
+        # tool-capable. Tool-capable models that drop to text are still
+        # recovered (DD2's real intent). Non-tool models (supports_tools=False)
+        # are chat-only — their content passes through verbatim so a
+        # spontaneously-emitted tool_code block is never parsed/stripped/
+        # dispatched. supports_tools() fail-open=True means recovery stays on
+        # under uncertainty (acceptable: fail toward prior behavior).
+        if not tool_calls and await self.supports_tools():
             content, recovered = _recover_into_tool_calls(content)
             tool_calls = recovered
 
@@ -258,13 +263,16 @@ class OllamaProvider(LLMProvider):
             ToolCall(id=e["id"], name=e["name"], arguments=e["arguments"])
             for e in acc.finalize_tool_calls()
         ]
-        # DD2/DD4: recover once on the fully-accumulated content — after the
-        # streaming loop, never per-delta — only when no structured tool_calls
-        # arrived. The interim StreamChunks already yielded carry the raw,
-        # un-stripped content (intentional, documented limitation); the final
-        # message below carries the stripped content + recovered calls, which
-        # is what the session persists and the agent loop dispatches.
-        if not tool_calls:
+        # DD2/DD4 (updated by M16 F03 L08C): recover once on the fully-accumulated
+        # content — after the streaming loop, never per-delta — only when no
+        # structured tool_calls arrived AND the model is tool-capable. Recovery is
+        # gated on supports_tools() to enforce chat-only behavior for non-tool models:
+        # their content passes through verbatim (not stripped/dispatched). The interim
+        # StreamChunks already yielded carry the raw, un-stripped content (intentional,
+        # documented limitation); the final message below carries the stripped content +
+        # recovered calls for tool-capable models. supports_tools() fail-open=True means
+        # recovery stays on under network uncertainty (fail toward prior behavior).
+        if not tool_calls and await self.supports_tools():
             content, recovered = _recover_into_tool_calls(content)
             tool_calls = recovered
 

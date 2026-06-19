@@ -541,13 +541,29 @@ async def test_ollama_recovery_roundtrip_complete(monkeypatch):
     carrying ``GEMMA_FIXTURE`` (no structured ``tool_calls``) drives the
     provider's ``_recover_into_tool_calls`` path, recovering a structured
     ``ToolCall`` with the fence stripped from ``content``; a real ``ToolResult``
-    then round-trips to a turn-2 final answer."""
+    then round-trips to a turn-2 final answer.
+
+    M16 F03 L08C: ``make_ollama`` never calls ``supports_tools()`` (the fixture
+    never sets up a capabilities endpoint). After 08C the recovery path now gates
+    on ``supports_tools()``. With no live Ollama the call returns ``True``
+    (fail-open) so recovery WOULD fire — but to be explicit and not rely on
+    fail-open behaviour, stub ``supports_tools()`` to True so this row tests the
+    INTENDED path (tool-capable model recovery), not network-error fail-open.
+    """
     # Turn 1 is CONTENT-ONLY — no tool_calls — so make_ollama emits a message
     # with a falsy tool_calls and the provider's recovery path fires.
     turn1 = CannedTurn(content=GEMMA_FIXTURE)
     turn2 = CannedTurn(content=RECOVERY_FINAL_ANSWER)
     scripted = make_ollama([turn1, turn2], monkeypatch)
     ollama = scripted.provider
+
+    # Explicitly stub supports_tools()=True to test the intended recovery path
+    # (not the network-error fail-open). M16 F03 L08C clarification.
+    async def _supports_true() -> bool:
+        return True
+
+    monkeypatch.setattr(ollama, "supports_tools", _supports_true)
+
     tool = dict(TOOL_DEF)
     user = Message.user("weather in Paris?")
 
@@ -573,12 +589,23 @@ async def test_ollama_recovery_roundtrip_complete(monkeypatch):
 async def test_ollama_recovery_roundtrip_stream(monkeypatch):
     """#105 recovery over ``OllamaProvider.stream()``: same recovery round-trip,
     asserting on the FINAL chunk only. Interim chunks carry the raw, un-stripped
-    content (documented asymmetry at ollama_provider.py:261-266); the final
-    chunk's message carries the stripped content + recovered ToolCall."""
+    content (documented asymmetry); the final chunk's message carries the stripped
+    content + recovered ToolCall.
+
+    M16 F03 L08C: explicitly stub supports_tools()=True (see the complete()
+    counterpart for the full rationale — testing intended path, not fail-open).
+    """
     turn1 = CannedTurn(content=GEMMA_FIXTURE)
     turn2 = CannedTurn(content=RECOVERY_FINAL_ANSWER)
     scripted = make_ollama([turn1, turn2], monkeypatch, streaming=True)
     ollama = scripted.provider
+
+    # Explicitly stub supports_tools()=True. M16 F03 L08C clarification.
+    async def _supports_true() -> bool:
+        return True
+
+    monkeypatch.setattr(ollama, "supports_tools", _supports_true)
+
     tool = dict(TOOL_DEF)
     user = Message.user("weather in Paris?")
 
