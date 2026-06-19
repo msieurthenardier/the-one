@@ -1,6 +1,6 @@
 # Flight: Open-Model Tool-Use Robustness — Text-Form Tool-Call Recovery (#105)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
