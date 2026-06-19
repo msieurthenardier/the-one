@@ -151,7 +151,7 @@ spans the agent layer too.
 
 ## Success Criteria
 
-- [ ] A tool whose `input_schema` uses top-level `oneOf/allOf/anyOf` (or omits a
+- [x] A tool whose `input_schema` uses top-level `oneOf/allOf/anyOf` (or omits a
       top-level `type`) no longer fails the whole Anthropic turn — the schema is
       sanitized before send, and if a schema genuinely can't be sent the failure
       names the offending tool rather than a bare index. *(#122; behavior- or
@@ -279,14 +279,29 @@ spans the agent layer too.
 
 Confirmed by the Flight 1 spike (2026-06-17):
 
-- [ ] **#122 — Anthropic rejects tool `input_schema` with top-level
-      `oneOf/allOf/anyOf` (and requires top-level `type`).** Reproduced live; the-one
-      passes MCP tool schemas through verbatim (`anthropic_provider.py:210-215`).
-      One non-conforming tool fails the whole turn. — owned by the new Flight 2.
+- [x] ~~**#122 — Anthropic rejects tool `input_schema` with top-level
+      `oneOf/allOf/anyOf` (and requires top-level `type`).**~~ **RESOLVED by Flight 2**
+      (2026-06-18): pure schema sanitizer shipped + wired into the Anthropic adapter
+      (drop-and-proceed + `BadRequestError → tool-name`); live-verified against
+      first-party Anthropic. Also wired (gated) onto the OpenRouter→Anthropic path after a
+      live probe showed it 400s identically. See
+      `flights/02-anthropic-tool-input-schema/flight-debrief.md`.
 - [ ] **#105 — open models (gemma3:4b) emit tool calls as text that is never
       recovered.** Confirmed: Ollama 400s if tools are offered, so the capability
       gate correctly drops them; the model emits a ` ```tool ` fenced Python-call
       block; the parser reads only structured `tool_calls`. — owned by Flight 3.
+
+Discovered during Flight 2 (2026-06-18):
+
+- [ ] **OpenRouter→Anthropic #122 path lacks DD5/DD6 parity** — discovered in Flight 2,
+      affects the `OpenRouterProvider` `anthropic/*` route. Flight 2 sanitizes the common
+      `anyOf`/`oneOf` case on this path, but (operator-scoped minimal) does **not** add
+      drop-and-proceed or the `BadRequestError → tool-name` net. Consequence: a
+      *genuinely-unsanitizable* tool schema forwards unmodified and 400s the whole turn on
+      OpenRouter (WARN-logged), whereas Anthropic-direct drops it and the turn proceeds.
+      Same underlying constraint, divergent reliability guarantee. **Owned by Flight 4**
+      (cross-provider conformance): decide DD5/DD6 parity vs. formalizing "forward-with-WARN"
+      as the OpenRouter contract.
 - [x] ~~Hole #1: extended-thinking replay errors on tool use~~ — **falsified by the
       spike** (replay succeeded; thinking never enabled). Retired *as a bug* — but
       extended thinking is now a **planned capability** (see Scope-broadened banner),
@@ -316,7 +331,7 @@ Confirmed by the Flight 1 spike (2026-06-17):
       counting, …). Output: a prioritized capability-gap backlog that drives the
       capability flights below. *(read-only recon, like F1; bounds the "implement
       whatever the SDKs expose" scope.)*
-- [ ] Flight 2 **(HIGH — the real Anthropic bug): Anthropic tool `input_schema`
+- [x] Flight 2 **(HIGH — the real Anthropic bug): Anthropic tool `input_schema`
       compatibility (#122)** — sanitize tool `input_schema` before sending to
       Anthropic: wrap/flatten top-level `oneOf/allOf/anyOf` and ensure a top-level
       `type`; isolate and **name the offending tool** instead of failing the whole
