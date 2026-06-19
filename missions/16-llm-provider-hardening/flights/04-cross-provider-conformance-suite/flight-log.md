@@ -61,6 +61,15 @@ No items classified `already-satisfied`, `partially-satisfied`, or `drifted` —
   concentrates the whole flight's correctness into one review of a large multi-file
   diff (new harness + conformance suite + guards + recovery rows + 2 production
   edits); a stronger-than-Haiku reviewer is warranted. Hard rule honored — not Opus.
+- **2026-06-19** — Flight-wide review **[HANDOFF:confirmed]** (one non-blocking note:
+  `make_mock`'s `call_count()` counts configs not HTTP hits — documentation nicety, no
+  fix needed). Final bookkeeping done (5 legs → `completed`; flight.md → `landed`;
+  Flight 4 + the conformance success criterion checked off in mission.md). Single
+  deferred commit **`82c9cee`** (19 files, +3495/−92; production diff = only the
+  OpenRouter docstring). Branch pushed; PR **#130** opened and marked ready for review.
+  Phase 3 completion verified: all legs `completed`, flight log complete, no user-facing
+  doc gap (the `agents.md` provider-quirk pointer is the only deferred doc item,
+  recorded as a flight-log finding for a future `the_one/**`-scoped leg). **[COMPLETE:flight]**
 
 ## Leg Progress
 
