@@ -20,12 +20,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import anthropic
 import pytest
 
+from tests.fixtures.tool_schemas import make_bad_request
 from the_one.agent.core import Agent
 from the_one.llm import ollama_api
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
 from the_one.llm.mock import MockProvider
 from the_one.tools.base import ToolRegistry
-from tests.fixtures.tool_schemas import make_bad_request
 
 # ---------------------------------------------------------------------------
 # Helpers

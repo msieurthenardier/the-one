@@ -56,6 +56,7 @@ def _synthesize_closing(redundant: list[tuple[str, str, bool]]) -> str:
         lines.append(f"- `{name}` {label}:\n{body}")
     return "\n".join(lines)
 
+
 # The agent can call this to keep its turn. It's a signal, not a real tool.
 CONTINUE_SCHEMA = {
     "name": "continue",
@@ -300,8 +301,7 @@ class Agent:
                     # call whose result we already hold — the degraded loop is
                     # stuck (DD-C / DD-C2). Gather the stored results to surface.
                     redundant = [
-                        (tc.name, *executed[_executed_key(tc)])
-                        for tc in response.tool_calls
+                        (tc.name, *executed[_executed_key(tc)]) for tc in response.tool_calls
                     ]
                     if not response.content.strip():
                         # DD-C: no new call AND no closing text → REPLACE the

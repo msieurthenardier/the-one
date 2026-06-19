@@ -893,9 +893,7 @@ class TestCrossProviderHistoryLive:
             # Feed back a real ToolResult for each tool_call, then turn-2 through
             # the SAME provider for the final answer.
             for tc in reply.tool_calls:
-                history.append(
-                    Message.tool(ToolResult(tool_call_id=tc.id, content="sunny, 22C"))
-                )
+                history.append(Message.tool(ToolResult(tool_call_id=tc.id, content="sunny, 22C")))
             final = await provider.complete(
                 history, tools=[tool_def], temperature=0.0, max_tokens=200
             )

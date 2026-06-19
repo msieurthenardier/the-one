@@ -48,7 +48,6 @@ from typing import Any
 
 import httpx
 
-
 # ---------------------------------------------------------------------------
 # Provider-neutral canned turn + harness handle
 # ---------------------------------------------------------------------------
@@ -243,8 +242,7 @@ def _openai_stream_body(turn: CannedTurn) -> str:
     lines: list[str] = []
     if turn.content:
         lines.append(
-            "data: "
-            + json.dumps({"choices": [{"index": 0, "delta": {"content": turn.content}}]})
+            "data: " + json.dumps({"choices": [{"index": 0, "delta": {"content": turn.content}}]})
         )
     for idx, (tc_id, name, args) in enumerate(turn.tool_calls):
         delta = {
@@ -268,9 +266,7 @@ def _openai_stream_body(turn: CannedTurn) -> str:
     # Final metadata-only chunk carrying usage (include_usage=True path).
     lines.append(
         "data: "
-        + json.dumps(
-            {"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
-        )
+        + json.dumps({"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 1}})
     )
     lines.append("data: [DONE]")
     return "\n\n".join(lines) + "\n\n"
@@ -448,7 +444,9 @@ def make_ollama(
     if streaming:
         from the_one.llm import ollama_api
 
-        async def fake_chat_stream(base_url: str, body: Any, headers: Any = None) -> AsyncIterator[dict[str, Any]]:
+        async def fake_chat_stream(
+            base_url: str, body: Any, headers: Any = None
+        ) -> AsyncIterator[dict[str, Any]]:
             idx = counter["n"]
             counter["n"] += 1
             for chunk in _ollama_stream_chunks(turns[idx]):
@@ -485,8 +483,7 @@ def _mock_config_for(turn: CannedTurn, *, streaming: bool = False) -> dict[str, 
     response: dict[str, Any] = {"content": turn.content}
     if turn.tool_calls:
         response["tool_calls"] = [
-            {"id": tc_id, "name": name, "arguments": args}
-            for tc_id, name, args in turn.tool_calls
+            {"id": tc_id, "name": name, "arguments": args} for tc_id, name, args in turn.tool_calls
         ]
     config: dict[str, Any] = {"response": response}
     if streaming and turn.content:
@@ -512,6 +509,4 @@ def make_mock(turns: list[CannedTurn], *, streaming: bool = False) -> ScriptedPr
         prov.config = _mock_config_for(turn, streaming=streaming)
         counter["n"] += 1
 
-    return ScriptedProvider(
-        provider=prov, call_count=lambda: counter["n"], reconfigure=reconfigure
-    )
+    return ScriptedProvider(provider=prov, call_count=lambda: counter["n"], reconfigure=reconfigure)

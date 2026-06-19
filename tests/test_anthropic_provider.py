@@ -25,9 +25,9 @@ from typing import Any
 import anthropic
 import pytest
 
+from tests.fixtures.tool_schemas import make_bad_request
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.base import Message
-from tests.fixtures.tool_schemas import make_bad_request
 
 _LOGGER_NAME = "the_one.llm.anthropic_provider"
 

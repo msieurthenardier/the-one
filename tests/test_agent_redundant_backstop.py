@@ -187,9 +187,7 @@ class TestSynthesizeClosing:
         assert "boom" in out
 
     def test_multiple_results_compact_list(self) -> None:
-        out = _synthesize_closing(
-            [("shell", "out-a", False), ("shell", "out-b", False)]
-        )
+        out = _synthesize_closing([("shell", "out-a", False), ("shell", "out-b", False)])
         assert "out-a" in out
         assert "out-b" in out
 
@@ -230,24 +228,20 @@ class TestAllRedundantBackstop:
         # assistant message legitimately has empty content + tool_calls — but
         # those calls WERE dispatched and are followed by a tool_result, so it
         # is not orphaned.)
-        all_tool_call_ids = {
-            tc.id for m in agent.messages for tc in m.tool_calls
-        }
+        all_tool_call_ids = {tc.id for m in agent.messages for tc in m.tool_calls}
         all_result_ids = {
-            m.tool_result.tool_call_id
-            for m in agent.messages
-            if m.tool_result is not None
+            m.tool_result.tool_call_id for m in agent.messages if m.tool_result is not None
         }
         # No orphaned tool_call: every emitted tool_call has a following result.
-        assert all_tool_call_ids <= all_result_ids, (
-            all_tool_call_ids - all_result_ids
-        )
+        assert all_tool_call_ids <= all_result_ids, all_tool_call_ids - all_result_ids
         # No empty-content assistant message that ALSO carries tool_calls
         # (the exact stray-message-with-orphans signature the backstop kills).
         assert not [
             m
             for m in agent.messages
-            if m.role == Role.ASSISTANT and not m.content.strip() and m.tool_calls
+            if m.role == Role.ASSISTANT
+            and not m.content.strip()
+            and m.tool_calls
             and any(tc.id not in all_result_ids for tc in m.tool_calls)
         ]
         # The final assistant message is the synthesized, non-empty closing
@@ -325,9 +319,7 @@ class TestRedundantButText:
     async def test_text_kept_tool_calls_cleared_no_synthesis(self) -> None:
         responses = [
             Message.assistant("", tool_calls=[_recovered_call(0)]),
-            Message.assistant(
-                "Here is the answer.", tool_calls=[_recovered_call(1)]
-            ),
+            Message.assistant("Here is the answer.", tool_calls=[_recovered_call(1)]),
         ]
         reg = _registry()
         shell = reg.get("shell")
