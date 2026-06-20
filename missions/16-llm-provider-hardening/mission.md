@@ -341,14 +341,30 @@ Discovered during Flight 2 (2026-06-18):
 
 Discovered during Flight 5 HAT (2026-06-20):
 
-- [ ] **Telemetry overlay used-token state doesn't persist on chat reopen** —
-      discovered in the F5 HAT, affects the web chat telemetry overlay. Usage events
-      are projection-only (never `add_event`'d to history) and `renderHistory`
-      doesn't replay them, so reopening an old chat shows `0 / max` instead of the
-      accumulated `used / max`. F5 made the *max* survive restart (catalog); the
-      *used* state does not. **Owned by Flight 6** (telemetry overlay usage
-      persistence). Affects UX of "context reporting that survives going back to an
-      old chat" — the operator's original outcome framing.
+- [x] ~~**Telemetry overlay used-token state doesn't persist on chat reopen**~~ —
+      discovered in the F5 HAT, affected the web chat telemetry overlay. Usage events
+      were projection-only (never `add_event`'d to history) and `renderHistory`
+      didn't replay them, so reopening an old chat showed `0 / max` instead of the
+      accumulated `used / max`. **RESOLVED by Flight 6** (2026-06-20, PR #134): the
+      last completed turn's `{input_tokens, output_tokens, context_tokens}` is now
+      persisted to `session_metadata["last_usage"]` at both turn-settle points and
+      restored on `session_joined` (with a max-only `/context-window` seed so it isn't
+      re-zeroed). HAT-confirmed across a genuine server restart. See
+      `flights/06-telemetry-overlay-usage-persistence/`.
+
+Discovered during Flight 6 (2026-06-20):
+
+- [ ] **`if last_input:` usage-persist guard drops real turns that report
+      `input_tokens=0`** — surfaced by the F6 L03 design review. The per-turn
+      `last_usage` write is guarded on `last_input` (the last assistant step's
+      `input_tokens`); a real provider that reports `input_tokens=0` — notably Ollama,
+      whose adapter uses `u.get("prompt_tokens", 0)` and can omit `prompt_tokens` (or
+      the whole usage block) — settles with `last_input == 0` and has its snapshot
+      suppressed, so reopening shows `0 / max` for that provider. Not fixed in F6 (the
+      fullness bar is unrestorable for such a turn regardless, since `context_tokens`
+      *is* the missing input count, and a fix reopens landed L01 + its guard tests).
+      Candidate follow-up: guard on "saw any usage event" or `last_input or
+      total_output` so the in/out counts still restore. Carry to `/mission-debrief`.
 - [x] ~~**Model-catalog runtime refresh parsed the wrong models.dev shape**~~ —
       discovered + **fixed in the F5 HAT** (commit `9f152b9`): `project_raw` was
       built blind (models.dev unreachable in Leg 1) and extracted zero models, so the
@@ -406,15 +422,18 @@ Discovered during Flight 5 HAT (2026-06-20):
       capability flight). HAT caught + fixed a critical refresh-parser bug (built
       blind against an assumed models.dev shape) and an over-reporting seed. Full
       suite `3422/10/594`, 0 failures. See `flights/05-model-catalog-drift-removal/`.
-- [ ] Flight 6: **Telemetry overlay usage persistence** — **READY (2026-06-20, from
-      F5 HAT; architect-validated over 2 review cycles).** Persist the per-session
-      token-usage snapshot in `session_metadata["last_usage"]` (via the existing
-      `set_session_metadata_key` primitive — no migration) and restore it on
-      `session_joined` so reopening an old chat (incl. after a server restart) shows
-      the last turn's `used / max` fullness, not `0 / max`. Writes at both turn-settle
-      points (normal + auth-resume); frontend `/context-window` seed made max-only to
-      avoid re-zeroing the restore. Distinct session/DB persistence subsystem (kept
-      out of F5 to avoid bundling). See `flights/06-telemetry-overlay-usage-persistence/`.
+- [x] Flight 6: **Telemetry overlay usage persistence** — **LANDED (2026-06-20,
+      PR #134, stacked on F5 #133).** Persists the per-session token-usage snapshot in
+      `session_metadata["last_usage"]` (via the existing `set_session_metadata_key`
+      primitive — no migration) and restores it on `session_joined` so reopening an old
+      chat (incl. after a server restart) shows the last turn's `used / max` fullness,
+      not `0 / max`. Writes at both turn-settle points (normal + auth-resume); frontend
+      `/context-window` seed made max-only to avoid re-zeroing the restore. Added a
+      backward-compatible `config["input_tokens"]` test seam to `MockProvider` (+ fixed
+      a pre-existing dev-mode `__init__` bug). Full suite `3443/10/595`, 0 failures;
+      Playwright browser flow + HAT (genuine restart) PASS. Surfaced one carried-forward
+      Known Issue (the `if last_input:` guard vs. Ollama `input_tokens=0`). See
+      `flights/06-telemetry-overlay-usage-persistence/`.
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface

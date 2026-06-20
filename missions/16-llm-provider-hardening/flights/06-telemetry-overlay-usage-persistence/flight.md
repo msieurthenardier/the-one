@@ -1,6 +1,6 @@
 # Flight: Telemetry Overlay Usage Persistence
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -12,8 +12,9 @@
 > the overlay restores `used / max` (not `0 / max`) on reopen. Tracked against the
 > F5-HAT Known Issue in the mission.
 
-- [ ] Reopening an old chat (including after a server restart) restores the
-      telemetry overlay's last-turn `used / max` fullness — not `0 / max`.
+- [x] Reopening an old chat (including after a server restart) restores the
+      telemetry overlay's last-turn `used / max` fullness — not `0 / max`. *(HAT
+      PASS + automated round-trip/browser coverage)*
 
 ---
 
@@ -242,22 +243,24 @@ into the overlay and the `/context-window` seed becomes max-only (DD4).
       `.context-bar` DOM reflects the restored values (DOM-shape assertions, **no
       committed visual snapshots** per the snapshot-gitignore rule). Full suite green
       at/above the F5 baseline.
-- [ ] `uat-and-alignment` *(optional)* - Guided HAT: send a few messages, note the
+- [x] `uat-and-alignment` *(optional)* - Guided HAT: send a few messages, note the
       overlay's used/max; **restart the server**; reopen the chat from history and
-      confirm the overlay restores the last-turn used + max (not 0/max). Iterative
-      fixes until satisfied.
+      confirm the overlay restores the last-turn used + max (not 0/max). **PASS**
+      (operator-confirmed, 2026-06-20): genuine process restart on `:8485`, overlay
+      restored 1.2k/20/1.2k/128.0k/1% identical to pre-restart. See flight-log L04.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (full suite ≥ the F5 landing baseline `3422 / 10 / 594`, no new
-      flakes)
-- [ ] Documentation: the `session_metadata.last_usage` snapshot noted in the repo
-      method/docstring where the routing-audit metadata is documented
+- [x] All legs completed (L01–L03 + the optional HAT L04)
+- [ ] Code merged *(draft PR #134 → ready for review; merges after F5 #133)*
+- [x] Tests passing (full suite `3443 / 10 / 595`, 21 above the F5 baseline, no new
+      flakes; new Playwright browser flow green)
+- [x] Documentation: the `session_metadata.last_usage` snapshot noted in
+      `set_session_metadata_key`'s docstring; mock `config` options (incl.
+      `input_tokens`) documented in CLAUDE.md
 
 ### Verification
 - **Unit** (hermetic): the per-turn write at the non-paused settle and the resume

@@ -57,6 +57,23 @@ the HAT.
   (the `chat.js` `/context-window` seed, DD4) and the F6 planning artifacts already
   sit on the `flight/05` branch. This is an intentional stacked-flight on top of F5.
   Flight status `ready` → `in-flight`.
+- **2026-06-20** — Per-leg design reviews (Sonnet Developer) run for L01/L02/L03; each
+  returned "approve with changes", all incorporated without a second cycle (the changes
+  were the reviewers' own recommendations — placement explicitness, an L01-induced
+  citation drift in L02, and the L03 mock-seam + Ollama-guard findings). L02's review
+  caught that L01 shifted `app.py` by ~87 lines (builders `1048→1088`); citations
+  repaired. Three autonomous legs implemented (Sonnet Developers), then a single
+  flight-wide review (Haiku Reviewer) over all uncommitted changes → `[HANDOFF:confirmed]`
+  on the first cycle, no issues. Committed as `0185377`; pushed; **draft PR #134** opened
+  with base `flight/05-model-catalog-drift-removal` (stacked, since F5 #133 is unmerged).
+- **2026-06-20** — Optional HAT (L04) run at operator request. FD-driven via
+  chrome-devtools on an isolated dev instance (`:8485`, operator-specified port); a
+  **genuine process restart** (kill → fresh process, empty `_sessions`) forced the real
+  DB-reload path. Overlay restored `used / max` identically across the restart →
+  operator-confirmed **PASS**. Flight `in-flight` → `landed`; Flight 6 checked off in
+  mission 16; the F5-HAT Known Issue marked resolved; the Ollama-`input_tokens=0` guard
+  limitation recorded as a new mission Known Issue. PR #134 marked ready for review.
+  `[COMPLETE:flight]`.
 
 ---
 
@@ -237,6 +254,38 @@ _(none yet)_
 - Browser test asserts inline `bar.style.width` (set by `setTelemetryMax` after async
   `/context-window` fetch) rather than `getComputedStyle(...).width` — the latter reads
   the CSS box width, which doesn't reflect the percentage fill until the inline style is set.
+
+### L04 — uat-and-alignment (HAT) (completed 2026-06-20) — PASS
+
+**Status**: completed
+
+**Apparatus**: isolated dev-mode instance on **:8485** (operator-specified, isolated
+`THE_ONE_DATA_DIR`), mock agent with `config["input_tokens"]=1234` (the L03 seam, so a
+turn yields a meaningful persistable snapshot without real API cost). Driven via the
+chrome-devtools browser; Flight-Director-driven, operator-confirmed verdict.
+
+**Procedure & observations**:
+1. Picked the agent from the welcome listbox → session `9d81397b8018`; overlay `0%`.
+2. Sent one message → live overlay populated: in=**1.2k** (1234), out=**20**,
+   ctx=**1.2k** (1234), max=**128.0k**, bar=**1%**.
+3. **Genuine process restart**: killed the uvicorn process (PID gone, port confirmed
+   down) and started a **fresh** process against the same data dir — so the new
+   process's in-memory `_sessions` was empty and the reopen had to flow through
+   `_restore_session`'s DB-reload branch (the real cross-restart path, stronger than
+   the automated browser flow's warm-cache `page.reload()`).
+4. Reopened the chat (page reload → reconnect → `session_joined`): overlay restored to
+   in=**1.2k**, out=**20**, ctx=**1.2k**, max=**128.0k**, bar=**1%** — **identical to
+   pre-restart, not `0 / max`.**
+
+**Corroboration**: the DB session row carried
+`last_usage = {input_tokens: 1234, output_tokens: 20, context_tokens: 1234}` across the
+restart; restored overlay values matched the snapshot exactly. Screenshots captured as
+ephemeral HAT evidence (not committed) and the instance + isolated data dir torn down
+after.
+
+**Verdict**: **PASS** (operator-confirmed). The flight's contributing criterion —
+"reopening an old chat (incl. after a server restart) restores the overlay's last-turn
+`used / max`, not `0 / max`" — is satisfied against the real apparatus.
 
 ---
 
