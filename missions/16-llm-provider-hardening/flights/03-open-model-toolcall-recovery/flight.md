@@ -1,6 +1,6 @@
 # Flight: Open-Model Tool-Use Robustness — Text-Form Tool-Call Recovery (#105)
 
-**Status**: landed *(reopened + re-landed 2026-06-19 for the degraded-path over-routing follow-up; resolved by 08C chat-only + 08d search tokenization)*
+**Status**: completed *(reopened + re-landed + debriefed 2026-06-19 for the degraded-path over-routing follow-up; resolved by 08C chat-only + 08d search tokenization)*
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
