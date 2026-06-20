@@ -211,7 +211,11 @@ async def test_drop_warning_names_tool_and_reason(monkeypatch, caplog):
 
     records = [r for r in caplog.records if r.name == _LOGGER_NAME]
     assert records, "expected a warning record from the adapter logger"
-    msg = records[0].getMessage()
+    # Search all records for the tool-drop warning (catalog-miss warning may
+    # precede it now that the resolver logs on a cache miss for 'claude-test').
+    drop_records = [r for r in records if "press_key" in r.getMessage()]
+    assert drop_records, f"expected a drop warning naming press_key; got: {[r.getMessage() for r in records]}"
+    msg = drop_records[0].getMessage()
     assert "press_key" in msg
     # reason text from the kernel (bare $ref branch)
     assert "$ref" in msg

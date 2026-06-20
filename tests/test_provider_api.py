@@ -1383,6 +1383,7 @@ class TestModelDiscovery:
         assert len(models) == 2
         assert models[0]["id"] == "gpt-4o"
         assert models[1]["name"] == "gpt-4o-mini"
+        assert models[0]["context_length"] == 128000
 
     async def test_openai_models_failure(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "openai")
@@ -1411,6 +1412,10 @@ class TestModelDiscovery:
         assert models[0]["id"] == "claude-sonnet-4-20250514"
         assert models[0]["name"] == "Claude Sonnet 4"
         assert models[1]["name"] == "Claude Haiku 4"
+        # Catalog-sourced per model: claude-sonnet-4 prefix gives 1M context;
+        # no claude-haiku-4 prefix in seed yields honest null (UI renders no chip).
+        assert models[0]["context_length"] == 1000000
+        assert models[1]["context_length"] is None
 
     async def test_anthropic_models_failure(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "anthropic")

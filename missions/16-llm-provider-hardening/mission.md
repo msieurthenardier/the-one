@@ -281,6 +281,14 @@ spans the agent layer too.
 - [ ] **Reasoning beyond Anthropic.** Scope of OpenAI reasoning-model
       (`o*`-series) and `<think>`-tag-emitting open models in this mission, vs.
       Anthropic-only for the first pass.
+- [ ] **Header-gated 1M context (deferred from Flight 5).** Flight 5 reports the
+      correct per-model context window from the catalog but sends no `context-1m`
+      beta header — current Claude models (incl. the default `claude-sonnet-4-6`)
+      are natively 1M, so none is needed. If a model is later targeted that still
+      requires the dated `context-1m-*` header to unlock 1M, evaluate sending it
+      (via `extra_headers` on the Anthropic SDK call) as part of the planned
+      extended-thinking/capability flight, where request-path capability work
+      already lives. *(Recorded during Flight 5 planning, 2026-06-19.)*
 - [ ] **/mission-debrief carry-forward (08C scope decision).** The "Gemma reliably
       executes tool calls" criterion was reversed (see Known Issues above). The
       debrief should record: (a) the trajectory L08→L08A→L08C and what was learned
@@ -371,10 +379,16 @@ Discovered during Flight 2 (2026-06-18):
       provider-parametrized test asserting the request→tool_call→tool_result→
       final round-trip works uniformly across Anthropic/OpenAI/Ollama/Mock. Now
       also the regression net guarding the #122 and #105 fixes.
-- [ ] Flight 5: **Model-catalog drift removal** — replace the hand-maintained
-      OpenAI prefix table + Anthropic hard-coded window with sourced limits.
-      Note: OpenAI's `/models` exposes no `context_length`, so OpenAI uses a
-      generated/cached catalog rather than a live fetch (unlike Ollama/OpenRouter).
+- [ ] Flight 5: **Model-catalog drift removal** — **READY (2026-06-19).** Replace
+      the hand-maintained OpenAI prefix table (+ its Studio-endpoint duplicate) and
+      Anthropic's hard-coded window with a **built-in catalog refreshed on a daily
+      cadence** at runtime (bundled seed + on-disk cache from models.dev), so
+      installs stay current without a redeploy and an old chat's window survives an
+      offline restart. Reports the catalog's per-model window (current Claude is
+      natively 1M; no `context-1m` header — that's deferred to the capability
+      flight). OpenAI's `/models` exposes no `context_length`, which is why a
+      catalog (not a live fetch) is the source. See
+      `flights/05-model-catalog-drift-removal/`.
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface

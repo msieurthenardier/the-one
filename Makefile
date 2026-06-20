@@ -101,6 +101,10 @@ verify-serving: ## Sanity-check that the host-native app serves the current sour
 brand-assets: ## Derive favicon + topbar icon PNGs from source mascot via Pillow
 	$(PY) scripts/derive_brand_assets.py
 
+.PHONY: refresh-model-catalog
+refresh-model-catalog: ## Regenerate the bundled model-catalog seed from models.dev
+	$(PY) scripts/refresh_model_catalog.py
+
 # ── Tests ──────────────────────────────────────────────────────────────
 # All test targets run host-native via the repo .venv (see PY variable above).
 

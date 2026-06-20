@@ -123,6 +123,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # reaper start. Due-based catch-up on entry, then sleep+recheck.
     global _chat_history_purge_task
     _chat_history_purge_task = asyncio.create_task(_chat_history_purge_loop())
+    # M16 F05 L02: start the daily model-catalog refresh loop just after the
+    # purge-loop start. Due-based catch-up on entry, then sleep+recheck.
+    global _catalog_refresh_task
+    _catalog_refresh_task = asyncio.create_task(_model_catalog_refresh_loop())
     # M10 F2 L6: dev-mode-gated test-seam — when
     # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
     # register the in-process StubPlugin as the 'stub' connector type so
@@ -254,6 +258,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _chat_history_purge_shutdown_drain()
     except Exception:
         logger.exception("daily purge shutdown failed")
+    # M16 F05 L02: drain the daily model-catalog refresh loop beside the
+    # purge drain. Cancels the task and suppresses CancelledError.
+    try:
+        await _model_catalog_refresh_shutdown_drain()
+    except Exception:
+        logger.exception("model-catalog refresh shutdown failed")
     try:
         await _session_registry_shutdown_drain()
     except Exception:
@@ -668,6 +678,55 @@ async def _chat_history_purge_shutdown_drain() -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await task
     _chat_history_purge_task = None
+
+
+# ── Daily model-catalog refresh ───────────────────────────────────────────
+
+_catalog_refresh_task: asyncio.Task | None = None
+
+
+def _get_catalog_refresh_check_interval() -> int:
+    """THE_ONE_CATALOG_REFRESH_CHECK_INTERVAL_SECONDS at call time; default 3600
+    (coarse — the due-check gates the actual 24h refresh). Floored at 60s
+    so a 0/negative value can't tight-loop."""
+    raw = os.environ.get("THE_ONE_CATALOG_REFRESH_CHECK_INTERVAL_SECONDS")
+    if raw is None:
+        return 3600
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        logger.warning(
+            "THE_ONE_CATALOG_REFRESH_CHECK_INTERVAL_SECONDS=%r not an int; using 3600", raw
+        )
+        return 3600
+
+
+async def _model_catalog_refresh_loop() -> None:
+    """Due-based daily model-catalog refresh. Catch-up on entry, then sleep+recheck.
+    M16 F05 L02 — mirrors _chat_history_purge_loop (F03 L3)."""
+    from the_one.llm.model_catalog import _refresh_due, refresh_catalog_cache
+
+    async def _maybe_refresh() -> None:
+        try:
+            if _refresh_due():
+                await refresh_catalog_cache()
+        except Exception:
+            logger.exception("model-catalog refresh pass raised; continuing")
+
+    await _maybe_refresh()  # startup catch-up (guarded)
+    while True:
+        await asyncio.sleep(_get_catalog_refresh_check_interval())
+        await _maybe_refresh()
+
+
+async def _model_catalog_refresh_shutdown_drain() -> None:
+    global _catalog_refresh_task
+    task = _catalog_refresh_task
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    _catalog_refresh_task = None
 
 
 # ── Session health classification ────────────────────────────────────────
