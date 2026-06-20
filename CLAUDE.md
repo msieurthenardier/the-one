@@ -88,6 +88,12 @@ Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port
 
 When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes available alongside `ollama`, `openai-compatible`, `openai`, and `anthropic`. The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field — defaults to `"Mock response from the mock provider."` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
 
+**Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`):
+
+- `"response"` — scripted reply text (default: `"Mock response from the mock provider."`)
+- `"stream_chunks"` — number of streaming chunks to split the response into (default: non-streaming)
+- `"input_tokens"` — `input_tokens` value emitted in `TokenUsage` for each turn (default: `0`). Set to a positive integer in tests that exercise the telemetry overlay or the `last_usage` persistence path (M10 F06); the default preserves all existing test expectations.
+
 - Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off
 - UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)
 - Existing mock providers continue to render correctly in the admin UI even after dev mode is later disabled

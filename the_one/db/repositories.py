@@ -1258,6 +1258,19 @@ class ChatSessionRepository:
         ``session_metadata["routing_override"]`` write. F7 L4's routing
         engine already reads ``session_metadata.get("routing_override")``
         in Step 1 of the 5-step algorithm; the write side lands here.
+
+        **Known ``session_metadata`` keys (M10 F06):**
+
+        - ``"routing_override"`` — per-session provider/model override set by
+          the ``/talk-to`` command handler (F7 L6).
+        - ``"last_usage"`` — per-turn token-usage snapshot written by the web
+          turn-settle path (``_process_and_broadcast`` non-paused settle and
+          ``_resume_paused_session`` resume settle, ``app.py``). Shape:
+          ``{"input_tokens": int, "output_tokens": int, "context_tokens": int}``
+          where ``context_tokens`` is the last assistant step's ``input_tokens``
+          (the overlay's derived context-window fullness value). Written once per
+          completed turn; used by the ``session_joined`` restore path to pre-fill
+          the telemetry overlay on chat reopen (M10 F06).
         """
         async with self.conn.execute(
             "SELECT session_metadata FROM chat_sessions WHERE id = ?",
