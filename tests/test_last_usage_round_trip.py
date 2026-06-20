@@ -46,14 +46,15 @@ import aiosqlite
 import pytest
 
 from the_one.agent.config import AgentConfig
-from the_one.db.models import ChatSession, ChatSession as ChatSessionModel
+from the_one.db.models import ChatSession
+from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.repositories import ChatSessionRepository, SQLiteAgentStore
 from the_one.db.schema import ensure_schema
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.app import (
     SESSION_STATUS_AGENT_DELETED,
-    Session,
     RestoredSession,
+    Session,
     _build_session_joined_degraded,
     _build_session_joined_ok,
     _process_and_broadcast,
@@ -62,7 +63,6 @@ from the_one.interfaces.web.app import (
     _sessions_lock,
 )
 from the_one.llm.base import Message, TokenUsage
-
 
 # ---------------------------------------------------------------------------
 # N — the token count we thread through the entire round-trip
@@ -231,6 +231,7 @@ async def test_last_usage_round_trip_db_reload_branch(
 
     # Assert the restore succeeded.
     from the_one.interfaces.web.app import SESSION_STATUS_OK
+
     assert restored.status == SESSION_STATUS_OK, f"restore status: {restored.status}"
     assert restored.session is not None
 

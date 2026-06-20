@@ -54,11 +54,32 @@ _MAX_SEARCH_RESULTS = 8
 # focused on noise that would match spuriously across many tools. Single-
 # keyword queries are unaffected (tokens shorter than 3 chars are also
 # dropped, so "a", "an", "to" are covered by the length gate).
-_STOPWORDS: frozenset[str] = frozenset({
-    "run", "get", "the", "and", "with", "use", "can", "you",
-    "please", "find", "out", "what", "how", "are", "for",
-    "my", "me", "of", "in", "on", "your", "is",
-})
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "run",
+        "get",
+        "the",
+        "and",
+        "with",
+        "use",
+        "can",
+        "you",
+        "please",
+        "find",
+        "out",
+        "what",
+        "how",
+        "are",
+        "for",
+        "my",
+        "me",
+        "of",
+        "in",
+        "on",
+        "your",
+        "is",
+    }
+)
 
 
 def _tokenize_query(query: str) -> list[str]:

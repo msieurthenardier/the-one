@@ -115,9 +115,7 @@ class TestCachePreferredOverSeed:
                 "anthropic": {"claude-sonnet-4-6": 2_000_000},
             },
         }
-        (tmp_path / "model_catalog.json").write_text(
-            json.dumps(cache), encoding="utf-8"
-        )
+        (tmp_path / "model_catalog.json").write_text(json.dumps(cache), encoding="utf-8")
         _reset_for_tests(None)  # ensure fresh load from the new cache
 
         assert context_window_for("openai", "gpt-4o") == 999_999
@@ -142,9 +140,7 @@ class TestCorruptCacheFallback:
     def test_corrupt_cache_falls_back_to_seed(self, tmp_path, monkeypatch, caplog):
         """A corrupt cache logs a WARN and falls back to the bundled seed."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
-        (tmp_path / "model_catalog.json").write_text(
-            "not valid json {{{{", encoding="utf-8"
-        )
+        (tmp_path / "model_catalog.json").write_text("not valid json {{{{", encoding="utf-8")
         _reset_for_tests(None)
 
         with caplog.at_level(logging.WARNING, logger="the_one.llm.model_catalog"):
@@ -165,18 +161,16 @@ class TestCorruptCacheFallback:
     def test_corrupt_cache_root_not_dict_falls_back(self, tmp_path, monkeypatch, caplog):
         """A cache whose root is a JSON array (not a dict) falls back to the seed."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
-        (tmp_path / "model_catalog.json").write_text(
-            json.dumps([1, 2, 3]), encoding="utf-8"
-        )
+        (tmp_path / "model_catalog.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
         _reset_for_tests(None)
 
         with caplog.at_level(logging.WARNING, logger="the_one.llm.model_catalog"):
             result = context_window_for("openai", "gpt-4o")
 
         assert result == 128_000
-        assert any(
-            r.levelno >= logging.WARNING for r in caplog.records
-        ), "Expected WARN log for non-dict cache root"
+        assert any(r.levelno >= logging.WARNING for r in caplog.records), (
+            "Expected WARN log for non-dict cache root"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -279,9 +273,7 @@ class TestRefreshDue:
     def test_due_when_cache_corrupt(self, tmp_path, monkeypatch):
         """Corrupt cache JSON → due (treat as absent)."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
-        (tmp_path / "model_catalog.json").write_text(
-            "{{bad json}}", encoding="utf-8"
-        )
+        (tmp_path / "model_catalog.json").write_text("{{bad json}}", encoding="utf-8")
         assert _refresh_due() is True
 
 
@@ -307,16 +299,12 @@ class TestOfflineRefresh:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_offline_refresh_leaves_existing_cache_intact(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_offline_refresh_leaves_existing_cache_intact(self, tmp_path, monkeypatch):
         """When the network is down the existing cache file is not modified."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
         # Write a pre-existing cache.
         original_cache = {
-            "fetched_at": (
-                datetime.now(timezone.utc) - timedelta(hours=1)
-            ).isoformat(),
+            "fetched_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
             "source": "models.dev",
             "providers": {"openai": {"gpt-4o": 128_000}},
         }
@@ -350,9 +338,9 @@ class TestOfflineRefresh:
             ):
                 await refresh_catalog_cache()
 
-        assert any(
-            r.levelno >= logging.WARNING for r in caplog.records
-        ), "Expected a WARNING on fetch failure"
+        assert any(r.levelno >= logging.WARNING for r in caplog.records), (
+            "Expected a WARNING on fetch failure"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -362,9 +350,7 @@ class TestOfflineRefresh:
 
 class TestSeedCoverageGuard:
     @pytest.mark.asyncio
-    async def test_guard_blocks_write_when_payload_missing_seed_pair(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_guard_blocks_write_when_payload_missing_seed_pair(self, tmp_path, monkeypatch):
         """A payload missing a seed (provider, model) pair must not be written."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
 
@@ -397,9 +383,7 @@ class TestSeedCoverageGuard:
         assert not (tmp_path / "model_catalog.json").exists()
 
     @pytest.mark.asyncio
-    async def test_guard_allows_write_when_full_coverage(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_guard_allows_write_when_full_coverage(self, tmp_path, monkeypatch):
         """A payload that covers all seed pairs is written successfully."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
         payload = _make_full_payload()
@@ -437,9 +421,7 @@ class TestSeedCoverageGuard:
         assert not (tmp_path / "model_catalog.json").exists()
 
     @pytest.mark.asyncio
-    async def test_existing_cache_intact_after_guard_blocks(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_existing_cache_intact_after_guard_blocks(self, tmp_path, monkeypatch):
         """When the guard rejects a new fetch the existing cache is not modified."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
         # Pre-existing cache with a special window value.
@@ -476,9 +458,7 @@ class TestSeedCoverageGuard:
 
 class TestPostRefreshInvalidation:
     @pytest.mark.asyncio
-    async def test_invalidation_reflects_cache_after_refresh(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_invalidation_reflects_cache_after_refresh(self, tmp_path, monkeypatch):
         """After refresh the memo is cleared and context_window_for reads the cache."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
 
@@ -491,6 +471,7 @@ class TestPostRefreshInvalidation:
         # Now refresh with a payload that includes 999_999 for gpt-4o (+ all seed pairs).
         # _make_full_payload() returns the real nested shape; deep-copy and override.
         import copy
+
         entries = copy.deepcopy(_make_full_payload())
         # Override gpt-4o in the nested payload with a higher window.
         entries["openai"]["models"]["gpt-4o"]["limit"]["context"] = 999_999

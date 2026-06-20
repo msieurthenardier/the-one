@@ -275,9 +275,7 @@ def _load_catalog() -> dict[str, Any]:
             data = json.loads(raw)
             if isinstance(data, dict):
                 return data
-            raise ValueError(
-                f"cache root must be a JSON object, got {type(data).__name__}"
-            )
+            raise ValueError(f"cache root must be a JSON object, got {type(data).__name__}")
         except Exception as exc:
             logger.warning(
                 "model_catalog: cache at %s is corrupt (%s) — falling back to bundled seed",
@@ -405,9 +403,7 @@ async def refresh_catalog_cache(url: str = _MODELS_DEV_URL) -> bool:
     try:
         import httpx
 
-        async with httpx.AsyncClient(
-            timeout=_FETCH_TIMEOUT, follow_redirects=True
-        ) as client:
+        async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             raw_payload = resp.json()
@@ -449,8 +445,7 @@ async def refresh_catalog_cache(url: str = _MODELS_DEV_URL) -> bool:
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "source": "models.dev",
             "providers": {
-                p: dict(sorted(models.items()))
-                for p, models in sorted(projected_providers.items())
+                p: dict(sorted(models.items())) for p, models in sorted(projected_providers.items())
             },
         }
         tmp_path.write_text(

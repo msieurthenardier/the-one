@@ -305,9 +305,7 @@ async def test_stream_interim_deltas_carry_unstripped_content(monkeypatch):
 # lives in the provider; these tests are the right layer.
 
 
-async def _run_complete_with_capability(
-    monkeypatch, content, *, supports: bool
-) -> Message:
+async def _run_complete_with_capability(monkeypatch, content, *, supports: bool) -> Message:
     """Run complete() with supports_tools() stubbed to ``supports``."""
     _patch_transport(monkeypatch, _complete_handler(content))
     prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1")
@@ -319,9 +317,7 @@ async def _run_complete_with_capability(
     return await prov.complete([Message(role=Role.USER, content="hi")])
 
 
-async def _run_stream_with_capability(
-    monkeypatch, content_pieces, *, supports: bool
-):
+async def _run_stream_with_capability(monkeypatch, content_pieces, *, supports: bool):
     """Run stream() with supports_tools() stubbed to ``supports``."""
     _patch_chat_stream(monkeypatch, _stream_chunks(content_pieces))
     prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1")
@@ -345,7 +341,7 @@ async def test_complete_no_recovery_when_supports_tools_false(monkeypatch):
     A well-formed tool_code block in the content is NOT parsed/stripped/recovered.
     The user is NOT left with an empty message; the raw block surfaces as text.
     """
-    content = "```tool_code\nshell(command=\"echo hi\")\n```"
+    content = '```tool_code\nshell(command="echo hi")\n```'
     msg = await _run_complete_with_capability(monkeypatch, content, supports=False)
 
     # Recovery did NOT fire — no tool_calls recovered.
@@ -374,10 +370,8 @@ async def test_stream_no_recovery_when_supports_tools_false(monkeypatch):
 
     The raw block is NOT stripped; no tool_calls on the final chunk.
     """
-    content = "```tool_code\nshell(command=\"echo hi\")\n```"
-    final, _ = await _run_stream_with_capability(
-        monkeypatch, [content], supports=False
-    )
+    content = '```tool_code\nshell(command="echo hi")\n```'
+    final, _ = await _run_stream_with_capability(monkeypatch, [content], supports=False)
     # Recovery did NOT fire.
     assert final.message.tool_calls == []
     assert final.tool_calls == []
@@ -388,9 +382,7 @@ async def test_stream_no_recovery_when_supports_tools_false(monkeypatch):
 @pytest.mark.asyncio
 async def test_stream_recovery_still_fires_when_supports_tools_true(monkeypatch):
     """M16 F03 L08C: stream() — supports_tools=True → recovery fires (DD2 preserved)."""
-    final, _ = await _run_stream_with_capability(
-        monkeypatch, [GEMMA_FIXTURE], supports=True
-    )
+    final, _ = await _run_stream_with_capability(monkeypatch, [GEMMA_FIXTURE], supports=True)
     assert len(final.message.tool_calls) == 1
     assert final.message.tool_calls[0].name == "get_weather"
     assert "```tool" not in final.message.content

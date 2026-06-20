@@ -20,9 +20,9 @@ from the_one.mcp._tool_provider import filter_mcp_tools_by_override
 from the_one.mcp.types import MCPTool
 from the_one.tools._search_stubs import SearchToolsStub
 from the_one.tools._search_tools import (
-    SearchTools,
     _MAX_SEARCH_RESULTS,
     _STOPWORDS,
+    SearchTools,
     _build_synthetic_description,
     _filter_candidates,
     _format_result,
@@ -557,9 +557,7 @@ async def test_stopword_only_query_falls_back_to_phrase_match() -> None:
     loaded_names = {s["name"] for s in ls}
     # The fallback-phrase result must be a proper subset of the full catalog
     # (it never dumps everything for a stopword-only query).
-    assert loaded_names != all_schema_names, (
-        "Stopword-only query must not dump the full catalog"
-    )
+    assert loaded_names != all_schema_names, "Stopword-only query must not dump the full catalog"
 
 
 def test_ranking_more_tokens_ranks_higher() -> None:
@@ -955,7 +953,8 @@ def test_cap_non_empty_query_high_scored_tool_included() -> None:
     result = _filter_candidates(schemas, {}, "alpha tool")
     names = [s["name"] for s in result]
     assert "alpha_master" in names, (
-        f"High-overlap tool 'alpha_master' (score 2) must be in top-{_MAX_SEARCH_RESULTS}; got {names}"
+        f"High-overlap tool 'alpha_master' (score 2) must be in "
+        f"top-{_MAX_SEARCH_RESULTS}; got {names}"
     )
 
 
@@ -975,7 +974,9 @@ def test_cap_non_empty_query_low_ranked_beyond_cap_excluded() -> None:
     # and low_relevance are all score 1 — at least some of them must be excluded.
     result = _filter_candidates(schemas, {}, "alpha tool")
     result_names = {s["name"] for s in result}
-    all_matching = {s["name"] for s in schemas}  # all 12 match (alpha_master + 10 plain + low_relevance)
+    all_matching = {
+        s["name"] for s in schemas
+    }  # all 12 match (alpha_master + 10 plain + low_relevance)
     excluded = all_matching - result_names
     assert len(excluded) >= 1, (
         f"Expected at least one schema beyond the cap to be excluded; result: {result_names}"
@@ -987,12 +988,16 @@ def test_empty_query_not_capped_returns_all() -> None:
 
     We register more than _MAX_SEARCH_RESULTS tools and assert every one appears.
     """
-    schemas = [_synthetic_schema(f"tool_{i:02d}", f"description {i}") for i in range(_MAX_SEARCH_RESULTS + 5)]
+    schemas = [
+        _synthetic_schema(f"tool_{i:02d}", f"description {i}")
+        for i in range(_MAX_SEARCH_RESULTS + 5)
+    ]
     schemas.append(_synthetic_schema("search_tools", "excluded"))
     result = _filter_candidates(schemas, {}, "")
     result_names = {s["name"] for s in result}
     assert len(result) > _MAX_SEARCH_RESULTS, (
-        f"Empty query must not be capped; expected >{_MAX_SEARCH_RESULTS} results, got {len(result)}"
+        f"Empty query must not be capped; expected "
+        f">{_MAX_SEARCH_RESULTS} results, got {len(result)}"
     )
     assert "search_tools" not in result_names
     for i in range(_MAX_SEARCH_RESULTS + 5):
@@ -1040,9 +1045,7 @@ async def test_execute_capped_query_signals_top_matches() -> None:
     st, ls, _ = _make_search_tools(registry=registry)
     result = await st.execute("data")
 
-    assert "(top matches)" in result, (
-        f"Expected '(top matches)' when capped; got: {result!r}"
-    )
+    assert "(top matches)" in result, f"Expected '(top matches)' when capped; got: {result!r}"
     assert len(ls) == _MAX_SEARCH_RESULTS
 
 

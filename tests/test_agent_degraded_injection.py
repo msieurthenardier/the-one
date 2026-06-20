@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from the_one.agent.config import BASE_PROMPT, CHAT_ONLY_PROMPT, compose_system_prompt
+from the_one.agent.config import BASE_PROMPT, compose_system_prompt
 from the_one.agent.core import Agent
 from the_one.llm.base import (
     LLMProvider,

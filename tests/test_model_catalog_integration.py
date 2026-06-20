@@ -34,12 +34,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from the_one.config import settings
-from the_one.llm import model_catalog as _model_catalog_mod
+from the_one.interfaces.web.api import router
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.model_catalog import _reset_for_tests, context_window_for
 from the_one.llm.openai_provider import OpenAIProvider
-from the_one.interfaces.web.api import router
-
 
 # ---------------------------------------------------------------------------
 # Hermeticity — autouse reset so suite order cannot contaminate
@@ -83,9 +81,7 @@ class TestOfflineRestartSurvival:
     seed — NOT from the class default.
     """
 
-    async def test_anthropic_resolves_from_seed_no_cache(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_anthropic_resolves_from_seed_no_cache(self, monkeypatch, tmp_path) -> None:
         """AnthropicProvider(claude-sonnet-4-6) → 1_000_000 from bundled seed.
 
         The class default is 200_000. Getting 1_000_000 proves the seed drove
@@ -106,9 +102,7 @@ class TestOfflineRestartSurvival:
             "data_dir was correctly pointed at an empty tmp_path."
         )
 
-    async def test_openai_resolves_from_seed_no_cache(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_openai_resolves_from_seed_no_cache(self, monkeypatch, tmp_path) -> None:
         """OpenAIProvider(gpt-4o) → 128_000 from bundled seed."""
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         _reset_for_tests(None)
@@ -137,9 +131,7 @@ class TestNoNetworkOnResolvePath:
     HTTP request is attempted.
     """
 
-    async def test_anthropic_resolve_makes_no_http_call(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_anthropic_resolve_makes_no_http_call(self, monkeypatch, tmp_path) -> None:
         """AnthropicProvider resolve does not issue any HTTP request."""
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         _reset_for_tests(None)
@@ -166,9 +158,7 @@ class TestNoNetworkOnResolvePath:
             f"Expected 1_000_000 from seed, got {provider.max_context_tokens}"
         )
 
-    async def test_openai_resolve_makes_no_http_call(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_openai_resolve_makes_no_http_call(self, monkeypatch, tmp_path) -> None:
         """OpenAIProvider resolve does not issue any HTTP request."""
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         _reset_for_tests(None)
@@ -210,9 +200,7 @@ class TestNoNetworkOnResolvePath:
         ("anthropic", "claude-3-5-haiku-latest", 200_000),
     ],
 )
-def test_shipped_model_coverage(
-    provider_name: str, model_id: str, expected_window: int
-) -> None:
+def test_shipped_model_coverage(provider_name: str, model_id: str, expected_window: int) -> None:
     """catalog resolves the expected window for models the app ships/defaults to.
 
     Drives the assertion through context_window_for so the full lookup chain

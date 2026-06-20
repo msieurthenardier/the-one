@@ -1051,9 +1051,7 @@ async def _persist_last_usage(
         repo = await _chat_repo()
         await repo.set_session_metadata_key(session.id, "last_usage", snapshot)
     except Exception:
-        logger.warning(
-            "Failed to persist last_usage for session %s", session.id, exc_info=True
-        )
+        logger.warning("Failed to persist last_usage for session %s", session.id, exc_info=True)
         return
     # Mirror in-memory so same-process reopens see the value without a DB round-trip.
     session.session_metadata = {**(session.session_metadata or {}), "last_usage": snapshot}

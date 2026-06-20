@@ -25,7 +25,7 @@ Reopen caveat (documented here to explain the test's coverage):
 from __future__ import annotations
 
 import pytest
-from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
+from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
 # Token count seeded into the mock provider.  Must be > 0 so the turn

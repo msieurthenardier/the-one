@@ -37,7 +37,6 @@ from the_one.interfaces.web.app import (
 )
 from the_one.llm.base import Message, TokenUsage, ToolCall, ToolResult
 
-
 # ---------------------------------------------------------------------------
 # Shared DB fixture (mirrors test_db_repositories.py:23-41)
 # ---------------------------------------------------------------------------
@@ -224,7 +223,9 @@ async def test_non_paused_settle_persists_last_usage_with_exact_context_tokens(
     #   output_tokens = 50  + 80  = 130
     #   context_tokens = 200  (the LAST message's input_tokens, not the sum)
     msg1 = Message.assistant("first response", usage=TokenUsage(input_tokens=300, output_tokens=50))
-    msg2 = Message.assistant("second response", usage=TokenUsage(input_tokens=200, output_tokens=80))
+    msg2 = Message.assistant(
+        "second response", usage=TokenUsage(input_tokens=200, output_tokens=80)
+    )
 
     agent = StubAgent(step_messages=[msg1, msg2])
     session = Session(
@@ -488,9 +489,7 @@ async def test_resume_settle_in_memory_matches_db(
     await agent_store.save(AgentConfig(name="agent1"))
     await chat_repo.create(ChatSession(id="s-r04", agent_name="agent1"))
 
-    resumed_msg = Message.assistant(
-        "resume", usage=TokenUsage(input_tokens=180, output_tokens=40)
-    )
+    resumed_msg = Message.assistant("resume", usage=TokenUsage(input_tokens=180, output_tokens=40))
     tc = ToolCall(id="tc1", name="some_tool", arguments={})
 
     agent = StubAgent(

@@ -9,7 +9,6 @@ from typing import Any
 import anthropic
 
 from the_one.llm._schema_sanitize import UnsanitizableToolSchema, sanitize_tool_schema
-from the_one.llm.model_catalog import context_window_for
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
     LLMProvider,
@@ -20,6 +19,7 @@ from the_one.llm.base import (
     ToolCall,
     build_user_message_content,
 )
+from the_one.llm.model_catalog import context_window_for
 from the_one.llm.registry import register_provider
 
 logger = logging.getLogger(__name__)

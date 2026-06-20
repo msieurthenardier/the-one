@@ -22,7 +22,6 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-import the_one.llm.model_catalog as _model_catalog
 from the_one.llm import ollama_api, openrouter_api
 from the_one.llm.anthropic_provider import AnthropicProvider
 from the_one.llm.model_catalog import _OPENAI_FLOOR, _reset_for_tests, context_window_for
