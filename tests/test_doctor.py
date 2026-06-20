@@ -16,7 +16,13 @@ import types
 import pytest
 
 from the_one import diagnostics
-from the_one.diagnostics import ProbeResult, _probe_desktop_shell, detect_runtimes, run_doctor
+from the_one.diagnostics import (
+    ProbeResult,
+    _probe_desktop_shell,
+    _probe_llm_providers,
+    detect_runtimes,
+    run_doctor,
+)
 
 
 class TestRunDoctorHost:
@@ -190,3 +196,62 @@ class TestProbeDesktopShell:
         run_doctor(out=buf)
         text = buf.getvalue()
         assert "desktop shell:" in text
+
+
+class TestProbeLLMProviders:
+    """Unit tests for the ``_probe_llm_providers`` doctor line (M16 frozen-
+    provider regression gate)."""
+
+    def test_ok_when_all_modules_importable(self) -> None:
+        """On a dev host with the source tree present, all provider modules import."""
+        result = _probe_llm_providers()
+        assert result.ok is True
+        assert "importable" in result.detail
+
+    def test_frozen_fail_when_module_missing(self) -> None:
+        """Frozen build missing a provider module → ok=False, actionable detail.
+
+        Simulates the exact regression: a provider module tree-shaken out of the
+        frozen bundle. A ``None`` sentinel in sys.modules makes the import raise
+        ModuleNotFoundError, mirroring the absent-from-bundle condition.
+        """
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setitem(sys.modules, "the_one.llm.ollama_provider", None)  # type: ignore[arg-type]
+            result = _probe_llm_providers()
+        assert result.ok is False
+        assert "the_one.llm.ollama_provider" in result.detail
+        assert "hiddenimports" in result.detail
+
+    def test_nonfrozen_missing_is_informational_skip(self) -> None:
+        """Missing provider on a non-frozen host → ok=True (extras may be absent)."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: False)
+            mp.setitem(sys.modules, "the_one.llm.anthropic_provider", None)  # type: ignore[arg-type]
+            result = _probe_llm_providers()
+        assert result.ok is True
+        assert "skipped" in result.detail
+
+    def test_frozen_fail_promotes_result_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A frozen provider-probe failure promotes the whole run to RESULT: FAIL."""
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_llm_providers",
+            lambda: ProbeResult(
+                "llm providers",
+                False,
+                "provider module(s) missing from frozen bundle",
+            ),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code != 0
+        assert "llm providers: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_doctor_llm_line_present_in_output(self) -> None:
+        """The llm providers line appears in run_doctor output on this host."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "llm providers:" in buf.getvalue()

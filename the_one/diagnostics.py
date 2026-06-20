@@ -157,6 +157,68 @@ def _probe_desktop_shell() -> ProbeResult:
         return ProbeResult("desktop shell", True, f"skipped — unexpected error: {exc}")
 
 
+# LLM provider modules registered via the lazy string-import loader in
+# the_one/llm/registry.py:_try_load_builtin. PyInstaller cannot see those
+# string __import__ calls, so each MUST be in the freeze's hiddenimports
+# (packaging/windows/the-one.spec, via collect_submodules("the_one.llm")).
+# Kept in sync with the loaders table in registry.py.
+_LLM_PROVIDER_MODULES: tuple[str, ...] = (
+    "the_one.llm.ollama_provider",
+    "the_one.llm.anthropic_provider",
+    "the_one.llm.openai_provider",
+    "the_one.llm.openrouter_provider",
+    "the_one.llm.mock",
+)
+
+
+def _probe_llm_providers() -> ProbeResult:
+    """Import every lazily-loaded LLM provider module as a smoke check.
+
+    This is the gate for the M16 frozen-provider regression: provider modules
+    are loaded via a string ``__import__`` in ``registry.py`` that PyInstaller's
+    static analysis can't follow, so a missing hiddenimports entry silently
+    tree-shakes them out of the bundle. The failure only surfaced at runtime
+    when a user created an agent — ``get_provider()`` raised ``ModuleNotFoundError``,
+    the WS handler crashed, and the chat dropped silently.
+
+    - **Frozen**: all provider modules MUST import (the freeze installs
+      ``[all-llms]`` and bundles ``the_one.llm``), so any failure is a hard gate
+      → ``ok=False`` (``RESULT: FAIL``). The CI packaged-smoke reads this exit code.
+    - **Not frozen** (dev host): optional SDK extras (openai/anthropic) may be
+      absent, so import failures are informational only → ``ok=True``.
+
+    Never raises — all exceptions are caught.
+    """
+    import importlib
+
+    failures: list[str] = []
+    for mod in _LLM_PROVIDER_MODULES:
+        try:
+            importlib.import_module(mod)
+        except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+            failures.append(f"{mod} ({exc.__class__.__name__}: {exc})")
+
+    if not failures:
+        return ProbeResult(
+            "llm providers",
+            True,
+            f"all {len(_LLM_PROVIDER_MODULES)} provider modules importable",
+        )
+    detail = "; ".join(failures)
+    if is_frozen():
+        return ProbeResult(
+            "llm providers",
+            False,
+            f"provider module(s) missing from frozen bundle "
+            f"(add to the-one.spec hiddenimports): {detail}",
+        )
+    return ProbeResult(
+        "llm providers",
+        True,
+        f"skipped (extras not installed in dev): {detail}",
+    )
+
+
 def _probe_interpreter() -> ProbeResult:
     """Verify a real external Python interpreter is resolvable.
 
@@ -199,7 +261,10 @@ def run_doctor(out=None) -> int:
     # Desktop-shell probe: gate only when frozen (frozen build must include [gui]);
     # on a dev host the [gui] extra may legitimately be absent → informational only.
     desktop = _probe_desktop_shell()
-    gates = [spawn, interp, desktop]
+    # LLM-provider gate: like desktop-shell, only a hard gate when frozen
+    # (the freeze must bundle every lazily-imported provider module).
+    llm_providers = _probe_llm_providers()
+    gates = [spawn, interp, desktop, llm_providers]
 
     for res in gates:
         status = "OK" if res.ok else "FAIL"
