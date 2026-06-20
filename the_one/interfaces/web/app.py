@@ -1019,6 +1019,46 @@ async def _save_session_to_db(session: Session) -> None:
         logger.warning("Failed to save session %s to DB", session.id, exc_info=True)
 
 
+async def _persist_last_usage(
+    session: Session,
+    input_tokens: int,
+    output_tokens: int,
+    context_tokens: int,
+) -> None:
+    """Persist per-turn usage snapshot to session_metadata["last_usage"].
+
+    M16 F06 L01 — shared helper called from both turn-settle sites:
+    the non-paused settle in ``_process_and_broadcast`` and the resume
+    settle in ``_resume_paused_session``.
+
+    Writes ``{"input_tokens", "output_tokens", "context_tokens"}`` to the
+    DB via ``set_session_metadata_key`` (overwrite semantic, preserves
+    sibling keys like ``routing``) and mirrors the write in-memory so a
+    same-process reopen doesn't need a DB round-trip.
+
+    The in-memory update mirrors the repo's read-modify-write:
+    ``session.session_metadata or {}`` handles a fresh session where the
+    field is ``None``, and we spread existing siblings so concurrent writes
+    to other keys survive (e.g. a ``routing`` key written by the dispatcher
+    between the DB call and the in-memory update won't be clobbered here).
+    """
+    snapshot = {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "context_tokens": context_tokens,
+    }
+    try:
+        repo = await _chat_repo()
+        await repo.set_session_metadata_key(session.id, "last_usage", snapshot)
+    except Exception:
+        logger.warning(
+            "Failed to persist last_usage for session %s", session.id, exc_info=True
+        )
+        return
+    # Mirror in-memory so same-process reopens see the value without a DB round-trip.
+    session.session_metadata = {**(session.session_metadata or {}), "last_usage": snapshot}
+
+
 def _session_to_list_payload(s: ChatSessionModel) -> dict[str, Any]:
     """Project a ChatSession DB row into the `session_list` per-row payload.
 
@@ -1560,6 +1600,20 @@ async def _process_and_broadcast(
         # F5 L3: do NOT broadcast ``done`` when paused — the chat UI is
         # still awaiting auth resolution; the resume path will broadcast
         # ``done`` after re-dispatching the deferred tool calls.
+
+        # M16 F06 L01: persist per-turn usage snapshot at the non-paused
+        # settle. ``last_input`` starts at 0 and is only updated when an
+        # assistant message with usage arrives, so ``if last_input`` is the
+        # zero-usage guard: a turn that errored before any usage event
+        # leaves the prior snapshot intact rather than writing misleading zeros.
+        if last_input:
+            await _persist_last_usage(
+                session,
+                input_tokens=total_input,
+                output_tokens=total_output,
+                context_tokens=last_input,
+            )
+
         await _send_to_session(session, {"type": "done"})
     return result_messages
 
@@ -1598,10 +1652,30 @@ async def _resume_paused_session(session: Session) -> None:
     # the resumed tool dispatch may trigger. Symmetric with
     # ``_spawn_message_processing``'s set/reset pattern.
     csid_token = current_chat_session_id.set(session.id)
+
+    # M16 F06 L01: resume-path usage accumulator. Initialise before the
+    # loop so the settle write (outside the try/except) sees accumulated
+    # totals regardless of whether the loop completed normally or raised.
+    # ``resume_last_input`` doubles as the zero-usage guard: it stays 0
+    # when no assistant usage event arrived, and ``if resume_last_input``
+    # suppresses the write to avoid overwriting a prior snapshot with zeros.
+    resume_input = 0
+    resume_output = 0
+    resume_last_input = 0
+
     try:
         re_paused = False
         async for msg in session.agent.resume_after_auth():
             await _broadcast_one(session, msg, source="resumed")
+            # M16 F06 L01: accumulate usage from each resumed assistant
+            # message. ``context_tokens`` is the LAST assistant message's
+            # ``input_tokens`` (not the sum) — mirrors ``_broadcast_one``'s
+            # ``"context_tokens": msg.usage.input_tokens`` at :1290 and the
+            # non-paused path's ``last_input`` at :1444.
+            if msg.role == Role.ASSISTANT and msg.usage:
+                resume_input += msg.usage.input_tokens
+                resume_output += msg.usage.output_tokens
+                resume_last_input = msg.usage.input_tokens
             if _is_auth_required_pause(msg):
                 re_paused = True
                 break
@@ -1632,6 +1706,19 @@ async def _resume_paused_session(session: Session) -> None:
         await _save_session_to_db(session)
     except Exception:
         logger.warning("Failed to save session %s after resume", session.id, exc_info=True)
+
+    # M16 F06 L01: persist the resume-segment usage snapshot. Placed
+    # outside the try/except (next to _save_session_to_db) so a partial
+    # resume exception still persists whatever usage accumulated before it.
+    # ``resume_last_input`` is the zero-usage guard — 0 means no assistant
+    # usage event arrived; we leave the prior snapshot intact in that case.
+    if resume_last_input:
+        await _persist_last_usage(
+            session,
+            input_tokens=resume_input,
+            output_tokens=resume_output,
+            context_tokens=resume_last_input,
+        )
 
 
 async def _send_pause_snapshot_if_needed(session: Session, websocket: WebSocket) -> None:

@@ -1,6 +1,6 @@
 # Flight: Telemetry Overlay Usage Persistence
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -188,13 +188,13 @@ clobber it (DD5). In `chat.js`, the `session_joined` handler restores `last_usag
 into the overlay and the `/context-window` seed becomes max-only (DD4).
 
 ### Checkpoints
-- [ ] `last_usage` is written via `set_session_metadata_key` at the non-paused
+- [x] `last_usage` is written via `set_session_metadata_key` at the non-paused
       settle AND the resume settle; correct totals in each case (L01)
-- [ ] In-memory + DB stay consistent; purge (`delete_older_than`) confirmed
+- [x] In-memory + DB stay consistent; purge (`delete_older_than`) confirmed
       non-interfering (L01)
-- [ ] Reopening a chat restores the overlay (bar + last-turn in/out); the
+- [x] Reopening a chat restores the overlay (bar + last-turn in/out); the
       `/context-window` seed no longer re-zeros it (L02)
-- [ ] Round-trip integration (write → DB reload as a simulated restart →
+- [x] Round-trip integration (write → DB reload as a simulated restart →
       `session_joined` carries `last_usage` → restore applies it) + a browser flow
       test asserting the restored overlay DOM; full suite ≥ F5 baseline (L03)
 
@@ -214,7 +214,7 @@ into the overlay and the `/context-window` seed becomes max-only (DD4).
 
 > **Note:** Tentative; planned one at a time as the flight progresses.
 
-- [ ] `persist-usage-snapshot` - Write `last_usage` via the existing
+- [x] `persist-usage-snapshot` - Write `last_usage` via the existing
       `set_session_metadata_key` at **both** turn-settle points, updating in-memory
       `session.session_metadata` too. Non-paused: use the settled
       `total_input`/`total_output`/`last_input` in `_process_and_broadcast`. Resume:
@@ -224,12 +224,12 @@ into the overlay and the `/context-window` seed becomes max-only (DD4).
       `input_tokens` as the derived `context_tokens`. Confirm `delete_older_than`
       purge is non-interfering. Unit tests for **both** settle paths, asserting the
       derived `context_tokens` (not just non-zero). *(No new primitive — it exists.)*
-- [ ] `restore-overlay-on-join` - In `chat.js` `session_joined`, restore
+- [x] `restore-overlay-on-join` - In `chat.js` `session_joined`, restore
       `last_usage` from `data.session_metadata` into the overlay (bar + last-turn
       in/out); make the `/context-window` seed max-only so it doesn't re-zero the
       restore (DD4). Backend payload already carries it — assert that at the payload
       level.
-- [ ] `verify-integration` - Integration round-trip: send a turn → `last_usage`
+- [x] `verify-integration` - Integration round-trip: send a turn → `last_usage`
       persisted → **drop the in-memory `_sessions` entry** so the join flows through
       `_restore_session` (`app.py:856`) from the DB (the real restart path, not a
       warm-cache shortcut) → `session_joined` carries `last_usage` → restore applies

@@ -909,6 +909,20 @@ App.registerArea({
           hideThinking();
           App.chat.resetTelemetry(content);
           renderHistory(data.history, data.agent_name);
+          // M16 F06 L02: synchronously restore persisted last_usage into
+          // the overlay so the token counts aren't lost on session reopen.
+          // Uses the same defensive read pattern as the routing panel below.
+          // max_context_tokens is 0 here (unknown until the seed resolves);
+          // the bar will fill once setTelemetryMax runs async shortly after.
+          var lastUsage = (data.session_metadata && data.session_metadata.last_usage) || null;
+          if (lastUsage) {
+            App.chat.updateTelemetry(content, {
+              input_tokens: lastUsage.input_tokens || 0,
+              output_tokens: lastUsage.output_tokens || 0,
+              context_tokens: lastUsage.context_tokens || 0,
+              max_context_tokens: 0,
+            });
+          }
           // M11 F13 L5: render the routing audit panel from the join
           // payload's session_metadata and wire the Refresh button to
           // re-fetch via REST.
@@ -943,12 +957,9 @@ App.registerArea({
               .then(function (r) { return r.ok ? r.json() : null; })
               .then(function (payload) {
                 if (payload && payload.max_context_tokens) {
-                  App.chat.updateTelemetry(content, {
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    context_tokens: 0,
-                    max_context_tokens: payload.max_context_tokens,
-                  });
+                  // M16 F06 L02: max-only seed — never re-zeros restored
+                  // used-counts; recomputes the bar from retained context_tokens.
+                  App.chat.setTelemetryMax(content, payload.max_context_tokens);
                 }
               })
               .catch(function () { /* best-effort; silent on failure */ });
