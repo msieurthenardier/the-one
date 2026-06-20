@@ -406,15 +406,15 @@ Discovered during Flight 5 HAT (2026-06-20):
       capability flight). HAT caught + fixed a critical refresh-parser bug (built
       blind against an assumed models.dev shape) and an over-reporting seed. Full
       suite `3422/10/594`, 0 failures. See `flights/05-model-catalog-drift-removal/`.
-- [ ] Flight 6: **Telemetry overlay usage persistence** — **NEW (2026-06-20, from
-      F5 HAT).** Persist the per-session token-usage snapshot durably and restore it
-      on `session_joined` so reopening an old chat (incl. after a server restart)
-      shows the accumulated `used / max` fullness, not `0 / max`. Today usage events
-      are projection-only (ephemeral) and `renderHistory` doesn't replay them; F5
-      made the *max* survive restart, but the *used-token* state still resets.
-      Touches the session/DB persistence layer (`the_one/db/`, `_restore_session`,
-      the `session_joined` payload) + `chat.js` — a distinct subsystem from the
-      catalog (kept out of F5 to avoid bundling unrelated work).
+- [ ] Flight 6: **Telemetry overlay usage persistence** — **READY (2026-06-20, from
+      F5 HAT; architect-validated over 2 review cycles).** Persist the per-session
+      token-usage snapshot in `session_metadata["last_usage"]` (via the existing
+      `set_session_metadata_key` primitive — no migration) and restore it on
+      `session_joined` so reopening an old chat (incl. after a server restart) shows
+      the last turn's `used / max` fullness, not `0 / max`. Writes at both turn-settle
+      points (normal + auth-resume); frontend `/context-window` seed made max-only to
+      avoid re-zeroing the restore. Distinct session/DB persistence subsystem (kept
+      out of F5 to avoid bundling). See `flights/06-telemetry-overlay-usage-persistence/`.
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface
