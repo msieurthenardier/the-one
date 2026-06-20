@@ -32,8 +32,19 @@ from the_one.llm.model_catalog import (
 # Shared fixture helpers
 # ---------------------------------------------------------------------------
 
-# A minimal valid models.dev-style payload (list shape) that covers all pairs
-# in the bundled seed (openai + anthropic models).
+# A minimal valid models.dev-style payload (real nested shape) that covers all
+# pairs in the bundled seed (openai + anthropic models).
+#
+# Real models.dev shape (as of 2026):
+#   {
+#     "<provider>": {
+#       "id": "...", "name": "...", ...,
+#       "models": {
+#         "<model_id>": {"limit": {"context": N}, ...},
+#         ...
+#       }
+#     }
+#   }
 _SEED_PROVIDERS: dict[str, dict[str, int]] = {}
 
 
@@ -50,13 +61,24 @@ def _get_seed_providers() -> dict[str, dict[str, int]]:
     return _SEED_PROVIDERS
 
 
-def _make_full_payload() -> list[dict]:
-    """Build a models.dev list-shape payload that covers all seed pairs."""
-    entries = []
+def _make_full_payload() -> dict:
+    """Build a models.dev nested-dict payload that covers all seed pairs.
+
+    Uses the REAL models.dev shape: top-level dict keyed by provider, each
+    value containing a "models" sub-dict keyed by model_id → entry with a
+    ``limit.context`` field.  This exercises the fixed project_raw() parser.
+    """
+    payload: dict = {}
     for provider, models in _get_seed_providers().items():
-        for model_id, ctx in models.items():
-            entries.append({"id": model_id, "provider": provider, "context": ctx})
-    return entries
+        payload[provider] = {
+            "id": provider,
+            "name": provider.capitalize(),
+            "models": {
+                model_id: {"id": model_id, "limit": {"context": ctx}}
+                for model_id, ctx in models.items()
+            },
+        }
+    return payload
 
 
 def _make_mock_response(payload) -> MagicMock:
@@ -347,12 +369,25 @@ class TestSeedCoverageGuard:
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
 
         # Build a payload that only has ONE anthropic model — definitely missing
-        # some seed anthropic entries.
-        partial_payload = [
-            {"id": "gpt-4o", "provider": "openai", "context": 128_000},
-            # Only one anthropic model, seed has 8 anthropic entries.
-            {"id": "claude-sonnet-4-6", "provider": "anthropic", "context": 1_000_000},
-        ]
+        # some seed anthropic entries.  Uses the real nested shape.
+        partial_payload = {
+            "openai": {
+                "id": "openai",
+                "name": "OpenAI",
+                "models": {"gpt-4o": {"id": "gpt-4o", "limit": {"context": 128_000}}},
+            },
+            "anthropic": {
+                "id": "anthropic",
+                "name": "Anthropic",
+                # Only one anthropic model; seed has many more entries.
+                "models": {
+                    "claude-sonnet-4-6": {
+                        "id": "claude-sonnet-4-6",
+                        "limit": {"context": 1_000_000},
+                    }
+                },
+            },
+        }
         mock_resp = _make_mock_response(partial_payload)
 
         with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
@@ -380,7 +415,7 @@ class TestSeedCoverageGuard:
     async def test_guard_blocks_empty_payload(self, tmp_path, monkeypatch):
         """An empty payload (no models) must not be written."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
-        mock_resp = _make_mock_response([])  # empty list
+        mock_resp = _make_mock_response({})  # empty dict — no providers
 
         with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
             result = await refresh_catalog_cache()
@@ -392,6 +427,7 @@ class TestSeedCoverageGuard:
     async def test_guard_blocks_garbage_response(self, tmp_path, monkeypatch):
         """A garbage payload (wrong shape) must not overwrite the cache."""
         monkeypatch.setattr(mod.settings, "data_dir", tmp_path)
+        # Nested-shape dict but with no recognisable providers — still garbage.
         mock_resp = _make_mock_response({"something": "totally wrong"})
 
         with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
@@ -416,8 +452,14 @@ class TestSeedCoverageGuard:
         cache_path.write_text(json.dumps(original_cache), encoding="utf-8")
         mtime_before = cache_path.stat().st_mtime
 
-        # Payload that fails the coverage guard.
-        partial_payload = [{"id": "gpt-4o", "provider": "openai", "context": 128_000}]
+        # Payload that fails the coverage guard — only one OpenAI model, real nested shape.
+        partial_payload = {
+            "openai": {
+                "id": "openai",
+                "name": "OpenAI",
+                "models": {"gpt-4o": {"id": "gpt-4o", "limit": {"context": 128_000}}},
+            }
+        }
         mock_resp = _make_mock_response(partial_payload)
 
         with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
@@ -447,13 +489,11 @@ class TestPostRefreshInvalidation:
         assert before == 128_000
 
         # Now refresh with a payload that includes 999_999 for gpt-4o (+ all seed pairs).
-        entries = _make_full_payload()
-        # Override gpt-4o in the payload with a higher window.
-        entries = [
-            e if not (e.get("id") == "gpt-4o" and e.get("provider") == "openai")
-            else {**e, "context": 999_999}
-            for e in entries
-        ]
+        # _make_full_payload() returns the real nested shape; deep-copy and override.
+        import copy
+        entries = copy.deepcopy(_make_full_payload())
+        # Override gpt-4o in the nested payload with a higher window.
+        entries["openai"]["models"]["gpt-4o"]["limit"]["context"] = 999_999
         mock_resp = _make_mock_response(entries)
         with patch("httpx.AsyncClient.get", AsyncMock(return_value=mock_resp)):
             result = await refresh_catalog_cache()

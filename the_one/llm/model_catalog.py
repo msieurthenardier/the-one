@@ -168,28 +168,46 @@ def project_raw(raw: Any) -> dict[str, dict[str, int]]:
                 providers.setdefault(provider, {})[bare_id] = ctx
 
     elif isinstance(raw, dict):
-        # Dict shape: {provider_name: {model_id: {...}}} or similar
-        for provider, models_data in raw.items():
+        # Real models.dev shape (as of 2026):
+        #   {
+        #     "<provider>": {                        # top-level: provider metadata
+        #       "id": "...", "name": "...", ...,
+        #       "models": {                          # nested models dict
+        #         "<model_id>": {"limit": {"context": N}, ...},
+        #         ...
+        #       }
+        #     },
+        #     ...
+        #   }
+        #
+        # Traverse raw[provider]["models"] to reach the per-model entries.
+        # Defensive fallbacks below handle older flat shapes (provider → models dict
+        # without a "models" nesting key) in case the API shape ever reverts.
+        for provider, provider_data in raw.items():
             if not isinstance(provider, str):
                 continue
             provider = provider.lower()
             if provider not in _TARGET_PROVIDERS:
                 continue
-            if isinstance(models_data, dict):
-                for model_id, entry in models_data.items():
+            if not isinstance(provider_data, dict):
+                continue
+
+            # Primary path: real nested shape {provider: {models: {id: entry}}}
+            nested_models = provider_data.get("models")
+            if isinstance(nested_models, dict):
+                for model_id, entry in nested_models.items():
                     if not isinstance(entry, dict):
                         continue
                     bare_id = _strip_provider_prefix(model_id, provider)
                     ctx = _extract_context_window(entry)
                     if ctx is not None:
                         providers.setdefault(provider, {})[bare_id] = ctx
-            elif isinstance(models_data, list):
-                for entry in models_data:
+            # Defensive fallback: flat {provider: {model_id: entry}} shape —
+            # skip provider-level metadata keys (non-dict values) silently.
+            else:
+                for model_id, entry in provider_data.items():
                     if not isinstance(entry, dict):
-                        continue
-                    model_id = entry.get("id", "")
-                    if not isinstance(model_id, str) or not model_id:
-                        continue
+                        continue  # skip metadata keys (id, env, npm, name, doc)
                     bare_id = _strip_provider_prefix(model_id, provider)
                     ctx = _extract_context_window(entry)
                     if ctx is not None:

@@ -1412,9 +1412,11 @@ class TestModelDiscovery:
         assert models[0]["id"] == "claude-sonnet-4-20250514"
         assert models[0]["name"] == "Claude Sonnet 4"
         assert models[1]["name"] == "Claude Haiku 4"
-        # Catalog-sourced per model: claude-sonnet-4 prefix gives 1M context;
-        # no claude-haiku-4 prefix in seed yields honest null (UI renders no chip).
-        assert models[0]["context_length"] == 1000000
+        # Catalog-sourced per model: claude-sonnet-4-20250514 is 200k per models.dev
+        # (the old hand-authored seed over-reported via a claude-sonnet-4 prefix at 1M;
+        # the regenerated authoritative seed carries the correct 200k value).
+        # claude-haiku-4-20250514 is absent → honest null (UI renders no chip).
+        assert models[0]["context_length"] == 200000
         assert models[1]["context_length"] is None
 
     async def test_anthropic_models_failure(self, client: AsyncClient) -> None:

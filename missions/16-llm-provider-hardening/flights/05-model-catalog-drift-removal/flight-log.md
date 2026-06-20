@@ -409,7 +409,54 @@ _(none yet)_
 
 ## Anomalies
 
-_(none yet — design-review premise correction recorded under Session Notes)_
+### HAT-surfaced parser bug + seed over-reporting (2026-06-19, Leg 7 inline fix)
+
+**Severity**: BLOCKING (defeated DD1's stay-current goal + mis-reported some context windows).
+
+**Bug 1 — `project_raw` parsed 0 models from real models.dev shape.**
+`project_raw` was built blind against an assumed models.dev shape. The real
+`https://models.dev/api.json` shape is:
+```
+{ "<provider>": { "id": "...", "name": "...", ..., "models": { "<model_id>": { "limit": { "context": N }, ... } } } }
+```
+The dict branch in `project_raw` iterated `raw[provider]` as if it were the
+models map — so it was iterating keys `id`, `env`, `npm`, `name`, `doc`,
+`models` as if they were model ids. Result: `_extract_context_window` received
+provider-level metadata strings (not model entry dicts), extracted nothing, and
+the projected catalog was always empty. `refresh_catalog_cache` → seed-coverage
+guard blocked every write → cache was never written → the runtime refresh loop
+silently appeared to work but never updated the on-disk cache.
+
+**Fix**: rewrote the dict branch to read `raw[provider]["models"]` (the nested
+dict keyed by model_id → entry). Kept a defensive flat-shape fallback (skips
+non-dict values) for forward-compatibility. `_extract_context_window` and
+`_strip_provider_prefix` were correct and unchanged.
+
+**Bug 2 — seed over-reported some Anthropic context windows.**
+The hand-authored seed (written when models.dev was unreachable) used
+`claude-sonnet-4 → 1M` and `claude-opus-4 → 1M` as prefix entries. The real
+models.dev data shows: `claude-sonnet-4-5` → 200k, `claude-opus-4-5` → 200k,
+`claude-opus-4-0` → 200k; only `claude-sonnet-4-6`, `claude-opus-4-6`,
+`claude-opus-4-7`, `claude-opus-4-8` are actually 1M. The broad prefixes were
+incorrect.
+
+**Resolution**:
+1. `project_raw` fixed to the real nested shape (`raw[provider]["models"]`).
+2. Seed regenerated from live models.dev via `make refresh-model-catalog`:
+   - 2 providers, 77 models (anthropic: 25, openai: 52).
+   - `source` now "models.dev" (not "hand-authored … unreachable").
+   - Key corrections: `claude-sonnet-4-5` → 200k, `claude-opus-4-5` → 200k,
+     `claude-opus-4-8` → 1M, `claude-sonnet-4-6` → 1M (confirmed).
+   - All `_OPENAI_FLOOR` keys present (floor applied in script).
+3. `tests/test_model_catalog_refresh.py` mock payloads updated from list-shape
+   to the real nested shape (`{provider: {models: {id: {limit: {context: N}}}}}`)
+   so they exercise the fixed parser path.
+4. `tests/test_provider_api.py::TestModelDiscovery::test_anthropic_models`
+   assertion corrected: `claude-sonnet-4-20250514` → 200k (not 1M — the old
+   1M came from the incorrect hand-authored `claude-sonnet-4` prefix entry).
+5. Full unit suite: **3422 passed, 10 skipped, 594 deselected, 0 failures**.
+6. Live cache write confirmed: `refresh_catalog_cache()` → `True`, 25 anthropic
+   models written to `settings.data_dir / "model_catalog.json"` with `fetched_at`.
 
 ---
 
