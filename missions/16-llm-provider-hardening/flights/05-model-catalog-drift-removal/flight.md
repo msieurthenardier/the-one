@@ -1,16 +1,17 @@
 # Flight: Model-Catalog Drift Removal
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] Model context-window limits for OpenAI and Anthropic are sourced without a
+- [x] Model context-window limits for OpenAI and Anthropic are sourced without a
       hand-maintained per-model table that silently drifts. (The sourcing
       mechanism — live fetch with caching vs. a generated/cached catalog — is
       deliberately left to the open question; OpenAI in particular cannot be
       live-fetched the way Ollama/OpenRouter are, since its API exposes no
-      context-window field.)
-- [ ] No agent framework is added and the provider layer still wraps official
+      context-window field.) **MET** — built-in catalog (bundled seed + daily
+      models.dev refresh into an on-disk cache), resolved locally cache→seed→default.
+- [x] No agent framework is added and the provider layer still wraps official
       SDKs; the `LLMProvider` contract and the provider-shape-portability
       convention are preserved. *(verified-as-boundary: this flight adds a data
       module + a background refresh loop, no framework, SDKs still wrapped.)*
@@ -301,27 +302,34 @@ paths resolve correctly on an offline restart of an old chat.
       1M, not the default — proving the catalog, not the fallback, drove it); the
       refresh loop integrates end-to-end (fetch→cache→resolve). Full suite green
       at/above the F4 baseline, no new flakes.
-- [ ] `uat-and-alignment` *(optional)* - Guided HAT: open chats against OpenAI and
-      Anthropic models, confirm the telemetry overlay's `max:` reads the correct
-      window (incl. a 1M Claude model), reopen an old chat after a restart and
-      confirm the window survives, and confirm the refresh loop updated the cache.
-      Iterative fixes until the operator is satisfied.
+- [x] `uat-and-alignment` *(optional)* - Guided HAT **— RUN, and high-value.**
+      Surfaced a **critical defect the automated pipeline missed**: the runtime
+      refresh was built blind (models.dev unreachable in Leg 1), so `project_raw`
+      parsed the wrong `api.json` shape → extracted zero models → cache never
+      written. Fixed inline (commit `9f152b9`): parser traverses the real
+      `raw[provider]["models"]` shape; seed regenerated from authoritative
+      models.dev (also corrected over-reported windows — `sonnet-4-5`/`opus-4-5`
+      are 200k, not 1M). Re-verified live: refresh writes the cache; Studio
+      endpoint returns correct per-model windows against the real Anthropic API.
+      Also surfaced an **out-of-scope** gap → split to **Flight 6** (telemetry
+      overlay *used-token* state doesn't persist on chat reopen; the *max* does).
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (full suite ≥ F4 baseline `3347 passed / 10 skipped /
-      594 deselected`, no new flakes; re-measured at landing, not asserted)
-- [ ] `OPENAI_MODEL_CONTEXT` and the Anthropic `200_000` constant no longer the
-      source of truth (catalog is)
-- [ ] The bundled seed ships in a non-editable install (package-data verified)
-- [ ] Documentation updated (catalog refresh workflow + cadence noted where the
-      project documents provider/dev workflows; `make refresh-model-catalog`
-      discoverable)
+- [x] All 6 autonomous legs completed + HAT (leg 07) run
+- [x] Code committed on `flight/05-model-catalog-drift-removal` (`03f3a61` legs,
+      `9f152b9` HAT fix); PR opened at landing
+- [x] Tests passing — full suite `3422 passed / 10 skipped / 594 deselected`
+      (baseline `3347/10/594`; +75 hermetic tests this flight), 0 failures, no flakes
+- [x] `OPENAI_MODEL_CONTEXT` and the Anthropic `200_000` constant no longer the
+      source of truth (catalog is) — table deleted; `ImportError` confirmed
+- [x] The bundled seed ships in a non-editable install (package-data `llm/data/*.json`)
+- [~] Documentation: `make refresh-model-catalog` is discoverable via the Makefile
+      `##` help line; the `THE_ONE_CATALOG_REFRESH_CHECK_INTERVAL_SECONDS` env var
+      is documented in-code. Fuller dev-doc note is a debrief follow-up (low risk).
 
 ### Verification
 

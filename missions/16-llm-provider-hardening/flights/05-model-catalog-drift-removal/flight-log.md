@@ -59,6 +59,22 @@ surfaces to keep green: `tests/test_api_context_window.py` (5 tests),
   autonomous legs + 1 optional HAT; deferred-commit model (single flight-wide
   review + commit after leg 06). Starting at Leg 1 (`catalog-module-and-seed`).
 
+- **2026-06-20 — Flight LANDED.** All 6 autonomous legs + the HAT completed. The
+  HAT (run against a live 0.2.3 dev instance on :8485) verified all 6 steps and
+  caught a **critical defect the automated pipeline missed**: the runtime refresh
+  parser was built blind (models.dev unreachable in Leg 1) and parsed the wrong
+  `api.json` shape → 0 models extracted → cache never written (DD1's stay-current
+  goal silently dead). Fixed inline (commit `9f152b9`): parser traverses the real
+  `raw[provider]["models"]` shape; seed regenerated from authoritative models.dev
+  (also corrected over-reported 1M windows for `sonnet-4-5`/`opus-4-5`). Re-verified
+  live: refresh writes the cache on startup; Studio endpoint returns correct
+  per-model windows against the real Anthropic API. The HAT also surfaced an
+  **out-of-scope** gap — the telemetry overlay's *used-token* state resets on chat
+  reopen (the *max* persists) — routed by operator decision to **new Flight 6**
+  (distinct session/DB persistence subsystem; kept out of F5 to avoid bundling).
+  Commits: `03f3a61` (6 legs) + `9f152b9` (HAT fix). Full suite `3422/10/594`, 0
+  failures. PR opened. `/flight-debrief` next.
+
 - **2026-06-19 — Leg 3/5 sequencing refinement (FD decision).** The flight spec's
   Leg 3 line said "delete the dead table." Recon during Leg 3 design found
   `OPENAI_MODEL_CONTEXT` is still consumed by the Studio endpoint

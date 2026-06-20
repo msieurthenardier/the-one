@@ -1,7 +1,16 @@
 # Leg: uat-and-alignment (optional HAT)
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Model-Catalog Drift Removal](../flight.md)
+
+> **Outcome (2026-06-20).** All 6 steps verified. The HAT caught a **critical
+> defect** (refresh parser built blind → parsed 0 models → cache never written)
+> and a **correctness issue** (hand-authored seed over-reported 1M for `-5`/`-0`
+> Claude variants); both fixed inline (commit `9f152b9`) and re-verified live
+> against the real Anthropic API. Separately surfaced an **out-of-scope** gap —
+> the telemetry overlay's *used-token* state resets on chat reopen (the *max*
+> persists) — routed to **Flight 6** (operator decision; distinct session/DB
+> persistence subsystem).
 
 ## Objective
 
