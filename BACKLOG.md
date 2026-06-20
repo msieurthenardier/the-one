@@ -106,5 +106,83 @@ the whole confused-deputy class is closed.
   and `the-one serve` today share a port + `data_dir`, so a stale browser tab and the window can be
   two live writers against one SQLite. Giving the desktop profile a distinct port + `data_dir` is a
   small, today-sized change worth doing regardless of which trust philosophy is chosen.
+
+---
+
+## Packaging consolidation: evaluate Briefcase + close the cross-platform installer gap
+
+**Status:** idea / future mission seed — **NOT** scoped to any current mission. Starts as a
+**spike/evaluation**, not a committed migration.
+**Captured:** 2026-06-20, during a packaging review comparing GleepGlorp to the sibling `goldfinch`
+project.
+
+### The thesis
+GleepGlorp's packaged experience is **Windows-only and built from a two-tool chain** — PyInstaller
+(`packaging/windows/the-one.spec`, the one-dir freeze) wrapped by Inno Setup
+(`packaging/windows/the-one.iss`, the installer). It is careful, polished work (stable AppId,
+close-to-tray Restart Manager handling, an inert-but-ready signing hook), but mac and Linux users
+get no installer at all — they fall back to `pip install` plus, on Linux, a **manual
+`sudo apt install gir1.2-webkit2-4.1`** for the WebKitGTK backend (the soft spot already noted in
+the README's desktop-window section).
+
+Evaluate **[Briefcase](https://briefcase.readthedocs.io/) (BeeWare)** as the Python analog of
+`electron-builder`: one tool producing platform installers (MSI, DMG, AppImage, deb/flatpak) from a
+single config. The goal is to (a) collapse the PyInstaller + Inno two-tool chain into one contract,
+and (b) ship real mac + Linux installers so the *packaged product* is uniform instead of lopsided.
+
+### Why (the evidence — the goldfinch contrast)
+`goldfinch` ships Windows (NSIS), mac (dmg+zip), and Linux (AppImage+deb) installers from a **single
+`electron-builder` config block**, and its release is a tag-driven affair. GleepGlorp needs two
+recipes that must agree, ships only Windows, and carries a display-name/slug split (*GleepGlorp AI*
+vs *the-one*) as one more thing to keep straight. The polish gap is real — but a chunk of it is
+**stack-inherited**: Electron *is* a packaging-first runtime (it ships its own runtime, so "make an
+installer" is one mature command), whereas Python desktop packaging is a retrofit. Briefcase is the
+closest thing to closing the *ergonomic* half of that gap without leaving Python (the right call for
+an agent runtime — ecosystem gravity, per the earlier stack review).
+
+### The hard constraint: GitHub Actions minutes (shapes the whole design)
+**This is a first-class design input, not an afterthought.** The operator is **out of GitHub Actions
+minutes**, which is the actual reason the Concourse/GitHub CI split exists on both projects. The
+standing pattern is:
+
+> **Do all-the-things on Concourse; use GitHub *only* to cut release installers when `main` is
+> tagged with a new release.** Local development continues unabated (the operator is on Windows, which
+> is why the Windows installer + local Windows build is the daily path).
+
+So the recommendation is explicitly **NOT** "mirror goldfinch's 3-OS GitHub matrix" — that burns the
+very minutes being conserved. The minutes constraint actually **strengthens** the Briefcase case:
+cleaner Linux packaging (AppImage/deb) can run on the **self-hosted Concourse Linux workers for
+free**, reserving scarce GitHub-hosted runners for only the platforms that genuinely require them
+(macOS DMG; optionally Windows MSI if not built locally) and only on a release tag.
+
+### The honest ceiling (don't oversell the migration)
+The **frozen-runtime spawn seam** (`platform/env.py` — `clean_subprocess_env`, `resolve_python`,
+bundle-dir/`PATH` stripping, `the-one doctor`) is **Python-inherent**: a frozen Python app that must
+spawn real `python`/`node`/`uv` children needs it regardless of whether PyInstaller or Briefcase
+produces the bundle. Briefcase consolidates the **tool-chain and the cross-platform gap**; it does
+**not** eliminate Python's packaging tax. The spike must verify the seam survives Briefcase's bundle
+layout (Briefcase uses a different app-dir structure than PyInstaller one-dir — `resolve_python` and
+the `sys._MEIPASS`/exe-dir assumptions need re-checking).
+
+### Scope notes for when this becomes a mission
+- **Spike first, decide go/no-go.** Stand up a Briefcase build of the existing app on **one** non-
+  Windows platform (Linux AppImage is the cheapest to validate on Concourse) and confirm the three
+  load-bearing pieces survive: **pywebview** (WebKitGTK on Linux), **native deps** (pywinpty on
+  Windows later), and the **frozen-runtime spawn seam** (`the-one doctor` must still PASS inside the
+  Briefcase bundle). A negative on the seam is a likely no-go.
+- **Kill the manual `apt` step.** The Linux installer should **bundle WebKitGTK** (or declare the
+  `.deb` dependency) so a user never runs `apt install gir1.2-webkit2-4.1` by hand — that manual step
+  is the most visible "unfinished" tell today.
+- **Respect the CI topology.** Linux installer build → **Concourse** (free, self-hosted). The
+  GitHub release job stays **tag-triggered only**, used for what Concourse can't host (macOS DMG;
+  Windows MSI if not built locally). Do **not** add per-push GitHub matrix builds.
+- **Preserve the Windows path.** The operator is on Windows and builds the installer locally today;
+  whatever replaces/keeps the PyInstaller+Inno chain must not regress that daily local build. If
+  Briefcase's MSI is adopted, retire the `.iss`; if not, keep Inno and only adopt Briefcase for
+  mac/Linux (a hybrid is an acceptable outcome of the spike).
+- **Fold in the cosmetic cleanup** while touching packaging: the *GleepGlorp AI* / *the-one*
+  display-name-vs-slug split, and consolidate the brand-icon regeneration
+  (`packaging/windows/regenerate_icon.py`) if Briefcase wants its own icon inputs.
+- **Sequencing:** independent of the privileged-client security seed above; either can go first.
 </content>
 </invoke>
