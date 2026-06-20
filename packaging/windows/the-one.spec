@@ -145,6 +145,15 @@ hiddenimports = [
     # from `the-one doctor` on first launch. collect_submodules picks up all
     # current and future members of the desktop package in one declaration.
     *collect_submodules("the_one.interfaces.desktop"),
+    # LLM providers are loaded LAZILY via a string __import__ in
+    # the_one/llm/registry.py:_try_load_builtin (e.g.
+    # __import__("the_one.llm.ollama_provider")). PyInstaller's static import
+    # analysis cannot see those string references, so without this every
+    # provider module is tree-shaken out of the bundle — get_provider() then
+    # raises ModuleNotFoundError at agent-create time, the WS handler crashes,
+    # and the chat silently drops (the M16 frozen-provider regression). Declare
+    # the whole the_one.llm subpackage so all current AND future providers ship.
+    *collect_submodules("the_one.llm"),
     *uvicorn_hidden,
     *mcp_hidden,
     *pystray_hidden,

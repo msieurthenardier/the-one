@@ -1952,7 +1952,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 # session, or the supplied session_id was not_found.
                 try:
                     session = await _create_session()
-                except (ValueError, KeyError) as exc:
+                except Exception as exc:
+                    # Surface ANY create failure to the UI instead of letting it
+                    # escape the WS loop and drop the socket silently. A
+                    # provider that can't load (e.g. a tree-shaken provider
+                    # module in a frozen build raises ImportError, NOT
+                    # ValueError/KeyError) used to crash here → silent chat
+                    # death. Catch broadly, log, and tell the client.
+                    logger.exception("Failed to auto-create session")
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
                 if ws not in subscribers_for(session.id):
@@ -1986,7 +1993,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 agent_name = payload.get("agent_name")
                 try:
                     session = await _create_session(agent_name=agent_name)
-                except (ValueError, KeyError) as exc:
+                except Exception as exc:
+                    # Broad catch (see auto-create note above): a provider whose
+                    # module is missing from a frozen bundle raises ImportError,
+                    # which is neither ValueError nor KeyError. Letting it escape
+                    # crashes the WS handler and drops the socket with no event —
+                    # the silent "Ollama agent fails after ~5s" symptom.
+                    logger.exception("Failed to create session for agent %r", agent_name)
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
                 add_subscriber(session.id, ws)
