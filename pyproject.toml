@@ -68,7 +68,7 @@ the-one = "the_one.main:cli_entry"
 include = ["the_one*"]
 
 [tool.setuptools.package-data]
-the_one = ["interfaces/web/static/**/*"]
+the_one = ["interfaces/web/static/**/*", "llm/data/*.json"]
 
 [build-system]
 requires = ["setuptools>=75"]

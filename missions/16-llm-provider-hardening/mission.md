@@ -281,6 +281,14 @@ spans the agent layer too.
 - [ ] **Reasoning beyond Anthropic.** Scope of OpenAI reasoning-model
       (`o*`-series) and `<think>`-tag-emitting open models in this mission, vs.
       Anthropic-only for the first pass.
+- [ ] **Header-gated 1M context (deferred from Flight 5).** Flight 5 reports the
+      correct per-model context window from the catalog but sends no `context-1m`
+      beta header — current Claude models (incl. the default `claude-sonnet-4-6`)
+      are natively 1M, so none is needed. If a model is later targeted that still
+      requires the dated `context-1m-*` header to unlock 1M, evaluate sending it
+      (via `extra_headers` on the Anthropic SDK call) as part of the planned
+      extended-thinking/capability flight, where request-path capability work
+      already lives. *(Recorded during Flight 5 planning, 2026-06-19.)*
 - [ ] **/mission-debrief carry-forward (08C scope decision).** The "Gemma reliably
       executes tool calls" criterion was reversed (see Known Issues above). The
       debrief should record: (a) the trajectory L08→L08A→L08C and what was learned
@@ -331,6 +339,23 @@ Discovered during Flight 2 (2026-06-18):
       extended thinking is now a **planned capability** (see Scope-broadened banner),
       not a problem to fix.
 
+Discovered during Flight 5 HAT (2026-06-20):
+
+- [ ] **Telemetry overlay used-token state doesn't persist on chat reopen** —
+      discovered in the F5 HAT, affects the web chat telemetry overlay. Usage events
+      are projection-only (never `add_event`'d to history) and `renderHistory`
+      doesn't replay them, so reopening an old chat shows `0 / max` instead of the
+      accumulated `used / max`. F5 made the *max* survive restart (catalog); the
+      *used* state does not. **Owned by Flight 6** (telemetry overlay usage
+      persistence). Affects UX of "context reporting that survives going back to an
+      old chat" — the operator's original outcome framing.
+- [x] ~~**Model-catalog runtime refresh parsed the wrong models.dev shape**~~ —
+      discovered + **fixed in the F5 HAT** (commit `9f152b9`): `project_raw` was
+      built blind (models.dev unreachable in Leg 1) and extracted zero models, so the
+      cache was never written. Parser corrected to the real `raw[provider]["models"]`
+      shape; seed regenerated from authoritative models.dev (also fixed over-reported
+      1M windows for `sonnet-4-5`/`opus-4-5`). Verified live.
+
 ## Flights
 
 > **Note:** Tentative suggestions, not commitments. Flights are planned and
@@ -371,10 +396,25 @@ Discovered during Flight 2 (2026-06-18):
       provider-parametrized test asserting the request→tool_call→tool_result→
       final round-trip works uniformly across Anthropic/OpenAI/Ollama/Mock. Now
       also the regression net guarding the #122 and #105 fixes.
-- [ ] Flight 5: **Model-catalog drift removal** — replace the hand-maintained
-      OpenAI prefix table + Anthropic hard-coded window with sourced limits.
-      Note: OpenAI's `/models` exposes no `context_length`, so OpenAI uses a
-      generated/cached catalog rather than a live fetch (unlike Ollama/OpenRouter).
+- [x] Flight 5: **Model-catalog drift removal** — **LANDED (2026-06-20).** Replaced
+      the hand-maintained OpenAI prefix table (+ its Studio-endpoint duplicate) and
+      Anthropic's hard-coded window with a **built-in catalog refreshed on a daily
+      cadence** at runtime (bundled seed + on-disk cache from models.dev), resolved
+      locally cache→seed→default — installs stay current without a redeploy and an
+      old chat's window survives an offline restart. Reports the catalog's per-model
+      window (1M for current Claude; no `context-1m` header — deferred to the
+      capability flight). HAT caught + fixed a critical refresh-parser bug (built
+      blind against an assumed models.dev shape) and an over-reporting seed. Full
+      suite `3422/10/594`, 0 failures. See `flights/05-model-catalog-drift-removal/`.
+- [ ] Flight 6: **Telemetry overlay usage persistence** — **NEW (2026-06-20, from
+      F5 HAT).** Persist the per-session token-usage snapshot durably and restore it
+      on `session_joined` so reopening an old chat (incl. after a server restart)
+      shows the accumulated `used / max` fullness, not `0 / max`. Today usage events
+      are projection-only (ephemeral) and `renderHistory` doesn't replay them; F5
+      made the *max* survive restart, but the *used-token* state still resets.
+      Touches the session/DB persistence layer (`the_one/db/`, `_restore_session`,
+      the `session_joined` payload) + `chat.js` — a distinct subsystem from the
+      catalog (kept out of F5 to avoid bundling unrelated work).
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface

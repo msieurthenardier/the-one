@@ -9,6 +9,7 @@ from typing import Any
 import anthropic
 
 from the_one.llm._schema_sanitize import UnsanitizableToolSchema, sanitize_tool_schema
+from the_one.llm.model_catalog import context_window_for
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
     LLMProvider,
@@ -84,24 +85,20 @@ class AnthropicProvider(LLMProvider):
         )
 
     async def _resolve_max_context_tokens(self) -> None:
-        """No-op: all current Claude models share the 200k context window.
-
-        Anthropic's Claude 3.5 (Sonnet/Haiku/Opus) and Claude 4.x family
-        all have ``max_context_tokens = 200_000`` (matches the class-level
-        default at line 28). When/if Anthropic ships a model with a
-        different context window, populate ``self.max_context_tokens``
-        here via a model-name table — mirror the pattern in
-        ``the_one/llm/openai_provider.py``'s ``OPENAI_MODEL_CONTEXT``
-        (or, if Anthropic exposes per-model metadata via the SDK, prefer
-        a live lookup, mirroring ``openrouter_provider.py``).
-
-        M08 F7 L05 (F6.5 debrief AI #2): explicit no-op replaces the
-        prior implicit default-via-no-override pattern. Makes intent
-        legible to future maintainers and gives them an obvious place
-        to plug in a per-model table the day Anthropic ships a Claude
-        model with a non-200k context window.
-        """
-        # Intentional no-op — see docstring.
+        # Catalog-sourced (M16 F05): replaces the prior no-op that assumed all
+        # Claude models share 200k — false now that current models are natively
+        # 1M. 200k stays the conservative fallback on a catalog miss. No
+        # `context-1m` beta header is sent (DD4 — catalog reports the real window;
+        # current Claude models are natively 1M).
+        window = context_window_for("anthropic", self.model)
+        if window is not None:
+            self.max_context_tokens = window
+        else:
+            logger.warning(
+                "anthropic: no catalog context window for model %r; using default %d",
+                self.model,
+                self.max_context_tokens,
+            )
 
     async def aclose(self) -> None:
         """Release the persistent Anthropic HTTP client.
