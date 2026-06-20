@@ -184,3 +184,134 @@ the flight surfaced).
 - [ ] Mark PR #129 ready for review when the operator has reviewed the branch.
 - [ ] Mission-control methodology note: capability flights depending on a stochastic model's output
       should require a distribution-sampling spike (Rec 5) — feed to `/mission-debrief`.
+
+---
+
+# Addendum — Post-Landing Reopening: Degraded Over-Routing Fix (2026-06-19)
+
+> The original debrief above stands as the record of the first landing. This addendum covers the
+> **post-landing reopening** of Flight 3, which fixed a degraded-path over-routing bug discovered live after
+> the original landing. Commit `1e96d7a` on branch `flight/03-degraded-over-routing`; draft PR #132. Legs:
+> 08A (aborted), 08B (skipped), 08C (completed), 08d (completed).
+
+## What reopened the flight
+
+A live repro found the Leg-08 degraded direct-tool-protocol made **gemma3:4b over-route**: it emitted a
+`tool_code` call on essentially *every* message (a greeting → `shell(command="echo Hello there!")`, "what is
+a haiku?" → `read_file(...)`), **deterministically** (`temperature=0.0`) and **worse the larger the catalog**.
+Root cause: Leg 08 dumped the **full** tool catalog into the degraded system prompt every turn, **inverting
+the capable path's blind-start discovery model** (capable agents start with only `search_tools` visible and
+must discover tools; degraded agents were handed all 24 + the call format, which a 4B reads as "call a tool").
+
+## Outcome of the reopening
+
+Resolved by a **gated trial** of three mutually-exclusive approaches, with explicit accept/abandon gates and
+operator decisions (including hands-on testing):
+
+- **08A — blind-start discovery (ABORTED).** Mirrored the capable path (discovery-only, no catalog dump).
+  Fixed over-routing decisively, but the blind→search→call **hop is unreliable on gemma3:4b (1/3)**: the model
+  re-searches instead of selecting from results, copies the format placeholder (`name(arg="value")`) verbatim,
+  and emits bare commands. Confirmed a 4B multi-step-composition floor. A search improvement made under this
+  trial was salvaged (08d).
+- **08B — passive recovery (SKIPPED).** The operator went straight to 08C; passive recovery against a model
+  with `tool_code` training priors is the original failure mode, and offers nothing for the hop.
+- **08C — chat-only (COMPLETED, shipped).** Non-tool models (`supports_tools=False`) are conversational only:
+  recovery gated OFF in the Ollama provider, tool-free `CHAT_ONLY_PROMPT`, `degraded_tools.py` retired.
+  LIVE-verified: over-routing gone **and** no more stalls/no-response.
+- **08d — search tokenization + cap (COMPLETED).** Tokenized + capped `search_tools` matching so multi-word
+  natural-language queries resolve. Kept as an **independent** robustness win for the capable path even though
+  08A was abandoned.
+
+## Test Metrics (this run)
+
+`make test-unit` → **3365 passed / 10 skipped / 594 deselected / 0 failed**, ~306s.
+
+| Metric | Original landing | Reopening | Delta |
+|---|---|---|---|
+| Passing | 3302 | 3365 | +63 |
+| Skipped | 18 | 10 | −8 |
+| Wall-clock | ~385s | ~306s | ~−80s |
+
+The skip drop (18→10) and deselected rise (~541→594) are consistent with the original debrief's **Rec 2**
+(the `make test-unit` `-m`-override bug that silently ran 11 `requires_bwrap` pty tests) now being fixed — the
+bwrap tests are consistently deselected. Net +63 passing = +52 `test_search_tools.py` (08d) + 4 provider-layer
+gate tests (08C) − 12 deleted `test_degraded_tool_prompt.py` (module retired) − 2 moot 08A discovery tests,
+plus the 08A-trial additions. No flakes observed.
+
+## What Went Well
+
+- **The gated trial with pre-committed, quantified accept/abandon bars** was the right instrument for an
+  uncertain fix on a stochastic model. The bars (over-routing: 0 concrete-tool dispatches on greeting + haiku,
+  deterministic; hop: ≥2/3 action requests end-to-end) made the 1/3 abandonment clean rather than a judgment
+  call, and stopped 08A from being rationalized as "close enough."
+- **The recovery-gating seam was correctly placed in the provider, not the agent layer** — because parse and
+  content-strip are the same step, an agent-layer gate would leave a stripped-but-empty message. Gating at the
+  `_recover_into_tool_calls` call site (on `supports_tools()`, fail-open=True) lets a non-tool model's raw
+  text pass through verbatim. Per-leg design review caught this *and* corrected two implementation traps
+  pre-implementation (don't double-cache `supports_tools()`; the conformance §6 rows must stub
+  `supports_tools()=True` or they pass only by fail-open accident; invert recovery-dispatch tests at the
+  *provider* layer, not the agent-mock layer that bypasses recovery).
+- **08C simplified the architecture**: the prior 5-site degraded pipeline collapsed to two coherent sites
+  (provider gate + tool-free prompt); `degraded_tools.py` retired. The "non-tool model" concept now has a
+  minimal, honest expression.
+- **An aborted approach still produced a kept asset** (08d) — the trial surfaced a real, latent brittleness in
+  the shared `search_tools` (whole-phrase substring matching) that affected the capable path too.
+
+## What Could Be Improved — Lessons
+
+- **★ Test-validity gap (the headline lesson): a behavior test's agent/tool configuration is part of its
+  validity, not an environmental detail.** The original behavior test's CP5 ("what is a haiku?" → no tool)
+  **false-passed** because the spec provisioned a **single-`shell`** agent — a knowledge question has no
+  plausible tool to grab when only `shell` is offered, so the gating text *appeared* to hold. Against a
+  realistic full catalog (24 tools), the same check fails. **Principle:** when a behavior-test step asserts
+  model *routing/gating* behavior (whether to invoke a tool at all), the agent's `enabled_tools` must reflect
+  a realistic production catalog; a restricted catalog only validates a catalog-agnostic property and must be
+  justified in the spec. → Carry into `AUTHORING.md`.
+- **★ Restate the original debrief's Key Learning 3.** "Gating is promptable; only synthesis isn't" holds only
+  in the narrow single-tool configuration that masked the bug. Restated: **small models have sub-step
+  capability floors, and prompt-based gating is catalog-sensitive, not a general capability.** A 4B can decide
+  to call a tool and invoke one when prompt + catalog point the same way, but cannot gate on a semantic
+  judgment ("does this need an action?") when the catalog holds many plausibly-applicable tools — catalog
+  presence is itself an attractor toward tool use. Post-action composition is a second, independent floor.
+  Both are non-promptable; verify empirically against a realistic config.
+- **Capable-vs-degraded asymmetry is a design smell worth a standing principle.** Leg 08's instinct — "give
+  the weak model everything it needs" (full catalog) — was exactly backwards; the capable path proves a model
+  selects better when it must search-and-choose from a small visible set. **Default visibility posture should
+  be the same for all models; if a model can't handle native discovery, reduce/gate what's visible — don't
+  pre-expand it.**
+- **The gated trial needs a pre-committed tuning-pass budget.** 08A required two nested tuning passes
+  (tokenize, then cap) before its hop rate could be judged; each could have been mistaken for "almost there."
+  The operator's "one agreed tuning pass, then decide" rule was the actual terminator. Standardize: enumerate
+  the tuning knobs and a max pass count *before* implementing a stochastic-model trial leg.
+
+## Technical Debt
+
+- **Leg-09 redundant-call backstop is now unreachable dead code on the chat-only path** (recovery never fires
+  for a non-tool model → `response.tool_calls` always empty → the degraded partition + `_synthesize_closing`
+  never run). Annotated, harmless, but a maintainer must trace it to learn it's dead. Its 14 tests
+  (`test_agent_redundant_backstop.py`) only exercise a mock-provider scenario with no production counterpart
+  after 08C. → A small cleanup leg should remove the backstop + tests (concrete task, not just "candidate").
+- **`CHAT_ONLY_PROMPT` drift.** It's a clean minimal rewrite (better than `DEGRADED_BASE_PROMPT`'s ~90% copy),
+  but the persona-append paragraph is now duplicated verbatim with `BASE_PROMPT`; an edit there won't
+  propagate. → Extract a shared `_PERSONA_APPEND_NOTE` constant (5-line refactor) **or** add a test asserting
+  the forbidden tool sections are absent from `CHAT_ONLY_PROMPT` so the invariant self-enforces.
+
+## Action Items (addendum)
+
+- [ ] Mark **PR #132** ready for review after the operator reviews the branch (mirrors the original #129 item;
+      #129 is merged).
+- [ ] **Cleanup leg: remove the now-dead Leg-09 redundant-call backstop** (partition + `_synthesize_closing` +
+      `test_agent_redundant_backstop.py`); confirm `test_agent_degraded_injection.py` still covers the degraded
+      branch.
+- [ ] **Guard `CHAT_ONLY_PROMPT` drift** — extract the shared persona-append note, or add an absent-tool-sections
+      test.
+- [ ] **Carry to `/mission-debrief`:** (a) the **mission-criterion reframe** — replace the binary "Gemma
+      reliably executes tool calls" with capability-split wording: *models advertising `tools` execute reliably
+      (incl. loose-text recovery); models that don't are conversational-only and never dispatch tools*;
+      (b) the **behavior-test config-realism** lesson as a methodology standard; (c) the small-model
+      multi-step-floor finding.
+- [ ] **Update the non-tool-model design note** (original Rec 4) — the "recover→instruct→backstop" pipeline it
+      called for is superseded by "recover-gated-OFF → chat-only"; `agents.md` "Capability gate" was updated in
+      08C, but a one-page subsystem note should reflect the 08C architecture.
+- [ ] **Close original Rec 2** (the `requires_bwrap`/`make test-unit` marker bug) — the skip/deselect deltas
+      indicate it's fixed; confirm and check it off.

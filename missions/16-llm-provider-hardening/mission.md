@@ -173,10 +173,17 @@ spans the agent layer too.
       first-class field (a `ThinkingPart`-equivalent) instead of discarding it;
       it round-trips through persistence and is available to the web UI.
       *(unit-test-backed)*
-- [ ] A tool-using conversation with **Gemma via Ollama** reliably executes tool
+- [~] ~~A tool-using conversation with **Gemma via Ollama** reliably executes tool
       calls, **including** when the model emits the call as text/JSON in
-      `content` rather than a structured `tool_calls` array. *(test-backed with a
-      recorded/fixtured Gemma response for the loose-format case)*
+      `content` rather than a structured `tool_calls` array.~~ **NOT MET /
+      RESCOPED (operator, 2026-06-19, M16 F03 L08C).** gemma3:4b (a 4B model) can
+      decide to invoke a tool but cannot reliably complete the multi-step discovery
+      hop (search → select → call); always-on catalog injection caused over-routing
+      that made the agent unusable for chat; chat-only was chosen for UX (a reliable
+      chat agent beats an unreliable tool agent that frequently no-responds). Models
+      that DO advertise the `tools` capability continue to use the structured path
+      unaffected. This is an explicit, operator-authorized scope decision — not a
+      bug. Carry to `/mission-debrief`. See flight-log leg-08C.
 - [x] A **cross-provider tool-use conformance test** exists and passes for
       Anthropic, OpenAI, Ollama, and Mock — asserting that a request→tool_call→
       tool_result→final-answer round-trip works uniformly through the
@@ -274,6 +281,18 @@ spans the agent layer too.
 - [ ] **Reasoning beyond Anthropic.** Scope of OpenAI reasoning-model
       (`o*`-series) and `<think>`-tag-emitting open models in this mission, vs.
       Anthropic-only for the first pass.
+- [ ] **/mission-debrief carry-forward (08C scope decision).** The "Gemma reliably
+      executes tool calls" criterion was reversed (see Known Issues above). The
+      debrief should record: (a) the trajectory L08→L08A→L08C and what was learned
+      about 4B multi-step composition; (b) the Leg-09 backstop in `core.py` is now
+      harmless dead code on the chat-only path (a candidate cleanup); (c) the
+      CP5 false-pass in the behavior test (single-`shell` agent masked full-catalog
+      over-routing) as a test-validity lesson.
+- [ ] **Non-tool-capable models: chat-only (08C design decision).** Models with
+      `supports_tools()=False` (e.g. gemma3:4b) are conversational agents only.
+      This is by design (08C). If a future Ollama model advertises `tools` it will
+      automatically take the structured path. No further action needed unless
+      the operator wants tool use on sub-tool-capable models.
 
 ## Known Issues
 
@@ -286,10 +305,15 @@ Confirmed by the Flight 1 spike (2026-06-17):
       first-party Anthropic. Also wired (gated) onto the OpenRouter→Anthropic path after a
       live probe showed it 400s identically. See
       `flights/02-anthropic-tool-input-schema/flight-debrief.md`.
-- [ ] **#105 — open models (gemma3:4b) emit tool calls as text that is never
-      recovered.** Confirmed: Ollama 400s if tools are offered, so the capability
-      gate correctly drops them; the model emits a ` ```tool ` fenced Python-call
-      block; the parser reads only structured `tool_calls`. — owned by Flight 3.
+- [~] ~~**#105 — open models (gemma3:4b) emit tool calls as text that is never
+      recovered.**~~ **RESCOPED (M16 F03 L08C, 2026-06-19).** The recovery
+      kernel works (Flight 3 legs 01–07 landed). The longer question — should
+      non-tool models attempt tool use via protocol injection — was trialled
+      (leg 08A), found unreliable for 4B models, and resolved as: **non-tool-
+      capable models are conversational-only by design (08C)**. Recovery is
+      gated OFF for `supports_tools()=False` models; their content passes through
+      verbatim. Reliable tool use requires a model that advertises the `tools`
+      capability. Carry to `/mission-debrief`.
 
 Discovered during Flight 2 (2026-06-18):
 

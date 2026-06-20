@@ -294,3 +294,103 @@ async def test_stream_interim_deltas_carry_unstripped_content(monkeypatch):
     assert "```tool" in interim_text
     final = [c for c in chunks if c.is_final][0]
     assert final.message.content == ""
+
+
+# ===========================================================================
+# M16 F03 L08C: capability-gated recovery (supports_tools gate)
+# ===========================================================================
+#
+# These are the LOAD-BEARING new tests: they exercise the REAL OllamaProvider
+# + recovery kernel with supports_tools stubbed to True or False. The gate
+# lives in the provider; these tests are the right layer.
+
+
+async def _run_complete_with_capability(
+    monkeypatch, content, *, supports: bool
+) -> Message:
+    """Run complete() with supports_tools() stubbed to ``supports``."""
+    _patch_transport(monkeypatch, _complete_handler(content))
+    prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1")
+
+    async def _stub_supports() -> bool:
+        return supports
+
+    monkeypatch.setattr(prov, "supports_tools", _stub_supports)
+    return await prov.complete([Message(role=Role.USER, content="hi")])
+
+
+async def _run_stream_with_capability(
+    monkeypatch, content_pieces, *, supports: bool
+):
+    """Run stream() with supports_tools() stubbed to ``supports``."""
+    _patch_chat_stream(monkeypatch, _stream_chunks(content_pieces))
+    prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1")
+
+    async def _stub_supports() -> bool:
+        return supports
+
+    monkeypatch.setattr(prov, "supports_tools", _stub_supports)
+    chunks = []
+    async for ch in prov.stream([Message(role=Role.USER, content="hi")]):
+        chunks.append(ch)
+    final = [c for c in chunks if c.is_final]
+    assert len(final) == 1
+    return final[0], chunks
+
+
+@pytest.mark.asyncio
+async def test_complete_no_recovery_when_supports_tools_false(monkeypatch):
+    """M16 F03 L08C: supports_tools=False → content passes through VERBATIM.
+
+    A well-formed tool_code block in the content is NOT parsed/stripped/recovered.
+    The user is NOT left with an empty message; the raw block surfaces as text.
+    """
+    content = "```tool_code\nshell(command=\"echo hi\")\n```"
+    msg = await _run_complete_with_capability(monkeypatch, content, supports=False)
+
+    # Recovery did NOT fire — no tool_calls recovered.
+    assert msg.tool_calls == []
+    # Content is passed through VERBATIM (not stripped).
+    assert msg.content == content
+
+
+@pytest.mark.asyncio
+async def test_complete_recovery_still_fires_when_supports_tools_true(monkeypatch):
+    """M16 F03 L08C: supports_tools=True → recovery fires (DD2's real intent preserved).
+
+    A tool-capable model that occasionally drops to text-form calls is still recovered.
+    """
+    msg = await _run_complete_with_capability(monkeypatch, GEMMA_FIXTURE, supports=True)
+    assert len(msg.tool_calls) == 1
+    assert msg.tool_calls[0].name == "get_weather"
+    assert msg.tool_calls[0].arguments == {"city": "Paris"}
+    # Block stripped on recovery.
+    assert "```tool" not in msg.content
+
+
+@pytest.mark.asyncio
+async def test_stream_no_recovery_when_supports_tools_false(monkeypatch):
+    """M16 F03 L08C: stream() — supports_tools=False → content passes through VERBATIM.
+
+    The raw block is NOT stripped; no tool_calls on the final chunk.
+    """
+    content = "```tool_code\nshell(command=\"echo hi\")\n```"
+    final, _ = await _run_stream_with_capability(
+        monkeypatch, [content], supports=False
+    )
+    # Recovery did NOT fire.
+    assert final.message.tool_calls == []
+    assert final.tool_calls == []
+    # Content verbatim (not stripped).
+    assert final.message.content == content
+
+
+@pytest.mark.asyncio
+async def test_stream_recovery_still_fires_when_supports_tools_true(monkeypatch):
+    """M16 F03 L08C: stream() — supports_tools=True → recovery fires (DD2 preserved)."""
+    final, _ = await _run_stream_with_capability(
+        monkeypatch, [GEMMA_FIXTURE], supports=True
+    )
+    assert len(final.message.tool_calls) == 1
+    assert final.message.tool_calls[0].name == "get_weather"
+    assert "```tool" not in final.message.content

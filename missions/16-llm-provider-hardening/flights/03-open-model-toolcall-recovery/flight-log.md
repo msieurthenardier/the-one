@@ -821,3 +821,421 @@ serves the working tree and a restart picks up edits). 2 NON-BLOCKING specs with
 docker-compose.yml / `make rebuild` historical references. Verified:
 `grep -rniE "make rebuild|image[- ]baked|container is (running|rebuilt)" tests/behavior/*.md | grep -v runs/`
 returns nothing; `make test-unit` green (3302 passed / 18 skipped). NOT committed.
+
+---
+
+## Flight REOPENED — degraded-path over-routing follow-up (2026-06-19)
+
+**Trigger.** Post-landing live repro (operator + Claude, dev instance :8485): the degraded direct-tool-protocol
+(Leg 08) **over-routes** — gemma3:4b emits a `tool_code` call on essentially every message (greeting →
+`shell(command="echo Hello there!")`; "what is a haiku?" → `read_file(path="haiku_definition.txt")`),
+**deterministically** (`temperature=0.0` on the agent path), and **worse the larger the catalog**. The Leg-08
+tool-gating clause "fixed" CP5 only against the behavior test's single-`shell` agent, which masked the bug:
+a knowledge question has no plausible tool to grab when only `shell` is offered. With a full-catalog agent
+(24 built-ins + any MCP) the gating clause does not hold. This **falsifies the flight debrief's Key Learning 3**
+("gating is promptable; only synthesis isn't") for the realistic full-catalog case, and shows the behavior
+test's CP5 was a false-pass (a test-validity gap to carry to the mission debrief).
+
+**Operator decision.** Trial up to three mutually-exclusive fixes as a gated sequence — 08A → 08B → 08C —
+deciding ACCEPT/ABANDON after each (design/run the next only if the prior is abandoned):
+- **08A** `degraded-blind-start-search` — mirror the capable path's blind start: no catalog dump; only a
+  `search_tools` discovery entry by default; concrete tools enter via the recovered-`search_tools` hop +
+  next-turn `_loaded_schemas` re-render. The clean "discovery-only, no catalog" config Leg-08 DD-G never
+  actually tested (DD-G's failure was confounded: search instruction + full catalog simultaneously).
+- **08B** `degraded-passive-recovery` *(contingent)* — drop inducement; tool-free chat prompt; recovery kernel
+  kept as a passive safety net.
+- **08C** `degraded-chat-only` *(contingent)* — non-tool models conversational only; recovery gated OFF;
+  reverses the mission's "Gemma reliably executes tool calls" criterion.
+
+### Flight Director Notes
+
+- Flight status flipped `completed` → `in-flight` (reopened); branch `flight/03-degraded-over-routing` created
+  off `main` (original Flight 3 PR #129 merged; that branch is gone).
+- Leg artifacts 08A (full), 08B/08C (contingent sketches) authored via the `/leg` workflow; 08A marked `ready`.
+- **Phase 2a design review** (Developer, Sonnet): **approve with changes**. Incorporated all feedback — the two
+  [high] items were clarifications: (1) tool parameter signatures reach the model via the **next-turn catalog
+  re-render** of the populated `_loaded_schemas`, NOT the `search_tools` result text (so names-only
+  `_format_result` is sufficient — made explicit in Implementation Guidance step 4); (2) `_loaded_schemas`
+  never contains `search_tools` (`_EXCLUDED_NAMES`), so the discovery entry is always additive. Also: enumerated
+  the exact tests to invert (`test_catalog_excludes_search_tools_and_continue`, `test_worked_example_present`,
+  `test_tool_gating_clause_present`, `test_addendum_injected_and_search_tools_suppressed`), quantified the
+  accept/abandon bar (over-routing: 0 concrete-tool dispatches on greeting + haiku, deterministic; hop: ≥2/3
+  action requests complete end-to-end), updated the behavior-test amendment (full-catalog agent, greeting case,
+  port :8485), and flagged the pre-existing `DEGRADED_BASE_PROMPT` `continue` tension as out-of-scope/watch.
+  **Decision: skip a 2nd design-review cycle** — the edits transcribe the reviewer's own recommendations, no
+  new design surface. Proceeding to implementation.
+
+---
+
+### `degraded-blind-start-search` (leg 08A) — landed (2026-06-19) — POST-LANDING FIX, approach A
+
+**Why:** Post-landing live repro showed the Leg-08 direct-tool-protocol over-routes on a full-catalog
+agent — gemma3:4b emits a `tool_code` call on essentially every message (greeting → `shell(command="echo
+Hello there!")`, "what is a haiku?" → `read_file(path="haiku_definition.txt")`), deterministically at
+`temperature=0.0`. The Leg-08 tool-gating clause only held against the behavior test's single-`shell`
+agent (masking the problem); with a full catalog the gating does not hold. 08A mirrors the capable path's
+**blind-start discovery model**: the model sees only a `search_tools` discovery entry by default, so its
+default stance is converse; concrete tools enter the prompt only after it deliberately calls `search_tools`
+and `_loaded_schemas` is populated on the next turn.
+
+**What changed:**
+
+- **`the_one/agent/degraded_tools.py`** — reframed `_PROTOCOL_HEADER` and rewrote
+  `build_degraded_tool_prompt(discovered_schemas)`. The addendum now **leads with the default stance**
+  ("Reply to the user in plain natural language by default…") then the discovery instruction
+  ("call `search_tools` with a query…"), the pinned `tool_code` format block, and the behavioral rules.
+  Worked examples: (1) no-tool direct-answer case (haiku), (2) a `search_tools(query=...)` discovery call.
+  The `shell(command="echo hello")` worked example is removed. `build_degraded_tool_prompt` now accepts
+  `discovered_schemas` (the current `_loaded_schemas`) and ALWAYS prepends the `search_tools` discovery
+  entry; discovered tools are listed below when non-empty. Empty discovered set = blind start (only the
+  discovery entry). Invariant explicit in module docstring: `_loaded_schemas` never contains `search_tools`
+  (`_EXCLUDED_NAMES` excludes it), so the entry is always purely additive.
+
+- **`the_one/agent/core.py`** — `_build_degraded_messages` docstring and catalog source updated.
+  Replaced `degraded_catalog = [s for s in self.tools.all_schemas() if s["name"] not in {"search_tools",
+  "continue"}]` with `addendum = build_degraded_tool_prompt(self._loaded_schemas)` — the
+  visibility-filtered set, identical container the capable path's `_compute_visible_schemas` reads.
+  Docstring rewritten: "DD-B: the FULL registry minus the virtual tools" → visibility-filtered source
+  description + explicit invariant about `_loaded_schemas` never containing `search_tools`. No change to
+  the capable path, `_dispatch_tool_calls`, or the Leg-09 backstop logic.
+
+  `search_tools` is now **dispatchable on the degraded path**: the existing dispatch loop already handles
+  it (recovered `search_tools` tool_code calls dispatch through `self.tools.get("search_tools")`),
+  `SearchTools._on_match` mutates `self._loaded_schemas`, and the next turn's
+  `_build_degraded_messages()` call re-renders with the discovered tools. No core.py change to the
+  dispatch loop was needed — the wiring was already there.
+
+**Tests (re-authored / new — all green):**
+
+- `tests/test_degraded_tool_prompt.py` (12 tests): `test_search_tools_discovery_always_present`
+  (inverted + renamed from `test_catalog_excludes_search_tools_and_continue` — discovery entry now always
+  present; `read_file` absent on fresh turn, appears only when in discovered set);
+  `test_worked_example_shape` (inverted + renamed from `test_worked_example_present` — shell echo example
+  gone; new no-tool + search_tools example shape); `test_converse_first_framing` (renamed from
+  `test_tool_gating_clause_present` — asserts converse-default lead instruction); retained: format block
+  + rules, post-tool-stop clause, discovered catalog listed, required-params ordering, empty-set edge, no-
+  param tool signature, determinism, additivity invariant.
+
+- `tests/test_agent_degraded_injection.py` (7 tests): `test_addendum_injected_with_discovery_entry_fresh_turn`
+  (re-authored from `test_addendum_injected_and_search_tools_suppressed` — suppression assertions flipped;
+  fresh turn has `search_tools(query)` discovery entry and NOT `shell(command)`; converse-first framing
+  present); `test_discovered_tool_appears_after_search` (new — pre-populated `_loaded_schemas` renders
+  concrete tool in system prompt); `test_search_tools_dispatch_mutates_loaded_schemas_and_next_turn_rerenders`
+  (new — full two-turn hop: turn 1 recovered `search_tools` dispatches + mutates `_loaded_schemas`; turn 2
+  system prompt contains discovered tool's full signature; turn 2 concrete tool call dispatches and
+  executes); `test_backstop_does_not_misfire_on_search_then_different_concrete_tool` (new — Leg-09 backstop
+  does NOT fire on `search_tools`→`read_file` transition: distinct `_executed_key`, concrete tool dispatches
+  normally). Retained: self_messages_unmutated + tail_passthrough; degraded_loop_dispatches_recovered_tool_code;
+  capable_path_unchanged.
+
+**Behavior test amendment** (`tests/behavior/gemma-tool-use-recovery.md`): CP5 (no-false-positive) now
+targets a **full-catalog** agent (`enabled_tools: null`) rather than the masked single-`shell` setup. Added
+the explicit greeting case ("Hello there!" — the exact over-routing repro input). Port reference updated
+from `:8484` → `:8485` (the actual dev instance). Step 5 amended accordingly. Spec remains `active`.
+
+**Verification:**
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_degraded_tool_prompt.py
+  tests/test_agent_degraded_injection.py tests/test_toolcall_recovery.py -x --timeout 30` → **47 passed**.
+- `make test-unit` → **3351 passed / 10 skipped** (baseline 3302 + hermetic gains; no regressions).
+- `git diff the_one/agent/core.py` — change confined to `_build_degraded_messages` (catalog source
+  replaced; docstring updated). The capable path (`_compute_visible_schemas` / `tools=` wiring) is
+  byte-identical. No change to `_dispatch_tool_calls`, the Leg-09 backstop, or the auth-pause logic.
+
+**NOT done here (Orchestrator does this):** the LIVE verification (restart dev instance at :8485; check
+greeting + haiku → no concrete tool; check action request → hop completes); the behavior-test re-run
+(`/behavior-test gemma-tool-use-recovery`); the accept/abandon decision. The decision boxes below are
+left for the Orchestrator.
+
+**Accept / Abandon (leave for Orchestrator):**
+- [ ] ACCEPT — over-routing fixed (greeting + haiku → 0 concrete-tool dispatches) AND hop preserved (≥2/3
+  action requests complete end-to-end). Flip leg to landed, update behavior-test spec status, skip 08B/08C.
+- [ ] ABANDON — over-routing fixed but hop is unreliable (model loops on `search_tools` or never reaches
+  the concrete call, <2/3). Revert 08A's code changes (or leave disabled), proceed to 08B.
+
+### Leg 08A — LIVE verification + in-flight adaptation (search tokenization)
+
+**LIVE result (full-catalog `Test Agemt`, gemma3:4b, dev :8485 restarted with 08A code):**
+- **Over-routing FIXED (hard requirement met).** "Hello there!" → *"Hi there too! How can I help you today?"*
+  (0 tool dispatches); "What is a haiku?" → correct direct answer (0 tool dispatches). `input_tokens` dropped
+  2486 → ~722, confirming the discovery-only prompt replaced the full-catalog dump.
+- **Hop BLOCKED 0/3 — but NOT a model limitation.** On all 3 action requests gemma correctly emitted a
+  sensible `search_tools(query=…)` call (e.g. `query="run shell command"`), but `search_tools` returned
+  *"No tools found"* every time. Root cause: `_filter_candidates` (`the_one/tools/_search_tools.py`) does
+  **whole-phrase substring** matching (`q in name+description`); a multi-word natural-language query never
+  matches a single tool, while single keywords ("shell", "file") match fine. Confirmed by simulating the
+  matcher against the live registry.
+
+**Adaptation decision (operator, AskUserQuestion):** **tokenize the search matching** — an in-flight
+adaptation to 08A. This is NOT the abandon signal (the gate's premise was "the 4B model can't hop"; the model
+hopped correctly — search was the blocker). **Scope expansion record:** 08A now also edits the **shared**
+`the_one/tools/_search_tools.py` (used by the capable path too). Operator-authorized; the same brittleness
+also affected capable agents using verbose queries, so the fix is a general robustness improvement, not a
+degraded-only hack. After the fix, re-run the live hop verification (≥2/3 bar) before the accept/abandon call.
+
+**Search tokenization fix — `the_one/tools/_search_tools.py` (2026-06-19):**
+
+*What changed in `_search_tools.py`*:
+- Added `_STOPWORDS` (frozenset of noise words: "run", "get", "the", "and", "with", "use", "can",
+  "you", "please", "find", "out", "what", "how", "are", "for", "my", "me", "of", "in", "on",
+  "your", "is") and `_tokenize_query(query)` (drops tokens < 3 chars AND stopwords; returns `[]`
+  if all tokens are filtered).
+- Added `_match_score(haystack, tokens, fallback_phrase)`: counts distinct tokens present in
+  haystack; falls back to whole-phrase substring match when `tokens` is empty (stopword-only
+  query fallback — does NOT dump the catalog).
+- Rewrote `_filter_candidates`: tokenizes the query; a tool matches if ANY token is a substring
+  of its `name + ' ' + description` (case-insensitive); results ranked by token-hit count
+  (descending, stable within same score). MCP source-level matching uses the same tokenized logic.
+  Empty query and `search_tools` exclusion unchanged. If all tokens are filtered (stopword-only
+  input), falls back to treating the original query as a single whole-phrase substring.
+
+*Tests added (14 new) in `tests/test_search_tools.py`*:
+- Tokenize-helper tests (sync): `test_tokenize_query_single_keyword`,
+  `test_tokenize_query_drops_short_tokens`, `test_tokenize_query_drops_stopwords`,
+  `test_tokenize_query_empty_returns_empty`, `test_tokenize_query_multiword`,
+  `test_tokenize_query_all_stopwords_returns_empty`.
+- `_filter_candidates` behavior tests (pure / no-registry): `test_ranking_more_tokens_ranks_higher`,
+  `test_ranking_single_keyword_stable`, `test_empty_query_still_returns_all_non_excluded`,
+  `test_search_tools_excluded_from_tokenized_results`, `test_mcp_source_tokenized_match`.
+- Integration tests (async, real BuiltinToolProvider): `test_multiword_query_run_shell_command_matches_shell`
+  ("run shell command" → shell + shell_session_* match, result string contains the query),
+  `test_multiword_query_list_files_directory_matches_file_tools` ("list files directory" →
+  list_dir + glob/read_file match), `test_stopword_only_query_falls_back_to_phrase_match`
+  ("get the" → fallback to phrase; result is NOT the full catalog).
+
+*No existing tests inverted*: the tokenized matching is strictly MORE permissive than whole-phrase
+substring, so all previously-matching queries still match. The existing `test_no_match_returns_helpful_text`
+("xyzzy_nonexistent" → no match) is unaffected (single token, not a stopword). Previously-failing
+multi-word queries now surface results as intended.
+
+*Test counts*: scoped run 78 passed across `test_search_tools.py` +
+`test_agent_search_integration.py` + `test_search_backends.py` +
+`test_degraded_tool_prompt.py` + `test_agent_degraded_injection.py`.
+`make test-unit` → **3365 passed / 10 skipped** (baseline 3351/10 from leg 08A + 14 new tests; no regressions).
+
+### Leg 08A — hop re-test after search tokenization (1/3)
+
+Server restarted with the tokenization fix; re-ran the 3 action-request hop checks against the full-catalog
+`Test Agemt`:
+- **Hop "run echo command" → SUCCESS (end-to-end).** `search_tools(query="run shell command")` now returns 6
+  relevant tools (shell, shell_session_*, python_exec); next turn the model called
+  `shell(command='echo hop-works-7f3a')` → executed → final answer surfaced `hop-works-7f3a`. The discovery
+  hop mechanism works.
+- **Hop "how many files" → FAIL (search over-match).** `search_tools(query="list files directory")` matched
+  **16 tools** — the common token "list" alone hits 13 — so the next-turn prompt was noisy; the model
+  re-searched instead of selecting `list_dir`, and the Leg-09 backstop closed the turn. Ranking is present but
+  results are uncapped; 16 signatures is too much for the 4B to choose from.
+- **Hop "today's date" → FAIL (4B protocol lapse).** The model emitted a bare ` ```tool_code\ndate\n``` `
+  (not a `search_tools` call, not a function call) — it ignored the discovery protocol and tried to write a
+  raw command. Also no built-in "date" tool exists (date is a `shell` use). Not tunable via search.
+
+**Net:** over-routing is decisively FIXED (the reported bug). The discovery hop is **1/3** — works when search
+returns a focused set AND the model complies (hop 2), but is unreliable due to (a) search over-matching on
+common-word queries [tunable: cap/rank] and (b) genuine 4B protocol-compliance lapses [re-search loops, bare
+commands — a model floor]. Below the leg's ≥2/3 ACCEPT bar. Decision escalated to operator (accept-with-caveat
+vs one tuning pass vs abandon→08B).
+
+### Leg 08A — search result cap (tuning pass 2)
+
+Operator approved one tuning pass: cap `_filter_candidates` results for non-empty queries to prevent the
+4B model from being overwhelmed when a common token ("list") matches 16 tools.
+
+**Change:** Added `_MAX_SEARCH_RESULTS = 8` constant to `the_one/tools/_search_tools.py`. In
+`_filter_candidates`, after ranking by descending distinct-token-match score (unchanged), the ranked list is
+truncated to `[:_MAX_SEARCH_RESULTS]`. The cap is **non-empty-query only** — an empty query bypasses it
+entirely (the SEARCH_TOOLS_SCHEMA "empty returns all" contract is preserved). Updated `_format_result` to
+accept a `capped` keyword and append "(top matches)" to the count when the ceiling was hit; `execute()` passes
+`capped=True` when the result length equals the cap.
+
+**Empty-query exemption verified:** both a pure-function test (`test_empty_query_not_capped_returns_all` with
+`_MAX_SEARCH_RESULTS + 5` schemas) and an integration test against the real `BuiltinToolProvider`
+(`test_empty_query_real_registry_not_capped`) assert `len(ls) > _MAX_SEARCH_RESULTS`. Neither is capped.
+
+**Tests added (10 new)** in `tests/test_search_tools.py`:
+- `test_cap_non_empty_query_returns_at_most_max` — query with 12 matches returns exactly 8.
+- `test_cap_non_empty_query_high_scored_tool_included` — the score-2 tool is always in the capped set.
+- `test_cap_non_empty_query_high_scored_ranks_first` — score-2 tool appears at position 0.
+- `test_cap_non_empty_query_low_ranked_beyond_cap_excluded` — at least one schema beyond the cap is dropped.
+- `test_empty_query_not_capped_returns_all` — pure-function: `_MAX_SEARCH_RESULTS + 5` tools, all returned.
+- `test_empty_query_real_registry_not_capped` — integration: real registry returns `> _MAX_SEARCH_RESULTS`.
+- `test_format_result_capped_flag` — `capped=True` produces "(top matches)" annotation.
+- `test_format_result_not_capped_no_annotation` — `capped=False` (default) has no annotation.
+- `test_execute_capped_query_signals_top_matches` — `execute()` with enough matches: "(top matches)" in output.
+- `test_execute_uncapped_query_no_top_matches_annotation` — single-match query: no annotation.
+
+**Test counts:** scoped `tests/test_search_tools.py` → **52 passed**. `make test-unit` → **3375 passed /
+10 skipped** (baseline 3365/10 from prior tokenization pass + 10 new cap tests; no regressions).
+
+Live hop re-test deferred to Orchestrator (per task spec).
+
+### Leg 08A — hop re-test after search cap (still 1/3; failures are the 4B floor)
+
+Restarted with the cap (`_MAX_SEARCH_RESULTS=8`, empty-query exempt). Re-ran the 3 hops:
+- **"how many files" → FAIL.** Search now returns a focused 8 ("top matches: shell, list_dir, python_exec,
+  mkdir, glob, grep, …"), but gemma **re-emitted the identical `search_tools(query="list files directory")`
+  instead of selecting any tool** → Leg-09 backstop closed it. The cap removed the noise but the model still
+  won't *select from results*.
+- **"run echo command" → SUCCESS** (with a stumble: first attempt emitted the literal prompt placeholder
+  `name(arg="echo hop-works-7f3a")` → "Unknown tool: name" error; then it recovered, searched "run shell
+  command" → 6 tools → `shell(command='echo hop-works-7f3a')` → executed → surfaced `hop-works-7f3a`).
+- **"today's date" → FAIL.** Bare ` ```tool_code\ndate\n``` ` (no search, not a function call); also no "date"
+  tool exists.
+
+**Conclusion: 1/3, below the ≥2/3 ACCEPT bar.** The cap (the one agreed tuning pass) did not lift hop
+reliability. The remaining failures are **genuine gemma3:4b protocol-compliance lapses** — re-searching
+instead of selecting, copying the format placeholder verbatim, emitting bare commands — i.e. the multi-step
+discovery hop is shaky on a 4B (consistent with the debrief's Key Learning 3: gating is promptable,
+multi-step composition is not). **Over-routing remains decisively FIXED.** Per the agreed stop-after-one-pass,
+escalating the accept/abandon decision. NOTE: the search tokenization + cap are independently valuable
+robustness improvements to the SHARED `search_tools` (they help the capable path's verbose queries too) and are
+worth keeping regardless of the 08A degraded-discovery verdict.
+
+### Leg 08A — ACCEPT/ABANDON DECISION: ABANDONED (operator, hands-on, 2026-06-19)
+
+The operator drove the live dev instance directly. Verdict: **abandon 08A.** Confirmed hands-on that even
+when the (now tokenized+capped) search surfaces the right tools, **gemma3:4b does not go on to call them and
+never produces a final response** — it re-searches or stalls. The blind→search→call hop is not reliable on a
+4B; this matches the 1/3 measured and the debrief's Key Learning 3 (multi-step composition is not promptable
+on small models). Over-routing IS fixed by the blind start, but unreliable tool use + frequent no-response is
+a worse UX than a clean chat-only agent.
+
+**Decisions:**
+1. **08A blind-start degraded-discovery → ABANDONED.** Its `degraded_tools.py` reframe + `core.py`
+   `_build_degraded_messages` blind-start rendering are superseded by 08C (chat-only) and will be rolled
+   back / replaced during 08C implementation. 08A status → `aborted`.
+2. **08B skipped** — operator went straight to 08C (chat-only is the desired UX, not best-effort recovery).
+3. **KEEP the search tokenization + cap** (`the_one/tools/_search_tools.py`) — an independently valuable
+   robustness improvement to the SHARED `search_tools` (fixes verbose-query brittleness for the capable path
+   too). Re-homed as its own landed leg `08d-search-query-tokenization` so its provenance is clean and not
+   tied to aborted 08A.
+4. **Proceed to 08C** (chat-only for non-tool models): no catalog injection, recovery gated OFF for
+   `supports_tools=False`, tool-free chat prompt. Reverses the mission's "Gemma reliably executes tool calls"
+   criterion — record as an operator scope decision.
+
+### Leg 08C — design review (approve with changes; incorporated) + leg 08d/08A bookkeeping
+
+- **08A → `aborted`** (decision recorded above). **08d `search-query-tokenization` → `landed`** (the search
+  tokenize+cap, re-homed from the 08A trial; code+tests already on branch, `make test-unit` 3375/10).
+- **08C `degraded-chat-only` design review** (Developer, Sonnet): **approve with changes**, incorporated:
+  - Drop the proposed `_tools_capable()` memoization — `get_model_capabilities` already has a 300s TTL cache
+    and `supports_tools()` is called once/step; call `await self.supports_tools()` directly at the two
+    recovery sites.
+  - Test inversion is **layer-specific**: the real no-dispatch-for-`supports_tools=False` property goes in
+    `test_ollama_provider_recovery.py` (real provider+kernel); the agent-layer mock test
+    (`test_degraded_loop_dispatches_recovered_tool_code`) bypasses recovery and must be re-authored to the
+    chat-only reality, not vacuously renamed; the cross-provider conformance §6 recovery rows must stub
+    `supports_tools()=True` (else they pass only by fail-open accident).
+  - Remove the now-moot 08A search-dispatch tests; `test_agent_redundant_backstop.py` is unaffected.
+  - Rename `DEGRADED_BASE_PROMPT` → tool-free `CHAT_ONLY_PROMPT` (its docstring describes dead 08A reasoning).
+  - The Leg-09 backstop becomes harmless dead code on the chat-only path — leave it (out-of-scope to remove);
+    note as a debrief cleanup candidate.
+  - Fixed stale test filenames in the leg's verification steps.
+  - **Decision: skip a 2nd design-review cycle** — changes transcribe the reviewer's findings, no new design
+    surface. Proceeding to implementation.
+
+---
+
+### `degraded-chat-only` (leg 08C) — landed (2026-06-19) — SUPERSEDES 08A; non-tool models are chat-only
+
+**Why (choice rationale):** 08A blind-start discovery was ABANDONED (the 4B model can decide+invoke a tool but
+cannot reliably complete the multi-step discovery hop; always-on catalog injection caused over-routing that made
+the agent unusable for chat). 08B skipped. **08C chosen by operator (UX): a reliable chat agent beats an
+unreliable tool agent that frequently no-responds.** This reverses the mission's "Gemma reliably executes tool
+calls" criterion — an explicit, operator-authorized scope decision.
+
+**What changed (08C implementation):**
+
+**`the_one/llm/ollama_provider.py` — recovery gate on `supports_tools()` at both call sites:**
+- `complete()`: `if not tool_calls:` → `if not tool_calls and await self.supports_tools():`
+- `stream()`: same gate after `acc.finalize_tool_calls()`
+- Comment: "updates Flight-3 DD2 — recovery now gated on capability; tool-capable models that drop to text
+  are still recovered; non-tool models are chat-only; supports_tools() fail-open=True keeps recovery on under
+  uncertainty."
+
+**`the_one/agent/config.py` — `DEGRADED_BASE_PROMPT` replaced by `CHAT_ONLY_PROMPT`:**
+Replaced `DEGRADED_BASE_PROMPT` (which described the now-dead 08A direct-tool-protocol reasoning) with
+`CHAT_ONLY_PROMPT` — a minimal tool-free chat prompt derived from `BASE_PROMPT` with all tool sections
+stripped (no "Tool discovery", no "Tool use", no `continue`-tool turn semantics, no catalog). Keeps identity +
+"respond directly/concisely" + the persona-append note.
+
+**`the_one/agent/core.py` — `_build_degraded_messages` rewritten to chat-only:**
+Removed the `build_degraded_tool_prompt(self._loaded_schemas)` addendum call. Now simply swaps `BASE_PROMPT`
+→ `CHAT_ONLY_PROMPT` in the ephemeral request copy (persona/connector directive carry through via the same
+strip-and-swap logic). No addendum, no catalog, no call to any degraded_tools function. Updated stale comments
+in `_run_iterations` (08C framing replaces 08/08A).
+Dropped imports: `DEGRADED_BASE_PROMPT`, `build_degraded_tool_prompt`.
+
+**`the_one/agent/degraded_tools.py` — DELETED.** No path injects a tool protocol now. The module's
+`_PROTOCOL_HEADER` and `build_degraded_tool_prompt` are confirmed (via grep) to have been referenced only by
+`core.py` and `tests/test_degraded_tool_prompt.py` — both updated/deleted.
+
+**`tests/test_degraded_tool_prompt.py` — DELETED.** The tested module is gone.
+
+**`tests/behavior/gemma-tool-use-recovery.md` — RETIRED (Status: `retired`).** The spec's premise
+("recovery executes a tool for a non-tool model") is reversed. A retirement note points to 08C. Run logs
+preserved. The new property (no tool ever runs for a non-tool model) is covered by unit tests.
+
+**Tests added/re-authored:**
+- `tests/test_ollama_provider_recovery.py` (4 new tests — load-bearing, at the right layer):
+  - `test_complete_no_recovery_when_supports_tools_false` — supports_tools=False + tool_code content → zero
+    tool_calls, content VERBATIM (not stripped).
+  - `test_complete_recovery_still_fires_when_supports_tools_true` — supports_tools=True → recovery fires
+    (DD2's real intent preserved).
+  - `test_stream_no_recovery_when_supports_tools_false` — stream() counterpart, same property.
+  - `test_stream_recovery_still_fires_when_supports_tools_true` — stream() counterpart.
+- `tests/test_agent_degraded_injection.py` (re-authored to 5 tests, 4 new + 1 retained):
+  - `test_chat_only_prompt_no_tool_sections` — no catalog, no `tool_code`, no "Tool use"/"Tool discovery",
+    no `continue`-tool; persona survived; tools=None.
+  - `test_chat_only_prompt_derived_from_chat_only_constant` — CHAT_ONLY_PROMPT base is used.
+  - `test_self_messages_unmutated_and_tail_passthrough` — retained (request-copy-only invariant).
+  - `test_degraded_loop_dispatches_structured_tool_calls` — re-authored from the 08A version: tests
+    dispatch of PRE-FORMED structured tool_calls through the degraded path (valid for future providers/models);
+    asserts system prompt is tool-free. (The old test name was `test_degraded_loop_dispatches_recovered_tool_code`.)
+  - `test_no_addendum_and_messages_are_self_messages` (TestCapableUnchanged) — retained.
+  - REMOVED: `test_search_tools_dispatch_mutates_loaded_schemas_and_next_turn_rerenders` and
+    `test_backstop_does_not_misfire_on_search_then_different_concrete_tool` (08A discovery hop, now moot).
+- `tests/test_llm_provider_cross_provider_conformance.py` §6 rows:
+  - `test_ollama_recovery_roundtrip_complete` / `_stream` — explicitly stub `supports_tools()=True` so the
+    recovery rows test the INTENDED path (tool-capable model recovery), not the network-error fail-open. Added
+    clarifying comment.
+
+**`the_one/agents.md`** — "Capability gate" section rewritten to describe 08C chat-only behavior (prior direct-
+tool-protocol description retired).
+
+**Mission docs updated:**
+- `mission.md` — "Gemma reliably executes tool calls" criterion marked as NOT MET / RESCOPED with reason.
+  `#105` Known Issue rescoped with trail (08A trialled, found unreliable, 08C chosen). `/mission-debrief`
+  carry-forward noted. Leg-09 backstop dead-code noted as debrief cleanup candidate.
+
+**Verification:**
+- Scoped: `tests/test_ollama_provider_recovery.py tests/test_ollama_degraded_roundtrip.py
+  tests/test_llm_provider_cross_provider_conformance.py tests/test_agent_degraded_injection.py
+  tests/test_toolcall_recovery.py tests/test_search_tools.py tests/test_agent_redundant_backstop.py
+  -x --timeout 30` → **151 passed**.
+- `make test-unit` → **3365 passed / 10 skipped** (was 3375/10 after leg 08A+cap; net change = -10:
+  deleted `test_degraded_tool_prompt.py` −12 tests; reduced `test_agent_degraded_injection.py` from 7→5 −2;
+  added `test_ollama_provider_recovery.py` +4 new). No regressions.
+- `grep -rn "build_degraded_tool_prompt|DEGRADED_BASE_PROMPT|_PROTOCOL_HEADER" tests/ the_one/` → zero hits
+  in production code and test files (only in docs/comments/flight log).
+- `tests/test_search_tools.py` → 52 passed (08d search tokenize+cap retained; untouched by 08C).
+- `tests/test_agent_redundant_backstop.py` → 14 passed (Leg-09 backstop unaffected — uses structured
+  tool_calls mocks that bypass recovery).
+
+**Leg-09 backstop status**: On the chat-only path, `response.tool_calls` is always empty for a non-tool model
+(recovery never fires → no parsed calls). The degraded partition (`new` vs redundant) and the backstop closing
+never fire. **Harmless dead code** — left in place as it still validates the loop logic given structured
+tool_calls inputs (its tests in `test_agent_redundant_backstop.py` still pass and cover the backstop logic).
+Out of scope to remove in 08C; flagged as a debrief cleanup candidate.
+
+**LIVE verification** (Orchestrator does this on :8485) — NOT done here.
+Leg status → **landed** (pending Orchestrator LIVE verification).
+
+### Leg 08C — LIVE verification PASS (chat-only)
+
+Dev :8485 restarted with 08C. Full-catalog `Test Agemt` (gemma3:4b):
+- "Hello there!" → "Hello there! 😊 How can I help you today?" — **0 tool events**.
+- "What is a haiku?" → correct direct answer — **0 tool events**.
+- "Run the command 'echo hi-8c' and tell me the output." → replied "hi-8c" as plain text — **0 tool
+  dispatches, no stall, no leaked `tool_code` block**. The model converses; it does not run tools.
+
+Chat-only behavior confirmed live. Over-routing is gone AND the agent no longer stalls/no-responds. 08C
+acceptance criteria met (hermetic + live). Proceeding to Phase 2d (single flight review + commit).

@@ -1,6 +1,6 @@
 # Flight: Open-Model Tool-Use Robustness — Text-Form Tool-Call Recovery (#105)
 
-**Status**: completed
+**Status**: completed *(reopened + re-landed + debriefed 2026-06-19 for the degraded-path over-routing follow-up; resolved by 08C chat-only + 08d search tokenization)*
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -289,6 +289,29 @@ test confirms the full agent loop executes the tool end-to-end with no raw call 
       flight-log Decisions + leg 08. Re-runs the behavior test (must pass before landing).
 - [ ] `uat-and-alignment` *(optional)* — guided hands-on session tuning recovery behavior
       against real gemma output (false-positive feel, multi-call ordering, stripping aesthetics).
+
+### Post-Landing Follow-Up — degraded-path over-routing (flight reopened 2026-06-19)
+
+> A post-landing live repro found the degraded direct-tool-protocol (Leg 08) **over-routes**: gemma3:4b
+> emits a `tool_code` call on essentially every message (greeting → `shell`, "what is a haiku?" →
+> `read_file`), deterministically (`temperature=0.0`), worse the larger the catalog. Leg 08's tool-gating
+> clause "fixed" CP5 only against the behavior test's **single-`shell`** agent, which masked the bug. This
+> is a **gated trial** of up to three mutually-exclusive fixes — design/run the next only if the prior is
+> abandoned. **Flight status should move `completed` → `in-flight` (reopened); mission criterion "Gemma
+> reliably executes tool calls" should re-open — operator to confirm.**
+
+- [~] `08a-degraded-blind-start-search` — **ABORTED.** Blind-start discovery fixed over-routing but the
+      blind→search→call hop is unreliable on gemma3:4b (the model finds tools via search but won't call them
+      and stalls — a 4B floor; operator confirmed hands-on). Superseded by 08C. Its search improvement was
+      salvaged as 08d.
+- [ ] `08b-degraded-passive-recovery` *(SKIPPED — operator went straight to 08C)*.
+- [x] `08c-degraded-chat-only` — **COMPLETED.** Non-tool models (`supports_tools=False`) are conversational
+      only: no catalog injection, recovery gated OFF in the Ollama provider, tool-free `CHAT_ONLY_PROMPT`.
+      `degraded_tools.py` retired. Reverses the mission's "Gemma reliably executes tool calls" criterion
+      (recorded). LIVE-verified: over-routing gone AND no more stalls.
+- [x] `08d-search-query-tokenization` — **COMPLETED.** Kept from the 08A trial: tokenized + capped
+      `search_tools` matching (multi-word queries resolve; top-8 by token-overlap; empty-query exempt). An
+      independent robustness win for the capable path too.
 
 ---
 
