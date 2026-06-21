@@ -20,6 +20,7 @@ from the_one.diagnostics import (
     ProbeResult,
     _probe_desktop_shell,
     _probe_llm_providers,
+    _probe_model_catalog,
     detect_runtimes,
     run_doctor,
 )
@@ -255,3 +256,62 @@ class TestProbeLLMProviders:
         buf = io.StringIO()
         run_doctor(out=buf)
         assert "llm providers:" in buf.getvalue()
+
+
+class TestProbeModelCatalog:
+    """Unit tests for the ``_probe_model_catalog`` doctor line — the M16 F05
+    frozen-seed regression gate (seed data file tree-shaken from the bundle)."""
+
+    def test_ok_when_seed_resolves(self) -> None:
+        """On a dev host the bundled seed resolves the probe model to a window."""
+        result = _probe_model_catalog()
+        assert result.ok is True
+        assert "->" in result.detail  # "seed resolves ... -> <window>"
+
+    def test_frozen_fail_when_seed_missing(self) -> None:
+        """Frozen build where the seed doesn't resolve (None) → ok=False, actionable.
+
+        Simulates the bundle missing llm/data/model_catalog.json: the loader
+        fail-opens to an empty catalog, so context_window_for returns None.
+        """
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr(
+                "the_one.llm.model_catalog.context_window_for",
+                lambda provider, model: None,
+            )
+            result = _probe_model_catalog()
+        assert result.ok is False
+        assert "the-one.spec datas" in result.detail
+
+    def test_nonfrozen_missing_is_informational_skip(self) -> None:
+        """Seed not resolving on a non-frozen host → ok=True (informational)."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: False)
+            mp.setattr(
+                "the_one.llm.model_catalog.context_window_for",
+                lambda provider, model: None,
+            )
+            result = _probe_model_catalog()
+        assert result.ok is True
+        assert "skipped" in result.detail
+
+    def test_frozen_fail_promotes_result_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A frozen catalog-probe failure promotes the whole run to RESULT: FAIL."""
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_model_catalog",
+            lambda: ProbeResult("model catalog", False, "bundled seed did not resolve"),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code != 0
+        assert "model catalog: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_doctor_catalog_line_present_in_output(self) -> None:
+        """The model catalog line appears in run_doctor output on this host."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "model catalog:" in buf.getvalue()
