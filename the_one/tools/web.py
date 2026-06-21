@@ -9,6 +9,7 @@ from the_one.tools._search_backends import SearchBackend
 from the_one.tools._web_config import (
     SSRFGuardedTransport,
     WebConfig,
+    _cap_tool_text,
     _is_binary_content_type,
     _truncate_response,
     _url_check,
@@ -209,6 +210,7 @@ class HttpRequestTool(Tool):
                             cfg,
                             content_type=ct,
                         )
+                        text = _cap_tool_text(text, cfg.tool_text_cap_bytes)
                         return f"[{resp.status_code}]\n{text}"
 
                 return await asyncio.wait_for(
@@ -317,11 +319,13 @@ class FetchUrlTool(Tool):
                             text, _ = _truncate_response(
                                 markdown.encode("utf-8"), cfg, content_type=None
                             )
+                            text = _cap_tool_text(text, cfg.tool_text_cap_bytes)
                             return f"[{resp.status_code}]\n{text}"
                         # Other text (text/plain, application/json, etc.) — pass
                         # through ``_truncate_response`` directly.
                         buf = await _stream_read_with_cap(resp, cfg.response_size_cap_bytes)
                         text, _ = _truncate_response(bytes(buf), cfg, content_type=ct)
+                        text = _cap_tool_text(text, cfg.tool_text_cap_bytes)
                         return f"[{resp.status_code}]\n{text}"
 
                 return await asyncio.wait_for(
