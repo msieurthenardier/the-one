@@ -1105,3 +1105,52 @@ class TestWebToolInstantiation:
         assert isinstance(t2._config, WebConfig)
         assert WebSearchTool.Config is WebConfig
         assert WebSearchTool.Requires == (SearchBackend,)
+
+
+class TestToolTextCap:
+    """M16 F07 follow-up: the head-preserving tool_text_cap_bytes on the text
+    returned to the model (separate from the 1 MB streaming cap). Guards against
+    a huge page (e.g. a 631 KB single-page blog) poisoning the LLM context."""
+
+    def _patch_both(self, monkeypatch, handler):
+        for cls in (HttpRequestTool, FetchUrlTool):
+            monkeypatch.setattr(
+                cls, "_build_transport", lambda self, cfg, h=handler: httpx.MockTransport(h)
+            )
+
+    async def test_http_request_caps_large_text(self, monkeypatch) -> None:
+        big = "A" * 200_000  # 200 KB, well under the 1 MB stream cap
+        self._patch_both(
+            monkeypatch,
+            lambda req: httpx.Response(200, text=big, headers={"content-type": "text/plain"}),
+        )
+        cfg = WebConfig(tool_text_cap_bytes=49_152)
+        result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
+        # body portion (after the "[200]\n" prefix) is head-capped, not the full 200 KB
+        assert len(result.encode("utf-8")) < 60_000
+        assert "tool output truncated" in result
+        assert result.lstrip("[200]\n").startswith("AAA")  # head preserved
+
+    async def test_fetch_url_caps_large_text(self, monkeypatch) -> None:
+        big = "B" * 200_000
+        self._patch_both(
+            monkeypatch,
+            lambda req: httpx.Response(200, text=big, headers={"content-type": "text/plain"}),
+        )
+        cfg = WebConfig(tool_text_cap_bytes=49_152)
+        result = await FetchUrlTool(cfg).execute(url="https://example.test/")
+        assert len(result.encode("utf-8")) < 60_000
+        assert "tool output truncated" in result
+
+    async def test_small_text_not_capped(self, monkeypatch) -> None:
+        self._patch_both(
+            monkeypatch,
+            lambda req: httpx.Response(
+                200, text="hello world", headers={"content-type": "text/plain"}
+            ),
+        )
+        result = await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/"
+        )
+        assert "hello world" in result
+        assert "tool output truncated" not in result
