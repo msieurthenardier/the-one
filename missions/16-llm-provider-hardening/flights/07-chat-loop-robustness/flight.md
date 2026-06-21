@@ -1,6 +1,6 @@
 # Flight: Chat-loop Robustness & Control
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -200,14 +200,14 @@ Four independent changes, each with its own tests, landed under a single flight:
    as pending; reconcile the busy/thinking state.
 
 ### Checkpoints
-- [ ] A continuous-stream URL fetched via `http_request`/`fetch_url` returns a
+- [x] A continuous-stream URL fetched via `http_request`/`fetch_url` returns a
       bounded result (cap-abort or media short-circuit), never an indefinite hang —
       asserted by a never-ending-transport unit test.
-- [ ] Any tool exceeding `THE_ONE_TOOL_CALL_TIMEOUT_SECONDS` returns a tool-error
+- [x] Any tool exceeding `THE_ONE_TOOL_CALL_TIMEOUT_SECONDS` returns a tool-error
       and the turn still emits `done`.
-- [ ] A `cancel` WS action aborts the in-flight turn, keeps partial output marked
+- [x] A `cancel` WS action aborts the in-flight turn, keeps partial output marked
       interrupted, emits `cancelled`, and releases the session lock.
-- [ ] The UI exposes a stop control during a turn and accepts exactly one queued
+- [x] The UI exposes a stop control during a turn and accepts exactly one queued
       message while thinking.
 - [ ] `tests/behavior/chat-loop-hang-and-cancel.md` passes; full suite green at/above
       the M16 baseline, no new flakes.
@@ -231,7 +231,7 @@ Four independent changes, each with its own tests, landed under a single flight:
 > **Note:** Tentative suggestions, not commitments. Legs are planned and created
 > one at a time as the flight progresses; this list will evolve.
 
-- [ ] `web-tool-stream-and-cap` - Refactor `http_request` + `fetch_url` (web.py) to
+- [x] `web-tool-stream-and-cap` - Refactor `http_request` + `fetch_url` (web.py) to
       stream with an in-loop byte cap (mirror `download_file`), wrap the whole
       `client.stream` block in a total deadline, and short-circuit
       `audio/*|video/*|application/octet-stream` via `_is_binary_content_type` before
@@ -241,26 +241,26 @@ Four independent changes, each with its own tests, landed under a single flight:
       hang — `download_file`'s existing test uses a finite body, so this is new
       infra), the media short-circuit, a large-HTML page still extracts sensibly, and
       no-regression for normal HTML/JSON/text fetches.
-- [ ] `per-tool-call-timeout` - Wrap `await tool.execute(**args)` in
+- [x] `per-tool-call-timeout` - Wrap `await tool.execute(**args)` in
       `agent/core.py` `_execute_tool` (~:520) with
       `asyncio.wait_for(THE_ONE_TOOL_CALL_TIMEOUT_SECONDS, default 120)`; add an
       `except asyncio.TimeoutError` beside the existing `except Exception` (~:540)
       returning a tool-error `ToolResult`; the turn still terminates with `done`.
       Do NOT touch `_dispatch_tool_calls`/`_stream_response`. Unit-test a hanging tool
       → timeout → `done`; verify auth-pause and degraded paths unaffected.
-- [ ] `cancel-backend` - Per-session in-flight-task map + WS `cancel` action + task
+- [x] `cancel-backend` - Per-session in-flight-task map + WS `cancel` action + task
       cancellation. Capture streamed text (in the `_broadcast_chunk` closure) and, in
       an `except asyncio.CancelledError` block in `_process_and_broadcast`, append an
       interrupted `Message.assistant(...)` to `agent.messages`, save, emit
       `cancelled`, then re-raise (preserves lock release). No-op if the task already
       finished. Tests: cancel **mid-LLM-stream** (the hard case) AND **mid-tool-call**,
       both asserting the interrupted message persists and the lock is released.
-- [ ] `cancel-and-queue-frontend` - chat.js: stop control (sends `cancel`, handles
+- [x] `cancel-and-queue-frontend` - chat.js: stop control (sends `cancel`, handles
       `cancelled` by resetting state exactly like `done`); allow ONE queued
       send-while-thinking shown as pending (cancel discards it); reconcile
       `inFlightSessions`/`sendBtn.disabled`/`thinkingEl` across `done`, error,
       `onclose`/reconnect, and session-switch; the one-slot guard survives reconnect.
-- [ ] `verify-integration` - Author + run `tests/behavior/chat-loop-hang-and-cancel.md`;
+- [x] `verify-integration` - Author + run `tests/behavior/chat-loop-hang-and-cancel.md`;
       full suite green at/above baseline, no new flakes. Resolve the `web_search`
       "No results found" question (fix or split to a follow-up). **Docs**: add
       `THE_ONE_TOOL_CALL_TIMEOUT_SECONDS` to the env-var reference (alongside

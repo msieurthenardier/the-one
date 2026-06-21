@@ -417,6 +417,16 @@ _WEB_SESSION_REAPER_INTERVAL_SECONDS = 30.0
 # detached coroutine). Tasks self-discard on completion via `add_done_callback`.
 _inflight_tasks: set[asyncio.Task] = set()
 
+# F7 L03 (cancel-backend): per-session current in-flight task map.
+# Maps session_id → the task currently running _spawn_message_processing
+# for that session. Lets a WS `cancel` action target the right task.
+# With the queue-depth-1 pattern (leg 4), a running task and a queued
+# task can coexist on one session; this map always holds the RUNNING
+# task. The done-callback clears the entry only if it still points at
+# THIS task (identity guard against a queued task overwriting its
+# predecessor's entry at clear time).
+_session_inflight: dict[str, asyncio.Task] = {}
+
 # F5 L3: tasks driving ``_resume_paused_session`` after the OAuth-callback
 # route resolves a paused agent. Tracked separately from ``_inflight_tasks``
 # so the lifespan teardown can drain both in one pass; the OAuth-callback
@@ -1430,9 +1440,16 @@ async def _process_and_broadcast(
     # append-before-yield + assistant-before-tools iteration invariant.
     current_turn_parent_id: str | None = None
 
+    # F7 L03 (cancel-backend): accumulate streamed text so it can be
+    # persisted as an interrupted assistant Message if the task is
+    # cancelled mid-stream. The partial_text accumulator is read inside
+    # the except asyncio.CancelledError block below.
+    partial_text = ""
+
     async def _broadcast_chunk(content: str) -> None:
-        nonlocal chunks_seen
+        nonlocal chunks_seen, partial_text
         chunks_seen = True
+        partial_text += content
         await _send_to_session(session, {"type": "assistant_chunk", "content": content})
 
     async def _broadcast_usage(usage: Any) -> None:
@@ -1564,6 +1581,35 @@ async def _process_and_broadcast(
                         "is_error": msg.tool_result.is_error,
                     }
                 )
+    except asyncio.CancelledError:
+        # F7 L03 (cancel-backend): operator cancelled the task (or lifespan
+        # shutdown is tearing down). CancelledError is a BaseException — it
+        # is NOT caught by the sibling `except Exception` below, so these
+        # two handlers are SIBLINGS, not a catch-all pair.
+        #
+        # NOTE FOR REVIEWERS: `except Exception` at the sibling block below
+        # does NOT catch CancelledError (CancelledError inherits BaseException
+        # directly in Python ≥ 3.8). If a future refactor changes that to
+        # `except BaseException`, cancel's lock-release semantics would
+        # silently break — the lock is released by _spawn_message_processing's
+        # `async with session_locks[session.id]` only if CancelledError
+        # propagates out of this function.
+        #
+        # Persist partial output only if any text was streamed before cancel.
+        # If cancel fired mid-tool-call with no preamble, skip the synthetic
+        # message (empty-content Message is noise; the next turn starts clean).
+        if partial_text:
+            interrupted_msg = Message.assistant(content=partial_text + "\n\n_[interrupted]_")
+            session.agent.messages.append(interrupted_msg)
+        # Best-effort save and notify — wrapped in suppress so lifespan
+        # teardown (closing DB / sockets) can't turn a clean shutdown
+        # cancel into an unhandled exception. Re-raise preserves the
+        # lock-release semantics in _spawn_message_processing (:455-458).
+        with contextlib.suppress(Exception):
+            await _save_session_to_db(session)
+        with contextlib.suppress(Exception):
+            await _send_to_session(session, {"type": "cancelled"})
+        raise
     except Exception as exc:
         # Surface the failure to the UI so the client can drop its "thinking…"
         # indicator and re-enable the input. Without this, an exception in
@@ -2031,6 +2077,17 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await ws.send_json({"type": "session_deleted", "session_id": sid})
                 continue
 
+            # F7 L03 (cancel-backend): operator cancel action.
+            # Snapshots the bound session's in-flight task and cancels it.
+            # No-op if no session is bound, no task is registered, or the
+            # task already finished — covers the race with natural completion.
+            if action == "cancel":
+                if session is not None:
+                    t = _session_inflight.get(session.id)
+                    if t and not t.done():
+                        t.cancel()
+                continue
+
             # Regular message
             user_input = payload.get("message", "")
             if not user_input:
@@ -2067,6 +2124,19 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             task = asyncio.create_task(_spawn_message_processing(session, user_input, "web", ws))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)
+            # F7 L03 (cancel-backend): record the running task in the
+            # per-session map so a WS `cancel` action can locate it.
+            # Identity guard in the done-callback: only clear if this task
+            # is still the registered one (a queued task may have replaced
+            # it by the time the callback fires).
+            _session_inflight[session.id] = task
+            _sid_for_clear = session.id
+
+            def _clear_session_inflight(t: asyncio.Task, _sid: str = _sid_for_clear) -> None:
+                if _session_inflight.get(_sid) is t:
+                    del _session_inflight[_sid]
+
+            task.add_done_callback(_clear_session_inflight)
 
     except WebSocketDisconnect:
         if session:

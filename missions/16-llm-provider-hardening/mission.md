@@ -372,6 +372,19 @@ Discovered during Flight 6 (2026-06-20):
       shape; seed regenerated from authoritative models.dev (also fixed over-reported
       1M windows for `sonnet-4-5`/`opus-4-5`). Verified live.
 
+Discovered during Flight 7 (2026-06-21):
+
+- [ ] **`web_search` (DuckDuckGo HTML scrape) returns "No results found" for every
+      query on the installed instance** — surfaced in the F7 live repro of the Sonos
+      chat-loop hang. `web_search` uses `https://html.duckduckgo.com/html/`
+      (`tools/_search_backends.py` `DDGSearchBackend`, no API key); DDG appears to
+      throttle/block the scrape, so the agent gets nothing and resorts to *guessing*
+      URLs via `fetch_url`/`http_request` — which is how it reached a live audio
+      stream and hung. **Out of scope for F7** (which fixes the hang/cancel/queue);
+      split here per the F7 verify-leg adaptation criteria. Candidate follow-up: a
+      more robust/keyed search backend, or detect the empty-DDG response and surface
+      it honestly. Carry to `/mission-debrief`.
+
 ## Flights
 
 > **Note:** Tentative suggestions, not commitments. Flights are planned and
@@ -434,6 +447,16 @@ Discovered during Flight 6 (2026-06-20):
       Playwright browser flow + HAT (genuine restart) PASS. Surfaced one carried-forward
       Known Issue (the `if last_input:` guard vs. Ollama `input_tokens=0`). See
       `flights/06-telemetry-overlay-usage-persistence/`.
+- [ ] Flight 7: **Chat-loop robustness & control** — *in-flight (2026-06-21):
+      autonomous legs 01-05 landed, HAT (leg 06) pending.* Sourced from a live repro:
+      the chat loop hung indefinitely when a turn fetched a continuous-stream URL via
+      the web tools (provider-agnostic — sonnet-4.6 + ministral). Fixes: web tools
+      (`http_request`/`fetch_url`) stream + in-loop byte cap + total deadline + media
+      content-type short-circuit (no more infinite-stream hang); a per-tool-call
+      timeout at `_execute_tool` (`THE_ONE_TOOL_CALL_TIMEOUT_SECONDS`, default 120);
+      interrupt/cancel (WS `cancel` action + task cancellation, partial output kept);
+      one queued send-while-thinking. Full suite `3489/10/595`, 0 failures. See
+      `flights/07-chat-loop-robustness/`.
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface

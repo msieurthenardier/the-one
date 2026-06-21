@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from the_one.agent._context import current_tool_call_id
@@ -9,6 +11,32 @@ from the_one.db.codec import truncate_for_event
 from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall, ToolResult
 from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools.base import ToolRegistry
+
+_TOOL_CALL_TIMEOUT_ENV = "THE_ONE_TOOL_CALL_TIMEOUT_SECONDS"
+_TOOL_CALL_TIMEOUT_DEFAULT = 120
+_TOOL_CALL_TIMEOUT_FLOOR = 1
+
+
+def _get_tool_call_timeout() -> float:
+    """Return the per-tool-call timeout in seconds.
+
+    Read at call time so monkeypatching ``os.environ`` in tests is
+    effective without reloading the module.  Bad values (non-numeric,
+    below the floor) fall back to the default; a floor of 1 s prevents
+    0/negative timeouts.
+
+    DD2 / Leg 2: env ``THE_ONE_TOOL_CALL_TIMEOUT_SECONDS`` (default 120).
+    Lives in the agent layer — NOT imported from app.py to avoid an
+    import cycle.
+    """
+    raw = os.environ.get(_TOOL_CALL_TIMEOUT_ENV, "")
+    if raw:
+        try:
+            value = float(raw)
+            return max(value, float(_TOOL_CALL_TIMEOUT_FLOOR))
+        except ValueError:
+            pass
+    return float(_TOOL_CALL_TIMEOUT_DEFAULT)
 
 
 def _executed_key(tc: ToolCall) -> tuple[str, str]:
@@ -517,7 +545,13 @@ class Agent:
             try:
                 tool = self.tools.get(tool_call.name)
                 args = tool.bind_positional_args(tool_call.arguments)
-                output = await tool.execute(**args)
+                # DD2 / Leg 2: bound every tool invocation with a configurable
+                # ceiling so no single tool call can wedge a turn indefinitely.
+                # ``asyncio.wait_for`` cancels the wrapped coroutine on expiry;
+                # a tool that swallows ``CancelledError`` may not return promptly
+                # — the guarantee is best-effort on tool cooperation.
+                timeout = _get_tool_call_timeout()
+                output = await asyncio.wait_for(tool.execute(**args), timeout=timeout)
                 return ToolResult(tool_call_id=tool_call.id, content=output)
             except MCPAuthRequired as e:
                 # F5 L4 (A10): MCP tool requires user re-authentication.
@@ -536,6 +570,16 @@ class Agent:
                         "tool_call_id": tool_call.id,
                         "consent_url": e.consent_url,
                     },
+                )
+            except asyncio.TimeoutError:
+                # DD2 / Leg 2: tool exceeded the configured ceiling.
+                # Return a tool-error so the loop records the result and
+                # terminates the turn cleanly with ``done`` semantics.
+                # The outer ``finally`` still resets ``current_tool_call_id``.
+                return ToolResult(
+                    tool_call_id=tool_call.id,
+                    content=f"tool {tool_call.name} timed out after {timeout:.0f}s",
+                    is_error=True,
                 )
             except Exception as e:
                 return ToolResult(

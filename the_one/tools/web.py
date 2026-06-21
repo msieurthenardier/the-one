@@ -17,6 +17,71 @@ from the_one.tools.base import ConstraintError, Tool
 from the_one.tools.filesystem import CheckMode, FilesystemConfig, _filesystem_check
 
 
+def _is_media_stream_type(ct: str | None) -> bool:
+    """Return True if ``ct`` is a media-stream content-type that would hang
+    a text fetch (audio/*, video/*, application/octet-stream).
+
+    This is intentionally NARROWER than ``_is_binary_content_type``
+    (which also matches image/, pdf, zip, wasm, …). Reusing the wider
+    helper would regress ``http_request``'s binary tail-truncation path for
+    those types. Only the three subtypes that produce infinite/huge streams
+    are intercepted here.
+    """
+    if not ct:
+        return False
+    bare = ct.split(";", 1)[0].strip().lower()
+    return (
+        bare.startswith("audio/") or bare.startswith("video/") or bare == "application/octet-stream"
+    )
+
+
+async def _stream_read_with_cap(
+    resp: httpx.Response,
+    cap: int,
+) -> bytearray:
+    """Read a streaming httpx response body, accumulating chunks into a
+    ``bytearray`` and raising ``ConstraintError`` the moment the total
+    exceeds ``cap`` bytes.
+
+    Mirrors the pattern used in ``DownloadFileTool`` (web.py:295-303) but
+    accumulates in memory instead of writing to a file.  On cap overrun the
+    error is raised immediately — the ``async with client.stream(...)``
+    context manager's ``__aexit__`` then closes the connection, so no bytes
+    continue to be consumed.
+    """
+    buf = bytearray()
+    async for chunk in resp.aiter_bytes():
+        if len(buf) + len(chunk) > cap:
+            raise ConstraintError(f"response exceeded {cap} bytes")
+        buf.extend(chunk)
+    return buf
+
+
+async def _stream_read_head_capped(
+    resp: httpx.Response,
+    cap: int,
+) -> bytearray:
+    """Read a streaming httpx response body, stopping at ``cap`` bytes
+    (head-preserving truncation — keep the FIRST N bytes, not the last).
+
+    Unlike ``_stream_read_with_cap``, this helper does NOT raise on overrun;
+    it stops reading and returns the accumulated bytes so far.  Used by the
+    HTML fetch path where readability needs a valid document head.  Tail-
+    truncated HTML (as produced by ``_truncate_response``) has dangling tags
+    and no ``<head>``, which breaks readability extraction.
+    """
+    buf = bytearray()
+    async for chunk in resp.aiter_bytes():
+        remaining = cap - len(buf)
+        if remaining <= 0:
+            break
+        if len(chunk) > remaining:
+            buf.extend(chunk[:remaining])
+            break
+        buf.extend(chunk)
+    return buf
+
+
 def _safe_unlink(target: Any) -> None:
     """Best-effort cleanup helper for ``DownloadFileTool``'s error paths.
 
@@ -122,13 +187,34 @@ class HttpRequestTool(Tool):
                 follow_redirects=follow,
                 max_redirects=max_redirs,
             ) as client:
-                resp = await client.request(method, url, headers=merged_headers, content=body)
-                text, _ = _truncate_response(
-                    resp.content,
-                    cfg,
-                    content_type=resp.headers.get("content-type"),
+
+                async def _do_stream() -> str:
+                    async with client.stream(
+                        method, url, headers=merged_headers, content=body
+                    ) as resp:
+                        ct = resp.headers.get("content-type", "")
+                        # Narrow media short-circuit: audio/*, video/*,
+                        # application/octet-stream only — do NOT use
+                        # _is_binary_content_type (that would regress the
+                        # binary tail-truncation path for image/pdf/zip/…).
+                        if _is_media_stream_type(ct):
+                            bare = ct.split(";", 1)[0].strip()
+                            return (
+                                f"[error] looks like a media stream "
+                                f"(type={bare}), not fetchable as text"
+                            )
+                        buf = await _stream_read_with_cap(resp, cfg.response_size_cap_bytes)
+                        text, _ = _truncate_response(
+                            bytes(buf),
+                            cfg,
+                            content_type=ct,
+                        )
+                        return f"[{resp.status_code}]\n{text}"
+
+                return await asyncio.wait_for(
+                    _do_stream(),
+                    timeout=cfg.timeout_seconds_max,
                 )
-                return f"[{resp.status_code}]\n{text}"
         except ConstraintError as e:
             return f"[error] [constraint] {e}"
         except (asyncio.TimeoutError, httpx.TimeoutException):
@@ -187,29 +273,61 @@ class FetchUrlTool(Tool):
                 max_redirects=max_redirs,
                 headers={"User-Agent": cfg.default_user_agent},
             ) as client:
-                resp = await client.get(url)
-                ct = resp.headers.get("content-type", "")
-                if _is_binary_content_type(ct):
-                    bare = ct.split(";", 1)[0].strip()
-                    return (
-                        f"[error] binary content ({len(resp.content)} bytes; "
-                        f"type={bare}) — use download_file for binary downloads"
-                    )
-                if "text/html" in ct.lower():
-                    # Lazy imports — keep tool-class import time fast and
-                    # let unit tests skip the heavy lxml import unless
-                    # they exercise HTML extraction.
-                    from markdownify import markdownify
-                    from readability import Document
 
-                    summary_html = Document(resp.text).summary()
-                    markdown = markdownify(summary_html, heading_style="ATX")
-                    text, _ = _truncate_response(markdown.encode("utf-8"), cfg, content_type=None)
-                    return f"[{resp.status_code}]\n{text}"
-                # Other text (text/plain, application/json, etc.) — pass
-                # through ``_truncate_response`` directly.
-                text, _ = _truncate_response(resp.content, cfg, content_type=ct)
-                return f"[{resp.status_code}]\n{text}"
+                async def _do_fetch() -> str:
+                    async with client.stream("GET", url) as resp:
+                        ct = resp.headers.get("content-type", "")
+                        # Narrow media short-circuit: audio/*, video/*,
+                        # application/octet-stream only (see HttpRequestTool
+                        # comment — do NOT use _is_binary_content_type here).
+                        if _is_media_stream_type(ct):
+                            bare = ct.split(";", 1)[0].strip()
+                            return (
+                                f"[error] looks like a media stream "
+                                f"(type={bare}), not fetchable as text"
+                            )
+                        if _is_binary_content_type(ct):
+                            # Non-media binary (PDF, image, zip, …) — drain
+                            # up to cap so we have a byte count for the
+                            # message, mirroring pre-streaming behavior.
+                            buf = await _stream_read_with_cap(resp, cfg.response_size_cap_bytes)
+                            bare = ct.split(";", 1)[0].strip()
+                            return (
+                                f"[error] binary content ({len(buf)} bytes; "
+                                f"type={bare}) — use download_file for binary downloads"
+                            )
+                        if "text/html" in ct.lower():
+                            # Lazy imports — keep tool-class import time fast
+                            # and let unit tests skip heavy lxml import unless
+                            # they exercise HTML extraction.
+                            from markdownify import markdownify
+                            from readability import Document
+
+                            # Accumulate capped bytes and decode.  After a
+                            # streamed read, resp.text / resp.content raise
+                            # StreamConsumed — must use the accumulated buf.
+                            # HEAD-PRESERVE: take the FIRST cap bytes (not tail)
+                            # so readability always has a valid <head> and
+                            # opening structure.  Tail-truncated HTML has dangling
+                            # tags and no <head>, which breaks readability extraction.
+                            buf = await _stream_read_head_capped(resp, cfg.response_size_cap_bytes)
+                            html_text = bytes(buf).decode(errors="replace")
+                            summary_html = Document(html_text).summary()
+                            markdown = markdownify(summary_html, heading_style="ATX")
+                            text, _ = _truncate_response(
+                                markdown.encode("utf-8"), cfg, content_type=None
+                            )
+                            return f"[{resp.status_code}]\n{text}"
+                        # Other text (text/plain, application/json, etc.) — pass
+                        # through ``_truncate_response`` directly.
+                        buf = await _stream_read_with_cap(resp, cfg.response_size_cap_bytes)
+                        text, _ = _truncate_response(bytes(buf), cfg, content_type=ct)
+                        return f"[{resp.status_code}]\n{text}"
+
+                return await asyncio.wait_for(
+                    _do_fetch(),
+                    timeout=cfg.timeout_seconds_max,
+                )
         except ConstraintError as e:
             return f"[error] [constraint] {e}"
         except (asyncio.TimeoutError, httpx.TimeoutException):

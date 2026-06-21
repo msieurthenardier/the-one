@@ -89,3 +89,114 @@ _(none yet)_
 
 - **2026-06-21** — Flight created. Scope sourced from a live repro of the operator's
   Sonos-agent chat-loop hang (see Reconnaissance Report).
+
+- **2026-06-21 — /agentic-workflow started.** Phase file leg-execution.md valid
+  (Developer=Sonnet, Reviewer=Haiku). Flight ready→in-flight. Designed legs 01-04;
+  ran ONE combined Developer design-review over all four (FD efficiency call — the
+  Architect already validated these designs at flight level). Verdict: legs 1/2/4
+  approve-with-changes, leg 3 needs-rework; all findings folded into each leg's
+  "Design-Review Corrections (binding)" section (leg 3 HIGHs: no Message.metadata
+  field → mark interrupted via content suffix; CancelledError handler also fires on
+  shutdown → best-effort suppress + re-raise; per-session task-map identity-guard).
+  Deferred-commit model: legs 01-03 implemented in PARALLEL (disjoint files —
+  web.py / core.py / app.py), then leg 04 (frontend, depends on leg 03's cancel
+  action + cancelled event), then leg 05 verify + single flight-wide review + commit.
+
+- **2026-06-20 — Leg 01 (web-tool-stream-and-cap) landed.** Refactored
+  `http_request` and `fetch_url` in `the_one/tools/web.py` to stream the body via
+  `async with client.stream(...) + aiter_bytes`. Added two module-level helpers:
+  `_stream_read_with_cap` (accumulates chunks, raises `ConstraintError` when
+  body exceeds cap — used for text/binary paths) and `_stream_read_head_capped`
+  (accumulates first N bytes, stops silently — used for HTML path so readability
+  always has a valid document head). Added `_is_media_stream_type` narrow predicate
+  (`audio/*` | `video/*` | `application/octet-stream` only — does NOT reuse
+  `_is_binary_content_type` to avoid regressing binary tail-truncation for
+  image/pdf/zip). Both tools wrapped in `asyncio.wait_for(..., timeout_seconds_max)`
+  total deadline. FetchUrlTool's HTML path uses `_stream_read_head_capped` so readability
+  extracts from a valid partial document. Behavior deviations from pre-F7 (intentional,
+  per DD1): http_request with body > cap now returns `[error] [constraint] response
+  exceeded N bytes` instead of a truncation marker; fetch_url HTML path silently
+  truncates at cap (head-preserved) rather than extracting then truncating markdown.
+  Updated `tests/test_web_tools.py`: 2 pre-F7 truncation tests reworded to match new
+  behavior; added `_InfiniteByteStream` (never-ending `httpx.AsyncByteStream`) +
+  `TestStreamCapAbort` (3 tests: http_request and fetch_url text+html cap-abort without
+  hanging), `TestMediaShortCircuit` (5 tests: audio/video/octet-stream short-circuit;
+  image/png NOT short-circuited — regression guard), `TestLargeHtmlHeadPreserve`
+  (1 test: 12KB HTML with marker in title → 8192-byte head-cap → readability finds
+  marker). 50 tests, all green. Ruff clean.
+
+- **2026-06-20 — Leg 03 (cancel-backend) landed.** Implemented all binding
+  design-review corrections in `the_one/interfaces/web/app.py` only:
+  (1) `_session_inflight: dict[str, asyncio.Task]` added at module level (~:418);
+  populated at task-spawn site (~:2077) with identity-guard done-callback (`if
+  _session_inflight.get(sid) is t: del _session_inflight[sid]`). Coexists with
+  `_inflight_tasks` — shutdown still cancels all via the set.
+  (2) WS `cancel` action branch inserted before the regular-message block:
+  snapshots `_session_inflight.get(session.id)`, guards `t and not t.done()`, calls
+  `t.cancel()`. No-op if no session bound, no task registered, or already done.
+  (3) `partial_text` accumulator added in `_broadcast_chunk` closure (nonlocal);
+  `except asyncio.CancelledError` added as SIBLING to `except Exception` (~:1584) —
+  appends `Message.assistant(content=partial_text + "\n\n_[interrupted]_")` only if
+  partial_text non-empty (skips synthetic message on mid-tool-call-no-preamble cancel),
+  then best-effort `_save_session_to_db` and `_send_to_session({"type":"cancelled"})`
+  both inside `contextlib.suppress(Exception)` for shutdown safety, then re-raises
+  `CancelledError` preserving lock-release at _spawn_message_processing. Message has
+  NO metadata field (confirmed) — content suffix used. New test file
+  `tests/test_cancel.py`: 14 tests, all passing. Covers: cancel mid-stream (partial
+  text persisted with suffix, `cancelled` event emitted, lock released, save called
+  with interrupted message), cancel mid-tool-call (no synthetic message, `cancelled`
+  event emitted, lock released, next message accepted), exception-hierarchy regression
+  guard (CancelledError NOT subclass of Exception; propagates through function),
+  per-session task-map (registered on spawn, cleared in done-callback, identity guard
+  prevents stale clear), and cancel no-ops. Ruff clean.
+
+- **2026-06-20 — Leg 02 (per-tool-call-timeout) landed.** Added `_get_tool_call_timeout()`
+  env reader in `the_one/agent/core.py` (reads `THE_ONE_TOOL_CALL_TIMEOUT_SECONDS`,
+  default 120, floor 1, ValueError→fallback). Wrapped `await tool.execute(**args)` in
+  `_execute_tool` with `asyncio.wait_for(..., timeout)`. Added `except asyncio.TimeoutError`
+  BEFORE the existing `except Exception` (inner try at :546), returning
+  `ToolResult(is_error=True, content="tool {name} timed out after {N}s")`; outer
+  `finally` still resets `current_tool_call_id`. `_dispatch_tool_calls` and
+  `_stream_response` NOT touched. New test file `tests/test_tool_call_timeout.py`:
+  13 tests — env reader unit tests (default, custom, bad value, floor/negative clamp,
+  float), `_execute_tool` timeout (error content, exact message format, ContextVar reset
+  after timeout), agent loop with slow tool (yields final message, no hang), fast tool
+  (no interference), auth-required tool (MCPAuthRequired still produces pause result,
+  loop still defers). All 13 new + 28 existing agent tests pass. Ruff clean.
+
+- **2026-06-20 — Leg 04 (cancel-and-queue-frontend) landed.** Implemented all three
+  acceptance-criterion surfaces in `the_one/interfaces/web/static/js/areas/chat.js`
+  and added styling in `the_one/interfaces/web/static/css/chat.css`. No Python files
+  or other JS modules touched.
+  (1) **Stop control**: added `<button class="btn-stop-turn">` in the input-area
+  HTML (between input and Send). Show/hide is reactive — derived from
+  `isCurrentBusy()` via `updateStopControl()` called on every mutation of
+  `inFlightSessions`. Clicking sends `{action:"cancel"}`, optimistically hides
+  the thinking indicator, and discards any pending queued message. The
+  authoritative full reset is deferred to the `cancelled` event.
+  (2) **`cancelled` event**: mirrors the FULL `done` reset — `hideThinking()`,
+  `finalizeStreamingBubble()`, `currentStreamingVisibility = null`, clears
+  `inFlightSessions[currentSessionId]`, clears `pendingQueuedMessages[currentSessionId]`,
+  `clearPendingQueued()`, `updateStopControl()`, re-enables Send (banner-gated),
+  `refreshSessionList()`.
+  (3) **One-slot queue in `send()`**: if `isCurrentBusy()` and not
+  blocked by the health gate (`sessionBannerEl`/`inputEl.disabled`), accepts one
+  queued message per session (`pendingQueuedMessages` keyed by session id, mirroring
+  `inFlightSessions` shape). Immediately WS-sends it (backend lock serializes it).
+  Second queue attempt while one is pending is ignored. Shown as a dashed
+  `.pending-queued` indicator in the message area.
+  State reconciliation: `updateStopControl()` and `clearPendingQueued()` called on all
+  terminal paths — `done`, `cancelled`, `handleSystem` error branch, `onclose`
+  (which also wipes both maps), and `session_joined` (which restores the pending
+  indicator if the joined session still has one in flight). Syntax verified:
+  `node --check chat.js` exits 0. Functional verification deferred to leg 5 behavior
+  test + leg 6 HAT.
+
+- **2026-06-21 — Legs 01-04 landed (parallel impl), Leg 05 verify done.** Full suite
+  `3489 passed / 10 skipped / 595 deselected`, 0 failures, no new flakes (+41 over the
+  3448 baseline). Ruff check + format clean tree-wide. Flight-wide Reviewer (Sonnet,
+  not the crew's Haiku — standardized deviation for a large multi-file deferred-commit
+  diff per the F05 debrief): `[HANDOFF:confirmed]`, one non-blocking note (timeout
+  message diagnostic). `web_search` DDG-scrape "No results" SPLIT to a mission Known
+  Issue (out of scope). `THE_ONE_TOOL_CALL_TIMEOUT_SECONDS` documented in-code.
+  Committing legs 01-05; Leg 06 HAT (interactive) remains before landing.
