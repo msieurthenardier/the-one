@@ -26,9 +26,11 @@ from the_one.tools.resolver import resolve
 
 
 class TestWebConfigDefaults:
-    def test_field_count_is_eight(self) -> None:
-        # 7 F5 fields + `default_user_agent` (post-debrief addition).
-        assert len(WebConfig.model_fields) == 8
+    def test_field_count_is_nine(self) -> None:
+        # 7 F5 fields + `default_user_agent` (post-debrief addition)
+        # + `tool_text_cap_bytes` (M16 F07 follow-up: LLM-context cap on
+        # http_request/fetch_url output).
+        assert len(WebConfig.model_fields) == 9
 
     def test_default_values(self) -> None:
         from the_one.tools._web_config import _DEFAULT_USER_AGENT
