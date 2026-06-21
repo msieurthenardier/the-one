@@ -1,6 +1,6 @@
 # Flight: Model-Catalog Drift Removal
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
