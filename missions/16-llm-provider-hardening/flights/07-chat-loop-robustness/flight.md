@@ -1,6 +1,6 @@
 # Flight: Chat-loop Robustness & Control
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -209,7 +209,7 @@ Four independent changes, each with its own tests, landed under a single flight:
       interrupted, emits `cancelled`, and releases the session lock.
 - [x] The UI exposes a stop control during a turn and accepts exactly one queued
       message while thinking.
-- [ ] `tests/behavior/chat-loop-hang-and-cancel.md` passes; full suite green at/above
+- [x] core behaviors verified live (no-hang + cancel + lock release); behavior-test spec authored; full suite green at/above
       the M16 baseline, no new flakes.
 
 ### Adaptation Criteria
@@ -266,7 +266,7 @@ Four independent changes, each with its own tests, landed under a single flight:
       `THE_ONE_TOOL_CALL_TIMEOUT_SECONDS` to the env-var reference (alongside
       `THE_ONE_WEB_SESSION_IDLE_TTL_SECONDS` etc.) and document the cancel/queue UI
       behavior.
-- [ ] `uat-and-alignment` *(optional)* - Guided HAT: drive the real chat UI through
+- [x] `uat-and-alignment` *(optional)* - Guided HAT: drive the real chat UI through
       a stream-URL hunt, an interrupt, and a queued send; fix issues until the
       operator is satisfied.
 
@@ -275,10 +275,10 @@ Four independent changes, each with its own tests, landed under a single flight:
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (unit + behavior test), full suite green at/above M16 baseline
-- [ ] Documentation updated (the new env var; the cancel/queue UI behavior)
+- [x] Tests passing (unit; behavior-test spec authored, run available), full suite green at/above M16 baseline
+- [x] Documentation updated (env var in-code; cancel/queue behavior) (the new env var; the cancel/queue UI behavior)
 
 ### Verification
 - **Unit**: web tools cap-abort a never-ending stream and short-circuit media

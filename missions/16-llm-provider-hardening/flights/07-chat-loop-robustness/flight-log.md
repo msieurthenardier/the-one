@@ -200,3 +200,11 @@ _(none yet)_
   message diagnostic). `web_search` DDG-scrape "No results" SPLIT to a mission Known
   Issue (out of scope). `THE_ONE_TOOL_CALL_TIMEOUT_SECONDS` documented in-code.
   Committing legs 01-05; Leg 06 HAT (interactive) remains before landing.
+
+- **2026-06-21 — Leg 06 HAT + FLIGHT LANDED.** Live verification on :8485 (new code):
+  the exact hang URL (`stream.radioparadise.com/aac-320`) now returns in 0.3s via BOTH
+  web tools (media short-circuit) — no hang; WS cancel mid-turn → `cancelled` event +
+  session recovered (lock released). Operator accepted the live verification (UI-visual
+  stop-button / queued-indicator eyeball deferred to operator; behavior-test spec
+  available via `/behavior-test chat-loop-hang-and-cancel`). Flight landed → 6/6 legs
+  completed; Flight 7 checked off in mission.md. [COMPLETE:flight]

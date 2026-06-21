@@ -447,8 +447,8 @@ Discovered during Flight 7 (2026-06-21):
       Playwright browser flow + HAT (genuine restart) PASS. Surfaced one carried-forward
       Known Issue (the `if last_input:` guard vs. Ollama `input_tokens=0`). See
       `flights/06-telemetry-overlay-usage-persistence/`.
-- [ ] Flight 7: **Chat-loop robustness & control** — *in-flight (2026-06-21):
-      autonomous legs 01-05 landed, HAT (leg 06) pending.* Sourced from a live repro:
+- [x] Flight 7: **Chat-loop robustness & control** — **LANDED (2026-06-21, PR #137).**
+      HAT verified live (no-hang + cancel + lock-release). Sourced from a live repro:
       the chat loop hung indefinitely when a turn fetched a continuous-stream URL via
       the web tools (provider-agnostic — sonnet-4.6 + ministral). Fixes: web tools
       (`http_request`/`fetch_url`) stream + in-loop byte cap + total deadline + media
