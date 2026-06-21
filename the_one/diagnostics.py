@@ -219,6 +219,59 @@ def _probe_llm_providers() -> ProbeResult:
     )
 
 
+# A model id that the bundled catalog seed (the_one/llm/data/model_catalog.json)
+# is expected to carry — the default Anthropic model, which the seed maps to its
+# native 1M window. Resolving a non-None window for it proves the seed data file
+# is present and loadable; an empty result means the seed was not bundled.
+_CATALOG_PROBE_MODEL = ("anthropic", "claude-sonnet-4-6")
+
+
+def _probe_model_catalog() -> ProbeResult:
+    """Resolve a known model window through the bundled catalog seed.
+
+    Catches the seed-not-bundled regression (M16 F05 debrief): the seed is loaded
+    via ``importlib.resources`` from ``the_one/llm/data/model_catalog.json``. If a
+    freeze doesn't COLLECT that data file (PyInstaller spec ``datas``), the catalog
+    resolves empty and every context window silently falls back to the class
+    default. An import-only check (``_probe_llm_providers``) misses this because the
+    seed is read lazily inside a swallowing try/except — the modules import fine
+    with no seed present. This probe forces an actual resolution.
+
+    - **Frozen**: the bundled seed MUST resolve the probe model → ``ok=False`` when
+      it returns ``None`` (seed missing from the bundle) → ``RESULT: FAIL``. The CI
+      packaged-smoke reads this exit code.
+    - **Not frozen** (dev host): the source tree always carries the seed, so a
+      non-resolving result is informational only → ``ok=True``.
+
+    Never raises — all exceptions are caught.
+    """
+    provider, model = _CATALOG_PROBE_MODEL
+    try:
+        from the_one.llm.model_catalog import context_window_for
+
+        window = context_window_for(provider, model)
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        if is_frozen():
+            return ProbeResult("model catalog", False, f"catalog probe raised: {exc}")
+        return ProbeResult("model catalog", True, f"skipped — {exc}")
+
+    if window:
+        return ProbeResult("model catalog", True, f"seed resolves {model} -> {window}")
+    if is_frozen():
+        return ProbeResult(
+            "model catalog",
+            False,
+            f"bundled seed did not resolve {model} (llm/data/model_catalog.json "
+            "missing from the freeze — add to the-one.spec datas); context windows "
+            "would silently fall back to class defaults",
+        )
+    return ProbeResult(
+        "model catalog",
+        True,
+        f"skipped (seed did not resolve {model} on this host)",
+    )
+
+
 def _probe_interpreter() -> ProbeResult:
     """Verify a real external Python interpreter is resolvable.
 
@@ -264,7 +317,10 @@ def run_doctor(out=None) -> int:
     # LLM-provider gate: like desktop-shell, only a hard gate when frozen
     # (the freeze must bundle every lazily-imported provider module).
     llm_providers = _probe_llm_providers()
-    gates = [spawn, interp, desktop, llm_providers]
+    # Model-catalog gate: like the provider gate, only hard when frozen — the
+    # freeze must bundle the seed data file, not just the llm modules.
+    model_catalog = _probe_model_catalog()
+    gates = [spawn, interp, desktop, llm_providers, model_catalog]
 
     for res in gates:
         status = "OK" if res.ok else "FAIL"
