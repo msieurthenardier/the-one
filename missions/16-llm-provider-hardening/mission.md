@@ -156,7 +156,7 @@ spans the agent layer too.
       sanitized before send, and if a schema genuinely can't be sent the failure
       names the offending tool rather than a bare index. *(#122; behavior- or
       fixture-test-backed against the real Anthropic constraint)*
-- [ ] **Per-SDK capability audit exists** enumerating, for Anthropic / OpenAI /
+- [x] **Per-SDK capability audit exists** enumerating, for Anthropic / OpenAI /
       Ollama / OpenRouter, the capabilities the official SDK exposes vs. what the
       `LLMProvider` layer currently wires through — yielding a prioritized gap
       backlog. *(the bound on "implement whatever the SDKs expose")*
@@ -401,7 +401,7 @@ Discovered during Flight 7 (2026-06-21):
       confirmed hole #2 (#105) and captured the gemma text-form fixture; settled
       build-vs-adopt → **hand-roll** (any-llm rejected). Output: confirmed root
       causes + go/no-go below. See `flights/01-recon-root-cause-spike/`.
-- [ ] Flight 1B: **Provider capability audit** — enumerate, per official SDK
+- [x] Flight 1B: **Provider capability audit** — **LANDED (audit complete; backlog A1–A5/B1–B4 ratified).** Enumerate, per official SDK
       (Anthropic / OpenAI / Ollama / OpenRouter), the capabilities the SDK exposes
       vs. what `the_one/llm/` wires through (extended thinking, prompt caching,
       structured outputs / JSON mode, vision/multimodal, reasoning effort, document
