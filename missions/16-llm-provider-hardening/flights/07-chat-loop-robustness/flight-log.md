@@ -81,7 +81,18 @@ _(none yet)_
 
 ## Anomalies
 
-_(none yet)_
+### Post-landing context-poisoning defect (2026-06-21, fixed in 0.2.6 / PR #138)
+**Severity**: HIGH (cut-off conversations in production). The flight killed the web-tool
+*hang*, but within hours of the 0.2.5 install a SECOND defect surfaced: `fetch_url`
+returned a 631 KB page (saidthegramophone.com) WHOLE — it was under the 1 MB
+`response_size_cap_bytes` streaming cap — bloating the conversation to ~167K tokens, and
+the next turn degenerated to a 1-token response ("This", output_tokens=1). Root cause: DD1
+conflated the transport/anti-hang cap (1 MB, fine) with an LLM-context cap (1 MB is far
+too large). **Fixed (0.2.6):** a separate head-preserving `WebConfig.tool_text_cap_bytes`
+(48 KB) on http_request/fetch_url output. The fix-forward patch initially ran only the
+web-*tool* tests and tripped the `WebConfig` field-count guard in `tests/test_web_config.py`
+(CI #23 red) → corrected (8→9) and re-verified against the full suite (CI #24 green).
+Recorded here for artifact accuracy (the fix lives in PR #138, outside this flight).
 
 ---
 

@@ -1,6 +1,6 @@
 # Flight: Chat-loop Robustness & Control
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
