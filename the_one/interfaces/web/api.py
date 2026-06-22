@@ -4213,24 +4213,12 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
         try:
             import openai
 
-            from the_one.llm.openai_provider import OPENAI_MODEL_CONTEXT
+            from the_one.llm.model_catalog import context_window_for
 
             client = openai.AsyncOpenAI(api_key=provider.api_key)
             response = await client.models.list()
-            # F6.5 L04: resolve per-model context_length via the same hand-
-            # maintained table the OpenAIProvider resolver uses. Longest-
-            # prefix-wins so "gpt-4-1106-preview" picks the 128k entry, not
-            # the legacy "gpt-4" 8k entry.
-            ordered_prefixes = sorted(OPENAI_MODEL_CONTEXT, key=len, reverse=True)
-
-            def _openai_ctx(model_id: str) -> int | None:
-                for prefix in ordered_prefixes:
-                    if model_id.startswith(prefix):
-                        return OPENAI_MODEL_CONTEXT[prefix]
-                return None
-
             return [
-                {"id": m.id, "name": m.id, "context_length": _openai_ctx(m.id)}
+                {"id": m.id, "name": m.id, "context_length": context_window_for("openai", m.id)}
                 for m in response.data
             ]
         except Exception as e:
@@ -4239,20 +4227,17 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
         try:
             import anthropic
 
-            from the_one.llm.anthropic_provider import AnthropicProvider
+            from the_one.llm.model_catalog import context_window_for
 
             client = anthropic.AsyncAnthropic(api_key=provider.api_key)
             response = await client.models.list()
-            # F6.5 L04: Anthropic stays at class-default — all current Claude
-            # models share the 200k window. If Anthropic ships a non-200k
-            # model in the future, add a per-model table here mirroring the
-            # OpenAI pattern above.
-            anthropic_ctx = AnthropicProvider.max_context_tokens
+            # context_length is catalog-sourced per model: 1M for current Claude
+            # (claude-sonnet-4 family), 200k for Haiku-class, null if unknown.
             return [
                 {
                     "id": m.id,
                     "name": getattr(m, "display_name", m.id),
-                    "context_length": anthropic_ctx,
+                    "context_length": context_window_for("anthropic", m.id),
                 }
                 for m in response.data
             ]

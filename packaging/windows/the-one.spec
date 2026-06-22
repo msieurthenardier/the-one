@@ -112,6 +112,18 @@ static_datas = collect_data_files(
     "the_one", includes=["interfaces/web/static/**/*"]
 )
 
+# Model-catalog seed (M16 F05 DD6): the_one/llm/data/model_catalog.json is the
+# bundled offline-safe context-window seed, loaded at runtime via
+# importlib.resources.files("the_one.llm")/"data"/"model_catalog.json"
+# (the_one/llm/model_catalog.py:_load_seed). collect_submodules above ships the
+# llm *modules* but NOT this data file, and the package-data glob in
+# pyproject.toml only covers wheels/sdist — not this PyInstaller path. Without
+# this collection the frozen build has no seed: _load_seed() fails, the catalog
+# resolves empty (fail-open), and every model silently reports the class default
+# (200k for all Claude incl. the 1M default, 128k for OpenAI). Same packaging-
+# survival class as the provider tree-shake above, one layer down at the data file.
+seed_datas = collect_data_files("the_one", includes=["llm/data/*.json"])
+
 # cryptography and pywebview (->pythonnet/clr_loader: Python.Runtime.dll,
 # WebBrowserInterop) ship maintained PyInstaller contrib hooks — let those
 # hooks collect their datas/binaries/hiddenimports rather than hand-rolling
@@ -145,6 +157,15 @@ hiddenimports = [
     # from `the-one doctor` on first launch. collect_submodules picks up all
     # current and future members of the desktop package in one declaration.
     *collect_submodules("the_one.interfaces.desktop"),
+    # LLM providers are loaded LAZILY via a string __import__ in
+    # the_one/llm/registry.py:_try_load_builtin (e.g.
+    # __import__("the_one.llm.ollama_provider")). PyInstaller's static import
+    # analysis cannot see those string references, so without this every
+    # provider module is tree-shaken out of the bundle — get_provider() then
+    # raises ModuleNotFoundError at agent-create time, the WS handler crashes,
+    # and the chat silently drops (the M16 frozen-provider regression). Declare
+    # the whole the_one.llm subpackage so all current AND future providers ship.
+    *collect_submodules("the_one.llm"),
     *uvicorn_hidden,
     *mcp_hidden,
     *pystray_hidden,
@@ -152,6 +173,7 @@ hiddenimports = [
 
 datas = [
     *static_datas,
+    *seed_datas,
     *uvicorn_datas,
 ]
 

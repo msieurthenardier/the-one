@@ -1,4 +1,4 @@
-"""Unit tests for M08 F6.5 L01: per-model ``max_context_tokens`` resolution.
+"""Unit tests for M08 F6.5 L01 / M16 F05: per-model ``max_context_tokens`` resolution.
 
 Covers:
 - ``LLMProvider._resolve_max_context_tokens_if_needed`` idempotency / failure-
@@ -8,12 +8,14 @@ Covers:
   collide with the bare ``gpt-4`` 8k entry.
 - ``OllamaProvider`` resolver + the ``extract_ollama_context_length`` helper.
 - ``OpenRouterProvider`` resolver wired to ``get_model_context_length``.
-- ``AnthropicProvider`` class-default ``200_000`` survives the no-op default
-  resolver.
+- ``AnthropicProvider`` catalog-sourced resolver: reports the real per-model
+  context window (e.g. 1M for current Claude models); ``200_000`` is the
+  conservative class-default fallback on a catalog miss (M16 F05, DD4).
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -22,8 +24,9 @@ import pytest
 
 from the_one.llm import ollama_api, openrouter_api
 from the_one.llm.anthropic_provider import AnthropicProvider
+from the_one.llm.model_catalog import _OPENAI_FLOOR, _reset_for_tests, context_window_for
 from the_one.llm.ollama_provider import OllamaProvider
-from the_one.llm.openai_provider import OPENAI_MODEL_CONTEXT, OpenAIProvider
+from the_one.llm.openai_provider import OpenAIProvider
 from the_one.llm.openrouter_provider import OpenRouterProvider
 
 # ---------------------------------------------------------------------------
@@ -72,6 +75,21 @@ class TestExtractOllamaContextLength:
 class TestOpenAIPrefixLookup:
     """Prefix-match correctness — must defeat the legacy gpt-4 8k trap."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_catalog_memo(self) -> None:
+        """Reset the model_catalog memo before and after each test in this class.
+
+        Prevents a prior test's injected catalog from leaking into subsequent
+        tests. Both setup and teardown reset to None so the seed is reloaded
+        fresh on the next lookup.
+        """
+        _reset_for_tests(None)
+        yield
+        _reset_for_tests(None)
+
+    # ``gpt-4-turbo-preview`` → 128000 exercises the longest-prefix sort-order:
+    # the catalog must sort keys descending by length so ``gpt-4-turbo`` (12 chars)
+    # beats ``gpt-4`` (5 chars) when both are prefixes of the query string.
     @pytest.mark.parametrize(
         "model, expected",
         [
@@ -124,23 +142,36 @@ class TestOpenAIPrefixLookup:
         await provider._resolve_max_context_tokens_if_needed()
         assert provider.max_context_tokens == 999  # sentinel short-circuit fired
 
-    def test_table_contains_required_entries(self) -> None:
-        # Guard against accidental deletions in future edits.
-        for key in [
-            "gpt-4o",
-            "gpt-4-turbo",
-            "gpt-4-32k",
-            "gpt-4-vision-preview",
-            "gpt-4-0125-preview",
-            "gpt-4-1106-preview",
-            "gpt-4",
-            "gpt-3.5-turbo-instruct",
-            "gpt-3.5-turbo-16k",
-            "gpt-3.5-turbo",
-            "o1",
-            "o3-mini",
-        ]:
-            assert key in OPENAI_MODEL_CONTEXT, f"missing required key: {key}"
+    async def test_resolver_reads_catalog_not_table(self) -> None:
+        # Inject a catalog that gives gpt-4o a distinct window (222_222). The
+        # injected value proves catalog-sourcing: if the resolver fell back to
+        # any hardcoded value it would not return 222_222.
+        _reset_for_tests({"providers": {"openai": {"gpt-4o": 222_222}}})
+        provider = OpenAIProvider(model="gpt-4o", api_key="x")
+        await provider._resolve_max_context_tokens_if_needed()
+        assert provider.max_context_tokens == 222_222
+
+    async def test_miss_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        # Inject a catalog that has no entry for the queried model. The resolver
+        # must log a WARNING and leave the class default (128k) unchanged.
+        _reset_for_tests({"providers": {"openai": {}}})
+        provider = OpenAIProvider(model="unknown-model-xyz", api_key="x")
+        with caplog.at_level(logging.WARNING, logger="the_one.llm.openai_provider"):
+            await provider._resolve_max_context_tokens_if_needed()
+        assert any(
+            "no catalog context window" in record.message and record.levelno == logging.WARNING
+            for record in caplog.records
+        ), f"Expected a WARNING about missing catalog entry; got: {caplog.records}"
+        assert provider.max_context_tokens == 128_000
+
+    def test_floor_covers_required_models(self) -> None:
+        # Guard: every _OPENAI_FLOOR key must resolve via the catalog to a
+        # positive int — ensures the catalog seed covers the historical floor.
+        for key in _OPENAI_FLOOR:
+            result = context_window_for("openai", key)
+            assert isinstance(result, int) and result > 0, (
+                f"catalog did not resolve openai/{key} to a positive int; got {result!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -302,25 +333,60 @@ class TestOpenRouterResolver:
 
 
 # ---------------------------------------------------------------------------
-# Anthropic — class default preserved
+# Anthropic — catalog-sourced resolver (M16 F05)
 # ---------------------------------------------------------------------------
 
 
 class TestAnthropicDefault:
-    async def test_class_default_preserved_after_resolver(self) -> None:
-        # AnthropicProvider does NOT override _resolve_max_context_tokens —
-        # the class-level 200k is the resolved value.
+    @pytest.fixture(autouse=True)
+    def _reset_catalog_memo(self) -> None:
+        """Reset the model_catalog memo before and after each test in this class.
+
+        Prevents a prior test's injected catalog from leaking into subsequent
+        tests. Both setup and teardown reset to None so the seed is reloaded
+        fresh on the next lookup.
+        """
+        _reset_for_tests(None)
+        yield
+        _reset_for_tests(None)
+
+    async def test_resolves_native_1m_from_catalog(self) -> None:
+        # Pre-resolution: class default 200k is the starting value.
         provider = AnthropicProvider(model="claude-sonnet-4-6", api_key="test-key")
         assert provider.max_context_tokens == 200_000
+        # After resolution: catalog reports 1M for claude-sonnet-4-6 (M16 F05 seed).
         await provider._resolve_max_context_tokens_if_needed()
-        assert provider.max_context_tokens == 200_000
+        assert provider.max_context_tokens == 1_000_000
         assert provider._max_context_tokens_resolved is True
 
     async def test_resolver_is_idempotent(self) -> None:
         provider = AnthropicProvider(model="claude-sonnet-4-6", api_key="test-key")
+        # First resolve sets 1M (from catalog seed for claude-sonnet-4-6).
         await provider._resolve_max_context_tokens_if_needed()
-        # Mutate to a sentinel value and verify second call doesn't reset it
-        # (proves the wrapper short-circuits past the no-op default).
+        assert provider.max_context_tokens == 1_000_000
+        # Mutate to a sentinel value and verify second call doesn't re-resolve
+        # (proves the wrapper short-circuits after the first resolution).
         provider.max_context_tokens = 12345
         await provider._resolve_max_context_tokens_if_needed()
-        assert provider.max_context_tokens == 12345
+        assert provider.max_context_tokens == 12345  # sentinel short-circuit fired
+
+    async def test_resolver_reads_catalog(self) -> None:
+        # Inject a catalog with a custom model to prove the resolver sources
+        # from the catalog, not a hardcoded table.
+        _reset_for_tests({"providers": {"anthropic": {"claude-x": 333_333}}})
+        provider = AnthropicProvider(model="claude-x", api_key="x")
+        await provider._resolve_max_context_tokens_if_needed()
+        assert provider.max_context_tokens == 333_333
+
+    async def test_miss_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        # Inject a catalog with no entry for the queried model. The resolver
+        # must log a WARNING and leave the 200k class default unchanged.
+        _reset_for_tests({"providers": {"anthropic": {}}})
+        provider = AnthropicProvider(model="unknown-claude", api_key="x")
+        with caplog.at_level(logging.WARNING, logger="the_one.llm.anthropic_provider"):
+            await provider._resolve_max_context_tokens_if_needed()
+        assert any(
+            "no catalog context window" in record.message and record.levelno == logging.WARNING
+            for record in caplog.records
+        ), f"Expected a WARNING about missing catalog entry; got: {caplog.records}"
+        assert provider.max_context_tokens == 200_000

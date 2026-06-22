@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -18,7 +19,10 @@ from the_one.llm.base import (
     ToolCall,
     build_user_message_content,
 )
+from the_one.llm.model_catalog import context_window_for
 from the_one.llm.registry import register_provider
+
+logger = logging.getLogger(__name__)
 
 # Default timeout for openai SDK calls. SDK default is 600s, which means a
 # stuck upstream model holds the WebSocket open for 10 minutes with no user
@@ -32,31 +36,6 @@ DEFAULT_OPENAI_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, poo
 # across mixed English+code corpora.  The shared threshold (200 bytes)
 # and accumulator logic live in ``the_one.llm._streaming``.
 BYTES_PER_TOKEN_OPENAI = 4.0
-
-
-# M08 F6.5 L01: per-model context-window lookup. OpenAI doesn't expose
-# ``context_length`` via the ``/models`` API, so this is hand-maintained.
-# Drifts as OpenAI ships new models — unknown models fall back to the
-# class default (128k). Match is by PREFIX (longest-prefix wins).
-# Canonical reference: https://platform.openai.com/docs/models
-# Order doesn't matter for storage but matters for the longest-prefix-wins
-# matcher below — explicit variants of ``gpt-4`` / ``gpt-3.5-turbo`` MUST
-# appear so prefix-match doesn't collapse them onto the bare ``gpt-4``
-# (8k) or ``gpt-3.5-turbo`` (16k) entry.
-OPENAI_MODEL_CONTEXT: dict[str, int] = {
-    "gpt-4o": 128_000,
-    "gpt-4-turbo": 128_000,
-    "gpt-4-32k": 32_768,
-    "gpt-4-vision-preview": 128_000,
-    "gpt-4-0125-preview": 128_000,
-    "gpt-4-1106-preview": 128_000,
-    "gpt-4": 8_192,  # legacy gpt-4 default; -0613 / -0314 dated variants
-    "gpt-3.5-turbo-instruct": 4_096,
-    "gpt-3.5-turbo-16k": 16_385,
-    "gpt-3.5-turbo": 16_385,  # current gpt-3.5-turbo defaults to 16k (was 4k pre-2023)
-    "o1": 200_000,
-    "o3-mini": 200_000,
-}
 
 
 class OpenAIProvider(LLMProvider):
@@ -92,16 +71,17 @@ class OpenAIProvider(LLMProvider):
         await self.client.close()
 
     async def _resolve_max_context_tokens(self) -> None:
-        # Longest-prefix match: sort keys descending by length so e.g.
-        # ``gpt-4-turbo`` wins over ``gpt-4`` when ``self.model`` is
-        # ``gpt-4-turbo-preview``. Note: ``OpenRouterProvider`` inherits
-        # from this class but overrides this resolver — it does NOT use
-        # the OpenAI prefix table.
-        for prefix in sorted(OPENAI_MODEL_CONTEXT, key=len, reverse=True):
-            if self.model.startswith(prefix):
-                self.max_context_tokens = OPENAI_MODEL_CONTEXT[prefix]
-                return
-        # No match — leave at class default.
+        # Catalog-sourced (M16 F05 L03): replaces the OPENAI_MODEL_CONTEXT prefix
+        # table. OpenRouterProvider overrides this method and is unaffected.
+        window = context_window_for("openai", self.model)
+        if window is not None:
+            self.max_context_tokens = window
+        else:
+            logger.warning(
+                "openai: no catalog context window for model %r; using default %d",
+                self.model,
+                self.max_context_tokens,
+            )
 
     def _bytes_per_token_for_interim(self) -> float:
         """F7 L04: provider-specific bytes-per-token for the mid-stream

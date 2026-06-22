@@ -17,7 +17,7 @@ The OTHER #7 facets — multiple agents attached to one connector, multiple peer
 
 ## Preconditions
 
-- The the-one container is running; the connector worker is up; L1's stdout connector logging is active (so a failed routing/override step is diagnosable from `docker logs`).
+- the-one is running host-native; the connector worker is up; L1's stdout connector logging is active (so a failed routing/override step is diagnosable from the host log (`make logs`)).
 - A dedicated test connector is configured with `ingest_bots=true`, `always_listen=false`, `dm_admission=all`, the test guild on the allowlist, and an account-scope `allowlist.channels` admitting the test channel (so the channel passes ACL; the override/routing then picks the agent).
 - **Engagement mechanism:** every ROUTING-scenario message (the `@mention` after each `/talk-to`) `@mentions` the-one's bot. The mention path engages the agent deterministically (outcome=`mention`) with NO inference call — `is_mention` checks the bot's id in `message.mentions` independent of author. `always_listen=false`, so a NON-mention `@`-less post (other than a `/talk-to`/`/new` command) is `policy-silent` (no routing decision). The `/talk-to` and `/new` commands themselves need NO `@mention` — they are intercepted at step 11 BEFORE the engagement gate.
 - At least two agents are attached to the test connector (the L4/L5 fixture: **Connector Agent 1** and **Connector Agent 2**), BOTH ACL-admitting all peers/channels (no overlays — restored after L4), so BOTH are valid `/talk-to` targets (`_permitted_agents` returns both).

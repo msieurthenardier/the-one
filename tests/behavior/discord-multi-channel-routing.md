@@ -15,7 +15,7 @@ The sender is driven by the committed `tests/live/discord_hat/` multi-bot driver
 
 ## Preconditions
 
-- The the-one container is running; the connector worker is up; L1's stdout connector logging is active (so a failed routing step is diagnosable from `docker logs`).
+- the-one is running host-native; the connector worker is up; L1's stdout connector logging is active (so a failed routing step is diagnosable from the host log (`make logs`)).
 - A dedicated test connector is configured with `ingest_bots=true`, `always_listen=false`, `dm_admission=all`, the test guild on the allowlist, and an account-scope `allowlist.channels = [{guild_id, channel_id: "*"}]` so ALL guild channels are admitted (any test channel passes ACL; the routing rules then pick the agent).
 - **Engagement mechanism:** every routing-scenario message from the burner bot `@mentions` the-one's bot. The mention path engages the agent deterministically (outcome=`mention`) with NO inference call — `is_mention` checks the bot's id in `message.mentions` independent of author. `always_listen=false`, so a NON-mention post is `policy-silent` (no routing decision recorded) — every post in this spec MUST `@mention`.
 - At least two agents are attached to the test connector (the L4/L5 fixture: **Connector Agent 1** and **Connector Agent 2**), both ACL-admitting all peers/channels (no overlays — restored after L4). The configured channel agent must be an attached, admitting agent or the rule falls through.

@@ -12,12 +12,14 @@ Verifies:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from the_one.tools.base import Tool
+from the_one.tools.base import POSITIONAL_ARGS_KEY, Tool
+from the_one.tools.builtins import _TOOL_CLASSES
 from the_one.tools.resolver import _EmptyConfig
 
 
@@ -136,3 +138,115 @@ class TestToolL1bWidening:
         assert tool._config is cfg
         assert tool._cross_configs[_OtherCfg] is other
         assert tool._agent_name == "bravo"
+
+
+# ---------------------------------------------------------------------------
+# M16 F03 L07 (#105) — Tool.bind_positional_args: schema-aware binding of
+# recovered positional args (gemma's ``shell("echo …")``) onto named params.
+# ---------------------------------------------------------------------------
+
+
+class _ShellLikeTool(Tool):
+    """A tool mirroring ShellTool's parameter shape (command first)."""
+
+    name = "shell_like"
+    description = "Shell-like tool for positional-binding tests."
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string"},
+            "cwd": {"type": "string"},
+            "timeout": {"type": "integer"},
+            "host_access": {"type": "boolean"},
+        },
+        "required": ["command"],
+    }
+
+    async def execute(self, **kwargs: Any) -> str:
+        return "ok"
+
+
+class TestBindPositionalArgs:
+    def test_single_positional_binds_to_first_property(self) -> None:
+        tool = _ShellLikeTool()
+        out = tool.bind_positional_args({POSITIONAL_ARGS_KEY: ["echo hi"]})
+        assert out == {"command": "echo hi"}
+        assert POSITIONAL_ARGS_KEY not in out
+
+    def test_no_sentinel_is_noop(self) -> None:
+        tool = _ShellLikeTool()
+        out = tool.bind_positional_args({"command": "x"})
+        assert out == {"command": "x"}
+
+    def test_does_not_mutate_input(self) -> None:
+        tool = _ShellLikeTool()
+        original = {POSITIONAL_ARGS_KEY: ["echo hi"]}
+        tool.bind_positional_args(original)
+        assert original == {POSITIONAL_ARGS_KEY: ["echo hi"]}
+
+    def test_mixed_positional_and_keyword_keyword_wins(self) -> None:
+        tool = _ShellLikeTool()
+        # `command` already supplied as a keyword → positional fills the next
+        # free declaration-order slot (`cwd`), keyword `command` is preserved.
+        out = tool.bind_positional_args({"command": "ls", POSITIONAL_ARGS_KEY: ["/tmp"]})
+        assert out == {"command": "ls", "cwd": "/tmp"}
+
+    def test_multiple_positionals_bind_in_declaration_order(self) -> None:
+        tool = _ShellLikeTool()
+        out = tool.bind_positional_args({POSITIONAL_ARGS_KEY: ["echo hi", "/tmp", 5]})
+        assert out == {"command": "echo hi", "cwd": "/tmp", "timeout": 5}
+
+    def test_overflow_leaves_remainder_under_sentinel_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        tool = _ShellLikeTool()
+        # 5 positionals, only 4 properties → 1 leftover.
+        with caplog.at_level(logging.WARNING):
+            out = tool.bind_positional_args({POSITIONAL_ARGS_KEY: ["a", "b", 1, True, "extra"]})
+        assert out["command"] == "a"
+        assert out["cwd"] == "b"
+        assert out["timeout"] == 1
+        assert out["host_access"] is True
+        assert out[POSITIONAL_ARGS_KEY] == ["extra"]
+        assert any("positional" in r.message for r in caplog.records)
+
+    def test_no_properties_tool_leaves_sentinel_untouched(self) -> None:
+        tool = _NoConfigTool()  # parameters.properties == {}
+        out = tool.bind_positional_args({POSITIONAL_ARGS_KEY: ["echo hi"]})
+        assert out == {POSITIONAL_ARGS_KEY: ["echo hi"]}
+
+    def test_real_shell_tool_binds_command(self) -> None:
+        from the_one.tools.shell import ShellTool
+
+        out = ShellTool().bind_positional_args({POSITIONAL_ARGS_KEY: ["echo hi"]})
+        assert out == {"command": "echo hi"}
+
+
+class TestBuiltinRequiredFirstAgreesWithDeclarationOrder:
+    """DD-C: declaration-order binding only coincides with the documented
+    'required-params-first' intent if, for every built-in tool, the
+    ``required`` list is exactly the first-N declared properties. This test
+    future-proofs against a tool that declares an optional param before a
+    required one (which would silently mis-bind positional args)."""
+
+    def test_required_is_prefix_of_declared_properties(self) -> None:
+        for name, cls in _TOOL_CLASSES.items():
+            params = cls.parameters
+            properties = list(params.get("properties", {}))
+            required = list(params.get("required", []))
+            first_n = properties[: len(required)]
+            assert set(required) == set(first_n), (
+                f"tool {name!r}: required {required} is not the first-"
+                f"{len(required)} declared properties {first_n}; "
+                "declaration-order positional binding would mis-bind"
+            )
+
+
+def test_sentinel_constant_matches_kernel() -> None:
+    # The constant is duplicated (not imported) across the layer boundary;
+    # this guards the two literals from drifting apart.
+    from the_one.llm._toolcall_recovery import (
+        POSITIONAL_ARGS_KEY as KERNEL_KEY,
+    )
+
+    assert POSITIONAL_ARGS_KEY == KERNEL_KEY

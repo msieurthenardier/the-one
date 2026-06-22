@@ -87,6 +87,14 @@
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = pct + '%';
     bar.className = 'context-bar' + (stateClass ? ' ' + stateClass : '');
+    // Retain raw input values so setTelemetryMax can recompute the bar
+    // from retained context_tokens without re-parsing formatted DOM text.
+    chromeContent.__telemetry = {
+      input_tokens: data.input_tokens,
+      output_tokens: data.output_tokens,
+      context_tokens: data.context_tokens,
+      max_context_tokens: data.max_context_tokens || 0,
+    };
     App.perf.mark('telemetry-update:end');
     App.perf.measure('telemetry-update', 'telemetry-update:start', 'telemetry-update:end');
   }
@@ -104,10 +112,43 @@
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = '0%';
     bar.className = 'context-bar';
+    // Mirror the DOM reset in the retained raw state so setTelemetryMax
+    // starts from zeros after a session switch.
+    chromeContent.__telemetry = {
+      input_tokens: 0,
+      output_tokens: 0,
+      context_tokens: 0,
+      max_context_tokens: 0,
+    };
+  }
+
+  // Update ONLY the max and recompute the context bar from the retained
+  // raw context_tokens. Never touches .t-in / .t-out / .t-ctx so it
+  // cannot clobber a synchronous last_usage restore (or a live usage event
+  // that arrived before the /context-window seed resolved).
+  function setTelemetryMax(chromeContent, maxContextTokens) {
+    var t = chromeContent.__telemetry || {};
+    var ctx = t.context_tokens || 0;
+    chromeContent.querySelector('.t-max').textContent = fmtTokens(maxContextTokens || 0);
+    var pct = maxContextTokens > 0
+      ? Math.min(100, Math.round(ctx / maxContextTokens * 100))
+      : 0;
+    var stateClass = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
+    var pctEl = chromeContent.querySelector('.t-ctx-pct');
+    pctEl.textContent = pct + '%';
+    pctEl.className = 'value t-ctx-pct' + (stateClass ? ' ' + stateClass : '');
+    var bar = chromeContent.querySelector('.context-bar');
+    bar.style.width = pct + '%';
+    bar.className = 'context-bar' + (stateClass ? ' ' + stateClass : '');
+    // Update retained max so subsequent setTelemetryMax calls stay consistent.
+    if (chromeContent.__telemetry) {
+      chromeContent.__telemetry.max_context_tokens = maxContextTokens || 0;
+    }
   }
 
   window.App.chat.fmtTokens = fmtTokens;
   window.App.chat.renderTelemetry = renderTelemetry;
   window.App.chat.updateTelemetry = updateTelemetry;
   window.App.chat.resetTelemetry = resetTelemetry;
+  window.App.chat.setTelemetryMax = setTelemetryMax;
 })();

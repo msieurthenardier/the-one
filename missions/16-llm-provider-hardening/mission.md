@@ -38,6 +38,38 @@
 > vs. what the-one wires through; the gap list becomes the capability-flight
 > backlog (prioritized by the operator). The two confirmed bugs are the immediate
 > work; the capability coverage is the broader goal.
+>
+> **★ Agent-layer scope expansion (operator-authorized, Flight 3 Leg 08, 2026-06-19).**
+> Flight 3 Leg 08 deliberately expands into `the_one/agent/` (new
+> `agent/degraded_tools.py`, a `DEGRADED_BASE_PROMPT` in `agent/config.py`, and a
+> degraded-branch change in `agent/core.py`) to inject a **direct tool protocol**
+> for non-tool-capable models (`supports_tools=False`, e.g. gemma3:4b) — two
+> behavior-test runs proved recognizer-only recovery is best-effort, not reliable,
+> so the durable fix is telling the model the catalog + one parseable call format
+> upstream. Narrowly scoped to tool exposure / prompt for non-tool models; does NOT
+> touch the iteration/auth-pause logic or the `LLMProvider` contract. See the
+> Flight 3 leg-08 spec + flight-log Decisions.
+
+> **★ Agent-loop iteration-logic expansion (operator-authorized, Flight 3 Leg 09, 2026-06-19).**
+> Flight 3 Leg 09 expands further — into the agent loop's **iteration/dispatch
+> logic** in `agent/core.py` `_run_iterations` (which the prior legs deliberately
+> left untouched) — to add a degraded-path **redundant-tool-call backstop**: detect
+> when a non-tool-capable model re-emits a call whose result it already holds and
+> terminates with an empty message, suppress the re-dispatch, and synthesize a
+> non-empty closing answer. Scoped to the `not supports_tools` branch; does NOT
+> alter the auth-pause/`_deferred_tool_calls` flow or the `LLMProvider` contract.
+
+> **★ Outcome framing corrected (operator, 2026-06-19).** The original Outcome /
+> Constraints wording — "the agent loop … is untouched; changes confined to
+> `the_one/llm/` … nothing else" — was **incorrect**. The mission's real expected
+> outcome is to **leverage the full set of tools and abilities each LLM exposes**,
+> which *inherently* impacts the agent loop (tool exposure, dispatch, iteration) —
+> not just the provider layer. The **"hand-rolled, no framework"** decision still
+> stands (the loop is *extended*, not replaced; auth-pause + sandbox safety
+> invariants preserved), but the **"agent-loop-untouched / `the_one/llm/`-only"**
+> boundary does **not**. Outcome + Constraints updated below. The Flight 3
+> leg-08/09 banners above are therefore the *first instances* of expected
+> capability-driven loop work — not out-of-scope exceptions.
 
 ## Outcome
 
@@ -48,10 +80,15 @@ conversation driven by an **open/local model (e.g. Gemma via Ollama)** reliably
 executes tool calls, including the cases where the model emits a tool call as
 loose text instead of a structured `tool_calls` array. And the provider layer
 stops carrying **hand-maintained model tables that silently drift** out of date.
-The agent loop, tool registry, MCP integration, and sandbox are untouched — the
-changes are confined to the `the_one/llm/` adapters, the `Message` protocol, and
-the persistence codec that serializes it (the new thinking field has to
-round-trip through storage).
+Delivering this is **not** confined to the provider layer: fully leveraging what
+each LLM can do — extended thinking, structured outputs, vision, and reliable
+tool use for tool-capable *and* non-tool-capable models — **inherently reaches
+into the agent loop** (tool exposure, dispatch, iteration), the `Message`
+protocol, and the persistence codec, alongside the `the_one/llm/` adapters. What
+stays fixed is the **architecture**: the loop remains **hand-rolled** (no agent
+framework) and the provider layer keeps wrapping the official vendor SDKs. The
+loop is *extended* where a capability requires it — it is not replaced, and its
+safety invariants (auth-pause semantics, the sandbox) are preserved.
 
 ## Context
 
@@ -103,15 +140,18 @@ well-architected and maps almost 1:1 onto how `pi-ai` is built:
    limits have to come from a generated/cached catalog rather than a live call.)
 
 **Strategic decisions already settled (do not re-litigate; recorded as
-constraints):** stay in Python; keep the hand-rolled loop/registry/MCP/sandbox;
-do **not** adopt an agent framework; keep wrapping the **official vendor SDKs**
-rather than reimplementing wire protocols. The only genuinely open
-build-vs-adopt question left is narrow and provider-layer-local — see Open
-Questions ("harden vs. `any-llm`").
+constraints):** stay in Python; keep the **hand-rolled** architecture (do **not**
+adopt an agent framework); keep wrapping the **official vendor SDKs** rather than
+reimplementing wire protocols. **"Hand-rolled" means *not a framework* — it does
+not mean the agent loop is frozen.** Leveraging the LLMs' full capabilities
+inherently extends the loop (tool exposure, dispatch, iteration), as Flight 3
+demonstrated; that work is in scope. The build-vs-adopt question ("harden vs.
+`any-llm`") was resolved provider-layer-local, but capability work legitimately
+spans the agent layer too.
 
 ## Success Criteria
 
-- [ ] A tool whose `input_schema` uses top-level `oneOf/allOf/anyOf` (or omits a
+- [x] A tool whose `input_schema` uses top-level `oneOf/allOf/anyOf` (or omits a
       top-level `type`) no longer fails the whole Anthropic turn — the schema is
       sanitized before send, and if a schema genuinely can't be sent the failure
       names the offending tool rather than a bare index. *(#122; behavior- or
@@ -119,9 +159,7 @@ Questions ("harden vs. `any-llm`").
 - [x] **Per-SDK capability audit exists** enumerating, for Anthropic / OpenAI /
       Ollama / OpenRouter, the capabilities the official SDK exposes vs. what the
       `LLMProvider` layer currently wires through — yielding a prioritized gap
-      backlog. *(the bound on "implement whatever the SDKs expose")* **— DONE by
-      Flight 1B** (`flights/01b-provider-capability-audit/flight-log.md`: consolidated
-      matrix + operator-ratified backlog A1–A5/B1–B4 + routed #122/#105/F5).
+      backlog. *(the bound on "implement whatever the SDKs expose")*
 - [ ] **Each prioritized capability gap is either implemented behind the
       `LLMProvider` contract or explicitly deferred** with a recorded reason — so
       the provider layer's coverage of its SDKs is intentional, not accidental.
@@ -135,11 +173,18 @@ Questions ("harden vs. `any-llm`").
       first-class field (a `ThinkingPart`-equivalent) instead of discarding it;
       it round-trips through persistence and is available to the web UI.
       *(unit-test-backed)*
-- [ ] A tool-using conversation with **Gemma via Ollama** reliably executes tool
+- [~] ~~A tool-using conversation with **Gemma via Ollama** reliably executes tool
       calls, **including** when the model emits the call as text/JSON in
-      `content` rather than a structured `tool_calls` array. *(test-backed with a
-      recorded/fixtured Gemma response for the loose-format case)*
-- [ ] A **cross-provider tool-use conformance test** exists and passes for
+      `content` rather than a structured `tool_calls` array.~~ **NOT MET /
+      RESCOPED (operator, 2026-06-19, M16 F03 L08C).** gemma3:4b (a 4B model) can
+      decide to invoke a tool but cannot reliably complete the multi-step discovery
+      hop (search → select → call); always-on catalog injection caused over-routing
+      that made the agent unusable for chat; chat-only was chosen for UX (a reliable
+      chat agent beats an unreliable tool agent that frequently no-responds). Models
+      that DO advertise the `tools` capability continue to use the structured path
+      unaffected. This is an explicit, operator-authorized scope decision — not a
+      bug. Carry to `/mission-debrief`. See flight-log leg-08C.
+- [x] A **cross-provider tool-use conformance test** exists and passes for
       Anthropic, OpenAI, Ollama, and Mock — asserting that a request→tool_call→
       tool_result→final-answer round-trip works uniformly through the
       `LLMProvider` contract. *(this is the regression net that stops future
@@ -167,10 +212,13 @@ Questions ("harden vs. `any-llm`").
 
 ## Constraints
 
-- **No agent framework.** The hand-rolled agent loop, tool registry, MCP
-  integration, and sandbox stay. This mission touches `the_one/llm/`, the
-  `Message` protocol, and the persistence codec that serializes it — nothing
-  else.
+- **No agent framework (but the loop is not frozen).** The architecture stays
+  **hand-rolled** — do not adopt LangChain/LiteLLM/etc. or replace the loop. But
+  the mission changes whatever leveraging an LLM capability requires: the
+  `the_one/llm/` adapters, the `Message` protocol, the persistence codec, **and
+  the agent loop / tool exposure / dispatch** (e.g. Flight 3's degraded tool
+  protocol + redundant-call backstop). Extending the hand-rolled loop is in
+  scope; adopting a framework is not.
 - **Stay in Python.** The language decision is settled (the TS-ness of the
   reference tools is about CLI distribution/frontend ergonomics, not this
   project's exec-heavy/sandboxed/packaged shape — and not the cause of any bug
@@ -190,8 +238,10 @@ Questions ("harden vs. `any-llm`").
   contract (including the `__MASKED__` API-key sentinel in the provider edit
   form).
 - **Out of scope**: adopting a full agent framework; a TypeScript rewrite;
-  adding new providers; changing the agent loop's iteration/auth-pause logic;
-  changing the web UI beyond surfacing thinking content.
+  adding new providers; **regressing** the agent loop's
+  auth-pause/`_deferred_tool_calls` semantics or the sandbox (the loop *may* be
+  extended for capability work — see the Outcome — but these safety invariants
+  must be preserved); changing the web UI beyond surfacing thinking content.
 
 ## Environment Requirements
 
@@ -231,23 +281,109 @@ Questions ("harden vs. `any-llm`").
 - [ ] **Reasoning beyond Anthropic.** Scope of OpenAI reasoning-model
       (`o*`-series) and `<think>`-tag-emitting open models in this mission, vs.
       Anthropic-only for the first pass.
+- [ ] **Header-gated 1M context (deferred from Flight 5).** Flight 5 reports the
+      correct per-model context window from the catalog but sends no `context-1m`
+      beta header — current Claude models (incl. the default `claude-sonnet-4-6`)
+      are natively 1M, so none is needed. If a model is later targeted that still
+      requires the dated `context-1m-*` header to unlock 1M, evaluate sending it
+      (via `extra_headers` on the Anthropic SDK call) as part of the planned
+      extended-thinking/capability flight, where request-path capability work
+      already lives. *(Recorded during Flight 5 planning, 2026-06-19.)*
+- [ ] **/mission-debrief carry-forward (08C scope decision).** The "Gemma reliably
+      executes tool calls" criterion was reversed (see Known Issues above). The
+      debrief should record: (a) the trajectory L08→L08A→L08C and what was learned
+      about 4B multi-step composition; (b) the Leg-09 backstop in `core.py` is now
+      harmless dead code on the chat-only path (a candidate cleanup); (c) the
+      CP5 false-pass in the behavior test (single-`shell` agent masked full-catalog
+      over-routing) as a test-validity lesson.
+- [ ] **Non-tool-capable models: chat-only (08C design decision).** Models with
+      `supports_tools()=False` (e.g. gemma3:4b) are conversational agents only.
+      This is by design (08C). If a future Ollama model advertises `tools` it will
+      automatically take the structured path. No further action needed unless
+      the operator wants tool use on sub-tool-capable models.
 
 ## Known Issues
 
 Confirmed by the Flight 1 spike (2026-06-17):
 
-- [ ] **#122 — Anthropic rejects tool `input_schema` with top-level
-      `oneOf/allOf/anyOf` (and requires top-level `type`).** Reproduced live; the-one
-      passes MCP tool schemas through verbatim (`anthropic_provider.py:210-215`).
-      One non-conforming tool fails the whole turn. — owned by the new Flight 2.
-- [ ] **#105 — open models (gemma3:4b) emit tool calls as text that is never
-      recovered.** Confirmed: Ollama 400s if tools are offered, so the capability
-      gate correctly drops them; the model emits a ` ```tool ` fenced Python-call
-      block; the parser reads only structured `tool_calls`. — owned by Flight 3.
+- [x] ~~**#122 — Anthropic rejects tool `input_schema` with top-level
+      `oneOf/allOf/anyOf` (and requires top-level `type`).**~~ **RESOLVED by Flight 2**
+      (2026-06-18): pure schema sanitizer shipped + wired into the Anthropic adapter
+      (drop-and-proceed + `BadRequestError → tool-name`); live-verified against
+      first-party Anthropic. Also wired (gated) onto the OpenRouter→Anthropic path after a
+      live probe showed it 400s identically. See
+      `flights/02-anthropic-tool-input-schema/flight-debrief.md`.
+- [~] ~~**#105 — open models (gemma3:4b) emit tool calls as text that is never
+      recovered.**~~ **RESCOPED (M16 F03 L08C, 2026-06-19).** The recovery
+      kernel works (Flight 3 legs 01–07 landed). The longer question — should
+      non-tool models attempt tool use via protocol injection — was trialled
+      (leg 08A), found unreliable for 4B models, and resolved as: **non-tool-
+      capable models are conversational-only by design (08C)**. Recovery is
+      gated OFF for `supports_tools()=False` models; their content passes through
+      verbatim. Reliable tool use requires a model that advertises the `tools`
+      capability. Carry to `/mission-debrief`.
+
+Discovered during Flight 2 (2026-06-18):
+
+- [ ] **OpenRouter→Anthropic #122 path lacks DD5/DD6 parity** — discovered in Flight 2,
+      affects the `OpenRouterProvider` `anthropic/*` route. Flight 2 sanitizes the common
+      `anyOf`/`oneOf` case on this path, but (operator-scoped minimal) does **not** add
+      drop-and-proceed or the `BadRequestError → tool-name` net. Consequence: a
+      *genuinely-unsanitizable* tool schema forwards unmodified and 400s the whole turn on
+      OpenRouter (WARN-logged), whereas Anthropic-direct drops it and the turn proceeds.
+      Same underlying constraint, divergent reliability guarantee. **Owned by Flight 4**
+      (cross-provider conformance): decide DD5/DD6 parity vs. formalizing "forward-with-WARN"
+      as the OpenRouter contract.
 - [x] ~~Hole #1: extended-thinking replay errors on tool use~~ — **falsified by the
       spike** (replay succeeded; thinking never enabled). Retired *as a bug* — but
       extended thinking is now a **planned capability** (see Scope-broadened banner),
       not a problem to fix.
+
+Discovered during Flight 5 HAT (2026-06-20):
+
+- [x] ~~**Telemetry overlay used-token state doesn't persist on chat reopen**~~ —
+      discovered in the F5 HAT, affected the web chat telemetry overlay. Usage events
+      were projection-only (never `add_event`'d to history) and `renderHistory`
+      didn't replay them, so reopening an old chat showed `0 / max` instead of the
+      accumulated `used / max`. **RESOLVED by Flight 6** (2026-06-20, PR #134): the
+      last completed turn's `{input_tokens, output_tokens, context_tokens}` is now
+      persisted to `session_metadata["last_usage"]` at both turn-settle points and
+      restored on `session_joined` (with a max-only `/context-window` seed so it isn't
+      re-zeroed). HAT-confirmed across a genuine server restart. See
+      `flights/06-telemetry-overlay-usage-persistence/`.
+
+Discovered during Flight 6 (2026-06-20):
+
+- [ ] **`if last_input:` usage-persist guard drops real turns that report
+      `input_tokens=0`** — surfaced by the F6 L03 design review. The per-turn
+      `last_usage` write is guarded on `last_input` (the last assistant step's
+      `input_tokens`); a real provider that reports `input_tokens=0` — notably Ollama,
+      whose adapter uses `u.get("prompt_tokens", 0)` and can omit `prompt_tokens` (or
+      the whole usage block) — settles with `last_input == 0` and has its snapshot
+      suppressed, so reopening shows `0 / max` for that provider. Not fixed in F6 (the
+      fullness bar is unrestorable for such a turn regardless, since `context_tokens`
+      *is* the missing input count, and a fix reopens landed L01 + its guard tests).
+      Candidate follow-up: guard on "saw any usage event" or `last_input or
+      total_output` so the in/out counts still restore. Carry to `/mission-debrief`.
+- [x] ~~**Model-catalog runtime refresh parsed the wrong models.dev shape**~~ —
+      discovered + **fixed in the F5 HAT** (commit `9f152b9`): `project_raw` was
+      built blind (models.dev unreachable in Leg 1) and extracted zero models, so the
+      cache was never written. Parser corrected to the real `raw[provider]["models"]`
+      shape; seed regenerated from authoritative models.dev (also fixed over-reported
+      1M windows for `sonnet-4-5`/`opus-4-5`). Verified live.
+
+Discovered during Flight 7 (2026-06-21):
+
+- [ ] **`web_search` (DuckDuckGo HTML scrape) returns "No results found" for every
+      query on the installed instance** — surfaced in the F7 live repro of the Sonos
+      chat-loop hang. `web_search` uses `https://html.duckduckgo.com/html/`
+      (`tools/_search_backends.py` `DDGSearchBackend`, no API key); DDG appears to
+      throttle/block the scrape, so the agent gets nothing and resorts to *guessing*
+      URLs via `fetch_url`/`http_request` — which is how it reached a live audio
+      stream and hung. **Out of scope for F7** (which fixes the hang/cancel/queue);
+      split here per the F7 verify-leg adaptation criteria. Candidate follow-up: a
+      more robust/keyed search backend, or detect the empty-DDG response and surface
+      it honestly. Carry to `/mission-debrief`.
 
 ## Flights
 
@@ -265,35 +401,62 @@ Confirmed by the Flight 1 spike (2026-06-17):
       confirmed hole #2 (#105) and captured the gemma text-form fixture; settled
       build-vs-adopt → **hand-roll** (any-llm rejected). Output: confirmed root
       causes + go/no-go below. See `flights/01-recon-root-cause-spike/`.
-- [x] Flight 1B: **Provider capability audit** — **LANDED.** Enumerate, per official
-      SDK (Anthropic / OpenAI / Ollama / OpenRouter), the capabilities the SDK
-      exposes vs. what `the_one/llm/` wires through (extended thinking, prompt
-      caching, structured outputs / JSON mode, vision/multimodal, reasoning effort,
-      document inputs, parallel tool calls, stop sequences, streaming events, token
+- [x] Flight 1B: **Provider capability audit** — **LANDED (audit complete; backlog A1–A5/B1–B4 ratified).** Enumerate, per official SDK
+      (Anthropic / OpenAI / Ollama / OpenRouter), the capabilities the SDK exposes
+      vs. what `the_one/llm/` wires through (extended thinking, prompt caching,
+      structured outputs / JSON mode, vision/multimodal, reasoning effort, document
+      inputs, parallel tool calls, stop sequences, streaming events, token
       counting, …). Output: a prioritized capability-gap backlog that drives the
       capability flights below. *(read-only recon, like F1; bounds the "implement
-      whatever the SDKs expose" scope.)* See
-      `flights/01b-provider-capability-audit/`.
-- [ ] Flight 2 **(HIGH — the real Anthropic bug): Anthropic tool `input_schema`
+      whatever the SDKs expose" scope.)*
+- [x] Flight 2 **(HIGH — the real Anthropic bug): Anthropic tool `input_schema`
       compatibility (#122)** — sanitize tool `input_schema` before sending to
       Anthropic: wrap/flatten top-level `oneOf/allOf/anyOf` and ensure a top-level
       `type`; isolate and **name the offending tool** instead of failing the whole
       turn. (Optionally folds in #122's bundled UI enhancement — a copy-button on
       chat error bubbles — or split that out.) Closes the bug the operator hit.
-- [ ] Flight 3: **Open-model tool-use robustness (Ollama/Gemma) (#105)** — add a
+- [x] Flight 3: **Open-model tool-use robustness (Ollama/Gemma) (#105)** — add a
       **text-form tool-call recovery parser** that runs when `supports_tools()` is
       `False`: detect the ` ```tool ` fenced Python-call block (captured from
       gemma3:4b) plus Hermes-tag / bare-JSON variants, normalized into structured
       `ToolCall`s. **Do not** try to offer tools to non-tool-capable models —
       Ollama rejects them. Fixtured regression from the captured response.
-- [ ] Flight 4: **Cross-provider tool-use conformance suite** — a shared,
+- [x] Flight 4: **Cross-provider tool-use conformance suite** — a shared,
       provider-parametrized test asserting the request→tool_call→tool_result→
       final round-trip works uniformly across Anthropic/OpenAI/Ollama/Mock. Now
       also the regression net guarding the #122 and #105 fixes.
-- [ ] Flight 5: **Model-catalog drift removal** — replace the hand-maintained
-      OpenAI prefix table + Anthropic hard-coded window with sourced limits.
-      Note: OpenAI's `/models` exposes no `context_length`, so OpenAI uses a
-      generated/cached catalog rather than a live fetch (unlike Ollama/OpenRouter).
+- [x] Flight 5: **Model-catalog drift removal** — **LANDED (2026-06-20).** Replaced
+      the hand-maintained OpenAI prefix table (+ its Studio-endpoint duplicate) and
+      Anthropic's hard-coded window with a **built-in catalog refreshed on a daily
+      cadence** at runtime (bundled seed + on-disk cache from models.dev), resolved
+      locally cache→seed→default — installs stay current without a redeploy and an
+      old chat's window survives an offline restart. Reports the catalog's per-model
+      window (1M for current Claude; no `context-1m` header — deferred to the
+      capability flight). HAT caught + fixed a critical refresh-parser bug (built
+      blind against an assumed models.dev shape) and an over-reporting seed. Full
+      suite `3422/10/594`, 0 failures. See `flights/05-model-catalog-drift-removal/`.
+- [x] Flight 6: **Telemetry overlay usage persistence** — **LANDED (2026-06-20,
+      PR #134, stacked on F5 #133).** Persists the per-session token-usage snapshot in
+      `session_metadata["last_usage"]` (via the existing `set_session_metadata_key`
+      primitive — no migration) and restores it on `session_joined` so reopening an old
+      chat (incl. after a server restart) shows the last turn's `used / max` fullness,
+      not `0 / max`. Writes at both turn-settle points (normal + auth-resume); frontend
+      `/context-window` seed made max-only to avoid re-zeroing the restore. Added a
+      backward-compatible `config["input_tokens"]` test seam to `MockProvider` (+ fixed
+      a pre-existing dev-mode `__init__` bug). Full suite `3443/10/595`, 0 failures;
+      Playwright browser flow + HAT (genuine restart) PASS. Surfaced one carried-forward
+      Known Issue (the `if last_input:` guard vs. Ollama `input_tokens=0`). See
+      `flights/06-telemetry-overlay-usage-persistence/`.
+- [x] Flight 7: **Chat-loop robustness & control** — **LANDED (2026-06-21, PR #137).**
+      HAT verified live (no-hang + cancel + lock-release). Sourced from a live repro:
+      the chat loop hung indefinitely when a turn fetched a continuous-stream URL via
+      the web tools (provider-agnostic — sonnet-4.6 + ministral). Fixes: web tools
+      (`http_request`/`fetch_url`) stream + in-loop byte cap + total deadline + media
+      content-type short-circuit (no more infinite-stream hang); a per-tool-call
+      timeout at `_execute_tool` (`THE_ONE_TOOL_CALL_TIMEOUT_SECONDS`, default 120);
+      interrupt/cancel (WS `cancel` action + task cancellation, partial output kept);
+      one queued send-while-thinking. Full suite `3489/10/595`, 0 failures. See
+      `flights/07-chat-loop-robustness/`.
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface

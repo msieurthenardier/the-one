@@ -10,7 +10,7 @@ dispatch inbound, and reap.
 
 For project-wide conventions (`trust-the-runtime`,
 `canonical-import + convenience-re-export`, `structural-Protocol-satisfaction`,
-`verbatim-message-equality`, `container-test-entrypoints-reach-via-make`),
+`verbatim-message-equality`, `host-test-entrypoints-reach-via-make`),
 see `the_one/agents.md`'s "Project Conventions" section.
 
 For the connector-type extension checklist and the full connector subsystem

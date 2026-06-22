@@ -123,6 +123,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # reaper start. Due-based catch-up on entry, then sleep+recheck.
     global _chat_history_purge_task
     _chat_history_purge_task = asyncio.create_task(_chat_history_purge_loop())
+    # M16 F05 L02: start the daily model-catalog refresh loop just after the
+    # purge-loop start. Due-based catch-up on entry, then sleep+recheck.
+    global _catalog_refresh_task
+    _catalog_refresh_task = asyncio.create_task(_model_catalog_refresh_loop())
     # M10 F2 L6: dev-mode-gated test-seam — when
     # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
     # register the in-process StubPlugin as the 'stub' connector type so
@@ -202,9 +206,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # configuration now lives on the connector.config row (added by the
     # v26 migration; edited per-connector via the Studio connector
     # editor at F13 L4). If the operator's environment still sets either
-    # legacy env var (e.g. carried over in docker-compose.yml from the
-    # F7 L12 HAT), surface a one-time deprecation warning so the dead
-    # env var is visible without breaking startup.
+    # legacy env var (e.g. carried over in a host shell profile or .env
+    # from the F7 L12 HAT), surface a one-time deprecation warning so the
+    # dead env var is visible without breaking startup.
     _legacy_pid = os.environ.get("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID")
     _legacy_model = os.environ.get("THE_ONE_INFERENCE_MODEL")
     if _legacy_pid or _legacy_model:
@@ -254,6 +258,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _chat_history_purge_shutdown_drain()
     except Exception:
         logger.exception("daily purge shutdown failed")
+    # M16 F05 L02: drain the daily model-catalog refresh loop beside the
+    # purge drain. Cancels the task and suppresses CancelledError.
+    try:
+        await _model_catalog_refresh_shutdown_drain()
+    except Exception:
+        logger.exception("model-catalog refresh shutdown failed")
     try:
         await _session_registry_shutdown_drain()
     except Exception:
@@ -403,9 +413,19 @@ _WEB_SESSION_REAPER_INTERVAL_SECONDS = 30.0
 
 # Set of in-flight per-message processing tasks spawned by the WebSocket
 # handler. Tracked so FastAPI's lifespan teardown can cancel them on
-# shutdown (otherwise a `make rebuild` mid-tool-call would leave a
+# shutdown (otherwise a `make restart` mid-tool-call would leave a
 # detached coroutine). Tasks self-discard on completion via `add_done_callback`.
 _inflight_tasks: set[asyncio.Task] = set()
+
+# F7 L03 (cancel-backend): per-session current in-flight task map.
+# Maps session_id → the task currently running _spawn_message_processing
+# for that session. Lets a WS `cancel` action target the right task.
+# With the queue-depth-1 pattern (leg 4), a running task and a queued
+# task can coexist on one session; this map always holds the RUNNING
+# task. The done-callback clears the entry only if it still points at
+# THIS task (identity guard against a queued task overwriting its
+# predecessor's entry at clear time).
+_session_inflight: dict[str, asyncio.Task] = {}
 
 # F5 L3: tasks driving ``_resume_paused_session`` after the OAuth-callback
 # route resolves a paused agent. Tracked separately from ``_inflight_tasks``
@@ -668,6 +688,55 @@ async def _chat_history_purge_shutdown_drain() -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await task
     _chat_history_purge_task = None
+
+
+# ── Daily model-catalog refresh ───────────────────────────────────────────
+
+_catalog_refresh_task: asyncio.Task | None = None
+
+
+def _get_catalog_refresh_check_interval() -> int:
+    """THE_ONE_CATALOG_REFRESH_CHECK_INTERVAL_SECONDS at call time; default 3600
+    (coarse — the due-check gates the actual 24h refresh). Floored at 60s
+    so a 0/negative value can't tight-loop."""
+    raw = os.environ.get("THE_ONE_CATALOG_REFRESH_CHECK_INTERVAL_SECONDS")
+    if raw is None:
+        return 3600
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        logger.warning(
+            "THE_ONE_CATALOG_REFRESH_CHECK_INTERVAL_SECONDS=%r not an int; using 3600", raw
+        )
+        return 3600
+
+
+async def _model_catalog_refresh_loop() -> None:
+    """Due-based daily model-catalog refresh. Catch-up on entry, then sleep+recheck.
+    M16 F05 L02 — mirrors _chat_history_purge_loop (F03 L3)."""
+    from the_one.llm.model_catalog import _refresh_due, refresh_catalog_cache
+
+    async def _maybe_refresh() -> None:
+        try:
+            if _refresh_due():
+                await refresh_catalog_cache()
+        except Exception:
+            logger.exception("model-catalog refresh pass raised; continuing")
+
+    await _maybe_refresh()  # startup catch-up (guarded)
+    while True:
+        await asyncio.sleep(_get_catalog_refresh_check_interval())
+        await _maybe_refresh()
+
+
+async def _model_catalog_refresh_shutdown_drain() -> None:
+    global _catalog_refresh_task
+    task = _catalog_refresh_task
+    if task is not None and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    _catalog_refresh_task = None
 
 
 # ── Session health classification ────────────────────────────────────────
@@ -958,6 +1027,44 @@ async def _save_session_to_db(session: Session) -> None:
         await repo.update(updated)
     except Exception:
         logger.warning("Failed to save session %s to DB", session.id, exc_info=True)
+
+
+async def _persist_last_usage(
+    session: Session,
+    input_tokens: int,
+    output_tokens: int,
+    context_tokens: int,
+) -> None:
+    """Persist per-turn usage snapshot to session_metadata["last_usage"].
+
+    M16 F06 L01 — shared helper called from both turn-settle sites:
+    the non-paused settle in ``_process_and_broadcast`` and the resume
+    settle in ``_resume_paused_session``.
+
+    Writes ``{"input_tokens", "output_tokens", "context_tokens"}`` to the
+    DB via ``set_session_metadata_key`` (overwrite semantic, preserves
+    sibling keys like ``routing``) and mirrors the write in-memory so a
+    same-process reopen doesn't need a DB round-trip.
+
+    The in-memory update mirrors the repo's read-modify-write:
+    ``session.session_metadata or {}`` handles a fresh session where the
+    field is ``None``, and we spread existing siblings so concurrent writes
+    to other keys survive (e.g. a ``routing`` key written by the dispatcher
+    between the DB call and the in-memory update won't be clobbered here).
+    """
+    snapshot = {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "context_tokens": context_tokens,
+    }
+    try:
+        repo = await _chat_repo()
+        await repo.set_session_metadata_key(session.id, "last_usage", snapshot)
+    except Exception:
+        logger.warning("Failed to persist last_usage for session %s", session.id, exc_info=True)
+        return
+    # Mirror in-memory so same-process reopens see the value without a DB round-trip.
+    session.session_metadata = {**(session.session_metadata or {}), "last_usage": snapshot}
 
 
 def _session_to_list_payload(s: ChatSessionModel) -> dict[str, Any]:
@@ -1333,9 +1440,16 @@ async def _process_and_broadcast(
     # append-before-yield + assistant-before-tools iteration invariant.
     current_turn_parent_id: str | None = None
 
+    # F7 L03 (cancel-backend): accumulate streamed text so it can be
+    # persisted as an interrupted assistant Message if the task is
+    # cancelled mid-stream. The partial_text accumulator is read inside
+    # the except asyncio.CancelledError block below.
+    partial_text = ""
+
     async def _broadcast_chunk(content: str) -> None:
-        nonlocal chunks_seen
+        nonlocal chunks_seen, partial_text
         chunks_seen = True
+        partial_text += content
         await _send_to_session(session, {"type": "assistant_chunk", "content": content})
 
     async def _broadcast_usage(usage: Any) -> None:
@@ -1467,6 +1581,35 @@ async def _process_and_broadcast(
                         "is_error": msg.tool_result.is_error,
                     }
                 )
+    except asyncio.CancelledError:
+        # F7 L03 (cancel-backend): operator cancelled the task (or lifespan
+        # shutdown is tearing down). CancelledError is a BaseException — it
+        # is NOT caught by the sibling `except Exception` below, so these
+        # two handlers are SIBLINGS, not a catch-all pair.
+        #
+        # NOTE FOR REVIEWERS: `except Exception` at the sibling block below
+        # does NOT catch CancelledError (CancelledError inherits BaseException
+        # directly in Python ≥ 3.8). If a future refactor changes that to
+        # `except BaseException`, cancel's lock-release semantics would
+        # silently break — the lock is released by _spawn_message_processing's
+        # `async with session_locks[session.id]` only if CancelledError
+        # propagates out of this function.
+        #
+        # Persist partial output only if any text was streamed before cancel.
+        # If cancel fired mid-tool-call with no preamble, skip the synthetic
+        # message (empty-content Message is noise; the next turn starts clean).
+        if partial_text:
+            interrupted_msg = Message.assistant(content=partial_text + "\n\n_[interrupted]_")
+            session.agent.messages.append(interrupted_msg)
+        # Best-effort save and notify — wrapped in suppress so lifespan
+        # teardown (closing DB / sockets) can't turn a clean shutdown
+        # cancel into an unhandled exception. Re-raise preserves the
+        # lock-release semantics in _spawn_message_processing (:455-458).
+        with contextlib.suppress(Exception):
+            await _save_session_to_db(session)
+        with contextlib.suppress(Exception):
+            await _send_to_session(session, {"type": "cancelled"})
+        raise
     except Exception as exc:
         # Surface the failure to the UI so the client can drop its "thinking…"
         # indicator and re-enable the input. Without this, an exception in
@@ -1501,6 +1644,20 @@ async def _process_and_broadcast(
         # F5 L3: do NOT broadcast ``done`` when paused — the chat UI is
         # still awaiting auth resolution; the resume path will broadcast
         # ``done`` after re-dispatching the deferred tool calls.
+
+        # M16 F06 L01: persist per-turn usage snapshot at the non-paused
+        # settle. ``last_input`` starts at 0 and is only updated when an
+        # assistant message with usage arrives, so ``if last_input`` is the
+        # zero-usage guard: a turn that errored before any usage event
+        # leaves the prior snapshot intact rather than writing misleading zeros.
+        if last_input:
+            await _persist_last_usage(
+                session,
+                input_tokens=total_input,
+                output_tokens=total_output,
+                context_tokens=last_input,
+            )
+
         await _send_to_session(session, {"type": "done"})
     return result_messages
 
@@ -1539,10 +1696,30 @@ async def _resume_paused_session(session: Session) -> None:
     # the resumed tool dispatch may trigger. Symmetric with
     # ``_spawn_message_processing``'s set/reset pattern.
     csid_token = current_chat_session_id.set(session.id)
+
+    # M16 F06 L01: resume-path usage accumulator. Initialise before the
+    # loop so the settle write (outside the try/except) sees accumulated
+    # totals regardless of whether the loop completed normally or raised.
+    # ``resume_last_input`` doubles as the zero-usage guard: it stays 0
+    # when no assistant usage event arrived, and ``if resume_last_input``
+    # suppresses the write to avoid overwriting a prior snapshot with zeros.
+    resume_input = 0
+    resume_output = 0
+    resume_last_input = 0
+
     try:
         re_paused = False
         async for msg in session.agent.resume_after_auth():
             await _broadcast_one(session, msg, source="resumed")
+            # M16 F06 L01: accumulate usage from each resumed assistant
+            # message. ``context_tokens`` is the LAST assistant message's
+            # ``input_tokens`` (not the sum) — mirrors ``_broadcast_one``'s
+            # ``"context_tokens": msg.usage.input_tokens`` at :1290 and the
+            # non-paused path's ``last_input`` at :1444.
+            if msg.role == Role.ASSISTANT and msg.usage:
+                resume_input += msg.usage.input_tokens
+                resume_output += msg.usage.output_tokens
+                resume_last_input = msg.usage.input_tokens
             if _is_auth_required_pause(msg):
                 re_paused = True
                 break
@@ -1573,6 +1750,19 @@ async def _resume_paused_session(session: Session) -> None:
         await _save_session_to_db(session)
     except Exception:
         logger.warning("Failed to save session %s after resume", session.id, exc_info=True)
+
+    # M16 F06 L01: persist the resume-segment usage snapshot. Placed
+    # outside the try/except (next to _save_session_to_db) so a partial
+    # resume exception still persists whatever usage accumulated before it.
+    # ``resume_last_input`` is the zero-usage guard — 0 means no assistant
+    # usage event arrived; we leave the prior snapshot intact in that case.
+    if resume_last_input:
+        await _persist_last_usage(
+            session,
+            input_tokens=resume_input,
+            output_tokens=resume_output,
+            context_tokens=resume_last_input,
+        )
 
 
 async def _send_pause_snapshot_if_needed(session: Session, websocket: WebSocket) -> None:
@@ -1808,7 +1998,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 # session, or the supplied session_id was not_found.
                 try:
                     session = await _create_session()
-                except (ValueError, KeyError) as exc:
+                except Exception as exc:
+                    # Surface ANY create failure to the UI instead of letting it
+                    # escape the WS loop and drop the socket silently. A
+                    # provider that can't load (e.g. a tree-shaken provider
+                    # module in a frozen build raises ImportError, NOT
+                    # ValueError/KeyError) used to crash here → silent chat
+                    # death. Catch broadly, log, and tell the client.
+                    logger.exception("Failed to auto-create session")
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
                 if ws not in subscribers_for(session.id):
@@ -1842,7 +2039,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 agent_name = payload.get("agent_name")
                 try:
                     session = await _create_session(agent_name=agent_name)
-                except (ValueError, KeyError) as exc:
+                except Exception as exc:
+                    # Broad catch (see auto-create note above): a provider whose
+                    # module is missing from a frozen bundle raises ImportError,
+                    # which is neither ValueError nor KeyError. Letting it escape
+                    # crashes the WS handler and drops the socket with no event —
+                    # the silent "Ollama agent fails after ~5s" symptom.
+                    logger.exception("Failed to create session for agent %r", agent_name)
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
                 add_subscriber(session.id, ws)
@@ -1872,6 +2075,17 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     except Exception:
                         logger.warning("Failed to delete session %s from DB", sid, exc_info=True)
                 await ws.send_json({"type": "session_deleted", "session_id": sid})
+                continue
+
+            # F7 L03 (cancel-backend): operator cancel action.
+            # Snapshots the bound session's in-flight task and cancels it.
+            # No-op if no session is bound, no task is registered, or the
+            # task already finished — covers the race with natural completion.
+            if action == "cancel":
+                if session is not None:
+                    t = _session_inflight.get(session.id)
+                    if t and not t.done():
+                        t.cancel()
                 continue
 
             # Regular message
@@ -1910,6 +2124,19 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             task = asyncio.create_task(_spawn_message_processing(session, user_input, "web", ws))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)
+            # F7 L03 (cancel-backend): record the running task in the
+            # per-session map so a WS `cancel` action can locate it.
+            # Identity guard in the done-callback: only clear if this task
+            # is still the registered one (a queued task may have replaced
+            # it by the time the callback fires).
+            _session_inflight[session.id] = task
+            _sid_for_clear = session.id
+
+            def _clear_session_inflight(t: asyncio.Task, _sid: str = _sid_for_clear) -> None:
+                if _session_inflight.get(_sid) is t:
+                    del _session_inflight[_sid]
+
+            task.add_done_callback(_clear_session_inflight)
 
     except WebSocketDisconnect:
         if session:

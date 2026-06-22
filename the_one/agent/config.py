@@ -54,6 +54,22 @@ to direct, concise responses.
 """
 
 
+# M16 F03 L08C (#105): tool-free chat prompt for non-tool-capable models
+# (e.g. gemma3:4b via Ollama). Derived from ``BASE_PROMPT`` with ALL tool
+# sections stripped: no "Tool discovery", no "Tool use", no ``continue``-tool
+# turn semantics, no catalog. Recovery is gated OFF for these models
+# (``supports_tools()=False``) so the model converses naturally without any
+# protocol injection. Identity + "respond directly/concisely" + the
+# persona-append note are kept.
+CHAT_ONLY_PROMPT = """\
+You are an AI assistant. Respond directly and concisely to the user.
+
+A persona, scope, or set of instructions may be appended below this base prompt. \
+Treat any addition as a refinement, not a replacement. If no persona is set, default \
+to direct, concise responses.
+"""
+
+
 # ── Connector system-prompt directive (M11 F7 L9) ─────────────────────
 #
 # A single directive is appended whenever the agent is attached to a

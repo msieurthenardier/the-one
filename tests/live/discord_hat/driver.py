@@ -220,7 +220,7 @@ async def wait_for_session(
                 f"connector_id={connector_id!r} channel_id={channel_id!r} "
                 f"thread_id={thread_id!r} within {timeout}s. First suspects: "
                 "ingest_bots not set on the test connector, the sender bot not "
-                "on the allowlist, or a wrong connector id (check `docker logs`)."
+                "on the allowlist, or a wrong connector id (check the host log / `make logs`)."
             )
         _d = last_detail or {}
         n_msgs = len(_d.get("messages") or [])
@@ -229,7 +229,7 @@ async def wait_for_session(
             f"session {session_id} resolved but the `until` condition was not "
             f"met within {timeout}s (last messages={n_msgs}, routing={n_routing}). "
             "If the agent's LLM step is slow, raise the timeout; check "
-            "`docker logs` for a step error."
+            "the host log / `make logs` for a step error."
         )
 
 

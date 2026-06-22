@@ -34,6 +34,38 @@ App.registerArea({
     function isCurrentBusy() {
       return !!(currentSessionId && inFlightSessions[currentSessionId]);
     }
+
+    // Show/hide the stop button derived from isCurrentBusy() so that any code
+    // path that clears inFlightSessions (onclose, session-switch, done, cancelled)
+    // automatically hides it without extra plumbing. Call this after any mutation
+    // to inFlightSessions or after session-switch changes currentSessionId.
+    function updateStopControl() {
+      if (!stopBtn) return;
+      stopBtn.hidden = !isCurrentBusy();
+    }
+
+    // Render a pending-queued-message indicator in the message area so the operator
+    // can see that their queued message is waiting. Stored per-session in
+    // pendingQueuedMessages; only one slot (queue depth = 1).
+    function showPendingQueued(text) {
+      clearPendingQueued();
+      if (!text) return;
+      pendingQueuedEl = document.createElement('div');
+      pendingQueuedEl.className = 'msg pending-queued';
+      pendingQueuedEl.setAttribute('aria-live', 'polite');
+      pendingQueuedEl.textContent = text + ' (queued)';
+      messagesEl.appendChild(pendingQueuedEl);
+      scrollToBottomIfPinned();
+    }
+
+    // Remove the pending indicator from the DOM (idempotent).
+    function clearPendingQueued() {
+      if (pendingQueuedEl && pendingQueuedEl.parentNode) {
+        pendingQueuedEl.parentNode.removeChild(pendingQueuedEl);
+      }
+      pendingQueuedEl = null;
+    }
+
     var currentSessionId = null;
     var pendingJoinId = null;
     // Queued new-session intent: set by startSessionWith when the WS is not
@@ -44,7 +76,13 @@ App.registerArea({
     var sessions = [];
     var pendingApprovals = []; // M11 F17 L9 (Leg E) — left-panel pending section
     var currentAgentName = null;
-    var messagesEl, inputEl, sendBtn, sessionListEl, agentSelect, agentBadgeEl;
+    var messagesEl, inputEl, sendBtn, stopBtn, sessionListEl, agentSelect, agentBadgeEl;
+    // Per-session one-slot queue: key is session id, value is the pending message text.
+    // Mirrors inFlightSessions shape so session-switch and onclose handle both together.
+    var pendingQueuedMessages = Object.create(null);
+    // DOM element showing the pending queued message hint (one shared element; swapped
+    // on session-switch if the joined session has a pending queued message).
+    var pendingQueuedEl = null;
     var setupIncomplete = false;
     var sessionBannerEl = null;
     var availableAgents = [];
@@ -88,6 +126,9 @@ App.registerArea({
         '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
         '<div class="input-area">' +
           '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
+          '<button class="btn-stop-turn" data-testid="chat-stop-btn" aria-label="Stop" hidden>' +
+            '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
+            'Stop</button>' +
           '<button class="btn-filled-primary" data-testid="chat-send-btn" aria-keyshortcuts="Enter">Send</button></div>' +
       '</div>';
 
@@ -97,7 +138,8 @@ App.registerArea({
     var headerNewBtn = content.querySelector('.new-chat-header');
     messagesEl = content.querySelector('.messages');
     inputEl = content.querySelector('.input-area input');
-    sendBtn = content.querySelector('.input-area button');
+    stopBtn = content.querySelector('.input-area .btn-stop-turn');
+    sendBtn = content.querySelector('.input-area .btn-filled-primary');
     agentBadgeEl = content.querySelector('.session-agent-badge');
 
     // Insert telemetry overlay between .messages and .input-area.
@@ -718,12 +760,31 @@ App.registerArea({
 
     function send() {
       var text = inputEl.value.trim();
-      if (!text || isCurrentBusy()) return;
+      if (!text) return;
+      // Blocked by health gate (agent deleted, provider missing, etc.) — never queue.
+      if (sessionBannerEl || inputEl.disabled) return;
+
+      if (isCurrentBusy()) {
+        // One-slot queue: accept exactly one pending message while a turn is running.
+        // A second attempt while one is already pending is ignored.
+        if (currentSessionId && pendingQueuedMessages[currentSessionId]) return;
+        if (!currentSessionId) return;
+        // Store the queued message per session and send immediately — the backend
+        // session lock will serialize it after the current turn finishes.
+        pendingQueuedMessages[currentSessionId] = text;
+        inputEl.value = '';
+        showPendingQueued(text);
+        // Send to backend now; the session lock queues it server-side.
+        ws.send(JSON.stringify({ message: text }));
+        return;
+      }
+
       addMsg('user', text, 'You');
       ws.send(JSON.stringify({ message: text }));
       inputEl.value = '';
       if (currentSessionId) inFlightSessions[currentSessionId] = true;
       sendBtn.disabled = true;
+      updateStopControl();
       showThinking();
     }
 
@@ -803,6 +864,11 @@ App.registerArea({
         addMsg('system', data.content);
         if (currentSessionId && inFlightSessions[currentSessionId]) {
           delete inFlightSessions[currentSessionId];
+          // Also clear any pending queued message — the session is no longer
+          // processing so the queue slot is moot (the error terminated the turn).
+          delete pendingQueuedMessages[currentSessionId];
+          clearPendingQueued();
+          updateStopControl();
           if (!sessionBannerEl) sendBtn.disabled = false;
         }
       }
@@ -822,8 +888,12 @@ App.registerArea({
         // Drop "thinking…" + re-enable input so a mid-response disconnect doesn't
         // strand the UI; the auto-reconnect below brings the WS back.
         hideThinking();
-        // Disconnect drops every in-flight broadcast — clear the whole map.
+        // Disconnect drops every in-flight broadcast — clear both maps so neither
+        // the one-slot queue guard nor the stop control get stuck after reconnect.
         for (var k in inFlightSessions) delete inFlightSessions[k];
+        for (var k in pendingQueuedMessages) delete pendingQueuedMessages[k];
+        clearPendingQueued();
+        updateStopControl();
         if (!sessionBannerEl) sendBtn.disabled = false;
         setTimeout(connect, 2000);
       };
@@ -909,6 +979,20 @@ App.registerArea({
           hideThinking();
           App.chat.resetTelemetry(content);
           renderHistory(data.history, data.agent_name);
+          // M16 F06 L02: synchronously restore persisted last_usage into
+          // the overlay so the token counts aren't lost on session reopen.
+          // Uses the same defensive read pattern as the routing panel below.
+          // max_context_tokens is 0 here (unknown until the seed resolves);
+          // the bar will fill once setTelemetryMax runs async shortly after.
+          var lastUsage = (data.session_metadata && data.session_metadata.last_usage) || null;
+          if (lastUsage) {
+            App.chat.updateTelemetry(content, {
+              input_tokens: lastUsage.input_tokens || 0,
+              output_tokens: lastUsage.output_tokens || 0,
+              context_tokens: lastUsage.context_tokens || 0,
+              max_context_tokens: 0,
+            });
+          }
           // M11 F13 L5: render the routing audit panel from the join
           // payload's session_metadata and wire the Refresh button to
           // re-fetch via REST.
@@ -921,14 +1005,26 @@ App.registerArea({
           // switching away from an in-flight session and back leaves
           // the prior `busy` flag stale — either stuck-disabled (turn
           // finished while away) or stuck-enabled (turn still running).
+          // F7 L04: also clear any stale pending-queue DOM element from the
+          // previous session, then restore the indicator if the joined session
+          // has a pending queued message waiting.
+          clearPendingQueued();
           if (data.is_processing) {
             inFlightSessions[currentSessionId] = true;
             if (!sessionBannerEl) sendBtn.disabled = true;
             showThinking();
+            // If a queued message exists for this session, re-show its indicator.
+            if (pendingQueuedMessages[currentSessionId]) {
+              showPendingQueued(pendingQueuedMessages[currentSessionId]);
+            }
           } else {
             delete inFlightSessions[currentSessionId];
+            // If the session is no longer processing, any pending queued message
+            // has either completed or was discarded — clear it.
+            delete pendingQueuedMessages[currentSessionId];
             if (!sessionBannerEl) sendBtn.disabled = false;
           }
+          updateStopControl();
           showChrome();
           // F7 L04 eager-resolve: fetch the agent's max_context_tokens
           // BEFORE the first user message so the telemetry overlay's
@@ -943,12 +1039,9 @@ App.registerArea({
               .then(function (r) { return r.ok ? r.json() : null; })
               .then(function (payload) {
                 if (payload && payload.max_context_tokens) {
-                  App.chat.updateTelemetry(content, {
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    context_tokens: 0,
-                    max_context_tokens: payload.max_context_tokens,
-                  });
+                  // M16 F06 L02: max-only seed — never re-zeros restored
+                  // used-counts; recomputes the bar from retained context_tokens.
+                  App.chat.setTelemetryMax(content, payload.max_context_tokens);
                 }
               })
               .catch(function () { /* best-effort; silent on failure */ });
@@ -1138,7 +1231,34 @@ App.registerArea({
           // the next user message starts a fresh streaming round.
           finalizeStreamingBubble();
           currentStreamingVisibility = null;
-          if (currentSessionId) delete inFlightSessions[currentSessionId];
+          if (currentSessionId) {
+            delete inFlightSessions[currentSessionId];
+            // The queued message (if any) has already been accepted by the backend;
+            // clear the pending indicator now that the turn has completed and the
+            // queued message is no longer "waiting" — it is the next turn in progress.
+            delete pendingQueuedMessages[currentSessionId];
+            clearPendingQueued();
+          }
+          updateStopControl();
+          if (!sessionBannerEl) sendBtn.disabled = false;
+          refreshSessionList();
+        }
+        else if (data.type === 'cancelled') {
+          // F7 L04: cancel — mirror the FULL done reset (binding per design review).
+          // The partial assistant bubble was already committed by the backend (leg 3);
+          // finalizeStreamingBubble() seals any streaming tail still in the pacing queue.
+          hideThinking();
+          finalizeStreamingBubble();
+          currentStreamingVisibility = null;
+          if (currentSessionId) {
+            delete inFlightSessions[currentSessionId];
+            // Cancel also discards any pending queued message (DD4 sub-decision:
+            // "stop" means stop everything). Both the optimistic click handler and
+            // this arrival path clear it so a race between the two is safe.
+            delete pendingQueuedMessages[currentSessionId];
+            clearPendingQueued();
+          }
+          updateStopControl();
           if (!sessionBannerEl) sendBtn.disabled = false;
           refreshSessionList();
         }
@@ -1150,6 +1270,24 @@ App.registerArea({
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     });
     sendBtn.addEventListener('click', send);
+
+    // F7 L04: stop/cancel button — send the cancel action, then optimistically
+    // reset the thinking indicator and discard any pending queued message. The
+    // `cancelled` event from the backend will perform the authoritative full reset.
+    stopBtn.addEventListener('click', function () {
+      if (!isCurrentBusy()) return; // no-op: already done, or raced to completion
+      ws.send(JSON.stringify({ action: 'cancel' }));
+      // Optimistic: clear thinking immediately so the UI feels responsive.
+      hideThinking();
+      // Discard pending queued message — "stop" means stop everything.
+      if (currentSessionId) {
+        delete pendingQueuedMessages[currentSessionId];
+        clearPendingQueued();
+      }
+      // Do NOT prematurely clear inFlightSessions or re-enable sendBtn here;
+      // the authoritative `cancelled` event handles those (avoids a race where
+      // a rapid double-click re-enables the button before the event arrives).
+    });
 
     // Sidebar agent dropdown — `change` fires only on user interaction;
     // programmatic `.value =` assignments do not, so the sync is safe.

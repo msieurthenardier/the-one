@@ -20,10 +20,13 @@ from the_one.mcp._tool_provider import filter_mcp_tools_by_override
 from the_one.mcp.types import MCPTool
 from the_one.tools._search_stubs import SearchToolsStub
 from the_one.tools._search_tools import (
+    _MAX_SEARCH_RESULTS,
+    _STOPWORDS,
     SearchTools,
     _build_synthetic_description,
     _filter_candidates,
     _format_result,
+    _tokenize_query,
 )
 from the_one.tools.base import Tool, ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
@@ -440,6 +443,219 @@ async def test_filter_helper_excludes_search_tools_and_includes_mcp() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tokenization helpers
+# ---------------------------------------------------------------------------
+
+
+def test_tokenize_query_single_keyword() -> None:
+    """Single meaningful keyword returns itself as the only token."""
+    assert _tokenize_query("shell") == ["shell"]
+
+
+def test_tokenize_query_drops_short_tokens() -> None:
+    """Tokens shorter than 3 chars are dropped."""
+    assert _tokenize_query("a file") == ["file"]
+    assert _tokenize_query("in") == []
+
+
+def test_tokenize_query_drops_stopwords() -> None:
+    """Stopwords are filtered out even when >= 3 chars."""
+    assert "run" in _STOPWORDS
+    assert _tokenize_query("run") == []
+    assert _tokenize_query("get the file") == ["file"]
+
+
+def test_tokenize_query_empty_returns_empty() -> None:
+    assert _tokenize_query("") == []
+    assert _tokenize_query("   ") == []
+
+
+def test_tokenize_query_multiword() -> None:
+    """Multi-word natural-language query: stopwords/short filtered, rest kept."""
+    tokens = _tokenize_query("run shell command")
+    # "run" is a stopword; "shell" and "command" are meaningful
+    assert "shell" in tokens
+    assert "command" in tokens
+    assert "run" not in tokens
+
+
+def test_tokenize_query_all_stopwords_returns_empty() -> None:
+    """All-stopword query: all tokens filtered → empty list → caller falls back."""
+    tokens = _tokenize_query("get the")
+    assert tokens == []
+
+
+# ---------------------------------------------------------------------------
+# Tokenized matching — _filter_candidates new semantics (M16 F03 L08A)
+# ---------------------------------------------------------------------------
+
+
+async def test_multiword_query_run_shell_command_matches_shell() -> None:
+    """'run shell command' → matches shell and shell_session_* tools (ANY token hits).
+
+    M16 F03 L08A: tokenized matching. 'run' is a stopword; 'shell' and 'command'
+    are the meaningful tokens. shell's name contains 'shell' → matches. shell_session_*
+    names contain 'shell' too. read_file has neither token in name+description.
+    """
+    registry = _make_registry_with_real_tools()
+    st, ls, _ = _make_search_tools(registry=registry)
+
+    result = await st.execute("run shell command")
+
+    loaded_names = {s["name"] for s in ls}
+    assert "shell" in loaded_names, "shell must match 'run shell command'"
+    assert "shell_session_start" in loaded_names, "shell_session_start must match"
+    assert result.startswith("Found ")
+    assert "'run shell command'" in result
+
+
+async def test_multiword_query_list_files_directory_matches_file_tools() -> None:
+    """'list files directory' → file/dir tools match and rank above pure-shell tools.
+
+    Tokens: 'list', 'files', 'directory'. Tokenized ANY-match surfaces any tool
+    whose haystack contains at least one of these tokens. list_dir, glob, and
+    read_file are expected matches. Ranking puts tools with more token hits first.
+    """
+    registry = _make_registry_with_real_tools()
+    st, ls, _ = _make_search_tools(registry=registry)
+
+    result = await st.execute("list files directory")
+
+    loaded_names = {s["name"] for s in ls}
+    # Core file/dir tools must be in the results (each matches multiple tokens).
+    assert "list_dir" in loaded_names, f"list_dir must match; got {loaded_names}"
+    assert "glob" in loaded_names or "read_file" in loaded_names, (
+        f"At least one of glob/read_file must match; got {loaded_names}"
+    )
+    assert result.startswith("Found ")
+
+
+async def test_stopword_only_query_falls_back_to_phrase_match() -> None:
+    """A stopword-only query ('get the') falls back to whole-phrase substring match.
+
+    After filtering, all tokens are removed; _filter_candidates falls back to
+    treating the original lowercase query as a single substring. 'get the' is
+    unlikely to appear in any tool's name+description verbatim, so the result
+    is either empty (no match) or returns only tools whose haystack contains
+    the literal phrase 'get the'. The key invariant: it does NOT dump the full
+    catalog (which would happen if empty-after-filter were treated as match-all).
+    """
+    registry = _make_registry_with_real_tools()
+    st, ls, _ = _make_search_tools(registry=registry)
+
+    await st.execute("get the")
+
+    # The whole catalog has ~24+ tools; a stopword-only fallback to a rare
+    # phrase should surface at most a handful (likely 0 or very few). If
+    # the catalog were dumped, loaded_names would contain shell/read_file/etc.
+    # We assert it does NOT equal the full catalog.
+    all_schema_names = {
+        s["name"]
+        for s in _make_registry_with_real_tools().all_schemas()
+        if s["name"] != "search_tools"
+    }
+    loaded_names = {s["name"] for s in ls}
+    # The fallback-phrase result must be a proper subset of the full catalog
+    # (it never dumps everything for a stopword-only query).
+    assert loaded_names != all_schema_names, "Stopword-only query must not dump the full catalog"
+
+
+def test_ranking_more_tokens_ranks_higher() -> None:
+    """A tool matching 2 query tokens ranks above one matching 1 token.
+
+    Query 'shell command': tokens ['shell', 'command'].
+    - shell_tool: name 'shell' (matches 'shell'), description 'Execute a shell command'
+      (matches both 'shell' and 'command') → score 2.
+    - read_tool: name 'read', description 'shell only' → matches only 'shell' → score 1.
+    shell_tool must appear before read_tool.
+    """
+    schemas = [
+        _synthetic_schema("read_tool", "shell only"),
+        _synthetic_schema("shell_tool", "Execute a shell command"),
+    ]
+    result = _filter_candidates(schemas, {}, "shell command")
+    names = [s["name"] for s in result]
+    assert "shell_tool" in names
+    assert "read_tool" in names
+    # shell_tool (score 2) must rank before read_tool (score 1).
+    assert names.index("shell_tool") < names.index("read_tool"), (
+        f"Expected shell_tool before read_tool; got order {names}"
+    )
+
+
+def test_ranking_single_keyword_stable() -> None:
+    """Single-keyword query behaves the same as before: all matching tools returned.
+
+    'shell' is a single meaningful token. All tools containing 'shell' in their
+    name or description match with score 1. Relative order among them is stable
+    (original schema order preserved within the same score bucket).
+    """
+    schemas = [
+        _synthetic_schema("alpha_shell", "alpha shell tool"),
+        _synthetic_schema("beta_shell", "beta shell tool"),
+        _synthetic_schema("no_match", "unrelated"),
+    ]
+    result = _filter_candidates(schemas, {}, "shell")
+    names = [s["name"] for s in result]
+    assert names == ["alpha_shell", "beta_shell"], (
+        f"Expected original order preserved within same score; got {names}"
+    )
+
+
+def test_empty_query_still_returns_all_non_excluded() -> None:
+    """Empty query still returns all non-excluded schemas (unchanged by tokenization)."""
+    schemas = [
+        _synthetic_schema("alpha"),
+        _synthetic_schema("search_tools"),
+        _synthetic_schema("beta"),
+    ]
+    result = _filter_candidates(schemas, {}, "")
+    names = [s["name"] for s in result]
+    assert "alpha" in names
+    assert "beta" in names
+    assert "search_tools" not in names
+
+
+def test_search_tools_excluded_from_tokenized_results() -> None:
+    """search_tools is excluded even when 'search' is a query token."""
+    schemas = [
+        _synthetic_schema("search_tools", "search among tools"),
+        _synthetic_schema("other_tool", "search something"),
+    ]
+    result = _filter_candidates(schemas, {}, "search")
+    names = [s["name"] for s in result]
+    assert "search_tools" not in names
+    assert "other_tool" in names
+
+
+def test_mcp_source_tokenized_match() -> None:
+    """Source-level MCP matching also uses tokenized semantics.
+
+    Query 'list zones': tokens ['list', 'zones']. The cloudflare source's
+    synthetic description contains 'list_zones', which contains both 'list'
+    and 'zones'. github's description ('get_repo') matches neither.
+    """
+    schemas = [
+        _synthetic_schema("mcp__cloudflare__list_zones", "list zones"),
+        _synthetic_schema("mcp__github__get_repo", "get repo"),
+    ]
+    source_index = {
+        "cloudflare": {
+            "synthetic_description": "cloudflare: list_zones (1 tools)",
+            "tool_names_prefixed": ["mcp__cloudflare__list_zones"],
+        },
+        "github": {
+            "synthetic_description": "github: get_repo (1 tools)",
+            "tool_names_prefixed": ["mcp__github__get_repo"],
+        },
+    }
+    result = _filter_candidates(schemas, source_index, "list zones")
+    names = {s["name"] for s in result}
+    assert "mcp__cloudflare__list_zones" in names
+    assert "mcp__github__get_repo" not in names
+
+
+# ---------------------------------------------------------------------------
 # _format_result tests
 # ---------------------------------------------------------------------------
 
@@ -695,3 +911,151 @@ async def test_no_cache_source_logged_and_skipped(caplog: Any) -> None:
         "empty_source" in rec.getMessage() and "no cached tools" in rec.getMessage()
         for rec in caplog.records
     ), f"Expected WARNING; got {[r.getMessage() for r in caplog.records]}"
+
+
+# ---------------------------------------------------------------------------
+# Result cap tests (M16 F03 L08A tuning pass 2)
+# ---------------------------------------------------------------------------
+
+
+def _make_schemas_for_cap_test() -> list[dict[str, Any]]:
+    """Build a schema set that produces > _MAX_SEARCH_RESULTS matches for 'tool'.
+
+    - 1 high-overlap tool: name + description each contain 'tool' (would score 2
+      for a two-token query, but for single-token 'tool' all are score 1).
+    - To make scoring differentiated we use query 'alpha tool': tokens ['alpha', 'tool'].
+    - 'alpha_master' name contains 'alpha' AND description contains 'tool' → score 2.
+    - 10 plain tools whose descriptions contain 'tool' but not 'alpha' → score 1 each.
+    - 1 'low_relevance' tool whose description contains 'alpha' but not 'tool' → score 1.
+    - Total matches: 12 — well above _MAX_SEARCH_RESULTS (8).
+    """
+    schemas: list[dict[str, Any]] = [
+        _synthetic_schema("alpha_master", "the best alpha tool"),  # score 2
+    ]
+    for i in range(10):
+        schemas.append(_synthetic_schema(f"plain_tool_{i:02d}", f"a generic tool #{i}"))  # score 1
+    schemas.append(_synthetic_schema("low_relevance", "alpha but unrelated"))  # score 1
+    return schemas
+
+
+def test_cap_non_empty_query_returns_at_most_max() -> None:
+    """A non-empty query that matches >_MAX_SEARCH_RESULTS schemas returns exactly that cap."""
+    schemas = _make_schemas_for_cap_test()
+    result = _filter_candidates(schemas, {}, "alpha tool")
+    assert len(result) == _MAX_SEARCH_RESULTS, (
+        f"Expected exactly {_MAX_SEARCH_RESULTS} results; got {len(result)}"
+    )
+
+
+def test_cap_non_empty_query_high_scored_tool_included() -> None:
+    """The top-scored tool is always included when the cap is applied."""
+    schemas = _make_schemas_for_cap_test()
+    result = _filter_candidates(schemas, {}, "alpha tool")
+    names = [s["name"] for s in result]
+    assert "alpha_master" in names, (
+        f"High-overlap tool 'alpha_master' (score 2) must be in "
+        f"top-{_MAX_SEARCH_RESULTS}; got {names}"
+    )
+
+
+def test_cap_non_empty_query_high_scored_ranks_first() -> None:
+    """Within the capped set, the highest-scored tool still appears first."""
+    schemas = _make_schemas_for_cap_test()
+    result = _filter_candidates(schemas, {}, "alpha tool")
+    assert result[0]["name"] == "alpha_master", (
+        f"alpha_master (score 2) must rank first; got {result[0]['name']}"
+    )
+
+
+def test_cap_non_empty_query_low_ranked_beyond_cap_excluded() -> None:
+    """A schema that would match but falls beyond position _MAX_SEARCH_RESULTS is dropped."""
+    schemas = _make_schemas_for_cap_test()
+    # There are 12 matches total; only the top 8 are returned. The plain tools
+    # and low_relevance are all score 1 — at least some of them must be excluded.
+    result = _filter_candidates(schemas, {}, "alpha tool")
+    result_names = {s["name"] for s in result}
+    all_matching = {
+        s["name"] for s in schemas
+    }  # all 12 match (alpha_master + 10 plain + low_relevance)
+    excluded = all_matching - result_names
+    assert len(excluded) >= 1, (
+        f"Expected at least one schema beyond the cap to be excluded; result: {result_names}"
+    )
+
+
+def test_empty_query_not_capped_returns_all() -> None:
+    """Empty query is exempt from the cap — all non-excluded schemas must be returned.
+
+    We register more than _MAX_SEARCH_RESULTS tools and assert every one appears.
+    """
+    schemas = [
+        _synthetic_schema(f"tool_{i:02d}", f"description {i}")
+        for i in range(_MAX_SEARCH_RESULTS + 5)
+    ]
+    schemas.append(_synthetic_schema("search_tools", "excluded"))
+    result = _filter_candidates(schemas, {}, "")
+    result_names = {s["name"] for s in result}
+    assert len(result) > _MAX_SEARCH_RESULTS, (
+        f"Empty query must not be capped; expected "
+        f">{_MAX_SEARCH_RESULTS} results, got {len(result)}"
+    )
+    assert "search_tools" not in result_names
+    for i in range(_MAX_SEARCH_RESULTS + 5):
+        assert f"tool_{i:02d}" in result_names, f"tool_{i:02d} missing from empty-query results"
+
+
+async def test_empty_query_real_registry_not_capped() -> None:
+    """Empty query against the real BuiltinToolProvider returns > _MAX_SEARCH_RESULTS tools.
+
+    The built-in catalog has well over 8 tools; the cap must NOT apply.
+    """
+    registry = _make_registry_with_real_tools()
+    st, ls, _ = _make_search_tools(registry=registry)
+
+    await st.execute("")
+
+    assert len(ls) > _MAX_SEARCH_RESULTS, (
+        f"Empty query must return all built-ins (>{_MAX_SEARCH_RESULTS}); got {len(ls)}"
+    )
+
+
+def test_format_result_capped_flag() -> None:
+    """_format_result with capped=True appends '(top matches)' to the count."""
+    matches = [_synthetic_schema(f"t{i}") for i in range(_MAX_SEARCH_RESULTS)]
+    result = _format_result(matches, "some query", capped=True)
+    assert "(top matches)" in result
+    assert f"Found {_MAX_SEARCH_RESULTS} tools (top matches)" in result
+
+
+def test_format_result_not_capped_no_annotation() -> None:
+    """_format_result without capped=True has no '(top matches)' annotation."""
+    matches = [_synthetic_schema("a"), _synthetic_schema("b")]
+    result = _format_result(matches, "q")
+    assert "(top matches)" not in result
+
+
+async def test_execute_capped_query_signals_top_matches() -> None:
+    """When a non-empty query hits the cap, execute() output contains '(top matches)'."""
+    # Build a registry with more than _MAX_SEARCH_RESULTS tools whose descriptions all
+    # contain the word 'data' so they all match a 'data' query.
+    registry = ToolRegistry()
+    for i in range(_MAX_SEARCH_RESULTS + 3):
+        registry.register(_MockTool(f"data_tool_{i:02d}", f"processes data stream #{i}"))
+
+    st, ls, _ = _make_search_tools(registry=registry)
+    result = await st.execute("data")
+
+    assert "(top matches)" in result, f"Expected '(top matches)' when capped; got: {result!r}"
+    assert len(ls) == _MAX_SEARCH_RESULTS
+
+
+async def test_execute_uncapped_query_no_top_matches_annotation() -> None:
+    """When a non-empty query returns fewer than the cap, no '(top matches)' annotation."""
+    registry = ToolRegistry()
+    registry.register(_MockTool("unique_frobnicate_tool", "frobnicate widgets"))
+
+    st, ls, _ = _make_search_tools(registry=registry)
+    result = await st.execute("frobnicate")
+
+    assert "(top matches)" not in result
+    assert len(ls) == 1

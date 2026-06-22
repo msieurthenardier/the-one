@@ -1,7 +1,7 @@
 """Derive favicon and topbar-icon PNG variants from the source mascot.
 
-This script is invoked by `make brand-assets` (which runs it inside the live
-`the-one` container via `docker exec`). It reads a single source PNG and
+This script is invoked by `make brand-assets`, which runs it host-native
+against the repo venv. It reads a single source PNG and
 produces 8 derived assets in the static brand directory: seven sized PNGs
 (16, 24, 32, 48, 180, 192, 512) plus one multi-resolution `.ico` packaging
 16/32/48.
@@ -13,12 +13,12 @@ equality is NOT guaranteed because Pillow's PNG encoder output can vary
 across Pillow versions; pixel equality is the contract.
 
 The 8 derived files commit to the repository — they are NOT gitignored —
-because they ship inside the built image and are served at `/static/brand/`.
+because they are served at `/static/brand/`.
 
 Usage:
-    docker exec the-one python /app/scripts/derive_brand_assets.py
-    docker exec the-one python /app/scripts/derive_brand_assets.py \\
-        --source /app/the_one/interfaces/web/static/brand/gleepglorp_med.png
+    python scripts/derive_brand_assets.py
+    python scripts/derive_brand_assets.py \\
+        --source the_one/interfaces/web/static/brand/gleepglorp_med.png
 
 Source-file evolution:
     Flight 01 leg 01 originally used `gleepglorp_med.png` (the full circular
@@ -38,12 +38,13 @@ from pathlib import Path
 
 from PIL import Image
 
-# Default source / output paths inside the container. The container's WORKDIR
-# is /app (Dockerfile), and ./the_one is bind-mounted at /app/the_one (see
-# docker-compose.yml), so these absolute paths resolve correctly under
-# `docker exec the-one ...`.
-DEFAULT_SOURCE = Path("/app/the_one/interfaces/web/static/brand/gleepglorp_icon.png")
-DEFAULT_OUT_DIR = Path("/app/the_one/interfaces/web/static/brand")
+# Default source / output paths, resolved repo-relative from this file's
+# location (scripts/ is a direct child of the repo root, so parents[1] is the
+# repo root). Host-native — no container paths.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_BRAND_DIR = _REPO_ROOT / "the_one/interfaces/web/static/brand"
+DEFAULT_SOURCE = _BRAND_DIR / "gleepglorp_icon.png"
+DEFAULT_OUT_DIR = _BRAND_DIR
 
 # Sized PNG outputs: (target_pixels, filename_template).
 # The 24px asset is `topbar-icon-24.png` (consumed by the topbar `<img>`),

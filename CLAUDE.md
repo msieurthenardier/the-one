@@ -39,34 +39,30 @@ ruff format the_one/ tests/
 
 **Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/` run in CI on every push to `main` (Concourse, `ci/tasks/lint.yml`). The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence. CI now runs on local Concourse; the GitHub Actions `lint.yml` and `test.yml` are `workflow_dispatch`-only break-glass fallbacks — see `ci/README.md` for the full topology.
 
-## Local dev with Docker
+## Local dev (host-native)
 
-There are two ways the container runs. The **image-baked default** (`Dockerfile CMD ["the-one","serve"]` → `uvicorn.run(...)`, no `--reload`) serves from code `COPY`'d at build time — **editing source on the host does NOT update that running app**. The **committed compose dev path** (`docker compose up`, `docker-compose.yml:18-23`) instead bind-mounts host `./the_one` over `/app/the_one` and runs `uvicorn ... --reload --reload-dir /app/the_one` — so host edits DO propagate and most hot-reload live. The test suite spawns its own uvicorn subprocess; that path is independent of the served daemon at port 8484. On the image-baked path, browser tests can therefore go green while the user-facing app serves stale JS — `make rebuild` is the cure.
-
-Use the Makefile rather than raw `docker compose` calls so the rebuild + verify step is consistent:
+The app runs host-native via `the-one serve` (console script → `uvicorn.run(app, settings.host, settings.port)`, no `--reload`). For day-to-day dev use `make up` to launch it backgrounded against the repo venv (writes `.the-one.pid` + `.the-one.log`, both gitignored). Because `serve` has no `--reload`, **source edits take effect on `make restart`** — there is no live hot-reload. The test suite spawns its own uvicorn subprocess; that path is independent of the `make up` server at port 8484.
 
 ```bash
-make rebuild                # rebuild image + restart + verify static assets (use after editing JS/CSS/Python)
-make rebuild-clean          # rebuild + wipe DB volume + restart fresh (HAT prep — empty-state walkthroughs)
-make reset-db CONFIRM=1     # wipe DB volume + restart (without rebuild). Gated to prevent accidental data loss.
-make up                     # start without rebuilding
-make down                   # stop
-make logs                   # follow container logs
-make shell                  # bash into the container
-make test                   # run all default tests (host-native, no Docker)
+make up                     # start the-one host-native in the background (PID + log) + verify
+make restart                # restart to pick up source edits (no --reload) + verify
+make down                   # stop (by PID)
+make logs                   # tail the host log file (.the-one.log)
+make reset-db CONFIRM=1     # wipe the host data dir + restart. Gated to prevent accidental data loss.
+make test                   # run all default tests (host-native)
 make test-unit              # unit tests only
 make test-browser           # Playwright browser tests
 make lint                   # ruff check
 make format                 # ruff format
-make verify-serving         # curl-check that admin sub-modules return 200 (catches stale-image bugs)
+make verify-serving         # curl-check that admin sub-modules return 200
 make help                   # list all targets
 ```
 
-**When `make rebuild` is required**: any change under `the_one/` when running the **image-baked path** — JS, CSS, HTML, Python. The Dockerfile `COPY`s these at build time and that path has no live-reload, so a rebuild exercises the same image-build path as a real deploy. (On the committed `docker compose up` dev path the bind-mount + `--reload` makes most edits take effect without a rebuild — but see the gotcha below.)
+**When `make restart` is required**: any change under `the_one/` you want reflected in the running `make up` server — JS, CSS, HTML, Python. There is no live-reload, so a restart re-imports the source.
 
-**When `make rebuild` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
+**When `make restart` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
 
-**Gotcha — Pydantic model edits under `--reload` may not take effect (intermittent).** Most host edits hot-reload fine under the compose dev path, but editing a Pydantic **class definition** (`AgentConfig`, `Connector`, `ChatSession`, provider config models) is a known exception: each model has a compiled core schema bound to the class object at import, and if a surviving reference to the *pre-reload* class object (a registry, cached import, or already-instantiated dependency) lingers, the worker keeps validating against the stale schema. Symptom: a `ValidationError` on a field you just added, or a new validator not firing. Remedy: `docker compose restart the-one` (targeted — restarts the worker with fresh class objects); `make rebuild` is the always-works hammer.
+**Note — restart to pick up Pydantic class-definition edits.** Editing a Pydantic **class definition** (`AgentConfig`, `Connector`, `ChatSession`, provider config models) requires a fresh process to take effect: each model binds a compiled core schema to the class object at import, so a long-lived server keeps validating against the schema it imported at startup. `make restart` re-imports everything with fresh class objects.
 
 ## Architecture (orientation)
 
@@ -91,6 +87,12 @@ Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port
 ### Dev mode and the mock provider
 
 When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes available alongside `ollama`, `openai-compatible`, `openai`, and `anthropic`. The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field — defaults to `"Mock response from the mock provider."` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
+
+**Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`):
+
+- `"response"` — scripted reply text (default: `"Mock response from the mock provider."`)
+- `"stream_chunks"` — number of streaming chunks to split the response into (default: non-streaming)
+- `"input_tokens"` — `input_tokens` value emitted in `TokenUsage` for each turn (default: `0`). Set to a positive integer in tests that exercise the telemetry overlay or the `last_usage` persistence path (M10 F06); the default preserves all existing test expectations.
 
 - Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off
 - UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)

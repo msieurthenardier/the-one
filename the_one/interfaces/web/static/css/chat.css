@@ -475,6 +475,17 @@
   .area-chat .input-area input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-lg); outline: none; }
   .area-chat .input-area input:focus { border-color: var(--accent); }
   .area-chat .input-area input:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  /* F7 L04: stop/cancel button — sits next to Send, visible only while a turn
+     is in flight (JS toggles `hidden`). Styled to contrast the send button:
+     muted background with a status-danger icon, no filled-primary accent. */
+  .area-chat .input-area .btn-stop-turn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--status-danger); background: var(--status-danger-bg-soft); color: var(--status-danger); font-family: inherit; font-size: var(--font-size-body-lg); cursor: pointer; flex-shrink: 0; transition: background 0.15s, border-color 0.15s; }
+  .area-chat .input-area .btn-stop-turn:hover { background: var(--status-danger-bg-soft); border-color: var(--status-danger); filter: brightness(1.15); }
+  .area-chat .input-area .btn-stop-turn:focus-visible { outline: 2px solid var(--status-danger); outline-offset: 2px; box-shadow: 0 0 0 3px var(--status-danger-glow); }
+  .area-chat .input-area .btn-stop-turn[hidden] { display: none; }
+  /* F7 L04: pending-queued message indicator — shown immediately when the user
+     queues a second message while a turn is running. Same left-aligned style
+     as system messages but muted and italic to signal it is not yet sent. */
+  .area-chat .messages .msg.pending-queued { color: var(--fg-muted); font-style: italic; align-self: flex-end; background: var(--surface-elevated); border: 1px dashed var(--border); opacity: 0.75; }
 
   /* === Chat Area: Welcome canvas === */
   .area-chat .chat-welcome { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 40px 24px; overflow-y: auto; }

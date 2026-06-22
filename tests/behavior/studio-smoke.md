@@ -11,7 +11,7 @@ Smoke test for the Studio web UI. Verifies that the application loads, that core
 
 ## Preconditions
 
-- the-one container is running on `http://localhost:8484` (verified by an active probe: the operator opens the URL in the browser and sees the Studio render).
+- the-one is running host-native on `http://localhost:8484` (verified by an active probe: the operator opens the URL in the browser and sees the Studio render).
 - Operator has the Chrome MCP browser session attached to that URL.
 
 ## Observables Required

@@ -8,6 +8,7 @@ import httpx
 
 from the_one.llm import ollama_api
 from the_one.llm._streaming import _StreamAccumulator
+from the_one.llm._toolcall_recovery import recover_and_strip
 from the_one.llm.base import (
     LLMProvider,
     Message,
@@ -25,6 +26,29 @@ from the_one.llm.registry import register_provider
 # instruction-tuned families. Tunable post-HAT.  The shared threshold
 # (200 bytes) and accumulator logic live in ``the_one.llm._streaming``.
 BYTES_PER_TOKEN_OLLAMA = 3.5
+
+
+def _recover_into_tool_calls(content: str) -> tuple[str, list[ToolCall]]:
+    """Recover text-form calls from ``content`` (DD2/DD4).
+
+    Returns ``(stripped_content, tool_calls)``. When nothing is recovered,
+    returns ``(content unchanged, [])``. Delegates all marker knowledge —
+    recognition AND span stripping — to the kernel's ``recover_and_strip``;
+    this helper's only added responsibility is mapping each recovered dict
+    to a ``ToolCall`` with a synthesized stable id ``f"{name}_{index}"``.
+
+    The synthesized id is deliberately more collision-safe than the adjacent
+    structured path's bare-name fallback: two same-name recovered calls get
+    distinct ids (``get_weather_0``, ``get_weather_1``). The kernel passes
+    ``arguments`` through verbatim — including the ``__positional_args__``
+    sentinel, which the dispatcher (not the provider) special-cases.
+    """
+    stripped, recovered = recover_and_strip(content)
+    tool_calls = [
+        ToolCall(id=f"{d['name']}_{i}", name=d["name"], arguments=d["arguments"])
+        for i, d in enumerate(recovered)
+    ]
+    return stripped, tool_calls
 
 
 class OllamaProvider(LLMProvider):
@@ -136,8 +160,21 @@ class OllamaProvider(LLMProvider):
                 output_tokens=u.get("completion_tokens", 0),
             )
 
+        content = msg.get("content") or ""
+        # DD2 (updated by M16 F03 L08C): recover text-form calls only when
+        # the structured tool_calls parse came back empty AND the model is
+        # tool-capable. Tool-capable models that drop to text are still
+        # recovered (DD2's real intent). Non-tool models (supports_tools=False)
+        # are chat-only — their content passes through verbatim so a
+        # spontaneously-emitted tool_code block is never parsed/stripped/
+        # dispatched. supports_tools() fail-open=True means recovery stays on
+        # under uncertainty (acceptable: fail toward prior behavior).
+        if not tool_calls and await self.supports_tools():
+            content, recovered = _recover_into_tool_calls(content)
+            tool_calls = recovered
+
         return Message.assistant(
-            content=msg.get("content") or "",
+            content=content,
             tool_calls=tool_calls,
             usage=usage,
         )
@@ -226,6 +263,18 @@ class OllamaProvider(LLMProvider):
             ToolCall(id=e["id"], name=e["name"], arguments=e["arguments"])
             for e in acc.finalize_tool_calls()
         ]
+        # DD2/DD4 (updated by M16 F03 L08C): recover once on the fully-accumulated
+        # content — after the streaming loop, never per-delta — only when no
+        # structured tool_calls arrived AND the model is tool-capable. Recovery is
+        # gated on supports_tools() to enforce chat-only behavior for non-tool models:
+        # their content passes through verbatim (not stripped/dispatched). The interim
+        # StreamChunks already yielded carry the raw, un-stripped content (intentional,
+        # documented limitation); the final message below carries the stripped content +
+        # recovered calls for tool-capable models. supports_tools() fail-open=True means
+        # recovery stays on under network uncertainty (fail toward prior behavior).
+        if not tool_calls and await self.supports_tools():
+            content, recovered = _recover_into_tool_calls(content)
+            tool_calls = recovered
 
         msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
         yield StreamChunk(

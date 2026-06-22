@@ -24,7 +24,7 @@ service driven through real HTTP, and that the dev-mode trigger fires one true s
 
 ## Preconditions
 
-- A rebuilt instance is running on `http://localhost:8484` (`make rebuild` after `the_one/`
+- A host-native instance is running on `http://localhost:8484` (`make restart` after `the_one/`
   changes), started in **dev mode** (`settings.dev_mode` true) with the purge-sweep test
   seam enabled (`THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1`, the env gate from Leg 3).
 - At least two agents exist (the `mock` provider suffices): a **target** agent with a

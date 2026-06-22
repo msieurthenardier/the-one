@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import anthropic
 import pytest
 
+from tests.fixtures.tool_schemas import make_bad_request
 from the_one.agent.core import Agent
 from the_one.llm import ollama_api
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
@@ -167,18 +168,6 @@ class TestMockStreamFallback:
 # ---------------------------------------------------------------------------
 
 
-def _make_bad_request(message: str) -> anthropic.BadRequestError:
-    """Build a BadRequestError with a synthetic body — only the message is read."""
-    response = MagicMock()
-    response.status_code = 400
-    response.headers = {}
-    return anthropic.BadRequestError(
-        message=message,
-        response=response,
-        body={"error": {"message": message}},
-    )
-
-
 class TestAnthropicStreamRetry:
     async def test_temperature_retry_yields_after_retry(self) -> None:
         from the_one.llm.anthropic_provider import AnthropicProvider
@@ -211,7 +200,7 @@ class TestAnthropicStreamRetry:
                 # in __aenter__.
                 bad_cm = MagicMock()
                 bad_cm.__aenter__ = AsyncMock(
-                    side_effect=_make_bad_request(
+                    side_effect=make_bad_request(
                         "Unsupported parameter: temperature must be omitted."
                     )
                 )
@@ -239,7 +228,7 @@ class TestAnthropicStreamRetry:
         provider = AnthropicProvider(model="claude-test", api_key="test-key")
 
         bad_cm = MagicMock()
-        bad_cm.__aenter__ = AsyncMock(side_effect=_make_bad_request("Some unrelated 400 reason."))
+        bad_cm.__aenter__ = AsyncMock(side_effect=make_bad_request("Some unrelated 400 reason."))
         bad_cm.__aexit__ = AsyncMock(return_value=False)
         provider.client.messages.stream = MagicMock(return_value=bad_cm)
 

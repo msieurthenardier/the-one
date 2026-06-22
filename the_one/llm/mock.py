@@ -25,6 +25,11 @@ class MockProvider(LLMProvider):
             },
             "stream_chunks": ["Hello, ", "world", "!"], # optional; if set, stream() yields each
             "delay_ms": 200,                            # optional; latency between chunks/complete
+            "input_tokens": 0,                          # optional; default 0; emitted as the
+                                                        # usage input_tokens in complete() and
+                                                        # stream(). Set to N>0 in tests that need
+                                                        # a meaningful last_usage snapshot (e.g.
+                                                        # the M16 F06 L03 round-trip test).
         }
 
     If ``response`` is not set, returns a fixed default content.
@@ -51,6 +56,12 @@ class MockProvider(LLMProvider):
         self.base_url = base_url
         self.api_key = api_key
         self.config = config or {}
+        # Initialise per-instance provider state (sentinel for lazy resolver).
+        # LLMProvider.__init__ cannot be called here because this subclass
+        # overrides __init__ to accept model/config; call the extracted helper
+        # per the base-class contract (see LLMProvider._init_provider_state
+        # docstring at base.py).
+        self._init_provider_state()
 
     async def complete(
         self,
@@ -74,7 +85,10 @@ class MockProvider(LLMProvider):
         return Message.assistant(
             content=content,
             tool_calls=tool_calls,
-            usage=TokenUsage(input_tokens=0, output_tokens=len(content.split())),
+            usage=TokenUsage(
+                input_tokens=self.config.get("input_tokens", 0),
+                output_tokens=len(content.split()),
+            ),
         )
 
     async def stream(
@@ -121,7 +135,10 @@ class MockProvider(LLMProvider):
             yield StreamChunk(content=chunk_text, is_final=False)
 
         # Final chunk — synthesize the Message
-        usage = TokenUsage(input_tokens=0, output_tokens=len(accumulated.split()))
+        usage = TokenUsage(
+            input_tokens=self.config.get("input_tokens", 0),
+            output_tokens=len(accumulated.split()),
+        )
         msg = Message.assistant(
             content=accumulated,
             tool_calls=tool_calls,

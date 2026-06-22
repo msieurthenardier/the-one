@@ -1,6 +1,6 @@
 [project]
 name = "the-one"
-version = "0.2.1"
+version = "0.2.6"
 description = "A personal agentic system — LLM-agnostic, tool-rich, monolithic."
 requires-python = ">=3.11"
 dependencies = [
@@ -68,7 +68,7 @@ the-one = "the_one.main:cli_entry"
 include = ["the_one*"]
 
 [tool.setuptools.package-data]
-the_one = ["interfaces/web/static/**/*"]
+the_one = ["interfaces/web/static/**/*", "llm/data/*.json"]
 
 [build-system]
 requires = ["setuptools>=75"]

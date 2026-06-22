@@ -195,9 +195,15 @@ class TestHttpRequestToolConstraints:
         result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
         assert result == "[error] [constraint] exceeded redirect cap of 1"
 
-    async def test_response_size_cap_truncated(self, monkeypatch) -> None:
-        """When the response body exceeds ``response_size_cap_bytes``,
-        ``_truncate_response`` prepends the truncation marker."""
+    async def test_response_size_cap_exceeded_aborts(self, monkeypatch) -> None:
+        """F7 streaming behavior: when the response body exceeds
+        ``response_size_cap_bytes``, ``_stream_read_with_cap`` raises
+        ``ConstraintError`` mid-stream and the tool surfaces
+        ``[error] [constraint] response exceeded N bytes``.
+
+        Pre-F7 the full body was buffered first and then tail-truncated
+        (hang risk on large/endless streams).  Now the cap fires during
+        streaming iteration."""
 
         def handler(request: httpx.Request) -> httpx.Response:
             # 5KB body, far exceeds 1024 cap.
@@ -206,9 +212,8 @@ class TestHttpRequestToolConstraints:
         _patch_transport(monkeypatch, handler)
         cfg = WebConfig(response_size_cap_bytes=1024)
         result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
-        assert result.startswith("[200]")
-        assert "[... truncated" in result
-        assert "showing last 1024 bytes" in result
+        assert result.startswith("[error] [constraint]")
+        assert "response exceeded 1024 bytes" in result
 
     async def test_url_allowlist_refuse(self, monkeypatch) -> None:
         """When ``host_allowlist`` is non-empty and the URL host is not in
@@ -459,13 +464,19 @@ class TestFetchUrlTool:
         assert result.startswith("[error] [constraint]")
         assert "scheme 'ftp' refused" in result
 
-    async def test_size_cap_truncated(self, monkeypatch) -> None:
-        """5KB HTML body with ``response_size_cap_bytes=1024`` → markdown
-        output contains the L1 truncation marker."""
-        # 5KB of <p>...</p> wrapped in <article> so readability picks the
-        # article element; the resulting markdown will be ~5KB and trip
-        # the 1024-byte cap.
-        big_paragraph = "lorem ipsum dolor sit amet " * 30  # ~ 800 chars
+    async def test_size_cap_truncates_large_html_head_preserving(self, monkeypatch) -> None:
+        """F7 streaming behavior: ``response_size_cap_bytes=1024`` with a 6KB
+        HTML body → ``_stream_read_head_capped`` reads the first 1024 bytes,
+        readability extracts from that partial HTML, and the tool returns a
+        ``[200]`` result (not an error).  The HTML fixture puts the article
+        title in the first ~60 bytes so extraction still finds it.
+
+        Pre-F7 the cap was applied AFTER readability extraction (tail-
+        preserving truncation of the markdown); now it is applied to the
+        raw HTML body BEFORE extraction (head-preserving, no ConstraintError).
+        See ``test_large_html_head_preserve`` for a more rigorous assertion
+        on a specific known substring from the document head."""
+        big_paragraph = "lorem ipsum dolor sit amet " * 30  # ~800 chars
         big_html = (
             "<html><body><article><h1>Big Title</h1>"
             + "".join(f"<p>{big_paragraph}</p>" for _ in range(8))
@@ -482,9 +493,9 @@ class TestFetchUrlTool:
         _patch_fetch_transport(monkeypatch, handler)
         cfg = WebConfig(response_size_cap_bytes=1024)
         result = await FetchUrlTool(cfg).execute(url="https://example.test/big")
+        # Head-preserving cap: first 1024 bytes contain the article title.
         assert result.startswith("[200]")
-        assert "[... truncated" in result
-        assert "showing last 1024 bytes" in result
+        assert "Big Title" in result
 
     async def test_timeout_via_httpx_readtimeout(self, monkeypatch) -> None:
         """Mock raises ``httpx.ReadTimeout`` → tool surfaces F5-specific
@@ -504,6 +515,243 @@ class TestFetchUrlTool:
         t = FetchUrlTool(WebConfig())
         assert isinstance(t._config, WebConfig)
         assert FetchUrlTool.Config is WebConfig
+
+
+# ---------------------------------------------------------------------------
+# F7 L1 — Stream-and-cap tests (never-ending transport, media short-circuit,
+#           large-HTML head-preserve)
+# ---------------------------------------------------------------------------
+
+
+class _InfiniteByteStream(httpx.AsyncByteStream):
+    """Never-ending async byte iterator for ``httpx.Response(stream=...)``.
+
+    Yields 1 KB chunks indefinitely.  Used by ``MockTransport`` handlers to
+    simulate a continuous audio/video stream or a server that never closes the
+    connection.  The ``aclose`` method is a no-op — MockTransport handles the
+    lifecycle; ``async with client.stream(...)`` exits cleanly when the caller
+    breaks out of ``aiter_bytes()`` (e.g. after a ``ConstraintError``).
+    """
+
+    async def __aiter__(self):
+        while True:
+            yield b"x" * 1024
+
+    async def aclose(self) -> None:
+        return None
+
+
+class TestStreamCapAbort:
+    """Never-ending transport proves both tools cap-abort (not hang)."""
+
+    async def test_http_request_caps_on_endless_stream(self, monkeypatch) -> None:
+        """``HttpRequestTool`` with a never-ending body and
+        ``response_size_cap_bytes=4096`` → tool returns
+        ``[error] [constraint] response exceeded 4096 bytes`` after
+        consuming at most a few KB, without hanging."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                stream=_InfiniteByteStream(),
+                headers={"content-type": "text/plain"},
+            )
+
+        _patch_transport(monkeypatch, handler)
+        cfg = WebConfig(response_size_cap_bytes=4096)
+        result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/stream")
+        assert result.startswith("[error] [constraint]")
+        assert "response exceeded 4096 bytes" in result
+
+    async def test_fetch_url_caps_on_endless_stream(self, monkeypatch) -> None:
+        """``FetchUrlTool`` with a never-ending plain-text body and
+        ``response_size_cap_bytes=4096`` → tool returns
+        ``[error] [constraint] response exceeded 4096 bytes``."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                stream=_InfiniteByteStream(),
+                headers={"content-type": "text/plain"},
+            )
+
+        _patch_fetch_transport(monkeypatch, handler)
+        cfg = WebConfig(response_size_cap_bytes=4096)
+        result = await FetchUrlTool(cfg).execute(url="https://example.test/stream")
+        assert result.startswith("[error] [constraint]")
+        assert "response exceeded 4096 bytes" in result
+
+    async def test_fetch_url_caps_on_endless_html_stream(self, monkeypatch) -> None:
+        """``FetchUrlTool`` HTML path with a never-ending HTML body and
+        ``response_size_cap_bytes=4096`` → tool reads at most 4096 bytes
+        (head-preserving), then runs readability on the partial bytes and
+        returns a ``[200]`` result rather than hanging.
+
+        Unlike plain-text streaming, the HTML path uses
+        ``_stream_read_head_capped`` which stops at cap and returns the
+        accumulated bytes (no ConstraintError raised).  This lets readability
+        extract whatever structure is in the head of the truncated document."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                stream=_InfiniteByteStream(),
+                headers={"content-type": "text/html; charset=utf-8"},
+            )
+
+        _patch_fetch_transport(monkeypatch, handler)
+        cfg = WebConfig(response_size_cap_bytes=4096)
+        result = await FetchUrlTool(cfg).execute(url="https://example.test/stream")
+        # Does NOT hang — tool terminates at the byte cap.
+        # The result may be sparse (raw binary as HTML) but must not be an
+        # asyncio timeout or an infinite wait.
+        assert "looks like a media stream" not in result
+        assert "[200]" in result
+
+
+class TestMediaShortCircuit:
+    """Media content-type short-circuits both tools before body is consumed."""
+
+    async def test_http_request_audio_short_circuit(self, monkeypatch) -> None:
+        """``Content-Type: audio/aac`` → ``HttpRequestTool`` returns the
+        media-stream error message without consuming the body."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Body is a never-ending stream; the tool must not consume it.
+            return httpx.Response(
+                200,
+                stream=_InfiniteByteStream(),
+                headers={"content-type": "audio/aac"},
+            )
+
+        _patch_transport(monkeypatch, handler)
+        result = await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/radio"
+        )
+        assert result == "[error] looks like a media stream (type=audio/aac), not fetchable as text"
+
+    async def test_http_request_video_short_circuit(self, monkeypatch) -> None:
+        """``Content-Type: video/mp4`` → short-circuit message."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                stream=_InfiniteByteStream(),
+                headers={"content-type": "video/mp4"},
+            )
+
+        _patch_transport(monkeypatch, handler)
+        result = await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/clip"
+        )
+        assert result == "[error] looks like a media stream (type=video/mp4), not fetchable as text"
+
+    async def test_http_request_octet_stream_short_circuit(self, monkeypatch) -> None:
+        """``Content-Type: application/octet-stream`` → short-circuit message."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                stream=_InfiniteByteStream(),
+                headers={"content-type": "application/octet-stream"},
+            )
+
+        _patch_transport(monkeypatch, handler)
+        result = await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/blob"
+        )
+        assert result == (
+            "[error] looks like a media stream "
+            "(type=application/octet-stream), not fetchable as text"
+        )
+
+    async def test_fetch_url_audio_short_circuit(self, monkeypatch) -> None:
+        """``FetchUrlTool``: ``Content-Type: audio/mpeg`` → short-circuit."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                stream=_InfiniteByteStream(),
+                headers={"content-type": "audio/mpeg"},
+            )
+
+        _patch_fetch_transport(monkeypatch, handler)
+        result = await FetchUrlTool(WebConfig()).execute(url="https://example.test/radio")
+        assert result == (
+            "[error] looks like a media stream (type=audio/mpeg), not fetchable as text"
+        )
+
+    async def test_http_request_image_not_short_circuited(self, monkeypatch) -> None:
+        """``Content-Type: image/png`` is NOT a media stream type — it goes
+        through the normal binary tail-truncation path (``_is_binary_content_type``
+        returns the ``<binary content; ...>`` message), not the media short-circuit.
+        Regression guard: narrow predicate must NOT widen to image/*."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=b"\\x89PNG\\r\\n" + b"x" * 50,
+                headers={"content-type": "image/png"},
+            )
+
+        _patch_transport(monkeypatch, handler)
+        result = await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/image.png"
+        )
+        # Should NOT be the media-stream short-circuit message
+        assert "looks like a media stream" not in result
+        # Should be the binary tail-truncation path from _truncate_response
+        assert "<binary content" in result
+
+
+class TestLargeHtmlHeadPreserve:
+    """Large HTML page: head-preserving cap + readability still extracts."""
+
+    # A fixture with a large body that exceeds the small test cap when fully
+    # read, but whose HEAD contains a known distinctive string.  We use a
+    # cap large enough to include the article title (which is near the top)
+    # and enough body text for readability to fire, but smaller than the full
+    # document so we confirm head-preservation is what makes it work.
+    _HEAD_MARKER = "DISTINCTIVE-ARTICLE-TITLE-MARKER"
+
+    def _build_large_html(self) -> str:
+        """Build an HTML document whose HEAD contains ``_HEAD_MARKER`` near
+        the top, followed by a large body that would push the total well
+        beyond any small cap."""
+        filler_para = "word " * 80  # ~400 chars per paragraph
+        paragraphs = "".join(
+            f"<p>Para{i}: {filler_para}</p>" for i in range(30)
+        )  # ~12 KB of paragraphs
+        return (
+            f"<!doctype html><html><head>"
+            f"<title>{self._HEAD_MARKER}</title></head>"
+            f"<body><article>"
+            f"<h1>{self._HEAD_MARKER}</h1>" + paragraphs + "</article></body></html>"
+        )
+
+    async def test_large_html_extracts_head_content(self, monkeypatch) -> None:
+        """A large HTML page (>8KB) with ``response_size_cap_bytes=8192``
+        → the tool reads the first 8192 bytes (head-preserved), feeds them
+        to readability, and the extracted markdown contains the known heading
+        substring from the HEAD of the document."""
+        large_html = self._build_large_html()
+        # Document is ~12KB; cap at 8192 — head is preserved, article title
+        # is in the first few hundred bytes, so extraction must succeed.
+        assert len(large_html.encode("utf-8")) > 8192, "fixture must exceed cap"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=large_html.encode("utf-8"),
+                headers={"content-type": "text/html; charset=utf-8"},
+            )
+
+        _patch_fetch_transport(monkeypatch, handler)
+        cfg = WebConfig(response_size_cap_bytes=8192)
+        result = await FetchUrlTool(cfg).execute(url="https://example.test/large-article")
+        # With head-preservation the article title is in the capped bytes.
+        assert "[200]" in result
+        assert self._HEAD_MARKER in result
 
 
 # ---------------------------------------------------------------------------
@@ -857,3 +1105,52 @@ class TestWebToolInstantiation:
         assert isinstance(t2._config, WebConfig)
         assert WebSearchTool.Config is WebConfig
         assert WebSearchTool.Requires == (SearchBackend,)
+
+
+class TestToolTextCap:
+    """M16 F07 follow-up: the head-preserving tool_text_cap_bytes on the text
+    returned to the model (separate from the 1 MB streaming cap). Guards against
+    a huge page (e.g. a 631 KB single-page blog) poisoning the LLM context."""
+
+    def _patch_both(self, monkeypatch, handler):
+        for cls in (HttpRequestTool, FetchUrlTool):
+            monkeypatch.setattr(
+                cls, "_build_transport", lambda self, cfg, h=handler: httpx.MockTransport(h)
+            )
+
+    async def test_http_request_caps_large_text(self, monkeypatch) -> None:
+        big = "A" * 200_000  # 200 KB, well under the 1 MB stream cap
+        self._patch_both(
+            monkeypatch,
+            lambda req: httpx.Response(200, text=big, headers={"content-type": "text/plain"}),
+        )
+        cfg = WebConfig(tool_text_cap_bytes=49_152)
+        result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
+        # body portion (after the "[200]\n" prefix) is head-capped, not the full 200 KB
+        assert len(result.encode("utf-8")) < 60_000
+        assert "tool output truncated" in result
+        assert result.lstrip("[200]\n").startswith("AAA")  # head preserved
+
+    async def test_fetch_url_caps_large_text(self, monkeypatch) -> None:
+        big = "B" * 200_000
+        self._patch_both(
+            monkeypatch,
+            lambda req: httpx.Response(200, text=big, headers={"content-type": "text/plain"}),
+        )
+        cfg = WebConfig(tool_text_cap_bytes=49_152)
+        result = await FetchUrlTool(cfg).execute(url="https://example.test/")
+        assert len(result.encode("utf-8")) < 60_000
+        assert "tool output truncated" in result
+
+    async def test_small_text_not_capped(self, monkeypatch) -> None:
+        self._patch_both(
+            monkeypatch,
+            lambda req: httpx.Response(
+                200, text="hello world", headers={"content-type": "text/plain"}
+            ),
+        )
+        result = await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/"
+        )
+        assert "hello world" in result
+        assert "tool output truncated" not in result
