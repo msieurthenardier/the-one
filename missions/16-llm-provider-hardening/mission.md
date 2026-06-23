@@ -383,7 +383,19 @@ Discovered during Flight 7 (2026-06-21):
       stream and hung. **Out of scope for F7** (which fixes the hang/cancel/queue);
       split here per the F7 verify-leg adaptation criteria. Candidate follow-up: a
       more robust/keyed search backend, or detect the empty-DDG response and surface
-      it honestly. Carry to `/mission-debrief`.
+      it honestly. Carry to `/mission-debrief`. **NOTE: being addressed by Flight 8**
+      (DD3 — configurable backend + honest-empty).
+
+Deferred (own-mission candidate, 2026-06-23):
+
+- [ ] **Context compaction (eviction / summarization of old conversation turns)** —
+      Flight 8 adds per-result governance + conversation-level *accounting + warn* (the
+      telemetry overlay turns orange/red as the window fills) but deliberately does NOT
+      recover a turn already near the limit. Compaction — evicting old tool-result
+      content (constrained by tool_use↔tool_result pairing) or LLM-summarizing earlier
+      turns (added cost/latency/quality risk, persistence-codec impact) — is a subsystem
+      in its own right. Operator judgement (2026-06-23): "almost feels like its own
+      mission." Seeded here as a future-mission candidate, not an M16 flight.
 
 ## Flights
 
@@ -457,6 +469,18 @@ Discovered during Flight 7 (2026-06-21):
       interrupt/cancel (WS `cancel` action + task cancellation, partial output kept);
       one queued send-while-thinking. Full suite `3489/10/595`, 0 failures. See
       `flights/07-chat-loop-robustness/`.
+- [ ] Flight 8: **Agent-loop resource governance & context-budget management** —
+      *planned (2026-06-23, ready).* Sourced from the F07 debrief Rec 1: the three
+      chat-loop defects are one theme (no governance over what tools pull into the LLM
+      context). A central context-budget governor at the `_execute_tool` dispatch
+      boundary bounds EVERY tool result (derived from the active model's context
+      window), retiring the inconsistent per-tool LLM-facing caps (keeping the
+      transport/file-size safety caps); conversation-level accounting surfaced in the
+      telemetry overlay (orange/red, warn-only, no eviction); and a configurable
+      `web_search` backend with honest empty/blocked surfacing (the upstream fix for the
+      URL-guessing that drives the scrape-large-page failure). Compaction
+      (evict/summarize) is explicitly deferred (see Known Issues). See
+      `flights/08-agent-loop-resource-governance/`.
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface
