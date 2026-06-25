@@ -179,6 +179,35 @@
         input += '<option value="' + escapeAttr(customStr) + '" selected>' + escapeHtml(customStr) + ' (custom)</option>';
       }
       input += '</select>';
+    } else if (
+      ftype === 'string'
+      && hint === 'dropdown'
+      && Array.isArray(prop.ui_choices)
+      && prop.ui_choices.length > 0
+    ) {
+      // String-enum dropdown (M16 F08 leg 04). A `Literal[...]` field with
+      // `ui_hint:"dropdown"` + `ui_choices` (e.g. WebSearchConfig's
+      // `search_backend`) renders as a <select>. The integer-dropdown
+      // branch above only matches `type:"integer"`, so before this branch
+      // a string-enum fell through to the plain-string text input — which
+      // gave the operator a free-text box instead of the engine picker the
+      // backend (leg 2) and this leg's show_if controller both require.
+      // `data-field-type="string"` keeps readFieldValue returning the raw
+      // string so the snapshot/dirty path round-trips the selected value.
+      input = '<select id="' + idAttr + '" class="field-input field-select" ' + dataAttrs + ' data-field-type="string">';
+      var sawStrValue = false;
+      for (var si = 0; si < prop.ui_choices.length; si++) {
+        var sch = prop.ui_choices[si];
+        var sVal = String(sch.value);
+        var sEqual = (sVal === String(value !== undefined && value !== null ? value : ''));
+        if (sEqual) sawStrValue = true;
+        input += '<option value="' + escapeAttr(sVal) + '"' + (sEqual ? ' selected' : '') + '>' + escapeHtml(sch.label || sVal) + '</option>';
+      }
+      if (!sawStrValue && value !== undefined && value !== null && value !== '') {
+        var sCustom = String(value);
+        input += '<option value="' + escapeAttr(sCustom) + '" selected>' + escapeHtml(sCustom) + ' (custom)</option>';
+      }
+      input += '</select>';
     } else if (ftype === 'integer') {
       // Plain integer input. Admin mode uses schema minimum/maximum.
       // Agent mode uses operator's value as the ceiling, schema minimum
@@ -234,6 +263,21 @@
           toolName: toolName
         });
       }
+    } else if (ftype === 'string' && hint === 'password') {
+      // Secret field (`ui_hint:"password"`, e.g. WebSearchConfig's
+      // google_pse/brave/tavily keys). Render a masked input inside the
+      // canonical `.api-key-wrap` + `.api-key-eye` shell (ported from
+      // provider-editor.js:154-157). `data-field-type="string"` is
+      // LOAD-BEARING — readFieldValue (:318) returns the raw value only for
+      // fieldType "string", so the GET-masked value round-trips and leg-3's
+      // `_looks_masked` PRESERVE fires when the operator leaves it untouched.
+      // Every other data-* / aria-* hook is identical to the plain-string
+      // branch so the branch stays mode-agnostic (admin + agent).
+      var eyeIcon = (window.App && window.App.icon) ? window.App.icon('eye') : '';
+      input = '<div class="api-key-wrap">' +
+              '<input id="' + idAttr + '" class="field-input" type="password" ' + dataAttrs + ' data-field-type="string" value="' + escapeAttr(String(value !== undefined && value !== null ? value : '')) + '" />' +
+              '<button class="api-key-eye" type="button" title="Show/Hide" aria-label="Show password">' + eyeIcon + '</button>' +
+              '</div>';
     } else if (ftype === 'string') {
       input = '<input id="' + idAttr + '" class="field-input" type="text" ' + dataAttrs + ' data-field-type="string" value="' + escapeAttr(String(value !== undefined && value !== null ? value : '')) + '" />';
     } else {

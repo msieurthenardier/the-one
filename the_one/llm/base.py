@@ -249,6 +249,15 @@ class LLMProvider(ABC):
     name: str
     max_context_tokens: int = 128_000
 
+    # M16 F08 L01 (MEDIUM-1): the SINGLE public bytes-per-token accessor.
+    # Consumed by BOTH the context-budget governor (``_execute_tool`` →
+    # ``govern_tool_content``) and the streaming usage heuristic
+    # (``_StreamAccumulator``). Default 4.0 (OpenAI/OpenRouter cl100k density);
+    # Anthropic (3.7) and Ollama (3.5) override the class attribute. Replaces
+    # the prior subclass-only ``_bytes_per_token_for_interim()`` so the two
+    # consumers can't drift apart.
+    bytes_per_token: float = 4.0
+
     def __init__(self) -> None:
         self._init_provider_state()
 

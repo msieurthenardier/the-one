@@ -647,6 +647,16 @@ The repository stores the `Encryptor` **as a reference, not a copy**, so post-ro
 
 **OAuth-managed secret keys**: `dcr_credentials`, `access_token`, `refresh_token`, `token_expires_at`. Written exclusively by `MCPSourceTokenStorage`; stripped + preserved on PUT by the API layer's `_OAUTH_MANAGED_SECRET_KEYS` logic.
 
+### Tool config secrets storage (M16 F08 L03)
+
+Built-in **tool configs** (`tool_configs`, `secrets` column added in schema v32) use the **same field-segregated `config`+`secrets` encryption** as `mcp_sources` / `connector_accounts` — parity with MCP and LLM-provider keys. `config TEXT` holds plaintext non-sensitive fields; `secrets TEXT` holds a single Fernet-encrypted JSON blob. `ToolConfigRepository` holds the `Encryptor` by reference (rotation propagates), delegating to the shared `_encrypt_secrets_blob`/`_decrypt_secrets_blob` (InvalidToken-tolerant — the plaintext `'{}'` default decrypts to `{}`).
+
+The split is **generic and marker-driven**: a field is a secret iff its Pydantic `json_schema_extra` carries `secret: true` (`web_search`'s `google_pse_api_key`/`brave_api_key`/`tavily_api_key` are the first consumers; any future built-in tool Config with a `secret`-marked field gets encrypted storage + masking for free). `interfaces/web/api.py:_secret_field_names(config_cls)` reads the marker set.
+
+- **PUT** `/tools/configs/{name}` validates the full body, then **moves** secret-marked keys out of `config` into the encrypted `secrets` store — **a plaintext key never lands in the `config` column**. `_looks_masked` values preserve the existing decrypted secret; a masked value with no stored secret is dropped (cleared), never persisted as the mask string. A real new value replaces it. (Same mask sentinel + `_looks_masked` recognition as the MCP/provider PUT handlers.)
+- **GET** `/tools/configs/{name}` returns `config` with secret-marked fields masked via `_mask_secret_value` (decrypt-then-mask, never raw).
+- **Resolver / backends see the REAL key**: `ToolConfig.merged_config()` (`{**config, **secrets}`) is the factory feed (`factory.py`), so `build_search_backend` receives the decrypted api_key — NOT the masked admin view. The `/test` connection endpoint uses the same `merged_config()` feed. Two distinct reads: the admin GET masks, the resolver/test path resolves real keys.
+
 ### MCP F2 Client Foundation (authoritative for F3+)
 
 1. **Module layout** — `the_one/mcp/` is a peer of `the_one/llm/`, NOT a sub-package of `the_one/tools/`. `MCPClient` is a service abstraction; `MCPToolProvider` wraps individual `MCPTool`s into the project's `Tool` abstraction.
@@ -758,8 +768,11 @@ Tools subclass `Tool` and declare:
 - `Requires: tuple[type[BaseModel], ...]` — opts into the shared `cross_configs` view.
 - `__init__(config, cross_configs=None, agent_name=None)`.
 - `execute(**kwargs) -> str`.
+- `truncation_direction: Literal["head", "tail"]` — which end the context-budget governor preserves when it truncates this tool's result. Default `"head"` (prose/pages/files); execution tools that return shell output (`shell`, `python_exec`, `shell_session_send`) override to `"tail"` so the `[exit code: N]` suffix + stderr tail survive. See "Context-budget governor" below.
 
 The two-clause `try/except` envelope (catch `ConstraintError` → `[error] [constraint] {e}`, catch other exceptions → `[error] {e}`) IS the authorship contract. `ConstraintError` lives at `the_one.tools.base` (canonical) for that reason.
+
+**Context-budget governor (M16 F08 L01 / DD1).** `Agent._execute_tool` is the single chokepoint where EVERY `ToolResult.content` — from any tool — is bounded before it enters the conversation, so no one tool result can consume a disproportionate share of the model's context window (the F07 context-poison theme). The pure helper `the_one/agent/_governor.py::govern_tool_content(content, max_context_tokens, *, fraction, floor, ceiling, direction, bytes_per_token)` computes `budget = clamp(int(fraction * max_context_tokens * bytes_per_token), floor, ceiling)` and slices on a byte boundary (`decode(errors="replace")`), appending (head) / prepending (tail) a truncation marker that sits OUTSIDE the budget. It governs the normal `output` and the timeout/generic-except error strings; the MCP `<auth required>` sentinel is NOT governed. `max_context_tokens` ≤0/None/absurd floors to 128k. Defaults — fraction 1/8, floor 8 KB, ceiling 256 KB — are env-overridable (`THE_ONE_TOOL_RESULT_BUDGET_FRACTION` / `_FLOOR` / `_CEILING`; see `.env.example`). This RETIRED the per-tool LLM-facing caps (the web text cap; the model-sized role of `output_cap_bytes`); the transport/OOM safety caps (`response_size_cap_bytes` 1 MB streaming abort, `read_size_cap_bytes` file-size guard, `output_cap_bytes` as a transport ceiling) remain — a different axis (what the process buffers/reads vs. what reaches the model).
 
 **Tool policy resolver** (`the_one/tools/resolver.py`) composes tool-level config with agent-level overrides per per-key marker semantics on the tool's `Config` schema:
 
@@ -781,13 +794,33 @@ Active constraint types after F5:
 |------|-----------------|-----------|------------|
 | Path scope | `FilesystemConfig.path_allowlist`, `path_denylist` | `NarrowPrefix` + `NarrowSuperset` | 9 filesystem tools + cwd validation in 6 execution tools (cross-Config) + `download_file` destination |
 | Read-size cap | `FilesystemConfig.read_size_cap_bytes`, `allow_binary_files` | `Narrow` × 2 | `read_file`, `grep`, indirect via `edit_file` pre-read |
-| Output cap | `ExecutionConfig.output_cap_bytes` | `Narrow` | 6 execution tools (combined stdout+stderr, tail-preserving) |
+| Output cap (transport ceiling) | `ExecutionConfig.output_cap_bytes` | `Narrow` | 6 execution tools (combined stdout+stderr, tail-preserving). M16 F08 L01: reclassified from a model-sized LLM cap to a transport/safety ceiling — the context-budget governor now applies the model-derived LLM bound on top (tail-preserving for shell). |
 | Timeout caps | `ExecutionConfig.timeout_seconds_default`, `timeout_seconds_max` | `Narrow` × 2 + `default <= max` model_validator | 6 execution tools |
 | Command denylist | `ExecutionConfig.command_denylist` | `NarrowSuperset` | `shell`, `python_exec`, `shell_session_send` (per-call re-check). Substring match with trailing-space convention to avoid the `sudoku` false-positive class. |
 | Sandbox network | `ExecutionConfig.sandbox_network_allowed` | `Narrow` | `shell`, `python_exec` (deny-by-default; `True` opts the built-in tool into network access inside the bwrap jail) |
-| URL/host scope + SSRF | `WebConfig.*` (see below) | mixed | 4 web tools |
+| URL/host scope + SSRF | `WebConfig.*` (see below) | mixed | 3 web tools (`http_request`, `fetch_url`, `download_file`) |
+| Search-engine selection | `WebSearchConfig.*` (see below) | none (operator-only) | `web_search` |
 
 **`WebConfig.redirect_cap`** is `Field`-only — NO `Annotated` marker. Tool-level only; agent override raises `ValueError`.
+
+**`web_search` engine registry (M16 F08 L02 — DD3 refinement).** `web_search` migrated off the shared `WebConfig` onto its own `WebSearchConfig` (it never read `WebConfig`'s SSRF/transport fields — it consumes only the injected `SearchBackend`). `WebSearchConfig` carries the engine selector + per-engine connection fields, all operator-only (NO resolver marker — agents cannot pick the search engine or set keys):
+
+| Field | Purpose |
+|-------|---------|
+| `search_backend` | Active engine: `duckduckgo` (keyless default) / `searxng` / `google_pse` / `brave` / `tavily`. Dropdown (`ui_hint:"dropdown"`). |
+| `searxng_base_url` | SearXNG instance base URL (JSON format must be enabled on the instance). |
+| `google_pse_api_key` *(secret)* | Google Programmable Search Engine API key. |
+| `google_pse_cse_id` | Google PSE engine id (the `cx` param). |
+| `brave_api_key` *(secret)* | Brave Search API subscription token. |
+| `tavily_api_key` *(secret)* | Tavily API key. |
+
+The factory `build_search_backend(config, *, extra_allowed_hosts)` (`_search_backends.py`) maps `search_backend` to one of five `SearchBackend`-conformant classes (`DDGSearchBackend` / `SearxngSearchBackend` / `GooglePSESearchBackend` / `BraveSearchBackend` / `TavilySearchBackend`). Each owns a **per-call** `httpx.AsyncClient(transport=SSRFGuardedTransport(extra_allowed_hosts=…))` — even DDG respects the SSRF policy (read off the resolved shared `WebConfig`). Default DDG for unset/unknown names; a **selected-but-unconfigured keyed engine still constructs and raises `SearchUnavailableError` at call time** (no silent DDG fallback — that would hide misconfig).
+
+**Honest-empty contract (M16 F08 L02 — HIGH-3).** Backends raise typed errors (`SearchError` base → `SearchBlockedError` / `SearchUnavailableError`) on blocked/throttled/parse-failure/misconfig, and return `[]` ONLY for a genuinely-empty result. `WebSearchTool.execute` surfaces the raised error honestly as `[error] web_search ({backend}) blocked/throttled|unavailable: …` and keeps `[]` → "No results found." — so the model stops mistaking a broken search for "the web has nothing" and guessing URLs. DDG's genuine-empty is detected via its positive `no-results` HTML marker (Option B); a 200 with neither `result__a` nor `no-results` is treated as blocked. Backends NEVER log secret values.
+
+> **Secret-at-rest (M16 F08 L03 — landed)**: the secret fields are MARKED (`json_schema_extra={"ui_hint":"password","secret":true}`) on `WebSearchConfig`; the encrypted-at-rest `config`+`secrets` split now lands them in the `tool_configs.secrets` column (schema v32) — see "Tool config secrets storage" above. The flight batch-commits at the end (no intermediate release), so plaintext keys never ship.
+
+**Admin config UI (M16 F08 L04 — landed).** Administration → Tools → `web_search` renders the engine registry schema-driven. The operator picks an engine from the `search_backend` **dropdown** (`ui_hint:"dropdown"` on a string `Literal` — `renderField` in `tools-form-helpers.js` grew a string-enum `<select>` branch alongside the pre-existing integer-dropdown branch so the picker renders as a real `<select>` rather than a free-text box) and sees **only that engine's** connection fields. Per-engine visibility is driven by a generic `show_if` mechanism: each per-engine field carries `json_schema_extra={"show_if":{"search_backend":"<engine>"}}`, and `tools-editor.js` `applyShowIf(container, properties)` hides any field whose controller value ≠ the `show_if` value (`is-hidden` + `aria-hidden="true"`), re-running on the controller's `change`. **Hidden rows stay in the DOM** (so `getFormSnapshot` still submits them — an entered key survives an engine switch; the leg-3 preserve-on-masked contract handles the masked round-trip). DuckDuckGo shows no per-engine fields. The three secret keys (`google_pse_api_key` / `brave_api_key` / `tavily_api_key`) render as **masked password inputs** with an `.api-key-eye` reveal toggle (ported from the provider editor; toggles `type` password↔text + swaps `aria-label`). On reload, GET returns the leg-3 mask (`***...{tail4}`); leaving it untouched preserves the stored key. The `show_if` mechanism is generic (reads the schema, not hardcoded to `search_backend`) — any field controlled by any sibling participates. No Studio change: all `WebSearchConfig` fields are markerless `str` and so never render in agent mode (`renderField` early-returns `''` for non-boolean markerless fields in agent mode).
 
 **SSRF "no full-disable" mission invariant**: `WebConfig` has no `disable_ssrf` / `ssrf_disabled` / `disable_ssrf_protection` field. SSRF protection is always-on; operators reaching internal hosts list them in `extra_allowed_hosts` (host-by-host opt-in), not a global kill-switch. The invariant is encoded by the field's ABSENCE — no enforcement code needed. Sweep: `grep -rn 'disable_ssrf\|ssrf_disabled' the_one/` must return zero source hits (only docs allowed).
 
@@ -1117,7 +1150,7 @@ class StreamChunk:
 1. **Tool-call delta accumulation** (`feed_tool_call_delta`, `finalize_tool_calls`) — keyed by `index` (OpenAI / Ollama streaming convention). Providers normalise SDK objects to `str` at the edge before calling `feed_tool_call_delta`; the accumulator is str-append-only. Ollama must `json.dumps(args)` when `arguments` arrives as a dict before handing the increment here.
 2. **Byte→interim-usage emission** (`maybe_emit_interim`) — returns a `StreamChunk(usage=…)` when the cumulative byte count since last emission crosses `threshold` (shared 200-byte default). Providers call this AFTER yielding the content chunk, then yield the returned interim chunk (if not None). Preserves the exact per-provider emit ordering.
 
-**Per-provider bytes-per-token**: passed in at stream-open as a constructor argument; OpenAI/OpenRouter use 4.0, Ollama 3.5, Anthropic 3.7. OpenRouter's `_bytes_per_token_for_interim()` override still applies because providers pass `self._bytes_per_token_for_interim()` at stream-open time (not a baked constant).
+**Per-provider bytes-per-token** (M16 F08 L01): a SINGLE public `bytes_per_token` accessor lives on the `LLMProvider` base (default 4.0); OpenAI/OpenRouter 4.0, Ollama 3.5, Anthropic 3.7 override the class attribute. Both consumers — the `_StreamAccumulator` (passed `self.bytes_per_token` at stream-open) and the context-budget governor (`_execute_tool` → `govern_tool_content`) — read this one value, so they cannot drift. (Replaced the prior subclass-only `_bytes_per_token_for_interim()`.)
 
 **Anthropic adopts only the byte-emitter half** — its tool calls arrive whole via `get_final_message`, not as streaming deltas.
 

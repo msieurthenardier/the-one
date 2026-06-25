@@ -1,6 +1,6 @@
 # Flight: Agent-loop Resource Governance & Context-budget Management
 
-**Status**: ready
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -11,9 +11,10 @@ governance over what tools pull into the LLM context. They compound — `web_sea
 returns nothing → the model guesses URLs → it scrapes large/streaming pages → hang
 (fixed F07) or context-poison (fixed 0.2.6). This flight installs the governance layer.
 
-- [ ] No single tool result, regardless of source, can consume a disproportionate
+- [x] No single tool result, regardless of source, can consume a disproportionate
       share of the model's context window; the operator can see when the conversation
-      is approaching the context limit.
+      is approaching the context limit. **(Verified live — behavior test 9/9 PASS:
+      governor bound to 262,144 B + overlay warn with non-color aria-label.)**
 
 ---
 
@@ -89,6 +90,15 @@ used only when a key is configured. No key required to ship.
   triggers the scrape-large-page failure mode.
 - Trade-off: a keyed backend adds a secret + a dependency; gated behind config so the
   default stays keyless.
+- **★ Refinement (operator, 2026-06-23):** "optional keyed backend" widened to a
+  **registry of selectable engines** configured **inside the `web_search` tool's own
+  config** (rendered by the existing schema-driven tools-admin section). Ship roster:
+  DuckDuckGo (keyless default) + SearXNG (self-hosted URL) + Google PSE (key + CSE id) +
+  Brave (key) + Tavily (key). DDG stays the zero-config default; keyed engines activate
+  only when configured. The honest-empty contract is unchanged — it's the substance.
+  Adds a tool-config **secret-at-rest** requirement (see leg `search-config-admin`).
+  This is the admin surface the original `_search_backends.py` docstring reserved for
+  "F6 admin" — now being built.
 
 **DD4 — Budget in bytes via the `BYTES_PER_TOKEN` heuristic**, not true token counts —
 no tokenizer dependency, consistent with the existing streaming/usage heuristics.
@@ -159,21 +169,55 @@ overlay color transitions + "a stream-hunt conversation no longer degenerates."
 ### Legs
 
 > **Note:** Tentative; created one at a time as the flight progresses.
+>
+> **★ Scope expansion (operator, 2026-06-23, mid-flight).** The original
+> `search-backend-pluggable` leg grew: rather than DDG + one optional keyed backend, the
+> operator wants `web_search` to be **fully configurable** — a registry of selectable
+> engines (DuckDuckGo keyless default + SearXNG + Google PSE + Brave + Tavily) configured
+> **within the built-in `web_search` tool's own config** (surfaced by the existing
+> schema-driven tools-admin section, NOT a new settings page). Informed by reading
+> Open WebUI's web-search subsystem (one backend per engine; honest `raise` on errors vs
+> `[]` on genuine-empty; DDG keyless special-case) — which independently validates the
+> honest-empty contract this leg was already going to add. This splits the search work
+> into TWO legs (backend registry, then admin secret-UI + encrypted persistence). See
+> the flight-log Flight Director Notes for the full pivot rationale. DD3 refined below.
 
-- [ ] `context-budget-governor` - Governor at `_execute_tool` capping every
+- [x] `context-budget-governor` - Governor at `_execute_tool` capping every
       `ToolResult.content` to `f(max_context_tokens)` (bytes-heuristic, head-preserving,
       marker); retire the per-tool LLM-facing caps (keep safety caps). Unit tests
       across web/fs/shell: large *valid* result capped, small passes, cap scales with
       the model window, error-results bounded too.
-- [ ] `search-backend-pluggable` - `SearchBackend` selection via config (name +
-      optional api_key); DDG honest-empty/blocked surfacing; optional keyed backend.
-      Tests for honest-empty, backend selection, keyed stub.
-- [ ] `context-fullness-overlay` - Orange/red threshold coloring on the telemetry
+- [x] `search-backend-registry` - Honest-empty typed-error contract
+      (`SearchBlockedError`/`SearchUnavailableError`: raise on blocked/throttled/parse-
+      fail, `[]` only for genuine-empty); `SearchBackend` registry; 5 engines (DDG keyless
+      default + SearXNG + Google PSE + Brave + Tavily); `search_backend` selector + per-
+      engine config fields on the web-search tool config; backend resolved in
+      `builtins.py` from config (replacing hardcoded `DDGSearchBackend()`). Per-backend
+      tests (mocked HTTP) + honest-empty + selection. **Landed 2026-06-24** (commit
+      deferred to flight end; leg 3 owes the secret-at-rest encryption).
+- [x] `search-config-persistence` - Encrypted tool-config secrets at rest: generic
+      `config`+`secrets` split on `ToolConfigRepository` (migration v32, encryptor threaded,
+      mirroring `MCPSource`/`Connector`), driven by the `secret:true` markers; tool GET
+      masks secrets, PUT preserves-on-masked; the factory feed uses `ToolConfig.merged_config()`
+      so the resolver gives backends the real keys. No UI. (Split from `search-config-admin`
+      for reviewable scope — persistence half.) **Landed 2026-06-24** (commit deferred to
+      flight end; leg `search-config-admin-ui` owes the password-field UI + conditional
+      visibility).
+- [x] `search-config-admin-ui` - Tools-admin secret-field rendering (`ui_hint:"password"` +
+      eye-toggle + `__MASKED__` sentinel, ported from the provider editor) and conditional
+      per-engine field visibility (`show_if` — show an engine's key/URL only when it's
+      selected). a11y reviewer applies. (UI half.) — landed; also wired the string-enum
+      `<select>` for `search_backend` (the integer-only dropdown branch never rendered the
+      enum). Browser suite 19 passed; unit 3565.
+- [x] `context-fullness-overlay` - Orange/red threshold coloring on the telemetry
       overlay from `context_tokens/max_context_tokens`; env-tunable thresholds; a11y
-      (not color-only — also a label/aria state).
-- [ ] `verify-integration` - Generalized "what does the model receive" tests; author +
-      run the behavior test; full suite green; record the compaction → own-mission
-      backlog seed in mission.md.
+      (not color-only — also a label/aria state). — landed; coloring kept-not-rebuilt,
+      thresholds config-driven via `Settings` (clamp-on-invalid validator) + `/api/config`,
+      non-color signal = dynamic container `aria-label`. Unit 3574; browser gate green.
+- [x] `verify-integration` - Generalized "what does the model receive" tests; author +
+      run the behavior test (incl. switch-engine-in-admin → search uses it); full suite
+      green; record the compaction → own-mission backlog seed in mission.md. **Done:
+      behavior test 9/9 PASS (`runs/2026-06-25-19-37-47.md`).**
 - [ ] `uat-and-alignment` *(optional)* - Guided HAT: drive a real stream-hunt
       conversation; watch the overlay color + confirm no degenerate cut-off.
 

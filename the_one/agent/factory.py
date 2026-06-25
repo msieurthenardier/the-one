@@ -289,9 +289,12 @@ class AgentFactory:
         # widen `list_all()` to carry `enabled`; pushing the projection
         # to the factory keeps the resolver's API surface pure (see
         # L0's `test_list_all_omits_enabled`).
-        tool_configs_repo = ToolConfigRepository(conn)
+        tool_configs_repo = ToolConfigRepository(conn, encryptor)
         configs = await tool_configs_repo.list()
-        tool_configs_by_name = {c.name: c.config for c in configs}
+        # merged_config() folds the decrypted `secrets` over `config` so the
+        # tool-policy resolver / build_search_backend receive the REAL keyed-
+        # engine API keys (M16 F08 L03) — not the masked admin-GET view.
+        tool_configs_by_name = {c.name: c.merged_config() for c in configs}
         disabled_names = {c.name for c in configs if not c.enabled}
         agent_overrides = config.tool_overrides or {}
 

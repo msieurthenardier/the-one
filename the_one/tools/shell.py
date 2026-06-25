@@ -22,6 +22,9 @@ from the_one.tools.filesystem import FilesystemConfig
 
 class ShellTool(Tool):
     name = "shell"
+    # M16 F08 L01 (HIGH-2): tail-preserve under the context-budget governor —
+    # the [exit code: N] suffix + stderr tail (the diagnostic part) must survive.
+    truncation_direction = "tail"
     description = (
         "Execute a shell command and return its output. Runs in an isolated "
         "box by default (fresh scratch workspace, no access to the user's "

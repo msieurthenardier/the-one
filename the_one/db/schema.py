@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 31
+CURRENT_VERSION = 32
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1876,3 +1876,26 @@ CREATE INDEX idx_chat_sessions_external_key
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (31,))
         await conn.commit()
         version = 31
+
+    if version < 32:
+        # M16 F08 L03 — add the `secrets TEXT DEFAULT '{}'` column to
+        # tool_configs for field-segregated encryption of built-in tool
+        # secrets (web_search's keyed-engine API keys). Mirrors the v10
+        # mcp_sources-secrets precedent: idempotent ADD COLUMN guarded by
+        # PRAGMA table_info so a re-run after partial-apply is a no-op, with
+        # the INSERT OR IGNORE INTO schema_version LAST. A pre-existing row's
+        # plaintext '{}' default decrypts to {} via the repository's
+        # InvalidToken tolerance; the next write re-encrypts the column.
+        async with conn.execute("PRAGMA table_info(tool_configs)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        # `existing_cols` is empty when `tool_configs` doesn't exist (a
+        # hand-built pre-v8 schema rewound past the v8 CREATE). Only ALTER
+        # when the table is present AND lacks the column — guarding the
+        # table-missing case the same way v9's `enabled` ADD COLUMN relies
+        # on v8 having created the table in-sequence.
+        if existing_cols and "secrets" not in existing_cols:
+            await conn.execute("ALTER TABLE tool_configs ADD COLUMN secrets TEXT DEFAULT '{}'")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (32,))
+        await conn.commit()
+        version = 32

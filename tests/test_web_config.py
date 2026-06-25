@@ -26,11 +26,13 @@ from the_one.tools.resolver import resolve
 
 
 class TestWebConfigDefaults:
-    def test_field_count_is_nine(self) -> None:
-        # 7 F5 fields + `default_user_agent` (post-debrief addition)
-        # + `tool_text_cap_bytes` (M16 F07 follow-up: LLM-context cap on
-        # http_request/fetch_url output).
-        assert len(WebConfig.model_fields) == 9
+    def test_field_count_is_eight(self) -> None:
+        # 7 F5 fields + `default_user_agent` (post-debrief addition).
+        # M16 F08 L01 (HIGH-1): the M16 F07 web text LLM-context cap field was
+        # RETIRED — the central context-budget governor in `Agent._execute_tool`
+        # now bounds every tool result. That drops the count 9 → 8 (the exact
+        # F07 0.2.6 failure mode, now tracked).
+        assert len(WebConfig.model_fields) == 8
 
     def test_default_values(self) -> None:
         from the_one.tools._web_config import _DEFAULT_USER_AGENT
@@ -299,3 +301,82 @@ class TestDefaultUserAgent:
                 {"default_user_agent": agent_val},
             )
             assert merged.default_user_agent == agent_val
+
+
+# ---------------------------------------------------------------------------
+# WebSearchConfig — field-count + secret-marker guard (M16 F08 L02)
+# ---------------------------------------------------------------------------
+
+
+class TestWebSearchConfig:
+    """M16 F08 L02 — ``WebSearchConfig`` is the per-tool Config for
+    ``web_search`` (split off the shared ``WebConfig``). Mirrors
+    ``TestWebConfigDefaults.test_field_count_is_eight`` so a future PR cannot
+    silently add/drop a field, and pins that every secret field carries the
+    ``secret:true`` marker (the leg-3 encrypted-split + tools-admin form key
+    off this marker)."""
+
+    def test_field_count_is_six(self) -> None:
+        from the_one.tools._web_search_config import WebSearchConfig
+
+        # search_backend + searxng_base_url + google_pse_api_key +
+        # google_pse_cse_id + brave_api_key + tavily_api_key.
+        assert len(WebSearchConfig.model_fields) == 6
+
+    def test_default_backend_is_duckduckgo(self) -> None:
+        from the_one.tools._web_search_config import WebSearchConfig
+
+        assert WebSearchConfig().search_backend == "duckduckgo"
+
+    def test_backend_dropdown_marker(self) -> None:
+        from the_one.tools._web_search_config import WebSearchConfig
+
+        extra = WebSearchConfig.model_fields["search_backend"].json_schema_extra
+        assert extra["ui_hint"] == "dropdown"
+        choice_values = {c["value"] for c in extra["ui_choices"]}
+        assert choice_values == {"duckduckgo", "searxng", "google_pse", "brave", "tavily"}
+
+    def test_secret_fields_carry_secret_marker(self) -> None:
+        from the_one.tools._web_search_config import (
+            WEB_SEARCH_SECRET_FIELDS,
+            WebSearchConfig,
+        )
+
+        # The declared secret set is exactly the three keyed-engine API keys.
+        assert WEB_SEARCH_SECRET_FIELDS == (
+            "google_pse_api_key",
+            "brave_api_key",
+            "tavily_api_key",
+        )
+        for name in WEB_SEARCH_SECRET_FIELDS:
+            extra = WebSearchConfig.model_fields[name].json_schema_extra
+            assert extra is not None, name
+            assert extra.get("secret") is True, name
+            assert extra.get("ui_hint") == "password", name
+
+    def test_non_secret_fields_lack_secret_marker(self) -> None:
+        """``searxng_base_url`` and ``google_pse_cse_id`` are NOT secrets —
+        they must not carry the ``secret:true`` marker (so leg 3 does not
+        encrypt them)."""
+        from the_one.tools._web_search_config import WebSearchConfig
+
+        for name in ("searxng_base_url", "google_pse_cse_id"):
+            extra = WebSearchConfig.model_fields[name].json_schema_extra or {}
+            assert extra.get("secret") is not True, name
+
+    def test_frozen(self) -> None:
+        from the_one.tools._web_search_config import WebSearchConfig
+
+        c = WebSearchConfig()
+        with pytest.raises(ValidationError):
+            c.search_backend = "tavily"  # type: ignore[misc]
+
+    def test_secret_field_operator_only_at_resolver(self) -> None:
+        """Secret fields carry NO resolver marker, so an agent override raises
+        ``ValueError`` (operator-only — agents cannot set search secrets),
+        mirroring ``WebConfig.redirect_cap``."""
+        from the_one.tools._web_search_config import WebSearchConfig
+
+        with pytest.raises(ValueError) as exc:
+            resolve(WebSearchConfig, {}, {"tavily_api_key": "agent-set"})
+        assert "no Narrow/Substitute marker" in str(exc.value)

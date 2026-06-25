@@ -76,6 +76,10 @@ BYTES_PER_TOKEN_ANTHROPIC = 3.7
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
     max_context_tokens = 200_000
+    # M16 F08 L01 (MEDIUM-1): single public accessor (the governor + the
+    # stream accumulator both read this), replacing the bare module-constant
+    # passed only into ``_StreamAccumulator``.
+    bytes_per_token = BYTES_PER_TOKEN_ANTHROPIC
 
     def __init__(self, model: str = "claude-sonnet-4-6", api_key: str | None = None, **kwargs: Any):
         super().__init__()
@@ -244,7 +248,7 @@ class AnthropicProvider(LLMProvider):
         # ``_StreamAccumulator`` — tool calls arrive whole via
         # ``get_final_message``, not as streaming deltas. See module-level
         # BYTES_PER_TOKEN_ANTHROPIC docstring for the cycle-1 trade-off.
-        acc = _StreamAccumulator(bytes_per_token=BYTES_PER_TOKEN_ANTHROPIC)
+        acc = _StreamAccumulator(bytes_per_token=self.bytes_per_token)
         async with self.client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 yield StreamChunk(content=text, is_final=False)

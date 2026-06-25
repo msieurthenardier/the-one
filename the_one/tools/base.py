@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -46,6 +46,15 @@ class Tool(ABC):
     name: str
     description: str
     parameters: dict[str, Any]  # JSON Schema
+
+    # M16 F08 L01 (DD1 / HIGH-2): which end of an over-budget tool result the
+    # context-budget governor preserves when it truncates. ``"head"`` (default)
+    # keeps the START — correct for prose/pages/file reads, where the opening is
+    # the useful part. Execution tools override to ``"tail"`` so the
+    # ``[exit code: N]`` suffix + stderr tail (the diagnostic part) survive. A
+    # tool-declared preference is cleaner than a name-switch in the governor
+    # caller and lets future tools opt in without editing ``_execute_tool``.
+    truncation_direction: Literal["head", "tail"] = "head"
 
     # Default Config is `_EmptyConfig`, NOT bare `BaseModel` —
     # Pydantic v2's `BaseModel()` raises `PydanticUserError`. Subclasses

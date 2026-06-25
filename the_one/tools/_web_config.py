@@ -186,23 +186,12 @@ class WebConfig(BaseModel):
         ),
     ] = 1_048_576  # 1 MB default
 
-    # M16 F07 follow-up: a SEPARATE, much smaller cap on the *text returned to the
-    # model* by http_request/fetch_url. ``response_size_cap_bytes`` (1 MB) is the
-    # streaming hard-abort that prevents a hang/OOM — but 1 MB of page text fed into
-    # the conversation poisons the LLM context (a 631 KB single-page blog reduced a
-    # turn to a 1-token degenerate response). This caps the head of the returned text
-    # at a context-sane size so no single tool result can blow up the conversation.
-    # Head-preserving (keep the START of the page), unlike ``_truncate_response``.
-    tool_text_cap_bytes: Annotated[
-        int,
-        Narrow,
-        Field(
-            ge=1024,
-            le=1_048_576,
-            description="Cap on text returned to the model by http_request/fetch_url "
-            "(head-preserving). Smaller than response_size_cap_bytes to protect LLM context.",
-        ),
-    ] = 49_152  # 48 KB default (~12K tokens)
+    # M16 F08 L01 (HIGH-1, DD1): the per-tool LLM-facing web text cap (the M16 F07
+    # follow-up) is RETIRED — the central context-budget governor in
+    # ``Agent._execute_tool`` now bounds every tool result uniformly (head-preserving
+    # for web text). ``response_size_cap_bytes`` (the 1 MB streaming hard-abort)
+    # remains as the transport/OOM safety cap. Removing that field drops
+    # ``WebConfig.model_fields`` from 9 → 8 (see ``tests/test_web_config.py``).
 
     # F5 Decision 9: ``redirect_cap`` is Field-only — agents cannot narrow it.
     # Resolver raises ``ValueError("... no Narrow/Substitute marker ...")`` if
@@ -422,25 +411,6 @@ def _truncate_response(
         text = marker + tail.decode(errors="replace")
         return text, True
     return body.decode(errors="replace"), False
-
-
-def _cap_tool_text(text: str, cap_bytes: int) -> str:
-    """HEAD-preserving cap on the text a web tool returns to the model.
-
-    Distinct from ``_truncate_response`` (tail-preserving, byte-cap on the raw
-    response): this caps the FINAL text handed to the LLM at a context-sane size,
-    keeping the START of the page (the useful part) and appending a truncation note.
-    No-op when the text already fits. M16 F07 follow-up — see ``tool_text_cap_bytes``.
-    """
-    raw = text.encode("utf-8")
-    if len(raw) <= cap_bytes:
-        return text
-    kept = raw[:cap_bytes].decode(errors="replace")
-    dropped = len(raw) - cap_bytes
-    return (
-        f"{kept}\n\n[... tool output truncated: showing first {cap_bytes} bytes; "
-        f"{dropped} bytes dropped to protect the conversation context ...]"
-    )
 
 
 # ---------------------------------------------------------------------------

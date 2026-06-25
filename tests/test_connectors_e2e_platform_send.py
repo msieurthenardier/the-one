@@ -52,6 +52,7 @@ from tests._connector_dispatch_helpers import (
     _seed_provider_and_agent,
     _seed_stub_account,
 )
+from the_one.config import settings
 from the_one.connectors import OPERATOR_VISIBILITY, PLATFORM_SEND_OK_PREFIX
 from the_one.connectors import _inbound as inbound_mod
 from the_one.connectors import _pool as pool_mod
@@ -63,6 +64,7 @@ from the_one.connectors.registry import register_for_test, restore_to_baseline_f
 from the_one.db.codec import decode_messages
 from the_one.db.connection import get_connection
 from the_one.db.repositories import ChatSessionRepository, ToolConfigRepository
+from the_one.encryption import get_encryptor
 from the_one.llm.base import Message, Role, ToolCall
 from the_one.sessions import clear_for_test as _clear_session_registry
 
@@ -211,7 +213,7 @@ async def test_e2e_disabled_state_inbound_received_no_outbound(isolated_db, monk
 
     # Operator-disable the tool before dispatch.
     conn = await get_connection()
-    tool_repo = ToolConfigRepository(conn)
+    tool_repo = ToolConfigRepository(conn, get_encryptor(settings.data_dir))
     # Note (reviewer-surfaced footgun): upsert's ON CONFLICT writes
     # config=excluded.config, so passing config={} on a re-enable would
     # overwrite any pre-existing config dict to empty. For
@@ -307,7 +309,7 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
     monkeypatch.setattr(_StubClient, "send", _send_noop)
 
     conn = await get_connection()
-    tool_repo = ToolConfigRepository(conn)
+    tool_repo = ToolConfigRepository(conn, get_encryptor(settings.data_dir))
     await tool_repo.upsert(name="send_to_platform_channel", config={}, enabled=False)
 
     # First dispatch: tool is disabled, plain-text reply only. Use a

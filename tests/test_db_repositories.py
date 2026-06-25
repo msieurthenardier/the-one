@@ -98,8 +98,21 @@ def chat_repo(conn):
 
 
 @pytest.fixture
-def tool_config_repo(conn):
-    return ToolConfigRepository(conn)
+def tool_config_repo_encryptor(tmp_path):
+    # Function-scoped (default). Do NOT promote to module/session scope —
+    # would outlive the per-test `conn` fixture and create cross-test
+    # state leakage on the encryptor's in-memory key.
+    from cryptography.fernet import Fernet
+
+    from the_one.encryption import Encryptor
+
+    key = Fernet.generate_key()
+    return Encryptor(key, key_path=tmp_path / "tool_config.key")
+
+
+@pytest.fixture
+def tool_config_repo(conn, tool_config_repo_encryptor):
+    return ToolConfigRepository(conn, tool_config_repo_encryptor)
 
 
 # ── Agent Store ───────────────────────────────────────────────────────────
@@ -3256,6 +3269,78 @@ class TestToolConfigRepository:
 
         m = ToolConfig(name="x", enabled=1)
         assert m.enabled is True
+
+    # ── M16 F08 L03: encrypted secrets split ──────────────────────────────
+
+    async def test_secrets_round_trip_encrypt_on_write_decrypt_on_read(
+        self, tool_config_repo: ToolConfigRepository, conn
+    ) -> None:
+        """upsert encrypts the secrets blob; get/list decrypt it back."""
+        await tool_config_repo.upsert(
+            "web_search",
+            {"search_backend": "brave"},
+            secrets={"brave_api_key": "BRAVE-SECRET-123"},
+        )
+        got = await tool_config_repo.get("web_search")
+        assert got.config == {"search_backend": "brave"}
+        assert got.secrets == {"brave_api_key": "BRAVE-SECRET-123"}
+
+        # The on-disk column must be ciphertext — NOT the plaintext key.
+        async with conn.execute(
+            "SELECT secrets FROM tool_configs WHERE name = ?", ("web_search",)
+        ) as cur:
+            row = await cur.fetchone()
+        stored = row["secrets"]
+        assert "BRAVE-SECRET-123" not in stored
+        assert stored not in ("{}", '{"brave_api_key": "BRAVE-SECRET-123"}')
+
+    async def test_secrets_default_plaintext_decrypts_to_empty(
+        self, tool_config_repo: ToolConfigRepository, conn
+    ) -> None:
+        """A pre-existing row whose secrets column holds the plaintext '{}'
+        default (migration residue) decrypts to {} via InvalidToken
+        tolerance, NOT a crash."""
+        # Simulate the column default by writing the row WITHOUT going
+        # through the encrypting upsert path.
+        await conn.execute(
+            "INSERT INTO tool_configs (name, config, secrets, enabled, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
+            ("legacy_tool", "{}", "{}", 1),
+        )
+        await conn.commit()
+        got = await tool_config_repo.get("legacy_tool")
+        assert got.secrets == {}
+
+        # Next write re-encrypts the column.
+        await tool_config_repo.upsert("legacy_tool", {}, secrets={"k": "v"})
+        again = await tool_config_repo.get("legacy_tool")
+        assert again.secrets == {"k": "v"}
+
+    async def test_merged_config_folds_secrets_over_config(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        """ToolConfig.merged_config() returns {**config, **secrets}."""
+        await tool_config_repo.upsert(
+            "web_search",
+            {"search_backend": "tavily", "searxng_base_url": ""},
+            secrets={"tavily_api_key": "TAVILY-XYZ"},
+        )
+        got = await tool_config_repo.get("web_search")
+        merged = got.merged_config()
+        assert merged == {
+            "search_backend": "tavily",
+            "searxng_base_url": "",
+            "tavily_api_key": "TAVILY-XYZ",
+        }
+
+    async def test_upsert_without_secrets_kwarg_is_backward_compatible(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        """Existing callers omitting `secrets` get an empty secrets blob."""
+        await tool_config_repo.upsert("shell", {"timeout": 5}, enabled=True)
+        got = await tool_config_repo.get("shell")
+        assert got.secrets == {}
+        assert got.merged_config() == {"timeout": 5}
 
 
 # ── Pending Approval Repository ──────────────────────────────────────────

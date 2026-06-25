@@ -59,6 +59,10 @@ class OllamaProvider(LLMProvider):
     """
 
     name = "ollama"
+    # M16 F08 L01 (MEDIUM-1): single public accessor (the governor + the
+    # stream accumulator both read this), replacing the bare module-constant
+    # passed only into ``_StreamAccumulator``.
+    bytes_per_token = BYTES_PER_TOKEN_OLLAMA
 
     def __init__(
         self,
@@ -209,7 +213,7 @@ class OllamaProvider(LLMProvider):
         usage: TokenUsage | None = None
         # F7 L04 / M12 F6 L1: shared accumulator for tool-call deltas and
         # mid-stream interim-usage emission (Ollama-specific bytes-per-token).
-        acc = _StreamAccumulator(bytes_per_token=BYTES_PER_TOKEN_OLLAMA)
+        acc = _StreamAccumulator(bytes_per_token=self.bytes_per_token)
 
         async for chunk_dict in ollama_api.chat_stream(
             self.base_url, body, headers=self._auth_headers()

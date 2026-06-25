@@ -255,8 +255,17 @@ with the unsandboxed Windows posture.
   `LLMProviderRepository`. Key rotation is exposed via
   `POST /api/encryption/rotate` (gated by the Origin-allowlist
   middleware).
+- **MCP source, connector, and built-in tool-config secrets**: same
+  Fernet field-segregated `config`+`secrets` encryption-at-rest as the
+  provider keys. Built-in tool secrets (schema v32 `tool_configs.secrets`)
+  are marker-driven — any tool Config field tagged `secret: true` is
+  stored encrypted and masked over the API. `web_search`'s keyed-engine
+  API keys (Brave/Google PSE/Tavily) are the first consumers. See
+  `the_one/agents.md` "Tool config secrets storage".
 - **`__MASKED__` sentinel**: provider edit form preserves stored API keys
-  when the operator hasn't touched the field. See [CLAUDE.md](CLAUDE.md)
+  when the operator hasn't touched the field. The same mask-shape +
+  preserve-on-masked semantics apply to MCP, connector, and tool-config
+  secret fields. See [CLAUDE.md](CLAUDE.md)
   "`__MASKED__` sentinel for API key updates".
 - `.env` is gitignored.
 - No secrets land in any committed file (e.g. `.env.example`, which carries

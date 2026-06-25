@@ -5,15 +5,19 @@ from typing import Any
 
 import httpx
 
-from the_one.tools._search_backends import SearchBackend
+from the_one.tools._search_backends import (
+    SearchBackend,
+    SearchBlockedError,
+    SearchError,
+)
 from the_one.tools._web_config import (
     SSRFGuardedTransport,
     WebConfig,
-    _cap_tool_text,
     _is_binary_content_type,
     _truncate_response,
     _url_check,
 )
+from the_one.tools._web_search_config import WebSearchConfig
 from the_one.tools.base import ConstraintError, Tool
 from the_one.tools.filesystem import CheckMode, FilesystemConfig, _filesystem_check
 
@@ -210,7 +214,12 @@ class HttpRequestTool(Tool):
                             cfg,
                             content_type=ct,
                         )
-                        text = _cap_tool_text(text, cfg.tool_text_cap_bytes)
+                        # M16 F08 L01 (HIGH-1): the per-tool LLM-facing cap is
+                        # retired — the central context-budget governor in
+                        # ``Agent._execute_tool`` now bounds every tool result
+                        # uniformly. ``response_size_cap_bytes`` (the 1 MB
+                        # streaming hard-abort, applied above) is the surviving
+                        # transport/OOM safety cap.
                         return f"[{resp.status_code}]\n{text}"
 
                 return await asyncio.wait_for(
@@ -319,13 +328,15 @@ class FetchUrlTool(Tool):
                             text, _ = _truncate_response(
                                 markdown.encode("utf-8"), cfg, content_type=None
                             )
-                            text = _cap_tool_text(text, cfg.tool_text_cap_bytes)
+                            # M16 F08 L01 (HIGH-1): per-tool LLM cap retired;
+                            # the central governor bounds this result.
                             return f"[{resp.status_code}]\n{text}"
                         # Other text (text/plain, application/json, etc.) — pass
                         # through ``_truncate_response`` directly.
                         buf = await _stream_read_with_cap(resp, cfg.response_size_cap_bytes)
                         text, _ = _truncate_response(bytes(buf), cfg, content_type=ct)
-                        text = _cap_tool_text(text, cfg.tool_text_cap_bytes)
+                        # M16 F08 L01 (HIGH-1): per-tool LLM cap retired; the
+                        # central governor bounds this result.
                         return f"[{resp.status_code}]\n{text}"
 
                 return await asyncio.wait_for(
@@ -471,11 +482,15 @@ class WebSearchTool(Tool):
         "required": ["query"],
     }
 
-    Config = WebConfig
+    # M16 F08 L02: ``web_search`` migrates off the shared ``WebConfig`` onto its
+    # own ``WebSearchConfig`` (engine selector + per-engine fields). It never
+    # read ``WebConfig`` fields (it consumes only the injected ``SearchBackend``),
+    # so the split is safe. The other web tools keep ``WebConfig``.
+    Config = WebSearchConfig
     # F5 L6: declares the cross-Config dependency on the SearchBackend
     # protocol — `BuiltinToolProvider.get_tools` injects the chosen
-    # backend (F5: only `DDGSearchBackend`; F6: operator pick) into
-    # `cross_configs[SearchBackend]`.
+    # backend (built by `build_search_backend` from the resolved
+    # `WebSearchConfig`) into `cross_configs[SearchBackend]`.
     Requires = (SearchBackend,)
 
     async def execute(self, query: str, max_results: int = 5, **kwargs: Any) -> str:
@@ -491,9 +506,19 @@ class WebSearchTool(Tool):
                 return "No results found."
             return "\n\n".join(f"- {r.title}\n  {r.url}\n  {r.snippet}" for r in results)
         except ConstraintError as e:
-            # Defensive — current `DDGSearchBackend` does not raise these,
-            # but a future operator-policy-aware backend may.
+            # Defensive — a backend's per-call SSRF-guarded transport may raise
+            # this (e.g. the configured SearXNG host resolves to a blocked IP).
             return f"[error] [constraint] {e}"
+        except SearchError as e:
+            # M16 F08 L02 (HIGH-3) — honest-empty contract. A backend raised a
+            # typed error: surface it honestly instead of collapsing to "No
+            # results found." so the model doesn't mistake a broken search for
+            # "the web has nothing." `SearchBlockedError` => blocked/throttled;
+            # `SearchUnavailableError` (and any other `SearchError`) =>
+            # unavailable/misconfigured.
+            backend_name = getattr(self._cross_configs.get(SearchBackend), "name", "unknown")
+            kind = "blocked/throttled" if isinstance(e, SearchBlockedError) else "unavailable"
+            return f"[error] web_search ({backend_name}) {kind}: {e}"
         except Exception as e:
             # Backend-side failures (network errors, httpx timeouts, parsing
             # errors) surface here. No dedicated timeout clause: the

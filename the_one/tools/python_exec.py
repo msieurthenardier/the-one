@@ -22,6 +22,9 @@ from the_one.tools.filesystem import FilesystemConfig
 
 class PythonExecTool(Tool):
     name = "python_exec"
+    # M16 F08 L01 (HIGH-2): tail-preserve under the context-budget governor —
+    # the [exit code: N] suffix + stderr tail (traceback) must survive.
+    truncation_direction = "tail"
     description = (
         "Execute Python code in a one-shot subprocess. Prefer this over `shell` "
         "for computation, parsing, or any multi-line Python; use "

@@ -6,6 +6,7 @@ import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from the_one.agent._context import current_tool_call_id
+from the_one.agent._governor import govern_tool_content, governor_defaults
 from the_one.agent.config import BASE_PROMPT, CHAT_ONLY_PROMPT
 from the_one.db.codec import truncate_for_event
 from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall, ToolResult
@@ -532,6 +533,31 @@ class Agent:
         async for msg in self._run_iterations():
             yield msg
 
+    def _govern(self, content: str, direction: str = "head") -> str:
+        """Bound a tool-result string to the model's context-budget (DD1).
+
+        M16 F08 L01: the single governance chokepoint. ``self.llm.bytes_per_token``
+        and ``self.llm.max_context_tokens`` (resolved on the first ``stream()``
+        before any tool dispatch; sane class-attr fallback otherwise) feed the
+        pure ``govern_tool_content`` helper. Env-overridable fraction/floor/
+        ceiling are read at call time via ``governor_defaults()``.
+
+        Both LLM values are read with ``getattr`` defaults so a custom provider
+        (or a minimal test double) that doesn't set them can't crash tool
+        dispatch — they fall back to the ``LLMProvider`` base defaults, and the
+        helper itself floors a missing/absurd ``max_context_tokens`` (LOW-2).
+        """
+        fraction, floor, ceiling = governor_defaults()
+        return govern_tool_content(
+            content,
+            getattr(self.llm, "max_context_tokens", None),
+            fraction=fraction,
+            floor=floor,
+            ceiling=ceiling,
+            direction=direction,  # type: ignore[arg-type]
+            bytes_per_token=getattr(self.llm, "bytes_per_token", 4.0),
+        )
+
     async def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
         # F6 L3: bind tool_call_id into the per-task ContextVar so the
         # MCP pool's _entry_worker (and the OAuth handlers it wires)
@@ -552,6 +578,12 @@ class Agent:
                 # — the guarantee is best-effort on tool cooperation.
                 timeout = _get_tool_call_timeout()
                 output = await asyncio.wait_for(tool.execute(**args), timeout=timeout)
+                # M16 F08 L01 (DD1 / LOW-3): govern the normal-path output so no
+                # single tool result can consume a disproportionate share of the
+                # context window. Direction is tool-declared (head for prose/
+                # pages/files; tail for shell/exec so the [exit code]/stderr tail
+                # survives). The auth-required sentinel below is NOT governed.
+                output = self._govern(output, tool.truncation_direction)
                 return ToolResult(tool_call_id=tool_call.id, content=output)
             except MCPAuthRequired as e:
                 # F5 L4 (A10): MCP tool requires user re-authentication.
@@ -578,13 +610,15 @@ class Agent:
                 # The outer ``finally`` still resets ``current_tool_call_id``.
                 return ToolResult(
                     tool_call_id=tool_call.id,
-                    content=f"tool {tool_call.name} timed out after {timeout:.0f}s",
+                    content=self._govern(f"tool {tool_call.name} timed out after {timeout:.0f}s"),
                     is_error=True,
                 )
             except Exception as e:
+                # M16 F08 L01: govern the error string too — a tool may surface a
+                # large exception payload (e.g. an embedded response body).
                 return ToolResult(
                     tool_call_id=tool_call.id,
-                    content=f"[error] Tool execution failed: {e}",
+                    content=self._govern(f"[error] Tool execution failed: {e}"),
                     is_error=True,
                 )
         finally:

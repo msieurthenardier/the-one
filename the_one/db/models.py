@@ -683,9 +683,23 @@ class ToolConfig(BaseModel):
 
     name: str
     config: dict = Field(default_factory=dict)
+    secrets: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
+
+    def merged_config(self) -> dict[str, Any]:
+        """Return a flat dict combining `config` and `secrets`.
+
+        Used by the agent factory's resolver feed (`factory.py`) so the
+        tool-policy resolver / `build_search_backend` receive the REAL
+        decrypted secret values (api keys), not the masked admin-GET view.
+
+        Secrets win on key collision so an operator-marked-secret field
+        overrides any plaintext default of the same name. Mirrors
+        `MCPSource.merged_config()`.
+        """
+        return {**self.config, **self.secrets}
 
 
 class ChatSession(BaseModel):

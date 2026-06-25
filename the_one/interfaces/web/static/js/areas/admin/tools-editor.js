@@ -237,6 +237,38 @@
     return JSON.stringify(snap);
   }
 
+  // Generic conditional-visibility pass (F08 leg 04). For each property
+  // carrying `show_if = {ctrlField: value}`, find the field's row and hide
+  // it unless the controlling field's CURRENT value === value. Hidden rows
+  // stay in the DOM (display:none via `is-hidden`) so getFormSnapshot keeps
+  // submitting them — an already-entered secret survives an engine switch.
+  // Reads the schema only; no field names are hardcoded.
+  function applyShowIf(container, properties) {
+    var helpers = window.App.adminFormHelpers;
+    for (var fname in properties) {
+      if (!Object.prototype.hasOwnProperty.call(properties, fname)) continue;
+      var prop = properties[fname];
+      var cond = prop && prop.show_if;
+      if (!cond || typeof cond !== 'object') continue;
+      var row = container.querySelector('.tools-editor-field[data-field-name="' + helpers.cssEscape(fname) + '"]');
+      if (!row) continue;
+      var visible = true;
+      for (var ctrl in cond) {
+        if (!Object.prototype.hasOwnProperty.call(cond, ctrl)) continue;
+        var ctrlEl = container.querySelector('[data-field="' + helpers.cssEscape(ctrl) + '"]');
+        var ctrlVal = ctrlEl ? helpers.readFieldValue(ctrlEl) : undefined;
+        if (String(ctrlVal) !== String(cond[ctrl])) { visible = false; break; }
+      }
+      if (visible) {
+        row.classList.remove('is-hidden');
+        row.removeAttribute('aria-hidden');
+      } else {
+        row.classList.add('is-hidden');
+        row.setAttribute('aria-hidden', 'true');
+      }
+    }
+  }
+
   function wireEvents(container, toolDetail, originalToolDetail, fieldNames, properties, callbacks) {
     var helpers = window.App.adminFormHelpers;
     var snapshot = getFormSnapshot(container, fieldNames);
@@ -299,6 +331,63 @@
           checkDirty();
         });
       })(chipEditors[j]);
+    }
+
+    // ── Eye-toggle for masked secret fields (F08 leg 04) ────────────
+    // Ported from provider-editor.js:236-251, but the input is selected BY
+    // STRUCTURE (the input inside the same .api-key-wrap) rather than by a
+    // provider-specific class — the tools form may have several masked
+    // secret fields (WebSearchConfig's google_pse/brave/tavily keys), each
+    // in its own wrapper. Toggles type password↔text, swaps the eye/eye-off
+    // icon, swaps the aria-label.
+    var eyeBtns = container.querySelectorAll('.api-key-eye');
+    for (var e = 0; e < eyeBtns.length; e++) {
+      (function (eyeBtn) {
+        var wrap = eyeBtn.closest('.api-key-wrap');
+        var passwordInput = wrap ? wrap.querySelector('input') : null;
+        if (!passwordInput) return;
+        eyeBtn.addEventListener('click', function () {
+          if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            eyeBtn.innerHTML = window.App.icon('eye-off');
+            eyeBtn.setAttribute('aria-label', 'Hide password');
+          } else {
+            passwordInput.type = 'password';
+            eyeBtn.innerHTML = window.App.icon('eye');
+            eyeBtn.setAttribute('aria-label', 'Show password');
+          }
+        });
+      })(eyeBtns[e]);
+    }
+
+    // ── Generic show_if conditional visibility (F08 leg 04) ─────────
+    // A field whose schema carries `show_if = {ctrlField: value}` is hidden
+    // unless the current value of [data-field="ctrlField"] === value. Read
+    // straight from the schema (NOT hardcoded to search_backend) so any
+    // field controlled by any sibling participates. Hidden rows stay in the
+    // DOM (so getFormSnapshot still submits them — preserving an entered key
+    // across engine switches); they get `is-hidden` (display:none) +
+    // aria-hidden="true". applyShowIf runs once after render, and on every
+    // change of a controlling field (which also re-runs checkDirty).
+    applyShowIf(container, properties);
+    var ctrlFields = {};
+    for (var pk in properties) {
+      if (!Object.prototype.hasOwnProperty.call(properties, pk)) continue;
+      var si = properties[pk] && properties[pk].show_if;
+      if (si && typeof si === 'object') {
+        for (var ck in si) {
+          if (Object.prototype.hasOwnProperty.call(si, ck)) ctrlFields[ck] = true;
+        }
+      }
+    }
+    for (var cf in ctrlFields) {
+      if (!Object.prototype.hasOwnProperty.call(ctrlFields, cf)) continue;
+      var ctrlEl = container.querySelector('[data-field="' + helpers.cssEscape(cf) + '"]');
+      if (!ctrlEl) continue;
+      ctrlEl.addEventListener('change', function () {
+        applyShowIf(container, properties);
+        checkDirty();
+      });
     }
 
     // Back delegates to orchestrator — orchestrator owns the dirty gate.

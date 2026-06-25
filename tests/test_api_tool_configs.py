@@ -44,6 +44,22 @@ async def client(tmp_path):
     await conn.close()
 
 
+async def _conn_for(client: AsyncClient):
+    """Return the same isolated connection the API handlers use.
+
+    The `client` fixture patches `the_one.interfaces.web.api.get_connection`
+    to return the per-test connection; calling it here yields that same
+    connection so a test can build a repo against the DB the handlers wrote
+    to (M16 F08 L03 secret-split assertions read the raw `config`/`secrets`).
+    """
+    from the_one.interfaces.web.api import get_connection
+
+    result = get_connection()
+    if hasattr(result, "__await__"):
+        return await result
+    return result
+
+
 # ── GET /api/tools/configs ────────────────────────────────────────────────
 
 
@@ -92,11 +108,15 @@ class TestGetToolConfig:
         """Returns `{name, enabled, config, description, schema}` with
         `schema["properties"][field]["x_marker"]` populated for marker-
         bearing fields. Confirms the helper covers all marker types
-        via WebConfig (Narrow + NarrowSuperset + Substitute)."""
-        resp = await client.get("/api/tools/configs/web_search")
+        via WebConfig (Narrow + NarrowSuperset + Substitute).
+
+        M16 F08 L02: re-pointed off `web_search` (now `WebSearchConfig`) onto
+        `http_request`, which still carries `WebConfig`'s Narrow /
+        NarrowSuperset / Substitute marker mix."""
+        resp = await client.get("/api/tools/configs/http_request")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["name"] == "web_search"
+        assert data["name"] == "http_request"
         assert data["enabled"] is True
         assert data["config"] == {}
         assert isinstance(data["description"], str) and data["description"]
@@ -152,9 +172,11 @@ class TestGetToolConfig:
 class TestUpsertToolConfig:
     async def test_put_validates_config_against_schema(self, client: AsyncClient) -> None:
         """Negative bound on a `>= 0` field → 422."""
-        # `timeout_seconds_max` has `ge=1` per WebConfig — -1 violates.
+        # M16 F08 L02: re-pointed off `web_search` (now `WebSearchConfig`, no
+        # `timeout_seconds_max`) onto `http_request`, which still uses
+        # `WebConfig`. `timeout_seconds_max` has `ge=1` per WebConfig — -1 violates.
         resp = await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"config": {"timeout_seconds_max": -1}},
         )
         assert resp.status_code == 422
@@ -170,9 +192,12 @@ class TestUpsertToolConfig:
 
         WebConfig has a model-validator requiring
         `timeout_seconds_default <= timeout_seconds_max`. Submit a config
-        that violates that without violating any field-level bound."""
+        that violates that without violating any field-level bound.
+
+        M16 F08 L02: re-pointed off `web_search` onto `http_request` (still
+        WebConfig — the model-validator lives there)."""
         resp = await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"config": {"timeout_seconds_max": 10}},
         )
         assert resp.status_code == 422, resp.text
@@ -190,13 +215,15 @@ class TestUpsertToolConfig:
                 assert isinstance(v, (str, int, float, bool, list, dict, type(None))), v
 
     async def test_put_persists_enabled_and_config(self, client: AsyncClient) -> None:
+        # M16 F08 L02: re-pointed off `web_search` onto `http_request` (still
+        # WebConfig — `timeout_seconds_max` is a WebConfig field).
         resp = await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"enabled": False, "config": {"timeout_seconds_max": 100}},
         )
         assert resp.status_code == 200
         # Subsequent GET shows the values.
-        resp = await client.get("/api/tools/configs/web_search")
+        resp = await client.get("/api/tools/configs/http_request")
         data = resp.json()
         assert data["enabled"] is False
         assert data["config"]["timeout_seconds_max"] == 100
@@ -205,9 +232,13 @@ class TestUpsertToolConfig:
         """REPLACE-not-merge: existing override `host_allowlist=["a.com"]`
         + `timeout_seconds_max=99`; PUT `{"config": {"timeout_seconds_max":
         100}}` → `host_allowlist` is gone (replaced by Config's default),
-        `timeout_seconds_max == 100`."""
+        `timeout_seconds_max == 100`.
+
+        M16 F08 L02: re-pointed off `web_search` onto `http_request` (still
+        WebConfig — `host_allowlist` / `timeout_seconds_max` are WebConfig
+        fields)."""
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={
                 "config": {
                     "timeout_seconds_max": 99,
@@ -217,10 +248,10 @@ class TestUpsertToolConfig:
         )
         # Replace with a new, different config dict.
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"config": {"timeout_seconds_max": 100}},
         )
-        resp = await client.get("/api/tools/configs/web_search")
+        resp = await client.get("/api/tools/configs/http_request")
         cfg = resp.json()["config"]
         assert cfg["timeout_seconds_max"] == 100
         # `host_allowlist` is back to the WebConfig default (empty list).
@@ -230,18 +261,21 @@ class TestUpsertToolConfig:
         """Existing row `enabled=False, config={"timeout_seconds_max": 100}`;
         PUT `{"enabled": true}` (no `config`) → row becomes
         `enabled=True` AND `config={"timeout_seconds_max": 100}` (unchanged
-        — well, validated against the WebConfig defaults)."""
+        — well, validated against the WebConfig defaults).
+
+        M16 F08 L02: re-pointed off `web_search` onto `http_request` (still
+        WebConfig)."""
         # Seed
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"enabled": False, "config": {"timeout_seconds_max": 100}},
         )
         # PUT only `enabled`
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"enabled": True},
         )
-        resp = await client.get("/api/tools/configs/web_search")
+        resp = await client.get("/api/tools/configs/http_request")
         data = resp.json()
         assert data["enabled"] is True
         # `config` preserved verbatim from the prior write — including
@@ -252,14 +286,14 @@ class TestUpsertToolConfig:
         # Symmetric: PUT `{"config": ...}` with no `enabled` preserves enabled.
         # First flip enabled back to False, then PUT a config-only update.
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"enabled": False},
         )
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"config": {"timeout_seconds_max": 60}},
         )
-        resp = await client.get("/api/tools/configs/web_search")
+        resp = await client.get("/api/tools/configs/http_request")
         data = resp.json()
         # `enabled` preserved at False (was not in the second body).
         assert data["enabled"] is False
@@ -268,10 +302,13 @@ class TestUpsertToolConfig:
     async def test_put_with_empty_config_wipes_to_defaults(self, client: AsyncClient) -> None:
         """PUT `{"config": {}}` with an existing row carrying overrides
         → `model_validate({})` succeeds; saved `config` becomes the
-        Config's default-dump (every field at its default value)."""
+        Config's default-dump (every field at its default value).
+
+        M16 F08 L02: re-pointed off `web_search` onto `http_request` (still
+        WebConfig)."""
         # Seed with overrides
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={
                 "config": {
                     "timeout_seconds_max": 99,
@@ -281,10 +318,10 @@ class TestUpsertToolConfig:
         )
         # Wipe to defaults
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/http_request",
             json={"config": {}},
         )
-        resp = await client.get("/api/tools/configs/web_search")
+        resp = await client.get("/api/tools/configs/http_request")
         cfg = resp.json()["config"]
         # Defaults match WebConfig declared defaults.
         assert cfg["timeout_seconds_max"] == 120  # WebConfig default
@@ -295,6 +332,158 @@ class TestUpsertToolConfig:
     async def test_put_for_unknown_tool(self, client: AsyncClient) -> None:
         resp = await client.put("/api/tools/configs/nonexistent", json={"enabled": False})
         assert resp.status_code == 404
+
+
+# ── M16 F08 L03: secret-field split (web_search keyed-engine API keys) ─────
+
+
+class TestToolConfigSecrets:
+    """GET masks secret-marked fields; PUT splits them into the encrypted
+    secrets store (absent from `config`), preserves on masked re-save, and
+    replaces on a real new value."""
+
+    async def test_put_then_get_masks_secret_and_omits_from_config_column(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT a real `brave_api_key`; GET returns it MASKED; the persisted
+        `config` column has NO plaintext key (it lives in `secrets`)."""
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import get_encryptor
+
+        resp = await client.put(
+            "/api/tools/configs/web_search",
+            json={
+                "config": {
+                    "search_backend": "brave",
+                    "brave_api_key": "BRAVE-REAL-SECRET-9999",
+                }
+            },
+        )
+        assert resp.status_code == 200
+        # Response masks the secret.
+        body = resp.json()
+        assert body["config"]["brave_api_key"] != "BRAVE-REAL-SECRET-9999"
+        assert body["config"]["brave_api_key"].startswith("***")
+        # Non-secret field unchanged.
+        assert body["config"]["search_backend"] == "brave"
+
+        # GET masks too.
+        resp = await client.get("/api/tools/configs/web_search")
+        cfg = resp.json()["config"]
+        assert cfg["brave_api_key"].startswith("***")
+        assert "BRAVE-REAL-SECRET-9999" not in cfg["brave_api_key"]
+
+        # The persisted `config` COLUMN must NOT carry the plaintext key.
+        from the_one.config import settings
+
+        conn = await _conn_for(client)
+        repo = ToolConfigRepository(conn, get_encryptor(settings.data_dir))
+        row = await repo.get("web_search")
+        assert "brave_api_key" not in row.config, (
+            f"secret key leaked into config column: {row.config}"
+        )
+        assert row.secrets.get("brave_api_key") == "BRAVE-REAL-SECRET-9999"
+
+    async def test_put_preserves_secret_on_masked_resave(self, client: AsyncClient) -> None:
+        """Save a real key, then re-save with the MASKED value → the stored
+        secret is preserved, not overwritten with the mask string."""
+        await client.put(
+            "/api/tools/configs/web_search",
+            json={"config": {"search_backend": "brave", "brave_api_key": "ORIGINAL-KEY-12345"}},
+        )
+        # Read back the masked value the form would echo.
+        masked = (await client.get("/api/tools/configs/web_search")).json()["config"][
+            "brave_api_key"
+        ]
+        # Re-save with the mask in place (operator didn't touch the field).
+        await client.put(
+            "/api/tools/configs/web_search",
+            json={"config": {"search_backend": "brave", "brave_api_key": masked}},
+        )
+        from the_one.config import settings
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import get_encryptor
+
+        conn = await _conn_for(client)
+        repo = ToolConfigRepository(conn, get_encryptor(settings.data_dir))
+        row = await repo.get("web_search")
+        assert row.secrets["brave_api_key"] == "ORIGINAL-KEY-12345"
+
+    async def test_put_replaces_secret_on_real_new_value(self, client: AsyncClient) -> None:
+        """A real new value overwrites the stored secret."""
+        await client.put(
+            "/api/tools/configs/web_search",
+            json={"config": {"search_backend": "brave", "brave_api_key": "OLD-KEY"}},
+        )
+        await client.put(
+            "/api/tools/configs/web_search",
+            json={"config": {"search_backend": "brave", "brave_api_key": "NEW-KEY-67890"}},
+        )
+        from the_one.config import settings
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import get_encryptor
+
+        conn = await _conn_for(client)
+        repo = ToolConfigRepository(conn, get_encryptor(settings.data_dir))
+        row = await repo.get("web_search")
+        assert row.secrets["brave_api_key"] == "NEW-KEY-67890"
+
+    async def test_put_masked_value_with_no_existing_secret_is_dropped(
+        self, client: AsyncClient
+    ) -> None:
+        """Operator pastes a mask-shaped value into a blank field with no
+        stored secret → it is dropped (cleared), never stored as the mask."""
+        await client.put(
+            "/api/tools/configs/web_search",
+            json={"config": {"search_backend": "brave", "brave_api_key": "***...abcd"}},
+        )
+        from the_one.config import settings
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import get_encryptor
+
+        conn = await _conn_for(client)
+        repo = ToolConfigRepository(conn, get_encryptor(settings.data_dir))
+        row = await repo.get("web_search")
+        assert "brave_api_key" not in row.secrets
+        assert "brave_api_key" not in row.config
+
+    async def test_no_secret_tool_config_unchanged(self, client: AsyncClient) -> None:
+        """A tool with NO secret fields (http_request / WebConfig) behaves
+        exactly as before: config persisted verbatim, secrets empty."""
+        await client.put(
+            "/api/tools/configs/http_request",
+            json={"config": {"timeout_seconds_max": 88}},
+        )
+        resp = await client.get("/api/tools/configs/http_request")
+        cfg = resp.json()["config"]
+        assert cfg["timeout_seconds_max"] == 88
+
+        from the_one.config import settings
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import get_encryptor
+
+        conn = await _conn_for(client)
+        repo = ToolConfigRepository(conn, get_encryptor(settings.data_dir))
+        row = await repo.get("http_request")
+        assert row.secrets == {}
+
+    def test_secret_field_names_parity_with_web_search_secret_fields(self) -> None:
+        """The generic `_secret_field_names(WebSearchConfig)` must equal the
+        single-source-of-truth `WEB_SEARCH_SECRET_FIELDS` tuple (leg 2)."""
+        from the_one.interfaces.web.api import _secret_field_names
+        from the_one.tools._web_search_config import (
+            WEB_SEARCH_SECRET_FIELDS,
+            WebSearchConfig,
+        )
+
+        assert _secret_field_names(WebSearchConfig) == set(WEB_SEARCH_SECRET_FIELDS)
+
+    def test_secret_field_names_empty_for_no_secret_config(self) -> None:
+        """A Config with no `secret`-marked fields returns an empty set."""
+        from the_one.interfaces.web.api import _secret_field_names
+        from the_one.tools.web import WebConfig
+
+        assert _secret_field_names(WebConfig) == set()
 
 
 # ── POST /api/tools/configs/{name}/test ───────────────────────────────────
@@ -417,21 +606,34 @@ class TestTestEndpoint:
     async def test_test_endpoint_named_tool_isolation(
         self, client: AsyncClient, monkeypatch
     ) -> None:
-        """Operator saves `web_search` with `host_denylist=["example.com"]`
+        """Operator saves `download_file` with `host_denylist=["example.com"]`
         AND `http_request` (also WebConfig) with NO denylist additions.
         POST /configs/fetch_url/test (which uses WebConfig). The endpoint
         must use `fetch_url`'s saved row (empty in this case → defaults)
-        — NOT `http_request`'s and NOT `web_search`'s. Codifies the
-        named-tool re-keying behaviour."""
-        # Save `web_search` with a denylist.
+        — NOT `http_request`'s and NOT `download_file`'s. Codifies the
+        named-tool re-keying behaviour.
+
+        M16 F08 L02: `web_search` migrated off `WebConfig` onto its own
+        `WebSearchConfig`, so it is no longer a WebConfig re-keying sibling
+        (the re-keying groups tools sharing `named_config_class`). The
+        WebConfig sibling that carries the planted denylist is now
+        `download_file`; `web_search` keeps its OWN row untouched (it is not a
+        sibling)."""
+        # Save `download_file` (a WebConfig sibling) with a denylist.
         await client.put(
-            "/api/tools/configs/web_search",
+            "/api/tools/configs/download_file",
             json={"config": {"host_denylist": ["example.com"]}},
         )
         # Save `http_request` empty (defaults).
         await client.put(
             "/api/tools/configs/http_request",
             json={"config": {}},
+        )
+        # Save `web_search` (non-sibling) with a non-default backend so we can
+        # assert it is NOT re-keyed away by the WebConfig grouping.
+        await client.put(
+            "/api/tools/configs/web_search",
+            json={"config": {"search_backend": "tavily"}},
         )
         # `fetch_url` has no saved row → operator default (no denylist).
 
@@ -462,17 +664,19 @@ class TestTestEndpoint:
         resp = await client.post("/api/tools/configs/fetch_url/test")
         assert resp.status_code == 200
 
-        # Re-keying assertion: every tool sharing WebConfig (web_search,
-        # fetch_url, http_request, download_file) should carry
-        # fetch_url's saved row (empty dict) in `tool_configs`.
+        # Re-keying assertion: every WebConfig sibling (fetch_url, http_request,
+        # download_file) carries fetch_url's saved row (empty dict).
         tcs = captured["tool_configs"]
         assert tcs["fetch_url"] == {}, "fetch_url should keep its own saved row (empty)"
-        # Re-keyed siblings: the named tool's row replaces theirs.
-        assert tcs["web_search"] == {}, "web_search must be re-keyed to fetch_url's empty row"
         assert tcs["http_request"] == {}, "http_request must be re-keyed to fetch_url's empty row"
+        assert tcs["download_file"] == {}, "download_file must be re-keyed to fetch_url's empty row"
+        # `web_search` is NOT a WebConfig sibling (it uses WebSearchConfig), so
+        # its own row is preserved — proves the re-keying is scoped to the
+        # named Config class, not all web tools.
+        assert tcs["web_search"]["search_backend"] == "tavily"
         # And the resulting fetch_url request is NOT denied — the
         # endpoint succeeded with [200] from the fixture transport.
-        # (If the re-keying were broken, web_search's denylist would
+        # (If the re-keying were broken, download_file's denylist would
         # have been propagated through cross_configs[WebConfig] and
         # the request would have been refused.)
         assert "[200]" in resp.json()["output"]

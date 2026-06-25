@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 
 import platformdirs
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -61,11 +61,41 @@ class Settings(BaseSettings):
     # Dev mode (gates the mock provider type)
     dev_mode: bool = False
 
+    # Chat telemetry overlay — context-fullness warn/critical thresholds (percent
+    # of the model's context window). Plumbed to the frontend via /api/config and
+    # read by telemetry-overlay.js to color the bar (warn → orange, crit → red)
+    # and emit a non-color a11y signal. Env-overridable
+    # (THE_ONE_CONTEXT_WARN_PCT / _CRIT_PCT); invalid combinations clamp back to
+    # the 70/90 defaults (see the validator below). M16 F08 L05.
+    context_warn_pct: int = 70
+    context_crit_pct: int = 90
+
     # Paths — resolved via platformdirs to the OS-conventional per-user data dir.
     # Use default_factory so platformdirs is not evaluated at class-definition time
     # and so that model_fields_set correctly reflects whether data_dir was explicitly
     # supplied (env-sourced or init-kwargs) vs left to the factory default.
     data_dir: Path = Field(default_factory=_default_data_dir)
+
+    @model_validator(mode="after")
+    def _clamp_context_thresholds(self) -> Settings:
+        """Guard the context-fullness thresholds: require
+        ``0 < warn < crit <= 100``. An invalid combination (warn≥crit, out of
+        range, etc.) CLAMPS both back to the 70/90 defaults and logs a warning —
+        it must NOT raise, because this validator runs at ``Settings()``
+        construction during boot and a raised error would crash startup. This is
+        the single source of truth for threshold sanity; ``/api/config`` can then
+        emit the values unconditionally.
+        """
+        if not (0 < self.context_warn_pct < self.context_crit_pct <= 100):
+            logger.warning(
+                "Invalid context-fullness thresholds (warn=%s, crit=%s); "
+                "expected 0 < warn < crit <= 100. Resetting to defaults 70/90.",
+                self.context_warn_pct,
+                self.context_crit_pct,
+            )
+            self.context_warn_pct = 70
+            self.context_crit_pct = 90
+        return self
 
     @property
     def agents_dir(self) -> Path:

@@ -835,10 +835,26 @@ class ToolConfigRepository:
     exists or it doesn't, so there's no separate create/update split).
     `list_all()` is the resolver-facing convenience read; the resolver
     in L3 imports `list_all`, NOT `list`.
+
+    M16 F08 L03: carries an `encryptor` (BY REFERENCE — `install_key()`
+    post-rotation must propagate to live instances) and a `secrets`
+    column. Built-in tool secrets (e.g. `web_search`'s keyed-engine API
+    keys) encrypt on write / decrypt on read via the shared Fernet
+    helpers, mirroring `MCPSourceRepository`.
     """
 
-    def __init__(self, conn: aiosqlite.Connection) -> None:
+    def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor) -> None:
         self.conn = conn
+        self.encryptor = encryptor  # Reference, NOT copy — same rotation
+        # propagation contract as MCPSourceRepository.
+
+    def _secrets_to_ciphertext(self, secrets: dict[str, Any]) -> str:
+        """Delegates to :func:`_encrypt_secrets_blob`."""
+        return _encrypt_secrets_blob(self.encryptor, secrets)
+
+    def _ciphertext_to_secrets(self, ciphertext: str | None) -> dict[str, Any]:
+        """Delegates to :func:`_decrypt_secrets_blob`."""
+        return _decrypt_secrets_blob(self.encryptor, ciphertext)
 
     async def list(self) -> list[ToolConfig]:
         """Operator-UI-facing read; `list` shadows the builtin to match
@@ -863,8 +879,14 @@ class ToolConfigRepository:
             raise KeyError(f"Tool config not found: {name}")
         return self._row_to_model(row)
 
-    async def upsert(self, name: str, config: dict, enabled: bool = True) -> None:
+    async def upsert(
+        self, name: str, config: dict, secrets: dict | None = None, enabled: bool = True
+    ) -> None:
         """INSERT or REPLACE the config row, bumping `updated_at` on update.
+
+        `secrets` is a DEFAULTED kwarg (None → `{}`) so existing call
+        sites (`upsert(name, config[, enabled=…])`) keep working
+        unchanged; it is Fernet-encrypted into the `secrets` column.
 
         `enabled` defaults to True so existing call sites (resolver,
         factory) continue to work without modification. The F6 admin
@@ -878,16 +900,25 @@ class ToolConfigRepository:
         The L1 admin PUT endpoint sends the full row state, so the
         "last write wins" semantics are intentional for that surface.
         """
+        secrets = secrets or {}
         await self.conn.execute(
             """\
-            INSERT INTO tool_configs (name, config, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tool_configs (name, config, secrets, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 config=excluded.config,
+                secrets=excluded.secrets,
                 enabled=excluded.enabled,
                 updated_at=excluded.updated_at
             """,
-            (name, json.dumps(config), int(enabled), now_iso(), now_iso()),
+            (
+                name,
+                json.dumps(config),
+                self._secrets_to_ciphertext(secrets),
+                int(enabled),
+                now_iso(),
+                now_iso(),
+            ),
         )
         await self.conn.commit()
 
@@ -901,11 +932,12 @@ class ToolConfigRepository:
         async with self.conn.execute("SELECT 1 FROM tool_configs WHERE name = ?", (name,)) as cur:
             return await cur.fetchone() is not None
 
-    @staticmethod
-    def _row_to_model(row: aiosqlite.Row) -> ToolConfig:
+    def _row_to_model(self, row: aiosqlite.Row) -> ToolConfig:
+        keys = row.keys()
         return ToolConfig(
             name=row["name"],
             config=json.loads(row["config"] or "{}"),
+            secrets=self._ciphertext_to_secrets(row["secrets"] if "secrets" in keys else None),
             enabled=bool(row["enabled"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
