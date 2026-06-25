@@ -100,6 +100,21 @@ async def db_conn(tmp_path):
 
 
 @pytest.fixture
+def tool_encryptor(tmp_path):
+    """Real Fernet-backed Encryptor for the tool-config repo (M16 F08 L03).
+
+    Shared by both the seed-side `ToolConfigRepository(db_conn, ...)`
+    constructions and the patched `get_encryptor` the factory consumes,
+    so encrypt-on-write / decrypt-on-read round-trips under one key.
+    """
+    from cryptography.fernet import Fernet
+
+    from the_one.encryption import Encryptor
+
+    return Encryptor(Fernet.generate_key(), key_path=tmp_path / "tool_config.key")
+
+
+@pytest.fixture
 def store() -> InMemoryStore:
     return InMemoryStore()
 
@@ -124,6 +139,7 @@ async def _build_factory(
     store: InMemoryStore,
     cfg: AgentConfig,
     provider: StubProvider,
+    encryptor=None,
 ):
     await store.save(cfg)
     mock_provider_repo = AsyncMock()
@@ -137,7 +153,7 @@ async def _build_factory(
             new_callable=AsyncMock,
             return_value=conn,
         ),
-        patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+        patch("the_one.encryption.get_encryptor", return_value=encryptor or AsyncMock()),
         patch(
             "the_one.db.repositories.LLMProviderRepository",
             return_value=mock_provider_repo,
@@ -154,10 +170,10 @@ async def _build_factory(
 
 class TestDisableEnforcement:
     async def test_disabled_tool_excluded_from_registry(
-        self, db_conn, store: InMemoryStore
+        self, db_conn, store: InMemoryStore, tool_encryptor
     ) -> None:
         """Operator disables `web_search`; factory registry omits it."""
-        repo = ToolConfigRepository(db_conn)
+        repo = ToolConfigRepository(db_conn, tool_encryptor)
         await repo.upsert("web_search", {}, enabled=False)
 
         cfg = AgentConfig(
@@ -165,18 +181,18 @@ class TestDisableEnforcement:
             provider_config_id="test-provider",
             llm_model="stub-model",
         )
-        agent = await _build_factory(db_conn, store, cfg, StubProvider())
+        agent = await _build_factory(db_conn, store, cfg, StubProvider(), tool_encryptor)
         names = agent.tools.tool_names
         assert "web_search" not in names
         assert "fetch_url" in names
         assert "shell" in names
 
     async def test_disabled_tool_independent_of_per_agent_whitelist(
-        self, db_conn, store: InMemoryStore
+        self, db_conn, store: InMemoryStore, tool_encryptor
     ) -> None:
         """Operator disable wins even if the agent's `enabled_tools`
         whitelist names the tool."""
-        repo = ToolConfigRepository(db_conn)
+        repo = ToolConfigRepository(db_conn, tool_encryptor)
         await repo.upsert("web_search", {}, enabled=False)
 
         cfg = AgentConfig(
@@ -185,15 +201,15 @@ class TestDisableEnforcement:
             llm_model="stub-model",
             enabled_tools=["web_search", "fetch_url"],
         )
-        agent = await _build_factory(db_conn, store, cfg, StubProvider())
+        agent = await _build_factory(db_conn, store, cfg, StubProvider(), tool_encryptor)
         assert "web_search" not in agent.tools.tool_names
         assert "fetch_url" in agent.tools.tool_names
 
     async def test_re_enabling_restores_tool_to_registry(
-        self, db_conn, store: InMemoryStore
+        self, db_conn, store: InMemoryStore, tool_encryptor
     ) -> None:
         """Disable, then re-enable; the registry contains the tool again."""
-        repo = ToolConfigRepository(db_conn)
+        repo = ToolConfigRepository(db_conn, tool_encryptor)
         await repo.upsert("web_search", {}, enabled=False)
         await repo.upsert("web_search", {}, enabled=True)
 
@@ -202,11 +218,11 @@ class TestDisableEnforcement:
             provider_config_id="test-provider",
             llm_model="stub-model",
         )
-        agent = await _build_factory(db_conn, store, cfg, StubProvider())
+        agent = await _build_factory(db_conn, store, cfg, StubProvider(), tool_encryptor)
         assert "web_search" in agent.tools.tool_names
 
     async def test_per_agent_disable_independent_of_operator_disable(
-        self, db_conn, store: InMemoryStore
+        self, db_conn, store: InMemoryStore, tool_encryptor
     ) -> None:
         """Operator-enabled, agent-disabled (via `disabled_tools`); the
         tool is still absent. Confirms the two filters are independent."""
@@ -217,11 +233,51 @@ class TestDisableEnforcement:
             llm_model="stub-model",
             disabled_tools=["web_search"],
         )
-        agent = await _build_factory(db_conn, store, cfg, StubProvider())
+        agent = await _build_factory(db_conn, store, cfg, StubProvider(), tool_encryptor)
         assert "web_search" not in agent.tools.tool_names
         assert "fetch_url" in agent.tools.tool_names
 
-    async def test_factory_does_not_call_list_all(self, db_conn, store: InMemoryStore) -> None:
+    async def test_factory_feeds_real_secret_to_search_backend(
+        self, db_conn, store: InMemoryStore, tool_encryptor
+    ) -> None:
+        """KEYSTONE (M16 F08 L03): a saved `web_search` config with a real
+        encrypted `brave_api_key` reaches `build_search_backend` THROUGH THE
+        FACTORY path with the REAL key — not masked, not missing.
+
+        Exercises `AgentFactory.create()` → `repo.list()` →
+        `merged_config()` → `BuiltinToolProvider.get_tools` → `resolve` →
+        `build_search_backend`. NOT a direct `list_all()` call (that method
+        has no production consumer)."""
+        from the_one.tools._search_backends import SearchBackend
+        from the_one.tools.builtins import BuiltinToolProvider
+
+        repo = ToolConfigRepository(db_conn, tool_encryptor)
+        await repo.upsert(
+            "web_search",
+            {"search_backend": "brave"},
+            secrets={"brave_api_key": "BRAVE-REAL-FACTORY-KEY"},
+        )
+
+        cfg = AgentConfig(
+            name="agent-search",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+        )
+        agent = await _build_factory(db_conn, store, cfg, BuiltinToolProvider(), tool_encryptor)
+
+        # Pull the real WebSearchTool out of the built registry and read the
+        # backend the factory injected.
+        web_search = agent.tools.get("web_search")
+        backend = web_search._cross_configs[SearchBackend]
+        # BraveSearchBackend stores the key on `_api_key` (stripped).
+        assert getattr(backend, "_api_key", None) == "BRAVE-REAL-FACTORY-KEY", (
+            "factory must feed the REAL decrypted brave_api_key to "
+            f"build_search_backend; got backend={backend!r}"
+        )
+
+    async def test_factory_does_not_call_list_all(
+        self, db_conn, store: InMemoryStore, tool_encryptor
+    ) -> None:
         """Light regression net: the L1 projection switches the factory's
         repo call from `list_all()` to `list()`. Spy on the repository
         and verify `list_all` is never invoked on the factory path."""
@@ -236,7 +292,7 @@ class TestDisableEnforcement:
 
         # Build a wrapper repo that delegates to the real one but tracks
         # whether `list_all` was called.
-        real_repo = ToolConfigRepository(db_conn)
+        real_repo = ToolConfigRepository(db_conn, tool_encryptor)
         list_all_calls = 0
         list_calls = 0
 

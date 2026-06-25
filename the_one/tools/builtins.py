@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from the_one.tools._search_backends import DDGSearchBackend, SearchBackend
+from the_one.tools._search_backends import SearchBackend, build_search_backend
+from the_one.tools._web_config import WebConfig
+from the_one.tools._web_search_config import WebSearchConfig
 from the_one.tools.base import Tool
 from the_one.tools.connector_history import (
     FetchChannelHistoryTool,
@@ -171,15 +173,29 @@ class BuiltinToolProvider:
                 continue
             cross_configs[cls.Config] = resolve(cls.Config, tool_configs.get(name), None)
 
-        # F5 L6: inject the SearchBackend service alongside the Pydantic
-        # Config entries. F5 ships only DDG; F6 admin will let operators
-        # pick. The backend is constructed fresh per `get_tools(...)` call
-        # — owns its own httpx client; per-call lifecycle matches the
-        # session-bound freshness contract — agents with different
-        # `extra_allowed_hosts` get different httpx clients via separate
-        # `get_tools()` calls. The backend instance is GC'd when the
-        # tool list goes out of scope.
-        cross_configs[SearchBackend] = DDGSearchBackend()
+        # M16 F08 L02 (DD3 refinement): inject the SearchBackend service built
+        # from the resolved `WebSearchConfig` (engine selector + per-engine
+        # fields). The SSRF policy (`extra_allowed_hosts`) is read off the
+        # resolved shared `WebConfig` so even DDG's request respects it; each
+        # backend opens/closes its OWN per-call SSRF-guarded client. A
+        # selected-but-unconfigured keyed engine still constructs and raises
+        # `SearchUnavailableError` at call time (NO silent DDG fallback). The
+        # backend is constructed fresh per `get_tools(...)` call and GC'd when
+        # the tool list goes out of scope.
+        #
+        # `WebSearchTool.Config` is now `WebSearchConfig`, so the cross-Config
+        # loop above already resolved it into `cross_configs[WebSearchConfig]`;
+        # `WebConfig` is likewise resolved (the other web tools carry it).
+        web_search_cfg = cross_configs.get(WebSearchConfig)
+        if web_search_cfg is None:
+            web_search_cfg = resolve(WebSearchConfig, tool_configs.get("web_search"), None)
+        web_cfg = cross_configs.get(WebConfig)
+        if web_cfg is None:
+            web_cfg = WebConfig()
+        cross_configs[SearchBackend] = build_search_backend(
+            web_search_cfg,
+            extra_allowed_hosts=web_cfg.extra_allowed_hosts,
+        )
 
         result: list[Tool] = []
         for name, cls in _TOOL_CLASSES.items():

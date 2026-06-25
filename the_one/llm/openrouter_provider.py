@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 # F7 L04: per-provider bytes-per-token for the mid-stream usage byte-
 # heuristic. Most OpenRouter-routed models are OpenAI-compat, so the
 # tokeniser density matches the OpenAI default. Exposed as a module-
-# level constant so the override is visible at a glance — the
-# ``_bytes_per_token_for_interim`` override below returns this value.
+# level constant so the override is visible at a glance — the class-level
+# ``bytes_per_token`` accessor below is set to this value.
 BYTES_PER_TOKEN_OPENROUTER = 4.0
 
 
@@ -59,6 +59,12 @@ _APP_NAME = "GleepGlorp AI"
 
 class OpenRouterProvider(OpenAIProvider):
     name = "openrouter"
+    # M16 F08 L01 (MEDIUM-1): single source of truth, replacing the prior
+    # ``_bytes_per_token_for_interim`` override. Most routed models are
+    # OpenAI-compat (cl100k_base) so the density matches OpenAI's; kept as a
+    # distinct constant so a future per-route tuning pass can diverge without
+    # disturbing OpenAI direct-API.
+    bytes_per_token = BYTES_PER_TOKEN_OPENROUTER
 
     # Sentinel that fills the api_key when neither the constructor arg
     # nor OPENROUTER_API_KEY is set. Decision 5 originally specified an
@@ -171,14 +177,6 @@ class OpenRouterProvider(OpenAIProvider):
             self.max_context_tokens = resolved
         # else: leave at class default (128k); the wrapper catches errors
         # from the helper and flips the sentinel either way.
-
-    def _bytes_per_token_for_interim(self) -> float:
-        """F7 L04: OpenRouter override. Most routed models are
-        OpenAI-compat (cl100k_base tokeniser) so the density matches the
-        OpenAI default; exposed as a separate constant so a future tuning
-        pass can adjust per-route without disturbing OpenAI direct-API.
-        """
-        return BYTES_PER_TOKEN_OPENROUTER
 
     async def supports_tools(self) -> bool:
         """Return False if the OpenRouter model is known not to advertise

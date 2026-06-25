@@ -48,8 +48,9 @@ class _StreamAccumulator:
     bytes_per_token:
         Provider-specific bytes-per-token heuristic.
         OpenAI / OpenRouter: 4.0; Ollama: 3.5; Anthropic: 3.7.
-        Pass ``self._bytes_per_token_for_interim()`` at stream-open so
-        OpenRouter's override still applies.
+        Pass ``self.bytes_per_token`` at stream-open (M16 F08 L01: the single
+        public accessor on ``LLMProvider``) so OpenRouter's override still
+        applies and the governor reads the same value.
     threshold:
         Cumulative-byte delta between interim emissions (default: the
         shared 200-byte constant above).

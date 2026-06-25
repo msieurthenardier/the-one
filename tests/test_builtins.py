@@ -220,25 +220,28 @@ class TestBuiltinToolProviderL1b:
             assert _EmptyConfig not in tool._cross_configs
 
     def test_cross_configs_contains_expected_entries(self) -> None:
-        """Lock the post-F5-L6 dispatch shape: the per-call ``cross_configs``
-        view contains FIVE entries — four Pydantic-keyed Configs
-        (``{FilesystemConfig, ExecutionConfig, PythonExecConfig, WebConfig}``)
-        plus one Protocol-keyed service (``SearchBackend``).
+        """Lock the dispatch shape: the per-call ``cross_configs`` view
+        contains SIX entries — five Pydantic-keyed Configs
+        (``{FilesystemConfig, ExecutionConfig, PythonExecConfig, WebConfig,
+        WebSearchConfig}``) plus one Protocol-keyed service (``SearchBackend``).
 
         ``_EmptyConfig`` is skipped; ``PythonExecConfig`` (a subclass of
         ``ExecutionConfig``) is a DISTINCT key from its parent (the
         resolver dispatch layer treats them as independent Config types);
         ``WebConfig`` entered the set with F5 L2 (``HttpRequestTool``
         migration); ``SearchBackend`` enters with F5 L6 (``WebSearchTool``
-        migration). The Protocol-keyed entry coexists with the
-        Pydantic-keyed entries thanks to F5 L6's ``cross_configs`` type
-        widening from ``dict[type[BaseModel], BaseModel]`` to
-        ``dict[type, object]``.
+        migration). M16 F08 L02 splits ``web_search`` off ``WebConfig`` onto
+        its own ``WebSearchConfig`` (engine selector + per-engine fields), so
+        ``WebSearchConfig`` joins the set as the sixth entry. The Protocol-keyed
+        entry coexists with the Pydantic-keyed entries thanks to F5 L6's
+        ``cross_configs`` type widening from ``dict[type[BaseModel], BaseModel]``
+        to ``dict[type, object]``.
 
         Guards against future drift if a new Config / service sneaks in or
         one of these gets removed."""
         from the_one.tools._search_backends import SearchBackend
         from the_one.tools._web_config import WebConfig
+        from the_one.tools._web_search_config import WebSearchConfig
         from the_one.tools.execution import ExecutionConfig, PythonExecConfig
 
         tools = BuiltinToolProvider().get_tools({}, {})
@@ -249,9 +252,10 @@ class TestBuiltinToolProviderL1b:
             ExecutionConfig,
             PythonExecConfig,
             WebConfig,
+            WebSearchConfig,
             SearchBackend,
         }
         assert expected_keys <= set(cross_configs.keys())
-        # Ensure no unexpected drift either — the post-F5-L6 view is exactly
-        # these five entries.
+        # Ensure no unexpected drift either — the post-M16-F08-L02 view is
+        # exactly these six entries.
         assert set(cross_configs.keys()) == expected_keys

@@ -5310,3 +5310,111 @@ class TestSchemaV31:
         assert versions.count(31) == 1, f"v31 row should appear exactly once: {versions}"
 
         await conn.close()
+
+
+assert CURRENT_VERSION >= 32, (
+    f"CURRENT_VERSION must be >= 32 for TestSchemaV32 tests (got {CURRENT_VERSION})"
+)
+
+
+class TestSchemaV32:
+    """Tests for the v32 migration: ``tool_configs.secrets`` encrypted column.
+
+    M16 F08 L03 — adds ``secrets TEXT DEFAULT '{}'`` to ``tool_configs`` for
+    field-segregated encryption of built-in tool secrets (web_search's
+    keyed-engine API keys), mirroring the v10 mcp_sources-secrets precedent.
+    """
+
+    async def test_v32_fresh_db_has_secrets_column(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → tool_configs.secrets exists, head at 32."""
+        db_path = tmp_path / "v32-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "secrets" in cols, (
+            "v32 migration missing: column `secrets` absent after fresh ensure_schema"
+        )
+        assert cols["secrets"]["type"] == "TEXT", cols["secrets"]["type"]
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        assert row[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v32_migration_on_v31_fixture_adds_column(self, tmp_path) -> None:
+        """A pre-v32 tool_configs (no secrets column) gains it; an existing
+        row's plaintext '{}' default survives and the head advances to 32."""
+        db_path = tmp_path / "v32-existing.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build a pre-v32 tool_configs (v9 shape: no `secrets`).
+        await conn.executescript("""
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE tool_configs (
+                name TEXT PRIMARY KEY,
+                config TEXT DEFAULT '{}',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        """)
+        for v in range(1, 32):
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
+        await conn.execute(
+            "INSERT INTO tool_configs (name, config, enabled) VALUES (?, ?, ?)",
+            ("web_search", '{"search_backend": "duckduckgo"}', 1),
+        )
+        await conn.commit()
+
+        # Pre-condition: no `secrets` column yet.
+        async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
+            pre_cols = {r["name"] for r in await cur.fetchall()}
+        assert "secrets" not in pre_cols
+
+        await ensure_schema(conn)
+
+        async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
+            post_cols = {r["name"] for r in await cur.fetchall()}
+        assert "secrets" in post_cols
+
+        # Existing row survived; secrets column defaulted to '{}'.
+        async with conn.execute(
+            "SELECT config, secrets FROM tool_configs WHERE name = ?", ("web_search",)
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["config"] == '{"search_backend": "duckduckgo"}'
+        assert row["secrets"] == "{}"
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            head = await cur.fetchone()
+        assert head[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v32_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice leaves v32 in schema_version once and
+        does not error on the second ADD COLUMN attempt."""
+        db_path = tmp_path / "v32-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(32) == 1, f"v32 row should appear exactly once: {versions}"
+
+        await conn.close()

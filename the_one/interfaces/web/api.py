@@ -113,7 +113,7 @@ _TEST_CONNECT_TIMEOUT: float = 15.0
 
 async def _tool_config_repo() -> ToolConfigRepository:
     conn = await get_connection()
-    return ToolConfigRepository(conn)
+    return ToolConfigRepository(conn, get_encryptor(settings.data_dir))
 
 
 def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> dict[str, Any]:
@@ -162,13 +162,22 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
 
 @router.get("/config")
 async def get_config() -> dict[str, Any]:
-    """Client-visible configuration — dev mode flag + version.
+    """Client-visible configuration — dev mode flag, version, and the
+    context-fullness overlay thresholds.
 
     Fetched once at boot by the JS client (app.js DOMContentLoaded
     handler) and cached on window.App.config. The dev_mode flag gates
     the dev-mode-only Design Language Admin category (Mission 08 F2).
+    ``context_warn_pct`` / ``context_crit_pct`` (M16 F08 L05) are read by
+    the chat telemetry overlay to color the bar and emit its non-color a11y
+    signal; the settings validator guarantees they are always sane here.
     """
-    return {"dev_mode": settings.dev_mode, "version": __version__}
+    return {
+        "dev_mode": settings.dev_mode,
+        "version": __version__,
+        "context_warn_pct": settings.context_warn_pct,
+        "context_crit_pct": settings.context_crit_pct,
+    }
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
@@ -222,10 +231,17 @@ async def get_tool_config(name: str) -> dict[str, Any]:
     try:
         row = await repo.get(name)
         enabled = row.enabled
-        config = row.config
+        # Merge the decrypted secrets over config, then mask the secret-
+        # marked fields so the operator sees a stable masked value rather
+        # than a raw key (and never the plaintext). Non-secret fields are
+        # returned verbatim. M16 F08 L03.
+        config = {**row.config, **row.secrets}
     except KeyError:
         enabled = True
         config = {}
+    for field in _secret_field_names(cls.Config):
+        if field in config:
+            config[field] = _mask_secret_value(config[field])
     schema = _enrich_schema_with_markers(cls.Config.model_json_schema(), cls.Config)
     return {
         "name": name,
@@ -266,9 +282,13 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
         existing = await repo.get(name)
         current_enabled = existing.enabled
         current_config = existing.config
+        current_secrets = existing.secrets
     except KeyError:
         current_enabled = True
         current_config = {}
+        current_secrets = {}
+
+    secret_fields = _secret_field_names(cls.Config)
 
     # `enabled` — preserve when omitted from body; coerce when present.
     new_enabled = bool(data["enabled"]) if "enabled" in data else current_enabled
@@ -287,16 +307,45 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
             # and the resulting model-validator ValueError crashed the JSON
             # encoder, surfacing as 500 instead of 422.
             raise HTTPException(status_code=422, detail=e.errors(include_context=False))
-        new_config = validated.model_dump()
+        dumped = validated.model_dump()
+        # M16 F08 L03: SPLIT secret-marked fields OUT of the config column
+        # into the encrypted `secrets` store — a plaintext key must never
+        # land in `config`. For each secret whose incoming value looks
+        # masked (the GET-response mask or the __MASKED__ sentinel),
+        # PRESERVE the existing decrypted secret instead of overwriting
+        # with the mask; a masked value with no existing secret is dropped
+        # (treated as cleared), never stored as the mask string. A real
+        # new value replaces it.
+        new_config = {k: v for k, v in dumped.items() if k not in secret_fields}
+        new_secrets: dict[str, Any] = {}
+        for field in secret_fields:
+            value = dumped.get(field)
+            if _looks_masked(value):
+                if field in current_secrets:
+                    new_secrets[field] = current_secrets[field]
+                # else: masked value with no existing secret → drop (cleared).
+            elif value:
+                new_secrets[field] = value
+            # else: empty/falsy non-secret → drop (cleared), matches the
+            # Config default of "".
     else:
+        # `config` omitted — preserve both the existing config and secrets.
         new_config = current_config
+        new_secrets = dict(current_secrets)
 
-    await repo.upsert(name, new_config, enabled=new_enabled)
+    await repo.upsert(name, new_config, secrets=new_secrets, enabled=new_enabled)
+
+    # Build the masked response (same shape the GET handler returns):
+    # non-secret config verbatim + secret fields masked.
+    response_config = {**new_config, **new_secrets}
+    for field in secret_fields:
+        if field in response_config:
+            response_config[field] = _mask_secret_value(response_config[field])
     return {
         "name": name,
         "description": cls.description,
         "enabled": new_enabled,
-        "config": new_config,
+        "config": response_config,
     }
 
 
@@ -332,7 +381,10 @@ async def test_tool_config(name: str, request: Request) -> dict[str, Any]:
         )
 
     repo = await _tool_config_repo()
-    saved = {c.name: c.config for c in await repo.list()}
+    # M16 F08 L03: feed merged_config() (decrypted secrets folded over
+    # config) so a keyed-engine "Test connection" (e.g. Brave / Tavily)
+    # exercises the REAL api_key — same resolved view the factory builds.
+    saved = {c.name: c.merged_config() for c in await repo.list()}
     named_config_class = _TOOL_CLASSES[name].Config
     named_config = saved.get(name, {})
     # Re-key sibling tools sharing the named tool's Config class to use
@@ -821,6 +873,24 @@ def _looks_masked(value: Any) -> bool:
     if value == _MASKED_API_KEY_SENTINEL:
         return True
     return bool(_MASK_SHAPE_RE.match(value))
+
+
+def _secret_field_names(config_cls: type) -> set[str]:
+    """Return the set of field names a tool Config marks ``secret: true``.
+
+    Generic — reads each Pydantic field's ``json_schema_extra`` for the
+    ``secret`` marker leg 2 introduced (`web_search`'s keyed-engine API
+    keys are the first consumers, but ANY future built-in tool Config
+    with a ``secret``-marked field gets encrypted storage + masking for
+    free). ``json_schema_extra`` is ``None`` on unmarked fields — null-
+    guard before the dict lookup. M16 F08 L03.
+    """
+    names: set[str] = set()
+    for name, field_info in config_cls.model_fields.items():
+        extra = field_info.json_schema_extra or {}
+        if isinstance(extra, dict) and extra.get("secret") is True:
+            names.add(name)
+    return names
 
 
 # OAuth-managed secret keys (F5 §5). These four keys are written ONLY by

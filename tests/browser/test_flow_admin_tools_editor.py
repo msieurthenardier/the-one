@@ -1,4 +1,4 @@
-"""Admin Tools editor tests for F6 leg 07.
+"""Admin Tools editor tests for F6 leg 07 + M16 F08 leg 04.
 
 Covers the L3 per-tool editor surface plus the HAT inline UX fixes:
 
@@ -7,9 +7,10 @@ Covers the L3 per-tool editor surface plus the HAT inline UX fixes:
   with a labeled monospace block rather than an inline subtitle.
 - The enable toggle uses the iOS-style `.tool-enable-switch` widget for
   visual parity with the grid (HAT inline fix #2).
-- All 8 WebConfig fields render in admin mode, INCLUDING the unmarked
-  `redirect_cap` (operator-only). Marker-gating only HIDES fields in
-  agent mode — covered by the studio test file.
+- All WebConfig fields render in admin mode for a WebConfig-backed tool
+  (`fetch_url`), INCLUDING the unmarked `redirect_cap` (operator-only).
+  Marker-gating only HIDES fields in agent mode — covered by the studio
+  test file.
 - Per-field descriptions are info-icon tooltips next to the input
   (HAT inline fix #4), NOT inline `<p class="field-description">`
   paragraphs. Tooltip via the native `title` attribute.
@@ -30,6 +31,14 @@ Covers the L3 per-tool editor surface plus the HAT inline UX fixes:
   response content (real DDG / example.com network not stubbed here;
   the L1 unit tests cover endpoint contract).
 
+M16 F08 leg 04 — `web_search` migrated from `WebConfig` to the dedicated
+`WebSearchConfig` (engine selector + per-engine connection fields). The
+WebConfig-surface tests below that were keyed to `web_search` are RE-HOMED
+onto `fetch_url` (still WebConfig-backed); the model-validator 422 test now
+exercises `fetch_url`'s `timeout_seconds_default <= timeout_seconds_max`
+rule. New `web_search`-specific coverage exercises the masked-secret eye
+toggle and the generic `show_if` conditional visibility added in leg 04.
+
 Note on the dirty-gate selector: the leg's "Critical patterns" callout
 mentioned `.dialog-confirm` but the actual production DOM (per
 ``js/dialog.js``) uses ``[data-testid="confirm-dialog-overlay"]`` — the
@@ -46,6 +55,8 @@ from playwright.sync_api import Page, expect
 # Per-tool field-set sanity for the WebConfig surface used across tests.
 # All 8 fields render in admin mode; agent-mode hides the unmarked
 # `redirect_cap` (covered separately in test_flow_studio_tools_overrides).
+# Exercised against `fetch_url` (web_search is no longer WebConfig-backed —
+# it carries WebSearchConfig as of M16 F08 leg 02).
 _WEB_CONFIG_FIELDS = (
     "timeout_seconds_default",
     "timeout_seconds_max",
@@ -55,6 +66,17 @@ _WEB_CONFIG_FIELDS = (
     "host_denylist",
     "extra_allowed_hosts",
     "default_user_agent",
+)
+
+# WebSearchConfig surface (M16 F08 leg 02/03/04). The selector + five
+# per-engine connection fields. The three keyed secrets render masked.
+_WEB_SEARCH_FIELDS = (
+    "search_backend",
+    "searxng_base_url",
+    "google_pse_api_key",
+    "google_pse_cse_id",
+    "brave_api_key",
+    "tavily_api_key",
 )
 
 
@@ -102,12 +124,34 @@ def test_editor_renders_all_web_config_fields(app_clean: str, page: Page) -> Non
     """All 8 WebConfig fields render in admin mode — including the
     unmarked `redirect_cap`. Marker-gating only HIDES fields in agent
     mode (covered by studio test file). Pinned by design Reviewer.
+
+    Exercised against `fetch_url` — `web_search` is no longer WebConfig-
+    backed (M16 F08 leg 02 moved it to WebSearchConfig).
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
-    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     for fname in _WEB_CONFIG_FIELDS:
         row = page.locator(f'.tools-editor-field[data-field-name="{fname}"]')
         expect(row).to_be_visible()
+
+
+@pytest.mark.browser
+def test_editor_renders_web_search_config_fields(app_clean: str, page: Page) -> None:
+    """M16 F08: `web_search` now carries WebSearchConfig — the engine
+    selector + five per-engine connection fields render in admin mode.
+    The per-engine fields default-hidden (DuckDuckGo is the default
+    backend, which has no fields) but stay in the DOM.
+    """
+    page.goto(f"{app_clean}#admin/tools/web_search")
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    for fname in _WEB_SEARCH_FIELDS:
+        row = page.locator(f'.tools-editor-field[data-field-name="{fname}"]')
+        # Field row present in the DOM (visibility gated by show_if below).
+        expect(row).to_have_count(1)
+    # The selector itself is always visible.
+    expect(
+        page.locator('.tools-editor-field[data-field-name="search_backend"]')
+    ).to_be_visible()
 
 
 @pytest.mark.browser
@@ -116,11 +160,12 @@ def test_editor_field_descriptions_are_info_icon_tooltips(app_clean: str, page: 
     sibling info-icon (positioned AFTER the input), NOT inline
     `<p class="field-description">` paragraphs.
 
-    Spot-checks 3 fields with known non-empty descriptions and confirms
-    the inline `<p>` paragraph is gone.
+    Spot-checks 3 WebConfig fields with known non-empty descriptions and
+    confirms the inline `<p>` paragraph is gone. Re-homed to `fetch_url`
+    (WebConfig-backed).
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
-    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
 
     # Inline-paragraph form is gone — the regression check.
     expect(page.locator(".tools-editor-field p.field-description")).to_have_count(0)
@@ -138,15 +183,20 @@ def test_editor_field_descriptions_are_info_icon_tooltips(app_clean: str, page: 
 def test_editor_save_disabled_until_dirty(app_clean: str, page: Page) -> None:
     """Save starts disabled; modifying a field enables it; saving flips
     it back to disabled (snapshot re-captured to clean state).
+
+    Uses `web_search` / `searxng_base_url` (a plain WebSearchConfig string
+    field). SearXNG must be selected first so the field is visible, then
+    we type a URL into it.
     """
     page.goto(f"{app_clean}#admin/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     save_btn = page.locator(".save-btn")
     expect(save_btn).to_be_disabled()
 
-    # Modify timeout_seconds_max to a valid value (>= default of 30).
-    timeout_max = page.locator('input[data-field="timeout_seconds_max"]')
-    timeout_max.fill("90")
+    # Select SearXNG so its base-url field is revealed, then type a URL.
+    page.locator('[data-field="search_backend"]').select_option("searxng")
+    expect(save_btn).not_to_be_disabled()
+    page.locator('input[data-field="searxng_base_url"]').fill("https://searx.example.org")
     expect(save_btn).not_to_be_disabled()
 
     save_btn.click()
@@ -158,35 +208,43 @@ def test_editor_save_disabled_until_dirty(app_clean: str, page: Page) -> None:
 def test_editor_cancel_restores_snapshot(app_clean: str, page: Page) -> None:
     """Cancel re-mounts with the original toolDetail (option A pinned in
     L3 design); the modified field reverts to its prior value and Save
-    returns to disabled.
+    returns to disabled. Exercised on `web_search`'s `searxng_base_url`.
     """
     page.goto(f"{app_clean}#admin/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    timeout_max = page.locator('input[data-field="timeout_seconds_max"]')
-    original = timeout_max.input_value()
-    timeout_max.fill("90")
+    page.locator('[data-field="search_backend"]').select_option("searxng")
+    base_url = page.locator('input[data-field="searxng_base_url"]')
+    original = base_url.input_value()
+    base_url.fill("https://searx.example.org")
     expect(page.locator(".cancel-btn")).not_to_be_disabled()
     page.locator(".cancel-btn").click()
-    # Re-mount idempotent — selector resolves against the new DOM.
-    expect(page.locator('input[data-field="timeout_seconds_max"]')).to_have_value(original)
+    # Re-mount idempotent — selector resolves against the new DOM. The
+    # backend reverts to duckduckgo, so searxng_base_url is hidden again,
+    # but its value is restored to the original.
+    expect(page.locator('input[data-field="searxng_base_url"]')).to_have_value(original)
     expect(page.locator(".save-btn")).to_be_disabled()
     expect(page.locator(".cancel-btn")).to_be_disabled()
 
 
 @pytest.mark.browser
 def test_editor_save_persists_across_reload(app_clean: str, page: Page) -> None:
-    """PUT round-trip: narrow `timeout_seconds_max` to 60 (>= default 30
-    so model-validator passes), Save, reload, confirm the field shows 60.
+    """PUT round-trip: select SearXNG + set a base URL, Save, reload,
+    confirm the engine + URL persist. Exercises the WebSearchConfig
+    surface (M16 F08).
     """
     page.goto(f"{app_clean}#admin/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    page.locator('input[data-field="timeout_seconds_max"]').fill("60")
+    page.locator('[data-field="search_backend"]').select_option("searxng")
+    page.locator('input[data-field="searxng_base_url"]').fill("https://searx.example.org")
     page.locator(".save-btn").click()
     expect(page.locator(".save-btn")).to_be_disabled(timeout=5000)
 
     page.reload()
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    expect(page.locator('input[data-field="timeout_seconds_max"]')).to_have_value("60")
+    expect(page.locator('[data-field="search_backend"]')).to_have_value("searxng")
+    expect(page.locator('input[data-field="searxng_base_url"]')).to_have_value(
+        "https://searx.example.org"
+    )
 
 
 @pytest.mark.browser
@@ -195,9 +253,13 @@ def test_editor_model_validator_422_shows_banner(app_clean: str, page: Page) -> 
     model-validator → `.editor-error-banner` visible with humanized text
     (no "Value error," prefix per HAT inline fix #6) AND
     `.field-error-highlight` applied to the two offending rows.
+
+    Re-homed to `fetch_url` — the `timeout_seconds_default <=
+    timeout_seconds_max` validator lives on WebConfig, which `web_search`
+    no longer uses (M16 F08 leg 02).
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
-    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     page.locator('input[data-field="timeout_seconds_max"]').fill("10")
     page.locator(".save-btn").click()
 
@@ -224,9 +286,10 @@ def test_editor_field_change_clears_highlight(app_clean: str, page: Page) -> Non
     """HAT inline fix #7: after a 422, typing into a highlighted field
     clears that row's `.field-error-highlight` (operator's edit signals
     intent to fix). Other rows that are still in error keep theirs.
+    Re-homed to `fetch_url` (WebConfig model-validator).
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
-    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     page.locator('input[data-field="timeout_seconds_max"]').fill("10")
     page.locator(".save-btn").click()
     expect(page.locator(".editor-error-banner")).to_be_visible(timeout=5000)
@@ -251,7 +314,7 @@ def test_editor_back_button_dirty_gate(app_clean: str, page: Page) -> None:
     """
     page.goto(f"{app_clean}#admin/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    page.locator('input[data-field="timeout_seconds_max"]').fill("90")
+    page.locator('[data-field="search_backend"]').select_option("searxng")
 
     page.locator('[data-testid="back-tool-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
@@ -279,7 +342,7 @@ def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
     """
     page.goto(f"{app_clean}#admin/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
-    page.locator('input[data-field="timeout_seconds_max"]').fill("90")
+    page.locator('[data-field="search_backend"]').select_option("searxng")
 
     page.locator(".area-admin .section-nav-item", has_text="General").click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
@@ -352,3 +415,149 @@ def test_test_button_click_fires_request(app_clean: str, page: Page) -> None:
     expect(terminal).to_be_visible(timeout=15000)
     # Button re-enables after the round-trip.
     expect(test_btn).not_to_be_disabled()
+
+
+# ── M16 F08 leg 04: masked secret eye-toggle + show_if visibility ────────
+
+
+@pytest.mark.browser
+def test_web_search_secret_field_masked_with_eye_toggle(app_clean: str, page: Page) -> None:
+    """A `ui_hint:"password"` field (WebSearchConfig's `brave_api_key`)
+    renders as `<input type="password">` inside an `.api-key-wrap` shell
+    with an `.api-key-eye` button. The eye button toggles the input
+    between password/text and swaps its aria-label. Ported from the
+    provider-editor eye-toggle pattern.
+    """
+    page.goto(f"{app_clean}#admin/tools/web_search")
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+
+    # Select Brave so its key field is revealed (show_if), then exercise
+    # the eye toggle on the now-visible masked input.
+    page.locator('[data-field="search_backend"]').select_option("brave")
+    row = page.locator('.tools-editor-field[data-field-name="brave_api_key"]')
+    expect(row).to_be_visible()
+
+    key_input = row.locator('input[data-field="brave_api_key"]')
+    expect(key_input).to_have_attribute("type", "password")
+
+    eye = row.locator(".api-key-eye")
+    expect(eye).to_be_visible()
+    expect(eye).to_have_attribute("aria-label", "Show password")
+    # Button is keyboard-operable: a real <button type=button>.
+    expect(eye).to_have_attribute("type", "button")
+
+    eye.click()
+    expect(key_input).to_have_attribute("type", "text")
+    expect(eye).to_have_attribute("aria-label", "Hide password")
+    eye.click()
+    expect(key_input).to_have_attribute("type", "password")
+    expect(eye).to_have_attribute("aria-label", "Show password")
+
+
+@pytest.mark.browser
+def test_web_search_show_if_reveals_only_selected_engine_fields(
+    app_clean: str, page: Page
+) -> None:
+    """Generic `show_if`: selecting an engine in `search_backend` reveals
+    exactly that engine's fields and hides the others. DuckDuckGo (the
+    default) shows none. Hidden rows stay in the DOM and carry
+    `aria-hidden="true"`.
+    """
+    page.goto(f"{app_clean}#admin/tools/web_search")
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+
+    backend = page.locator('[data-field="search_backend"]')
+    per_engine = (
+        "searxng_base_url",
+        "google_pse_api_key",
+        "google_pse_cse_id",
+        "brave_api_key",
+        "tavily_api_key",
+    )
+
+    def row(fname: str):
+        return page.locator(f'.tools-editor-field[data-field-name="{fname}"]')
+
+    # DuckDuckGo (default): all per-engine fields hidden.
+    expect(backend).to_have_value("duckduckgo")
+    for fname in per_engine:
+        expect(row(fname)).to_be_hidden()
+        expect(row(fname)).to_have_attribute("aria-hidden", "true")
+
+    # SearXNG: only searxng_base_url visible.
+    backend.select_option("searxng")
+    expect(row("searxng_base_url")).to_be_visible()
+    for fname in ("google_pse_api_key", "google_pse_cse_id", "brave_api_key", "tavily_api_key"):
+        expect(row(fname)).to_be_hidden()
+
+    # Google PSE: BOTH key + cse_id visible (two fields, one controller).
+    backend.select_option("google_pse")
+    expect(row("google_pse_api_key")).to_be_visible()
+    expect(row("google_pse_cse_id")).to_be_visible()
+    expect(row("searxng_base_url")).to_be_hidden()
+    expect(row("brave_api_key")).to_be_hidden()
+
+    # Brave: only brave_api_key.
+    backend.select_option("brave")
+    expect(row("brave_api_key")).to_be_visible()
+    expect(row("google_pse_api_key")).to_be_hidden()
+
+    # Tavily: only tavily_api_key.
+    backend.select_option("tavily")
+    expect(row("tavily_api_key")).to_be_visible()
+    expect(row("brave_api_key")).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_web_search_secret_persists_encrypted_and_reloads_masked(
+    app_clean: str, page: Page
+) -> None:
+    """Save a Brave key → it persists (encrypted at rest via leg 3) and on
+    reload the field shows the GET mask (`***...{tail4}`), NOT the
+    plaintext key. End-to-end leg-3 contract from the UI.
+    """
+    page.goto(f"{app_clean}#admin/tools/web_search")
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+
+    page.locator('[data-field="search_backend"]').select_option("brave")
+    key_input = page.locator('input[data-field="brave_api_key"]')
+    key_input.fill("BSA-supersecret-token-1234")
+    page.locator(".save-btn").click()
+    expect(page.locator(".save-btn")).to_be_disabled(timeout=5000)
+
+    page.reload()
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+    # Backend persisted brave; the key field is visible again on reload.
+    expect(page.locator('[data-field="search_backend"]')).to_have_value("brave")
+    reloaded = page.locator('input[data-field="brave_api_key"]')
+    value = reloaded.input_value()
+    assert value != "BSA-supersecret-token-1234", "reloaded value must be masked, not plaintext"
+    assert value.startswith("***"), f"expected GET mask shape, got {value!r}"
+    assert value.endswith("1234"), f"expected last-4 tail in mask, got {value!r}"
+
+
+@pytest.mark.browser
+def test_web_search_engine_switch_preserves_entered_key(app_clean: str, page: Page) -> None:
+    """Switching the engine away from Brave and back does NOT lose an
+    already-entered (un-saved) key — the hidden row stays in the DOM and
+    its value survives. Confirms the show_if mechanism never clears field
+    values.
+    """
+    page.goto(f"{app_clean}#admin/tools/web_search")
+    expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
+
+    backend = page.locator('[data-field="search_backend"]')
+    backend.select_option("brave")
+    key_input = page.locator('input[data-field="brave_api_key"]')
+    key_input.fill("BSA-entered-not-yet-saved")
+
+    # Switch away (key field hidden) then back.
+    backend.select_option("tavily")
+    expect(page.locator('.tools-editor-field[data-field-name="brave_api_key"]')).to_be_hidden()
+    backend.select_option("brave")
+    expect(page.locator('.tools-editor-field[data-field-name="brave_api_key"]')).to_be_visible()
+
+    # The entered value survived the round-trip (row never left the DOM).
+    expect(page.locator('input[data-field="brave_api_key"]')).to_have_value(
+        "BSA-entered-not-yet-saved"
+    )

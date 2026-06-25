@@ -174,22 +174,32 @@ class ExecutionConfig(BaseModel):
         ),
     ] = 120
 
+    # M16 F08 L01 (HIGH-2, option b): RECLASSIFIED from a model-sized LLM cap to
+    # a transport/safety CEILING. The central context-budget governor in
+    # ``Agent._execute_tool`` now applies the model-derived LLM bound on top
+    # (tail-preserving for shell/exec), so this field is no longer the
+    # context-fit knob — it is the large absolute cap on how much combined
+    # output the tool buffers/returns before the governor trims it. The
+    # ``_truncate_output`` formatting ([exit code: N] suffix, stderr tail,
+    # tail-preservation) is unchanged; the default (256 KB) is kept.
     output_cap_bytes: Annotated[
         int,
         Narrow,
         Field(
             ge=1024,
             le=104_857_600,  # 100 MB hard ceiling
-            description="Combined stdout+stderr cap; tail-preserving truncation.",
+            description="Combined stdout+stderr transport/safety ceiling; "
+            "tail-preserving truncation. The context-budget governor applies the "
+            "model-derived LLM bound on top.",
             json_schema_extra={
                 "ui_hint": "dropdown",
                 "ui_choices": [
-                    {"value": 32_768, "label": "32KB — very small models"},
-                    {"value": 65_536, "label": "64KB — small/7B-class friendly"},
-                    {"value": 262_144, "label": "256KB — default (typical test runs)"},
+                    {"value": 32_768, "label": "32KB — tight safety ceiling"},
+                    {"value": 65_536, "label": "64KB — small ceiling"},
+                    {"value": 262_144, "label": "256KB — default safety ceiling"},
                     {"value": 524_288, "label": "512KB — long build logs"},
-                    {"value": 1_048_576, "label": "1MB — Opus headroom"},
-                    {"value": 5_242_880, "label": "5MB — Opus 1M only"},
+                    {"value": 1_048_576, "label": "1MB — large logs"},
+                    {"value": 5_242_880, "label": "5MB — very large logs"},
                 ],
             },
         ),

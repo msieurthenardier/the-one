@@ -396,6 +396,10 @@ Deferred (own-mission candidate, 2026-06-23):
       turns (added cost/latency/quality risk, persistence-codec impact) — is a subsystem
       in its own right. Operator judgement (2026-06-23): "almost feels like its own
       mission." Seeded here as a future-mission candidate, not an M16 flight.
+      **Confirmed still-deferred after F8 (2026-06-25):** the F8 verify behavior-test
+      (`tests/behavior/agent-governance-and-search`, 9/9 pass) witnessed the governor bound
+      + the overlay *warn* signal live — i.e. F8 *informs* the operator at fullness but does
+      not *recover* a turn near the limit. Compaction remains the open gap.
 
 ## Flights
 
@@ -469,8 +473,15 @@ Deferred (own-mission candidate, 2026-06-23):
       interrupt/cancel (WS `cancel` action + task cancellation, partial output kept);
       one queued send-while-thinking. Full suite `3489/10/595`, 0 failures. See
       `flights/07-chat-loop-robustness/`.
-- [ ] Flight 8: **Agent-loop resource governance & context-budget management** —
-      *planned (2026-06-23, ready).* Sourced from the F07 debrief Rec 1: the three
+- [x] Flight 8: **Agent-loop resource governance & context-budget management** —
+      **LANDED (2026-06-25).** 6 legs (governor; search-backend registry + honest-empty;
+      encrypted tool-config secret persistence; search-config admin UI; config-driven
+      overlay thresholds + non-color a11y; verify). Mid-flight the search work expanded
+      (operator) into a configurable engine registry (DDG default + SearXNG + Google PSE +
+      Brave + Tavily) with masked keys in the tools-admin form. Verified live by the
+      `agent-governance-and-search` behavior test (9/9 PASS). Code + a11y review confirmed.
+      Compaction (evict/summarize) explicitly deferred (see Known Issues). Sourced from the
+      F07 debrief Rec 1: the three
       chat-loop defects are one theme (no governance over what tools pull into the LLM
       context). A central context-budget governor at the `_execute_tool` dispatch
       boundary bounds EVERY tool result (derived from the active model's context

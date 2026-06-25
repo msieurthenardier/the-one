@@ -9,6 +9,34 @@
     return String(n);
   }
 
+  // Read the context-fullness thresholds plumbed from the backend via
+  // /api/config → window.App.config (M16 F08 L05). Falls back to the 70/90
+  // defaults when config is absent (old / failed config fetch) so the overlay
+  // never crashes and degrades to the historical thresholds.
+  function ctxThresholds() {
+    var cfg = window.App.config || {};
+    return {
+      warn: cfg.context_warn_pct || 70,
+      crit: cfg.context_crit_pct || 90
+    };
+  }
+
+  // Map a percentage to its state class ('' / 'warn' / 'crit') using the
+  // configured thresholds. Single derivation site for both update paths.
+  function ctxStateClass(pct, t) {
+    return pct >= t.crit ? 'crit' : pct >= t.warn ? 'warn' : '';
+  }
+
+  // Build the non-color a11y label for the overlay container. KEEPS the
+  // "Token usage" prefix (structure-based locators depend on it) and appends
+  // a state phrase perceivable without color at warn / crit.
+  function ctxAriaLabel(pct, stateClass) {
+    var label = 'Token usage: ' + pct + '% of context';
+    if (stateClass === 'crit') return label + ', context nearly full';
+    if (stateClass === 'warn') return label + ', approaching limit';
+    return label;
+  }
+
   // Builds the chrome-free telemetry overlay (ghosted by default; hover/focus
   // expands details and lifts opacity to 1). Returns the .telemetry-overlay
   // container with all inner spans/divs. Mirrors the original innerHTML shape
@@ -80,13 +108,18 @@
     var pct = data.max_context_tokens > 0
       ? Math.min(100, Math.round(data.context_tokens / data.max_context_tokens * 100))
       : 0;
-    var stateClass = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
+    var stateClass = ctxStateClass(pct, ctxThresholds());
     var pctEl = chromeContent.querySelector('.t-ctx-pct');
     pctEl.textContent = pct + '%';
     pctEl.className = 'value t-ctx-pct' + (stateClass ? ' ' + stateClass : '');
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = pct + '%';
     bar.className = 'context-bar' + (stateClass ? ' ' + stateClass : '');
+    // Non-color a11y: make the container aria-label reflect pct + warn/crit
+    // state so the threshold signal is perceivable without color (the bar
+    // coloring is otherwise color-only). Detail rows stay aria-hidden.
+    var overlayEl = chromeContent.querySelector('.telemetry-overlay');
+    if (overlayEl) overlayEl.setAttribute('aria-label', ctxAriaLabel(pct, stateClass));
     // Retain raw input values so setTelemetryMax can recompute the bar
     // from retained context_tokens without re-parsing formatted DOM text.
     chromeContent.__telemetry = {
@@ -112,6 +145,11 @@
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = '0%';
     bar.className = 'context-bar';
+    // Reset the container aria-label to the baseline so a prior warn/crit
+    // label (e.g. "Token usage: 85% of context, approaching limit") does not
+    // persist across a session switch into a brand-new session with no usage.
+    var overlayEl = chromeContent.querySelector('.telemetry-overlay');
+    if (overlayEl) overlayEl.setAttribute('aria-label', ctxAriaLabel(0, ''));
     // Mirror the DOM reset in the retained raw state so setTelemetryMax
     // starts from zeros after a session switch.
     chromeContent.__telemetry = {
@@ -133,13 +171,17 @@
     var pct = maxContextTokens > 0
       ? Math.min(100, Math.round(ctx / maxContextTokens * 100))
       : 0;
-    var stateClass = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
+    var stateClass = ctxStateClass(pct, ctxThresholds());
     var pctEl = chromeContent.querySelector('.t-ctx-pct');
     pctEl.textContent = pct + '%';
     pctEl.className = 'value t-ctx-pct' + (stateClass ? ' ' + stateClass : '');
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = pct + '%';
     bar.className = 'context-bar' + (stateClass ? ' ' + stateClass : '');
+    // Non-color a11y signal — mirror updateTelemetry so the aria-label stays
+    // in sync after the async max-context resolution recomputes pct.
+    var overlayEl = chromeContent.querySelector('.telemetry-overlay');
+    if (overlayEl) overlayEl.setAttribute('aria-label', ctxAriaLabel(pct, stateClass));
     // Update retained max so subsequent setTelemetryMax calls stay consistent.
     if (chromeContent.__telemetry) {
       chromeContent.__telemetry.max_context_tokens = maxContextTokens || 0;

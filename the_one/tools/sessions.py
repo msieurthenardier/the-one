@@ -210,6 +210,9 @@ class ShellSessionStartTool(Tool):
 
 class ShellSessionSendTool(Tool):
     name = "shell_session_send"
+    # M16 F08 L01 (HIGH-2): tail-preserve under the context-budget governor —
+    # interactive shell output keeps its most-recent (diagnostic) tail.
+    truncation_direction = "tail"
     description = (
         "Send input to an interactive shell session and return the output. "
         "session_id from shell_session_start. Inputs are filtered against the "

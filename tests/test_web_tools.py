@@ -48,8 +48,15 @@ from typing import Callable
 
 import httpx
 
-from the_one.tools._search_backends import DDGSearchBackend, SearchBackend, SearchResult
+from the_one.tools._search_backends import (
+    DDGSearchBackend,
+    SearchBackend,
+    SearchBlockedError,
+    SearchResult,
+    SearchUnavailableError,
+)
 from the_one.tools._web_config import WebConfig
+from the_one.tools._web_search_config import WebSearchConfig
 from the_one.tools.filesystem import FilesystemConfig
 from the_one.tools.web import (
     DownloadFileTool,
@@ -1012,7 +1019,7 @@ def _make_websearch_tool(stub: _StubBackend) -> WebSearchTool:
     """Construct a ``WebSearchTool`` with the cross-Config dispatch wired so
     ``execute`` can read ``self._cross_configs[SearchBackend]``."""
     return WebSearchTool(
-        WebConfig(),
+        WebSearchConfig(),
         cross_configs={SearchBackend: stub},
     )
 
@@ -1020,14 +1027,15 @@ def _make_websearch_tool(stub: _StubBackend) -> WebSearchTool:
 class TestWebSearchTool:
     def test_construction_shape(self) -> None:
         """``WebSearchTool`` builds with a real ``DDGSearchBackend`` injected;
-        ``Config is WebConfig``; ``Requires == (SearchBackend,)``;
-        ``SearchBackend`` is in the cross_configs dict."""
+        ``Config is WebSearchConfig`` (M16 F08 L02 — migrated off the shared
+        ``WebConfig``); ``Requires == (SearchBackend,)``; ``SearchBackend`` is
+        in the cross_configs dict."""
         t = WebSearchTool(
-            WebConfig(),
+            WebSearchConfig(),
             cross_configs={SearchBackend: DDGSearchBackend()},
         )
-        assert isinstance(t._config, WebConfig)
-        assert WebSearchTool.Config is WebConfig
+        assert isinstance(t._config, WebSearchConfig)
+        assert WebSearchTool.Config is WebSearchConfig
         assert WebSearchTool.Requires == (SearchBackend,)
         assert SearchBackend in t._cross_configs
         assert isinstance(t._cross_configs[SearchBackend], DDGSearchBackend)
@@ -1083,6 +1091,34 @@ class TestWebSearchTool:
         result = await _make_websearch_tool(stub).execute(query="hi")
         assert result == "[error] backend boom"
 
+    async def test_blocked_error_surfaced_honestly(self) -> None:
+        """M16 F08 L02 (HIGH-3): a raised ``SearchBlockedError`` surfaces as an
+        honest ``[error] web_search (...) blocked/throttled: ...`` — NOT
+        collapsed to "No results found." (which would let the model mistake a
+        broken search for "the web has nothing")."""
+        stub = _StubBackend(raise_exc=SearchBlockedError("DDG interstitial"))
+        result = await _make_websearch_tool(stub).execute(query="hi")
+        assert result.startswith("[error] web_search (")
+        assert "blocked/throttled" in result
+        assert "DDG interstitial" in result
+        assert "No results found." not in result
+
+    async def test_unavailable_error_surfaced_honestly(self) -> None:
+        """A raised ``SearchUnavailableError`` (missing key / misconfig)
+        surfaces honestly as ``[error] web_search (...) unavailable: ...``."""
+        stub = _StubBackend(raise_exc=SearchUnavailableError("configure the Tavily API key"))
+        result = await _make_websearch_tool(stub).execute(query="hi")
+        assert result.startswith("[error] web_search (")
+        assert "unavailable" in result
+        assert "configure the Tavily API key" in result
+
+    async def test_empty_results_still_no_results_found(self) -> None:
+        """A genuine empty result (``[]``) still maps to the "No results found."
+        wording — the honest-empty contract only changes the FAILURE path."""
+        stub = _StubBackend(results=[])
+        result = await _make_websearch_tool(stub).execute(query="hi")
+        assert result == "No results found."
+
 
 class TestWebToolInstantiation:
     def test_http_request_tool_uses_web_config(self) -> None:
@@ -1093,24 +1129,29 @@ class TestWebToolInstantiation:
         assert isinstance(t2._config, WebConfig)
         assert HttpRequestTool.Config is WebConfig
 
-    def test_web_search_tool_uses_web_config(self) -> None:
-        # Post-F5-L6: WebSearchTool's Config migrated from _EmptyConfig to
-        # WebConfig. Zero-arg fallback constructs an empty WebConfig() —
-        # but the Tool will fail at execute time without a SearchBackend in
-        # cross_configs. This test only asserts the construction-shape
-        # post-migration; behavioral tests inject a stub backend.
+    def test_web_search_tool_uses_web_search_config(self) -> None:
+        # M16 F08 L02: WebSearchTool's Config migrated from the shared WebConfig
+        # to its own WebSearchConfig (engine selector + per-engine fields).
+        # Zero-arg fallback constructs an empty WebSearchConfig() — but the Tool
+        # will fail at execute time without a SearchBackend in cross_configs.
+        # This test only asserts the construction-shape post-migration;
+        # behavioral tests inject a stub backend.
         t1 = WebSearchTool()
-        t2 = WebSearchTool(WebConfig())
-        assert isinstance(t1._config, WebConfig)
-        assert isinstance(t2._config, WebConfig)
-        assert WebSearchTool.Config is WebConfig
+        t2 = WebSearchTool(WebSearchConfig())
+        assert isinstance(t1._config, WebSearchConfig)
+        assert isinstance(t2._config, WebSearchConfig)
+        assert WebSearchTool.Config is WebSearchConfig
         assert WebSearchTool.Requires == (SearchBackend,)
 
 
-class TestToolTextCap:
-    """M16 F07 follow-up: the head-preserving tool_text_cap_bytes on the text
-    returned to the model (separate from the 1 MB streaming cap). Guards against
-    a huge page (e.g. a 631 KB single-page blog) poisoning the LLM context."""
+class TestWebToolNoLongerSelfCaps:
+    """M16 F08 L01 (HIGH-1): the M16 F07 per-tool web text LLM cap is RETIRED —
+    the web tools no longer cap the LLM-facing text themselves. The central
+    context-budget governor in ``Agent._execute_tool`` now bounds every tool
+    result uniformly (see ``tests/test_governor.py`` for the boundary-level
+    cross-tool coverage). These tests pin that the tool returns the full text (up
+    to the surviving 1 MB ``response_size_cap_bytes`` transport cap) and adds no
+    per-tool truncation note."""
 
     def _patch_both(self, monkeypatch, handler):
         for cls in (HttpRequestTool, FetchUrlTool):
@@ -1118,29 +1159,19 @@ class TestToolTextCap:
                 cls, "_build_transport", lambda self, cfg, h=handler: httpx.MockTransport(h)
             )
 
-    async def test_http_request_caps_large_text(self, monkeypatch) -> None:
+    async def test_http_request_returns_full_text_uncapped(self, monkeypatch) -> None:
         big = "A" * 200_000  # 200 KB, well under the 1 MB stream cap
         self._patch_both(
             monkeypatch,
             lambda req: httpx.Response(200, text=big, headers={"content-type": "text/plain"}),
         )
-        cfg = WebConfig(tool_text_cap_bytes=49_152)
-        result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
-        # body portion (after the "[200]\n" prefix) is head-capped, not the full 200 KB
-        assert len(result.encode("utf-8")) < 60_000
-        assert "tool output truncated" in result
-        assert result.lstrip("[200]\n").startswith("AAA")  # head preserved
-
-    async def test_fetch_url_caps_large_text(self, monkeypatch) -> None:
-        big = "B" * 200_000
-        self._patch_both(
-            monkeypatch,
-            lambda req: httpx.Response(200, text=big, headers={"content-type": "text/plain"}),
+        result = await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/"
         )
-        cfg = WebConfig(tool_text_cap_bytes=49_152)
-        result = await FetchUrlTool(cfg).execute(url="https://example.test/")
-        assert len(result.encode("utf-8")) < 60_000
-        assert "tool output truncated" in result
+        # The tool no longer self-caps: the full 200 KB body reaches the caller
+        # (the governor — not the tool — bounds it at the dispatch boundary).
+        assert len(result.encode("utf-8")) >= 200_000
+        assert "tool output truncated" not in result
 
     async def test_small_text_not_capped(self, monkeypatch) -> None:
         self._patch_both(

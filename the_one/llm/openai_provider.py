@@ -40,6 +40,8 @@ BYTES_PER_TOKEN_OPENAI = 4.0
 
 class OpenAIProvider(LLMProvider):
     name = "openai"
+    # M16 F08 L01: explicit (equals the base 4.0 default; OpenRouter inherits).
+    bytes_per_token = BYTES_PER_TOKEN_OPENAI
 
     def __init__(
         self,
@@ -82,14 +84,6 @@ class OpenAIProvider(LLMProvider):
                 self.model,
                 self.max_context_tokens,
             )
-
-    def _bytes_per_token_for_interim(self) -> float:
-        """F7 L04: provider-specific bytes-per-token for the mid-stream
-        byte-heuristic. Subclasses override to swap in their tokeniser's
-        average density (OpenRouter routes mostly-OpenAI-compat models so
-        inherits the same value; Anthropic/Ollama use their own constants).
-        """
-        return BYTES_PER_TOKEN_OPENAI
 
     async def complete(
         self,
@@ -166,11 +160,13 @@ class OpenAIProvider(LLMProvider):
         content = ""
         usage: TokenUsage | None = None
         # F7 L04 / M12 F6 L1: shared accumulator for tool-call deltas and
-        # mid-stream interim-usage emission.  ``bytes_per_token`` is resolved
-        # at stream-open via ``_bytes_per_token_for_interim()`` so
-        # OpenRouterProvider's override (BYTES_PER_TOKEN_OPENROUTER = 4.0)
-        # still applies without baking a constant at import time.
-        acc = _StreamAccumulator(bytes_per_token=self._bytes_per_token_for_interim())
+        # mid-stream interim-usage emission.  M16 F08 L01 (MEDIUM-1): the
+        # bytes-per-token value now comes from the SINGLE public
+        # ``self.bytes_per_token`` accessor (the governor reads the same one),
+        # so OpenRouter's override (BYTES_PER_TOKEN_OPENROUTER = 4.0) still
+        # applies without a parallel ``_bytes_per_token_for_interim`` that can
+        # drift.
+        acc = _StreamAccumulator(bytes_per_token=self.bytes_per_token)
 
         async for chunk in stream:
             if not chunk.choices:
