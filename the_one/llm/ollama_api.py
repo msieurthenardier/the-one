@@ -272,6 +272,82 @@ async def chat_stream(
         raise ConnectionError(f"Timeout streaming from Ollama at {url}: {exc}") from exc
 
 
+async def chat_native(
+    base_url: str,
+    body: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Non-streaming chat via Ollama's NATIVE ``/api/chat`` endpoint.
+
+    The native endpoint (unlike the OpenAI-compatible ``/v1``) honours
+    ``options.num_ctx`` — it is the only way to give a model runner a context
+    window larger than Ollama's 4096 default. Used for real Ollama providers;
+    OpenAI-compatible servers (LM Studio, vLLM) stay on ``/v1``.
+
+    Returns the parsed response dict (``{"message": {...}, "done": true,
+    "prompt_eval_count": N, "eval_count": M, ...}``). Raises on a 4xx/5xx with
+    Ollama's body surfaced, mirroring ``chat_stream``.
+    """
+    url = strip_v1(base_url)
+    async with httpx.AsyncClient(timeout=600, headers=headers or {}) as client:
+        try:
+            resp = await client.post(f"{url}/api/chat", json={**body, "stream": False})
+        except httpx.ConnectError as exc:
+            raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
+        except httpx.TimeoutException as exc:
+            raise ConnectionError(f"Timeout calling Ollama at {url}: {exc}") from exc
+        if resp.status_code >= 400:
+            detail = resp.text.strip() or "(empty body)"
+            raise httpx.HTTPStatusError(
+                f"Ollama returned {resp.status_code} from {resp.request.url}: {detail}",
+                request=resp.request,
+                response=resp,
+            )
+        return resp.json()
+
+
+async def chat_stream_native(
+    base_url: str,
+    body: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Stream chat via Ollama's NATIVE ``/api/chat`` endpoint.
+
+    The native wire format is **newline-delimited JSON** (one object per line,
+    NO ``data:`` prefix and NO ``[DONE]`` terminator) — distinct from the SSE
+    ``/v1`` shape in ``chat_stream``. Each object carries ``message.content``
+    (and optionally ``message.tool_calls``); the terminal object has
+    ``done: true`` plus ``prompt_eval_count`` / ``eval_count`` usage counters.
+    Honours ``options.num_ctx`` (see ``chat_native``).
+    """
+    url = strip_v1(base_url)
+    try:
+        async with httpx.AsyncClient(timeout=600, headers=headers or {}) as client:
+            async with client.stream(
+                "POST", f"{url}/api/chat", json={**body, "stream": True}
+            ) as resp:
+                if resp.status_code >= 400:
+                    body_bytes = await resp.aread()
+                    detail = body_bytes.decode("utf-8", errors="replace").strip()
+                    raise httpx.HTTPStatusError(
+                        f"Ollama returned {resp.status_code} from "
+                        f"{resp.request.url}: {detail or '(empty body)'}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                async for raw_line in resp.aiter_lines():
+                    if not raw_line.strip():
+                        continue
+                    try:
+                        yield json.loads(raw_line)
+                    except ValueError:
+                        continue
+    except httpx.ConnectError as exc:
+        raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
+    except httpx.TimeoutException as exc:
+        raise ConnectionError(f"Timeout streaming from Ollama at {url}: {exc}") from exc
+
+
 async def pull_model(base_url: str, model: str) -> AsyncIterator[dict[str, Any]]:
     """Stream-pull a model via ``/api/pull``.
 

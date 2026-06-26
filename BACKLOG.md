@@ -233,16 +233,22 @@ The only knob today is the **`THE_ONE_OLLAMA_NUM_CTX` environment variable** (gl
    model chip and the chat context gauge so "2% of 262144" can never again mask "100% of 4096".
 
 ### Scope notes for when this becomes a mission
-- **The plumbing already exists** — `effective_num_ctx` is the single resolution point and
-  `num_ctx` already threads through `load_model`. The mission is mostly **config schema + UI +
-  the resolution precedence** (agent override → model setting → env default → leave-Ollama-default),
-  not new transport.
+- **The plumbing already exists** — `effective_num_ctx` is the single resolution point, `num_ctx`
+  threads through `load_model`, AND generation now carries it natively (see "Update" below). The
+  mission is mostly **config schema + UI + the resolution precedence** (agent override → model
+  setting → env default → leave-Ollama-default), not new transport.
 - **VRAM is the real ceiling.** A per-agent 131072 window can fail to load on a small GPU. The UI
   must clamp to advertised AND fail gracefully (the load is already best-effort / fail-open), and
   ideally warn rather than silently fall back.
-- **Connector & CLI parity.** The shipped runtime fix enforces `num_ctx` only on the **web auto-load
-  path**; connector-driven and CLI sessions reuse a web-warmed runner but don't *enforce* the window
-  themselves. The clean home for universal enforcement is the **provider** (`stream()`/`complete()`
-  warm-load), which was deliberately deferred to avoid a provider rewrite under a targeted fix. Fold
-  this into the mission so every entry point gets the right window.
 - **Independent** of the privileged-client and packaging seeds above; can go in any order.
+
+### Update (2026-06-26) — runtime enforcement now lives in the provider
+The original runtime fix only set `num_ctx` on the **web auto-load** and left generation on the
+OpenAI-compatible `/v1` endpoint — which **ignores** `num_ctx` and reloaded the runner back to 4096
+every turn (reload churn + death at the same ~4096 ceiling, now reading "12%" against the 32768
+gauge). Fixed properly: real-Ollama providers (`type: "ollama"`, `native_api=True`) now generate via
+the **native `/api/chat`** endpoint, which honours `options.num_ctx`. This covers **every entry
+point** (web, connectors, CLI) since it lives in `OllamaProvider.stream()`/`complete()` — so the
+connector/CLI-parity concern is resolved. `openai-compatible` back-ends (LM Studio, vLLM, llama.cpp)
+stay on `/v1`. What remains for this mission is purely the **UI configurability + per-agent override**
+described above.

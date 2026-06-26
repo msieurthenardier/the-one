@@ -120,12 +120,29 @@ class OllamaProvider(LLMProvider):
         model: str = "",
         base_url: str = "http://localhost:11434/v1",
         api_key: str | None = None,
+        native_api: bool = False,
         **kwargs: Any,
     ):
         super().__init__()
         self.model = model
         self.base_url = ollama_api.ensure_v1(base_url or "http://localhost:11434/v1")
         self.api_key = api_key
+        # ``native_api`` selects the wire protocol for generation:
+        #   True  → real Ollama: generate via the NATIVE /api/chat endpoint so
+        #           ``options.num_ctx`` is honoured (the /v1 endpoint ignores it
+        #           and pins the runner at Ollama's 4096 default — the bug this
+        #           class of provider must avoid).
+        #   False → an OpenAI-compatible server (LM Studio, vLLM, llama.cpp;
+        #           provider type "openai-compatible"): stay on /v1, no num_ctx.
+        # The factory sets this from the provider config's ``type``. Defaults to
+        # False so direct construction (tests, generic OpenAI-compatible
+        # back-ends) keeps the historical /v1 behaviour.
+        self.native_api = native_api
+        # Runtime ``num_ctx`` to send on native requests, resolved from the
+        # model's advertised window (``effective_num_ctx``). None → omit
+        # num_ctx and let Ollama use its default. Set in
+        # ``_resolve_max_context_tokens``; only consulted on the native path.
+        self._runtime_num_ctx: int | None = None
 
     def _auth_headers(self) -> dict[str, str]:
         """Return ``{Authorization: Bearer <key>}`` only when api_key is
@@ -153,6 +170,10 @@ class OllamaProvider(LLMProvider):
         data = await ollama_api.show_model(self.base_url, self.model)
         advertised = ollama_api.extract_ollama_context_length(data)
         effective = effective_num_ctx(advertised)
+        # Record the runtime num_ctx (may be None) for the native generation
+        # path, and surface it as max_context_tokens so the governor + the
+        # context gauge size against the window we actually load.
+        self._runtime_num_ctx = effective
         if effective is not None:
             self.max_context_tokens = effective
         # else: leave at class default; sentinel still flips in the wrapper.
@@ -175,6 +196,8 @@ class OllamaProvider(LLMProvider):
         max_tokens: int = 16384,
     ) -> Message:
         await self._resolve_max_context_tokens_if_needed()
+        if self.native_api:
+            return await self._complete_native(messages, tools, temperature, max_tokens)
         api_messages = [self._to_api_message(m) for m in messages]
         payload: dict[str, Any] = {
             "model": self.model,
@@ -259,6 +282,10 @@ class OllamaProvider(LLMProvider):
         accumulated by index and emitted on the final StreamChunk.
         """
         await self._resolve_max_context_tokens_if_needed()
+        if self.native_api:
+            async for chunk in self._stream_native(messages, tools, temperature, max_tokens):
+                yield chunk
+            return
         api_messages = [self._to_api_message(m) for m in messages]
         body: dict[str, Any] = {
             "model": self.model,
@@ -341,6 +368,155 @@ class OllamaProvider(LLMProvider):
             content, recovered = _recover_into_tool_calls(content)
             tool_calls = recovered
 
+        msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
+        yield StreamChunk(
+            content="",
+            is_final=True,
+            tool_calls=tool_calls,
+            usage=usage,
+            message=msg,
+        )
+
+    # ------------------------------------------------------------------
+    # Native /api/chat path (real Ollama; honours num_ctx)
+    # ------------------------------------------------------------------
+
+    def _native_options(self, temperature: float, max_tokens: int) -> dict[str, Any]:
+        """Build the native ``options`` map. ``num_ctx`` (the whole point of the
+        native path) is included only when a runtime window was resolved."""
+        options: dict[str, Any] = {"temperature": temperature, "num_predict": max_tokens}
+        if self._runtime_num_ctx is not None:
+            options["num_ctx"] = self._runtime_num_ctx
+        return options
+
+    def _native_body(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [self._to_native_message(m) for m in messages],
+            "options": self._native_options(temperature, max_tokens),
+        }
+        # Native /api/chat accepts the SAME tool schema shape as OpenAI.
+        if tools:
+            body["tools"] = [self.tool_schema(t) for t in tools]
+        return body
+
+    def _to_native_message(self, msg: Message) -> dict[str, Any]:
+        """Project a ``Message`` into Ollama's native /api/chat shape.
+
+        Differs from ``_to_api_message`` (OpenAI/v1) in two ways: tool results
+        carry no ``tool_call_id`` (native matches by position), and tool-call
+        ``arguments`` are sent as a JSON OBJECT, not a JSON-encoded string.
+        """
+        if msg.role == Role.TOOL and msg.tool_result:
+            return {"role": "tool", "content": msg.tool_result.content}
+        if msg.role == Role.ASSISTANT and msg.tool_calls:
+            return {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {"function": {"name": tc.name, "arguments": tc.arguments}}
+                    for tc in msg.tool_calls
+                ],
+            }
+        return {"role": msg.role.value, "content": build_user_message_content(msg)}
+
+    @staticmethod
+    def _native_usage(data: dict[str, Any]) -> TokenUsage | None:
+        """Native usage lives in ``prompt_eval_count`` / ``eval_count`` (on the
+        terminal ``done`` object), not an OpenAI ``usage`` block."""
+        if "prompt_eval_count" in data or "eval_count" in data:
+            return TokenUsage(
+                input_tokens=data.get("prompt_eval_count", 0) or 0,
+                output_tokens=data.get("eval_count", 0) or 0,
+            )
+        return None
+
+    @staticmethod
+    def _parse_native_tool_calls(message: dict[str, Any]) -> list[ToolCall]:
+        """Map native ``message.tool_calls`` → ``ToolCall``. Native arguments are
+        objects (already parsed); tolerate a string form defensively. Synthesizes
+        a stable id when the model omits one (mirrors the recovery path)."""
+        out: list[ToolCall] = []
+        for i, tc in enumerate(message.get("tool_calls") or []):
+            fn = tc.get("function", {}) or {}
+            name = fn.get("name") or ""
+            args = fn.get("arguments")
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            elif not isinstance(args, dict):
+                args = {}
+            out.append(ToolCall(id=tc.get("id") or f"{name}_{i}", name=name, arguments=args))
+        return out
+
+    async def _complete_native(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> Message:
+        data = await ollama_api.chat_native(
+            self.base_url,
+            self._native_body(messages, tools, temperature, max_tokens),
+            headers=self._auth_headers(),
+        )
+        message = data.get("message", {}) or {}
+        content = message.get("content") or ""
+        tool_calls = self._parse_native_tool_calls(message)
+        usage = self._native_usage(data)
+        # Same text-form recovery contract as the /v1 path (DD2/DD4).
+        if not tool_calls and await self.supports_tools():
+            content, recovered = _recover_into_tool_calls(content)
+            tool_calls = recovered
+        return Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
+
+    async def _stream_native(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> AsyncIterator[StreamChunk]:
+        content = ""
+        usage: TokenUsage | None = None
+        native_tool_calls: list[dict[str, Any]] = []
+        acc = _StreamAccumulator(bytes_per_token=self.bytes_per_token)
+        async for chunk in ollama_api.chat_stream_native(
+            self.base_url,
+            self._native_body(messages, tools, temperature, max_tokens),
+            headers=self._auth_headers(),
+        ):
+            message = chunk.get("message", {}) or {}
+            text = message.get("content")
+            if text:
+                content += text
+                yield StreamChunk(content=text, is_final=False)
+                interim = acc.maybe_emit_interim(text)
+                if interim:
+                    yield interim
+            # Native sends the full tool_calls array in one message object (not
+            # streamed deltas), so capture-by-assignment is correct.
+            if message.get("tool_calls"):
+                native_tool_calls = message["tool_calls"]
+            u = self._native_usage(chunk)
+            if u is not None:
+                usage = u
+            if chunk.get("done"):
+                break
+
+        tool_calls = self._parse_native_tool_calls({"tool_calls": native_tool_calls})
+        if not tool_calls and await self.supports_tools():
+            content, recovered = _recover_into_tool_calls(content)
+            tool_calls = recovered
         msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
         yield StreamChunk(
             content="",
