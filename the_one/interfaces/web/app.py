@@ -1171,6 +1171,7 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
     logged but never propagated — a failed pre-load should not block the chat.
     """
     from the_one.llm import ollama_api
+    from the_one.llm.ollama_provider import effective_num_ctx
 
     try:
         # Resolve agent config from DB (Option B from leg spec)
@@ -1193,23 +1194,40 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
         if provider_config.type != "ollama":
             return
 
-        # Check if model is already loaded
-        running = await ollama_api.list_running(provider_config.base_url)
         model_name = agent_config.llm_model
 
-        for m in running:
-            running_name = m.get("name", "")
-            # Exact match, or match ignoring :latest tag
-            if running_name == model_name:
-                return
-            if running_name == f"{model_name}:latest":
-                return
-            if model_name == f"{running_name}:latest":
-                return
+        # The runtime window we want the runner loaded at. Ollama defaults
+        # num_ctx to 4096 and the /v1 chat endpoint can't raise it, so a model
+        # already running at the wrong window must be RELOADED at ``desired``
+        # before generation — otherwise the conversation truncates at 4096
+        # tokens and dies. ``desired`` is None when the model's advertised
+        # window is unknown, in which case we leave Ollama's default untouched.
+        advertised = await ollama_api.get_model_context_length(
+            provider_config.base_url, model_name
+        )
+        desired = effective_num_ctx(advertised)
 
-        # Model not loaded — notify subscribers and trigger load
+        def _name_matches(running_name: str) -> bool:
+            # Exact match, or match ignoring a :latest tag on either side.
+            return (
+                running_name == model_name
+                or running_name == f"{model_name}:latest"
+                or model_name == f"{running_name}:latest"
+            )
+
+        # Already loaded AT THE RIGHT WINDOW? Then nothing to do. A name match
+        # with the wrong ``context_length`` falls through to a reload.
+        for m in await ollama_api.list_running(provider_config.base_url):
+            if _name_matches(m.get("name", "")):
+                if desired is None or m.get("context_length") == desired:
+                    return
+                break  # loaded at the wrong num_ctx — reload below
+
+        # Not loaded (or loaded at the wrong window) — notify + (re)load at the
+        # desired runtime window. ``num_ctx`` is passed via the native API; a
+        # later /v1 chat request reuses this runner.
         await _send_to_session(session, {"type": "system", "content": "Loading model..."})
-        await ollama_api.load_model(provider_config.base_url, model_name)
+        await ollama_api.load_model(provider_config.base_url, model_name, num_ctx=desired)
         await _send_to_session(session, {"type": "system", "content": "Model loaded."})
 
     except Exception:

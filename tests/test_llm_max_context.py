@@ -235,6 +235,58 @@ class TestOllamaResolver:
             assert provider.max_context_tokens == 128_000
             assert provider._max_context_tokens_resolved is True
 
+    async def test_huge_advertised_window_clamped_to_runtime_default(self) -> None:
+        # The reported bug: a model advertises a 262144 window but Ollama runs it
+        # at num_ctx=4096. max_context_tokens must be the EFFECTIVE runtime window
+        # we load (32768 default), not the advertised architectural maximum — so
+        # the governor and the context gauge size against reality.
+        provider = OllamaProvider(model="ministral-3:8b", base_url="http://test:11434")
+        fake_response: dict[str, Any] = {"model_info": {"mistral3.context_length": 262_144}}
+        with patch.object(ollama_api, "show_model", new=AsyncMock(return_value=fake_response)):
+            await provider._resolve_max_context_tokens_if_needed()
+            assert provider.max_context_tokens == 32_768
+
+
+class TestEffectiveNumCtx:
+    """``effective_num_ctx`` — runtime num_ctx clamp (pure helper)."""
+
+    def test_clamps_huge_advertised_to_default(self) -> None:
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        assert effective_num_ctx(262_144) == 32_768
+
+    def test_small_advertised_passes_through(self) -> None:
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        # A model whose architecture is smaller than the default is never
+        # inflated past what it supports.
+        assert effective_num_ctx(8_192) == 8_192
+
+    def test_unknown_advertised_returns_none(self) -> None:
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        assert effective_num_ctx(None) is None
+        assert effective_num_ctx(0) is None
+        assert effective_num_ctx(-5) is None
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        monkeypatch.setenv("THE_ONE_OLLAMA_NUM_CTX", "16384")
+        assert effective_num_ctx(262_144) == 16_384
+        # Still clamped to the model's advertised window when that is smaller.
+        assert effective_num_ctx(8_192) == 8_192
+
+    def test_env_override_invalid_falls_back_to_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        monkeypatch.setenv("THE_ONE_OLLAMA_NUM_CTX", "not-a-number")
+        assert effective_num_ctx(262_144) == 32_768
+        monkeypatch.setenv("THE_ONE_OLLAMA_NUM_CTX", "-1")
+        assert effective_num_ctx(262_144) == 32_768
+
 
 # ---------------------------------------------------------------------------
 # OpenRouter resolver + helper

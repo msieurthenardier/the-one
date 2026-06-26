@@ -184,5 +184,65 @@ the `sys._MEIPASS`/exe-dir assumptions need re-checking).
   display-name-vs-slug split, and consolidate the brand-icon regeneration
   (`packaging/windows/regenerate_icon.py`) if Briefcase wants its own icon inputs.
 - **Sequencing:** independent of the privileged-client security seed above; either can go first.
-</content>
-</invoke>
+
+---
+
+## Ollama runtime context window (`num_ctx`): make it configurable in the UI
+
+**Status:** idea / future mission seed — **NOT** scoped to any current mission. A runtime fix
+already shipped (see "What already shipped" below); this seed is the **UI/UX surface** that the
+fix deliberately left out.
+**Captured:** 2026-06-25, while diagnosing a chat that "died" at ~4k tokens on an Ollama model.
+
+### The thesis
+Ollama allocates a model runner with a fixed **runtime context window** (`num_ctx`) that defaults
+to **4096 tokens regardless of the model's advertised architectural window**, and its
+OpenAI-compatible `/v1` endpoint **silently ignores** `options.num_ctx`. So a model that advertises
+a 262144-token window (e.g. `ministral-3:8b` reports `mistral3.context_length: 262144`) is actually
+run at 4096 unless the runner is loaded via the **native `/api/*`** endpoint with an explicit
+`num_ctx`. When a conversation's history crosses ~4096 tokens the prompt fills the window, there is
+no room left to generate, and the model emits a token or two and stops — the chat appears to "die"
+while the UI gauge still reads ~2% (because the gauge was showing the *advertised* 262144, not the
+*runtime* 4096). This is a pure mismatch between the window we advertise and the window we run.
+
+### What already shipped (the runtime fix — this seed builds on it)
+A targeted fix made the runtime window real and honest, **hardcoded to a sane default**:
+- `ollama_api.load_model(..., num_ctx=...)` loads the runner via native `/api/generate` with
+  `options.num_ctx`; a later `/v1` chat reuses that runner.
+- `ollama_provider.effective_num_ctx(advertised)` = `min(THE_ONE_OLLAMA_NUM_CTX default 32768,
+  advertised)`, returning `None` when the window is unknown (leave Ollama's default untouched).
+- `OllamaProvider.max_context_tokens` now resolves to the **effective runtime window**, so the
+  context gauge and the M16-F08 tool-result **governor** size against reality instead of the
+  fictional advertised max.
+- The web auto-load (`_ensure_ollama_model_loaded`) loads/reloads the runner at the effective
+  `num_ctx` and reloads if it's running at the wrong window.
+
+The only knob today is the **`THE_ONE_OLLAMA_NUM_CTX` environment variable** (global, default
+32768). That is invisible to the operator and not per-model or per-agent — which is the gap.
+
+### What this mission adds (the UI surface)
+1. **Provider/model-level configuration.** Let the operator set the runtime `num_ctx` for an Ollama
+   model from the UI (Administration / provider or model editor), clamped to the model's advertised
+   window (surfaced via the existing `get_model_context_length` chip) and to a hardware-aware ceiling.
+   The chosen value should drive both the runner load and `max_context_tokens`.
+2. **Per-agent override.** Some agents need a big window (long tool-result-heavy flows like the Sonos
+   agent); others are fine small. Let an agent override the provider/model default — the natural home
+   is `AgentConfig` alongside `max_iterations` / `chat_history_retention_days`. The agent override
+   wins; the model default is the fallback; the env var becomes the last-resort global default.
+3. **Honest feedback.** Surface the *effective* runtime window (not just the advertised one) in the
+   model chip and the chat context gauge so "2% of 262144" can never again mask "100% of 4096".
+
+### Scope notes for when this becomes a mission
+- **The plumbing already exists** — `effective_num_ctx` is the single resolution point and
+  `num_ctx` already threads through `load_model`. The mission is mostly **config schema + UI +
+  the resolution precedence** (agent override → model setting → env default → leave-Ollama-default),
+  not new transport.
+- **VRAM is the real ceiling.** A per-agent 131072 window can fail to load on a small GPU. The UI
+  must clamp to advertised AND fail gracefully (the load is already best-effort / fail-open), and
+  ideally warn rather than silently fall back.
+- **Connector & CLI parity.** The shipped runtime fix enforces `num_ctx` only on the **web auto-load
+  path**; connector-driven and CLI sessions reuse a web-warmed runner but don't *enforce* the window
+  themselves. The clean home for universal enforcement is the **provider** (`stream()`/`complete()`
+  warm-load), which was deliberately deferred to avoid a provider rewrite under a targeted fix. Fold
+  this into the mission so every entry point gets the right window.
+- **Independent** of the privileged-client and packaging seeds above; can go in any order.
