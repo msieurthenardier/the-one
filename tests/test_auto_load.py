@@ -161,9 +161,7 @@ class TestEnsureOllamaModelLoaded:
 
             mock_list.assert_called_once_with("http://localhost:11434")
             # advertised unknown → num_ctx=None (leave Ollama's default).
-            mock_load.assert_called_once_with(
-                "http://localhost:11434", "qwen2.5:7b", num_ctx=None
-            )
+            mock_load.assert_called_once_with("http://localhost:11434", "qwen2.5:7b", num_ctx=None)
 
         # Check system message was sent
         calls = mock_ws.send_json.call_args_list
@@ -338,6 +336,4 @@ class TestEnsureOllamaModelLoaded:
             patch("the_one.llm.ollama_api.load_model", AsyncMock()) as mock_load,
         ):
             await patched_app._ensure_ollama_model_loaded(session)
-            mock_load.assert_called_once_with(
-                "http://localhost:11434", "qwen2.5:7b", num_ctx=None
-            )
+            mock_load.assert_called_once_with("http://localhost:11434", "qwen2.5:7b", num_ctx=None)
