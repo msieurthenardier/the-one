@@ -411,34 +411,35 @@ async def test_filter_helper_excludes_search_tools_and_includes_mcp() -> None:
         }
     }
 
-    assert _filter_candidates([], source_index, "alpha") == []
+    assert _filter_candidates([], source_index, "alpha") == ([], 0)
 
     # Empty query → returns all except search_tools.
-    result = _filter_candidates(schemas, source_index, "")
+    result, total = _filter_candidates(schemas, source_index, "")
     names = {s["name"] for s in result}
     assert names == {"alpha", "beta", "mcp__foo__bar"}
+    assert total == len(result)  # empty query is never truncated
 
     # Substring match on built-in name.
-    result = _filter_candidates(schemas, source_index, "alpha")
+    result, _ = _filter_candidates(schemas, source_index, "alpha")
     assert [s["name"] for s in result] == ["alpha"]
 
     # Source-level match pulls in the MCP tool.
-    result = _filter_candidates(schemas, source_index, "foo")
+    result, _ = _filter_candidates(schemas, source_index, "foo")
     assert [s["name"] for s in result] == ["mcp__foo__bar"]
 
     # search_tools is always excluded.
-    result = _filter_candidates(schemas, source_index, "search")
+    result, _ = _filter_candidates(schemas, source_index, "search")
     names = {s["name"] for s in result}
     assert "search_tools" not in names
 
-    # Case-insensitive.
+    # Case-insensitive (both list and total agree).
     assert _filter_candidates(schemas, source_index, "ALPHA") == _filter_candidates(
         schemas, source_index, "alpha"
     )
 
     # Missing description → empty-string haystack.
     schemas_no_desc = [{"name": "my_tool"}]
-    result = _filter_candidates(schemas_no_desc, {}, "my")
+    result, _ = _filter_candidates(schemas_no_desc, {}, "my")
     assert len(result) == 1
 
 
@@ -573,7 +574,7 @@ def test_ranking_more_tokens_ranks_higher() -> None:
         _synthetic_schema("read_tool", "shell only"),
         _synthetic_schema("shell_tool", "Execute a shell command"),
     ]
-    result = _filter_candidates(schemas, {}, "shell command")
+    result, _ = _filter_candidates(schemas, {}, "shell command")
     names = [s["name"] for s in result]
     assert "shell_tool" in names
     assert "read_tool" in names
@@ -595,7 +596,7 @@ def test_ranking_single_keyword_stable() -> None:
         _synthetic_schema("beta_shell", "beta shell tool"),
         _synthetic_schema("no_match", "unrelated"),
     ]
-    result = _filter_candidates(schemas, {}, "shell")
+    result, _ = _filter_candidates(schemas, {}, "shell")
     names = [s["name"] for s in result]
     assert names == ["alpha_shell", "beta_shell"], (
         f"Expected original order preserved within same score; got {names}"
@@ -609,11 +610,12 @@ def test_empty_query_still_returns_all_non_excluded() -> None:
         _synthetic_schema("search_tools"),
         _synthetic_schema("beta"),
     ]
-    result = _filter_candidates(schemas, {}, "")
+    result, total = _filter_candidates(schemas, {}, "")
     names = [s["name"] for s in result]
     assert "alpha" in names
     assert "beta" in names
     assert "search_tools" not in names
+    assert total == len(result)  # empty query: total == returned
 
 
 def test_search_tools_excluded_from_tokenized_results() -> None:
@@ -622,7 +624,7 @@ def test_search_tools_excluded_from_tokenized_results() -> None:
         _synthetic_schema("search_tools", "search among tools"),
         _synthetic_schema("other_tool", "search something"),
     ]
-    result = _filter_candidates(schemas, {}, "search")
+    result, _ = _filter_candidates(schemas, {}, "search")
     names = [s["name"] for s in result]
     assert "search_tools" not in names
     assert "other_tool" in names
@@ -649,7 +651,7 @@ def test_mcp_source_tokenized_match() -> None:
             "tool_names_prefixed": ["mcp__github__get_repo"],
         },
     }
-    result = _filter_candidates(schemas, source_index, "list zones")
+    result, _ = _filter_candidates(schemas, source_index, "list zones")
     names = {s["name"] for s in result}
     assert "mcp__cloudflare__list_zones" in names
     assert "mcp__github__get_repo" not in names
@@ -919,86 +921,128 @@ async def test_no_cache_source_logged_and_skipped(caplog: Any) -> None:
 
 
 def _make_schemas_for_cap_test() -> list[dict[str, Any]]:
-    """Build a schema set that produces > _MAX_SEARCH_RESULTS matches for 'tool'.
+    """Build a schema set with a clear name-match / description-only split for 'widget'.
 
-    - 1 high-overlap tool: name + description each contain 'tool' (would score 2
-      for a two-token query, but for single-token 'tool' all are score 1).
-    - To make scoring differentiated we use query 'alpha tool': tokens ['alpha', 'tool'].
-    - 'alpha_master' name contains 'alpha' AND description contains 'tool' → score 2.
-    - 10 plain tools whose descriptions contain 'tool' but not 'alpha' → score 1 each.
-    - 1 'low_relevance' tool whose description contains 'alpha' but not 'tool' → score 1.
-    - Total matches: 12 — well above _MAX_SEARCH_RESULTS (8).
+    Single-token query 'widget' (all matches score 1, so the name-vs-description
+    class is what differentiates them):
+    - 2 NAME matches: 'widget_create', 'widget_delete' — token 'widget' is in the
+      tool NAME (descriptions deliberately do NOT contain it).
+    - 10 DESCRIPTION-ONLY matches: 'plain_NN' whose description mentions 'widget'
+      but whose name does not.
+    - Total matches for 'widget': 12 — above _MAX_SEARCH_RESULTS (8).
+
+    New contract: both name matches are guaranteed and ranked first; the
+    remaining 6 slots are filled with description-only matches; 4 description-only
+    matches are dropped; the reported pre-cap total is 12.
     """
     schemas: list[dict[str, Any]] = [
-        _synthetic_schema("alpha_master", "the best alpha tool"),  # score 2
+        _synthetic_schema("widget_create", "create a thing"),  # name match
+        _synthetic_schema("widget_delete", "delete a thing"),  # name match
     ]
     for i in range(10):
-        schemas.append(_synthetic_schema(f"plain_tool_{i:02d}", f"a generic tool #{i}"))  # score 1
-    schemas.append(_synthetic_schema("low_relevance", "alpha but unrelated"))  # score 1
+        schemas.append(_synthetic_schema(f"plain_{i:02d}", f"manages a widget #{i}"))  # desc-only
     return schemas
 
 
-def test_cap_non_empty_query_returns_at_most_max() -> None:
-    """A non-empty query that matches >_MAX_SEARCH_RESULTS schemas returns exactly that cap."""
+def test_cap_description_only_matches_capped_total_reported() -> None:
+    """When name matches < cap, fill with description-only matches up to the cap.
+
+    12 matches total (2 name + 10 description-only). The result holds exactly
+    _MAX_SEARCH_RESULTS (8) tools and the returned pre-cap total is the true 12.
+    """
     schemas = _make_schemas_for_cap_test()
-    result = _filter_candidates(schemas, {}, "alpha tool")
+    result, total = _filter_candidates(schemas, {}, "widget")
     assert len(result) == _MAX_SEARCH_RESULTS, (
         f"Expected exactly {_MAX_SEARCH_RESULTS} results; got {len(result)}"
     )
+    assert total == 12, f"Expected true pre-cap total 12; got {total}"
 
 
-def test_cap_non_empty_query_high_scored_tool_included() -> None:
-    """The top-scored tool is always included when the cap is applied."""
+def test_cap_name_matches_guaranteed_in_results() -> None:
+    """Both name matches are always included when the cap is applied."""
     schemas = _make_schemas_for_cap_test()
-    result = _filter_candidates(schemas, {}, "alpha tool")
+    result, _ = _filter_candidates(schemas, {}, "widget")
     names = [s["name"] for s in result]
-    assert "alpha_master" in names, (
-        f"High-overlap tool 'alpha_master' (score 2) must be in "
-        f"top-{_MAX_SEARCH_RESULTS}; got {names}"
+    assert "widget_create" in names and "widget_delete" in names, (
+        f"Name matches must be guaranteed in top-{_MAX_SEARCH_RESULTS}; got {names}"
     )
 
 
-def test_cap_non_empty_query_high_scored_ranks_first() -> None:
-    """Within the capped set, the highest-scored tool still appears first."""
+def test_cap_name_matches_rank_first() -> None:
+    """Within the capped set, name matches appear before description-only matches."""
     schemas = _make_schemas_for_cap_test()
-    result = _filter_candidates(schemas, {}, "alpha tool")
-    assert result[0]["name"] == "alpha_master", (
-        f"alpha_master (score 2) must rank first; got {result[0]['name']}"
+    result, _ = _filter_candidates(schemas, {}, "widget")
+    names = [s["name"] for s in result]
+    assert names[:2] == ["widget_create", "widget_delete"], (
+        f"Name matches must rank first; got order {names}"
     )
+    # Every name match precedes every description-only match.
+    last_name_idx = max(names.index("widget_create"), names.index("widget_delete"))
+    first_desc_idx = min(i for i, n in enumerate(names) if n.startswith("plain_"))
+    assert last_name_idx < first_desc_idx
 
 
-def test_cap_non_empty_query_low_ranked_beyond_cap_excluded() -> None:
-    """A schema that would match but falls beyond position _MAX_SEARCH_RESULTS is dropped."""
+def test_cap_description_only_beyond_cap_excluded() -> None:
+    """A description-only match beyond the cap is dropped (but counted in the total)."""
     schemas = _make_schemas_for_cap_test()
-    # There are 12 matches total; only the top 8 are returned. The plain tools
-    # and low_relevance are all score 1 — at least some of them must be excluded.
-    result = _filter_candidates(schemas, {}, "alpha tool")
+    result, total = _filter_candidates(schemas, {}, "widget")
     result_names = {s["name"] for s in result}
-    all_matching = {
-        s["name"] for s in schemas
-    }  # all 12 match (alpha_master + 10 plain + low_relevance)
+    all_matching = {s["name"] for s in schemas}  # all 12 match
     excluded = all_matching - result_names
-    assert len(excluded) >= 1, (
-        f"Expected at least one schema beyond the cap to be excluded; result: {result_names}"
+    # 4 description-only matches must be excluded; no name match may be excluded.
+    assert len(excluded) == 4, f"Expected 4 dropped description-only matches; got {excluded}"
+    assert all(n.startswith("plain_") for n in excluded), (
+        f"Only description-only matches may be dropped; got {excluded}"
     )
+    assert total == 12, "The dropped matches must still be reflected in the true total"
+
+
+def test_cap_name_matches_exceeding_cap_all_kept() -> None:
+    """When name matches alone exceed the cap, ALL of them are kept (cap is a floor)."""
+    # 11 tools whose NAME contains 'zone' → 11 name matches, above the cap of 8.
+    schemas = [_synthetic_schema(f"zone_tool_{i:02d}", "unrelated text") for i in range(11)]
+    result, total = _filter_candidates(schemas, {}, "zone")
+    assert len(result) == 11, (
+        f"All name matches must be kept even beyond the cap; got {len(result)}"
+    )
+    assert total == 11
+
+
+def test_name_match_guaranteed_when_descriptions_fill_cap() -> None:
+    """A name match is never pushed out by a wall of description-only matches.
+
+    Mirrors the Sonos bug (F09-01): 10 tools mention 'volume' only in their
+    description (would naturally fill the 8 slots), plus one 'set_volume' whose
+    NAME hits. The name match must be present AND ranked first.
+    """
+    schemas = [_synthetic_schema(f"audio_{i:02d}", f"adjusts the volume #{i}") for i in range(10)]
+    schemas.append(_synthetic_schema("set_volume", "set the speaker level"))  # name match, last
+    result, total = _filter_candidates(schemas, {}, "volume")
+    names = [s["name"] for s in result]
+    assert "set_volume" in names, "Name match must be guaranteed despite >8 description matches"
+    assert names[0] == "set_volume", f"Name match must rank first; got {names}"
+    assert len(result) == _MAX_SEARCH_RESULTS
+    assert total == 11, f"Expected true pre-cap total 11; got {total}"
 
 
 def test_empty_query_not_capped_returns_all() -> None:
     """Empty query is exempt from the cap — all non-excluded schemas must be returned.
 
-    We register more than _MAX_SEARCH_RESULTS tools and assert every one appears.
+    We register more than _MAX_SEARCH_RESULTS tools and assert every one appears,
+    and that the reported total equals the (uncapped) returned count.
     """
     schemas = [
         _synthetic_schema(f"tool_{i:02d}", f"description {i}")
         for i in range(_MAX_SEARCH_RESULTS + 5)
     ]
     schemas.append(_synthetic_schema("search_tools", "excluded"))
-    result = _filter_candidates(schemas, {}, "")
+    result, total = _filter_candidates(schemas, {}, "")
     result_names = {s["name"] for s in result}
     assert len(result) > _MAX_SEARCH_RESULTS, (
         f"Empty query must not be capped; expected "
         f">{_MAX_SEARCH_RESULTS} results, got {len(result)}"
     )
+    assert total == len(result), "Empty query is never truncated: total == returned"
     assert "search_tools" not in result_names
     for i in range(_MAX_SEARCH_RESULTS + 5):
         assert f"tool_{i:02d}" in result_names, f"tool_{i:02d} missing from empty-query results"
@@ -1019,43 +1063,55 @@ async def test_empty_query_real_registry_not_capped() -> None:
     )
 
 
-def test_format_result_capped_flag() -> None:
-    """_format_result with capped=True appends '(top matches)' to the count."""
+def test_format_result_truncated_reports_true_total() -> None:
+    """When total > returned, _format_result renders 'N of M' + a recovery hint."""
     matches = [_synthetic_schema(f"t{i}") for i in range(_MAX_SEARCH_RESULTS)]
-    result = _format_result(matches, "some query", capped=True)
-    assert "(top matches)" in result
-    assert f"Found {_MAX_SEARCH_RESULTS} tools (top matches)" in result
+    result = _format_result(matches, "volume", total=14)
+    assert f"Found {_MAX_SEARCH_RESULTS} of 14 tools matching 'volume'" in result
+    # The signal must tell a small model how to recover.
+    assert "narrow your query or search a specific tool name to see the rest" in result
 
 
-def test_format_result_not_capped_no_annotation() -> None:
-    """_format_result without capped=True has no '(top matches)' annotation."""
+def test_format_result_not_truncated_no_signal() -> None:
+    """When total equals (or is None for) the returned count, no truncation signal."""
     matches = [_synthetic_schema("a"), _synthetic_schema("b")]
-    result = _format_result(matches, "q")
-    assert "(top matches)" not in result
+    # total omitted (None) → not truncated.
+    assert "of" not in _format_result(matches, "q").split(":")[0].split()
+    # total == returned → not truncated.
+    result = _format_result(matches, "q", total=2)
+    assert "narrow your query" not in result
+    assert "Found 2 tools matching 'q'" in result
 
 
-async def test_execute_capped_query_signals_top_matches() -> None:
-    """When a non-empty query hits the cap, execute() output contains '(top matches)'."""
-    # Build a registry with more than _MAX_SEARCH_RESULTS tools whose descriptions all
-    # contain the word 'data' so they all match a 'data' query.
+async def test_execute_truncated_query_reports_true_total() -> None:
+    """When a non-empty query is truncated, execute() reports the honest 'N of M' total.
+
+    11 tools match 'data' via their DESCRIPTION only (names don't contain it), so
+    8 are returned and the true total of 11 must be reported with the recovery hint.
+    """
     registry = ToolRegistry()
-    for i in range(_MAX_SEARCH_RESULTS + 3):
-        registry.register(_MockTool(f"data_tool_{i:02d}", f"processes data stream #{i}"))
+    total_tools = _MAX_SEARCH_RESULTS + 3  # 11
+    for i in range(total_tools):
+        registry.register(_MockTool(f"metric_{i:02d}", f"processes data stream #{i}"))
 
     st, ls, _ = _make_search_tools(registry=registry)
     result = await st.execute("data")
 
-    assert "(top matches)" in result, f"Expected '(top matches)' when capped; got: {result!r}"
+    assert f"{_MAX_SEARCH_RESULTS} of {total_tools}" in result, (
+        f"Expected honest 'N of M' total when truncated; got: {result!r}"
+    )
+    assert "narrow your query or search a specific tool name to see the rest" in result
     assert len(ls) == _MAX_SEARCH_RESULTS
 
 
-async def test_execute_uncapped_query_no_top_matches_annotation() -> None:
-    """When a non-empty query returns fewer than the cap, no '(top matches)' annotation."""
+async def test_execute_untruncated_query_no_signal() -> None:
+    """When a non-empty query returns fewer than the cap, no truncation signal."""
     registry = ToolRegistry()
     registry.register(_MockTool("unique_frobnicate_tool", "frobnicate widgets"))
 
     st, ls, _ = _make_search_tools(registry=registry)
     result = await st.execute("frobnicate")
 
-    assert "(top matches)" not in result
+    assert "narrow your query" not in result
+    assert " of " not in result
     assert len(ls) == 1
