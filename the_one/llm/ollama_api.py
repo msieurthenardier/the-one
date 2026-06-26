@@ -319,17 +319,37 @@ async def delete_model(base_url: str, model: str) -> None:
         raise
 
 
-async def load_model(base_url: str, model: str, keep_alive: str = "24h") -> None:
+async def load_model(
+    base_url: str,
+    model: str,
+    keep_alive: str = "24h",
+    num_ctx: int | None = None,
+) -> None:
     """Load a model into VRAM via ``/api/generate`` with ``keep_alive``.
 
-    Ollama loads the model when it receives a generate request.
+    Ollama loads the model when it receives a generate request. This uses the
+    NATIVE ``/api/generate`` endpoint (not the OpenAI-compatible ``/v1``) on
+    purpose: ``num_ctx`` is the runtime context window Ollama allocates for the
+    model runner, and it is honoured ONLY on the native API. Ollama defaults
+    ``num_ctx`` to 4096 regardless of the model's advertised architectural
+    window, and the ``/v1`` endpoint silently ignores any ``options.num_ctx`` —
+    so without this native pre-load the runner truncates the prompt at 4096
+    tokens and a conversation "dies" once its history crosses that line.
+
+    When ``num_ctx`` is provided, the runner is loaded at that window; a later
+    ``/v1/chat/completions`` request reuses the already-loaded runner (Ollama
+    keeps one runner per model and ``/v1`` never requests a reload). When
+    ``num_ctx`` is None the body is left exactly as before (Ollama's default).
     """
     url = strip_v1(base_url)
+    body: dict[str, Any] = {"model": model, "keep_alive": keep_alive}
+    if num_ctx is not None:
+        body["options"] = {"num_ctx": num_ctx}
     try:
         async with httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(
                 f"{url}/api/generate",
-                json={"model": model, "keep_alive": keep_alive},
+                json=body,
             )
             resp.raise_for_status()
     except httpx.ConnectError as exc:

@@ -150,17 +150,66 @@ class TestEnsureOllamaModelLoaded:
         add_subscriber(session.id, mock_ws)
 
         with (
+            patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=None),
+            ),
             patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=[])) as mock_list,
             patch("the_one.llm.ollama_api.load_model", AsyncMock()) as mock_load,
         ):
             await patched_app._ensure_ollama_model_loaded(session)
 
             mock_list.assert_called_once_with("http://localhost:11434")
-            mock_load.assert_called_once_with("http://localhost:11434", "qwen2.5:7b")
+            # advertised unknown → num_ctx=None (leave Ollama's default).
+            mock_load.assert_called_once_with(
+                "http://localhost:11434", "qwen2.5:7b", num_ctx=None
+            )
 
         # Check system message was sent
         calls = mock_ws.send_json.call_args_list
         assert any(c.args[0] == {"type": "system", "content": "Loading model..."} for c in calls)
+
+    async def test_loads_at_effective_num_ctx_when_advertised_known(
+        self, patched_app, ollama_agent
+    ):
+        """A known advertised window → load the runner at the clamped num_ctx."""
+        session = _make_session(patched_app, "ollama-agent")
+        add_subscriber(session.id, AsyncMock())
+
+        with (
+            patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=262_144),  # huge advertised window
+            ),
+            patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=[])),
+            patch("the_one.llm.ollama_api.load_model", AsyncMock()) as mock_load,
+        ):
+            await patched_app._ensure_ollama_model_loaded(session)
+            # 262144 clamped to the 32768 default → loaded at 32768.
+            mock_load.assert_called_once_with(
+                "http://localhost:11434", "qwen2.5:7b", num_ctx=32_768
+            )
+
+    async def test_reloads_when_running_at_wrong_num_ctx(self, patched_app, ollama_agent):
+        """Model running at the wrong window must be reloaded at the desired one."""
+        session = _make_session(patched_app, "ollama-agent")
+        add_subscriber(session.id, AsyncMock())
+
+        # Running, but at Ollama's 4096 default — the exact bug this fixes.
+        running = [{"name": "qwen2.5:7b", "context_length": 4096}]
+
+        with (
+            patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=262_144),
+            ),
+            patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=running)),
+            patch("the_one.llm.ollama_api.load_model", AsyncMock()) as mock_load,
+        ):
+            await patched_app._ensure_ollama_model_loaded(session)
+            mock_load.assert_called_once_with(
+                "http://localhost:11434", "qwen2.5:7b", num_ctx=32_768
+            )
 
     async def test_skips_when_model_already_loaded(self, patched_app, ollama_agent):
         """Should not send message or call load_model when model is running."""
@@ -169,9 +218,14 @@ class TestEnsureOllamaModelLoaded:
         mock_ws = AsyncMock()
         add_subscriber(session.id, mock_ws)
 
-        running = [{"name": "qwen2.5:7b", "size": 4_000_000_000}]
+        # Already running at the right window → no reload.
+        running = [{"name": "qwen2.5:7b", "size": 4_000_000_000, "context_length": 32_768}]
 
         with (
+            patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=262_144),
+            ),
             patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=running)),
             patch("the_one.llm.ollama_api.load_model", AsyncMock()) as mock_load,
         ):
@@ -211,6 +265,10 @@ class TestEnsureOllamaModelLoaded:
 
         with (
             patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=None),
+            ),
+            patch(
                 "the_one.llm.ollama_api.list_running",
                 AsyncMock(side_effect=ConnectionError("Ollama unreachable")),
             ),
@@ -228,6 +286,10 @@ class TestEnsureOllamaModelLoaded:
         session = _make_session(patched_app, "ollama-agent")
 
         with (
+            patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=None),
+            ),
             patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=[])),
             patch(
                 "the_one.llm.ollama_api.load_model",
@@ -246,6 +308,10 @@ class TestEnsureOllamaModelLoaded:
         running = [{"name": "qwen2.5:7b:latest"}]
 
         with (
+            patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=None),
+            ),
             patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=running)),
             patch("the_one.llm.ollama_api.load_model", AsyncMock()) as mock_load,
         ):
@@ -264,8 +330,14 @@ class TestEnsureOllamaModelLoaded:
         running = [{"name": "llama3:8b", "size": 4_000_000_000}]
 
         with (
+            patch(
+                "the_one.llm.ollama_api.get_model_context_length",
+                AsyncMock(return_value=None),
+            ),
             patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=running)),
             patch("the_one.llm.ollama_api.load_model", AsyncMock()) as mock_load,
         ):
             await patched_app._ensure_ollama_model_loaded(session)
-            mock_load.assert_called_once_with("http://localhost:11434", "qwen2.5:7b")
+            mock_load.assert_called_once_with(
+                "http://localhost:11434", "qwen2.5:7b", num_ctx=None
+            )

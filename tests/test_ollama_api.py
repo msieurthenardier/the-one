@@ -418,6 +418,33 @@ class TestLoadModel:
         )
 
     @pytest.mark.asyncio
+    async def test_num_ctx_sets_options(self) -> None:
+        # num_ctx is the runtime context window; it must go via the native
+        # /api/generate ``options`` map (the /v1 endpoint ignores it).
+        resp = _json_response({})
+        instance = _mock_client(resp)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            await ollama_api.load_model(BASE, "llama3:8b", num_ctx=32_768)
+        instance.post.assert_called_once_with(
+            f"{BASE}/api/generate",
+            json={"model": "llama3:8b", "keep_alive": "24h", "options": {"num_ctx": 32_768}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_num_ctx_none_omits_options(self) -> None:
+        # The default (None) must leave the body exactly as before — no options.
+        resp = _json_response({})
+        instance = _mock_client(resp)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            await ollama_api.load_model(BASE, "llama3:8b", num_ctx=None)
+        instance.post.assert_called_once_with(
+            f"{BASE}/api/generate",
+            json={"model": "llama3:8b", "keep_alive": "24h"},
+        )
+
+    @pytest.mark.asyncio
     async def test_connection_error(self) -> None:
         instance = _mock_client()
         instance.post = AsyncMock(side_effect=httpx.ConnectError("refused"))

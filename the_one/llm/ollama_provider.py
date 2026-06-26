@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -26,6 +27,56 @@ from the_one.llm.registry import register_provider
 # instruction-tuned families. Tunable post-HAT.  The shared threshold
 # (200 bytes) and accumulator logic live in ``the_one.llm._streaming``.
 BYTES_PER_TOKEN_OLLAMA = 3.5
+
+# Ollama runtime context window (``num_ctx``). Ollama's server default is 4096
+# REGARDLESS of the model's advertised architectural window, and its
+# OpenAI-compatible ``/v1`` endpoint ignores ``options.num_ctx`` — so without an
+# explicit native-API pre-load (see ``ollama_api.load_model``) the runner
+# truncates the prompt at 4096 tokens and a conversation dies once its history
+# crosses that line. This is the window we actually load the runner at, and the
+# value the governor + context gauge size against. Env-overridable so an
+# operator with more VRAM can raise it (future: surface this in the UI per
+# provider/model, with a per-agent override — see the recorded follow-up).
+_NUM_CTX_ENV = "THE_ONE_OLLAMA_NUM_CTX"
+_DEFAULT_NUM_CTX = 32_768
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive int from the environment at call time, else ``default``.
+
+    Read at call time (not import time) so a test can monkeypatch
+    ``os.environ`` without reloading the module — mirrors the governor's
+    ``_env_int`` and the agent layer's ``_get_tool_call_timeout``.
+    """
+    raw = os.environ.get(name, "")
+    if raw:
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return default
+
+
+def effective_num_ctx(advertised: int | None) -> int | None:
+    """Resolve the runtime ``num_ctx`` to load an Ollama model at.
+
+    Returns ``min(configured_default, advertised)`` when the model's advertised
+    architectural window is known and positive — never request more than the
+    architecture supports, but cap the default well below huge advertised
+    windows (e.g. ministral's 262144) that would allocate an impractical KV
+    cache. ``configured_default`` is ``THE_ONE_OLLAMA_NUM_CTX`` (default 32768),
+    read at call time.
+
+    Returns ``None`` when the advertised window is unknown / non-positive — the
+    caller then leaves Ollama's own default untouched rather than guessing a
+    window that might exceed what the model actually supports. This keeps the
+    no-information path identical to historical behaviour.
+    """
+    if advertised is None or advertised <= 0:
+        return None
+    return min(_env_int(_NUM_CTX_ENV, _DEFAULT_NUM_CTX), advertised)
 
 
 def _recover_into_tool_calls(content: str) -> tuple[str, list[ToolCall]]:
@@ -90,10 +141,20 @@ class OllamaProvider(LLMProvider):
         # Family-namespaced (e.g. ``qwen2.context_length``,
         # ``llama.context_length``). Failures (network, 404) propagate to
         # the wrapper which catches + logs + flips the sentinel.
+        #
+        # IMPORTANT: ``max_context_tokens`` for Ollama is the EFFECTIVE runtime
+        # window (the ``num_ctx`` we load the runner at), NOT the model's
+        # advertised architectural maximum. Ollama defaults num_ctx to 4096 and
+        # the /v1 endpoint can't raise it, so the governor and the context gauge
+        # must size against what we actually load (see ``effective_num_ctx`` and
+        # ``_ensure_ollama_model_loaded`` in the web layer). When the advertised
+        # window is unknown we leave the class default (no information → no
+        # change), matching historical behaviour.
         data = await ollama_api.show_model(self.base_url, self.model)
-        resolved = ollama_api.extract_ollama_context_length(data)
-        if resolved is not None and resolved > 0:
-            self.max_context_tokens = resolved
+        advertised = ollama_api.extract_ollama_context_length(data)
+        effective = effective_num_ctx(advertised)
+        if effective is not None:
+            self.max_context_tokens = effective
         # else: leave at class default; sentinel still flips in the wrapper.
 
     async def supports_tools(self) -> bool:
