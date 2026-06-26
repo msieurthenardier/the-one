@@ -21,6 +21,41 @@
 
 ## Findings
 
+### F09-05 — Long local-model conversation slows to a crawl at high context (~1 token / 5s at 91%)
+
+- **Provider / model**: Ollama — `ministral-3:8b` (mistral3, 8.9B, Q4_K_M), `http://localhost:11434/v1`.
+- **Version under test**: 0.2.10 (installed packaged app).
+- **Symptom**: a ~1-hour Sonos Agent conversation grew to **91% context** and decode slowed
+  to ~1 token / 5 s. Still functional — no failure, no reload.
+- **Diagnosis — NOT a the-one bug; resource/physics + deferred compaction.** `ollama ps`:
+  runner `size` ≈ 12.9 GB total but `size_vram` ≈ 5.4 GB — only ~42% of the runner is in
+  VRAM; the rest runs on **CPU** (partial offload). `context_length` = 32768, so 91% ≈
+  ~30k tokens. Per-token decode does attention over ~30k positions dominated by the CPU
+  split; the KV cache for a near-full 32k window also competes for VRAM, pushing more
+  compute to CPU as the conversation grows. The-one is correct: model loaded once
+  (keep_alive 24h, not reloading), native `/api/chat` honours `num_ctx` (0.2.9), no
+  re-prefill thrash. The F08 governor bounds per-tool-result size but does **not** evict
+  conversation history — M16 explicitly **deferred** eviction/summarization (see mission
+  Known Issues), which is the real lever here.
+- **Immediate mitigations (operator-side, no code change required)**:
+  1. **Lower `THE_ONE_OLLAMA_NUM_CTX`** (e.g. 8192–16384): a smaller KV cache lets more
+     model layers fit in VRAM → faster decode overall, at the cost of shorter conversations
+     before the window fills (it fills sooner instead of crawling).
+  2. Use a model that **fits in VRAM** (smaller params / heavier quant) or add VRAM.
+  3. Start a new conversation when the context overlay goes red (it already warns).
+- **Real fix**: conversation **compaction** (evict/summarize old turns) — already deferred
+  in M16 to its own mission; F09-05 is field evidence that motivates it. Per-result governor
+  (F08) is the prerequisite that makes compaction tractable.
+- **Disposition (DD4)**: two-pronged (operator decision).
+  1. **Mitigation leg `03-ollama-num-ctx-admin-field`** (in the 0.2.11 batch): surface
+     `num_ctx` as an editable Ollama provider field in Administration so it's tunable
+     without an env var (precedence: per-provider `config.num_ctx` → `THE_ONE_OLLAMA_NUM_CTX`
+     → default, clamped to advertised). Mitigation (lets the operator trade window size for
+     speed), **not a cure**.
+  2. **Carried to the existing mission Known-Issue** for deferred context compaction
+     (mission.md "Context compaction…") as field evidence — compaction remains the real fix.
+- **Status**: leg `03` created; mission Known-Issue annotated.
+
 ### F09-04 — Queued message scrolls away with the chat and can't be cancelled
 
 - **Version under test**: 0.2.10 (installed packaged app).

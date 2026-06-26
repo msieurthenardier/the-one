@@ -154,6 +154,11 @@ when the issue surfaces and written into the flight log next to the finding.
       the running turn, not the queued task — backend per-session cancel-set), F09-04
       (pin the queued message above the composer instead of scrolling it away, + a cancel ×).
       Batched for the 0.2.11 build.
+- [ ] `03-ollama-num-ctx-admin-field` — mitigation for F09-05 (long local-model
+      conversations crawl at high context): make `num_ctx` an editable Ollama provider field
+      in Administration (precedence per-provider → env → default, clamped to advertised), so
+      the window/speed trade-off is tunable without an env var. Compaction (the real fix)
+      stays a deferred mission Known Issue. Batched for the 0.2.11 build.
 
 ---
 

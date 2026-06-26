@@ -400,6 +400,11 @@ Deferred (own-mission candidate, 2026-06-23):
       (`tests/behavior/agent-governance-and-search`, 9/9 pass) witnessed the governor bound
       + the overlay *warn* signal live — i.e. F8 *informs* the operator at fullness but does
       not *recover* a turn near the limit. Compaction remains the open gap.
+      **Field evidence (F9 HAT, F09-05, 2026-06-26):** a ~1-hour local-model conversation
+      (ministral-3:8b/Ollama, partial CPU offload) reached 91% of a 32k window and decode
+      slowed to ~1 token / 5 s — functional but unusable. Confirms the need; F9 ships a
+      stop-gap (`num_ctx` is now an editable Ollama provider field, leg 03) but only
+      compaction recovers a long conversation already near the limit.
 
 ## Flights
 
