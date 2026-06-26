@@ -21,6 +21,73 @@
 
 ## Findings
 
+### F09-03 — "Stop" during a queued state cancels the queued message, not the running turn
+
+- **Version under test**: 0.2.10 (installed packaged app).
+- **Feature**: F07 cancel/interrupt + F07 DD4 one-slot queue, interacting.
+- **Repro (analysis-confirmed; live repro pending)**: Start a turn; while it runs, queue a
+  second message; then click **Stop**. Expected: the running turn halts (DD4: "stop = stop
+  everything"). Actual: the *queued* message's task is cancelled and the **running turn
+  keeps going** to normal completion.
+- **Root cause (backend)**: the WS receive loop is intentionally non-blocking
+  (`app.py:2133-2139`), so a queued message is spawned as a task immediately and
+  `_session_inflight[session.id] = task` (`app.py:2148`) **overwrites** the running turn's
+  task with the queued task (which is merely blocked on `session_locks[session.id]`). The
+  cancel action reads `_session_inflight.get(session.id)` (`app.py:2102`) → gets the
+  **queued** task and cancels it; the running task (holding the lock) is untouched. The
+  authors anticipated the overwrite for the done-callback (identity guard, `:2151-2153`)
+  but the cancel action still targets the single latest task.
+- **Fix (backend)**: track in-flight tasks **per session as a set**
+  (`_session_inflight: dict[str, set[Task]]`); on a `cancel` action, cancel **every**
+  not-done task for the session (running + queued) — matching DD4. Update the spawn site
+  (add to set), the done-callback (discard from set, drop empty), and the cancel handler.
+- **Disposition (DD4)**: folded into leg `02-queued-message-render` (operator: investigate
+  now, fix if real). Backend change; pairs with the F09-02 frontend render fix.
+- **Status**: diagnosed; fix pending. *(Bundled with F09-02 — both are send-while-thinking
+  UX defects in the same chat surface; one leg, one 0.2.11 build.)*
+
+### F09-02 — Queued (send-while-thinking) message never renders as a bubble in the live transcript
+
+- **Version under test**: 0.2.10 (installed packaged app, `C:\Users\…\AppData\Local\the-one\the-one.db`).
+- **Feature**: F07 DD4 one-slot "send while thinking" queue.
+- **Repro**: While a turn is running, type + send a second message (it shows "<text>
+  (queued)"). When the first turn finishes, the queued message is dequeued and the
+  agent acts on it — but the operator's queued message **bubble never appears** in the
+  conversation.
+- **Observed**: Agent processes the queued message (its response appears), but the
+  user's queued message text is gone from the live transcript.
+- **Expected**: The queued message should appear as a normal user bubble, in order
+  (after the first turn's response, before the queued turn's response).
+- **Persistence is NOT affected.** `_save_session_to_db` (`app.py:1011-1029`) persists
+  `session.agent.messages` **wholesale**, and `agent.step` appends BOTH the user message
+  and the assistant response to that one list — so the user message cannot be lost from
+  the DB while the response survives. Verified: every stored session in the live DB has
+  clean, complete user/assistant message arrays. A reload re-renders the queued message
+  from the DB; it is only missing from the **live** view. ("Lost in chat history" =
+  lost from the live scrollback, not from storage.)
+- **Root cause (frontend-only)**: `chat.js`
+  - Normal send optimistically renders the user bubble (`addMsg('user', …)` `chat.js:782`).
+  - Queued send renders only a "(queued)" indicator (`showPendingQueued` `chat.js:50-59`,
+    called at `:776`), then `ws.send` (`:778`).
+  - Backend broadcasts the user echo with `exclude=<sender ws>` for BOTH paths
+    (`_process_and_broadcast` `app.py:1430`, via `_spawn_message_processing` `:462`), so
+    the sender never receives its own message back.
+  - On turn-1 `done`, the handler does `delete pendingQueuedMessages[sid]` +
+    `clearPendingQueued()` (`chat.js:1234-1240`) — wiping the indicator **without** ever
+    rendering the real bubble. Net: the queued message has no optimistic render and no
+    echo-render → it disappears from the live view.
+- **Fix (frontend-only)**: in the `done` handler, when a pending queued message exists,
+  render it as a real user bubble (`addMsg('user', text, 'You')`) at dequeue time (correct
+  order) and keep the session in-flight (re-arm `inFlightSessions` + `showThinking`,
+  disable Send) since the queued turn is now starting. No backend / persistence change.
+- **Related**: investigating the cancel interaction surfaced **F09-03** (Stop targets the
+  queued task, not the running turn) — confirmed real, fixed in the same leg.
+- **Disposition (DD4)**: in-flight leg `02-queued-message-render` (frontend render fix here
+  + the F09-03 backend cancel-set fix).
+- **Status**: diagnosed; fix pending.
+
+---
+
 ### F09-01 — `search_tools` silently caps at 8 results; tools beyond the top 8 become invisible
 
 - **Provider / model**: Ollama — `ministral-3:8b` (agent "Sonos Agent", provider config `ec0d0a56cbf0`).
