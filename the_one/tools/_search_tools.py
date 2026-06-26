@@ -19,7 +19,7 @@ Source index shape: ``dict[str, dict]`` where each entry is
 Built by the factory at agent-build time from each attached source's
 ``_cache.tools``.
 
-Matching semantics (M16 F03 L08A in-flight adaptation):
+Matching semantics (M16 F03 L08A; name-guarantee + truncation signal M16 F09 L01):
 - The query is tokenized on whitespace (lowercase). A tool matches if ANY
   query token is a substring of the tool's ``name + ' ' + description``
   (case-insensitive). This makes multi-word natural-language queries
@@ -27,9 +27,26 @@ Matching semantics (M16 F03 L08A in-flight adaptation):
 - Noise tokens are dropped before matching: tokens shorter than 3 chars AND
   a small stopword set are filtered out. If ALL tokens are filtered, the
   original query is treated as a single substring (old behavior preserved).
-- Results are ranked by the number of distinct query tokens matched
-  (descending); stable order within the same score.
-- An empty query returns all non-excluded schemas (unchanged).
+- A match is classed as a **name match** when a query token (or, in the
+  fallback case, the whole phrase) is a substring of the tool's ``name`` —
+  as opposed to matching only inside the description. Name matches always
+  outrank description-only matches and are GUARANTEED in the result: when a
+  non-empty query produces more matches than ``_MAX_SEARCH_RESULTS``, every
+  name match is kept (even if name matches alone exceed the cap), then any
+  remaining slots are filled with the top-scored description-only matches.
+  This guarantees a tool the user named explicitly (e.g. ``set_volume`` for
+  the query ``"volume"``) is never silently dropped behind a wall of
+  description-only matches.
+- Within each class, results are ranked by the number of distinct query
+  tokens matched (descending); stable order within the same score.
+- ``_filter_candidates`` returns the (capped) match list AND the true
+  pre-cap match count, so callers can report an honest "N of M" total. When
+  the returned count is below the total, ``_format_result`` emits a
+  truncation signal telling the model to narrow the query or search a
+  specific tool name to see the rest — so a small model re-searches instead
+  of concluding the missing tool does not exist.
+- An empty query returns all non-excluded schemas, uncapped, in original
+  order (a ``SEARCH_TOOLS_SCHEMA`` contract invariant); total == returned.
 """
 
 from __future__ import annotations
@@ -143,12 +160,31 @@ def _match_score(haystack: str, tokens: list[str], fallback_phrase: str) -> int:
     return sum(1 for t in tokens if t in haystack)
 
 
+def _name_matches(name_lc: str, tokens: list[str], fallback_phrase: str) -> bool:
+    """Return True when the query hits the tool's NAME (not just its description).
+
+    A name match is a query token (or, when all tokens were filtered, the
+    whole-phrase fallback) appearing as a substring of the lowercased tool
+    ``name``. Name matches are guaranteed in results and outrank
+    description-only matches.
+    """
+    if not tokens:
+        return fallback_phrase in name_lc
+    return any(t in name_lc for t in tokens)
+
+
 def _filter_candidates(
     schemas: list[dict[str, Any]],
     source_index: dict[str, dict[str, Any]],
     query: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     """Filter all schemas (built-in + MCP) by the search rules + tokenized query.
+
+    Returns ``(matches, total)`` where ``matches`` is the (capped) result list
+    and ``total`` is the TRUE number of matching tools before the cap was
+    applied — so callers can report an honest "N of M". For an empty query
+    (and for any non-empty query that didn't exceed the cap) ``total`` equals
+    ``len(matches)``.
 
     Built-in tools match against ``name`` + ``description``. MCP tools
     (``mcp__``-prefixed) match against the same fields AND can also be
@@ -161,10 +197,16 @@ def _filter_candidates(
     - Short tokens (< 3 chars) and stopwords are filtered. If all tokens are
       filtered, the original query is used as a single whole-phrase substring
       (backward-compatible with single-keyword queries).
-    - Results are ranked by number of distinct tokens matched (descending);
-      stable order within the same score.
-    - Empty query returns every non-excluded schema. ``search_tools`` itself
-      is always filtered out.
+    - A match is a **name match** when a query token (or the fallback phrase)
+      hits the tool's ``name``; otherwise it is description-only. Name matches
+      outrank description-only matches and are GUARANTEED: when matches exceed
+      ``_MAX_SEARCH_RESULTS``, every name match is kept (even if name matches
+      alone exceed the cap), then remaining slots are filled with the
+      top-scored description-only matches.
+    - Within each class, results are ranked by number of distinct tokens
+      matched (descending); stable order within the same score.
+    - Empty query returns every non-excluded schema, uncapped, in original
+      order. ``search_tools`` itself is always filtered out.
     """
     q = query.lower()
     tokens = _tokenize_query(q) if q else []
@@ -185,8 +227,8 @@ def _filter_candidates(
                     # superseded by a higher per-tool score below.
                     source_scores[prefixed] = max(source_scores.get(prefixed, 0), score)
 
-    # Collect (schema, score) pairs for all candidates.
-    candidates: list[tuple[dict[str, Any], int]] = []
+    # Collect (schema, score, is_name_match) triples for all candidates.
+    candidates: list[tuple[dict[str, Any], int, bool]] = []
     seen: set[str] = set()
     for s in schemas:
         name = s.get("name", "")
@@ -194,40 +236,64 @@ def _filter_candidates(
             continue
         seen.add(name)
         if not q:
-            candidates.append((s, 0))
+            candidates.append((s, 0, False))
             continue
+        name_lc = name.lower()
         haystack = f"{name} {s.get('description', '')}".lower()
         per_tool_score = _match_score(haystack, tokens, q)
+        # A name match is judged on the tool's own name only — a tool pulled in
+        # via a source-level match (its name need not contain the token) is
+        # therefore description-only unless its name independently hits.
+        name_hit = _name_matches(name_lc, tokens, q)
         if name in source_matched_names:
             # Take the better of source-level and per-tool scores.
             score = max(source_scores.get(name, 0), per_tool_score)
-            candidates.append((s, score))
+            candidates.append((s, score, name_hit))
         elif per_tool_score > 0:
-            candidates.append((s, per_tool_score))
+            candidates.append((s, per_tool_score, name_hit))
 
     if not q:
         # Empty query: preserve original schema order, no ranking needed.
         # NOT capped — "empty query returns everything" is a contract invariant.
-        return [s for s, _ in candidates]
+        result = [s for s, _, _ in candidates]
+        return result, len(result)
 
-    # Rank by score descending (stable sort preserves original order within
-    # the same score bucket), then cap to the top N most-relevant matches.
-    candidates.sort(key=lambda pair: pair[1], reverse=True)
-    ranked = [s for s, _ in candidates]
-    return ranked[:_MAX_SEARCH_RESULTS]
+    # Rank by score descending (stable sort preserves original order within the
+    # same score bucket), then split into name matches and description-only
+    # matches. Partitioning a sorted list keeps the score order within each
+    # class.
+    candidates.sort(key=lambda c: c[1], reverse=True)
+    name_match_schemas = [s for s, _, is_name in candidates if is_name]
+    desc_only_schemas = [s for s, _, is_name in candidates if not is_name]
+    total = len(name_match_schemas) + len(desc_only_schemas)
+
+    # Guarantee every name match (recall wins for explicit name hits), then fill
+    # any remaining slots with the top description-only matches. If name matches
+    # alone exceed the cap, return them all — the cap is a floor for name hits,
+    # not a hard ceiling.
+    if len(name_match_schemas) >= _MAX_SEARCH_RESULTS:
+        matches = name_match_schemas
+    else:
+        remaining = _MAX_SEARCH_RESULTS - len(name_match_schemas)
+        matches = name_match_schemas + desc_only_schemas[:remaining]
+    return matches, total
 
 
 def _format_result(
     matches: list[dict[str, Any]],
     query: str,
     *,
-    capped: bool = False,
+    total: int | None = None,
 ) -> str:
     """Format matches as a single grouped line: built-in first, then per-source.
 
-    When ``capped`` is True (non-empty query result hit the ``_MAX_SEARCH_RESULTS``
-    ceiling), appends "(top matches)" after the count to signal that more tools
-    exist but were not returned.
+    ``total`` is the true pre-cap match count from ``_filter_candidates``. When
+    it exceeds the number of returned matches the result was truncated, so the
+    count is rendered as "N of M" and an actionable recovery hint is appended
+    telling the model to narrow its query or search a specific tool name to see
+    the rest — instead of concluding the missing tools do not exist. When
+    ``total`` is None or equals the returned count, no truncation signal is
+    emitted.
     """
     builtin: list[str] = []
     by_source: dict[str, list[str]] = {}
@@ -247,10 +313,16 @@ def _format_result(
         groups.append(f"mcp:{src}: {', '.join(names)}")
     body = "; ".join(groups)
 
-    count_str = f"{len(matches)} tools (top matches)" if capped else f"{len(matches)} tools"
-    if query:
-        return f"Found {count_str} matching {query!r}: {body}."
-    return f"Found {count_str}: {body}."
+    shown = len(matches)
+    truncated = total is not None and total > shown
+    count_str = f"{shown} of {total} tools" if truncated else f"{shown} tools"
+    head = f"Found {count_str} matching {query!r}" if query else f"Found {count_str}"
+    if truncated:
+        head += (
+            " (showing the most relevant — narrow your query or search a "
+            "specific tool name to see the rest)"
+        )
+    return f"{head}: {body}."
 
 
 class SearchTools(Tool):
@@ -275,12 +347,10 @@ class SearchTools(Tool):
 
     async def execute(self, query: str = "") -> str:  # type: ignore[override]
         all_schemas = self._registry.all_schemas()
-        matches = _filter_candidates(all_schemas, self._source_index, query)
+        matches, total = _filter_candidates(all_schemas, self._source_index, query)
         if not matches:
             return f"No tools found matching {query!r}."
         self._on_match(matches)
-        # Detect whether the cap was applied: non-empty query and result is at
-        # the ceiling. We can't know the pre-cap count from here, so we check
-        # whether results hit the cap threshold.
-        capped = bool(query) and len(matches) == _MAX_SEARCH_RESULTS
-        return _format_result(matches, query, capped=capped)
+        # ``total`` is the real pre-cap match count; _format_result emits the
+        # truncation signal when it exceeds the number of returned matches.
+        return _format_result(matches, query, total=total)
