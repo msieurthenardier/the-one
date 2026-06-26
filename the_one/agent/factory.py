@@ -269,13 +269,21 @@ class AgentFactory:
                 f"Supported types: {', '.join(sorted(_PROVIDER_TYPE_MAP))}"
             )
 
-        llm = get_provider(
-            registry_name,
-            model=config.llm_model,
-            base_url=provider_config.base_url,
-            api_key=provider_config.api_key,
-            config=provider_config.config,
-        )
+        provider_kwargs: dict[str, Any] = {
+            "model": config.llm_model,
+            "base_url": provider_config.base_url,
+            "api_key": provider_config.api_key,
+            "config": provider_config.config,
+        }
+        # Only REAL Ollama (type "ollama") gets native /api/chat generation so
+        # ``num_ctx`` is honoured. Type "openai-compatible" (LM Studio, vLLM,
+        # llama.cpp) shares the OllamaProvider class but MUST stay on /v1 — it
+        # has no native endpoint. The flag is provider-specific, so scope it to
+        # the ollama registry to avoid passing an unknown kwarg to others.
+        if registry_name == "ollama":
+            provider_kwargs["native_api"] = provider_config.type == "ollama"
+
+        llm = get_provider(registry_name, **provider_kwargs)
 
         # 2. Load tool-level configs and agent-level overrides for the
         # tool policy resolver. Resolved per-agent — Decision 8's

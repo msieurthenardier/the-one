@@ -520,6 +520,97 @@ class TestUnloadModel:
                 await ollama_api.unload_model(BASE, "model")
 
 
+class TestChatNative:
+    @pytest.mark.asyncio
+    async def test_posts_to_api_chat_with_stream_false(self) -> None:
+        data = {"message": {"role": "assistant", "content": "hi"}, "done": True}
+        instance = _mock_client(_json_response(data))
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            out = await ollama_api.chat_native(
+                BASE, {"model": "m", "messages": [], "options": {"num_ctx": 32768}}
+            )
+        assert out == data
+        called_url, kwargs = instance.post.call_args[0][0], instance.post.call_args[1]
+        assert called_url == f"{BASE}/api/chat"
+        # num_ctx survives; stream is forced False.
+        assert kwargs["json"]["options"]["num_ctx"] == 32768
+        assert kwargs["json"]["stream"] is False
+
+    @pytest.mark.asyncio
+    async def test_http_error_surfaces_body(self) -> None:
+        resp = MagicMock()
+        resp.status_code = 400
+        resp.text = "model does not support tools"
+        resp.request = MagicMock()
+        instance = _mock_client(resp)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            with pytest.raises(httpx.HTTPStatusError, match="does not support tools"):
+                await ollama_api.chat_native(BASE, {"model": "m", "messages": []})
+
+    @pytest.mark.asyncio
+    async def test_connection_error(self) -> None:
+        instance = _mock_client()
+        instance.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            with pytest.raises(ConnectionError, match="Cannot connect"):
+                await ollama_api.chat_native(BASE, {"model": "m", "messages": []})
+
+
+class TestChatStreamNative:
+    @pytest.mark.asyncio
+    async def test_yields_newline_delimited_json_objects(self) -> None:
+        # Native wire = bare JSON objects per line (NO `data:` prefix).
+        lines = [
+            json.dumps({"message": {"content": "one"}, "done": False}),
+            "",  # blank line skipped
+            json.dumps({"message": {"content": "two"}, "done": False}),
+            json.dumps({"message": {"content": ""}, "done": True, "eval_count": 2}),
+        ]
+        stream_resp = AsyncMock()
+        stream_resp.status_code = 200
+        stream_resp.aiter_lines = lambda: _async_iter(lines)
+        stream_cm = AsyncMock()
+        stream_cm.__aenter__ = AsyncMock(return_value=stream_resp)
+        stream_cm.__aexit__ = AsyncMock(return_value=False)
+        instance = AsyncMock()
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        instance.stream = MagicMock(return_value=stream_cm)
+
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            results = [
+                c async for c in ollama_api.chat_stream_native(BASE, {"model": "m", "messages": []})
+            ]
+        assert [c["message"]["content"] for c in results] == ["one", "two", ""]
+        assert results[-1]["done"] is True
+        # Posts to the native endpoint with stream forced on.
+        assert instance.stream.call_args[0][1] == f"{BASE}/api/chat"
+        assert instance.stream.call_args[1]["json"]["stream"] is True
+
+    @pytest.mark.asyncio
+    async def test_http_error_surfaces_body(self) -> None:
+        resp = MagicMock()
+        resp.status_code = 400
+        resp.request = MagicMock()
+        resp.aread = AsyncMock(return_value=b"bad request detail")
+        stream_cm = AsyncMock()
+        stream_cm.__aenter__ = AsyncMock(return_value=resp)
+        stream_cm.__aexit__ = AsyncMock(return_value=False)
+        instance = AsyncMock()
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        instance.stream = MagicMock(return_value=stream_cm)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+            mock_cls.return_value = instance
+            with pytest.raises(httpx.HTTPStatusError, match="bad request detail"):
+                async for _ in ollama_api.chat_stream_native(BASE, {"model": "m"}):
+                    pass
+
+
 # ---------------------------------------------------------------------------
 # Async iterator helper
 # ---------------------------------------------------------------------------

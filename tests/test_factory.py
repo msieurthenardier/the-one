@@ -779,3 +779,60 @@ class TestFactoryAccessor:
         set_factory(first)
         set_factory(second)
         assert get_factory() is second
+
+
+class TestNativeApiWiring:
+    """The factory must enable native /api/chat ONLY for provider type
+    "ollama" (real Ollama); "openai-compatible" stays on /v1
+    (``native_api=False``). Both share the OllamaProvider class."""
+
+    @pytest.mark.parametrize(
+        ("ptype", "expected_native"),
+        [("ollama", True), ("openai-compatible", False)],
+    )
+    async def test_native_api_flag_from_provider_type(
+        self, store: InMemoryStore, ptype: str, expected_native: bool
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        def _capturing_get_provider(name: str, **kwargs: Any) -> FakeLLM:
+            captured["name"] = name
+            captured["kwargs"] = kwargs
+            return FakeLLM(responses=[])
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(
+            return_value=_make_provider_config(ptype=ptype, base_url="http://localhost:11434")
+        )
+        mock_tool_repo = AsyncMock()
+        mock_tool_repo.list = AsyncMock(return_value=[])
+        mock_acc_repo = AsyncMock()
+        mock_acc_repo.get = AsyncMock(
+            side_effect=lambda aid: Connector(id=aid, name=aid, type="stub")
+        )
+
+        await store.save(
+            AgentConfig(
+                name="ollama-agent",
+                provider_config_id="test-provider",
+                llm_model="ministral-3:8b",
+            )
+        )
+
+        with (
+            patch("the_one.agent.factory.get_provider", _capturing_get_provider),
+            patch("the_one.agent.factory.settings") as mock_settings,
+            patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
+            patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+            patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
+            patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch("the_one.db.repositories.ConnectorRepository", return_value=mock_acc_repo),
+        ):
+            mock_settings.agents_dir = Path("/tmp/test-agents")
+            mock_settings.data_dir = Path("/tmp/test-data")
+            mock_settings.ensure_dirs = lambda: None
+            factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
+            await factory.create("ollama-agent")
+
+        assert captured["name"] == "ollama"
+        assert captured["kwargs"].get("native_api") is expected_native
