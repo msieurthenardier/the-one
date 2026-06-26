@@ -417,15 +417,14 @@ _WEB_SESSION_REAPER_INTERVAL_SECONDS = 30.0
 # detached coroutine). Tasks self-discard on completion via `add_done_callback`.
 _inflight_tasks: set[asyncio.Task] = set()
 
-# F7 L03 (cancel-backend): per-session current in-flight task map.
-# Maps session_id → the task currently running _spawn_message_processing
-# for that session. Lets a WS `cancel` action target the right task.
-# With the queue-depth-1 pattern (leg 4), a running task and a queued
-# task can coexist on one session; this map always holds the RUNNING
-# task. The done-callback clears the entry only if it still points at
-# THIS task (identity guard against a queued task overwriting its
-# predecessor's entry at clear time).
-_session_inflight: dict[str, asyncio.Task] = {}
+# F7 L03 (cancel-backend) / F09-03: per-session in-flight task set.
+# Maps session_id → the set of tasks running _spawn_message_processing
+# for that session. With the queue-depth-1 pattern (leg 4) a running
+# task and a queued (lock-blocked) task can coexist on one session, so
+# the set holds BOTH. A WS `cancel` action cancels every not-done task
+# in the set — "stop = stop everything" (F07 DD4). The done-callback
+# discards the finished task and deletes the key when the set empties.
+_session_inflight: dict[str, set[asyncio.Task]] = {}
 
 # F5 L3: tasks driving ``_resume_paused_session`` after the OAuth-callback
 # route resolves a paused agent. Tracked separately from ``_inflight_tasks``
@@ -2093,15 +2092,17 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await ws.send_json({"type": "session_deleted", "session_id": sid})
                 continue
 
-            # F7 L03 (cancel-backend): operator cancel action.
-            # Snapshots the bound session's in-flight task and cancels it.
-            # No-op if no session is bound, no task is registered, or the
-            # task already finished — covers the race with natural completion.
+            # F7 L03 (cancel-backend) / F09-03: operator cancel action.
+            # Cancels every not-done task for the bound session — both the
+            # running turn and any queued (lock-blocked) turn — so "stop"
+            # stops everything (F07 DD4). No-op if no session is bound, no
+            # tasks are registered, or all tasks already finished — covers
+            # the race with natural completion.
             if action == "cancel":
                 if session is not None:
-                    t = _session_inflight.get(session.id)
-                    if t and not t.done():
-                        t.cancel()
+                    for t in tuple(_session_inflight.get(session.id, ())):
+                        if not t.done():
+                            t.cancel()
                 continue
 
             # Regular message
@@ -2140,16 +2141,19 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             task = asyncio.create_task(_spawn_message_processing(session, user_input, "web", ws))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)
-            # F7 L03 (cancel-backend): record the running task in the
-            # per-session map so a WS `cancel` action can locate it.
-            # Identity guard in the done-callback: only clear if this task
-            # is still the registered one (a queued task may have replaced
-            # it by the time the callback fires).
-            _session_inflight[session.id] = task
+            # F7 L03 (cancel-backend) / F09-03: add the task to the
+            # per-session set so a WS `cancel` action can locate every
+            # in-flight task (running + queued). The done-callback discards
+            # this task and removes the key once the set is empty.
+            _session_inflight.setdefault(session.id, set()).add(task)
             _sid_for_clear = session.id
 
             def _clear_session_inflight(t: asyncio.Task, _sid: str = _sid_for_clear) -> None:
-                if _session_inflight.get(_sid) is t:
+                tasks = _session_inflight.get(_sid)
+                if tasks is None:
+                    return
+                tasks.discard(t)
+                if not tasks:
                     del _session_inflight[_sid]
 
             task.add_done_callback(_clear_session_inflight)

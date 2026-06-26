@@ -1231,16 +1231,36 @@ App.registerArea({
           // the next user message starts a fresh streaming round.
           finalizeStreamingBubble();
           currentStreamingVisibility = null;
-          if (currentSessionId) {
-            delete inFlightSessions[currentSessionId];
-            // The queued message (if any) has already been accepted by the backend;
-            // clear the pending indicator now that the turn has completed and the
-            // queued message is no longer "waiting" — it is the next turn in progress.
-            delete pendingQueuedMessages[currentSessionId];
+          var sid = currentSessionId;
+          // F09-02: capture any pending queued message BEFORE clearing it so we
+          // can render it as a real user bubble. The queued message was sent to
+          // the backend immediately and waits on the session lock; this `done`
+          // marks the running turn finishing and the queued turn starting.
+          var dequeued = sid ? pendingQueuedMessages[sid] : null;
+          if (sid) {
+            // Clear the "(queued)" indicator and the per-session pending slot —
+            // the queued message is no longer "waiting", it is now in progress.
+            delete pendingQueuedMessages[sid];
             clearPendingQueued();
           }
-          updateStopControl();
-          if (!sessionBannerEl) sendBtn.disabled = false;
+          if (dequeued) {
+            // F09-02: render the dequeued message as a normal user bubble in the
+            // correct position — after this turn's response, before the queued
+            // turn's response. The backend excludes the sender from the user
+            // echo (app.py), so the sender owns this optimistic render (same
+            // contract as a normal send, just deferred to dequeue time). Keep the
+            // session in-flight: the queued turn is now starting.
+            addMsg('user', dequeued, 'You');
+            inFlightSessions[sid] = true;
+            sendBtn.disabled = true;
+            updateStopControl();
+            showThinking();
+          } else {
+            // No queued message — normal idle reset.
+            if (sid) delete inFlightSessions[sid];
+            updateStopControl();
+            if (!sessionBannerEl) sendBtn.disabled = false;
+          }
           refreshSessionList();
         }
         else if (data.type === 'cancelled') {
