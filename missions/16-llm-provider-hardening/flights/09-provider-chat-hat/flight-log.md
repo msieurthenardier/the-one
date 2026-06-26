@@ -54,7 +54,17 @@
 - **Disposition (DD4)**: in-flight leg — fix in `the_one/tools/_search_tools.py`
   (+ possibly the `search_tools` result shape and core wiring). Contained to the
   tool-search mechanism; no `LLMProvider`-contract impact. → leg `01-search-tools-truncation`.
-- **Status**: fix implemented (leg `01-search-tools-truncation`) — `_filter_candidates`
+- **Resolved (2026-06-26, 0.2.10).** Live-verified on the installed 0.2.10 app: a Sonos
+  Agent search now surfaces the full Sonos catalog incl. `set_volume` (was hidden at 8).
+  **Operator decision — "leave it as is":** a query containing the server name (e.g.
+  "sonos") returns all 32 Sonos tools, because the name-match guarantee is judged on the
+  tool's **full prefixed name** (`mcp__Sonos__…`), so the server name is a substring of
+  every tool. The focused alternative (match the short name → "8 of 32 + narrow-query
+  signal") was offered and **declined**; the broad return is accepted behavior, not a
+  bug. Do NOT "fix" the prefixed-name match without re-confirming — it is intentional as
+  of this decision. The `set_volume`-by-name guarantee and the honest "N of M" signal
+  remain in effect for queries that do not name the server.
+- **Status**: ~~fix implemented~~ → **RESOLVED / leg landed→completed.** `_filter_candidates`
   returns the pre-cap total; name-token matches are guaranteed and ranked above
   description-only matches; truncated results report the honest "N of M" total + a
   recovery hint. Unit tests green (`tests/test_search_tools.py` 54/54 in `.venv`).

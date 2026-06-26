@@ -1,12 +1,15 @@
 # Leg: search-tools-truncation
 
-**Status**: landed
+**Status**: completed
 **Flight**: [HAT — Provider Chat Sweep](../flight.md)
 
-> **Landed (code merged in 0.2.10), pending live re-verify.** Implementation complete,
-> unit tests green (`tests/test_search_tools.py` 54/54). Final `completed` transition
-> waits on the installed-app verify (a fresh Sonos Agent chat finds & calls
-> `set_volume`) once the 0.2.10 installer is built and installed.
+> **Completed (2026-06-26, shipped in 0.2.10).** Implementation done, unit tests green
+> (`tests/test_search_tools.py` 54/54). Live-verified on the installed 0.2.10 app: the
+> Sonos Agent now surfaces `set_volume` (previously hidden behind the 8-cap).
+> **Operator accepted** the side effect that a server-name query (e.g. "sonos") returns
+> the server's full catalog — the name-match guarantee is judged on the prefixed name
+> `mcp__Sonos__…`, so the server name matches every tool. The focused-set alternative
+> was offered and declined ("leave it as is"). See flight-log F09-01.
 
 ## Objective
 Make `search_tools` (a) always surface tools whose **name** matches a query token

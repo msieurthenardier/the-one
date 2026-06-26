@@ -144,9 +144,11 @@ when the issue surfaces and written into the flight log next to the finding.
 > surface during HAT, named `{NN}-{issue-slug}`. This list starts empty and grows
 > during execution — it is the flight's expected behavior, not scope creep.
 
-- [ ] `01-search-tools-truncation` — fix F09-01: `search_tools` silently caps at 8 and
+- [x] `01-search-tools-truncation` — fix F09-01: `search_tools` silently caps at 8 and
       hides tools (e.g. Sonos `set_volume`); guarantee name matches + honest truncation
-      signal so the model re-searches instead of declaring a tool absent.
+      signal so the model re-searches instead of declaring a tool absent. **Completed,
+      shipped in 0.2.10, live-verified.** (Operator accepted server-name queries
+      returning the full catalog — see flight-log F09-01.)
 
 ---
 
