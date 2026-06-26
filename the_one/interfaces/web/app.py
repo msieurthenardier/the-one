@@ -1202,7 +1202,10 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
         # tokens and dies. ``desired`` is None when the model's advertised
         # window is unknown, in which case we leave Ollama's default untouched.
         advertised = await ollama_api.get_model_context_length(provider_config.base_url, model_name)
-        desired = effective_num_ctx(advertised)
+        # Thread the per-provider ``config.num_ctx`` (if set) through so the
+        # preloaded runner is loaded at the same window the provider will
+        # generate with. effective_num_ctx coerces a stray value to None.
+        desired = effective_num_ctx(advertised, provider_config.config.get("num_ctx"))
 
         def _name_matches(running_name: str) -> bool:
             # Exact match, or match ignoring a :latest tag on either side.

@@ -157,6 +157,16 @@
     html += '</div>';
     html += '</div>';
 
+    // Context window (num_ctx) — Ollama-only optional override (F09-05). Rides
+    // in the free-form config dict (config.num_ctx), same pattern as the
+    // OpenRouter referer/title config fields. Empty = use env/default.
+    var numCtx = (!isCreate && provider.config && provider.config.num_ctx != null) ? provider.config.num_ctx : '';
+    html += '<div class="field-row admin-pf-row admin-pf-num-ctx' + (defaults.showNumCtx ? '' : ' is-hidden') + '">';
+    html += '<label for="pf-num-ctx">Context window (num_ctx)</label>';
+    html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" data-field="config.num_ctx" value="' + escapeAttr(String(numCtx)) + '" placeholder="Leave empty for env/default" />';
+    html += '<p class="field-description">Empty uses the env/default window (32768). A larger window allows longer conversations but is slower on partial-GPU setups; a smaller window fits more model layers in VRAM. Applies on the next model (re)load.</p>';
+    html += '</div>';
+
     return html;
   }
 
@@ -223,11 +233,13 @@
     var baseUrlRow = container.querySelector('.admin-pf-base-url');
     var baseUrlInput = container.querySelector('[data-field="base_url"]');
     var apiKeyRow = container.querySelector('.admin-pf-api-key');
+    var numCtxRow = container.querySelector('.admin-pf-num-ctx');
     if (typeSelect) {
       typeSelect.addEventListener('change', function () {
         var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(typeSelect.value)) || {};
         baseUrlRow.classList.toggle('is-hidden', !defaults.showBaseUrl);
         apiKeyRow.classList.toggle('is-hidden', !defaults.showApiKey);
+        if (numCtxRow) numCtxRow.classList.toggle('is-hidden', !defaults.showNumCtx);
         baseUrlInput.value = defaults.base_url || '';
         checkDirty();
       });
@@ -504,6 +516,24 @@
       if (orReferer) cfg.referer = orReferer;
       if (orTitle) cfg.title = orTitle;
       payload.config = cfg;
+    }
+
+    // Ollama optional num_ctx override (F09-05) — same config.* precedent:
+    // parse + validate client-side (server re-validates / coerces), and only
+    // add to payload.config when present + valid so empty = use env/default
+    // (no persisted key).
+    if (defaults.showNumCtx) {
+      var numCtxInput = container.querySelector('[data-field="config.num_ctx"]');
+      var numCtxRaw = numCtxInput ? numCtxInput.value.trim() : '';
+      if (numCtxRaw) {
+        var numCtxVal = Number(numCtxRaw);
+        if (!Number.isInteger(numCtxVal) || numCtxVal <= 0) {
+          errorEl.textContent = 'Context window (num_ctx) must be a positive whole number.';
+          return null;
+        }
+        payload.config = payload.config || {};
+        payload.config.num_ctx = numCtxVal;
+      }
     }
 
     return payload;

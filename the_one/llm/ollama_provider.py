@@ -59,15 +59,41 @@ def _env_int(name: str, default: int) -> int:
     return default
 
 
-def effective_num_ctx(advertised: int | None) -> int | None:
+def _coerce_num_ctx(value: Any) -> int | None:
+    """Coerce a free-form ``config.num_ctx`` value to a positive int, or None.
+
+    The value rides in the provider's free-form ``config`` dict (persisted as
+    JSON), so it may be absent, a string from a round-trip, a float, or junk.
+    Anything that is not a positive integer (after a lenient string parse)
+    collapses to ``None`` so the resolver falls back to env/default rather than
+    crashing on a stray value. ``bool`` is rejected explicitly (it is an ``int``
+    subclass but never a meaningful window).
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str):
+        try:
+            parsed = int(value.strip())
+        except ValueError:
+            return None
+        return parsed if parsed > 0 else None
+    return None
+
+
+def effective_num_ctx(advertised: int | None, configured: int | None = None) -> int | None:
     """Resolve the runtime ``num_ctx`` to load an Ollama model at.
 
-    Returns ``min(configured_default, advertised)`` when the model's advertised
-    architectural window is known and positive — never request more than the
-    architecture supports, but cap the default well below huge advertised
-    windows (e.g. ministral's 262144) that would allocate an impractical KV
-    cache. ``configured_default`` is ``THE_ONE_OLLAMA_NUM_CTX`` (default 32768),
-    read at call time.
+    Precedence (low→high): default ``_DEFAULT_NUM_CTX`` (32768) → env
+    ``THE_ONE_OLLAMA_NUM_CTX`` → per-provider ``configured`` (``config.num_ctx``).
+    The chosen value is always clamped to the model's advertised architectural
+    window so we never request more than the architecture supports, while the
+    default caps well below huge advertised windows (e.g. ministral's 262144)
+    that would allocate an impractical KV cache. The env value is read at call
+    time. ``configured`` is coerced leniently (``_coerce_num_ctx``): a positive
+    int (or numeric string) wins; junk / non-positive values are ignored and the
+    env→default path applies, so a stray value in ``config`` never crashes here.
 
     Returns ``None`` when the advertised window is unknown / non-positive — the
     caller then leaves Ollama's own default untouched rather than guessing a
@@ -76,6 +102,9 @@ def effective_num_ctx(advertised: int | None) -> int | None:
     """
     if advertised is None or advertised <= 0:
         return None
+    configured = _coerce_num_ctx(configured)
+    if configured is not None:
+        return min(configured, advertised)
     return min(_env_int(_NUM_CTX_ENV, _DEFAULT_NUM_CTX), advertised)
 
 
@@ -138,10 +167,21 @@ class OllamaProvider(LLMProvider):
         # False so direct construction (tests, generic OpenAI-compatible
         # back-ends) keeps the historical /v1 behaviour.
         self.native_api = native_api
+        # Per-provider runtime window override, read from the free-form provider
+        # ``config`` dict (``config.num_ctx``) — the highest-precedence source
+        # for ``effective_num_ctx`` (above env + default). Coerced to a positive
+        # int or None so a stray non-int in ``config`` can't crash generation.
+        # No model/schema change: this rides the same free-form config dict the
+        # OpenRouter provider uses for ``referer``/``title``.
+        config = kwargs.get("config")
+        self._configured_num_ctx: int | None = (
+            _coerce_num_ctx(config.get("num_ctx")) if isinstance(config, dict) else None
+        )
         # Runtime ``num_ctx`` to send on native requests, resolved from the
-        # model's advertised window (``effective_num_ctx``). None → omit
-        # num_ctx and let Ollama use its default. Set in
-        # ``_resolve_max_context_tokens``; only consulted on the native path.
+        # model's advertised window + the per-provider override
+        # (``effective_num_ctx``). None → omit num_ctx and let Ollama use its
+        # default. Set in ``_resolve_max_context_tokens``; only consulted on the
+        # native path.
         self._runtime_num_ctx: int | None = None
 
     def _auth_headers(self) -> dict[str, str]:
@@ -169,7 +209,11 @@ class OllamaProvider(LLMProvider):
         # change), matching historical behaviour.
         data = await ollama_api.show_model(self.base_url, self.model)
         advertised = ollama_api.extract_ollama_context_length(data)
-        effective = effective_num_ctx(advertised)
+        # Per-provider ``config.num_ctx`` (if set) takes precedence over env +
+        # default, then is clamped to the advertised window. Resolved here at
+        # (re)load time; an already-running runner keeps its window until the
+        # next (re)load (the web preload path reloads when the window differs).
+        effective = effective_num_ctx(advertised, self._configured_num_ctx)
         # Record the runtime num_ctx (may be None) for the native generation
         # path, and surface it as max_context_tokens so the governor + the
         # context gauge size against the window we actually load.

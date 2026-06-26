@@ -287,6 +287,44 @@ class TestEffectiveNumCtx:
         monkeypatch.setenv("THE_ONE_OLLAMA_NUM_CTX", "-1")
         assert effective_num_ctx(262_144) == 32_768
 
+    def test_configured_beats_env_and_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # F09-05: per-provider config.num_ctx is the highest-precedence source.
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        monkeypatch.setenv("THE_ONE_OLLAMA_NUM_CTX", "16384")
+        # configured (8192) wins over both env (16384) and default (32768).
+        assert effective_num_ctx(262_144, 8_192) == 8_192
+        # Also wins with no env set.
+        monkeypatch.delenv("THE_ONE_OLLAMA_NUM_CTX", raising=False)
+        assert effective_num_ctx(262_144, 8_192) == 8_192
+
+    def test_configured_clamped_to_advertised(self) -> None:
+        # A configured window above the model's architecture is clamped down.
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        assert effective_num_ctx(8_192, 100_000) == 8_192
+
+    def test_configured_junk_ignored_falls_back_to_env_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Stray / non-positive config values are ignored (no crash) → env/default.
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        monkeypatch.delenv("THE_ONE_OLLAMA_NUM_CTX", raising=False)
+        assert effective_num_ctx(262_144, 0) == 32_768
+        assert effective_num_ctx(262_144, -5) == 32_768
+        assert effective_num_ctx(262_144, "not-an-int") == 32_768
+        assert effective_num_ctx(262_144, None) == 32_768
+        # A numeric string is parsed leniently and used.
+        assert effective_num_ctx(262_144, "4096") == 4_096
+
+    def test_unknown_advertised_returns_none_even_with_configured(self) -> None:
+        # No advertised window → leave Ollama's default untouched regardless.
+        from the_one.llm.ollama_provider import effective_num_ctx
+
+        assert effective_num_ctx(None, 8_192) is None
+        assert effective_num_ctx(0, 8_192) is None
+
 
 # ---------------------------------------------------------------------------
 # OpenRouter resolver + helper

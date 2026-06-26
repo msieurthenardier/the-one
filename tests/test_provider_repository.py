@@ -177,3 +177,20 @@ async def test_empty_config_defaults_to_dict(repo):
     await repo.create(_make_provider())
     fetched = await repo.get("p1")
     assert fetched.config == {}
+
+
+@pytest.mark.asyncio
+async def test_config_num_ctx_roundtrip(repo):
+    # F09-05: the per-provider Ollama runtime window rides in the free-form
+    # config dict as ``config.num_ctx`` (no model/schema change). Verify it
+    # persists + round-trips like any other config key.
+    cfg = {"num_ctx": 16384}
+    await repo.create(_make_provider(type="ollama", config=cfg))
+    fetched = await repo.get("p1")
+    assert fetched.config == cfg
+    assert fetched.config["num_ctx"] == 16384
+
+    # Update to a new window round-trips too.
+    await repo.update(_make_provider(type="ollama", config={"num_ctx": 8192}))
+    refetched = await repo.get("p1")
+    assert refetched.config["num_ctx"] == 8192
