@@ -1202,9 +1202,7 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
         # before generation — otherwise the conversation truncates at 4096
         # tokens and dies. ``desired`` is None when the model's advertised
         # window is unknown, in which case we leave Ollama's default untouched.
-        advertised = await ollama_api.get_model_context_length(
-            provider_config.base_url, model_name
-        )
+        advertised = await ollama_api.get_model_context_length(provider_config.base_url, model_name)
         desired = effective_num_ctx(advertised)
 
         def _name_matches(running_name: str) -> bool:

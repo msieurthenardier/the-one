@@ -149,9 +149,7 @@ def test_editor_renders_web_search_config_fields(app_clean: str, page: Page) -> 
         # Field row present in the DOM (visibility gated by show_if below).
         expect(row).to_have_count(1)
     # The selector itself is always visible.
-    expect(
-        page.locator('.tools-editor-field[data-field-name="search_backend"]')
-    ).to_be_visible()
+    expect(page.locator('.tools-editor-field[data-field-name="search_backend"]')).to_be_visible()
 
 
 @pytest.mark.browser
@@ -455,9 +453,7 @@ def test_web_search_secret_field_masked_with_eye_toggle(app_clean: str, page: Pa
 
 
 @pytest.mark.browser
-def test_web_search_show_if_reveals_only_selected_engine_fields(
-    app_clean: str, page: Page
-) -> None:
+def test_web_search_show_if_reveals_only_selected_engine_fields(app_clean: str, page: Page) -> None:
     """Generic `show_if`: selecting an engine in `search_backend` reveals
     exactly that engine's fields and hides the others. DuckDuckGo (the
     default) shows none. Hidden rows stay in the DOM and carry
