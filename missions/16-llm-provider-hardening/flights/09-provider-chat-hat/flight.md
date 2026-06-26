@@ -149,10 +149,11 @@ when the issue surfaces and written into the flight log next to the finding.
       signal so the model re-searches instead of declaring a tool absent. **Completed,
       shipped in 0.2.10, live-verified.** (Operator accepted server-name queries
       returning the full catalog — see flight-log F09-01.)
-- [ ] `02-queued-message-render` — fix F09-02 (queued send-while-thinking message never
-      renders as a bubble in the live transcript; persistence unaffected) + F09-03 ("Stop"
-      during a queued state cancels the queued task, not the running turn). Frontend render
-      + backend per-session cancel-set. Batched for the 0.2.11 build.
+- [ ] `02-queued-message-render` — redesign the send-while-thinking queue to a client-hold
+      model: F09-02 (render queued message as a bubble on dequeue), F09-03 ("Stop" cancels
+      the running turn, not the queued task — backend per-session cancel-set), F09-04
+      (pin the queued message above the composer instead of scrolling it away, + a cancel ×).
+      Batched for the 0.2.11 build.
 
 ---
 

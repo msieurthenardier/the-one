@@ -21,6 +21,30 @@
 
 ## Findings
 
+### F09-04 — Queued message scrolls away with the chat and can't be cancelled
+
+- **Version under test**: 0.2.10 (installed packaged app).
+- **Feature**: F07 DD4 one-slot "send while thinking" queue.
+- **Observed**: (a) the "(queued)" indicator is appended into the scrolling message list
+  (`showPendingQueued` → `messagesEl.appendChild`, `chat.js:57`), so it scrolls up with the
+  conversation as though already sent; (b) there is no way to cancel a queued message once
+  entered.
+- **Expected**: a queued message should **pin/hover at the bottom** (above the composer,
+  outside the scroll region) as a clearly-pending affordance, with a **cancel (×)** control;
+  it becomes a normal user bubble only once it's actually sent (turn finishes).
+- **Design (chosen) — switch the queue to a CLIENT-HOLD model**: the frontend HOLDS the
+  queued message locally and does NOT `ws.send` it until the in-flight turn's `done`
+  arrives. Benefits: cancel is trivial and correct (nothing was sent — just clear the held
+  text + chip); the chip renders in a pinned container, not the scroll list; on `done` the
+  held message is sent via the normal send path (renders the real bubble — subsumes the
+  F09-02 render); and there is no queued backend task during the turn, so the F09-03
+  race cannot even arise (its set-based cancel is retained as belt-and-suspenders).
+- **Disposition (DD4)**: folded into leg `02-queued-message-render` — the client-hold
+  redesign **supersedes** that leg's original done-handler manual-render + immediate-send
+  approach (all still unreleased on branch `fix/queued-message-render`). F09-02 is now
+  delivered via client-hold; F09-03's backend cancel-set stays.
+- **Status**: diagnosed; fix pending (same 0.2.11 batch).
+
 ### F09-03 — "Stop" during a queued state cancels the queued message, not the running turn
 
 - **Version under test**: 0.2.10 (installed packaged app).
@@ -82,9 +106,11 @@
   disable Send) since the queued turn is now starting. No backend / persistence change.
 - **Related**: investigating the cancel interaction surfaced **F09-03** (Stop targets the
   queued task, not the running turn) — confirmed real, fixed in the same leg.
-- **Disposition (DD4)**: in-flight leg `02-queued-message-render` (frontend render fix here
-  + the F09-03 backend cancel-set fix).
-- **Status**: diagnosed; fix pending.
+- **Disposition (DD4)**: in-flight leg `02-queued-message-render`. **Render now delivered
+  via the F09-04 client-hold redesign** (held message is sent through the normal send path
+  on turn `done`, which renders the bubble) rather than the original done-handler manual
+  render. Same observable outcome.
+- **Status**: diagnosed; fix pending (folded into the client-hold redesign).
 
 ---
 
