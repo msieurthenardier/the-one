@@ -614,3 +614,60 @@ tool types.
   leg 3 rescoped to config-thresholds + a11y (not rebuild); promote `bytes_per_token` to
   the provider base; governor floors max_context_tokens / excludes auth sentinel. See
   flight.md "Design-Review Corrections (binding)". No DD rework; ready to execute.
+
+---
+
+## Post-Landing Findings
+
+> Discovered AFTER this flight landed/completed and after the 0.2.7 release. Recorded
+> here because it is squarely in F08's territory — the governor's budget input — and the
+> governor was calibrated against a window that turned out to be fictional for Ollama.
+> Fixed as out-of-band patch releases (0.2.8, 0.2.9), not as F08 legs. **Carry into the
+> Mission-16 debrief.**
+
+- **2026-06-25/26 — Ollama chats "died" at ~4096 tokens; the governor (and the telemetry
+  overlay) were sizing against the model's *advertised* window, not the *runtime* one.**
+  Symptom: a conversation stopped generating once history crossed ~4k tokens — the model
+  emitted a token or two and the turn ended — while the F08 telemetry overlay still read
+  ~2% of context. Root cause: Ollama allocates a model runner with a fixed runtime context
+  window (`num_ctx`) that defaults to **4096 regardless of the model's advertised window**,
+  and its OpenAI-compatible `/v1` endpoint silently ignores any per-request `num_ctx`. The
+  provider resolved `max_context_tokens` from the model's *advertised* `context_length`
+  (e.g. a `mistral3` model reports 262144), so the gauge denominator — and, crucially, the
+  F08 governor's budget input — was ~64× larger than the window the runner actually had.
+
+  **Why this is an F08 finding:** `govern_tool_content` (`the_one/agent/_governor.py`)
+  derives each tool-result budget as a fraction of `self.llm.max_context_tokens`
+  (`the_one/agent/core.py` `_govern`). With that value pinned to the advertised 262144
+  instead of the real 4096, the governor permitted single tool results far larger than the
+  entire live window — the budget math the flight shipped was correct in form but fed a
+  fictional ceiling on the Ollama path. The recon row "Model context window reachable from
+  the agent → already-satisfied" was true for cloud providers but **not** for Ollama, where
+  advertised ≠ runtime.
+
+  **Fix (two releases):**
+  - **0.2.8 (PR #140)** — added `effective_num_ctx` (clamp the configured default, env
+    `THE_ONE_OLLAMA_NUM_CTX`, to the advertised window) and made `OllamaProvider`
+    `max_context_tokens` resolve to the **effective runtime window**, so both the governor
+    and the overlay finally size against reality; the web auto-load
+    (`the_one/interfaces/web/app.py`) loads the runner at that `num_ctx`. (PR #141 was a
+    paired CI unblock — a pre-existing `ruff format` violation on `main` had been reddening
+    the `ci` lint lane since the 0.2.7 release; no test failures, format-only.)
+  - **0.2.8 was a half-fix:** generation still went through `/v1`, which ignores `num_ctx`
+    and *reloaded the runner back to 4096 every turn* — visible as frequent model reloads
+    and the chat still dying at ~4096 (now reading "12%" against the corrected 32768 gauge).
+  - **0.2.9 (PR #142)** — real Ollama providers (type `ollama`, `native_api=True`) now
+    generate via the **native `/api/chat`** endpoint, the only one that honours
+    `options.num_ctx`. The runner loads once at the effective window and stays there (no
+    churn). Gated by provider type: `openai-compatible` back-ends (LM Studio, vLLM,
+    llama.cpp) keep `/v1`. New `chat_native` / `chat_stream_native` in
+    `the_one/llm/ollama_api.py`; native message/options/stream/complete helpers in
+    `the_one/llm/ollama_provider.py`; wiring in `the_one/agent/factory.py`. Verified live:
+    stable 32768 across stream → tool-call → stream; operator confirmed working in the
+    installed app.
+
+  **Net effect on F08:** with `max_context_tokens` now equal to the true runtime window,
+  the governor's per-result budget on the Ollama path is correct for the first time (≈1/8
+  of 32768 instead of 1/8 of 262144). No governor logic changed — only the ceiling it was
+  fed. The forward-looking piece (surface `num_ctx` in the UI per provider/model, with a
+  per-agent override) is seeded in `BACKLOG.md` as a future-mission candidate.
