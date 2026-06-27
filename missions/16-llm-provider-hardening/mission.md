@@ -405,6 +405,11 @@ Deferred (own-mission candidate, 2026-06-23):
       slowed to ~1 token / 5 s — functional but unusable. Confirms the need; F9 ships a
       stop-gap (`num_ctx` is now an editable Ollama provider field, leg 03) but only
       compaction recovers a long conversation already near the limit.
+      **Design note for this mission (per-model num_ctx):** the F9 stop-gap sets `num_ctx`
+      per-PROVIDER, but the right window is per-MODEL (advertised windows differ; one
+      provider serves many models; the length/speed trade-off is per-model). Per-model
+      context-window config should land with the compaction work, which already reasons
+      per-conversation about the window.
 
 ## Flights
 

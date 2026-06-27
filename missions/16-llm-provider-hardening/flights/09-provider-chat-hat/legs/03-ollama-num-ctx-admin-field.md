@@ -1,7 +1,13 @@
 # Leg: ollama-num-ctx-admin-field
 
-**Status**: ready
+**Status**: completed
 **Flight**: [HAT — Provider Chat Sweep](../flight.md)
+
+> **Completed (2026-06-27, shipping in 0.2.12).** Editable per-provider Ollama
+> "Context Window" field (info-icon tooltip, required, default 32768), precedence
+> per-provider → env → default clamped to advertised. Verified live on the dev
+> instance by the operator; unit + browser tests green. Per-model num_ctx noted for
+> the deferred compaction mission. Ships in 0.2.12.
 
 ## Objective
 Make the Ollama runtime context window (`num_ctx`) an editable per-provider field in the
@@ -37,8 +43,12 @@ environment variable.
   `config.num_ctx`**; the result is clamped to the model's advertised window.
 
 ## Acceptance Criteria
-- [ ] An Ollama provider in Administration shows a **Context window (num_ctx)** integer
-      field; it is shown ONLY for `ollama`-type providers; empty = "use env/default".
+- [ ] An Ollama provider in Administration shows a **"Context Window"** integer field
+      (shown ONLY for `ollama`-type providers), with an **info-icon tooltip** (reusing the
+      `field-info-icon` pattern): "A larger window allows longer conversations but will slow
+      down on partial-GPU setups because fewer layers fit in VRAM".
+- [ ] The field is **required** and pre-filled with the default **32768** (or the provider's
+      existing `config.num_ctx`); empty is rejected client-side. (No more "blank = default".)
 - [ ] Setting it persists (`config.num_ctx`) across reload and round-trips through the
       provider create/update API.
 - [ ] When set, it is used as the runtime `num_ctx` for native `/api/chat` and model

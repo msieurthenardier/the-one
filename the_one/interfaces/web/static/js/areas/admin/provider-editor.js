@@ -157,14 +157,24 @@
     html += '</div>';
     html += '</div>';
 
-    // Context window (num_ctx) — Ollama-only optional override (F09-05). Rides
-    // in the free-form config dict (config.num_ctx), same pattern as the
-    // OpenRouter referer/title config fields. Empty = use env/default.
-    var numCtx = (!isCreate && provider.config && provider.config.num_ctx != null) ? provider.config.num_ctx : '';
+    // Context Window (config.num_ctx) — Ollama-only override (F09-05). Rides in
+    // the free-form config dict (config.num_ctx), same pattern as the OpenRouter
+    // referer/title config fields. Required + always carries a value: pre-filled
+    // with the default window (DEFAULT_NUM_CTX, mirrors _DEFAULT_NUM_CTX in
+    // ollama_provider.py) for new providers, or the provider's stored value when
+    // editing one that has it. Description is a tooltip on a focusable info-icon
+    // button (label | input | ⓘ + visually-hidden desc), mirroring the
+    // field-info-icon pattern in tools-form-helpers.js for consistent a11y.
+    var DEFAULT_NUM_CTX = 32768;
+    var numCtx = (!isCreate && provider.config && provider.config.num_ctx != null) ? provider.config.num_ctx : DEFAULT_NUM_CTX;
+    var numCtxDesc = 'A larger window allows longer conversations but will slow down on partial-GPU setups because fewer layers fit in VRAM';
+    var numCtxIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
+    if (!numCtxIcon) numCtxIcon = 'ⓘ';
     html += '<div class="field-row admin-pf-row admin-pf-num-ctx' + (defaults.showNumCtx ? '' : ' is-hidden') + '">';
-    html += '<label for="pf-num-ctx">Context window (num_ctx)</label>';
-    html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" data-field="config.num_ctx" value="' + escapeAttr(String(numCtx)) + '" placeholder="Leave empty for env/default" />';
-    html += '<p class="field-description">Empty uses the env/default window (32768). A larger window allows longer conversations but is slower on partial-GPU setups; a smaller window fits more model layers in VRAM. Applies on the next model (re)load.</p>';
+    html += '<label for="pf-num-ctx">Context Window</label>';
+    html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" required data-field="config.num_ctx" aria-describedby="pf-num-ctx-desc" value="' + escapeAttr(String(numCtx)) + '" />';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(numCtxDesc) + '" aria-describedby="pf-num-ctx-desc">' + numCtxIcon + '</button>';
+    html += '<span id="pf-num-ctx-desc" class="visually-hidden">' + escapeHtml(numCtxDesc) + '</span>';
     html += '</div>';
 
     return html;
@@ -518,22 +528,25 @@
       payload.config = cfg;
     }
 
-    // Ollama optional num_ctx override (F09-05) — same config.* precedent:
-    // parse + validate client-side (server re-validates / coerces), and only
-    // add to payload.config when present + valid so empty = use env/default
-    // (no persisted key).
+    // Ollama Context Window (config.num_ctx) — F09-05. Now REQUIRED and always
+    // persisted (the field is pre-filled with the default, so a blank means the
+    // operator cleared it). Same config.* precedent: parse + validate
+    // client-side (server re-validates / coerces); reject empty + non-positive +
+    // non-integer.
     if (defaults.showNumCtx) {
       var numCtxInput = container.querySelector('[data-field="config.num_ctx"]');
       var numCtxRaw = numCtxInput ? numCtxInput.value.trim() : '';
-      if (numCtxRaw) {
-        var numCtxVal = Number(numCtxRaw);
-        if (!Number.isInteger(numCtxVal) || numCtxVal <= 0) {
-          errorEl.textContent = 'Context window (num_ctx) must be a positive whole number.';
-          return null;
-        }
-        payload.config = payload.config || {};
-        payload.config.num_ctx = numCtxVal;
+      if (!numCtxRaw) {
+        errorEl.textContent = 'Context Window is required.';
+        return null;
       }
+      var numCtxVal = Number(numCtxRaw);
+      if (!Number.isInteger(numCtxVal) || numCtxVal <= 0) {
+        errorEl.textContent = 'Context Window must be a positive whole number.';
+        return null;
+      }
+      payload.config = payload.config || {};
+      payload.config.num_ctx = numCtxVal;
     }
 
     return payload;

@@ -1,7 +1,12 @@
 # Leg: queued-message-render
 
-**Status**: ready
+**Status**: completed
 **Flight**: [HAT — Provider Chat Sweep](../flight.md)
+
+> **Completed (2026-06-27, shipping in 0.2.12).** Client-hold queue redesign:
+> pinned cancellable chip (F09-04), render-on-dequeue (F09-02), Stop cancels the
+> running turn (F09-03). Verified live on the dev instance (branch code) by the
+> operator; 4 browser tests green. Ships in 0.2.12.
 
 ## Objective
 Redesign the send-while-thinking (F07 DD4 one-slot queue) UX to a **client-hold** model
