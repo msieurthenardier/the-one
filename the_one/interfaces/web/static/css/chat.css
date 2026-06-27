@@ -482,10 +482,19 @@
   .area-chat .input-area .btn-stop-turn:hover { background: var(--status-danger-bg-soft); border-color: var(--status-danger); filter: brightness(1.15); }
   .area-chat .input-area .btn-stop-turn:focus-visible { outline: 2px solid var(--status-danger); outline-offset: 2px; box-shadow: 0 0 0 3px var(--status-danger-glow); }
   .area-chat .input-area .btn-stop-turn[hidden] { display: none; }
-  /* F7 L04: pending-queued message indicator — shown immediately when the user
-     queues a second message while a turn is running. Same left-aligned style
-     as system messages but muted and italic to signal it is not yet sent. */
-  .area-chat .messages .msg.pending-queued { color: var(--fg-muted); font-style: italic; align-self: flex-end; background: var(--surface-elevated); border: 1px dashed var(--border); opacity: 0.75; }
+  /* F09-04: pending-queued chip — a CLIENT-HELD message waiting for the
+     running turn to finish (it is NOT sent to the backend until the prior
+     turn's `done`). Pinned in its own region directly above the composer
+     (outside the scrolling .messages list) so it can't scroll away, with a
+     keyboard-accessible cancel (×) control to discard the held message. */
+  .area-chat .pending-queued-region { padding: 8px 20px 0; }
+  .area-chat .pending-queued-region[hidden] { display: none; }
+  .area-chat .pending-queued-chip { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-radius: 8px; border: 1px dashed var(--border); background: var(--surface-elevated); color: var(--fg-muted); opacity: 0.95; }
+  .area-chat .pending-queued-chip .pending-queued-label { font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-secondary); flex-shrink: 0; }
+  .area-chat .pending-queued-chip .pending-queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+  .area-chat .pending-queued-chip .pending-queued-cancel { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--fg-secondary); font-size: 16px; line-height: 1; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+  .area-chat .pending-queued-chip .pending-queued-cancel:hover { border-color: var(--status-danger); color: var(--status-danger); }
+  .area-chat .pending-queued-chip .pending-queued-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
   /* === Chat Area: Welcome canvas === */
   .area-chat .chat-welcome { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 40px 24px; overflow-y: auto; }

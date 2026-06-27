@@ -180,7 +180,7 @@ App.registerArea({
     // providers; it does not hide *existing* ones. The provider-type badge
     // suffix mapping (KNOWN_BADGE_TYPES) lives in providers-grid.js post-leg-02.
     var TYPE_DEFAULTS = {
-      'ollama': { base_url: 'http://localhost:11434/v1', showBaseUrl: true, showApiKey: false },
+      'ollama': { base_url: 'http://localhost:11434/v1', showBaseUrl: true, showApiKey: false, showNumCtx: true },
       'openai-compatible': { base_url: '', showBaseUrl: true, showApiKey: true },
       'openai': { base_url: 'https://api.openai.com/v1', showBaseUrl: false, showApiKey: true },
       'anthropic': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true },

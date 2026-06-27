@@ -144,9 +144,21 @@ when the issue surfaces and written into the flight log next to the finding.
 > surface during HAT, named `{NN}-{issue-slug}`. This list starts empty and grows
 > during execution — it is the flight's expected behavior, not scope creep.
 
-- [ ] `01-search-tools-truncation` — fix F09-01: `search_tools` silently caps at 8 and
+- [x] `01-search-tools-truncation` — fix F09-01: `search_tools` silently caps at 8 and
       hides tools (e.g. Sonos `set_volume`); guarantee name matches + honest truncation
-      signal so the model re-searches instead of declaring a tool absent.
+      signal so the model re-searches instead of declaring a tool absent. **Completed,
+      shipped in 0.2.10, live-verified.** (Operator accepted server-name queries
+      returning the full catalog — see flight-log F09-01.)
+- [ ] `02-queued-message-render` — redesign the send-while-thinking queue to a client-hold
+      model: F09-02 (render queued message as a bubble on dequeue), F09-03 ("Stop" cancels
+      the running turn, not the queued task — backend per-session cancel-set), F09-04
+      (pin the queued message above the composer instead of scrolling it away, + a cancel ×).
+      Batched for the 0.2.11 build.
+- [ ] `03-ollama-num-ctx-admin-field` — mitigation for F09-05 (long local-model
+      conversations crawl at high context): make `num_ctx` an editable Ollama provider field
+      in Administration (precedence per-provider → env → default, clamped to advertised), so
+      the window/speed trade-off is tunable without an env var. Compaction (the real fix)
+      stays a deferred mission Known Issue. Batched for the 0.2.11 build.
 
 ---
 

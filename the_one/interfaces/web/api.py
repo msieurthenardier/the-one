@@ -4360,12 +4360,19 @@ async def load_model(provider_id: str, request: Request) -> dict[str, str]:
     if not model:
         raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
     # Load at the same effective runtime window chat will use, so a manual load
-    # isn't silently reloaded at a different num_ctx on the first message.
+    # isn't silently reloaded at a different num_ctx on the first message. The
+    # per-provider ``config.num_ctx`` (if set) takes precedence over env/default
+    # — same precedence the provider applies at generation time.
     from the_one.llm.ollama_provider import effective_num_ctx
 
+    repo = await _provider_repo()
+    provider = await repo.get(provider_id)
+    configured = provider.config.get("num_ctx")
     advertised = await ollama_api.get_model_context_length(base_url, model)
     try:
-        await ollama_api.load_model(base_url, model, num_ctx=effective_num_ctx(advertised))
+        await ollama_api.load_model(
+            base_url, model, num_ctx=effective_num_ctx(advertised, configured)
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
     return {"status": "ok"}

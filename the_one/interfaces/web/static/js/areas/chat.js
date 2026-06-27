@@ -44,26 +44,62 @@ App.registerArea({
       stopBtn.hidden = !isCurrentBusy();
     }
 
-    // Render a pending-queued-message indicator in the message area so the operator
-    // can see that their queued message is waiting. Stored per-session in
-    // pendingQueuedMessages; only one slot (queue depth = 1).
+    // F09-04 (client-hold): render a PINNED chip for the held queued message.
+    // The chip lives in pendingQueuedRegionEl — a region above the composer,
+    // OUTSIDE the scrolling .messages list — so it never scrolls away. The
+    // held text is stored per-session in pendingQueuedMessages; only one slot
+    // (queue depth = 1). The message is NOT sent to the backend while held —
+    // the WS `done` handler sends it via the normal send path once the running
+    // turn finishes. The chip carries a keyboard-accessible cancel (×) button.
     function showPendingQueued(text) {
       clearPendingQueued();
-      if (!text) return;
+      if (!text || !pendingQueuedRegionEl) return;
+
       pendingQueuedEl = document.createElement('div');
-      pendingQueuedEl.className = 'msg pending-queued';
+      pendingQueuedEl.className = 'pending-queued-chip';
+      pendingQueuedEl.setAttribute('data-testid', 'pending-queued');
       pendingQueuedEl.setAttribute('aria-live', 'polite');
-      pendingQueuedEl.textContent = text + ' (queued)';
-      messagesEl.appendChild(pendingQueuedEl);
-      scrollToBottomIfPinned();
+
+      var label = document.createElement('span');
+      label.className = 'pending-queued-label';
+      label.textContent = 'Queued:';
+      pendingQueuedEl.appendChild(label);
+
+      var body = document.createElement('span');
+      body.className = 'pending-queued-text';
+      body.textContent = text;
+      pendingQueuedEl.appendChild(body);
+
+      // Native <button> → focusable and Enter/Space-activatable for free.
+      var cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'pending-queued-cancel';
+      cancelBtn.setAttribute('data-testid', 'pending-queued-cancel');
+      cancelBtn.setAttribute('aria-label', 'Cancel queued message');
+      cancelBtn.textContent = '×'; // ×
+      cancelBtn.addEventListener('click', cancelPendingQueued);
+      pendingQueuedEl.appendChild(cancelBtn);
+
+      pendingQueuedRegionEl.appendChild(pendingQueuedEl);
+      pendingQueuedRegionEl.hidden = false;
     }
 
-    // Remove the pending indicator from the DOM (idempotent).
+    // Remove the pinned chip from the DOM (idempotent). Does NOT touch the
+    // held text in pendingQueuedMessages — callers manage that explicitly.
     function clearPendingQueued() {
       if (pendingQueuedEl && pendingQueuedEl.parentNode) {
         pendingQueuedEl.parentNode.removeChild(pendingQueuedEl);
       }
       pendingQueuedEl = null;
+      if (pendingQueuedRegionEl) pendingQueuedRegionEl.hidden = true;
+    }
+
+    // F09-04: cancel (×) — discard the held message for the current session
+    // and remove the chip. Purely local: nothing was sent to the backend, so
+    // no turn runs for the discarded message.
+    function cancelPendingQueued() {
+      if (currentSessionId) delete pendingQueuedMessages[currentSessionId];
+      clearPendingQueued();
     }
 
     var currentSessionId = null;
@@ -83,6 +119,9 @@ App.registerArea({
     // DOM element showing the pending queued message hint (one shared element; swapped
     // on session-switch if the joined session has a pending queued message).
     var pendingQueuedEl = null;
+    // F09-04: pinned container above the composer that hosts the queued chip,
+    // outside the scrolling .messages list. Assigned during setup below.
+    var pendingQueuedRegionEl = null;
     var setupIncomplete = false;
     var sessionBannerEl = null;
     var availableAgents = [];
@@ -152,6 +191,16 @@ App.registerArea({
     // session_joined handler below from data.session_metadata.
     var routingAuditPanelEl = App.chat.routingAuditPanel.create();
     chromeEl.insertBefore(routingAuditPanelEl, chromeEl.querySelector('.input-area'));
+
+    // F09-04: pinned region for the queued-message chip — inserted directly
+    // above the composer (after telemetry/routing) and OUTSIDE the scrolling
+    // .messages list, so a held queued message stays visible and cannot scroll
+    // away. showPendingQueued/clearPendingQueued toggle its `hidden` state.
+    pendingQueuedRegionEl = document.createElement('div');
+    pendingQueuedRegionEl.className = 'pending-queued-region';
+    pendingQueuedRegionEl.setAttribute('data-testid', 'pending-queued-region');
+    pendingQueuedRegionEl.hidden = true;
+    chromeEl.insertBefore(pendingQueuedRegionEl, chromeEl.querySelector('.input-area'));
 
     function updateAgentBadge(name) { agentBadgeEl.textContent = name || 'default'; }
 
@@ -281,6 +330,12 @@ App.registerArea({
         // will drain it once the connection is restored (preempting auto-join).
         return;
       }
+      // F09-04: starting a new chat leaves the current session — discard any
+      // held queued message (client-only) and its chip.
+      if (currentSessionId) {
+        delete pendingQueuedMessages[currentSessionId];
+        clearPendingQueued();
+      }
       currentSessionId = null;
       // M11 F9 L4: reset pending-approval dedup on new-chat creation.
       // renderHistory does NOT run for the new-session path, so the
@@ -403,6 +458,12 @@ App.registerArea({
     }
 
     function joinSession(id) {
+      // F09-04: a held queued message is client-only and does not carry across
+      // sessions — discard it (and its chip) when leaving the current session.
+      if (currentSessionId && currentSessionId !== id) {
+        delete pendingQueuedMessages[currentSessionId];
+        clearPendingQueued();
+      }
       currentSessionId = id;
       ws.send(JSON.stringify({ action: 'join', session_id: id }));
       highlightActiveSession();
@@ -758,34 +819,51 @@ App.registerArea({
       addMsg('system', 'Resuming…');
     }
 
+    // Normal turn-send path: optimistic user bubble, transmit, mark in-flight,
+    // show the thinking indicator. Shared by send() (direct send) and the WS
+    // `done` handler (dequeue of a held message) so the two paths can never
+    // diverge. Does NOT touch the input value — callers manage that (the direct
+    // path clears it; the dequeue path must not clobber what the user is typing).
+    function performSend(text) {
+      addMsg('user', text, 'You');
+      ws.send(JSON.stringify({ message: text }));
+      if (currentSessionId) inFlightSessions[currentSessionId] = true;
+      sendBtn.disabled = true;
+      updateStopControl();
+      showThinking();
+    }
+
     function send() {
       var text = inputEl.value.trim();
       if (!text) return;
       // Blocked by health gate (agent deleted, provider missing, etc.) — never queue.
       if (sessionBannerEl || inputEl.disabled) return;
 
-      if (isCurrentBusy()) {
-        // One-slot queue: accept exactly one pending message while a turn is running.
-        // A second attempt while one is already pending is ignored.
-        if (currentSessionId && pendingQueuedMessages[currentSessionId]) return;
+      // F09-04: /reset is a control command — never hold it, and it wipes the
+      // conversation, so discard any held queued message + chip first so a
+      // stale hold can't fire after the context is cleared.
+      var isReset = (text === '/reset');
+      if (isReset && currentSessionId) {
+        delete pendingQueuedMessages[currentSessionId];
+        clearPendingQueued();
+      }
+
+      if (!isReset && isCurrentBusy()) {
+        // One-slot CLIENT-HOLD queue (F09-04): hold exactly one message locally
+        // while a turn runs. It is NOT sent to the backend now — the `done`
+        // handler sends it via the normal path once the running turn finishes.
+        // This keeps cancel trivial (nothing sent) and the chip pinned. A
+        // second hold attempt while one is already held is ignored.
         if (!currentSessionId) return;
-        // Store the queued message per session and send immediately — the backend
-        // session lock will serialize it after the current turn finishes.
+        if (pendingQueuedMessages[currentSessionId]) return;
         pendingQueuedMessages[currentSessionId] = text;
         inputEl.value = '';
         showPendingQueued(text);
-        // Send to backend now; the session lock queues it server-side.
-        ws.send(JSON.stringify({ message: text }));
         return;
       }
 
-      addMsg('user', text, 'You');
-      ws.send(JSON.stringify({ message: text }));
+      performSend(text);
       inputEl.value = '';
-      if (currentSessionId) inFlightSessions[currentSessionId] = true;
-      sendBtn.disabled = true;
-      updateStopControl();
-      showThinking();
     }
 
     function checkSetupState() {
@@ -1005,24 +1083,22 @@ App.registerArea({
           // switching away from an in-flight session and back leaves
           // the prior `busy` flag stale — either stuck-disabled (turn
           // finished while away) or stuck-enabled (turn still running).
-          // F7 L04: also clear any stale pending-queue DOM element from the
-          // previous session, then restore the indicator if the joined session
-          // has a pending queued message waiting.
+          // F09-04 (client-hold): clear any stale chip from a previous session,
+          // then re-show it if THIS session still holds one. The held message is
+          // client-only (no backend task) and keyed per session, so it is
+          // decoupled from is_processing — do not delete it based on the busy
+          // flag (session switch / cancel / dequeue manage its lifecycle).
           clearPendingQueued();
           if (data.is_processing) {
             inFlightSessions[currentSessionId] = true;
             if (!sessionBannerEl) sendBtn.disabled = true;
             showThinking();
-            // If a queued message exists for this session, re-show its indicator.
-            if (pendingQueuedMessages[currentSessionId]) {
-              showPendingQueued(pendingQueuedMessages[currentSessionId]);
-            }
           } else {
             delete inFlightSessions[currentSessionId];
-            // If the session is no longer processing, any pending queued message
-            // has either completed or was discarded — clear it.
-            delete pendingQueuedMessages[currentSessionId];
             if (!sessionBannerEl) sendBtn.disabled = false;
+          }
+          if (pendingQueuedMessages[currentSessionId]) {
+            showPendingQueued(pendingQueuedMessages[currentSessionId]);
           }
           updateStopControl();
           showChrome();
@@ -1231,16 +1307,26 @@ App.registerArea({
           // the next user message starts a fresh streaming round.
           finalizeStreamingBubble();
           currentStreamingVisibility = null;
-          if (currentSessionId) {
-            delete inFlightSessions[currentSessionId];
-            // The queued message (if any) has already been accepted by the backend;
-            // clear the pending indicator now that the turn has completed and the
-            // queued message is no longer "waiting" — it is the next turn in progress.
-            delete pendingQueuedMessages[currentSessionId];
+          var sid = currentSessionId;
+          // F09-02 (client-hold): the held queued message was NOT sent during
+          // the turn — it waited locally. Now the running turn has finished, so
+          // dequeue it and send it via the NORMAL send path. This renders the
+          // user bubble in the correct order (after this turn's response, before
+          // the queued turn's response) and starts the queued turn — the sender's
+          // optimistic render + the backend's sender-exclusion (app.py) align
+          // because it flows through the same path as a normal send.
+          var held = sid ? pendingQueuedMessages[sid] : null;
+          if (held) {
+            delete pendingQueuedMessages[sid];
             clearPendingQueued();
+            performSend(held);
+          } else {
+            // No held message — normal idle reset.
+            if (sid) delete inFlightSessions[sid];
+            clearPendingQueued();
+            updateStopControl();
+            if (!sessionBannerEl) sendBtn.disabled = false;
           }
-          updateStopControl();
-          if (!sessionBannerEl) sendBtn.disabled = false;
           refreshSessionList();
         }
         else if (data.type === 'cancelled') {
