@@ -37,8 +37,12 @@ environment variable.
   `config.num_ctx`**; the result is clamped to the model's advertised window.
 
 ## Acceptance Criteria
-- [ ] An Ollama provider in Administration shows a **Context window (num_ctx)** integer
-      field; it is shown ONLY for `ollama`-type providers; empty = "use env/default".
+- [ ] An Ollama provider in Administration shows a **"Context Window"** integer field
+      (shown ONLY for `ollama`-type providers), with an **info-icon tooltip** (reusing the
+      `field-info-icon` pattern): "A larger window allows longer conversations but will slow
+      down on partial-GPU setups because fewer layers fit in VRAM".
+- [ ] The field is **required** and pre-filled with the default **32768** (or the provider's
+      existing `config.num_ctx`); empty is rejected client-side. (No more "blank = default".)
 - [ ] Setting it persists (`config.num_ctx`) across reload and round-trips through the
       provider create/update API.
 - [ ] When set, it is used as the runtime `num_ctx` for native `/api/chat` and model

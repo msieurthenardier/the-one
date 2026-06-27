@@ -54,7 +54,19 @@
      speed), **not a cure**.
   2. **Carried to the existing mission Known-Issue** for deferred context compaction
      (mission.md "Context compaction…") as field evidence — compaction remains the real fix.
-- **Status**: leg `03` created; mission Known-Issue annotated.
+- **Field polish (operator HAT feedback, 2026-06-27)**: label is just "Context Window"; the
+  help text moves to an info-icon tooltip ("A larger window allows longer conversations but
+  will slow down on partial-GPU setups because fewer layers fit in VRAM"), reusing the
+  existing `field-info-icon` pattern; the field is **required** and pre-filled with the
+  default (32768) rather than blank-means-default. (Branch `fix/num-ctx-field-polish`.)
+- **Follow-up needed — per-MODEL num_ctx (not just per-provider).** `num_ctx` is currently a
+  per-PROVIDER setting, but the right window depends on the MODEL (different advertised
+  windows; one provider serves many models, and the speed/length trade-off is per-model). A
+  per-model context-window configuration is the proper shape and will **likely land as part
+  of the deferred context-compaction mission** (which also reasons per-conversation about the
+  window). Recorded here + on the mission compaction Known-Issue as a design note for that
+  mission; out of scope for F09.
+- **Status**: leg `03` created + polished; mission Known-Issue annotated (incl. per-model note).
 
 ### F09-04 — Queued message scrolls away with the chat and can't be cancelled
 
