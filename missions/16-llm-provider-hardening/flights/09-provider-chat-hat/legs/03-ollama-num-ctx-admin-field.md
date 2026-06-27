@@ -1,7 +1,13 @@
 # Leg: ollama-num-ctx-admin-field
 
-**Status**: ready
+**Status**: completed
 **Flight**: [HAT — Provider Chat Sweep](../flight.md)
+
+> **Completed (2026-06-27, shipping in 0.2.12).** Editable per-provider Ollama
+> "Context Window" field (info-icon tooltip, required, default 32768), precedence
+> per-provider → env → default clamped to advertised. Verified live on the dev
+> instance by the operator; unit + browser tests green. Per-model num_ctx noted for
+> the deferred compaction mission. Ships in 0.2.12.
 
 ## Objective
 Make the Ollama runtime context window (`num_ctx`) an editable per-provider field in the

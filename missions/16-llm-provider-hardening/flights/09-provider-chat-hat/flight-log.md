@@ -66,7 +66,8 @@
   of the deferred context-compaction mission** (which also reasons per-conversation about the
   window). Recorded here + on the mission compaction Known-Issue as a design note for that
   mission; out of scope for F09.
-- **Status**: leg `03` created + polished; mission Known-Issue annotated (incl. per-model note).
+- **Status**: RESOLVED (leg `03`) — verified on dev instance, ships in 0.2.12. Mission
+  Known-Issue annotated (incl. per-model note for the compaction mission).
 
 ### F09-04 — Queued message scrolls away with the chat and can't be cancelled
 
@@ -90,7 +91,7 @@
   redesign **supersedes** that leg's original done-handler manual-render + immediate-send
   approach (all still unreleased on branch `fix/queued-message-render`). F09-02 is now
   delivered via client-hold; F09-03's backend cancel-set stays.
-- **Status**: diagnosed; fix pending (same 0.2.11 batch).
+- **Status**: RESOLVED (leg `02`, client-hold redesign) — verified on dev instance, ships in 0.2.12.
 
 ### F09-03 — "Stop" during a queued state cancels the queued message, not the running turn
 
@@ -114,8 +115,7 @@
   (add to set), the done-callback (discard from set, drop empty), and the cancel handler.
 - **Disposition (DD4)**: folded into leg `02-queued-message-render` (operator: investigate
   now, fix if real). Backend change; pairs with the F09-02 frontend render fix.
-- **Status**: diagnosed; fix pending. *(Bundled with F09-02 — both are send-while-thinking
-  UX defects in the same chat surface; one leg, one 0.2.11 build.)*
+- **Status**: RESOLVED (leg `02`) — verified on dev instance, ships in 0.2.12.
 
 ### F09-02 — Queued (send-while-thinking) message never renders as a bubble in the live transcript
 
@@ -157,7 +157,7 @@
   via the F09-04 client-hold redesign** (held message is sent through the normal send path
   on turn `done`, which renders the bubble) rather than the original done-handler manual
   render. Same observable outcome.
-- **Status**: diagnosed; fix pending (folded into the client-hold redesign).
+- **Status**: RESOLVED (leg `02`, via client-hold redesign) — verified on dev instance, ships in 0.2.12.
 
 ---
 
