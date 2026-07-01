@@ -1,13 +1,22 @@
-"""Browser tests for the Chat UI routing-audit panel (M11 F13 L5).
+"""Browser tests for the Chat UI routing-audit inspector.
+
+M11 F13 L5 introduced the inspector as an inline <details> panel above the
+composer. M16 F09 L04 (F09-06) relocated it: the trigger now lives
+right-justified in the chat header row, and clicking it opens a centered
+overlay (reusing the .modal-overlay / .modal-dialog styling) that holds the
+Refresh control and the routing entries.
 
 Verifies:
 
-1. Empty state renders for a session with no routing entries.
-2. Multi-disposition entries render with the correct badge classes.
-3. Per-entry expansion reveals the raw fields (rule_index, match, intercept_source).
-4. policy-silent entries expand to show the nested policy dict.
-5. Refresh button re-fetches and re-renders.
-6. Panel is collapsed by default (outer <details> is not [open]).
+1. Trigger sits in the header row; the overlay is hidden until the trigger is
+   clicked, then opens centered.
+2. Empty state renders inside the overlay for a session with no routing entries.
+3. Multi-disposition entries render with the correct badge classes.
+4. Per-entry expansion reveals the raw fields (rule_index, match, intercept_source).
+5. policy-silent entries expand to show the nested policy dict.
+6. Refresh button re-fetches and re-renders.
+7. The overlay closes via ✕, ESC, and backdrop click; focus returns to the
+   trigger on close.
 """
 
 from __future__ import annotations
@@ -166,11 +175,48 @@ def _append_routing_entry(data_dir: Path, *, session_id: str, entry: dict) -> No
 
 def _navigate_to_session(page: Page, base_url: str, session_id: str) -> None:
     page.goto(f"{base_url}/#chat/sessions/{session_id}")
-    # The panel container mounts during chrome construction — wait for it.
-    expect(page.locator('[data-testid="routing-audit-panel"]')).to_be_visible(timeout=8000)
+    # The header trigger mounts during chrome construction (header only renders
+    # once a session exists) — wait for it.
+    expect(page.locator('[data-testid="routing-audit-trigger"]')).to_be_visible(timeout=8000)
 
 
-# ── Test 1: empty state ────────────────────────────────────────────────────
+def _open_overlay(page: Page) -> None:
+    """Click the header trigger and wait for the overlay to open."""
+    page.locator('[data-testid="routing-audit-trigger"]').click()
+    expect(page.locator('[data-testid="routing-audit-overlay"]')).to_be_visible(timeout=4000)
+
+
+# ── Test 1: trigger in header; overlay hidden until opened ─────────────────
+
+
+@pytest.mark.browser
+def test_routing_audit_trigger_in_header_opens_overlay(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    base_url, data_dir = app_with_data_dir
+    provider_id = seed_mock_provider(base_url)
+    seed_mock_agent(base_url, provider_id, name="header-agent")
+    sid = "sess-header-1"
+    _seed_session_with_metadata(
+        data_dir,
+        session_id=sid,
+        agent_name="header-agent",
+        title="Header Trigger",
+        session_metadata=None,
+    )
+    _navigate_to_session(page, base_url, sid)
+    # Trigger lives inside the chat header row (same row as the agent badge).
+    trigger_in_header = page.locator('.area-chat .header [data-testid="routing-audit-trigger"]')
+    expect(trigger_in_header).to_be_visible()
+    # Overlay is present but hidden until the trigger is clicked.
+    overlay = page.locator('[data-testid="routing-audit-overlay"]')
+    expect(overlay).to_be_hidden()
+    _open_overlay(page)
+    # The Refresh control lives inside the overlay.
+    expect(overlay.locator('[data-testid="routing-audit-refresh"]')).to_be_visible()
+
+
+# ── Test 2: empty state ────────────────────────────────────────────────────
 
 
 @pytest.mark.browser
@@ -187,8 +233,8 @@ def test_routing_audit_empty_state(app_with_data_dir: tuple[str, Path], page: Pa
         session_metadata=None,
     )
     _navigate_to_session(page, base_url, sid)
-    # Expand the outer details to reveal the empty-state inside.
-    page.locator('[data-testid="routing-audit-summary"]').click()
+    # Open the overlay to reveal the empty state inside.
+    _open_overlay(page)
     empty = page.locator('[data-testid="routing-audit-empty"]')
     expect(empty).to_be_visible(timeout=4000)
     expect(empty).to_contain_text("No routing decisions yet")
@@ -259,7 +305,7 @@ def test_routing_audit_renders_all_four_dispositions(
         session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
-    page.locator('[data-testid="routing-audit-summary"]').click()
+    _open_overlay(page)
     rows = page.locator('[data-testid="routing-audit-row"]')
     expect(rows).to_have_count(4, timeout=4000)
     # Verify per-disposition badge classes.
@@ -298,7 +344,7 @@ def test_routing_audit_expansion_shows_raw_fields(
         session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
-    page.locator('[data-testid="routing-audit-summary"]').click()
+    _open_overlay(page)
     row_summary = page.locator('[data-testid="routing-audit-row-summary"]').first
     row_summary.click()
     expansion = page.locator('[data-testid="routing-audit-expansion"]').first
@@ -345,7 +391,7 @@ def test_routing_audit_policy_silent_renders_nested_policy(
         session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
-    page.locator('[data-testid="routing-audit-summary"]').click()
+    _open_overlay(page)
     page.locator('[data-testid="routing-audit-row-summary"]').first.click()
     policy = page.locator('[data-testid="routing-audit-policy"]')
     expect(policy).to_be_visible(timeout=4000)
@@ -387,7 +433,7 @@ def test_routing_audit_refresh_re_fetches(app_with_data_dir: tuple[str, Path], p
         session_metadata=initial,
     )
     _navigate_to_session(page, base_url, sid)
-    page.locator('[data-testid="routing-audit-summary"]').click()
+    _open_overlay(page)
     rows = page.locator('[data-testid="routing-audit-row"]')
     expect(rows).to_have_count(1, timeout=4000)
     # Append a second routing entry directly in the DB.
@@ -409,21 +455,21 @@ def test_routing_audit_refresh_re_fetches(app_with_data_dir: tuple[str, Path], p
     expect(rows).to_have_count(2, timeout=4000)
 
 
-# ── Test 6: collapsed by default ────────────────────────────────────────
+# ── Test 7: overlay closes via ✕ / ESC / backdrop; focus restored ───────
 
 
 @pytest.mark.browser
-def test_routing_audit_panel_is_collapsed_by_default(
+def test_routing_audit_overlay_close_affordances(
     app_with_data_dir: tuple[str, Path], page: Page
 ) -> None:
     base_url, data_dir = app_with_data_dir
     provider_id = seed_mock_provider(base_url)
-    seed_mock_agent(base_url, provider_id, name="collapsed-agent")
-    sid = "sess-collapsed-1"
+    seed_mock_agent(base_url, provider_id, name="close-agent")
+    sid = "sess-close-1"
     routing = [
         {
             "ts": "2026-05-31T00:00:01",
-            "agent": "collapsed-agent",
+            "agent": "close-agent",
             "rule_index": 0,
             "scope": "channel",
             "match": None,
@@ -434,15 +480,30 @@ def test_routing_audit_panel_is_collapsed_by_default(
     _seed_session_with_metadata(
         data_dir,
         session_id=sid,
-        agent_name="collapsed-agent",
-        title="Collapsed Test",
+        agent_name="close-agent",
+        title="Close Test",
         session_metadata={"routing": routing},
     )
     _navigate_to_session(page, base_url, sid)
-    # Outer <details> exists but is NOT open on first render.
-    details = page.locator('[data-testid="routing-audit-details"]')
-    expect(details).to_be_visible(timeout=4000)
-    # Per AC-12: collapsed default. Evaluating the `open` attribute on the
-    # <details> element gives the boolean state.
-    is_open = details.evaluate("el => el.hasAttribute('open')")
-    assert is_open is False, "panel must be collapsed by default per AC-12"
+    overlay = page.locator('[data-testid="routing-audit-overlay"]')
+    trigger = page.locator('[data-testid="routing-audit-trigger"]')
+
+    # (a) ✕ close button.
+    _open_overlay(page)
+    page.locator('[data-testid="routing-audit-close"]').click()
+    expect(overlay).to_be_hidden(timeout=4000)
+    # Focus returns to the trigger on close (accessible focus management).
+    assert trigger.evaluate("el => el === document.activeElement") is True
+
+    # (b) ESC key.
+    _open_overlay(page)
+    page.keyboard.press("Escape")
+    expect(overlay).to_be_hidden(timeout=4000)
+    assert trigger.evaluate("el => el === document.activeElement") is True
+
+    # (c) Backdrop click — click the overlay itself (left-middle, outside the
+    # centered dialog and below the app topbar) dismisses; clicks on the dialog
+    # do not.
+    _open_overlay(page)
+    overlay.click(position={"x": 5, "y": 400})
+    expect(overlay).to_be_hidden(timeout=4000)

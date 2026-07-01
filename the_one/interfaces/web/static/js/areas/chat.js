@@ -184,13 +184,21 @@ App.registerArea({
     // Insert telemetry overlay between .messages and .input-area.
     chromeEl.insertBefore(App.chat.renderTelemetry(), chromeEl.querySelector('.input-area'));
 
-    // M11 F13 L5: routing-audit panel — collapsible inspector for
-    // session_metadata["routing"] entries. Mounts between .messages and
-    // .input-area so it shares the chat-chrome flexbox column without
-    // overlapping the message list scroll region. Populated in the
-    // session_joined handler below from data.session_metadata.
-    var routingAuditPanelEl = App.chat.routingAuditPanel.create();
-    chromeEl.insertBefore(routingAuditPanelEl, chromeEl.querySelector('.input-area'));
+    // M11 F13 L5 / M16 F09 L04 (F09-06): routing-audit inspector for
+    // session_metadata["routing"] entries. The trigger lives right-justified
+    // in the header row (gated behind a live session — the header only shows
+    // inside .chat-chrome, which is hidden on the welcome screen). Clicking it
+    // opens a centered overlay holding the Refresh control + entries; open()
+    // mounts the overlay on <body> (full-viewport backdrop) and close()
+    // detaches it. The overlay node is kept detached here and populated in the
+    // session_joined handler below from data.session_metadata (render/query
+    // work on the detached node).
+    var routingAuditTriggerEl = App.chat.routingAuditPanel.createTrigger();
+    var routingAuditOverlayEl = App.chat.routingAuditPanel.createOverlay();
+    content.querySelector('.header').appendChild(routingAuditTriggerEl);
+    routingAuditTriggerEl.addEventListener('click', function () {
+      App.chat.routingAuditPanel.open(routingAuditOverlayEl, routingAuditTriggerEl);
+    });
 
     // F09-04: pinned region for the queued-message chip — inserted directly
     // above the composer (after telemetry/routing) and OUTSIDE the scrolling
@@ -1075,8 +1083,8 @@ App.registerArea({
           // payload's session_metadata and wire the Refresh button to
           // re-fetch via REST.
           var routing = (data.session_metadata && data.session_metadata.routing) || [];
-          App.chat.routingAuditPanel.render(routingAuditPanelEl, routing);
-          App.chat.routingAuditPanel.wireRefresh(routingAuditPanelEl, data.session_id);
+          App.chat.routingAuditPanel.render(routingAuditOverlayEl, routing);
+          App.chat.routingAuditPanel.wireRefresh(routingAuditOverlayEl, data.session_id);
           setSessionHealth(data.status || 'ok');
           // Sync per-session busy state to server ground truth
           // (`is_session_processing(session.id)`). Without this,
@@ -1149,8 +1157,10 @@ App.registerArea({
             setSessionHealth('ok');
             syncDropdownToCurrent();
             // M11 F13 L5: clear the routing audit panel back to empty
-            // state when the current session is deleted.
-            App.chat.routingAuditPanel.render(routingAuditPanelEl, []);
+            // state when the current session is deleted. F09-06: also close
+            // the overlay if it happens to be open for the deleted session.
+            App.chat.routingAuditPanel.close();
+            App.chat.routingAuditPanel.render(routingAuditOverlayEl, []);
             // Don't auto-create — session_list refresh below picks the fallback.
           }
           refreshSessionList();

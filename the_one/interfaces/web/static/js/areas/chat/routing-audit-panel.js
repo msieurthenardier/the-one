@@ -17,38 +17,156 @@
     'account_always_listen', 'agent_always_listen'
   ];
 
-  // Build the panel chrome. Returns the outer container; chat.js inserts
-  // it into chromeEl between .messages and .input-area.
-  function create() {
-    var wrap = document.createElement('div');
-    wrap.className = 'routing-audit-panel';
-    wrap.setAttribute('data-testid', 'routing-audit-panel');
-    var details = document.createElement('details');
-    details.setAttribute('data-testid', 'routing-audit-details');
-    // Collapsed by default — AC-12.
-    var summary = document.createElement('summary');
-    summary.className = 'routing-audit-toggle';
-    summary.textContent = 'Routing audit';
-    summary.setAttribute('data-testid', 'routing-audit-summary');
-    details.appendChild(summary);
+  // F09-06: singleton reference to the currently-open overlay session so
+  // ESC / focus-restore / one-at-a-time invariants have a single source of
+  // truth. Holds { overlay, trigger } while open; null while closed.
+  var _active = null;
+
+  // Build the compact header trigger. Lives right-justified in the chat
+  // header row; clicking it opens the audit overlay. chat.js wires the
+  // click handler (so it can pass the paired overlay + trigger for focus
+  // restore). Returns the <button>.
+  function createTrigger() {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'routing-audit-trigger';
+    btn.setAttribute('data-testid', 'routing-audit-trigger');
+    btn.setAttribute('aria-haspopup', 'dialog');
+    btn.textContent = 'Routing audit';
+    return btn;
+  }
+
+  // Build the audit overlay — a centered, reasonably-sized modal (reusing the
+  // .modal-overlay / .modal-dialog glass styling from components.css) holding
+  // a title, the Refresh control, a ✕ close button, and the routing entries
+  // body. Mounted hidden by chat.js; open()/close() toggle visibility. The
+  // close ✕ and backdrop-click handlers are wired here (once); ESC + focus
+  // trap are wired per-open in open(). Returns the outer .modal-overlay.
+  function createOverlay() {
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay routing-audit-overlay';
+    overlay.setAttribute('data-testid', 'routing-audit-overlay');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'routing-audit-title');
+    overlay.hidden = true;
+
+    var dlg = document.createElement('div');
+    dlg.className = 'modal-dialog routing-audit-modal';
+    overlay.appendChild(dlg);
 
     var header = document.createElement('div');
-    header.className = 'routing-audit-header';
+    header.className = 'routing-audit-modal-header';
+
+    var title = document.createElement('h2');
+    title.className = 'modal-dialog-title';
+    title.id = 'routing-audit-title';
+    title.textContent = 'Routing audit';
+    header.appendChild(title);
+
     var refreshBtn = document.createElement('button');
     refreshBtn.type = 'button';
     refreshBtn.className = 'btn-muted routing-audit-refresh';
     refreshBtn.textContent = 'Refresh';
     refreshBtn.setAttribute('data-testid', 'routing-audit-refresh');
     header.appendChild(refreshBtn);
-    details.appendChild(header);
+
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'routing-audit-close';
+    closeBtn.setAttribute('data-testid', 'routing-audit-close');
+    closeBtn.setAttribute('aria-label', 'Close routing audit');
+    closeBtn.innerHTML = (window.App && App.icon) ? App.icon('x') : '✕';
+    header.appendChild(closeBtn);
+
+    dlg.appendChild(header);
 
     var body = document.createElement('div');
     body.className = 'routing-audit-body';
     body.setAttribute('data-testid', 'routing-audit-body');
-    details.appendChild(body);
+    dlg.appendChild(body);
 
-    wrap.appendChild(details);
-    return wrap;
+    // Close affordances wired once (idempotent — reference module-level close).
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', function (e) {
+      // Backdrop click only — a click on the dialog itself must not dismiss.
+      if (e.target === overlay) close();
+    });
+
+    return overlay;
+  }
+
+  // Focusable descendants of the dialog (for focus-into-open + Tab trap).
+  function _focusables(overlay) {
+    var dlg = overlay.querySelector('.modal-dialog');
+    if (!dlg) return [];
+    var sel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    var nodes = dlg.querySelectorAll(sel);
+    return Array.prototype.slice.call(nodes).filter(function (n) {
+      return !n.disabled && n.offsetParent !== null;
+    });
+  }
+
+  // Capture-phase key handler while an overlay is open: ESC closes; Tab wraps
+  // focus inside the dialog.
+  function _onKey(e) {
+    if (!_active) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+      return;
+    }
+    if (e.key === 'Tab') {
+      var fs = _focusables(_active.overlay);
+      if (fs.length === 0) { e.preventDefault(); return; }
+      var first = fs[0];
+      var last = fs[fs.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  // Open the overlay: append it to <body> (so its fixed-position backdrop
+  // covers the full viewport and stacks above the sidebar/topbar — mirrors the
+  // App.confirmDialog mount pattern), reveal it, capture the trigger for
+  // focus-restore, wire ESC + focus-trap, and move focus into the dialog.
+  // Singleton — a second open() while one is showing is a no-op for the same
+  // overlay; a different overlay first closes the active one.
+  function open(overlay, trigger) {
+    if (!overlay) return;
+    if (_active) {
+      if (_active.overlay === overlay) return;
+      close();
+    }
+    if (overlay.parentNode !== document.body) document.body.appendChild(overlay);
+    overlay.hidden = false;
+    _active = { overlay: overlay, trigger: trigger || document.activeElement };
+    document.addEventListener('keydown', _onKey, true);
+    var fs = _focusables(overlay);
+    var target = fs[0] || overlay.querySelector('.modal-dialog');
+    if (target && typeof target.focus === 'function') {
+      try { target.focus(); } catch (e) { /* ignore */ }
+    }
+  }
+
+  // Close the active overlay: hide it, detach it from <body>, unwire ESC, and
+  // restore focus to the trigger that opened it. No-op if nothing is open.
+  function close() {
+    if (!_active) return;
+    var overlay = _active.overlay;
+    var trigger = _active.trigger;
+    document.removeEventListener('keydown', _onKey, true);
+    overlay.hidden = true;
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    _active = null;
+    if (trigger && typeof trigger.focus === 'function') {
+      try { trigger.focus(); } catch (e) { /* ignore */ }
+    }
   }
 
   // Render the body — one row per entry, or an empty-state message.
@@ -209,7 +327,10 @@
   }
 
   // Public exports.
-  window.App.chat.routingAuditPanel.create = create;
+  window.App.chat.routingAuditPanel.createTrigger = createTrigger;
+  window.App.chat.routingAuditPanel.createOverlay = createOverlay;
+  window.App.chat.routingAuditPanel.open = open;
+  window.App.chat.routingAuditPanel.close = close;
   window.App.chat.routingAuditPanel.render = render;
   window.App.chat.routingAuditPanel.wireRefresh = wireRefresh;
   window.App.chat.routingAuditPanel.refresh = refresh;
