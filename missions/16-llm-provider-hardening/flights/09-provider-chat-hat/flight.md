@@ -160,6 +160,10 @@ when the issue surfaces and written into the flight log next to the finding.
       per-provider → env → default, clamped to advertised). Compaction (the real fix) stays a
       deferred mission Known Issue; per-model num_ctx noted for it. **Completed — verified on
       dev instance, ships in 0.2.12.**
+- [ ] `04-routing-audit-header-overlay` — F09-06 (UI): move the routing-audit inspector's
+      trigger to the top header row (right-justified, beside the agent label + New-chat
+      button) and open its content in a reasonably-sized overlay instead of an inline
+      panel above the composer. Frontend-only.
 
 ---
 

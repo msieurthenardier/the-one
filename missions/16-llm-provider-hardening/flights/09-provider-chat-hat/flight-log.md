@@ -21,6 +21,23 @@
 
 ## Findings
 
+### F09-06 — Routing-audit inspector is in a poor spot; move to header + open as an overlay
+
+- **Version under test**: 0.2.12 (dev instance / packaged app).
+- **Type**: minor UI relocation (operator request, not a defect).
+- **Current**: the routing-audit inspector is an inline `<details>` panel mounted between
+  `.messages` and `.input-area` (`chat.js:192-193`, `routing-audit-panel.js` `create()`),
+  i.e. wedged just above the composer.
+- **Desired**: move the trigger to the **top chat header row** — the same row as the agent
+  label (`.session-agent-badge`) and the New-chat button (`.new-chat-header`, `chat.js:162`)
+  — **right-justified**. Clicking opens the audit content in a **reasonably-sized overlay
+  (not full width)**, reusing the existing `.modal-overlay`/`.modal-dialog` styling
+  (`components.css:1176-1216`), rather than the inline expand.
+- **Disposition (DD4)**: in-flight leg `04-routing-audit-header-overlay` (frontend-only:
+  `routing-audit-panel.js`, `chat.js`, `chat.css`; update
+  `tests/browser/test_flow_chat_routing_audit_panel.py`). No backend change.
+- **Status**: diagnosed; fix pending.
+
 ### F09-05 — Long local-model conversation slows to a crawl at high context (~1 token / 5s at 91%)
 
 - **Provider / model**: Ollama — `ministral-3:8b` (mistral3, 8.9B, Q4_K_M), `http://localhost:11434/v1`.
