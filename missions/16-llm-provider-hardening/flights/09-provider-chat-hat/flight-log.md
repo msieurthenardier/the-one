@@ -36,7 +36,8 @@
 - **Disposition (DD4)**: in-flight leg `04-routing-audit-header-overlay` (frontend-only:
   `routing-audit-panel.js`, `chat.js`, `chat.css`; update
   `tests/browser/test_flow_chat_routing_audit_panel.py`). No backend change.
-- **Status**: diagnosed; fix pending.
+- **Status**: RESOLVED (leg `04`) — verified on dev instance ("pass"); merged to `main`,
+  awaiting next installer build.
 
 ### F09-05 — Long local-model conversation slows to a crawl at high context (~1 token / 5s at 91%)
 

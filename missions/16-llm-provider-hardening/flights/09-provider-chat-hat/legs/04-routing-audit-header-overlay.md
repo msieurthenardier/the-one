@@ -1,7 +1,12 @@
 # Leg: routing-audit-header-overlay
 
-**Status**: ready
+**Status**: completed
 **Flight**: [HAT — Provider Chat Sweep](../flight.md)
+
+> **Completed (2026-07-02).** Routing-audit trigger moved to the header row
+> (right-justified) opening a centered overlay; inline panel removed. Verified live on
+> the dev instance by the operator ("pass"); 7 browser tests green. Merged to `main`;
+> ships in the next installer build.
 
 ## Objective
 Move the routing-audit inspector's trigger to the top chat header row (right-justified,
