@@ -21,6 +21,29 @@
 
 ## Findings
 
+### F09-07 — Static assets aren't cache-busted; UI updates don't appear after an in-place upgrade
+
+- **Version under test**: 0.2.13 (installed packaged app).
+- **Symptom**: after upgrading to 0.2.13 the operator did not see the F09-06 routing-audit
+  change in the packaged app's WebView.
+- **Diagnosis — stale client cache, NOT a build problem.** Proven live: the running app is
+  0.2.13 (`/api/info`) and serves the NEW `chat.js` + `routing-audit-panel.js`; loading 8484
+  in a cache-bypassed browser shows the header trigger + overlay correctly (`header children:
+  [session-agent-badge, new-chat-header, routing-audit-trigger]`, old inline panel gone). It
+  worked on dev 8485 only because that's a different origin (fresh cache). Root cause:
+  `index.html` references `/static/*.js|css` with **stable URLs (no `?v=`)** and the app sets
+  **no `Cache-Control`** (index served as text at `app.py:1838-1839`; `/static` mounted plain
+  at `:330`), so the WebView keeps serving the previous version's JS/CSS after an in-place
+  upgrade. This will hide **every** future UI change until a cache clear.
+- **Immediate unblock**: hard-refresh (Ctrl+Shift+R) in a normal browser at 8484.
+- **Fix (leg `05`)**: append `?v={__version__}` to the 61 `/static/*.js|css` refs in the
+  served `index.html`, and serve `index.html` with `Cache-Control: no-store` so the HTML is
+  always fresh and picks up the new versioned URLs → each release auto-busts the asset cache.
+- **Disposition (DD4)**: in-flight leg `05-static-asset-cache-busting` (backend: `index()`
+  route; + test). No frontend change.
+- **Status**: RESOLVED (leg `05`) — tests + curl verified; ships in 0.2.14. Cross-upgrade
+  cache-busting automatic from 0.2.14 onward.
+
 ### F09-06 — Routing-audit inspector is in a poor spot; move to header + open as an overlay
 
 - **Version under test**: 0.2.12 (dev instance / packaged app).

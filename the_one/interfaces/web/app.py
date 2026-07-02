@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -78,6 +80,34 @@ from the_one.tools._session_registry import shutdown_drain as _session_registry_
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Matches ``src="/static/….js"`` / ``href="/static/….css"`` references so the
+# index HTML can be version-scoped for cache-busting. Group ``pre`` is the
+# attribute up to (and including) the asset path; group ``q`` captures any
+# pre-existing query string (none today, but guarded per the leg spec).
+_STATIC_ASSET_REF_RE = re.compile(r'((?:src|href)="/static/[^"]*?\.(?:js|css))(\?[^"]*)?"')
+
+
+@functools.lru_cache(maxsize=1)
+def _cache_busted_index_html() -> str:
+    """Return ``index.html`` with ``?v={__version__}`` on every ``/static``
+    JS/CSS reference.
+
+    The version is fixed per process, so the rewrite is computed once and
+    memoized. The rewrite is server-side only — ``index.html`` on disk is never
+    modified. Non-``/static`` URLs and non-js/css references are left untouched.
+    """
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    def _append_version(match: re.Match[str]) -> str:
+        pre, existing_query = match.group(1), match.group(2)
+        if existing_query:
+            # Ref already carries a query string — extend it rather than
+            # producing an invalid ``?x?v=``.
+            return f'{pre}{existing_query}&v={__version__}"'
+        return f'{pre}?v={__version__}"'
+
+    return _STATIC_ASSET_REF_RE.sub(_append_version, html)
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────
@@ -1835,8 +1865,14 @@ async def _send_pause_snapshot_if_needed(session: Session, websocket: WebSocket)
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index() -> str:
-    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+async def index() -> HTMLResponse:
+    # Version-scope the /static asset URLs so an in-place upgrade forces the
+    # WebView to fetch fresh JS/CSS, and mark the HTML itself no-store so the
+    # newly versioned URLs are always picked up. See F09-07.
+    return HTMLResponse(
+        content=_cache_busted_index_html(),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/info")
