@@ -1,11 +1,13 @@
 # Flight: Human Acceptance Testing — Provider Chat Sweep
 
-**Status**: in-flight
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
-> **Reopened 2026-07-02** after the debrief: F09-08 (customizing built-in tools silently
-> disables all MCP tools) surfaced during continued testing. Fixing as leg 06, then re-land.
-> The flight-debrief stands with a post-debrief addendum (see its head note).
+> **Reopened then re-landed 2026-07-02.** After the debrief, F09-08 (customizing built-in
+> tools silently disables all MCP tools) surfaced during continued testing; fixed as leg 06
+> (backend decouple, ships in 0.2.15) and the flight re-landed → completed. The
+> flight-debrief stands with a post-debrief addendum (see its head note). 8 findings
+> (F09-01…08) resolved; 6 legs completed.
 
 ## Contributing to Criteria
 This flight does not advance a single *named* provider-layer success criterion up
@@ -177,10 +179,11 @@ when the issue surfaces and written into the flight log next to the finding.
       in-place upgrade. Append `?v={__version__}` to `/static` js/css refs in the served
       `index.html` + `Cache-Control: no-store` on the HTML. Backend-only. **Completed
       (tests + curl); ships in 0.2.14.**
-- [ ] `06-tool-whitelist-mcp-decouple` — F09-08: `enabled_tools` is a global whitelist, but
+- [x] `06-tool-whitelist-mcp-decouple` — F09-08: `enabled_tools` is a global whitelist, but
       the agent editor populates it from built-in checkboxes only, so customizing built-ins
       silently disables ALL MCP tools. Scope the whitelist to built-in tools; govern MCP via
       `mcp_overrides`. Backend-only; no required frontend change. Surfaced post-debrief.
+      **Completed (config + factory tests); ships in 0.2.15.**
 
 ---
 

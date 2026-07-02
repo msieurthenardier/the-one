@@ -1,7 +1,13 @@
 # Leg: tool-whitelist-mcp-decouple
 
-**Status**: ready
+**Status**: completed
 **Flight**: [HAT — Provider Chat Sweep](../flight.md)
+
+> **Completed (2026-07-02, ships in 0.2.15).** `is_tool_enabled` scopes the `enabled_tools`
+> whitelist to built-in tools; `mcp__`-prefixed tools governed by `mcp_overrides`;
+> `disabled_tools` stays universal. Config + factory tests (66 pass, verified non-vacuous);
+> ruff clean; studio.js contract comment only. Operator's live agent already restored
+> out-of-band (blacklist form).
 
 ## Objective
 Stop an agent's built-in-tool `enabled_tools` whitelist from silently disabling its MCP

@@ -49,7 +49,8 @@
   editor's existing built-ins-only whitelist becomes correct — **no required frontend change**.
 - **Disposition (DD4)**: in-flight leg `06-tool-whitelist-mcp-decouple` (backend
   `is_tool_enabled` + tests). Reopens the flight (debrief addendum recorded).
-- **Status**: restore applied; fix in progress.
+- **Status**: RESOLVED (leg `06`, backend decouple) — restore applied live; fix committed
+  with config + factory tests (non-vacuous), ships in 0.2.15.
 
 ### F09-07 — Static assets aren't cache-busted; UI updates don't appear after an in-place upgrade
 
