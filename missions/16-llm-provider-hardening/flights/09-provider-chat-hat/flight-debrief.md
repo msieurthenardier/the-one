@@ -4,7 +4,16 @@
 **Flight**: [HAT — Provider Chat Sweep](flight.md)
 **Status**: landed
 **Duration**: 2026-06-26 – 2026-07-02
-**Legs Completed**: 5 of 5
+**Legs Completed**: 5 of 5 (at debrief time; **flight reopened same day** for F09-08 → leg 06)
+
+> **Post-debrief addendum (2026-07-02).** After this debrief, continued testing surfaced
+> **F09-08**: `enabled_tools` is a global whitelist, but the agent editor builds it from
+> built-in checkboxes only, so customizing built-in tools silently disables ALL of an agent's
+> MCP tools (operator's Sonos Agent lost all 35 MCP tools). Restored the agent via API
+> (blacklist form) and reopened the flight to fix it (leg 06, backend decouple). This
+> reinforces the debrief's **"should-be-a-behavior-test" theme** and adds a concrete gap: no
+> test exercised `enabled_tools` against `mcp__`-prefixed names (flagged in the Developer
+> input). The flight will re-land once leg 06 ships.
 
 ## Outcome Assessment
 

@@ -21,6 +21,36 @@
 
 ## Findings
 
+### F09-08 — Customizing built-in tools silently disables ALL MCP tools (global-whitelist leak)
+
+- **Version under test**: 0.2.14 (installed packaged app). Surfaced AFTER the F09 debrief —
+  flight reopened.
+- **Symptom**: operator's "Sonos Agent" (now claude-sonnet-5 / Anthropic, MCP source
+  `6ccd441befe0` with 35 healthy cached tools) saw **zero MCP tools** — `search_tools ""`
+  returned only 7 built-ins. Operator had turned OFF some built-in tools and expected MCP
+  tools to stay on.
+- **Root cause (confirmed)**: `enabled_tools` is a **global** whitelist for ALL tools
+  (`agent/config.py:569-575` `is_tool_enabled`: non-null `enabled_tools` and name-not-in-list
+  → disabled; applied to built-in AND `mcp__`-prefixed names alike). The agent editor's save
+  (`static/js/areas/studio.js:1983-2007`) computes `enabled_tools` from **only built-in
+  checkboxes** (`input[data-tool]`); MCP tools live in a separate control
+  (`data-mcp-tool-toggle` / `mcp_overrides`). When the built-in enabled count ≤ disabled
+  count, the editor "optimizes" to a whitelist (`:2002 data.enabled_tools = enabledNames`),
+  emitting a **built-ins-only** whitelist that silently excludes every MCP tool. Factory gates
+  MCP tools on the same `is_tool_enabled` (`agent/factory.py:421`). Operator kept 7 of 24
+  built-ins (disabled 17 ≥ 7) → whitelist branch → all 35 MCP tools filtered.
+- **Immediate restore (applied via API, 2026-07-02)**: set `enabled_tools=null`,
+  `disabled_tools=[the 17 turned-off built-ins]` (blacklist form) — preserves the operator's
+  built-in choices AND all MCP tools. (The buggy editor could NOT produce this for a
+  7-on/17-off ratio.)
+- **Fix (leg `06`, operator-chosen: backend decouple)**: scope the `enabled_tools` whitelist
+  to **built-in tools only**; MCP tools governed by `mcp_overrides` (already applied upstream
+  in `get_tools_for_agent`). A built-in whitelist can then never disable MCP tools, and the
+  editor's existing built-ins-only whitelist becomes correct — **no required frontend change**.
+- **Disposition (DD4)**: in-flight leg `06-tool-whitelist-mcp-decouple` (backend
+  `is_tool_enabled` + tests). Reopens the flight (debrief addendum recorded).
+- **Status**: restore applied; fix in progress.
+
 ### F09-07 — Static assets aren't cache-busted; UI updates don't appear after an in-place upgrade
 
 - **Version under test**: 0.2.13 (installed packaged app).
