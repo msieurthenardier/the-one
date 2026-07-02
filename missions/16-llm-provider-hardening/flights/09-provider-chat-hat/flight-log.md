@@ -41,7 +41,8 @@
   always fresh and picks up the new versioned URLs → each release auto-busts the asset cache.
 - **Disposition (DD4)**: in-flight leg `05-static-asset-cache-busting` (backend: `index()`
   route; + test). No frontend change.
-- **Status**: diagnosed; fix in progress.
+- **Status**: RESOLVED (leg `05`) — tests + curl verified; ships in 0.2.14. Cross-upgrade
+  cache-busting automatic from 0.2.14 onward.
 
 ### F09-06 — Routing-audit inspector is in a poor spot; move to header + open as an overlay
 

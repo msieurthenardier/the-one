@@ -1,7 +1,13 @@
 # Leg: static-asset-cache-busting
 
-**Status**: ready
+**Status**: completed
 **Flight**: [HAT — Provider Chat Sweep](../flight.md)
+
+> **Completed (2026-07-02, ships in 0.2.14).** `index()` appends `?v={__version__}` to all
+> 61 `/static` js/css refs and serves the HTML with `Cache-Control: no-store`. Verified via
+> tests (4 new, 31 total) + manual curl (`no-store` header, all refs versioned, versioned
+> URL → 200). Cross-upgrade cache-busting is automatic from 0.2.14 onward (the 0.2.13→0.2.14
+> hop may still need one manual refresh since 0.2.13's HTML was cached without no-store).
 
 ## Objective
 Cache-bust the front-end static assets per release so UI changes appear immediately after

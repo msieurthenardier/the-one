@@ -164,10 +164,11 @@ when the issue surfaces and written into the flight log next to the finding.
       trigger to the top header row (right-justified, beside the agent label + New-chat
       button) and open its content in a reasonably-sized overlay instead of an inline
       panel above the composer. Frontend-only. **Completed — verified on dev; awaiting next build.**
-- [ ] `05-static-asset-cache-busting` — F09-07: front-end static assets weren't cache-busted,
+- [x] `05-static-asset-cache-busting` — F09-07: front-end static assets weren't cache-busted,
       so UI updates (e.g. F09-06) didn't appear in the packaged app's WebView after an
       in-place upgrade. Append `?v={__version__}` to `/static` js/css refs in the served
-      `index.html` + `Cache-Control: no-store` on the HTML. Backend-only.
+      `index.html` + `Cache-Control: no-store` on the HTML. Backend-only. **Completed
+      (tests + curl); ships in 0.2.14.**
 
 ---
 
