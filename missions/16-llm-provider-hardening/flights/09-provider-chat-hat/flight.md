@@ -1,6 +1,6 @@
 # Flight: Human Acceptance Testing — Provider Chat Sweep
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -121,10 +121,14 @@ when the issue surfaces and written into the flight log next to the finding.
 5. Repeat until the operator judges chat acceptable across the in-scope providers.
 
 ### Checkpoints
-- [ ] Anthropic chat exercised and findings logged/triaged
-- [ ] Ollama (native) chat exercised and findings logged/triaged
-- [ ] OpenRouter chat exercised and findings logged/triaged
-- [ ] All in-flight findings resolved; deferred findings recorded with disposition
+- [ ] Anthropic chat exercised and findings logged/triaged — *not substantially exercised
+      this sweep; carry to any future HAT.*
+- [x] Ollama (native) chat exercised and findings logged/triaged — primary focus
+      (ministral-3:8b Sonos agent); source of F09-01/05 and, via the same sessions, the
+      queue + UI findings.
+- [ ] OpenRouter chat exercised and findings logged/triaged — *not exercised this sweep.*
+- [x] All in-flight findings resolved; deferred findings recorded with disposition
+      (F09-05 → compaction Known Issue).
 
 ### Adaptation Criteria
 
