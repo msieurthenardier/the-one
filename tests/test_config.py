@@ -166,13 +166,46 @@ class TestIsToolEnabled:
         assert cfg.is_tool_enabled("alpha") is False
         assert cfg.is_tool_enabled("beta") is True
 
-    def test_empty_whitelist_blocks_all(self):
+    def test_empty_whitelist_blocks_all_builtins_but_not_mcp(self):
+        # F09-08 decouple: an empty (non-null) whitelist blocks all built-in
+        # tools, but MCP tools (`mcp__`-prefixed) are governed by
+        # `mcp_overrides`, not the built-in whitelist — so they stay enabled.
         cfg = AgentConfig(name="t", enabled_tools=[])
         assert cfg.is_tool_enabled("anything") is False
+        assert cfg.is_tool_enabled("mcp__github__list_repos") is True
 
     def test_empty_blacklist_blocks_none(self):
         cfg = AgentConfig(name="t", disabled_tools=[])
         assert cfg.is_tool_enabled("anything") is True
+
+    # --- F09-08: built-in whitelist must not gate MCP tools ---------------
+
+    def test_builtin_whitelist_does_not_disable_mcp_tools(self):
+        # A non-null built-ins-only whitelist (no `mcp__` names, as the agent
+        # editor emits) must NOT filter out MCP tools. This is the F09-08 bug:
+        # every MCP tool falls outside a built-ins-only whitelist.
+        cfg = AgentConfig(name="t", enabled_tools=["read_file", "write_file"])
+        assert cfg.is_tool_enabled("mcp__github__create_issue") is True
+        # Built-in gating still works for non-MCP names.
+        assert cfg.is_tool_enabled("read_file") is True
+        assert cfg.is_tool_enabled("run_shell") is False
+
+    def test_disabled_tools_is_universal_for_mcp(self):
+        # `disabled_tools` remains a universal explicit off-switch: an
+        # `mcp__…` name listed there is still disabled even though the
+        # whitelist no longer gates MCP names.
+        cfg = AgentConfig(
+            name="t",
+            enabled_tools=["read_file"],
+            disabled_tools=["mcp__github__delete_repo"],
+        )
+        assert cfg.is_tool_enabled("mcp__github__delete_repo") is False
+        assert cfg.is_tool_enabled("mcp__github__list_repos") is True
+
+    def test_null_whitelist_allows_all_including_mcp(self):
+        cfg = AgentConfig(name="t", enabled_tools=None)
+        assert cfg.is_tool_enabled("read_file") is True
+        assert cfg.is_tool_enabled("mcp__github__list_repos") is True
 
 
 # ===================================================================

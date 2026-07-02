@@ -1,7 +1,13 @@
 # Flight: Human Acceptance Testing — Provider Chat Sweep
 
-**Status**: in-flight
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
+
+> **Reopened then re-landed 2026-07-02.** After the debrief, F09-08 (customizing built-in
+> tools silently disables all MCP tools) surfaced during continued testing; fixed as leg 06
+> (backend decouple, ships in 0.2.15) and the flight re-landed → completed. The
+> flight-debrief stands with a post-debrief addendum (see its head note). 8 findings
+> (F09-01…08) resolved; 6 legs completed.
 
 ## Contributing to Criteria
 This flight does not advance a single *named* provider-layer success criterion up
@@ -121,10 +127,14 @@ when the issue surfaces and written into the flight log next to the finding.
 5. Repeat until the operator judges chat acceptable across the in-scope providers.
 
 ### Checkpoints
-- [ ] Anthropic chat exercised and findings logged/triaged
-- [ ] Ollama (native) chat exercised and findings logged/triaged
-- [ ] OpenRouter chat exercised and findings logged/triaged
-- [ ] All in-flight findings resolved; deferred findings recorded with disposition
+- [ ] Anthropic chat exercised and findings logged/triaged — *not substantially exercised
+      this sweep; carry to any future HAT.*
+- [x] Ollama (native) chat exercised and findings logged/triaged — primary focus
+      (ministral-3:8b Sonos agent); source of F09-01/05 and, via the same sessions, the
+      queue + UI findings.
+- [ ] OpenRouter chat exercised and findings logged/triaged — *not exercised this sweep.*
+- [x] All in-flight findings resolved; deferred findings recorded with disposition
+      (F09-05 → compaction Known Issue).
 
 ### Adaptation Criteria
 
@@ -169,6 +179,11 @@ when the issue surfaces and written into the flight log next to the finding.
       in-place upgrade. Append `?v={__version__}` to `/static` js/css refs in the served
       `index.html` + `Cache-Control: no-store` on the HTML. Backend-only. **Completed
       (tests + curl); ships in 0.2.14.**
+- [x] `06-tool-whitelist-mcp-decouple` — F09-08: `enabled_tools` is a global whitelist, but
+      the agent editor populates it from built-in checkboxes only, so customizing built-ins
+      silently disables ALL MCP tools. Scope the whitelist to built-in tools; govern MCP via
+      `mcp_overrides`. Backend-only; no required frontend change. Surfaced post-debrief.
+      **Completed (config + factory tests); ships in 0.2.15.**
 
 ---
 
