@@ -1999,6 +1999,11 @@ App.registerArea({
         data.enabled_tools = null;
         data.disabled_tools = [];
       } else if (enabledNames.length <= disabledNames.length) {
+        // enabled_tools is a BUILT-IN-only whitelist by backend contract
+        // (AgentConfig.is_tool_enabled, F09-08): the backend does not gate
+        // `mcp__`-prefixed MCP tools by this list — MCP is governed by
+        // mcp_overrides. Do NOT inject `mcp__` names here; that would
+        // reintroduce the coupling that silently stripped MCP tools.
         data.enabled_tools = enabledNames;
         data.disabled_tools = [];
       } else {

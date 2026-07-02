@@ -567,8 +567,28 @@ class AgentConfig(BaseModel):
         return value
 
     def is_tool_enabled(self, tool_name: str) -> bool:
-        """Check if a specific tool should be available to this agent."""
-        if self.enabled_tools is not None and tool_name not in self.enabled_tools:
+        """Check if a specific tool should be available to this agent.
+
+        The ``enabled_tools`` whitelist governs **built-in tools only**.
+        MCP tools — canonically prefixed ``mcp__`` at registration
+        (``mcp/_tool.py:101``; cf. ``_MCP_PREFIX`` in
+        ``tools/_search_tools.py``) — are governed by ``mcp_overrides``,
+        applied upstream at agent build via
+        ``MCPToolProvider.get_tools_for_agent`` /
+        ``filter_mcp_tools_by_override``. Applying the built-ins-only
+        whitelist to MCP names too would double-gate them: the agent
+        editor populates ``enabled_tools`` from built-in checkboxes only,
+        so any non-null whitelist it emits excludes every ``mcp__`` name
+        and would silently strip all MCP tools (F09-08). Decoupling here
+        stops that; ``disabled_tools`` stays a UNIVERSAL explicit
+        blacklist (an ``mcp__…`` name listed there is still disabled).
+
+        ``enabled_tools == []`` (empty whitelist) blocks all **built-in**
+        tools but does NOT block MCP tools, consistent with the decouple
+        (MCP enablement is governed solely by ``mcp_overrides``).
+        """
+        is_mcp = tool_name.startswith("mcp__")
+        if not is_mcp and self.enabled_tools is not None and tool_name not in self.enabled_tools:
             return False
         if tool_name in self.disabled_tools:
             return False

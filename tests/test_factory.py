@@ -231,6 +231,66 @@ class TestToolFiltering:
         assert "tool_b" not in agent.tools.tool_names
         assert "tool_c" not in agent.tools.tool_names
 
+    async def test_builtins_whitelist_does_not_strip_mcp_tools(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        # F09-08 regression: a built-ins-only `enabled_tools` whitelist (as the
+        # agent editor emits) must NOT filter out `mcp__`-prefixed MCP tools.
+        # MCP enablement is governed by `mcp_overrides` upstream in
+        # MCPToolProvider.get_tools_for_agent, not the built-in whitelist.
+        mcp_names = ["mcp__github__create_issue", "mcp__github__list_repos"]
+
+        class StubMCPProvider:
+            async def get_tools_for_agent(
+                self, config: AgentConfig, agent_name: str | None = None
+            ) -> list[Tool]:
+                return [StubTool(n, agent_name=agent_name) for n in mcp_names]
+
+        factory.mcp_provider = StubMCPProvider()
+        cfg = AgentConfig(
+            name="mcp-restricted",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            enabled_tools=["tool_a"],  # built-ins-only whitelist
+            mcp_source_ids=["github"],
+        )
+        await store.save(cfg)
+        agent = await factory.create("mcp-restricted")
+        # Built-in whitelist still gates built-ins...
+        assert "tool_a" in agent.tools.tool_names
+        assert "tool_b" not in agent.tools.tool_names
+        # ...but every MCP tool survives despite not being in enabled_tools.
+        for name in mcp_names:
+            assert name in agent.tools.tool_names
+
+    async def test_disabled_tools_still_gates_mcp_at_build(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        # `disabled_tools` remains a universal explicit off-switch even for
+        # `mcp__` names (factory.py:421 gate).
+        class StubMCPProvider:
+            async def get_tools_for_agent(
+                self, config: AgentConfig, agent_name: str | None = None
+            ) -> list[Tool]:
+                return [
+                    StubTool("mcp__github__delete_repo", agent_name=agent_name),
+                    StubTool("mcp__github__list_repos", agent_name=agent_name),
+                ]
+
+        factory.mcp_provider = StubMCPProvider()
+        cfg = AgentConfig(
+            name="mcp-blacklist",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            enabled_tools=["tool_a"],
+            disabled_tools=["mcp__github__delete_repo"],
+            mcp_source_ids=["github"],
+        )
+        await store.save(cfg)
+        agent = await factory.create("mcp-blacklist")
+        assert "mcp__github__delete_repo" not in agent.tools.tool_names
+        assert "mcp__github__list_repos" in agent.tools.tool_names
+
 
 class TestResolverWiring:
     """Verify the factory passes tool_configs and agent_overrides through to
