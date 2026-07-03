@@ -1,0 +1,87 @@
+# Mission: UI Redesign — Clean, Professional, Consistent
+
+**Status**: active
+
+## Outcome
+
+The entire web UI — Chat, Agent Studio, System/Administration, and the shared shell — reads as one calm, professional, trustworthy product. An operator can show the app in a work context without explanation or apology. The "alien console" visual language (glows, glass, bezels, chamfered panels, `// SECTION` terminal markers, pixel-font branding) is fully retired and replaced by a quiet, consistent design language where hierarchy comes from typography, spacing, and hairline borders rather than effects.
+
+## Context
+
+Mission 04 built the design-system substrate (tokens, `@layer` cascade, dual themes, Playwright net). Mission 08 layered the GleepGlorp brand and an intentionally weird "robot control panel" aesthetic on top: accent glows, glass surfaces, bezel shadows, brushed-metal chrome, chamfered panels, `// PREFIX` section markers, and a pixel-font wordmark. Missions 05–16 extended surfaces (tools admin, MCP, connectors, telemetry, thinking disclosure) within that language.
+
+The operator now wants the opposite aesthetic: **clean, professional, and consistent** — the "quiet instrument panel" school (hierarchy via type/spacing/borders; one restrained accent; no decoration without meaning). This mission is a full visual-language replacement plus the UX-consistency and accessibility work needed to make the result feel like one product, not a re-skin of parts.
+
+**Interpretation note (autonomous run)**: The operator's brief contained "I am not looking for a clean, professional and consistent experience," read as a typo for "**now** looking for" given the explicit contrast with the prior alien-console direction. All planning proceeds on that reading.
+
+**Mission 16 status note**: M16's flights are all landed but the mission was never formally debriefed (`Status: active` at M17 planning time). Flagged for the operator; M17 proceeds per explicit operator directive.
+
+## Success Criteria
+
+- [ ] **SC1 — Complete visual-language replacement**: Every user-facing surface (shell, Chat, Studio, System, dialogs, toasts, empty states, design-gallery page) renders in the new design language; no surface retains glows, glass/backdrop blur, bezel/inset depth effects, chamfered panels, brushed-metal chrome, `//`-prefixed section markers, or pixel-font branding.
+- [ ] **SC2 — Both themes individually designed and accessible**: Light and dark themes are each designed per-surface (not flipped), and every text/background token pair in both themes passes WCAG 2.1 AA contrast (automated audit covering ALL palette tokens, with any deliberate exceptions documented and annotated).
+- [ ] **SC3 — One component vocabulary**: Buttons, form fields, dropdowns, tables/lists, cards, tabs, modals, toasts, badges, and empty states come from a single shared component vocabulary used identically across all three areas — no per-area variants of the same primitive.
+- [ ] **SC4 — Modern chat experience**: Chat presents a focused reading layout with clear user/agent turn distinction, streaming output with a stop affordance and scroll-position awareness, legible markdown and code-block rendering, and tool-activity traces that stay out of the reading flow until expanded.
+- [ ] **SC5 — Keyboard and assistive-tech operability**: All interactive elements on redesigned surfaces are keyboard-reachable and operable with visible focus; landmark/skip-link structure is preserved; prior accessibility investments (notably the M12 F4 connector-editor keyboard/ARIA fixes) survive the re-skin, re-verified via the existing behavior specs.
+- [ ] **SC6 — Regression net intact and healthier than before**: The browser test suite passes with selectors migrated to the new markup; the five module-skipped browser test modules are re-enabled (or replaced with equivalent coverage) and no module-level skips remain; token-definition and contrast test suites pass.
+- [ ] **SC7 — Behavior-verified core flows**: Witnessed behavior tests driven through a real browser apparatus pass for each area's core flow — a chat round-trip with streaming, an agent create/edit in Studio, and a provider configuration in System — in both light and dark themes.
+- [ ] **SC8 — No performance regression**: UI performance stays within the established budget (heap-retention threshold under realistic load; no perceptible degradation in first-paint or interaction latency versus the pre-redesign baseline).
+- [ ] **SC9 — Documentation reflects the new language**: The codebase design-system reference (`the_one/agents.md` design section), the living design-gallery page, and CLAUDE.md testing/design notes describe the new language, not the old one.
+
+## Stakeholders
+
+- **Operator (sole user)** — wants a UI they can use daily and show professionally; final acceptance authority (reviewing the mission branch after completion).
+- **Future agent maintainers** — the codebase is maintained almost entirely by LLM agents; the design system must stay greppable, conventional, and documented so agents extend it without drift.
+
+## Constraints
+
+- **Branch discipline**: All work lands on the long-running branch `mission/17-ui-redesign`. No merge to main; the operator reviews the completed branch.
+- **Brand continuity**: The product name (GleepGlorp AI) and violet accent family are retained; the mascot/wordmark may be simplified to fit the new language, but this is not a rebrand.
+- **No frameworks, no build step**: The vanilla-JS `App`-namespace architecture, CSS custom-property tokens, and `@layer` cascade are retained (proven by M04/M08 to absorb full re-skins). No npm, no bundler, no server-side rendering shift.
+- **Third-party policy — surgically loosened**: Zero-transitive-dependency, single-file, hash-pinned vendored libraries are permitted ONLY where correctness is adversarial (HTML sanitization, markdown parsing, optionally syntax highlighting), with a vendor manifest, CI integrity verification, and an XSS regression suite. Everything else stays hand-rolled. (Operator authorized loosening; scope kept minimal.)
+- **Test-stability contract**: Load-bearing elements carry stable `data-testid` attributes; a testid registry is established before markup churn begins.
+- **Accessibility is a per-leg gate**, not a cleanup phase — every leg introducing or restyling interactive elements includes keyboard/ARIA/contrast acceptance criteria.
+- **Dual themes are first-class**: every visual change is designed and verified in both themes ("land dark, port light" cadence permitted within a flight, but a flight doesn't land with one theme unfinished).
+
+## Environment Requirements
+
+- Local dev server via `make up` / `make restart` (no hot reload — restart after source edits).
+- Playwright browser tests host-native via `make test-browser` (`scripts/run-tests.sh`).
+- Behavior tests require: running instance on port 8484, browser apparatus (goldfinch MCP) live, mock provider available via `THE_ONE_DEV_MODE=true` for deterministic chat flows.
+- Visual snapshot baselines are local-only (gitignored); regenerate per checkout.
+
+## Open Questions
+
+- [ ] Does the design-gallery (dev-mode) page get redesigned in place or rebuilt from the new component vocabulary? (Resolve in the tokens/components flight.)
+- [ ] Custom dropdown widget vs. minimally-styled native `<select>` — commit one way during the shared-components flight (M07/M08 left this open).
+- [ ] Does syntax highlighting ship in this mission (vendored highlight.js custom build) or defer? (Resolve during the chat flight based on integration cost.)
+
+## Design Decisions (mission-level, from viability review)
+
+**JS/CSS lint gate**: The lint gate is confirmed Python-only (ruff); real JS/CSS linters are npm-delivered. Decision: **no npm even for dev tooling** — the supply-chain posture wins. Flight 1 instead ships hand-rolled grep-based CI guards (testid registry check, innerHTML-sink guard, banned-token guard after Flight 2) and documents the linter gap.
+- Rationale: npm dev-dependencies execute arbitrary code on the build machine; that risk is the exact thing the project's policy exists to avoid, and grep guards cover the highest-value invariants.
+- Trade-off: no general JS style enforcement; conventions doc + code review carry that load.
+
+**Already-fixed items removed from scope** (architect verification, 2026-07-03): connector-editor A1–A4 fixed in M12 F4 (`connector-editor.js:2466-2891`); agent-editor `enabled_tools`/MCP decoupling fixed in M16 F9 L6 (backend); chat stop button exists (`chat.js:168`, `data-testid="chat-stop-btn"`). Flights treat these as **preserve-through-re-skin** obligations, not net-new work.
+
+**M07 F10 relabel re-scoped**: the agent-editor tab already reads "Built-in Tools"; what remains is lazy-discovery semantic labeling ("tools the agent can load" vs "has loaded"). The label copy fix rides Flight 5; a chat-time loaded-set indicator is new functionality and stays OUT of this mission.
+
+**Fresh performance baseline**: M08-era heap numbers predate M10–M16 UI growth. Flight 1 captures a fresh `App.perf` heap/interaction baseline on the pre-redesign branch point as SC8's comparison anchor.
+
+**Markdown pipeline facade**: the `App.markdown` public API (parse/render) is preserved when internals are swapped to the vendored renderer/sanitizer; consumers (chat, gallery) don't change call sites.
+
+## Known Issues
+
+*(populated during execution as flights surface problems)*
+
+## Flights
+
+> **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
+
+- [ ] Flight 1: **Regression-net foundation** — testid registry + CI grep guards, re-enable/replace the five module-skipped browser tests (timeboxed root-cause on the two unexplained hangs; those two may defer re-enable until after Flight 3 with SC6 as the mission-end gate), fresh `App.perf` heap/interaction baseline capture, baseline behavior-test spec for the pre-redesign app.
+- [ ] Flight 2: **Design language v3 — tokens and type** — new token tables for both themes (quiet-instrument-panel palette, spacing/radius/shadow system, motion), retire glow/glass/bezel/chamfer/chrome tokens, focus system, full-palette contrast test parametrization, fonts/type-scale updates.
+- [ ] Flight 3: **Shell and shared components** — topbar/sidebar/nav restyle, clean wordmark treatment, shared primitives (buttons, fields, dropdown decision, tables, cards, tabs, modal, toast, empty-state) rebuilt in the new language, design-gallery updated as the living reference.
+- [ ] Flight 4: **Chat re-skin** — reading layout, composer, streaming/stop affordances, scroll behavior, tool-trace and thinking disclosures, markdown pipeline hardening (vendored sanitizer/renderer + vendor-integrity infrastructure + XSS suite).
+- [ ] Flight 5: **Studio re-skin** — agents/knowledge/MCP/connectors surfaces in the new language; M12 F4 connector-editor a11y fixes preserved and re-verified (existing behavior spec); lazy-discovery label copy corrected (re-scoped M07 F10 remainder).
+- [ ] Flight 6: **System re-skin** — general/providers/built-in-tools surfaces, provider and tool editors, admin forms and tables in the new language.
+- [ ] Flight 7: **Hardening and verification** — cross-area consistency sweep, a11y audit, performance audit against budget, behavior-test suite for core flows in both themes, documentation updates (agents.md, CLAUDE.md, README screenshots if any).
