@@ -1,6 +1,6 @@
 # Flight: Design Language v3 — Tokens and Type
 
-**Status**: landed
+**Status**: completed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
