@@ -1,6 +1,6 @@
 # Flight: Regression-Net Foundation
 
-**Status**: landed
+**Status**: completed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
@@ -104,4 +104,4 @@ Work is test-infrastructure only — no visual or product-code changes except wh
 
 ### Verification
 
-`make test-unit` green including `test_ui_guards.py`; `make test-browser` green with ≤2 module skips remaining (only the dispositioned hang modules, if deferred); `missions/17-ui-redesign/perf-baseline.md` exists with numbers; `tests/behavior/studio-smoke/runs/` contains a passing run log dated this flight.
+`make test-unit` green including `test_ui_guards.py`; `make test-browser` green with ≤2 module skips remaining (only the dispositioned hang modules, if deferred); `missions/17-ui-redesign/perf-baseline.md` exists with numbers; `tests/behavior/shell-navigation-smoke/runs/` contains a passing run log dated this flight (spec substitution per flight-log decision).
