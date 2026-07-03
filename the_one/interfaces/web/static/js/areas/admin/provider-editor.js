@@ -182,17 +182,29 @@
     // pattern as num_ctx. Off by default: a fresh Anthropic provider has thinking
     // disabled; the operator opts in. The native checkbox .checked bool is written
     // straight to payload.config.thinking_enabled — no numeric validation; the
-    // backend's _coerce_bool (anthropic_provider.py) reads the key. Description is
-    // a tooltip on a focusable info-icon button, mirroring the num_ctx a11y idiom.
+    // backend's _coerce_bool (anthropic_provider.py) reads the key.
+    //
+    // HAT inline fix (F10-07): rendered as the canonical iOS-style toggle switch
+    // (`.tool-enable-switch` + `.tool-enable-switch-track`, CSS in admin.css under
+    // `.area-admin`/`.area-studio`) — the same widget the tools editor/grid and
+    // the per-agent admit-DMs toggle use, for cross-screen consistency. The REAL
+    // <input type="checkbox"> (id/data-field/`field-input` preserved) is
+    // visually-hidden inside the switch label but stays keyboard-operable and
+    // drives the collect + dirty machinery via `.checked`. The info-icon follows
+    // the LABEL (`label (i) field` order) to match the established pattern in the
+    // Discord connector form, not the num_ctx `label | input | ⓘ` order.
     var thinkingEnabled = !!(!isCreate && provider.config && provider.config.thinking_enabled);
-    var teDesc = 'When on, the model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
+    var teDesc = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
     var teIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
     if (!teIcon) teIcon = 'ⓘ';
     html += '<div class="field-row admin-pf-row admin-pf-thinking-enabled' + (defaults.showThinkingEnabled ? '' : ' is-hidden') + '">';
     html += '<label for="pf-thinking-enabled">Extended thinking</label>';
-    html += '<input class="field-input checkbox-primary" id="pf-thinking-enabled" type="checkbox" data-field="config.thinking_enabled" aria-describedby="pf-thinking-enabled-desc"' + (thinkingEnabled ? ' checked' : '') + ' />';
     html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-describedby="pf-thinking-enabled-desc">' + teIcon + '</button>';
     html += '<span id="pf-thinking-enabled-desc" class="visually-hidden">' + escapeHtml(teDesc) + '</span>';
+    html += '<label class="tool-enable-switch">';
+    html += '<input class="field-input" id="pf-thinking-enabled" type="checkbox" data-field="config.thinking_enabled" aria-describedby="pf-thinking-enabled-desc"' + (thinkingEnabled ? ' checked' : '') + ' />';
+    html += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
+    html += '</label>';
     html += '</div>';
 
     return html;

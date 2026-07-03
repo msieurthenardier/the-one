@@ -316,7 +316,7 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic")
     desc = (
-        "When on, the model reasons step-by-step before answering "
+        "When on, a model reasons step-by-step before answering "
         "(adaptive thinking). Requires Claude Sonnet 4.6 or newer."
     )
     icon = page.locator(".admin-pf-thinking-enabled .field-info-icon")
