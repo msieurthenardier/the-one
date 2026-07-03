@@ -205,6 +205,53 @@
   .area-chat .trace-shell .trace-body .login-required-btn {
     align-self: flex-start;
   }
+  /* M16 F10 L05: thinking disclosure — collapsed-by-default extended-thinking
+     reveal per assistant turn. Reuses the trace-shell disclosure visual pattern
+     (border-left, muted mono summary, custom disclosure triangle) but is a
+     DISTINCT identifier from the ephemeral loading spinner (.msg.assistant.thinking
+     at :444 — do NOT extend that). The <details class="thinking-disclosure"> is
+     its own node appended in stream order (not nested in a trace shell). */
+  .area-chat .thinking-disclosure {
+    align-self: flex-start;
+    max-width: 85%;
+    margin-top: -4px;  /* visually attach to the assistant bubble above (if any) */
+    font-size: var(--font-size-body-sm);
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+  }
+  .area-chat .thinking-disclosure summary.thinking-toggle {
+    cursor: pointer;
+    color: var(--fg-muted);
+    font-family: var(--font-family-mono);
+    letter-spacing: 0.02em;
+    padding: 4px 0;
+    user-select: none;
+    list-style: none;  /* hide default disclosure marker */
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .area-chat .thinking-disclosure summary.thinking-toggle::-webkit-details-marker { display: none; }
+  .area-chat .thinking-disclosure summary.thinking-toggle::before {
+    content: '▸';
+    transition: transform 0.15s ease;
+    color: var(--accent);
+    font-size: 0.85em;
+  }
+  .area-chat .thinking-disclosure[open] summary.thinking-toggle::before {
+    transform: rotate(90deg);
+  }
+  .area-chat .thinking-disclosure summary.thinking-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .area-chat .thinking-disclosure .thinking-body {
+    padding: 8px 0 4px 0;
+    white-space: pre-wrap;  /* preserve newlines in reasoning; wrap long text */
+    overflow-wrap: anywhere;
+    color: var(--fg-muted);
+  }
   /* L05: wrapper for the OAuth auth_required affordance — attribution + button
      rendered as a single trace-body child so .trace-count increments by 1 per
      event (not 2). */

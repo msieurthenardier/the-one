@@ -177,6 +177,36 @@
     html += '<span id="pf-num-ctx-desc" class="visually-hidden">' + escapeHtml(numCtxDesc) + '</span>';
     html += '</div>';
 
+    // Extended thinking (config.thinking_enabled) — Anthropic-only on/off toggle
+    // (F10-06). Rides the free-form config dict (config.thinking_enabled), same
+    // pattern as num_ctx. Off by default: a fresh Anthropic provider has thinking
+    // disabled; the operator opts in. The native checkbox .checked bool is written
+    // straight to payload.config.thinking_enabled — no numeric validation; the
+    // backend's _coerce_bool (anthropic_provider.py) reads the key.
+    //
+    // HAT inline fix (F10-07): rendered as the canonical iOS-style toggle switch
+    // (`.tool-enable-switch` + `.tool-enable-switch-track`, CSS in admin.css under
+    // `.area-admin`/`.area-studio`) — the same widget the tools editor/grid and
+    // the per-agent admit-DMs toggle use, for cross-screen consistency. The REAL
+    // <input type="checkbox"> (id/data-field/`field-input` preserved) is
+    // visually-hidden inside the switch label but stays keyboard-operable and
+    // drives the collect + dirty machinery via `.checked`. The info-icon follows
+    // the LABEL (`label (i) field` order) to match the established pattern in the
+    // Discord connector form, not the num_ctx `label | input | ⓘ` order.
+    var thinkingEnabled = !!(!isCreate && provider.config && provider.config.thinking_enabled);
+    var teDesc = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
+    var teIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
+    if (!teIcon) teIcon = 'ⓘ';
+    html += '<div class="field-row admin-pf-row admin-pf-thinking-enabled' + (defaults.showThinkingEnabled ? '' : ' is-hidden') + '">';
+    html += '<label for="pf-thinking-enabled">Extended thinking</label>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-describedby="pf-thinking-enabled-desc">' + teIcon + '</button>';
+    html += '<span id="pf-thinking-enabled-desc" class="visually-hidden">' + escapeHtml(teDesc) + '</span>';
+    html += '<label class="tool-enable-switch">';
+    html += '<input class="field-input" id="pf-thinking-enabled" type="checkbox" data-field="config.thinking_enabled" aria-describedby="pf-thinking-enabled-desc"' + (thinkingEnabled ? ' checked' : '') + ' />';
+    html += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
+    html += '</label>';
+    html += '</div>';
+
     return html;
   }
 
@@ -184,7 +214,12 @@
     var data = {};
     var fields = container.querySelectorAll('[data-field]');
     for (var i = 0; i < fields.length; i++) {
-      data[fields[i].dataset.field] = fields[i].value;
+      var el = fields[i];
+      // Checkbox-aware: read .checked for checkboxes (the thinking_enabled
+      // toggle), .value otherwise. Without this the checkbox is invisible to
+      // the dirty machinery (Save never enables). Backward-compatible for all
+      // existing .value-based fields.
+      data[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
     }
     return JSON.stringify(data);
   }
@@ -244,12 +279,14 @@
     var baseUrlInput = container.querySelector('[data-field="base_url"]');
     var apiKeyRow = container.querySelector('.admin-pf-api-key');
     var numCtxRow = container.querySelector('.admin-pf-num-ctx');
+    var thinkingEnabledRow = container.querySelector('.admin-pf-thinking-enabled');
     if (typeSelect) {
       typeSelect.addEventListener('change', function () {
         var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(typeSelect.value)) || {};
         baseUrlRow.classList.toggle('is-hidden', !defaults.showBaseUrl);
         apiKeyRow.classList.toggle('is-hidden', !defaults.showApiKey);
         if (numCtxRow) numCtxRow.classList.toggle('is-hidden', !defaults.showNumCtx);
+        if (thinkingEnabledRow) thinkingEnabledRow.classList.toggle('is-hidden', !defaults.showThinkingEnabled);
         baseUrlInput.value = defaults.base_url || '';
         checkDirty();
       });
@@ -288,7 +325,14 @@
           var snap = JSON.parse(snapshot);
           var fields2 = container.querySelectorAll('[data-field]');
           for (var j = 0; j < fields2.length; j++) {
-            fields2[j].value = snap[fields2[j].dataset.field] || '';
+            var el2 = fields2[j];
+            // Checkbox-aware revert: restore .checked (bool) for checkboxes,
+            // .value otherwise. Mirrors the getFormSnapshot checkbox branch.
+            if (el2.type === 'checkbox') {
+              el2.checked = !!snap[el2.dataset.field];
+            } else {
+              el2.value = snap[el2.dataset.field] || '';
+            }
           }
           dirty = false;
           checkDirty();
@@ -547,6 +591,16 @@
       }
       payload.config = payload.config || {};
       payload.config.num_ctx = numCtxVal;
+    }
+
+    // Anthropic Extended thinking (config.thinking_enabled) — F10-06. Collected
+    // only when the field is shown (anthropic). Always persist the explicit bool
+    // (matches num_ctx's always-persist; makes the edit round-trip deterministic).
+    // The native .checked is a real bool; no validation/coercion.
+    if (defaults.showThinkingEnabled) {
+      var teInput = container.querySelector('[data-field="config.thinking_enabled"]');
+      payload.config = payload.config || {};
+      payload.config.thinking_enabled = !!(teInput && teInput.checked);
     }
 
     return payload;

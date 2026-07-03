@@ -72,6 +72,8 @@ class _CompleteOnlyProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,  # M16 F10 L02: contract param, ignored.
     ) -> Message:
         return Message.assistant(
             content="single shot",

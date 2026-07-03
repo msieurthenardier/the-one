@@ -73,6 +73,49 @@
     }
   }
 
+  // M16 F10 L05: build a per-assistant-turn thinking disclosure.
+  //
+  // Structure:
+  //   <details class="thinking-disclosure" data-testid="thinking-disclosure">
+  //     <summary class="thinking-toggle">Thinking</summary>
+  //     <div class="thinking-body">…reasoning text…</div>
+  //   </details>
+  //
+  // Collapsed by default (no `open` attribute); native <details>/<summary>
+  // gives keyboard focus + Enter/Space toggle for free. This is a DISTINCT
+  // identifier from the ephemeral loading spinner (.msg.assistant.thinking /
+  // createThinking/removeThinking) — do NOT conflate the two.
+  //
+  // Position-independent by design (mirrors getOrCreateTrace, which appends to
+  // messagesEl without a preceding bubble): the caller appends the returned
+  // node in stream order. Criterion #1's turn (thinking + tool call, empty
+  // content) emits a thinking event with NO preceding assistant bubble, so this
+  // must not depend on "the last assistant bubble." It is its own disclosure —
+  // NOT routed through getOrCreateTrace (that would nest it in the tool trace).
+  //
+  // Tolerates both event shapes: the live event is {type,content} (no
+  // parent_message_id/vis); the replayed event adds parent_message_id + vis.
+  // Missing keys must not throw.
+  function renderThinking(evt) {
+    evt = evt || {};
+    var details = document.createElement('details');
+    details.className = 'thinking-disclosure';
+    details.setAttribute('data-testid', 'thinking-disclosure');
+    if (evt.parent_message_id != null) {
+      details.dataset.parentMsgId = evt.parent_message_id;
+    }
+    var summary = document.createElement('summary');
+    summary.className = 'thinking-toggle';
+    summary.textContent = 'Thinking';
+    var body = document.createElement('div');
+    body.className = 'thinking-body';
+    body.textContent = evt.content != null ? evt.content : '';
+    details.appendChild(summary);
+    details.appendChild(body);
+    return details;
+  }
+
   window.App.chat.renderTrace = renderTrace;
   window.App.chat.appendToTrace = appendToTrace;
+  window.App.chat.renderThinking = renderThinking;
 })();

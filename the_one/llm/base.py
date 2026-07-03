@@ -26,6 +26,23 @@ class ToolCall:
 
 
 @dataclass
+class ThinkingBlock:
+    """A single extended-thinking block from a provider response.
+
+    Mirrors Anthropic's two content-block variants (anthropic SDK 0.79.0):
+      - type="thinking": `thinking` (reasoning text) + `signature` (opaque,
+        server-issued; MUST be replayed verbatim or the follow-up turn 400s).
+      - type="redacted_thinking": `data` (opaque; no text).
+    Provider-agnostic — Ollama/OpenAI adapters may populate this later (DD5).
+    """
+
+    type: str
+    thinking: str | None = None
+    signature: str | None = None
+    data: str | None = None
+
+
+@dataclass
 class ToolResult:
     tool_call_id: str
     # M11 F8 L2: annotation widened from `str` to `str | dict | list[Any]`
@@ -66,6 +83,19 @@ class Message:
     role: Role
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # M16 F10 L01 (DD1/DD2): structured extended-thinking blocks. A list —
+    # NOT a scalar — because criterion #1 replays blocks WITH their signatures
+    # and redacted_thinking blocks carry opaque `data` with no text; a bare
+    # `str` can carry neither. A structural sibling of ``tool_calls``: it
+    # defaults to ``[]`` and the codec emits it with a TRUTHY guard
+    # (``if msg.thinking:``), so an empty list emits no key and legacy rows
+    # decode byte-identically. Deliberately OUTSIDE the
+    # ``message-additive-back-compat-via-emit-when-non-none`` convention
+    # (``agents.md``) — an always-non-None empty list under an ``is not None``
+    # guard would emit ``"thinking": []`` unconditionally and break the
+    # byte-identity tripwire. ``StreamChunk`` gets no thinking field (DD2):
+    # capture is from the final message (Leg 02), not intermediate chunks.
+    thinking: list[ThinkingBlock] = field(default_factory=list)
     tool_result: ToolResult | None = None
     usage: TokenUsage | None = None
     # M10 F03 L02: visibility tag for two-layer connector-session model.
@@ -167,6 +197,7 @@ class Message:
         usage: TokenUsage | None = None,
         *,
         visibility: str | None = None,
+        thinking: list[ThinkingBlock] | None = None,
     ) -> Message:
         return cls(
             role=Role.ASSISTANT,
@@ -174,6 +205,7 @@ class Message:
             tool_calls=tool_calls or [],
             usage=usage,
             visibility=visibility,
+            thinking=thinking or [],
         )
 
     @classmethod
@@ -316,8 +348,18 @@ class LLMProvider(ABC):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,
     ) -> Message:
-        """Send messages to the LLM and get a response."""
+        """Send messages to the LLM and get a response.
+
+        M16 F10 L02 (DD4): ``enable_thinking`` is a provider-neutral opt-out
+        for extended thinking. ``None`` = use the provider's configured budget;
+        ``False`` = force thinking OFF regardless of config (the connector
+        inference classifier passes ``False`` so its cheap yes/no probe never
+        pays the thinking premium). Only the Anthropic adapter acts on it this
+        flight (DD5); other adapters accept-and-ignore.
+        """
         ...
 
     async def stream(
@@ -326,13 +368,21 @@ class LLMProvider(ABC):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Default streaming implementation: call ``complete()``, yield one final chunk.
 
         Providers SHOULD override with native streaming for better UX.
         Forward-compat for any future provider that doesn't natively stream.
+
+        M16 F10 L02 (DD5): forwards ``enable_thinking`` into ``complete()`` so a
+        complete-only provider relying on this default stream path honors the
+        signal instead of silently dropping it.
         """
-        msg = await self.complete(messages, tools, temperature, max_tokens)
+        msg = await self.complete(
+            messages, tools, temperature, max_tokens, enable_thinking=enable_thinking
+        )
         yield StreamChunk(
             content=msg.content,
             is_final=True,

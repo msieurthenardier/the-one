@@ -164,15 +164,19 @@ spans the agent layer too.
       `LLMProvider` contract or explicitly deferred** with a recorded reason — so
       the provider layer's coverage of its SDKs is intentional, not accidental.
       *(capability-completeness; scope set by the audit + operator priority)*
-- [ ] With extended thinking enabled on an Anthropic model, a single turn that
+- [x] With extended thinking enabled on an Anthropic model, a single turn that
       both emits thinking **and** calls a tool completes without an API error,
       and the follow-up turn (carrying the tool result) also succeeds — i.e.
       thinking blocks + signatures are preserved and replayed.
-      *(behavior-test-backed against a real Anthropic model)*
-- [ ] The `Message` protocol carries reasoning/thinking content as a
+      *(behavior-test-backed against a real Anthropic model)* **✓ MET (Flight 10,
+      2026-07-03): `extended-thinking-tool-turn` behavior test PASS on live Sonnet 5,
+      incl. multi-turn replay stability.**
+- [x] The `Message` protocol carries reasoning/thinking content as a
       first-class field (a `ThinkingPart`-equivalent) instead of discarding it;
       it round-trips through persistence and is available to the web UI.
-      *(unit-test-backed)*
+      *(unit-test-backed)* **✓ MET (Flight 10): `Message.thinking` (structured
+      `ThinkingBlock` list) + codec round-trip; renders as a collapsed web-UI
+      disclosure that survives a chat reopen.**
 - [~] ~~A tool-using conversation with **Gemma via Ollama** reliably executes tool
       calls, **including** when the model emits the call as text/JSON in
       `content` rather than a structured `tool_calls` array.~~ **NOT MET /
@@ -502,22 +506,29 @@ Deferred (own-mission candidate, 2026-06-23):
       URL-guessing that drives the scrape-large-page failure). Compaction
       (evict/summarize) is explicitly deferred (see Known Issues). See
       `flights/08-agent-loop-resource-governance/`.
-- [ ] Flight 9: **HAT — Provider chat sweep** — human acceptance testing: the
-      operator drives real chat on the **installed app** across **Anthropic**,
-      **Ollama (native `/api/chat`)**, and **OpenRouter**, shaking out defects that
-      automated tests miss. Accretive, issue-driven: starts with no fix legs; each
-      finding is logged and turned into a leg (repro → fix → re-verify on the
-      installed app), with large/out-of-scope findings triaged case-by-case to a
-      spun-out flight or a mission Known Issue. Lands on operator judgment. See
-      `flights/09-provider-chat-hat/`.
-- [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
-      add a thinking field to `Message`; capture signed thinking blocks in
-      `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface
-      in the UI. A wanted capability (not the operator's bug). Spike de-risked
-      capture (`get_final_message()` carries signed blocks → low-effort); live UI
-      streaming of thinking deltas is the harder part (may need raw-event iteration
-      the L04 comment flags as "too invasive"). Scope OpenAI `o*`-reasoning and
-      `<think>`-tag open models per the audit.
+- [x] Flight 9: **HAT — Provider chat sweep** — **COMPLETED (2026-07-02; debriefed).**
+      Human acceptance testing: the operator drove real chat on the **installed app**
+      (primarily **Ollama native**; Anthropic/OpenRouter thinly). Accretive, issue-driven:
+      8 findings (F09-01…08), 6 legs, shipped across 0.2.10→0.2.15. Fixed tool-search
+      truncation, the send-while-thinking queue UX, an editable Ollama `num_ctx` field,
+      routing-audit overlay, static-asset cache-busting, and the `enabled_tools`-disables-MCP
+      bug. Carries: context compaction (Known Issue, now with F09-05 field evidence),
+      aiosqlite teardown fix, per-model num_ctx. See `flights/09-provider-chat-hat/`.
+- [x] Flight 10 *(capability — A1)*: **Extended-thinking / reasoning support** — **LANDED
+      (2026-07-03).** Delivered backlog **A1**: structured `thinking` field on `Message` + codec
+      round-trip; Anthropic **adaptive** enable (`{type:adaptive, display:summarized}`) / capture /
+      replay (signed blocks before `tool_use`, DD8 strip-when-off); collapsible web-UI disclosure;
+      Studio on/off toggle; **live behavior test PASS 6/6 on Sonnet 5**. **Closes both named
+      extended-thinking criteria.** **Mid-flight pivot** (operator): enablement went budget_tokens
+      → **adaptive-only** (Sonnet 4.6+) after docs confirmed budget_tokens 400s on current models;
+      config surface became the boolean `thinking_enabled`. **Scope (DD5): Anthropic-first**
+      (protocol provider-agnostic). **Deferred:** live thinking-delta streaming (DD2) + OpenAI
+      `o*`/`<think>` models + the `effort`/`reasoning_effort` knob (backlog **A4**). 7 legs;
+      per-leg + whole-flight reviewed; guided HAT. See `flights/10-extended-thinking-support/`.
+      **COMPLETED (debriefed 2026-07-03).** Debrief carries to `/mission-debrief`: the SDK-shape-vs-
+      live-wire-format planning gate; the HAT backend-currency precondition; the `thinking_display_text`
+      `type`-filter A2 risk; the `effort`-in-config (not-ABC) A4 guidance; two small deferred fixes
+      (live-broadcast `visibility`; empty-thinking-text tests); the still-open aiosqlite teardown flake.
 - [ ] Flights *(capability, audit-driven)*: **other SDK capabilities** — e.g.
       prompt caching, structured outputs / JSON mode, vision/multimodal, document
       inputs, reasoning-effort controls — each planned and prioritized from the

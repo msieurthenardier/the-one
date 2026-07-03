@@ -388,6 +388,8 @@ App.registerArea({
           addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, attribution, histOpts);
         }
         else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel, histOpts);
+        // M16 F10 L05: replay the thinking disclosure (position-independent).
+        else if (ev.type === 'thinking') renderThinking(ev);
         else if (ev.type === 'tool_call') {
           // L03: bucket tool_call events under their parent_message_id's
           // trace shell; fall back to a standalone bubble for legacy/null.
@@ -687,6 +689,18 @@ App.registerArea({
       messagesEl.appendChild(shell);
       traceShells[parentMessageId] = shell;
       return shell;
+    }
+
+    // M16 F10 L05: append a thinking disclosure in stream order. Used by BOTH
+    // the live ``thinking`` ws handler and the ``renderHistory`` replay branch.
+    // Position-independent (mirrors getOrCreateTrace's append) — the source
+    // turn may have empty content and thus no preceding assistant bubble. Its
+    // OWN disclosure (a distinct `.thinking-disclosure` <details>), NOT nested
+    // in the tool-trace shell. Does NOT touch the loading spinner
+    // (createThinking/removeThinking/showThinking/hideThinking).
+    function renderThinking(evt) {
+      messagesEl.appendChild(App.chat.renderThinking(evt));
+      scrollToBottomIfPinned();
     }
 
     // M10 F05 L05: ``opts`` forwards visibility from the source event dict
@@ -1217,6 +1231,15 @@ App.registerArea({
           currentStreamingVisibility = null;
           // M10 F05 L05: forward visibility from the live assistant event.
           addMsg('assistant', data.content, currentAgentName || 'agent', { visibility: data.visibility });
+        }
+        else if (data.type === 'thinking') {
+          // M16 F10 L05 (DD2 reveal-after): the settled turn's thinking
+          // disclosure. Fires AFTER the answer streamed, so the loading spinner
+          // is already hidden by the assistant/chunk path — do NOT call
+          // hideThinking()/finalizeStreamingBubble() (that would disturb the
+          // spinner state machine or an in-progress bubble). Just append the
+          // disclosure in stream order.
+          renderThinking(data);
         }
         else if (data.type === 'tool_call') {
           hideThinking();

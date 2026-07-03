@@ -238,6 +238,8 @@ class OllamaProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,  # M16 F10 L02 (DD5): accepted, ignored.
     ) -> Message:
         await self._resolve_max_context_tokens_if_needed()
         if self.native_api:
@@ -317,6 +319,8 @@ class OllamaProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,  # M16 F10 L02 (DD5): accepted, ignored.
     ) -> AsyncIterator[StreamChunk]:
         """Native Ollama streaming via ``ollama_api.chat_stream`` SSE helper.
 

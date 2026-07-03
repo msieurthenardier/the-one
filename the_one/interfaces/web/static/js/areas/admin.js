@@ -183,7 +183,7 @@ App.registerArea({
       'ollama': { base_url: 'http://localhost:11434/v1', showBaseUrl: true, showApiKey: false, showNumCtx: true },
       'openai-compatible': { base_url: '', showBaseUrl: true, showApiKey: true },
       'openai': { base_url: 'https://api.openai.com/v1', showBaseUrl: false, showApiKey: true },
-      'anthropic': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true },
+      'anthropic': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true, showThinkingEnabled: true },
       'mock': { base_url: '', showBaseUrl: false, showApiKey: false },
       'openrouter': { base_url: 'https://openrouter.ai/api/v1', showBaseUrl: true, showApiKey: true }
     };

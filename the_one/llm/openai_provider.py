@@ -91,6 +91,8 @@ class OpenAIProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,  # M16 F10 L02 (DD5): accepted, ignored.
     ) -> Message:
         await self._resolve_max_context_tokens_if_needed()
         api_messages = [self._to_api_message(m) for m in messages]
@@ -133,6 +135,8 @@ class OpenAIProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,  # M16 F10 L02 (DD5): accepted, ignored.
     ) -> AsyncIterator[StreamChunk]:
         """Native OpenAI streaming via ``chat.completions.create(stream=True)``.
 
