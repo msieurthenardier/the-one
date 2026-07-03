@@ -107,9 +107,10 @@ disabled + mixed-session(DD8) variants skipped per operator (hermetic-unit-test-
 
 ## Post-Completion Checklist
 
-- [ ] All verification steps pass (or failures dispositioned with operator sign-off)
-- [ ] Behavior-test run log committed; flight-log Run Notes reference it
-- [ ] Leg status → `completed`; checked off in `flight.md`
-- [ ] Flight status → `landed`; flight checked off in `mission.md`
-- [ ] Mission criteria #1 (thinking+tool turn) + the `ThinkingPart` criterion checked off
-- [ ] Commit; then draft PR marked ready (or opened) per the git workflow
+- [x] All verification steps pass (behavior test PASS 6/6; optional variants skipped per operator,
+      unit-covered)
+- [x] Behavior-test run log committed (`runs/2026-07-03-12-14-26.md`); flight-log Run Notes reference it
+- [x] Leg status → `completed`; checked off in `flight.md`
+- [x] Flight status → `landed`; flight checked off in `mission.md`
+- [x] Mission criteria #1 (thinking+tool turn) + the `ThinkingPart` criterion checked off in `mission.md`
+- [x] Commit (`5e16796`); **draft PR #149** opened per the git workflow (ready-for-review after debrief)
