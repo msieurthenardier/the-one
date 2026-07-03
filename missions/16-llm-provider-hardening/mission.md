@@ -502,14 +502,14 @@ Deferred (own-mission candidate, 2026-06-23):
       URL-guessing that drives the scrape-large-page failure). Compaction
       (evict/summarize) is explicitly deferred (see Known Issues). See
       `flights/08-agent-loop-resource-governance/`.
-- [ ] Flight 9: **HAT — Provider chat sweep** — human acceptance testing: the
-      operator drives real chat on the **installed app** across **Anthropic**,
-      **Ollama (native `/api/chat`)**, and **OpenRouter**, shaking out defects that
-      automated tests miss. Accretive, issue-driven: starts with no fix legs; each
-      finding is logged and turned into a leg (repro → fix → re-verify on the
-      installed app), with large/out-of-scope findings triaged case-by-case to a
-      spun-out flight or a mission Known Issue. Lands on operator judgment. See
-      `flights/09-provider-chat-hat/`.
+- [x] Flight 9: **HAT — Provider chat sweep** — **COMPLETED (2026-07-02; debriefed).**
+      Human acceptance testing: the operator drove real chat on the **installed app**
+      (primarily **Ollama native**; Anthropic/OpenRouter thinly). Accretive, issue-driven:
+      8 findings (F09-01…08), 6 legs, shipped across 0.2.10→0.2.15. Fixed tool-search
+      truncation, the send-while-thinking queue UX, an editable Ollama `num_ctx` field,
+      routing-audit overlay, static-asset cache-busting, and the `enabled_tools`-disables-MCP
+      bug. Carries: context compaction (Known Issue, now with F09-05 field evidence),
+      aiosqlite teardown fix, per-model num_ctx. See `flights/09-provider-chat-hat/`.
 - [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
       add a thinking field to `Message`; capture signed thinking blocks in
       `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface
