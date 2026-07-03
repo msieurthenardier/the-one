@@ -1,9 +1,9 @@
 # Behavior Test: Extended Thinking + Tool Turn Round-Trips
 
 **Slug**: `extended-thinking-tool-turn`
-**Status**: draft
+**Status**: active
 **Created**: 2026-07-02
-**Last Run**: never
+**Last Run**: 2026-07-03-12-14-26 (PASS 6/6 — see `runs/2026-07-03-12-14-26.md`)
 
 ## Intent
 
@@ -45,8 +45,8 @@ is the acceptance gate for Mission 16's extended-thinking criterion.
 | 1 | Navigate the browser to the app chat area. Select (or create) the thinking-enabled Anthropic agent described in Preconditions. Start a new chat. | The chat area loads with the thinking-capable Anthropic agent active and an empty transcript. |
 | 2 | (Setup) Confirm the agent's **Extended thinking** toggle is ON and a tool is enabled (via the agent/provider editor if needed). | (empty — setup only) |
 | 3 | Send a message that induces a single tool call and benefits from reasoning — e.g. a question the model must think through and then answer using the enabled tool (matched to that tool). | Within a reasonable time, the turn completes: an **answer bubble** is rendered, a **tool-call trace** appears for the turn, and **no error bubble** is shown. The turn's `done` fires. This completing at all is the primary witness — the tool round-trip is the follow-up turn, which the API rejects if thinking replay was wrong. |
-| 4 | Locate the thinking disclosure for that assistant turn. Expand it. | A collapsed-by-default **`Thinking` `<details>` disclosure** is present above/with the answer; expanding it reveals non-empty reasoning text. `[a11y]` the disclosure is keyboard-focusable and toggles via Enter/Space. |
-| 5 | (Wait/observe) Confirm the full turn settled — answer present, tool trace present, thinking present, no error, telemetry usage updated. | All four present together for the same turn; the telemetry overlay shows a non-zero used/max for the turn (thinking tokens are billed). |
+| 4 | Locate the thinking disclosure for that assistant turn. Expand it. | A collapsed-by-default **`Thinking` `<details>` disclosure** is present **with the turn's assistant output** (it renders interleaved per reasoning step on a multi-tool turn — Thinking→Tool→…→answer — not necessarily a single block above the answer); expanding it reveals non-empty reasoning text. `[a11y]` the disclosure is keyboard-focusable and toggles via Enter/Space — a native `<details>`/`<summary>` that is focusable satisfies this (native summary keyboard toggling is guaranteed by the HTML spec; empirical trusted-keypress actuation requires an apparatus with trusted-key injection, which goldfinch lacks). |
+| 5 | (Wait/observe) Confirm the full turn settled — answer present, tool trace present, thinking present, no error, telemetry usage updated. | All four present together for the same turn; the telemetry overlay (`.telemetry-overlay` token meter — reads `in/out/ctx/max`) shows a **non-zero used/max**, i.e. a delta up from the empty-chat baseline (0% at Step 1) — thinking tokens are billed. |
 | 6 | Reload the page (or leave and re-open this chat) so history replays from persistence. | After history replay, the same turn re-renders **with** its thinking disclosure (collapsed) and its answer + tool trace — i.e. the thinking round-tripped through persistence, not just the live turn. No error bubble on replay. |
 | 7 | Send one more follow-up message in the same chat that again induces reasoning + a tool call. | The second thinking+tool turn also completes with no API error — confirming multi-turn replay is stable across an accumulating history, not just the first turn. |
 

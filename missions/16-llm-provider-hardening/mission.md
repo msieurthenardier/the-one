@@ -164,15 +164,19 @@ spans the agent layer too.
       `LLMProvider` contract or explicitly deferred** with a recorded reason — so
       the provider layer's coverage of its SDKs is intentional, not accidental.
       *(capability-completeness; scope set by the audit + operator priority)*
-- [ ] With extended thinking enabled on an Anthropic model, a single turn that
+- [x] With extended thinking enabled on an Anthropic model, a single turn that
       both emits thinking **and** calls a tool completes without an API error,
       and the follow-up turn (carrying the tool result) also succeeds — i.e.
       thinking blocks + signatures are preserved and replayed.
-      *(behavior-test-backed against a real Anthropic model)*
-- [ ] The `Message` protocol carries reasoning/thinking content as a
+      *(behavior-test-backed against a real Anthropic model)* **✓ MET (Flight 10,
+      2026-07-03): `extended-thinking-tool-turn` behavior test PASS on live Sonnet 5,
+      incl. multi-turn replay stability.**
+- [x] The `Message` protocol carries reasoning/thinking content as a
       first-class field (a `ThinkingPart`-equivalent) instead of discarding it;
       it round-trips through persistence and is available to the web UI.
-      *(unit-test-backed)*
+      *(unit-test-backed)* **✓ MET (Flight 10): `Message.thinking` (structured
+      `ThinkingBlock` list) + codec round-trip; renders as a collapsed web-UI
+      disclosure that survives a chat reopen.**
 - [~] ~~A tool-using conversation with **Gemma via Ollama** reliably executes tool
       calls, **including** when the model emits the call as text/JSON in
       `content` rather than a structured `tool_calls` array.~~ **NOT MET /
@@ -510,15 +514,18 @@ Deferred (own-mission candidate, 2026-06-23):
       routing-audit overlay, static-asset cache-busting, and the `enabled_tools`-disables-MCP
       bug. Carries: context compaction (Known Issue, now with F09-05 field evidence),
       aiosqlite teardown fix, per-model num_ctx. See `flights/09-provider-chat-hat/`.
-- [ ] Flight 10 *(capability — A1)*: **Extended-thinking / reasoning support** — **READY
-      (2026-07-02).** Implements ratified backlog **A1**: structured `thinking` field on
-      `Message` + codec round-trip; Anthropic enable/capture/replay (signed blocks before
-      `tool_use`); collapsible web-UI disclosure; Studio budget field; live behavior test.
-      Closes the two named extended-thinking criteria. **Scope (DD5): Anthropic-first;**
-      protocol built provider-agnostic so Ollama/OpenAI populate it later. **Deferred:** live
-      thinking-delta streaming (DD2 — capture-whole/reveal-after this flight) and OpenAI
-      `o*`/`<think>`-tag open models + the `reasoning_effort` knob (backlog **A4**). 6 legs;
-      Architect-reviewed. See `flights/10-extended-thinking-support/`.
+- [x] Flight 10 *(capability — A1)*: **Extended-thinking / reasoning support** — **LANDED
+      (2026-07-03).** Delivered backlog **A1**: structured `thinking` field on `Message` + codec
+      round-trip; Anthropic **adaptive** enable (`{type:adaptive, display:summarized}`) / capture /
+      replay (signed blocks before `tool_use`, DD8 strip-when-off); collapsible web-UI disclosure;
+      Studio on/off toggle; **live behavior test PASS 6/6 on Sonnet 5**. **Closes both named
+      extended-thinking criteria.** **Mid-flight pivot** (operator): enablement went budget_tokens
+      → **adaptive-only** (Sonnet 4.6+) after docs confirmed budget_tokens 400s on current models;
+      config surface became the boolean `thinking_enabled`. **Scope (DD5): Anthropic-first**
+      (protocol provider-agnostic). **Deferred:** live thinking-delta streaming (DD2) + OpenAI
+      `o*`/`<think>` models + the `effort`/`reasoning_effort` knob (backlog **A4**). 7 legs;
+      per-leg + whole-flight reviewed; guided HAT. See `flights/10-extended-thinking-support/`.
+      *(Debrief via `/flight-debrief` — will transition `landed → completed`.)*
 - [ ] Flights *(capability, audit-driven)*: **other SDK capabilities** — e.g.
       prompt caching, structured outputs / JSON mode, vision/multimodal, document
       inputs, reasoning-effort controls — each planned and prioritized from the

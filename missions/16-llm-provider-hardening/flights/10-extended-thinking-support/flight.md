@@ -1,21 +1,25 @@
 # Flight: Extended-Thinking / Reasoning Support (A1)
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] With extended thinking enabled on an Anthropic model, a single turn that both
+- [x] With extended thinking enabled on an Anthropic model, a single turn that both
       emits thinking **and** calls a tool completes without an API error, and the
       follow-up turn (carrying the tool result) also succeeds — i.e. thinking blocks
-      + signatures are preserved and replayed.
-- [ ] The `Message` protocol carries reasoning/thinking content as a first-class field
+      + signatures are preserved and replayed. **✓ Live-confirmed (Sonnet 5) by the
+      `extended-thinking-tool-turn` behavior test, 2026-07-03 (incl. multi-turn stability).**
+- [x] The `Message` protocol carries reasoning/thinking content as a first-class field
       (a `ThinkingPart`-equivalent) instead of discarding it; it round-trips through
-      persistence and is available to the web UI.
-- [ ] *(advances)* Each prioritized capability gap is either implemented behind the
+      persistence and is available to the web UI. **✓ Unit-tested (codec round-trip) +
+      live-confirmed (disclosure renders + survives reload, text matches persistence).**
+- [~] *(advances)* Each prioritized capability gap is either implemented behind the
       `LLMProvider` contract or explicitly deferred — this flight implements **A1**
       (the first ratified capability, per the F1B backlog) and explicitly defers the
-      OpenAI/Ollama partial-reasoning surfaces + live thinking-delta streaming.
+      OpenAI/Ollama partial-reasoning surfaces + live thinking-delta streaming + the
+      `reasoning_effort`/`effort` knob (backlog **A4**). *(mission-level; advanced, not
+      closed by this single flight.)*
 
 ---
 
@@ -346,9 +350,10 @@ Build the capability bottom-up so each leg is independently testable:
       Anthropic provider-editor **on/off "Extended thinking"** toggle (writes
       `config["thinking_enabled"]`), default off — NOT a budget number (pivot); api.py +
       provider-editor.js + admin.js; browser provider-editor suite. *(S–M)*
-- [ ] `verify-and-hat` (**Leg 07**) *(optional guided HAT included)* — run the
-      `extended-thinking-tool-turn` behavior test on live Anthropic (adaptive mode); guided HAT
-      session (tune disclosure/enable UX, fix inline); full suite; doc updates. *(M)*
+- [x] `verify-and-hat` (**Leg 07**) *(guided HAT)* — ran the `extended-thinking-tool-turn` behavior
+      test on live Anthropic (Sonnet 5, adaptive) → **PASS 6/6**; guided HAT tuned the toggle UX +
+      caught two live defects (stale backend; `display:"summarized"`), fixed inline; full suite
+      green; docs updated. *(M)*
 
 ---
 
@@ -356,13 +361,15 @@ Build the capability bottom-up so each leg is independently testable:
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (fixtured unit + browser provider-editor + behavior test)
-- [ ] Documentation updated (thinking-field convention in `the_one/agents.md`; behavior-test
-      spec active)
-- [ ] Mission success criteria #1 (thinking+tool turn) and the `ThinkingPart` criterion
-      checked off; A1 marked implemented in the F1B backlog
+- [x] All legs completed (01–06 completed; 07 verify+HAT completed)
+- [~] Code merged — committed on `flight/10-extended-thinking-support`; draft PR opened (merge
+      after review)
+- [x] Tests passing (fixtured unit + browser provider-editor + browser disclosure + behavior test
+      PASS 6/6; full suite 3675/10/1-known-flake)
+- [x] Documentation updated (thinking-field convention in `the_one/agents.md`; behavior-test
+      spec `active`)
+- [x] Mission success criteria #1 (thinking+tool turn) and the `ThinkingPart` criterion
+      checked off in `mission.md`; A1 delivered (Anthropic; OpenAI/Ollama + effort deferred)
 
 ### Verification
 

@@ -446,6 +446,28 @@ Cross-cutting compose test (`tests/test_db_codec.py::TestMessagePeerNameCodec::t
 
 Source: M11 F6 flight-debrief "Recommendations §Critical §3" + "Key Learnings §6" + "What Could Be Improved §Technical."
 
+### `message-thinking-field` (M16 F10)
+
+`Message.thinking: list[ThinkingBlock]` carries provider reasoning/thinking as a first-class,
+structured field (each block is `{type: "thinking", thinking, signature}` or `{type:
+"redacted_thinking", data}`). It is a **structural sibling of `tool_calls`** (a list with
+`field(default_factory=list)`), NOT part of the `message-additive-back-compat-via-emit-when-non-none`
+convention above: the codec emits it with a **truthy guard** (`if msg.thinking:` at
+`the_one/db/codec.py`), so an empty list is not emitted and the byte-identity tripwire
+(`test_db_codec.py::test_encode_emits_no_keys_when_all_optional_fields_default`) stays green without
+a citation bump. Blocks are stored in the exact Anthropic content-block shape so replay
+(`AnthropicProvider._to_api_message`) hands them back verbatim — **signatures must round-trip
+unmodified** or the follow-up turn 400s.
+
+Anthropic specifics (M16 F10): enablement is **adaptive-only** — `thinking: {"type": "adaptive",
+"display": "summarized"}` (Sonnet 4.6+; the `budget_tokens` wire format 400s on current models).
+`display` defaults to `"omitted"` on Sonnet 5 / Opus 4.8/4.7 / Fable 5 (signed-but-empty thinking
+text), so `"summarized"` is requested explicitly to surface readable reasoning for the web-UI
+disclosure; the `signature` is identical across display modes, so replay is unaffected. Replay is
+**gated on the outgoing request's thinking state** (`_to_api_message(..., thinking_active)`):
+replay-when-on, strip-when-off (DD8). The field is provider-agnostic — Ollama/OpenAI may populate
+it in a later flight with no protocol change.
+
 ### Mission-specific (M10)
 
 Patterns that emerged in Mission 10 (bi-directional comms connectors) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above. Future missions extending this file add their own `### Mission-specific (M{NN})` subsection per the same pattern.

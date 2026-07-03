@@ -123,6 +123,23 @@ to backlog A4** per DD5 — adaptive uses the API-default effort this flight.
 **Rationale**: Verified against first-party docs; keeps the flight lean (no A4 effort UX); delivers
 thinking on the operator's actual/default model. Operator-ratified.
 
+### HAT fix — request `display: "summarized"` so the disclosure shows readable reasoning
+**Context**: The Leg 07 live HAT found the thinking disclosure rendered empty on Sonnet 5: the
+adapter sent `thinking: {"type": "adaptive"}` with no `display`, and — confirmed against Anthropic's
+adaptive-thinking docs — **`thinking.display` DEFAULTS to `"omitted"` on Sonnet 5 / Opus 4.8/4.7 /
+Fable 5 / Mythos 5** (thinking blocks return an EMPTY `thinking` text field; only the `signature`
+is populated, for replay). So `thinking_display_text` correctly returned `""` → no event → no
+disclosure. The backend replay path was fine (signed blocks captured/persisted/replayed, no 400);
+only the readable-text surface was missing.
+**Decision (HAT inline fix, 2026-07-03)**: enable at the single `_build_kwargs` site with
+`kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}` so the model returns readable
+summarized reasoning text for the DD3 web-UI disclosure.
+**Impact**: One prod line + 3 test-assertion updates (the `{"type": "adaptive"}` shape → adds
+`"display": "summarized"`). The `signature` is **identical** across display modes (per docs), so
+capture/replay are unaffected; no per-model branching (`"summarized"` is valid on all adaptive
+models; already the default on Opus 4.6 / Sonnet 4.6). Live-verified: the disclosure now renders
+non-empty reasoning that matches persistence exactly (behavior test 7/7 PASS).
+
 ---
 
 ## Deviations
@@ -722,3 +739,21 @@ reload → checked; Cancel after toggling reverts). Full `make test-unit` — **
 flake `test_lifespan.py::test_lifespan_drains_session_registry`, isolation-clean 1/1 — not a
 regression). Code review + commit deferred to Phase 2d. `legs_completed = 6` (all autonomous code legs
 landed). `[HANDOFF:review-needed]`.
+
+**2026-07-03 — Leg 07 (verify + guided HAT) → `completed`; FLIGHT LANDED. `[COMPLETE:flight]`.**
+Ran the `extended-thinking-tool-turn` behavior test live on Sonnet 5 (Witnessed pattern; Executor +
+Validator, both Sonnet) → **PASS 6/6**. Both Mission 16 extended-thinking criteria confirmed live
+(thinking+tool replay incl. multi-turn stability; disclosure renders + survives reload with text
+matching persistence). The HAT surfaced + fixed **two live-only defects** the fixtured suites could
+not: (1) the operator's `:8485` dev process predated the flight-10 backend (served new static JS
+while running old Python) → restart; (2) `thinking.display` defaults to `"omitted"` on Sonnet 5 →
+signed-but-empty thinking text → empty disclosure → fixed inline to `{"type":"adaptive","display":
+"summarized"}` (see Decisions; signature identical → replay unaffected). Three toggle-UX findings
+(iPhone switch / `label (i)` icon / "a model" tooltip) fixed inline (commit `7735b88`). Optional
+disabled + mixed-session(DD8) variants skipped per operator (hermetic-unit-test-covered). Artifacts
+finalized: Leg 07 → `completed`; flight status `in-flight → landed`; both criteria checked in
+`flight.md` + `mission.md`; Flight 10 marked LANDED in the mission Flights list; behavior spec →
+`active` (+ Validator spec-quality tweaks); `agents.md` `message-thinking-field` convention added;
+run log at `tests/behavior/extended-thinking-tool-turn/runs/2026-07-03-12-14-26.md`. Committing the
+`display:"summarized"` fix + run log + artifacts, then opening the draft PR. Flight debrief
+(`/flight-debrief`) will transition `landed → completed`.

@@ -617,7 +617,7 @@ async def test_thinking_enabled_sets_adaptive_no_temperature_force(monkeypatch):
     await prov.complete(_user_msg(), temperature=0.0, max_tokens=16384)
 
     sent = rec.calls[0]
-    assert sent["thinking"] == {"type": "adaptive"}
+    assert sent["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert "budget_tokens" not in sent["thinking"]
     # Load-bearing proof DD6's forcing is gone: caller's values untouched.
     assert sent["temperature"] == 0.0
@@ -671,7 +671,7 @@ async def test_enable_thinking_none_uses_configured_enable(monkeypatch):
 
     await prov.complete(_user_msg(), enable_thinking=None)
 
-    assert rec.calls[0]["thinking"] == {"type": "adaptive"}
+    assert rec.calls[0]["thinking"] == {"type": "adaptive", "display": "summarized"}
 
 
 # --------------------------------------------------------------------------
@@ -999,7 +999,7 @@ async def test_end_to_end_replay_on_records_thinking_before_tool_use(monkeypatch
     await prov.complete(_thinking_tool_history())
 
     sent = rec.calls[0]
-    assert sent["thinking"] == {"type": "adaptive"}
+    assert sent["thinking"] == {"type": "adaptive", "display": "summarized"}
     assistant = _assistant_entry(sent["messages"])
     content = assistant["content"]
     thinking_idx = _indices(content, "thinking")

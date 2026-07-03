@@ -219,7 +219,17 @@ class AnthropicProvider(LLMProvider):
         # temperature-retry at ``complete``/``stream`` handles that). ``effort``
         # deferred to A4.
         if thinking_active:
-            kwargs["thinking"] = {"type": "adaptive"}
+            # DD3: request "summarized" display explicitly. On Sonnet 5,
+            # Opus 4.8/4.7, and Fable 5, ``thinking.display`` DEFAULTS to
+            # "omitted" — the API returns thinking blocks with an EMPTY
+            # ``thinking`` text field (only ``signature`` populated, for replay),
+            # so the web-UI reasoning disclosure has nothing to show. Setting
+            # "summarized" surfaces readable reasoning text. The ``signature`` is
+            # identical across display modes, so replay/capture are unaffected.
+            # No per-model branching: "summarized" is valid on all adaptive
+            # models; on Opus 4.6 / Sonnet 4.6 it's already the default and
+            # setting it explicitly is harmless.
+            kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
         return kwargs
 
     async def complete(
