@@ -45,9 +45,9 @@ The operator now wants the opposite aesthetic: **clean, professional, and consis
 
 ## Environment Requirements
 
-- Local dev server via `make up` / `make restart` (no hot reload — restart after source edits).
+- Local dev server via `make up` / `make restart` (no hot reload — restart after source edits). **M17 note (discovered F2 L1)**: port 8484 is squatted by the operator's production packaged app (`the-one-app.exe`) — never kill/mutate it; the mission dev instance runs `THE_ONE_PORT=8485 make up`, and ALL mission visual verification + behavior tests target `http://127.0.0.1:8485`.
 - Playwright browser tests host-native via `make test-browser` (`scripts/run-tests.sh`).
-- Behavior tests require: running instance on port 8484, browser apparatus (goldfinch MCP) live, mock provider available via `THE_ONE_DEV_MODE=true` for deterministic chat flows.
+- Behavior tests require: a running instance of the BRANCH build (mission dev instance on 8485 — see note above), browser apparatus (goldfinch MCP) live, mock provider available via `THE_ONE_DEV_MODE=true` for deterministic chat flows.
 - Visual snapshot baselines are local-only (gitignored); regenerate per checkout.
 
 ## Open Questions
@@ -74,6 +74,8 @@ The operator now wants the opposite aesthetic: **clean, professional, and consis
 
 *(populated during execution as flights surface problems)*
 
+- **`make restart`/`verify-serving` false-success when a foreign server holds the port** (found F2 L1, 2026-07-03): the repo server dies on bind while `verify-serving` gets 200s from the squatting process (here: the operator's packaged app on 8484), so `make restart` reports success without serving the new code. Fix (F2 Leg 3): assert port ownership (PID in `.the-one.pid` owns the bound socket) or a served-instance identity echo, so a foreign responder fails the check loudly.
+
 - **Dead selector `connector-test-status`** (found by Flight 1 Leg 1 guard bootstrap, 2026-07-03): `connector-editor.js:1775,1828` query `[data-testid="connector-test-status"]` but no element defines that testid anywhere in the codebase — the element was removed by M16 F5 L6 HAT round-7 (in-source comment "statusEl removed" and a `void statusEl;` remnant near line 1875 confirm the removal was deliberate). Both uses are null-guarded, so it is dormant dead code, not a runtime bug. Dispositioned as an explicit allowlist entry (`KNOWN_DEAD_SELECTORS`) in `tests/test_ui_guards.py` rather than a product-code fix (Flight 1 is test-infrastructure-only). Cleanup expected when Flight 3 rebuilds the studio components — remove the dead queries and the allowlist entry together.
 
 - **State-split, icon-only "New entity" CTA — discoverability/a11y concern** (root-caused by Flight 1 Leg 2, 2026-07-03; assigned to **Flight 3** shared-component rebuild; touches SC5): the create affordance for entity grids (Agents, LLM Providers, MCP Servers, Connectors) moves between two different buttons depending on grid state. `components.css:719` (`.page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded) { display: none; }`) hides the header CTA entirely whenever the grid is empty, handing the affordance to the in-canvas `-empty` variant (`new-agent-btn-empty`, `new-provider-btn-empty`, …); once populated, the header CTA appears and the `-empty` variant disappears. Compounding it, the header CTA at rest is icon-only with a hover/focus-reveal label (`components.css:679` — `.new-entity-btn span { opacity: 0 }`). Users tracking "the create button" have no single stable target, and the icon-only rest state hurts discoverability. This is a product-design concern, NOT a test bug — Flight 1 Leg 2 fixed the affected browser tests to target the state-correct variant honestly (`test_flow_agent_crud.py`, `test_flow_provider_setup.py`, `test_flow_provider_grid.py`); the product fix belongs to Flight 3.
@@ -85,7 +87,7 @@ The operator now wants the opposite aesthetic: **clean, professional, and consis
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
 - [x] Flight 1: **Regression-net foundation** — testid registry + CI grep guards, re-enable/replace the five module-skipped browser tests (timeboxed root-cause on the two unexplained hangs; those two may defer re-enable until after Flight 3 with SC6 as the mission-end gate), fresh `App.perf` heap/interaction baseline capture, baseline behavior-test spec for the pre-redesign app.
-- [ ] Flight 2: **Design language v3 — tokens and type** — new token tables for both themes (quiet-instrument-panel palette, spacing/radius/shadow system, motion), retire glow/glass/bezel/chamfer/chrome tokens, focus system, full-palette contrast test parametrization, fonts/type-scale updates.
+- [x] Flight 2: **Design language v3 — tokens and type** — new token tables for both themes (quiet-instrument-panel palette, spacing/radius/shadow system, motion), retire glow/glass/bezel/chamfer/chrome tokens, focus system, full-palette contrast test parametrization, fonts/type-scale updates.
 - [ ] Flight 3: **Shell and shared components** — topbar/sidebar/nav restyle, clean wordmark treatment, shared primitives (buttons, fields, dropdown decision, tables, cards, tabs, modal, toast, empty-state) rebuilt in the new language, design-gallery updated as the living reference.
 - [ ] Flight 4: **Chat re-skin** — reading layout, composer, streaming/stop affordances, scroll behavior, tool-trace and thinking disclosures, markdown pipeline hardening (vendored sanitizer/renderer + vendor-integrity infrastructure + XSS suite).
 - [ ] Flight 5: **Studio re-skin** — agents/knowledge/MCP/connectors surfaces in the new language; M12 F4 connector-editor a11y fixes preserved and re-verified (existing behavior spec); lazy-discovery label copy corrected (re-scoped M07 F10 remainder).

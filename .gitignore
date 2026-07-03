@@ -30,7 +30,9 @@ tests/browser/__snapshots__/
 .claude/scheduled_tasks.lock
 
 # Host-native `make up` runtime artifacts (M16 F03 L06) — local only.
+# Port-suffixed pidfiles/logfiles (M17 F2 L3): .the-one.<port>.pid/.log
 .the-one.pid
+.the-one*.pid
 .the-one.log
 .the-one*.log
 

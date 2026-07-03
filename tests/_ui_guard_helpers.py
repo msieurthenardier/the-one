@@ -44,6 +44,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent
 JS_DIR = REPO_ROOT / "the_one" / "interfaces" / "web" / "static" / "js"
 REGISTRY_DOC = REPO_ROOT / "docs" / "ui-testid-registry.md"
+TOKENS_CSS = REPO_ROOT / "the_one" / "interfaces" / "web" / "static" / "css" / "tokens.css"
 
 # ── Testid patterns ─────────────────────────────────────────────────────────
 
@@ -193,6 +194,175 @@ def classify_sinks(js_dir: Path = JS_DIR) -> tuple[dict[str, list[str]], dict[st
             snippet = normalize_snippet(text[stmt_start:stmt_end])
             (static if is_static else dynamic).setdefault(rel, []).append(snippet)
     return dynamic, static
+
+
+# ── tokens.css theme-block parsing (mirror-sync guard) ──────────────────────
+
+_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+# ``--token-name: value;`` declaration inside a (comment-stripped) block.
+_TOKEN_DECL = re.compile(r"(--[a-zA-Z0-9_-]+)\s*:\s*([^;]+);")
+
+
+def _strip_at_media_blocks(text: str) -> str:
+    """Remove every top-level ``@media { ... }`` region (brace-matched).
+
+    tokens.css redefines ``[data-theme=...]`` selectors inside its
+    ``prefers-reduced-motion`` @media block (v3; the
+    reduced-transparency block was deleted in M17 F2 L2a), so each
+    theme selector can occur more than once. The mirror pins the
+    top-level values, so the @media regions must be stripped before
+    locating the theme blocks.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        m = re.compile(r"@media\b").search(text, i)
+        if not m:
+            out.append(text[i:])
+            break
+        out.append(text[i : m.start()])
+        # Skip to the block's opening brace, then to its matched close.
+        brace = text.find("{", m.end())
+        if brace < 0:
+            break
+        depth = 1
+        j = brace + 1
+        while j < n and depth:
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+            j += 1
+        i = j
+    return "".join(out)
+
+
+def parse_tokens_css_theme_blocks(css_path: Path = TOKENS_CSS) -> dict[str, dict[str, str]]:
+    """Parse the two top-level theme blocks of ``tokens.css``.
+
+    Returns ``{"dark": {token_name: raw_value}, "light": {...}}`` where
+    ``token_name`` is the CSS custom-property name (``--fg-secondary``)
+    and ``raw_value`` is the declaration value with comments stripped and
+    whitespace collapsed. @media regions are removed first so only the
+    top-level theme blocks are read.
+    """
+    text = _strip_at_media_blocks(css_path.read_text())
+    blocks: dict[str, dict[str, str]] = {}
+    for theme in ("dark", "light"):
+        sel = f'[data-theme="{theme}"]'
+        start = text.find(sel)
+        assert start >= 0, f"tokens.css: no top-level {sel} block found"
+        brace = text.find("{", start)
+        depth = 1
+        j = brace + 1
+        while j < len(text) and depth:
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+            j += 1
+        body = _CSS_COMMENT.sub("", text[brace + 1 : j - 1])
+        blocks[theme] = {
+            name: re.sub(r"\s+", " ", value.strip()) for name, value in _TOKEN_DECL.findall(body)
+        }
+    return blocks
+
+
+def normalize_css_color(value: str) -> str:
+    """Normalize a CSS color value for comparison: lowercase, collapsed
+    whitespace, ``#rgb`` expanded to ``#rrggbb``."""
+    v = re.sub(r"\s+", " ", value.strip()).lower()
+    m = re.fullmatch(r"#([0-9a-f]{3})", v)
+    if m:
+        v = "#" + "".join(c * 2 for c in m.group(1))
+    return v
+
+
+# ── Banned design vocabulary (M17 F2 L3 banned-token guard) ─────────────────
+
+CSS_DIR = REPO_ROOT / "the_one" / "interfaces" / "web" / "static" / "css"
+
+# Retired alien-console vocabulary (M17 F2 retirement, SC1 enforcement).
+# Patterns are PREFIX-ANCHORED custom-property names (``--bezel-``, not the
+# bare word "bezel") so prose mentions in comments — e.g. the "no gradient,
+# no bezel" chip note in components.css — don't false-positive. Comments DO
+# count as hits for the token names themselves: the retired vocabulary was
+# scrubbed from comments in L2a and must not creep back even as prose
+# references to ``--glass-*``-style names.
+BANNED_CSS_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("--accent-glow", re.compile(r"--accent-glow")),
+    ("--status-*-glow", re.compile(r"--status-[a-z0-9-]*glow")),
+    ("--glass-*", re.compile(r"--glass-")),
+    ("--bezel-*", re.compile(r"--bezel-")),
+    ("--btn-v3*", re.compile(r"--btn-v3")),
+    ("--panel-shadow", re.compile(r"--panel-shadow")),
+    ("--shell-*", re.compile(r"--shell-")),
+    ("backdrop-filter", re.compile(r"backdrop-filter")),
+    ("clip-path: polygon", re.compile(r"clip-path\s*:\s*polygon")),
+    ("prefers-reduced-transparency", re.compile(r"prefers-reduced-transparency")),
+]
+
+
+def find_banned_css_vocabulary(
+    css_dir: Path = CSS_DIR,
+) -> list[tuple[str, int, str, str]]:
+    """Scan every ``*.css`` under ``css_dir`` for the retired vocabulary.
+
+    Returns ``(relative_file, line_number, pattern_label, stripped_line)``
+    hits in file/line order. Line-scoped so failures name file+line;
+    comments are scanned like live code.
+    """
+    hits: list[tuple[str, int, str, str]] = []
+    for css_file in sorted(css_dir.rglob("*.css")):
+        rel = css_file.relative_to(css_dir).as_posix()
+        for lineno, line in enumerate(css_file.read_text().splitlines(), start=1):
+            for label, pattern in BANNED_CSS_PATTERNS:
+                if pattern.search(line):
+                    hits.append((rel, lineno, label, line.strip()))
+    return hits
+
+
+# ── Backtick tripwire (M17 F2 L3) ───────────────────────────────────────────
+
+# A line-scoped backtick pair whose content mentions data-testid. Testid
+# extraction above is calibrated for single-quoted JS strings; a template
+# literal carrying a testid would be invisible to it, so backtick-quoted
+# testids are banned outright (comments scan like live code — write
+# 'data-testid' with quotes in comments, not backticks). Line-scoped: a
+# multi-line template literal's interior lines are out of reach, but the
+# innerHTML-RHS pattern below catches the sink that would carry one.
+_BACKTICK_TESTID = re.compile(r"`[^`\n]*data-testid[^`\n]*`")
+
+# Template-literal payload feeding an HTML sink: ``.innerHTML = ` `` /
+# ``.outerHTML = ` `` (RHS may start on the next line) and
+# ``insertAdjacentHTML(pos, ` ``. Sink classification above joins
+# statements by ``;`` and tracks only '/" quoting — a backtick payload
+# would be misparsed, so it is banned at the source.
+_BACKTICK_HTML_ASSIGN = re.compile(r"\.(?:innerHTML|outerHTML)\s*=(?!=)\s*`")
+_BACKTICK_INSERT_ADJACENT = re.compile(r"insertAdjacentHTML\s*\(\s*[^),`]*,\s*`")
+
+
+def find_backtick_tripwire_hits(js_dir: Path = JS_DIR) -> list[tuple[str, int, str, str]]:
+    """Scan JS sources for backtick-quoted testids and backtick HTML-sink
+    payloads. Returns ``(relative_file, line_number, kind, excerpt)``."""
+    hits: list[tuple[str, int, str, str]] = []
+    for js_file in iter_js_files(js_dir):
+        text = js_file.read_text()
+        rel = relpath(js_file)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if _BACKTICK_TESTID.search(line):
+                hits.append((rel, lineno, "backtick-quoted data-testid", line.strip()))
+        for kind, pattern in (
+            ("backtick innerHTML/outerHTML payload", _BACKTICK_HTML_ASSIGN),
+            ("backtick insertAdjacentHTML payload", _BACKTICK_INSERT_ADJACENT),
+        ):
+            for m in pattern.finditer(text):
+                lineno = text.count("\n", 0, m.start()) + 1
+                excerpt = normalize_snippet(text[_line_start(text, m.start()) :])
+                hits.append((rel, lineno, kind, excerpt))
+    return sorted(hits)
 
 
 # ── Registry doc parsing ────────────────────────────────────────────────────

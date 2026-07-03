@@ -134,9 +134,9 @@
   // info-icon + field as three visible cells. The visually-hidden span
   // is a sibling of the info-icon (not nested in it) so it does NOT
   // occupy a visible column. Each info-icon now carries a
-  // ``data-testid`` (``discord-intents-hint`` / ``discord-guilds-hint``
-  // / ``discord-presence-hint``) for parity with the Lifecycle section's
-  // ``connector-continuation-hint`` / ``-idle-hint`` sites.
+  // 'data-testid' ('discord-intents-hint' / 'discord-guilds-hint'
+  // / 'discord-presence-hint') for parity with the Lifecycle section's
+  // 'connector-continuation-hint' / '-idle-hint' sites.
 
   function _renderRuntimeConfigBody(account) {
     var cfg = (account && account.config) || {};

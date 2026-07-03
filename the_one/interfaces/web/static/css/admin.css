@@ -42,18 +42,14 @@
     overflow-y: auto;
     margin: 0;
   }
-  /* Theme toggle — segmented control composed onto the V3b design-language
-     family. Container carries bezel-mini + glass-border + accent-translucent
-     base; active option mirrors the .app-picker-button[aria-current="page"]
-     treatment (accent-translucent-hover + accent border). */
+  /* Theme toggle — quiet segmented control: accent-translucent base +
+     hairline border; active option takes the solid accent fill. */
   .area-admin .admin-theme-toggle {
     display: inline-flex;
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius-sm);
     padding: 2px;
     background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    box-shadow: var(--bezel-shadow-mini);
   }
   .area-admin .admin-theme-option {
     background: transparent;
@@ -71,18 +67,15 @@
     background-color: var(--accent-translucent-hover);
     transition: background-color var(--motion-fast) var(--ease-tactile), color var(--motion-fast) var(--ease-tactile);
   }
-  /* Active option = solid accent fill (the filled-primary button look),
-     same family as .btn-filled-primary. No outer glow halo. */
+  /* Active option = solid accent fill, same family as .btn-filled-primary. */
   .area-admin .admin-theme-option.active {
     background-color: var(--accent);
-    background-image: var(--btn-v3-gradient);
     color: var(--fg-on-accent);
     border-color: var(--accent);
   }
   .area-admin .admin-theme-option:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
 
   /* === Provider List === */
@@ -90,13 +83,13 @@
   .area-admin .admin-pf-model-delete.admin-pf-model-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
 
   /* === Form-control focus rings === */
-  .area-admin .admin-pf-input:focus-visible, .area-admin .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-pf-input:focus-visible, .area-admin .admin-pf-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
   /* Focus ring for the Ollama icon-only pull-cancel button (still per-area
      since it's a special icon-only affordance). Other Ollama-lifecycle
      buttons (Pull Model, Pull, Load, Unload, Delete) now compose canonical
      .btn-outlined-primary / .btn-filled-primary / .btn-muted-destructive which
      provide their own focus-visible. */
-  .area-admin .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* === Provider Form === */
   /* The .admin-provider-form / .admin-pf-cancel / .admin-pf-password-wrap /
@@ -113,7 +106,6 @@
   .area-admin .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
   .area-admin .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .area-admin .admin-pf-models-title { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); }
-  .area-admin .admin-pf-models-title::before { content: "//"; padding-right: 0.4em; color: var(--accent); opacity: 0.6; font-weight: var(--font-weight-semibold); }
   .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--panel-radius); }
   .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); }
   .area-admin .admin-pf-model-item:last-child { border-bottom: none; }
@@ -122,7 +114,6 @@
   .area-admin .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
   .area-admin .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
   .area-admin .admin-pf-section-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); padding: 10px 0 4px; }
-  .area-admin .admin-pf-section-label::before { content: "//"; padding-right: 0.4em; color: var(--accent); opacity: 0.6; font-weight: var(--font-weight-semibold); }
   .area-admin .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
   .area-admin .admin-pf-model-row:last-child { border-bottom: none; }
   /* .admin-pf-model-dot retired (Flight 3 Leg 04): Ollama lifecycle panel
@@ -297,10 +288,8 @@
     letter-spacing: 1px;
     color: var(--fg-muted);
   }
-  /* Tools-editor prompt section — canonical .section-title eyebrow (// PROMPT)
-     + .code-block body. The .section-title rule already supplies the `//`
-     prefix and mono-uppercase tiny treatment; the editor-prompt-block
-     wrapper just adds layout. */
+  /* Tools-editor prompt section — canonical .section-title quiet label
+     + .code-block body; the editor-prompt-block wrapper just adds layout. */
   .area-admin .editor-prompt-block {
     margin-top: 12px;
     display: flex;
@@ -365,7 +354,6 @@
   .area-admin .tools-editor-field.field-error-highlight select,
   .area-admin .tools-editor-field.field-error-highlight .chip-list-editor {
     border-color: var(--status-danger);
-    box-shadow: 0 0 0 1px var(--status-danger-glow);
   }
   .area-admin .tools-editor-field.field-error-highlight label {
     color: var(--status-danger);
@@ -383,10 +371,9 @@
      studio.css) is preserved as it overrides only the single rule it
      needs to. */
   /* Chip-list editor — input affordance for array-typed fields (e.g.,
-     host_allowlist). Treated as part of the .field-input family per
-     M08F3L3 polish: recessed bezel-inset + glass-border + panel-radius-sm,
-     matching .field-input visually. Chips inside use the canonical .chip
-     primitive treatment (accent-translucent flat). */
+     host_allowlist). Treated as part of the .field-input family: hairline
+     border + panel-radius-sm, matching .field-input visually. Chips inside
+     use the canonical .chip primitive treatment (accent-translucent flat). */
   .area-admin .chip-list-editor,
   .area-studio .chip-list-editor {
     flex: 1;
@@ -395,16 +382,15 @@
     gap: 4px;
     align-items: center;
     padding: 6px;
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius-sm);
     min-height: 40px;
     background: var(--surface);
-    box-shadow: var(--bezel-shadow-inset);
   }
+  /* Container focus: border-color shift (no halo). */
   .area-admin .chip-list-editor:focus-within,
   .area-studio .chip-list-editor:focus-within {
     border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
   .area-admin .chip-list-editor .chip,
   .area-studio .chip-list-editor .chip {
@@ -413,7 +399,7 @@
     gap: 4px;
     padding: 2px 8px;
     background: var(--accent-translucent);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius-sm);
     font-size: var(--font-size-body-sm);
     color: var(--fg);

@@ -1,8 +1,10 @@
 @layer components {
   /* === Shared Flash === */
-  .app-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--fg-on-accent); padding: 10px 48px; border-radius: var(--panel-radius-sm); font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; box-shadow: 0 0 12px var(--accent-glow-strong); }
+  /* Toast — a floating surface; elevation comes from the popover shadow
+     (two-shadow system). */
+  .app-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--fg-on-accent); padding: 10px 48px; border-radius: var(--panel-radius-sm); font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; box-shadow: var(--shadow-popover); }
   .app-flash.visible { opacity: 1; }
-  .app-flash.error { background: var(--status-danger); color: var(--fg-on-danger); box-shadow: 0 0 12px var(--status-danger-glow); }
+  .app-flash.error { background: var(--status-danger); color: var(--fg-on-danger); }
 
   /* === Skip Link === */
   .skip-link {
@@ -35,10 +37,10 @@
 
   /* === Top-bar area buttons === */
   /* Three flat buttons, one per registered area (Chat / Agent Studio / System).
-     V3b family treatment: accent-translucent base + V3 gradient + glass-border
-     + bezel-mini. Active area gets aria-current="page" for a stronger
-     "you are here" treatment. (Class name retained from the prior app-picker
-     popover affordance for design-language gallery + test-selector continuity.) */
+     Quiet treatment: accent-translucent base + hairline border. Active area
+     gets aria-current="page" for a stronger "you are here" treatment.
+     (Class name retained from the prior app-picker popover affordance for
+     design-language gallery + test-selector continuity.) */
   .app-picker-button {
     height: 36px;
     padding: 0 12px;
@@ -47,18 +49,15 @@
     gap: 8px;
     border-radius: var(--panel-radius-sm);
     background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--border);
     cursor: pointer;
     color: var(--accent);
     font-family: inherit;
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-semibold);
-    box-shadow: var(--bezel-shadow-mini);
     transition:
       background-color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      border-color var(--motion-base) var(--ease-tactile);
   }
   .app-picker-button-icon { display: inline-flex; align-items: center; justify-content: center; }
   .app-picker-button-icon svg { width: 18px; height: 18px; display: block; }
@@ -68,10 +67,9 @@
     border-color: var(--accent);
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      border-color var(--motion-fast) var(--ease-tactile);
   }
-  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
+  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* "You are here" state — current area's button. Stronger accent-translucent
      background + accent border. */
   .app-picker-button[aria-current="page"] {
@@ -142,16 +140,13 @@
   }
   .list-item:hover { background: var(--surface); color: var(--fg); }
   .list-item.active {
-    /* Mini-glass — Mission 08 F2 L3 + L4. Small pills get the gleam-overlay
-       image + accent-translucent base + simplified directional bezel (no
-       backdrop-filter — perf + small surface doesn't benefit from blur). */
+    /* Selected pill: accent-translucent wash + accent border. */
     background-color: var(--accent-translucent);
-    background-image: var(--glass-gleam);
     color: var(--fg);
     border: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-mini);
   }
-  .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
+  /* Inset ring: negative offset keeps the ring inside scroll/clip containers. */
+  .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
   .list-item-delete {
     display: none;
@@ -163,12 +158,12 @@
     font-size: var(--font-size-tiny);
     padding: 2px 4px;
     flex-shrink: 0;
-    transition: color 0.2s, filter 0.2s;
+    transition: color 0.2s;
   }
   .list-item:hover .list-item-delete,
   .list-item:focus-within .list-item-delete { display: block; }
-  .list-item-delete:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
-  .list-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .list-item-delete:hover { color: var(--status-danger); }
+  .list-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .list-item-delete svg { width: 12px; height: 12px; display: block; }
 
   /* === Form Field Primitives (editable form rows) === */
@@ -194,15 +189,12 @@
     font-family: inherit;
     font-size: var(--font-size-body);
     outline: none;
-    /* Pressed-in feel — Mission 08 F2 L5. Input affordances are recessed
-       (opposite of raised output panels). */
-    box-shadow: var(--bezel-shadow-inset);
   }
   .field-input:focus { border-color: var(--accent); }
   .field-input:focus-visible {
     border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .field-textarea {
     width: 100%;
@@ -215,14 +207,12 @@
     font-size: var(--font-size-body);
     outline: none;
     resize: vertical;
-    /* Pressed-in feel — see .field-input. */
-    box-shadow: var(--bezel-shadow-inset);
   }
   .field-textarea:focus { border-color: var(--accent); }
   .field-textarea:focus-visible {
     border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   /* The URL-encoded color in the data URL below is an SVG arrow exception:
      CSS variables can't be used inside data URLs. */
@@ -238,8 +228,8 @@
   .field-select:focus { border-color: var(--accent); }
   .field-select:focus-visible {
     border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   /* .field-select option styling — Mission 08 F2 L5. Native <option> CSS
      support varies across browsers (Chrome/Edge limited, Firefox respects
@@ -329,13 +319,13 @@
     outline-offset: 2px;
   }
 
-  /* === Section Title (// PREFIX) === */
+  /* === Section Title === */
+  /* Quiet label (v3): sans, small, medium weight, secondary ink — no
+     prefix marker, no uppercase, no letter-spacing. */
   .section-title {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    font-weight: var(--font-weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
     color: var(--fg-secondary);
     margin-top: 24px;
     margin-bottom: 12px;
@@ -345,35 +335,24 @@
      top padding. The 24px above kicks in only for sibling headers, where
      the operator wanted more breathing room. */
   .section-title:first-child { margin-top: 0; }
-  .section-title::before {
-    content: "//";
-    padding-right: 0.4em;
-    color: var(--accent);
-    font-weight: var(--font-weight-bold);
-  }
 
   /* === Buttons: Outlined-Primary (secondary affordance) === */
-  /* Mission 08 F2 L5 — V3b rest treatment. "Bubbled at rest" with the V3
-     glossy-band gradient (white-to-fade top + dark-fade bottom), accent-
-     translucent base, tile-style --glass-border, and the raised bezel-mini
-     elevation cue. Hover deepens the violet and stays in the same gradient
-     shape. Asymmetric in/out transitions match the .entity-tile pattern. */
+  /* Quiet secondary button: flat accent-translucent base + hairline border.
+     Hover deepens the wash and shifts the border to accent. Asymmetric
+     in/out transitions match the .entity-tile pattern. */
   .btn-outlined-primary {
     background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius-sm);
     padding: 4px 10px;
     color: var(--accent);
     font-size: var(--font-size-body-sm);
     cursor: pointer;
     font-family: inherit;
-    box-shadow: var(--bezel-shadow-mini);
     transition:
       background-color var(--motion-base) var(--ease-tactile),
       border-color var(--motion-base) var(--ease-tactile),
-      color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      color var(--motion-base) var(--ease-tactile);
   }
   .btn-outlined-primary:hover {
     background-color: var(--accent-translucent-hover);
@@ -381,20 +360,16 @@
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
       border-color var(--motion-fast) var(--ease-tactile),
-      color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      color var(--motion-fast) var(--ease-tactile);
   }
-  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
+  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .btn-outlined-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Buttons: Filled-Primary (primary CTA) === */
-  /* Mission 08 F2 L5 — V3b family treatment in saturated form. Same V3
-     gradient shape as outlined-primary, but on top of a solid accent fill
-     (vs translucent) and with the outer --accent-glow halo to read as the
-     primary CTA. Bezel-mini + asymmetric motion match the family. */
+  /* Flat solid accent fill — the saturated fill alone reads as the
+     primary CTA in the quiet system. */
   .btn-filled-primary {
     background-color: var(--accent);
-    background-image: var(--btn-v3-gradient);
     border: none;
     border-radius: var(--panel-radius-sm);
     padding: 8px 24px;
@@ -403,26 +378,22 @@
     cursor: pointer;
     font-family: inherit;
     font-size: var(--font-size-body);
-    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--accent-glow);
     transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      background-color var(--motion-base) var(--ease-tactile);
   }
   .btn-filled-primary:hover {
     transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      background-color var(--motion-fast) var(--ease-tactile);
   }
-  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-  .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Buttons: Muted-Destructive (delete-confirm style) === */
-  /* Mission 08 F2 L5 — V3b rest treatment in destructive tone. Same gradient
-     shape as outlined-primary (theme-agnostic white→fade→dark) on a soft
-     danger background, with the danger-muted border for semantic identity. */
+  /* Quiet destructive button: flat soft-danger background with the
+     danger-muted border for semantic identity; hover deepens to full
+     danger color. */
   .btn-muted-destructive {
     background-color: var(--status-danger-bg-soft);
-    background-image: var(--btn-v3-gradient);
     border: 1px solid var(--status-danger-muted);
     border-radius: var(--panel-radius-sm);
     padding: 3px 10px;
@@ -430,24 +401,20 @@
     font-size: var(--font-size-caption);
     cursor: pointer;
     font-family: inherit;
-    box-shadow: var(--bezel-shadow-mini);
     transition:
       background-color var(--motion-base) var(--ease-tactile),
       color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      border-color var(--motion-base) var(--ease-tactile);
   }
   .btn-muted-destructive:hover {
     color: var(--status-danger);
     border-color: var(--status-danger);
-    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--status-danger-glow);
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
       color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      border-color var(--motion-fast) var(--ease-tactile);
   }
-  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
+  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .btn-muted-destructive:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Button size modifiers ===
@@ -470,10 +437,10 @@
   /* Mission 08 F2 L5 polish: accent-tinted flat color (no gradient, no bezel)
      so chips read as part of the brand vocabulary without competing with
      buttons/tiles' raised treatment. */
-  .chip { background: var(--accent-translucent); border: 1px solid var(--glass-border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
-  .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s, filter 0.2s; background: transparent; border: none; padding: 0; }
-  .chip-remove:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
-  .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .chip { background: var(--accent-translucent); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
+  .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s; background: transparent; border: none; padding: 0; }
+  .chip-remove:hover { color: var(--status-danger); }
+  .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
 
   /* === Empty State (empty-list / empty-canvas messaging) === */
@@ -525,54 +492,41 @@
     flex-direction: column;
     gap: 6px;
     padding: 12px 14px;
-    /* Glass surface — Mission 08 F2 L3 ("C2" reflective treatment).
-       background-color holds the accent-tinted base; background-image holds
-       the gleam-overlay reflection. backdrop-filter blurs whatever is
-       behind. Hover/active rules update background-color only (not the
-       shorthand) so the gleam image survives state changes. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
+    /* Quiet surface: solid fill + hairline border; hierarchy comes from
+       the surface ladder, not effects. */
+    background-color: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius);
-    /* Bezel — Mission 08 F2 L4. Directional top-left stacked-depth bezel
-       replaces the bare inset-highlight from L3. */
-    box-shadow: var(--bezel-shadow);
     color: var(--fg);
     text-align: left;
     cursor: pointer;
     font-family: inherit;
     font-size: var(--font-size-body);
     position: relative;
-    /* Motion — Mission 08 F2 L5. Asymmetric transitions: fast on mouse-in
-       (the :hover rule overrides with --motion-fast), slower on mouse-out
-       (this base rule's --motion-base applies when :hover stops matching).
-       Pattern reads as crisp engagement + gentle disengagement. */
+    /* Motion — asymmetric transitions: fast on mouse-in (the :hover rule
+       overrides with --motion-fast), slower on mouse-out (this base rule's
+       --motion-base applies when :hover stops matching). Pattern reads as
+       crisp engagement + gentle disengagement. */
     transition:
       border-color var(--motion-base) var(--ease-tactile),
-      background-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      background-color var(--motion-base) var(--ease-tactile);
   }
   .entity-tile:hover {
     border-color: var(--accent);
     background-color: var(--accent-translucent);
     transition:
       border-color var(--motion-fast) var(--ease-tactile),
-      background-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      background-color var(--motion-fast) var(--ease-tactile);
   }
+  /* Inset ring: negative offset keeps the ring inside the tile bounds. */
   .entity-tile:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
-    box-shadow: inset 0 0 0 3px var(--accent-glow);
   }
   .entity-tile[aria-selected="true"],
   .entity-tile.active {
     border-color: var(--accent);
     background-color: var(--accent-translucent-hover);
-    /* Prior accent-glow shadow intentionally dropped — glass surfaces use the
-       inset highlight as their elevation cue (composition rule, F2 L3). */
   }
   .entity-tile-name {
     font-size: var(--font-size-body-lg);
@@ -689,7 +643,6 @@
   .new-entity-btn:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
 
   /* Always-expanded variant — used as the CTA inside an empty-canvas. The
@@ -730,9 +683,8 @@
     padding: 8px;
     border-bottom: 1px solid var(--border);
   }
-  /* Both themes: drop the section-nav bottom border — it paints a visible
-     line on the metallic chrome sidebar bg (alien-dashboard aesthetic
-     prefers continuous panel surfaces). */
+  /* Both themes: drop the section-nav bottom border — the sidebar reads
+     as one continuous quiet surface. */
   .section-nav { border-bottom: 0; }
   .section-nav-header {
     font-weight: var(--font-weight-bold);
@@ -753,20 +705,18 @@
     transition: background 0.15s, color 0.15s, border-color 0.15s;
   }
   .section-nav-item:hover { background: var(--surface); color: var(--fg); }
+  /* Inset ring: negative offset keeps the ring inside the sidebar list. */
   .section-nav-item:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
-    box-shadow: inset 0 0 0 3px var(--accent-glow);
   }
   .section-nav-item[aria-current="page"] {
-    /* Mini-glass — Mission 08 F2 L3 + L4 — same shape as .list-item.active:
-       gleam-overlay image + accent-translucent base + simplified bezel. */
+    /* Selected item: accent-translucent wash + accent border — same shape
+       as .list-item.active. */
     background-color: var(--accent-translucent);
-    background-image: var(--glass-gleam);
     color: var(--fg);
     font-weight: var(--font-weight-bold);
     border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-mini);
   }
 
   /* === Tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
@@ -798,10 +748,10 @@
     position: relative;
   }
   .tab:hover { color: var(--fg); }
+  /* Inset ring: negative offset keeps the ring inside the tablist strip. */
   .tab:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   .tab[aria-selected="true"] {
     color: var(--accent);
@@ -899,10 +849,9 @@
   .test-result-warning { color: var(--status-warning); }
   .test-result-pending { color: var(--fg-secondary); }
 
-  /* === Indicator LED (Mission 08 F2 L5) ===
-     10px round dot with a reflective top-left crescent + a darker
-     bottom-right shadow (D2+shadow vibe-iteration result). Outer glow
-     uses the matching --status-*-glow token. Idle state has no glow.
+  /* === Indicator LED ===
+     10px flat round status dot. Color is never the only signal — every
+     LED is paired with a text label (see accessibility contract below).
      Use directly as `<span class="indicator-led indicator-led--success">`,
      or rely on the `.test-result-*` retrofit below which renders the LED
      as a ::before pseudo on every existing connection-test result.
@@ -930,14 +879,11 @@
     height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
-    background-image:
-      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
-      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
   }
-  .indicator-led--success { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
-  .indicator-led--warning { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
-  .indicator-led--danger { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
-  .indicator-led--idle { background-color: var(--fg-muted); /* no glow */ }
+  .indicator-led--success { background-color: var(--status-success); }
+  .indicator-led--warning { background-color: var(--status-warning); }
+  .indicator-led--danger { background-color: var(--status-danger); }
+  .indicator-led--idle { background-color: var(--fg-muted); }
 
   /* Retrofit: .test-result-* gets the LED dot via ::before so existing
      connection-test consumers (provider editor, agent editor) pick it up
@@ -955,14 +901,11 @@
     vertical-align: middle;
     border-radius: 50%;
     flex-shrink: 0;
-    background-image:
-      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
-      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
   }
-  .test-result-ok::before { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
-  .test-result-fail::before { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
-  .test-result-warning::before { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
-  .test-result-pending::before { background-color: var(--fg-muted); /* no glow on idle */ }
+  .test-result-ok::before { background-color: var(--status-success); }
+  .test-result-fail::before { background-color: var(--status-danger); }
+  .test-result-warning::before { background-color: var(--status-warning); }
+  .test-result-pending::before { background-color: var(--fg-muted); }
 
   /* === Save / Cancel button (disabled-SSoT pattern) === */
   /* Save and Cancel both use `disabled` as the SOLE source of truth (lifted
@@ -1064,7 +1007,7 @@
   .api-key-wrap .field-input { flex: 1; }
   .api-key-eye { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
   .api-key-eye:hover { color: var(--fg); border-color: var(--border-strong); }
-  .api-key-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .api-key-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .api-key-eye svg { width: 14px; height: 14px; display: block; }
 
   /* === Advanced collapsible (Coming-soon stub disclosure) === */
@@ -1086,7 +1029,6 @@
   .advanced-collapsible > summary:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   .advanced-collapsible[open] > summary { color: var(--fg); }
   .advanced-caption {
@@ -1149,7 +1091,6 @@
     opacity: 1;
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   .markdown-copy-btn svg {
     width: 14px;
@@ -1176,9 +1117,6 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    /* Lighter overlay (was 0.5) — Mission 08 F2 L3 — so the modal-dialog's
-       backdrop-filter refraction reads through the dim, instead of looking
-       like a flat dark mask with a glass panel pasted on top. */
     background: rgba(0, 0, 0, 0.3);
     z-index: 200;
     display: flex;
@@ -1187,16 +1125,12 @@
     padding: 16px;
   }
   .modal-dialog {
-    /* Glass — Mission 08 F2 L3. Modal sits on top of .modal-overlay's
-       (now-reduced) dark backdrop; backdrop-filter blurs through to the
-       content beneath. var(--panel-shadow) dropped — competes with glass. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
+    /* Floating surface: solid fill + hairline border + the modal shadow
+       (two-shadow system). */
+    background-color: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
+    box-shadow: var(--shadow-modal);
     padding: 24px;
     min-width: 320px;
     max-width: 480px;

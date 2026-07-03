@@ -97,8 +97,8 @@
       (function (source) {
         var isAttached = attachedIds[source.id] === true;
 
-        // Each MCP source = a tile echoing .entity-tile (glass + gleam +
-        // bezel). The tile composes: row1 (toggle + name + protocol badge +
+        // Each MCP source = a tile echoing .entity-tile (quiet surface +
+        // hairline border). The tile composes: row1 (toggle + name + protocol badge +
         // Refresh) + expand button (tool count + chevron) + collapsible
         // tools body (the per-tool tiles). Mission 08 F4 L2 vibe.
         var tile = document.createElement('div');

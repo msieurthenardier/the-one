@@ -69,6 +69,23 @@
   // Event channel for multi-mount toggle sync.
   var THEME_EVENT = 'theme-preference-changed';
 
+  // Cross-tab theme sync (M17 F2 L3): reapply when ANOTHER tab writes or
+  // removes the stored preference. `storage` events never fire in the
+  // originating tab, so no same-tab echo guard is needed. Read the EVENT's
+  // newValue — never re-read localStorage (a re-read races a subsequent
+  // write; the event carries the value this notification is about).
+  // Key removed (newValue === null) means the other tab chose auto;
+  // garbage values degrade to auto via resolve()'s fallthrough.
+  window.addEventListener('storage', function (e) {
+    if (e.key !== STORAGE_KEY) return;
+    var pref = e.newValue === null ? 'auto' : e.newValue;
+    apply(resolve(pref));
+    // Sync any toggle mounted in THIS tab (checked state), same channel
+    // as set(). Normalize so the toggle never receives a garbage pref.
+    var normalized = (pref === 'dark' || pref === 'light') ? pref : 'auto';
+    document.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: { pref: normalized } }));
+  });
+
   // Module-scoped cleanup ref — replaces the prior per-container expando
   // (M08 F7 L03 H1 fix: container expando dies with the container's
   // innerHTML rewrite, leaving the document listener orphaned and

@@ -1242,23 +1242,68 @@ Adding a new construct: (1) `NodeType` constant, (2) tokeniser/parser case, (3) 
 
 ## Design system
 
+**Design Language v3 — "quiet instrument panel"** (Mission 17 Flight 2). Neutral surface ladders, hairline borders, one restrained violet accent, exactly two shadows, no decorative effects. The v2 alien-console vocabulary (glows, glass/backdrop-filter, bezels, chamfer clip-paths, shell chrome, btn-v3 gradients, `//` section markers) is retired and ENFORCED-gone: `tests/test_ui_guards.py::test_no_retired_design_vocabulary_in_css` fails on any reintroduction in `static/css` (comments included). One known, consciously-deferred remnant: the selected-tab L-bracket `clip-path: polygon` in `components.css`, allowlisted at count-1 until Flight 3's tabs rebuild removes it.
+
+### Token roles and ladder semantics
+
+Defined in `static/css/tokens.css` (single source; hex values live there, not here):
+
+- **Surfaces** — a three-step ladder `--bg` → `--surface` → `--surface-elevated` (dark: lifted charcoal; light: white/near-white). Elevation reads as the next ladder step, NOT as a bigger shadow — especially in dark. `--surface-tool` and `--code-block-bg` are role variants on the same ladder (the code well sits one step *below* bg in dark).
+- **Borders** — hairlines one step above their surface: `--border` → `--border-hover` → `--border-strong`. Separation between panels is carried by 1px hairlines, never by fills, shadows, or chrome.
+- **Text ladder** — `--fg` → `--fg-secondary` → `--fg-tertiary` → `--fg-muted` → `--fg-faint`, plus on-color inks (`--fg-on-accent`, `--fg-on-danger`). Every tier clears body AA on all three surfaces EXCEPT `--fg-faint` (deliberate band exception, below).
+- **Accent** — violet (`--accent`), with `--accent-translucent(-hover)` washes. `--accent-api` is badge-tier (chat user-vs-API differentiation), NOT an interactive accent.
+- **Status** — `--status-success/warning/danger` + soft `-bg-soft`/`-border` washes. Status text gates at body AA on bg/surface in BOTH themes. LEDs/dots are flat; labels carry the meaning.
+- **Badges** — provider + tool-category brand colors, theme-stable. Badge×on-color contrast is measured but NOT gated until Flight 3's badge rebuild.
+- **Geometry/motion** — spacing/radius/shadow scales (below), `--sidebar-w`/`--topbar-h` density tokens, `--motion-*` durations (collapse to 0 under `prefers-reduced-motion`). `--panel-radius*` are compat aliases onto the radius scale until Flight 3 migrates component CSS.
+
+### Accent restraint rule
+
+Accent appears on **interactive and selected states only** — active nav item, selected tab, focus rings, primary buttons, links. Never as ambient decoration, never on static chrome, never as a glow. The palette carries two accents' worth of identity (violet + badge colors); restraint is what keeps the panel quiet.
+
+### Both-themes-designed contract
+
+Dark and light are each designed on their own merits — neither is a value-flip of the other (dark: charcoal ladder + 400-family statuses; light: zinc ladder + 600/700-family statuses). Any change to one theme block must be designed (and AA-verified) in the other in the same change; a leg never lands with one theme unfinished. The nav rail is ladder-native in both themes (the light theme's dark-navy palette island was retired in v3).
+
 ### Color contrast (WCAG AA regression contract)
 
 Token contrast pairs are audited by `tests/test_design_tokens_a11y.py` against:
 - **4.5:1** for body text (WCAG 1.4.3)
 - **3.0:1** for large text, UI components, non-text contrast (WCAG 1.4.11)
 
-The test file hardcodes token values to mirror `tokens.css`; canonical mirror lives in `tests/browser/design_tokens.py` (`DARK` / `LIGHT` dicts). **Before changing a color token, re-run `pytest tests/test_design_tokens_a11y.py`.** If CSS values change, update `design_tokens.py` in lockstep — the brittleness is intentional (lightweight; no CSS-parser dependency).
+The test file hardcodes token values to mirror `tokens.css`; canonical mirror lives in `tests/browser/design_tokens.py` (`DARK` / `LIGHT` dicts). **Before changing a color token, re-run `pytest tests/test_design_tokens_a11y.py`.** If CSS values change, update `design_tokens.py` in lockstep — the lockstep is ENFORCED by `tests/test_ui_guards.py::test_design_token_mirror_in_sync` (mirror-driven value-sync against the top-level theme blocks of `tokens.css`, hex-normalized). Coverage (v3, M17 F2): the full fg ladder × bg/surface/surface-elevated/surface-tool at body AA, accent/accent-api/status-danger-muted at UI AA on the ladder surfaces, on-color pairs (accent/danger fills, code well), and status colors at body AA on bg/surface — all in both themes.
 
 `tests/test_token_definitions.py` parses every `var(--x)` reference across `static/css/*.css` and asserts each token has a definition. Catches typos like `var(--accnet)` that CSS silently treats as `unset`.
 
 ### Deliberate AA exceptions
 
-`--fg-faint` (dark `#444` on `#0a0a0a` ≈ 2.03:1; light `#94a3b8` on `#fafbfc` ≈ 2.47:1) is intentionally below body AA. Used for de-emphasized annotation labels (telemetry "in:"/"out:"/"ctx:", env-var hints), disabled placeholders, decorative recessive marks. NEVER body prose, NEVER an interactive UI affordance. Each carries a `# DELIBERATE EXCEPTION` comment in the test file; the assertion bands trip if a future retune drifts the value out of "faint" territory.
+`--fg-faint` (dark `#6b6d78`, light `#898993`) is intentionally below body AA but pinned to the **3.0 ≤ ratio < 4.5 band** on bg, surface, AND surface-elevated in both themes (v3 re-derivation, M17 F2: a faint tier at ≥4.5 stops being faint and collides with muted). Used for de-emphasized annotation labels (`.msg-attribution`, telemetry "in:"/"out:"/"ctx:" eyebrows) — NEVER body prose, NEVER an interactive UI affordance. The exception carries a `# DELIBERATE EXCEPTION` comment in the test file; the band assertions trip if a future retune drifts the value out of "faint" territory in either direction.
+
+**Exception policy**: a sub-AA pair exists only as a *band-pinned, consumer-scoped, test-annotated* exception — the suite asserts both its floor AND its ceiling, the allowed consumer roles are named, and the `# DELIBERATE EXCEPTION` comment marks it. An exception the suite doesn't pin is a bug, not an exception.
 
 ### Focus visibility convention
 
-All `:focus-visible` rules use the same pattern: `outline: 1px/2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow);`. Both themes meet the 3:1 non-text contrast threshold against adjacent surfaces.
+Pinned form (v3): `outline: 2px solid var(--accent); outline-offset: 2px;` — **no halo, no box-shadow**. Three sanctioned variants (M17 F2 L2a):
+- **Inset rings** keep negative outline-offsets where an outset ring would clip against a scroll container (`.list-item`, `.entity-tile`, `.section-nav-item`, `.tab`, `.chat-welcome-item`).
+- **`.btn-stop-turn`** keeps a danger-colored outline (its accent IS danger).
+- **`:focus-within` container treatments** degrade to a border-color change (e.g. `.chip-list-editor`), not a ring.
+
+Both themes meet the 3:1 non-text contrast threshold against adjacent surfaces.
+
+### Two-shadow elevation system
+
+Exactly two shadows exist: `--shadow-popover` (dropdowns, toasts, transient floats) and `--shadow-modal` (modal dialogs). Everything else expresses elevation via the surface ladder + hairlines. Do not introduce a third shadow; if a component seems to need one, it is either a popover, a modal, or not elevated.
+
+### Spacing and radius scales
+
+`--space-1..8` (4/8/12/16/24/32/48/64 px) and `--radius-sm/md/lg` (6/8/12 px), theme-agnostic in `:root`. Declarations being rewritten adopt the scales; wholesale migration of untouched declarations is deferred work (Flight 3+), not license for ad-hoc pixel values in new CSS.
+
+### Type discipline
+
+Geist, sizes per `fonts.css` (13px UI chrome / 14–15px content). Weights: **400 body, 500–600 emphasis — no 700 in chrome**. Tabular numerals for tables/telemetry. No uppercase-shouting in chrome: labels and section titles are sentence-case.
+
+### Section titles — quiet treatment
+
+`.section-title` is a quiet label: sans, `--font-size-body-sm`, weight 500, `--fg-secondary`. No `//` eyebrow pseudo-elements, no mono-uppercase-letterspaced treatment — in CSS *or* in JS-supplied text (hardcoded ALL-CAPS strings are the same violation). Renaming the class is Flight 3 component-vocabulary work.
 
 ### Theme switching contract
 
@@ -1271,7 +1316,9 @@ API on `App.theme`:
 
 Auto-mode resolution: `darkMedia.matches` → dark, else `lightMedia.matches` → light, else **dark** (canonical default — the design language is dark-first). Reads/writes are try/catch-wrapped so private-browsing degrades to in-memory non-persistent.
 
-Test environment: Playwright pins `color_scheme="no-preference"` so tests don't inherit host OS preference. To capture a specific theme: `page.evaluate("App.theme.set('light')")` + wait for `App.theme.resolved() === 'light'`.
+**Cross-tab sync (M17 F2 L3)**: theme.js listens for `window` `storage` events on the `theme-preference` key, so a preference set in one tab applies live in every other open tab — including key REMOVAL (`newValue === null` → auto) and garbage values (degrade to auto via `resolve`). The listener reads the event's `newValue` (never re-reads localStorage — a re-read races a subsequent write) and re-dispatches `theme-preference-changed` so a mounted toggle in the receiving tab re-checks. `storage` events never fire in the originating tab, so there is no echo loop. Regression: `tests/browser/test_theme_cross_tab_sync.py` (two pages, SAME BrowserContext — storage events don't cross contexts).
+
+Test environment: Playwright pins `color_scheme="no-preference"` so tests don't inherit host OS preference. Measured ground truth (M17 F2 L3): Chromium under that emulation MATCHES `(prefers-color-scheme: light)` — the no-preference media state was dropped from the spec — so **auto resolves light in the harness** (the "neither matches → dark" default is unreachable there). To capture a specific theme: `page.evaluate("App.theme.set('light')")` + wait for `App.theme.resolved() === 'light'`.
 
 ### Typography & icons
 
@@ -1357,6 +1404,18 @@ Each browser test gets its own app subprocess on a random port (`socket.bind((''
 Playwright fixtures (`playwright_instance`, `browser`) are **module-scoped**, NOT session-scoped — session scope kept the asyncio loop alive across modules and broke standalone smoke tests. Module scope still amortises Chromium within a module.
 
 Tests rely on `data-testid` attributes on load-bearing UI elements rather than CSS classes, so they survive UI redesigns.
+
+### Browser apparatus doctrine (goldfinch) — live visual verification
+
+goldfinch (MCP-driven browser) is the **canonical apparatus** for live visual verification against a running dev instance (`make up`); Playwright covers scripted regression, goldfinch covers exploratory/evidence work. Hard-won rules (sources: M17 F1 run log; M17 F2 L1/L2a/L2b flight-log anomalies):
+
+- **printToPDF + computed-style probes are the default evidence path, not a fallback.** `captureScreenshot` wedged (timeouts) in three consecutive F2 legs; `captureWindow` is admin-only. printToPDF is provenance-certain pixels, BUT print emulation mutes background fills — computed-style probes are the primary color evidence, and active/selected states are judged via a11y checked-state (`readAxTree`), not print pixels.
+- **Multi-tab provenance discipline: unattributed frames are non-evidence.** Every capture/probe must be attributed to a specific tab (wcId + URL) you opened or verified. Close your own tabs when done; never assume a foreground tab is the one you drove.
+- **a11y rendered/notRendered discrimination**: use the accessibility tree (`readAxTree`) to distinguish "element exists but hidden" from "rendered and exposed" — DOM presence alone over-claims.
+- **Foreground the tab before trusting computed styles after a theme flip.** A backgrounded tab's rendering is throttled: rules with `transition: background-color` freeze at their FROM state, so probes read the OLD theme's colors while `var()` on the same element already resolves NEW values. Foregrounding (or a printToPDF, which foregrounds first) unfreezes it instantly.
+- **Hard-reload after `make restart`.** The SPA links assets with versioned URLs (`?v=X.Y.Z`); the browser serves cached versioned responses even after the server restarts with new CSS/JS. Recovery: `fetch(href, {cache:'reload'})` over `document.styleSheets`/`document.scripts`, then `location.reload()`.
+- **Port-ownership pitfall (the squatter class).** A foreign process squatting the app port serves ITS build while `make up`'s fresh server dies with "address already in use" — every 200 and every rendered frame then comes from the WRONG build. `make verify-serving` asserts the pid listening on `$THE_ONE_PORT` matches the port-suffixed pidfile (`.the-one.<port>.pid`) and fails loudly on mismatch or unresolvable pid. Before trusting visual evidence, confirm the served instance is yours (verify-serving, or served-source grep + pid-owns-port).
+- **Record and restore operator state.** Theme preference (`theme-preference` localStorage key, per visited origin) is recorded before toggling and restored after; the dev instance is left as found.
 
 ### Visual snapshots — local-only
 

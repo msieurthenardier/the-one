@@ -410,7 +410,7 @@
     // type="button" class="field-info-icon" title="...">`` next to the
     // label provides the browser-native tooltip; an ``aria-describedby``
     // + ``visually-hidden`` sibling carries the screen-reader text. The
-    // ``data-testid`` on the info-icon button preserves the
+    // 'data-testid' on the info-icon button preserves the
     // ``connector-{idle,continuation,auto-relay}-hint`` testid
     // lineage from the dropped ``<small>`` elements so existing tests
     // resolve against the new affordance (`continuation-hint` test is
@@ -837,7 +837,7 @@
     //
     // M11 F1 L3: per-type form registry consult. The substrate emits
     // the outer field-row wrapper unconditionally so the
-    // ``[data-testid="connector-config"]`` selector keeps
+    // '[data-testid="connector-config"]' selector keeps
     // resolving for tests; only the inner content varies between the
     // typed (entry.renderConnectionFields) and generic
     // (renderConfigKvTable) render paths. Triple-guard against an

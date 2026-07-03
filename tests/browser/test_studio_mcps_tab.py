@@ -1,7 +1,7 @@
 """Browser tests for the Agent-editor MCPs tab (F8 L3+L4 flows).
 
 Rewritten against post-M08-F4-rebrand markup in M17 F1 L02: each MCP
-source renders as a glass tile (`.mcp-source-tile`,
+source renders as a tile (`.mcp-source-tile`,
 data-testid="mcp-source-row-{id}") with an attach toggle
 (mcp-source-toggle-{id}) on row 1, an expand button
 (mcp-source-expand-{id}) that toggles `aria-expanded` on the tile, and a

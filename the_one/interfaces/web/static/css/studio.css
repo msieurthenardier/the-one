@@ -37,7 +37,7 @@
     margin-bottom: 12px;
   }
   .area-studio .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
-  .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .area-studio .field-input-short { max-width: 100px; }
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
@@ -170,17 +170,13 @@
      100-char ellipsis) + chevron on the right. Body: full description with
      line breaks + input schema collapsible. */
   .area-studio .mcp-tool-item {
-    /* Glass + gleam + bezel echoing `.entity-tile` / `.mcp-source-tile`.
-       F4 L3. Hover gains accent border (no bg shift — the gleam reads
-       through unchanged). Open state has no special bg either; the
-       expanded body's dashed top-border is the visual cue. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
+    /* Quiet tile echoing `.entity-tile` / `.mcp-source-tile`: solid
+       surface + hairline border. Hover gains accent border. Open state
+       has no special bg; the expanded body's dashed top-border is the
+       visual cue. */
+    background-color: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
     transition: border-color var(--motion-fast);
   }
   .area-studio .mcp-tool-item:hover { border-color: var(--accent); }
@@ -386,9 +382,9 @@
 
   /* === Agent-editor MCPs tab — MCP source TILE ============================
      Each MCP source on the agent-editor MCPs tab renders as a tile echoing
-     `.entity-tile`'s glass + gleam + bezel vocabulary, but as a presentation
-     container (not a clickable button) since the tile embeds its own
-     controls (attach toggle, Refresh, Expand). Mission 08 F4 L2 vibe.
+     `.entity-tile`'s quiet surface + hairline border vocabulary, but as a
+     presentation container (not a clickable button) since the tile embeds
+     its own controls (attach toggle, Refresh, Expand).
      Layout: column-flex full-width tiles separated by gap. */
   .area-studio .mcp-sources-list {
     display: flex;
@@ -401,13 +397,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
+    background-color: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
     position: relative;
   }
   /* Row 1 — toggle, name, protocol badge, Refresh. Refresh sits at the far
@@ -505,10 +497,10 @@
 
   /* === Agent-editor Tools tab — CATEGORY TILES =============================
      Built-in tool categories (Filesystem / Execution / Web / …) render as
-     tiles echoing `.mcp-source-tile` (glass + gleam + bezel). Individual
-     tools inside the expanded body reuse the per-tool tile vocabulary the
-     MCPs tab introduced (`.mcp-tool-toggle-label` / `.mcp-tool-text` /
-     `.mcp-tool-toggle-name` / `.mcp-tool-description`). Mission 08 F4 L2. */
+     tiles echoing `.mcp-source-tile` (quiet surface + hairline border).
+     Individual tools inside the expanded body reuse the per-tool tile
+     vocabulary the MCPs tab introduced (`.mcp-tool-toggle-label` /
+     `.mcp-tool-text` / `.mcp-tool-toggle-name` / `.mcp-tool-description`). */
   .area-studio .tools-categories-list {
     display: flex;
     flex-direction: column;
@@ -520,13 +512,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
+    background-color: var(--surface);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
     position: relative;
   }
   .area-studio .tools-category-tile-row1 {
@@ -859,11 +847,11 @@
   .area-studio .connector-routing-drag-handle:hover { color: var(--fg); }
   .area-studio .connector-routing-drag-handle:active { cursor: grabbing; }
   /* M12 F4 L1 A2: visible focus ring for the now-focusable keyboard-reorder
-     handle. Matches the studio input focus style (accent border + glow). */
+     handle. Matches the pinned focus form. */
   .area-studio .connector-routing-drag-handle:focus-visible {
     outline: 2px solid var(--accent);
+    outline-offset: 2px;
     border-radius: 3px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   .area-studio .connector-routing-drag-handle svg { width: 16px; height: 16px; display: block; }
   .area-studio .connector-routing-row.is-dragging { opacity: 0.5; }
@@ -901,7 +889,6 @@
   .area-studio .field-row.field-error-highlight select,
   .area-studio .field-row.field-error-highlight textarea {
     border-color: var(--status-danger);
-    box-shadow: 0 0 0 1px var(--status-danger-glow);
   }
   .area-studio .field-row.field-error-highlight label {
     color: var(--status-danger);
@@ -1496,10 +1483,9 @@
 
   /* Discoverable Dropdown (M11 F3 L5) — live-data combobox shared by
      L6a's allowlist editor + L6b's routing-rules & per-agent overlay.
-     Visual posture mirrors the existing `.chip-list-editor` (admin.css
-     :388-433): glass-border, panel-radius-sm, inset bezel shadow,
-     accent-glow focus ring. Color tokens are the project's --fg /
-     --fg-secondary / --fg-muted suite (tokens.css :53-69). */
+     Visual posture mirrors the existing `.chip-list-editor` (admin.css):
+     hairline border + panel-radius-sm. Color tokens are the project's
+     --fg / --fg-secondary / --fg-muted suite (tokens.css). */
   .area-studio .discoverable-dropdown,
   .discoverable-dropdown {
     display: flex;
@@ -1510,8 +1496,8 @@
   /* M11 F12 L5 fix cycle 4: chip-list-editor + input unified into a
      single container; the standalone ``.discoverable-dropdown-input-row``
      wrapper no longer exists in the DOM. The canonical
-     ``chip-list-editor`` styling (admin.css :390-448) owns the
-     container's bezel + inline-flex layout, and ``.chip-list-input``
+     ``chip-list-editor`` styling (admin.css) owns the container's
+     border + inline-flex layout, and ``.chip-list-input``
      (admin.css :437-448) owns the borderless typeahead input. The
      legacy ``.discoverable-dropdown-input`` class is preserved on the
      input element for compatibility but its visual treatment now flows
@@ -1539,9 +1525,10 @@
     max-height: 260px;
     overflow-y: auto;
     background: var(--surface);
-    border: 1px solid var(--glass-border);
+    border: 1px solid var(--border);
     border-radius: var(--panel-radius-sm);
-    box-shadow: var(--bezel-shadow-inset);
+    /* Floating surface — popover shadow (two-shadow system). */
+    box-shadow: var(--shadow-popover);
     padding: 4px 0;
   }
   .discoverable-dropdown-menu[hidden] {

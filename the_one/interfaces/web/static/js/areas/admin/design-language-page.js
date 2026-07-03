@@ -18,15 +18,15 @@
     var sectionsHost = container.querySelector('#design-language-sections');
 
     var SECTIONS = [
-      { slug: 'tokens',     title: 'TOKENS' },
-      { slug: 'typography', title: 'TYPOGRAPHY' },
-      { slug: 'buttons',    title: 'BUTTONS' },
-      { slug: 'fields',     title: 'FIELDS' },
-      { slug: 'surfaces',   title: 'SURFACES' },
-      { slug: 'status',     title: 'STATUS' },
-      { slug: 'tabs',       title: 'TABS' },
-      { slug: 'modal',      title: 'MODAL' },
-      { slug: 'markdown',   title: 'MARKDOWN' }
+      { slug: 'tokens',     title: 'Tokens' },
+      { slug: 'typography', title: 'Typography' },
+      { slug: 'buttons',    title: 'Buttons' },
+      { slug: 'fields',     title: 'Fields' },
+      { slug: 'surfaces',   title: 'Surfaces' },
+      { slug: 'status',     title: 'Status' },
+      { slug: 'tabs',       title: 'Tabs' },
+      { slug: 'modal',      title: 'Modal' },
+      { slug: 'markdown',   title: 'Markdown' }
     ];
 
     for (var i = 0; i < SECTIONS.length; i++) {

@@ -104,7 +104,7 @@
     html += '<button type="button" role="tab" class="tab" id="agent-tab-connectors" ' +
       'aria-controls="' + PANEL_IDS.connectors + '" data-tab-id="connectors" ' +
       'data-testid="tab-connectors" aria-selected="false" tabindex="-1">Connectors</button>';
-    // `data-tab-id="tools"` + `data-testid="tab-tools"` preserved (browser
+    // data-tab-id="tools" + data-testid="tab-tools" preserved (browser
     // tests + URL routing still key off "tools"); only the visible label
     // and panel content semantics narrow to "Built-in Tools".
     html += '<button type="button" role="tab" class="tab" id="agent-tab-tools" ' +

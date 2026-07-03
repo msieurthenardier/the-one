@@ -1,13 +1,13 @@
 @layer areas {
   /* === Chat Area: Sidebar === */
-  /* Section headers in the chat sidebar use the shared .section-title class
-     for the `// HEADER` idiom. The :first-child rule on .section-title kills
+  /* Section headers in the chat sidebar use the shared .section-title
+     quiet-label treatment. The :first-child rule on .section-title kills
      the default 24px top margin in both #sidebar-header and .session-list,
      so vertical rhythm is driven by section-title's 12px bottom margin. */
   .area-chat #sidebar-header { padding: 12px 16px 0 16px; display: flex; flex-direction: column; }
   .area-chat .sidebar-actions { display: flex; gap: 6px; align-items: center; padding-bottom: 12px; }
-  /* Align the in-list `// CHAT HISTORY` heading to the same 16px indent as
-     `// SELECT AGENT` in the sidebar header above. .session-list has 8px
+  /* Align the in-list "Chat History" heading to the same 16px indent as
+     "Select Agent" in the sidebar header above. .session-list has 8px
      parent padding, so 8px self-padding lands the text at 16px from the
      sidebar's left edge — matching the select dropdown directly above it. */
   .area-chat .session-list > .section-title { padding: 0 8px; margin-bottom: 4px; }
@@ -25,10 +25,10 @@
     color: inherit; font: inherit; text-align: left; cursor: pointer;
   }
   .area-chat .session-item:focus { outline: none; }
-  .area-chat .session-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 4px; }
+  .area-chat .session-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   .area-chat .agent-select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-sm); outline: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
   .area-chat .agent-select:focus { border-color: var(--accent); }
-  .area-chat .agent-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-chat .agent-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
   .area-chat .session-list { flex: 1; overflow-y: auto; padding: 8px; }
   .area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -97,7 +97,7 @@
   }
   .area-chat .new-chat-header:hover span,
   .area-chat .new-chat-header:focus-visible span { opacity: 1; }
-  .area-chat .new-chat-header:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-chat .new-chat-header:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* Telemetry overlay — hover/focus expands details, lifts opacity to 1. */
   /* F2 Leg 2 (A.8): bump default opacity 0.4 → 0.7 so the resting state
@@ -116,7 +116,7 @@
   .area-chat .telemetry-overlay .t-ctx-pct.warn { color: var(--status-warning); }
   .area-chat .telemetry-overlay .t-ctx-pct.crit { color: var(--status-danger); }
   .area-chat .context-bar-wrap { width: 64px; height: 6px; background: var(--surface); border-radius: 3px; border: 1px solid var(--border); overflow: hidden; }
-  .area-chat .context-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s ease, background-color 0.3s ease; width: 0%; box-shadow: 0 0 6px var(--accent-glow); }
+  .area-chat .context-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s ease, background-color 0.3s ease; width: 0%; }
   .area-chat .context-bar.warn { background: var(--status-warning); }
   .area-chat .context-bar.crit { background: var(--status-danger); }
   .area-chat .chat-session-banner {
@@ -130,8 +130,8 @@
   }
   .area-chat .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
   .area-chat .msg { max-width: 85%; padding: 10px 14px; border-radius: var(--panel-radius); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); white-space: pre-wrap; word-wrap: break-word; }
-  .area-chat .msg.user { align-self: flex-end; background: var(--accent); color: var(--fg-on-accent); box-shadow: 0 0 8px var(--accent-glow); }
-  .area-chat .msg.user.api { background: var(--accent-api); box-shadow: none; }
+  .area-chat .msg.user { align-self: flex-end; background: var(--accent); color: var(--fg-on-accent); }
+  .area-chat .msg.user.api { background: var(--accent-api); }
   /* M11 F06 L04: peer-attributed user bubble. Same specificity as
      .msg.user above; declared AFTER it so last-rule-wins flips alignment
      and neutralizes the accent background so peer messages read as
@@ -265,7 +265,7 @@
      for session_metadata["routing"]. Relocated from an inline <details> panel
      above the composer to a header trigger + centered overlay. The trigger
      matches the .new-chat-header affordance; the overlay reuses the
-     .modal-overlay / .modal-dialog glass styling (components.css) with a
+     .modal-overlay / .modal-dialog styling (components.css) with a
      .routing-audit-modal sizing modifier. The row / badge / expansion / body
      styles below are unchanged — they render the entries inside the overlay. */
   .area-chat .routing-audit-trigger {
@@ -291,7 +291,6 @@
   .area-chat .routing-audit-trigger:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   /* The overlay toggles via the `hidden` attribute rather than DOM add/remove.
      .modal-overlay sets display:flex (author origin), which would otherwise
@@ -562,13 +561,13 @@
   .area-chat .input-area { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
   .area-chat .input-area input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-lg); outline: none; }
   .area-chat .input-area input:focus { border-color: var(--accent); }
-  .area-chat .input-area input:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-chat .input-area input:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
   /* F7 L04: stop/cancel button — sits next to Send, visible only while a turn
      is in flight (JS toggles `hidden`). Styled to contrast the send button:
      muted background with a status-danger icon, no filled-primary accent. */
   .area-chat .input-area .btn-stop-turn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--status-danger); background: var(--status-danger-bg-soft); color: var(--status-danger); font-family: inherit; font-size: var(--font-size-body-lg); cursor: pointer; flex-shrink: 0; transition: background 0.15s, border-color 0.15s; }
   .area-chat .input-area .btn-stop-turn:hover { background: var(--status-danger-bg-soft); border-color: var(--status-danger); filter: brightness(1.15); }
-  .area-chat .input-area .btn-stop-turn:focus-visible { outline: 2px solid var(--status-danger); outline-offset: 2px; box-shadow: 0 0 0 3px var(--status-danger-glow); }
+  .area-chat .input-area .btn-stop-turn:focus-visible { outline: 2px solid var(--status-danger); outline-offset: 2px; }
   .area-chat .input-area .btn-stop-turn[hidden] { display: none; }
   /* F09-04: pending-queued chip — a CLIENT-HELD message waiting for the
      running turn to finish (it is NOT sent to the backend until the prior
@@ -582,7 +581,7 @@
   .area-chat .pending-queued-chip .pending-queued-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
   .area-chat .pending-queued-chip .pending-queued-cancel { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--fg-secondary); font-size: 16px; line-height: 1; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
   .area-chat .pending-queued-chip .pending-queued-cancel:hover { border-color: var(--status-danger); color: var(--status-danger); }
-  .area-chat .pending-queued-chip .pending-queued-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-chat .pending-queued-chip .pending-queued-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* === Chat Area: Welcome canvas === */
   .area-chat .chat-welcome { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 40px 24px; overflow-y: auto; }
@@ -591,9 +590,9 @@
   .area-chat .chat-welcome-greeting { font-size: var(--font-size-display); font-weight: var(--font-weight-bold); color: var(--fg); margin: 0; letter-spacing: -0.02em; }
   .area-chat .chat-welcome-prompt { font-size: var(--font-size-body-lg); color: var(--fg-secondary); margin: 0 0 20px 0; line-height: var(--line-height-normal); }
   .area-chat .chat-welcome-list { display: flex; flex-direction: column; gap: 6px; }
-  .area-chat .chat-welcome-item { padding: 14px 16px; border-radius: var(--panel-radius); border: 1px solid var(--border); background: var(--surface-translucent); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color 0.15s, background 0.15s, box-shadow 0.15s; }
-  .area-chat .chat-welcome-item:hover { border-color: var(--accent); background-color: var(--accent-translucent); background-image: var(--glass-gleam); box-shadow: var(--bezel-shadow-mini); }
-  .area-chat .chat-welcome-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
+  .area-chat .chat-welcome-item { padding: 14px 16px; border-radius: var(--panel-radius); border: 1px solid var(--border); background: var(--surface-translucent); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color 0.15s, background 0.15s; }
+  .area-chat .chat-welcome-item:hover { border-color: var(--accent); background-color: var(--accent-translucent); }
+  .area-chat .chat-welcome-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .area-chat .chat-welcome-item-name { font-size: var(--font-size-body-lg); font-weight: var(--font-weight-semibold); }
   .area-chat .chat-welcome-item-meta { font-size: var(--font-size-caption); color: var(--fg-muted); font-family: var(--font-family-mono); }
   /* Setup-incomplete guidance line — inline links deep-link to Settings / Studio. */
@@ -602,15 +601,12 @@
   .area-chat .chat-welcome-link:hover { border-bottom-color: var(--accent); }
   .area-chat .chat-welcome-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 
-  /* Welcome-canvas mascot — decorative, centered above greeting. Drop-shadow
-     uses --accent-glow so it sits in the same lighting family as the welcome
-     items' hover bezel without competing for prominence. */
+  /* Welcome-canvas mascot — decorative, centered above greeting. */
   .area-chat .chat-welcome-mascot {
     display: block;
     width: 96px;
     height: 96px;
     margin: 0 auto 16px auto;
-    filter: drop-shadow(0 4px 12px var(--accent-glow));
     user-select: none;
     -webkit-user-drag: none;
   }

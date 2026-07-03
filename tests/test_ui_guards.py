@@ -1,4 +1,5 @@
-"""UI regression-net guards: testid registry sync + innerHTML sink freeze.
+"""UI regression-net guards: testid registry sync + innerHTML sink freeze
++ design-token mirror sync.
 
 Mission 17 Flight 1 ("Regression-Net Foundation") design decisions:
 
@@ -23,6 +24,18 @@ Mission 17 Flight 1 ("Regression-Net Foundation") design decisions:
   verifies the ratchet).  When a file's sites shrink, prune its baseline
   entries opportunistically.
 
+Mission 17 Flight 2 ("Design Language v3") adds:
+
+- **Design-token mirror sync** — ``tests/browser/design_tokens.py``
+  mirrors every literal-hex palette token per theme block of
+  ``tokens.css``.  The guard parses the CSS's two TOP-LEVEL theme blocks
+  (@media redefinitions stripped first) and asserts, mirror-driven, that
+  each mirror value matches its CSS definition (hex-normalized,
+  case-insensitive).  Mirror-driven direction is deliberate: a
+  CSS-driven completeness sweep would drag in badge/wash/indirection
+  values the mirror deliberately omits (see the mirror module docstring
+  for the omission rationale).
+
 To update after intentional changes:
 
 - New/renamed/removed testid → edit the matching registry table row.
@@ -39,13 +52,20 @@ from __future__ import annotations
 
 from collections import Counter
 
+from browser.design_tokens import DARK, LIGHT
+
 from tests._ui_guard_helpers import (
     JS_DIR,
     REGISTRY_DOC,
+    TOKENS_CSS,
     classify_sinks,
     extract_testids,
+    find_backtick_tripwire_hits,
+    find_banned_css_vocabulary,
     id_appears_as_string_literal,
+    normalize_css_color,
     parse_registry,
+    parse_tokens_css_theme_blocks,
 )
 
 # Selector references (``[data-testid="..."]`` in querySelector calls) that
@@ -319,6 +339,109 @@ def test_selector_referenced_testids_are_defined() -> None:
         for ref in sorted(dead):
             files = ", ".join(sorted(selector_refs[ref]))
             lines.append(f"  {ref}  (queried in: {files})")
+        raise AssertionError("\n".join(lines))
+
+
+def test_design_token_mirror_in_sync() -> None:
+    """Every value in the ``design_tokens.py`` mirror must match its
+    ``tokens.css`` definition (top-level theme blocks only; @media
+    redefinitions stripped).  Mirror-driven: mirror keys are converted
+    ``snake_case`` → ``--kebab-case`` and looked up in the parsed CSS;
+    values compare hex-normalized and case-insensitive.  Fails with the
+    exact token/value pairs that drifted."""
+    css_blocks = parse_tokens_css_theme_blocks()
+
+    lines: list[str] = []
+    for theme, mirror in (("dark", DARK), ("light", LIGHT)):
+        css = css_blocks[theme]
+        for key, mirror_value in mirror.items():
+            css_name = "--" + key.replace("_", "-")
+            if css_name not in css:
+                lines.append(
+                    f"  [{theme}] {css_name}: in mirror ({mirror_value!r}) but NOT defined "
+                    f"in the top-level theme block"
+                )
+                continue
+            css_value = css[css_name]
+            if normalize_css_color(css_value) != normalize_css_color(mirror_value):
+                lines.append(f"  [{theme}] {css_name}: mirror={mirror_value!r} css={css_value!r}")
+    if lines:
+        raise AssertionError(
+            f"design_tokens.py mirror out of sync with {TOKENS_CSS.name} "
+            "(mission 17 flight 2 lockstep contract).\n"
+            "Update tests/browser/design_tokens.py (or tokens.css) so the pairs match:\n"
+            + "\n".join(lines)
+        )
+
+
+# ── Banned-token guard (M17 F2 L3) ──────────────────────────────────────────
+#
+# Per-file allowance for ``clip-path: polygon`` occurrences. The
+# selected-tab L-bracket ``::before`` in components.css is the KNOWN,
+# consciously-deferred chamfer remnant — a shared-component treatment
+# handed off to Flight 3's tabs rebuild (flight DD "Chamfer containment
+# corrected"). COUNT-anchored, not line-anchored: exactly this many
+# occurrences are tolerated per file, wherever they sit. The count is
+# exact in both directions, so when Flight 3 deletes the L-bracket this
+# entry goes stale and the guard demands its removal (ratchet down).
+CLIP_PATH_POLYGON_ALLOWANCE: dict[str, int] = {
+    "components.css": 1,
+}
+
+
+def test_no_retired_design_vocabulary_in_css() -> None:
+    """No retired alien-console vocabulary (M17 F2) may reappear in
+    ``static/css`` — glow/glass/bezel/shell/btn-v3/panel-shadow token
+    names, ``backdrop-filter``, chamfer ``clip-path: polygon`` geometry
+    (minus the documented per-file allowance), and
+    ``prefers-reduced-transparency``. Comments count as hits. This is
+    the enforcement behind SC1's retirement: without it, later flights
+    could silently reintroduce the effects. Fails naming file+line."""
+    hits = find_banned_css_vocabulary()
+
+    seen_clip_path: Counter[str] = Counter()
+    violations: list[str] = []
+    for rel, lineno, label, line in hits:
+        if label == "clip-path: polygon" and rel in CLIP_PATH_POLYGON_ALLOWANCE:
+            seen_clip_path[rel] += 1
+            if seen_clip_path[rel] <= CLIP_PATH_POLYGON_ALLOWANCE[rel]:
+                continue
+        violations.append(f"  {rel}:{lineno}: [{label}] {line}")
+
+    lines: list[str] = []
+    if violations:
+        lines.append("Retired design vocabulary found in static/css (M17 F2 banned-token guard).")
+        lines.append("Remove the occurrences — the v3 quiet language does not use them:")
+        lines.extend(violations)
+    for rel, expected in CLIP_PATH_POLYGON_ALLOWANCE.items():
+        if seen_clip_path[rel] < expected:
+            lines.append(
+                f"Stale allowance: CLIP_PATH_POLYGON_ALLOWANCE expects {expected} "
+                f"'clip-path: polygon' occurrence(s) in {rel} but found "
+                f"{seen_clip_path[rel]} — the deferred remnant was removed; "
+                "delete/ratchet the allowance entry."
+            )
+    if lines:
+        raise AssertionError("\n".join(lines))
+
+
+def test_no_backtick_testids_or_html_sink_payloads() -> None:
+    """Backtick tripwire (M17 F2 L3, debrief rec 3): template literals
+    carrying ``data-testid`` and backtick payloads feeding
+    ``innerHTML``/``outerHTML``/``insertAdjacentHTML`` are banned in
+    ``static/js``. The testid extractor and sink classifier above are
+    calibrated for single-quoted JS strings — a backtick-quoted testid
+    or sink payload would be INVISIBLE to them, silently holing the
+    regression net. Comments scan like live code (write 'data-testid'
+    with quotes in comments). Fails naming file+line."""
+    hits = find_backtick_tripwire_hits()
+    if hits:
+        lines = [
+            "Backtick tripwire (M17 F2): backtick-quoted testids / template-literal",
+            "HTML-sink payloads found in static/js. Use single-quoted strings (the",
+            "guard extractors cannot see inside template literals):",
+        ]
+        lines.extend(f"  {rel}:{lineno}: [{kind}] {excerpt}" for rel, lineno, kind, excerpt in hits)
         raise AssertionError("\n".join(lines))
 
 

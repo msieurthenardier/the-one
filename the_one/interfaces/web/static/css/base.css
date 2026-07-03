@@ -7,7 +7,7 @@
      min-height: auto can push body's content past 100vh, surfacing a
      document-level scrollbar that runs the full viewport height (visible
      even behind the topbar). */
-  body { font-family: var(--font-family-sans); background: var(--shell-bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  body { font-family: var(--font-family-sans); background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
   /* === Top Bar === */
   #app-topbar {
@@ -19,19 +19,6 @@
     justify-content: space-between;
     padding: 0 16px;
     flex-shrink: 0;
-  }
-  /* Both themes: unified metallic chrome on topbar + sidebar (one L-shaped
-     housing component). Drops the border-bottom seam so the topbar's bg
-     continues seamlessly into the sidebar's bg below. The top-edge sheen
-     ("lit from above") is stacked on top of the shared chrome bg — only
-     on topbar, since adding it to the sidebar would paint a seam at the
-     topbar/sidebar interface. The sheen uses a white overlay that works
-     on both gunmetal (dark) and silver (light) chrome. */
-  #app-topbar {
-    background:
-      var(--shell-topbar-sheen),
-      var(--shell-chrome-bg);
-    border-bottom: 0;
   }
 
   /* === App Shell Row (sidebar + content) === */
@@ -53,13 +40,6 @@
     overflow: hidden;
     padding-top: 10px;
   }
-  /* Both themes: shares the unified metallic chrome with #app-topbar. The
-     border-right is dropped — main-content's L-bracket accent provides
-     the visual separation; no seam needed. */
-  #app-sidebar {
-    background: var(--shell-chrome-bg);
-    border-right: 0;
-  }
   .sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
   .sidebar-panel.active { display: flex; }
 
@@ -67,12 +47,7 @@
   /* min-height: 0 + min-width: 0 + overflow: hidden on this flex-column chain
      so descendant flex items can shrink below their intrinsic content size.
      Without min-height: 0, a tall inner element's auto min-height pushes the
-     chain up to body level, surfacing a document scrollbar.
-     Shell chrome (Mission 08 F3.5 L1): the V1b chamfered-with-accent-border
-     treatment is applied via theme-aware tokens. Dark theme: 8px chamfer +
-     accent frame fill + black content fill (the ::before pseudo draws the
-     interior; the 1px padding gap shows as the accent border). Light theme:
-     0px chamfer + transparent fills → rectangular, untreated. */
+     chain up to body level, surfacing a document scrollbar. */
   #main-content {
     flex: 1;
     display: flex;
@@ -81,59 +56,14 @@
     min-height: 0;
     overflow: hidden;
     position: relative;
-    background: var(--shell-frame-fill);
-    /* L-bracket frame: accent stroke on top + left + chamfer diagonal only.
-       Pentagonal clip-path keeps the right + bottom edges flush (no border). */
-    clip-path: polygon(
-      var(--shell-chamfer) 0,
-      100% 0,
-      100% 100%,
-      0 100%,
-      0 var(--shell-chamfer)
-    );
+    background: var(--bg);
   }
-  /* Inner fill — inset 1px on top + left only (flush right + bottom) so the
-     accent shows as an L-bracket on top + left + chamfer diagonal. z-index: -1
-     so the pseudo paints UNDER in-flow content (positioned-auto-z-index
-     elements paint after non-positioned ones in default stacking order,
-     which would otherwise cover headers + labels). */
-  #main-content::before {
-    content: '';
-    position: absolute;
-    top: 1px;
-    left: 1px;
-    right: 0;
-    bottom: 0;
-    /* Directional inner glow — accent halo fades inward from the top + left
-       L-bracket edges. Layered over the solid content fill. */
-    background:
-      linear-gradient(180deg, var(--shell-frame-glow), transparent 20px),
-      linear-gradient(90deg, var(--shell-frame-glow), transparent 20px),
-      var(--shell-content-fill);
-    clip-path: polygon(
-      var(--shell-chamfer) 0,
-      100% 0,
-      100% 100%,
-      0 100%,
-      0 var(--shell-chamfer)
-    );
-    pointer-events: none;
-    z-index: -1;
-  }
-  /* Content-panel mask — fades the content itself (text, icons, tiles) to
-     invisible at the very top so scrolled elements appear to tuck UNDER the
-     L-bracket border + glow. A solid overlay doesn't work on same-color
-     content (the fade is invisible against itself); mask-image is the
-     correct technique — it removes the element's own pixels at the top.
-     Both themes get the alien-dashboard mask. */
   .content-panel {
     display: none;
     flex-direction: column;
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    mask-image: linear-gradient(180deg, transparent 0px, black 8px);
-    -webkit-mask-image: linear-gradient(180deg, transparent 0px, black 8px);
   }
   .content-panel.active { display: flex; }
 

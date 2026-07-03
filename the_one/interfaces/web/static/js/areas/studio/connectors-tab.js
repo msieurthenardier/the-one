@@ -141,7 +141,7 @@
 
   // ── Per-account tile ──────────────────────────────────────────────────────
   //
-  // Visual parity with mcps-tab.js per-source tile: glass tile with row1
+  // Visual parity with mcps-tab.js per-source tile: quiet tile with row1
   // (toggle + name + type badge), an expand button for the details body,
   // and a collapsible details body that hosts the peers + channels ACL
   // editors.

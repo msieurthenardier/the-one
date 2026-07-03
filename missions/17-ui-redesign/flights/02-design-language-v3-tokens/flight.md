@@ -1,13 +1,13 @@
 # Flight: Design Language v3 — Tokens and Type
 
-**Status**: ready
+**Status**: landed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] SC1 — Complete visual-language replacement (token layer: glows/glass/bezels/chamfer/chrome retired here)
-- [ ] SC2 — Both themes individually designed and accessible (new palette + full-palette AA audit land here)
-- [ ] SC9 — Documentation reflects the new language (design-system reference + apparatus doctrine start here)
+- [ ] SC1 — Complete visual-language replacement (token layer: glows/glass/bezels/chamfer/chrome retired here) — *F2 delivered the token-layer share: retired categories neutralized then removed, banned-token guard active; box stays unchecked pending mission-end verification (tab L-bracket handed to F3)*
+- [ ] SC2 — Both themes individually designed and accessible (new palette + full-palette AA audit land here) — *F2 delivered the token-layer share: v3 palette landed in both themes, full-palette AA parametrization + mirror-sync guard green; box stays unchecked pending mission-end verification*
+- [ ] SC9 — Documentation reflects the new language (design-system reference + apparatus doctrine start here) — *F2 delivered the token-layer share: agents.md v3 design-system section + apparatus doctrine landed; box stays unchecked pending mission-end verification*
 
 ---
 
@@ -89,11 +89,11 @@ Dual-theme discipline: Leg 1 designs BOTH theme blocks (land-dark-port-light cad
 
 ### Checkpoints
 
-- [ ] Leg 1: contrast suite green with full-palette parametrization; mirror-sync guard landed and green; app renders quiet in both themes (neutralized effects)
-- [ ] Leg 2a: zero retired-category references in components/chat/studio/admin CSS; token-definition test green; both themes visually coherent
-- [ ] Leg 2b (divert gate): base.css shell reads plain-quiet in both themes; shell-navigation-smoke still green; no structural coupling surprises beyond leg scope
-- [ ] Leg 3: cross-tab theme sync works both directions (regression test green); banned-token guard + tripwire active and probe-tested; agents.md reflects v3
-- [ ] Leg 4: `make test-unit` + `make test-browser` green; shell-navigation-smoke passes; both-themes evidence captured incl. tabs + focus states
+- [x] Leg 1: contrast suite green with full-palette parametrization; mirror-sync guard landed and green; app renders quiet in both themes (neutralized effects)
+- [x] Leg 2a: zero retired-category references in components/chat/studio/admin CSS; token-definition test green; both themes visually coherent
+- [x] Leg 2b (divert gate): base.css shell reads plain-quiet in both themes; shell-navigation-smoke still green; no structural coupling surprises beyond leg scope
+- [x] Leg 3: cross-tab theme sync works both directions (regression test green); banned-token guard + tripwire active and probe-tested; agents.md reflects v3
+- [x] Leg 4: `make test-unit` + `make test-browser` green; shell-navigation-smoke passes (FD re-run pending); both-themes evidence captured incl. tabs + focus states
 
 ### Adaptation Criteria
 
@@ -110,11 +110,11 @@ Dual-theme discipline: Leg 1 designs BOTH theme blocks (land-dark-port-light cad
 
 > **Note:** Tentative; created one at a time as the flight progresses.
 
-- [ ] `tokens-v3-both-themes` - New token tables + neutralized retirements + mirror rewrite + full-palette parametrization (fg-faint exception re-derived) + mirror-sync guard (probe-tested)
-- [ ] `consumer-sweep` - (2a) ~130 mechanical token-reference removals in components/chat/studio/admin CSS; `.section-title` quieting (incl. hardcoded ALL-CAPS text in `status-section.js` and stale `//` comments); alias + reduced-transparency deletion; focus-visible normalization where touched
-- [ ] `shell-structure-dismantle` - (2b) base.css: de-chamfer `#main-content`, remove frame/glow/mask/sheen/chrome structure → plain quiet shell; own divert checkpoint
-- [ ] `theme-sync-guards-docs` - ADD cross-tab storage listener + both-direction regression test; banned-token guard + mirror-sync guard + backtick tripwire (all probe-tested); gallery token list; agents.md v3 + apparatus doctrine
-- [ ] `dual-theme-verification` - Full suites + goldfinch visual pass both themes (explicitly capturing tabs and :focus-visible states, so the deferred tab L-bracket and outline-only focus are seen and consciously accepted) + shell-navigation-smoke re-run
+- [x] `tokens-v3-both-themes` - New token tables + neutralized retirements + mirror rewrite + full-palette parametrization (fg-faint exception re-derived) + mirror-sync guard (probe-tested)
+- [x] `consumer-sweep` - (2a) ~130 mechanical token-reference removals in components/chat/studio/admin CSS; `.section-title` quieting (incl. hardcoded ALL-CAPS text in `status-section.js` and stale `//` comments); alias + reduced-transparency deletion; focus-visible normalization where touched
+- [x] `shell-structure-dismantle` - (2b) base.css: de-chamfer `#main-content`, remove frame/glow/mask/sheen/chrome structure → plain quiet shell; own divert checkpoint
+- [x] `theme-sync-guards-docs` - ADD cross-tab storage listener + both-direction regression test; banned-token guard + backtick tripwire (probe-tested; mirror-sync guard landed in Leg 1); verify-serving port/ownership fix; gallery token list; agents.md v3 + apparatus doctrine
+- [x] `dual-theme-verification` - Full suites + goldfinch visual pass both themes (explicitly capturing tabs and :focus-visible states, so the deferred tab L-bracket and outline-only focus are seen and consciously accepted) + shell-navigation-smoke re-run
 
 ---
 
@@ -122,10 +122,10 @@ Dual-theme discipline: Leg 1 designs BOTH theme blocks (land-dark-port-light cad
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Tests passing (`make test-unit` + `make test-browser`)
-- [ ] Flight log updated
-- [ ] Documentation updated (agents.md design section, CLAUDE.md if commands changed)
+- [x] All legs completed
+- [x] Tests passing (`make test-unit` + `make test-browser`)
+- [x] Flight log updated
+- [x] Documentation updated (agents.md design section, CLAUDE.md if commands changed)
 
 ### Verification
 
