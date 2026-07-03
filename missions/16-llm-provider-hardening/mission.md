@@ -525,7 +525,10 @@ Deferred (own-mission candidate, 2026-06-23):
       (protocol provider-agnostic). **Deferred:** live thinking-delta streaming (DD2) + OpenAI
       `o*`/`<think>` models + the `effort`/`reasoning_effort` knob (backlog **A4**). 7 legs;
       per-leg + whole-flight reviewed; guided HAT. See `flights/10-extended-thinking-support/`.
-      *(Debrief via `/flight-debrief` — will transition `landed → completed`.)*
+      **COMPLETED (debriefed 2026-07-03).** Debrief carries to `/mission-debrief`: the SDK-shape-vs-
+      live-wire-format planning gate; the HAT backend-currency precondition; the `thinking_display_text`
+      `type`-filter A2 risk; the `effort`-in-config (not-ABC) A4 guidance; two small deferred fixes
+      (live-broadcast `visibility`; empty-thinking-text tests); the still-open aiosqlite teardown flake.
 - [ ] Flights *(capability, audit-driven)*: **other SDK capabilities** — e.g.
       prompt caching, structured outputs / JSON mode, vision/multimodal, document
       inputs, reasoning-effort controls — each planned and prioritized from the

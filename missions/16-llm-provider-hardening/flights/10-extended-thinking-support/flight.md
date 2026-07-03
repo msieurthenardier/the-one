@@ -1,6 +1,6 @@
 # Flight: Extended-Thinking / Reasoning Support (A1)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
