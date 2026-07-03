@@ -10,9 +10,30 @@ from __future__ import annotations
 
 import re
 
+import httpx
 import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
+
+
+def _seed_anthropic_provider(
+    base_url: str, *, name: str = "Claude", thinking_enabled: bool = False
+) -> str:
+    """POST an anthropic provider via /api/providers and return its id.
+
+    Used by the Extended-thinking toggle tests (F10-06) that need an existing
+    anthropic provider in edit mode (Save starts disabled → toggling the
+    checkbox must flip it enabled, guarding the checkbox-aware dirty patch)."""
+    payload = {
+        "name": name,
+        "type": "anthropic",
+        "base_url": "https://api.anthropic.com",
+        "api_key": "sk-ant-seedkey1234",
+        "config": {"thinking_enabled": thinking_enabled},
+    }
+    r = httpx.post(f"{base_url}/api/providers", json=payload, timeout=5.0)
+    assert r.status_code == 201, f"seed_anthropic_provider failed: {r.status_code} {r.text}"
+    return r.json()["id"]
 
 # ── Header / scaffold ────────────────────────────────────────────────────
 
@@ -255,3 +276,113 @@ def test_num_ctx_info_icon_tooltip(app_clean: str, page: Page) -> None:
     expect(icon).to_have_attribute("aria-describedby", "pf-num-ctx-desc")
     expect(page.locator("#pf-num-ctx-desc")).to_have_text(desc)
     expect(page.locator("#pf-num-ctx")).to_have_attribute("aria-describedby", "pf-num-ctx-desc")
+
+
+# ── Extended thinking (config.thinking_enabled) toggle — F10-06 ──────────
+
+
+@pytest.mark.browser
+def test_thinking_toggle_shown_for_anthropic_unchecked_by_default(
+    app_clean: str, page: Page
+) -> None:
+    """Selecting the anthropic type reveals an Extended-thinking checkbox,
+    unchecked by default (off-by-default: operator opts in)."""
+    page.goto(f"{app_clean}#admin/providers/new")
+    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    page.locator("#pf-type").select_option("anthropic")
+    toggle = page.locator("#pf-thinking-enabled")
+    expect(toggle).to_be_visible()
+    expect(toggle).to_have_attribute("type", "checkbox")
+    expect(toggle).not_to_be_checked()
+    expect(page.locator('label[for="pf-thinking-enabled"]')).to_have_text("Extended thinking")
+
+
+@pytest.mark.browser
+def test_thinking_toggle_hidden_for_non_anthropic(app_clean: str, page: Page) -> None:
+    page.goto(f"{app_clean}#admin/providers/new")
+    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    page.locator("#pf-type").select_option("openai")
+    expect(page.locator(".admin-pf-thinking-enabled")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+
+
+@pytest.mark.browser
+def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
+    """The description is a focusable info-icon button (title= tooltip) with a
+    visually-hidden span wired via aria-describedby — mirrors the num_ctx
+    field-info-icon a11y idiom."""
+    page.goto(f"{app_clean}#admin/providers/new")
+    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    page.locator("#pf-type").select_option("anthropic")
+    desc = (
+        "When on, the model reasons step-by-step before answering "
+        "(adaptive thinking). Requires Claude Sonnet 4.6 or newer."
+    )
+    icon = page.locator(".admin-pf-thinking-enabled .field-info-icon")
+    expect(icon).to_be_visible()
+    expect(icon).to_have_attribute("title", desc)
+    expect(icon).to_have_attribute("aria-describedby", "pf-thinking-enabled-desc")
+    expect(page.locator("#pf-thinking-enabled-desc")).to_have_text(desc)
+    expect(page.locator("#pf-thinking-enabled")).to_have_attribute(
+        "aria-describedby", "pf-thinking-enabled-desc"
+    )
+
+
+@pytest.mark.browser
+def test_thinking_toggle_flips_save_from_disabled_to_enabled(
+    app_clean: str, page: Page
+) -> None:
+    """Toggling the checkbox on an existing (clean) anthropic provider marks
+    the form dirty (Save flips from disabled → enabled). Directly guards the
+    [high] checkbox-aware getFormSnapshot patch — fails loudly if the snapshot
+    ignores .checked."""
+    provider_id = _seed_anthropic_provider(app_clean, thinking_enabled=False)
+    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
+    toggle = page.locator("#pf-thinking-enabled")
+    expect(toggle).to_be_visible()
+    expect(toggle).not_to_be_checked()
+    # Clean form → Save disabled.
+    expect(page.locator(".save-btn")).to_be_disabled()
+    toggle.check()
+    # Checkbox toggle must mark the form dirty.
+    expect(page.locator(".save-btn")).not_to_be_disabled()
+    expect(page.locator(".cancel-btn")).not_to_be_disabled()
+
+
+@pytest.mark.browser
+def test_thinking_toggle_saves_and_reopens_checked(app_clean: str, page: Page) -> None:
+    """Toggle on + Save + reload → the checkbox re-renders checked (edit-load
+    reflects the stored config.thinking_enabled)."""
+    provider_id = _seed_anthropic_provider(app_clean, thinking_enabled=False)
+    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
+    toggle = page.locator("#pf-thinking-enabled")
+    expect(toggle).not_to_be_checked()
+    toggle.check()
+    save_btn = page.locator(".save-btn")
+    expect(save_btn).not_to_be_disabled()
+    save_btn.click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+    # Reload the editor from scratch → the stored value must round-trip.
+    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
+    expect(page.locator("#pf-thinking-enabled")).to_be_checked()
+
+
+@pytest.mark.browser
+def test_thinking_toggle_cancel_reverts(app_clean: str, page: Page) -> None:
+    """Cancel after toggling reverts the checkbox to its snapshot state
+    (checkbox-aware Cancel-revert patch)."""
+    provider_id = _seed_anthropic_provider(app_clean, thinking_enabled=False)
+    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
+    toggle = page.locator("#pf-thinking-enabled")
+    expect(toggle).not_to_be_checked()
+    toggle.check()
+    expect(page.locator(".cancel-btn")).not_to_be_disabled()
+    page.locator(".cancel-btn").click()
+    expect(page.locator("#pf-thinking-enabled")).not_to_be_checked()
+    expect(page.locator(".save-btn")).to_be_disabled()
+    expect(page.locator(".cancel-btn")).to_be_disabled()

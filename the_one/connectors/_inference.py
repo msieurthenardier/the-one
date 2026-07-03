@@ -327,6 +327,10 @@ async def run_engagement_inference(
             tools=None,
             temperature=0.0,
             max_tokens=10,
+            # M16 F10 L02 (DD4): suppress extended thinking on the cheap yes/no
+            # classifier — a configured Anthropic budget would otherwise force
+            # thinking onto this max_tokens=10 probe (wasteful + DD6-tripping).
+            enable_thinking=False,
         )
     except Exception:
         logger.warning(

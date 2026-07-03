@@ -11,8 +11,16 @@ from the_one.db.codec import (
     message_from_dict,
     message_to_dict,
     messages_to_ui_events,
+    thinking_display_text,
 )
-from the_one.llm.base import Message, Role, TokenUsage, ToolCall, ToolResult
+from the_one.llm.base import (
+    Message,
+    Role,
+    ThinkingBlock,
+    TokenUsage,
+    ToolCall,
+    ToolResult,
+)
 
 
 class TestCodecRoundTrip:
@@ -358,6 +366,154 @@ class TestMessagesToUiEventsDiscriminator:
 
 
 # ---------------------------------------------------------------------------
+# M16 F10 L05 — thinking display text + thinking event projection
+# ---------------------------------------------------------------------------
+
+
+class TestThinkingDisplayText:
+    """``thinking_display_text`` is the single source of truth for the UI's
+    human-readable reasoning string, shared by the codec projection and the
+    live broadcast (app.py). Concatenates ``type=="thinking"`` text; a
+    redacted-only turn yields a marker; no thinking yields ``""``.
+    """
+
+    def test_joins_thinking_blocks_in_order(self) -> None:
+        blocks = [
+            ThinkingBlock(type="thinking", thinking="first", signature="sig1"),
+            ThinkingBlock(type="thinking", thinking="second", signature="sig2"),
+        ]
+        assert thinking_display_text(blocks) == "first\n\nsecond"
+
+    def test_no_thinking_yields_empty(self) -> None:
+        assert thinking_display_text([]) == ""
+
+    def test_thinking_block_with_no_text_is_skipped(self) -> None:
+        # A type=="thinking" block whose .thinking is None/"" contributes
+        # nothing; with no other text it degrades to "" (not a marker).
+        blocks = [ThinkingBlock(type="thinking", thinking=None)]
+        assert thinking_display_text(blocks) == ""
+
+    def test_redacted_only_yields_marker(self) -> None:
+        blocks = [ThinkingBlock(type="redacted_thinking", data="opaque")]
+        assert thinking_display_text(blocks) == "[reasoning redacted]"
+
+    def test_mixed_thinking_and_redacted_prefers_text(self) -> None:
+        blocks = [
+            ThinkingBlock(type="thinking", thinking="visible reasoning", signature="s"),
+            ThinkingBlock(type="redacted_thinking", data="opaque"),
+        ]
+        assert thinking_display_text(blocks) == "visible reasoning"
+
+    def test_never_leaks_signature_or_data(self) -> None:
+        blocks = [ThinkingBlock(type="thinking", thinking="text", signature="SECRET")]
+        assert "SECRET" not in thinking_display_text(blocks)
+
+
+class TestMessagesToUiEventsThinking:
+    """``messages_to_ui_events`` projects a ``thinking`` event in the ASSISTANT
+    branch — after the assistant-content event, before the tool_call events —
+    ONLY when there is displayable reasoning. No-thinking turns are unchanged.
+    """
+
+    def test_thinking_event_emitted_with_joined_text(self) -> None:
+        msgs = [
+            Message.assistant(
+                "the answer",
+                thinking=[
+                    ThinkingBlock(type="thinking", thinking="step one", signature="s1"),
+                    ThinkingBlock(type="thinking", thinking="step two", signature="s2"),
+                ],
+            )
+        ]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 2
+        assert events[0] == {"type": "assistant", "content": "the answer"}
+        # Thinking event AFTER the assistant content event, carries parent id.
+        assert events[1] == {
+            "type": "thinking",
+            "content": "step one\n\nstep two",
+            "parent_message_id": "replay-msg-0",
+        }
+
+    def test_no_thinking_emits_no_thinking_event(self) -> None:
+        msgs = [Message.assistant("plain answer")]
+        events = messages_to_ui_events(msgs)
+        assert events == [{"type": "assistant", "content": "plain answer"}]
+        assert not any(e["type"] == "thinking" for e in events)
+
+    def test_redacted_only_projects_marker(self) -> None:
+        msgs = [
+            Message.assistant(
+                "answer",
+                thinking=[ThinkingBlock(type="redacted_thinking", data="opaque")],
+            )
+        ]
+        events = messages_to_ui_events(msgs)
+        thinking_events = [e for e in events if e["type"] == "thinking"]
+        assert len(thinking_events) == 1
+        assert thinking_events[0]["content"] == "[reasoning redacted]"
+
+    def test_empty_content_thinking_plus_tool_calls_turn(self) -> None:
+        """Criterion #1's core shape: a turn with empty content but thinking +
+        a tool call. No assistant-content event fires; the thinking event is
+        emitted FIRST, then the tool_call events — ordering preserved.
+        """
+        tc = ToolCall(id="tc-1", name="read_file", arguments={"path": "/x"})
+        msgs = [
+            Message.assistant(
+                "",
+                tool_calls=[tc],
+                thinking=[ThinkingBlock(type="thinking", thinking="reason", signature="s")],
+            )
+        ]
+        events = messages_to_ui_events(msgs)
+        # No assistant-content event (empty content).
+        assert not any(e["type"] == "assistant" for e in events)
+        assert len(events) == 2
+        assert events[0] == {
+            "type": "thinking",
+            "content": "reason",
+            "parent_message_id": "replay-msg-0",
+        }
+        assert events[1] == {
+            "type": "tool_call",
+            "name": "read_file",
+            "arguments": {"path": "/x"},
+            "parent_message_id": "replay-msg-0",
+            "tool_call_id": "tc-1",
+        }
+
+    def test_thinking_carries_visibility_on_replay(self) -> None:
+        from the_one.connectors import OPERATOR_VISIBILITY
+
+        msg = Message.assistant(
+            "answer",
+            thinking=[ThinkingBlock(type="thinking", thinking="reason", signature="s")],
+        )
+        msg.visibility = OPERATOR_VISIBILITY
+        events = messages_to_ui_events([msg])
+        thinking_events = [e for e in events if e["type"] == "thinking"]
+        assert len(thinking_events) == 1
+        assert thinking_events[0]["visibility"] == OPERATOR_VISIBILITY
+
+    def test_no_thinking_full_conversation_byte_identical(self) -> None:
+        """Regression tripwire: a no-thinking conversation projects exactly as
+        it did before L05 — no thinking events, no shape drift.
+        """
+        msgs = [
+            Message.system("You are helpful"),
+            Message.user("Hi"),
+            Message.assistant("Hello!"),
+            Message.assistant(
+                "Sure", tool_calls=[ToolCall(id="t1", name="read_file", arguments={"path": "/x"})]
+            ),
+            Message.tool(ToolResult(tool_call_id="t1", content="file data")),
+        ]
+        events = messages_to_ui_events(msgs)
+        assert not any(e["type"] == "thinking" for e in events)
+
+
+# ---------------------------------------------------------------------------
 # M08 F6 L02 — projection-time truncation of tool_result.content
 # ---------------------------------------------------------------------------
 
@@ -619,6 +775,147 @@ class TestMessageChannelNameCodec:
         rt = decode_messages(encode_messages(msgs))
         assert rt[0].channel_name == "general"
         assert rt[0].peer_name == "alice"
+
+
+# ---------------------------------------------------------------------------
+# M16 F10 L01 — Message.thinking round-trip (structured extended-thinking
+# blocks; truthy-guarded list sibling of tool_calls, NOT the emit-when-non-none
+# convention)
+# ---------------------------------------------------------------------------
+
+
+class TestMessageThinkingCodec:
+    """``Message.thinking`` round-trips through ``message_to_dict`` ↔
+    ``message_from_dict`` as a list of ``ThinkingBlock``s, modeled on
+    ``tool_calls``: the ``"thinking"`` key is emitted only when the list is
+    non-empty (TRUTHY guard), and deserialization defaults to an empty list
+    when the key is absent (back-compat with every pre-F10 session row).
+    Signatures and redacted ``data`` survive verbatim; the stored block dict
+    equals the Anthropic content-block shape (only set sub-keys) so Leg 03
+    replay can hand it back with no re-mapping.
+    """
+
+    def test_emit_when_non_empty(self) -> None:
+        """A message with one thinking block encodes a ``"thinking"`` key."""
+        msg = Message.assistant(
+            "answer",
+            thinking=[ThinkingBlock(type="thinking", thinking="reasoning")],
+        )
+        d = message_to_dict(msg)
+        assert d["thinking"] == [{"type": "thinking", "thinking": "reasoning"}]
+
+    def test_omit_when_empty(self) -> None:
+        """``Message.assistant("hi")`` (empty thinking) has no ``"thinking"`` key."""
+        d = message_to_dict(Message.assistant("hi"))
+        assert "thinking" not in d
+
+    def test_signature_preservation(self) -> None:
+        """A ``type="thinking"`` block round-trips ``thinking`` + ``signature``
+        verbatim (the signature MUST survive or the follow-up turn 400s)."""
+        block = ThinkingBlock(
+            type="thinking", thinking="let me think", signature="sig-abc-123"
+        )
+        rt = decode_messages(encode_messages([Message.assistant("ok", thinking=[block])]))
+        assert len(rt[0].thinking) == 1
+        got = rt[0].thinking[0]
+        assert got.type == "thinking"
+        assert got.thinking == "let me think"
+        assert got.signature == "sig-abc-123"
+        assert got.data is None
+
+    def test_redacted_round_trip(self) -> None:
+        """A ``type="redacted_thinking"`` block preserves ``data`` and leaves
+        ``thinking``/``signature`` at ``None`` (omitted from the stored dict)."""
+        block = ThinkingBlock(type="redacted_thinking", data="opaque-blob")
+        d = message_to_dict(Message.assistant("ok", thinking=[block]))
+        assert d["thinking"] == [{"type": "redacted_thinking", "data": "opaque-blob"}]
+        rt = decode_messages(encode_messages([Message.assistant("ok", thinking=[block])]))
+        got = rt[0].thinking[0]
+        assert got.type == "redacted_thinking"
+        assert got.data == "opaque-blob"
+        assert got.thinking is None
+        assert got.signature is None
+
+    def test_back_compat_no_thinking_key(self) -> None:
+        """Pre-F10 JSON had no thinking key — deserialize must default to []."""
+        msg = message_from_dict({"role": "assistant", "content": "hi"})
+        assert msg.thinking == []
+
+    def test_message_assistant_default_thinking_is_empty(self) -> None:
+        """``Message.assistant`` defaults thinking to an empty list (kwarg-only)."""
+        assert Message.assistant("hi").thinking == []
+
+    def test_full_round_trip_through_list_codec(self) -> None:
+        """A multi-block thinking message round-trips through the list codec."""
+        blocks = [
+            ThinkingBlock(type="thinking", thinking="step 1", signature="s1"),
+            ThinkingBlock(type="redacted_thinking", data="blob"),
+        ]
+        rt = decode_messages(encode_messages([Message.assistant("done", thinking=blocks)]))
+        assert [b.type for b in rt[0].thinking] == ["thinking", "redacted_thinking"]
+        assert rt[0].thinking[0].signature == "s1"
+        assert rt[0].thinking[1].data == "blob"
+
+    def test_empty_string_signature_survives(self) -> None:
+        """An empty-but-present signature round-trips verbatim (sub-key guard is
+        ``is not None``, not truthiness)."""
+        block = ThinkingBlock(type="thinking", thinking="", signature="")
+        d = message_to_dict(Message.assistant("ok", thinking=[block]))
+        assert d["thinking"] == [{"type": "thinking", "thinking": "", "signature": ""}]
+        rt = decode_messages(encode_messages([Message.assistant("ok", thinking=[block])]))
+        assert rt[0].thinking[0].thinking == ""
+        assert rt[0].thinking[0].signature == ""
+
+    def test_mixed_content_thinking_and_tool_calls(self) -> None:
+        """The criterion-#1 turn shape: a single Message carrying content +
+        thinking + tool_calls simultaneously round-trips all three, each
+        emitting on its own independent guard with no cross-interference."""
+        tc = ThinkingBlock(type="thinking", thinking="reason", signature="sig")
+        call = ToolCall(id="tc-1", name="search", arguments={"q": "x"})
+        msg = Message.assistant("here is the answer", tool_calls=[call], thinking=[tc])
+        d = message_to_dict(msg)
+        assert d["content"] == "here is the answer"
+        assert d["thinking"] == [
+            {"type": "thinking", "thinking": "reason", "signature": "sig"}
+        ]
+        assert d["tool_calls"] == [
+            {"id": "tc-1", "name": "search", "arguments": {"q": "x"}}
+        ]
+        rt = decode_messages(encode_messages([msg]))
+        assert rt[0].content == "here is the answer"
+        assert rt[0].thinking[0].signature == "sig"
+        assert rt[0].tool_calls[0].id == "tc-1"
+
+    def test_unknown_future_type_round_trips(self) -> None:
+        """Forward-compat: a block with an unrecognized ``type`` round-trips its
+        ``type`` plus whatever set sub-fields it carries without dropping —
+        locks in the free-``str`` ``type`` property (no enum)."""
+        block = ThinkingBlock(
+            type="some_future_kind", thinking="t", signature="s", data="d"
+        )
+        d = message_to_dict(Message.assistant("ok", thinking=[block]))
+        assert d["thinking"] == [
+            {"type": "some_future_kind", "thinking": "t", "signature": "s", "data": "d"}
+        ]
+        rt = decode_messages(encode_messages([Message.assistant("ok", thinking=[block])]))
+        got = rt[0].thinking[0]
+        assert got.type == "some_future_kind"
+        assert got.thinking == "t"
+        assert got.signature == "s"
+        assert got.data == "d"
+
+    def test_thinking_bearing_message_still_omits_empty_optionals(self) -> None:
+        """Belt-and-suspenders: the tripwire's invariant still holds for a
+        thinking-bearing assistant message — an assistant message with ONLY a
+        thinking block emits exactly ``{"role", "content", "thinking"}`` (no
+        stray empty optional keys). The real tripwire at the module bottom
+        (``test_encode_emits_no_keys_when_all_optional_fields_default``) stays
+        untouched; this guards the composed shape."""
+        msg = Message.assistant(
+            "hi", thinking=[ThinkingBlock(type="thinking", thinking="r")]
+        )
+        d = message_to_dict(msg)
+        assert sorted(d.keys()) == ["content", "role", "thinking"]
 
 
 # ---------------------------------------------------------------------------

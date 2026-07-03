@@ -4,10 +4,27 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
-from the_one.llm.base import LLMProvider, Message, StreamChunk, TokenUsage, ToolCall
+from the_one.llm.base import (
+    LLMProvider,
+    Message,
+    StreamChunk,
+    ThinkingBlock,
+    TokenUsage,
+    ToolCall,
+)
 from the_one.llm.registry import register_provider
 
 _DEFAULT_RESPONSE = {"content": "Mock response from the mock provider."}
+
+
+def _thinking_from_response(response: dict[str, Any]) -> list[ThinkingBlock]:
+    """M16 F10 L05 dev-mode seam: parse an optional ``response["thinking"]``
+    (a list of block dicts, e.g. ``{"type": "thinking", "thinking": "..."}``)
+    into ``ThinkingBlock``s on the synthesized assistant Message — mirroring how
+    the mock already reads ``response["tool_calls"]``. Lets a browser test drive
+    the real thinking-disclosure path end-to-end with no live Anthropic key.
+    """
+    return [ThinkingBlock(**b) for b in response.get("thinking", [])]
 
 
 class MockProvider(LLMProvider):
@@ -69,6 +86,8 @@ class MockProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,  # M16 F10 L02 (DD5): accepted, ignored.
     ) -> Message:
         # Optional latency simulation. Defaults to 0 so tests stay fast;
         # interactive dev sessions can pass `delay_ms` to exercise the
@@ -85,6 +104,7 @@ class MockProvider(LLMProvider):
         return Message.assistant(
             content=content,
             tool_calls=tool_calls,
+            thinking=_thinking_from_response(response),
             usage=TokenUsage(
                 input_tokens=self.config.get("input_tokens", 0),
                 output_tokens=len(content.split()),
@@ -97,6 +117,8 @@ class MockProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,  # M16 F10 L02 (DD5): accepted, ignored.
     ) -> AsyncIterator[StreamChunk]:
         """Streaming implementation honouring ``config['stream_chunks']``.
 
@@ -142,6 +164,7 @@ class MockProvider(LLMProvider):
         msg = Message.assistant(
             content=accumulated,
             tool_calls=tool_calls,
+            thinking=_thinking_from_response(response),
             usage=usage,
         )
         yield StreamChunk(

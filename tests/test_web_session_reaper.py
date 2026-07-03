@@ -404,7 +404,9 @@ async def test_agent_aclose_idempotent() -> None:
         name = "nop"
         close_count = 0
 
-        async def complete(self, messages, tools=None, temperature=0.0, max_tokens=16384):
+        async def complete(
+            self, messages, tools=None, temperature=0.0, max_tokens=16384, *, enable_thinking=None
+        ):
             raise NotImplementedError
 
         async def aclose(self) -> None:

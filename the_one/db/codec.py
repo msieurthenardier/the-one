@@ -6,7 +6,14 @@ import json
 from typing import Any
 
 from the_one.db.models import PendingApproval
-from the_one.llm.base import Message, Role, TokenUsage, ToolCall, ToolResult
+from the_one.llm.base import (
+    Message,
+    Role,
+    ThinkingBlock,
+    TokenUsage,
+    ToolCall,
+    ToolResult,
+)
 
 # M08 F6 L02: shared projection-time truncation for tool_result.content.
 # Applied at every consumer that surfaces tool content to a client (live
@@ -51,6 +58,33 @@ def _tool_call_to_dict(tc: ToolCall) -> dict[str, Any]:
     return {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
 
 
+def _thinking_block_to_dict(tb: ThinkingBlock) -> dict[str, Any]:
+    # Two-level guard (do NOT "harmonize"): the FIELD-level emit in
+    # message_to_dict uses a TRUTHY guard (`if msg.thinking:`) to keep the
+    # byte-identity tripwire green (empty list → no key). The SUB-KEY guards
+    # here use `is not None` so a legitimately-empty-but-present value (e.g. an
+    # empty-string signature) round-trips verbatim and the stored dict equals
+    # the Anthropic content-block shape for Leg 03 replay. Flattening either
+    # guard breaks one of those two invariants.
+    d: dict[str, Any] = {"type": tb.type}
+    if tb.thinking is not None:
+        d["thinking"] = tb.thinking
+    if tb.signature is not None:
+        d["signature"] = tb.signature
+    if tb.data is not None:
+        d["data"] = tb.data
+    return d
+
+
+def _thinking_block_from_dict(d: dict[str, Any]) -> ThinkingBlock:
+    return ThinkingBlock(
+        type=d["type"],
+        thinking=d.get("thinking"),
+        signature=d.get("signature"),
+        data=d.get("data"),
+    )
+
+
 def _tool_result_to_dict(tr: ToolResult) -> dict[str, Any]:
     d: dict[str, Any] = {
         "tool_call_id": tr.tool_call_id,
@@ -73,6 +107,13 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
     d: dict[str, Any] = {"role": msg.role.value, "content": msg.content}
     if msg.tool_calls:
         d["tool_calls"] = [_tool_call_to_dict(tc) for tc in msg.tool_calls]
+    # M16 F10 L01 (DD1): emit thinking with a TRUTHY guard — a structural
+    # sibling of tool_calls above, NOT the is-not-None optionals below. An
+    # empty list emits no key, so the byte-identity tripwire stays green and
+    # legacy rows decode unchanged. Deliberately outside the
+    # emit-when-non-none convention (see the Message.thinking field comment).
+    if msg.thinking:
+        d["thinking"] = [_thinking_block_to_dict(tb) for tb in msg.thinking]
     if msg.tool_result is not None:
         d["tool_result"] = _tool_result_to_dict(msg.tool_result)
     if msg.usage is not None:
@@ -108,6 +149,9 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
         for tc in d.get("tool_calls", [])
     ]
+    # M16 F10 L01 (DD1): reconstruct thinking blocks; legacy rows have no
+    # "thinking" key → empty list (back-compat), mirroring tool_calls above.
+    thinking = [_thinking_block_from_dict(tb) for tb in d.get("thinking", [])]
     tool_result = None
     if "tool_result" in d:
         tr = d["tool_result"]
@@ -128,6 +172,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         role=Role(d["role"]),
         content=d.get("content", ""),
         tool_calls=tool_calls,
+        thinking=thinking,
         tool_result=tool_result,
         usage=usage,
         # M10 F03 L02: visibility — None on legacy rows without the key.
@@ -149,6 +194,23 @@ def encode_messages(messages: list[Message]) -> str:
 def decode_messages(data: str) -> list[Message]:
     """Deserialize a JSON string back into a list of Messages."""
     return [message_from_dict(d) for d in json.loads(data)]
+
+
+def thinking_display_text(blocks: list[ThinkingBlock]) -> str:
+    """Human-readable reasoning for the UI. Concatenates ``type=="thinking"``
+    text; a redacted-only turn yields a marker; no thinking yields ``""``.
+    Signatures/data never reach the client.
+
+    M16 F10 L05: single source of truth for the ``thinking`` event's display
+    text, used by BOTH the codec replay projection (``messages_to_ui_events``)
+    and the live broadcast (``app._process_and_broadcast``).
+    """
+    texts = [tb.thinking for tb in blocks if tb.type == "thinking" and tb.thinking]
+    if texts:
+        return "\n\n".join(texts)
+    if any(tb.type == "redacted_thinking" for tb in blocks):
+        return "[reasoning redacted]"
+    return ""
 
 
 def messages_to_ui_events(
@@ -248,6 +310,20 @@ def messages_to_ui_events(
         elif msg.role == Role.ASSISTANT:
             if msg.content:
                 events.append({"type": "assistant", "content": msg.content, **vis})
+            # M16 F10 L05: project captured thinking as a ``thinking`` event —
+            # AFTER the assistant-content event, BEFORE the tool_call events —
+            # only when there is displayable reasoning text. No-thinking turns
+            # emit no event and stay byte-identical to the pre-L05 projection.
+            _thinking_text = thinking_display_text(msg.thinking)
+            if _thinking_text:
+                events.append(
+                    {
+                        "type": "thinking",
+                        "content": _thinking_text,
+                        "parent_message_id": f"replay-msg-{i}",
+                        **vis,
+                    }
+                )
             if msg.tool_calls:
                 current_parent_id = f"replay-msg-{i}"
                 for tc in msg.tool_calls:

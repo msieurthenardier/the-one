@@ -15,6 +15,7 @@ from the_one.llm.base import (
     Message,
     Role,
     StreamChunk,
+    ThinkingBlock,
     TokenUsage,
     ToolCall,
     build_user_message_content,
@@ -58,6 +59,44 @@ def _name_offending_tool(
     return None
 
 
+# M16 F10 L03 (adaptive pivot): extended-thinking on/off resolver. Sonnet 4.6+
+# reject the Leg 02 per-token budget wire format (400); ``thinking:
+# {"type": "adaptive"}`` is the correct on-mode. The per-provider config surface
+# is now a BOOLEAN (``config["thinking_enabled"]``, the exact key Leg 06's admin
+# toggle writes), coerced leniently from a free-form JSON/env value. ``effort``
+# is deferred to A4.
+_EXTENDED_THINKING_ENV = "THE_ONE_ANTHROPIC_EXTENDED_THINKING"
+
+
+def _coerce_bool(value: Any) -> bool | None:
+    """Coerce a free-form config/env value to bool, or None when unset/unrecognized.
+
+    Handles real bools, ints, and the common string encodings a JSON config
+    round-trip or an env var produces. None (unset) lets the resolver fall
+    through.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):  # bool already handled above
+        return value != 0
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off", ""):
+            return False
+        return None
+    return None
+
+
+def resolve_extended_thinking(configured: bool | None) -> bool:
+    """Precedence: per-provider config → env THE_ONE_ANTHROPIC_EXTENDED_THINKING → default False."""
+    if configured is not None:
+        return configured
+    env = _coerce_bool(os.environ.get(_EXTENDED_THINKING_ENV))
+    return env if env is not None else False
+
+
 # F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
 # Anthropic's high-level ``client.messages.stream()`` context manager +
 # ``stream.text_stream`` iterator (used in ``_stream_inner`` below) does
@@ -86,6 +125,15 @@ class AnthropicProvider(LLMProvider):
         self.model = model
         self.client = anthropic.AsyncAnthropic(
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
+        )
+        # M16 F10 L03 (adaptive pivot): per-provider extended-thinking on/off,
+        # read from the free-form ``config`` dict (``config["thinking_enabled"]``
+        # — the exact key Leg 06's admin toggle writes). Coerced to ``bool | None``
+        # so a stray value can't crash generation; ``None`` (absent/non-dict/junk)
+        # falls through to env → default off in ``resolve_extended_thinking``.
+        config = kwargs.get("config")
+        self._thinking_enabled_config: bool | None = (
+            _coerce_bool(config.get("thinking_enabled")) if isinstance(config, dict) else None
         )
 
     async def _resolve_max_context_tokens(self) -> None:
@@ -118,14 +166,22 @@ class AnthropicProvider(LLMProvider):
         tools: list[dict[str, Any]] | None,
         temperature: float,
         max_tokens: int,
+        enable_thinking: bool | None = None,
     ) -> dict[str, Any]:
+        # M16 F10 L03 (adaptive pivot): resolve thinking on/off ONCE, before the
+        # message loop. Hoisted so Leg 04 can thread ``thinking_active`` into
+        # ``_to_api_message`` for reasoning replay (DD8) and set enablement below.
+        thinking_active = (
+            resolve_extended_thinking(self._thinking_enabled_config)
+            and enable_thinking is not False
+        )
         system_prompt = ""
         api_messages = []
         for m in messages:
             if m.role == Role.SYSTEM:
                 system_prompt = m.content
             else:
-                api_messages.append(self._to_api_message(m))
+                api_messages.append(self._to_api_message(m, thinking_active))
 
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -154,6 +210,16 @@ class AnthropicProvider(LLMProvider):
                 kwargs["tools"] = sent_tools
             # else: omit "tools" entirely — never send an empty list (SDK may
             # reject it; omitting is strictly more conservative).
+
+        # M16 F10 L03 (adaptive pivot): single enforcement site for extended
+        # thinking. Adaptive-only — Sonnet 4.6+ reject the Leg 02 per-token budget
+        # wire format (400); ``adaptive`` is the on-mode. No temperature/max_tokens
+        # forcing: adaptive has no token budget to leave headroom above, and newer
+        # models reject the ``temperature`` parameter anyway (the existing
+        # temperature-retry at ``complete``/``stream`` handles that). ``effort``
+        # deferred to A4.
+        if thinking_active:
+            kwargs["thinking"] = {"type": "adaptive"}
         return kwargs
 
     async def complete(
@@ -162,9 +228,11 @@ class AnthropicProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,
     ) -> Message:
         await self._resolve_max_context_tokens_if_needed()
-        kwargs = self._build_kwargs(messages, tools, temperature, max_tokens)
+        kwargs = self._build_kwargs(messages, tools, temperature, max_tokens, enable_thinking)
 
         try:
             response = await self.client.messages.create(**kwargs)
@@ -188,11 +256,25 @@ class AnthropicProvider(LLMProvider):
 
         content = ""
         tool_calls = []
+        # M16 F10 L02 (DD1/DD2): capture signed thinking / redacted_thinking
+        # blocks in content order (Anthropic emits thinking before tool_use;
+        # Leg 04 replay preserves that ordering on the next request).
+        thinking_blocks: list[ThinkingBlock] = []
         for block in response.content:
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
                 tool_calls.append(ToolCall(id=block.id, name=block.name, arguments=block.input))
+            elif block.type == "thinking":
+                thinking_blocks.append(
+                    ThinkingBlock(
+                        type="thinking",
+                        thinking=block.thinking,
+                        signature=block.signature,
+                    )
+                )
+            elif block.type == "redacted_thinking":
+                thinking_blocks.append(ThinkingBlock(type="redacted_thinking", data=block.data))
 
         usage = None
         if response.usage:
@@ -201,7 +283,9 @@ class AnthropicProvider(LLMProvider):
                 output_tokens=response.usage.output_tokens,
             )
 
-        return Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
+        return Message.assistant(
+            content=content, tool_calls=tool_calls, usage=usage, thinking=thinking_blocks
+        )
 
     async def stream(
         self,
@@ -209,6 +293,8 @@ class AnthropicProvider(LLMProvider):
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int = 16384,
+        *,
+        enable_thinking: bool | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Native Anthropic streaming via ``client.messages.stream``.
 
@@ -219,7 +305,7 @@ class AnthropicProvider(LLMProvider):
         (before any text deltas), so the gate is defence-in-depth.
         """
         await self._resolve_max_context_tokens_if_needed()
-        kwargs = self._build_kwargs(messages, tools, temperature, max_tokens)
+        kwargs = self._build_kwargs(messages, tools, temperature, max_tokens, enable_thinking)
         yielded_any = False
         try:
             async for chunk in self._stream_inner(kwargs):
@@ -260,11 +346,25 @@ class AnthropicProvider(LLMProvider):
 
         content = ""
         tool_calls: list[ToolCall] = []
+        # M16 F10 L02 (DD2): thinking is read WHOLE from the final message — the
+        # ``text_stream`` loop above stays untouched, so no thinking text leaks
+        # into the streamed content deltas. Same capture as ``complete()``.
+        thinking_blocks: list[ThinkingBlock] = []
         for block in final.content:
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
                 tool_calls.append(ToolCall(id=block.id, name=block.name, arguments=block.input))
+            elif block.type == "thinking":
+                thinking_blocks.append(
+                    ThinkingBlock(
+                        type="thinking",
+                        thinking=block.thinking,
+                        signature=block.signature,
+                    )
+                )
+            elif block.type == "redacted_thinking":
+                thinking_blocks.append(ThinkingBlock(type="redacted_thinking", data=block.data))
 
         usage = None
         if final.usage:
@@ -273,7 +373,9 @@ class AnthropicProvider(LLMProvider):
                 output_tokens=final.usage.output_tokens,
             )
 
-        msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
+        msg = Message.assistant(
+            content=content, tool_calls=tool_calls, usage=usage, thinking=thinking_blocks
+        )
         yield StreamChunk(
             content="",
             is_final=True,
@@ -293,7 +395,23 @@ class AnthropicProvider(LLMProvider):
             "input_schema": sanitize_tool_schema(tool_def.get("parameters")),
         }
 
-    def _to_api_message(self, msg: Message) -> dict[str, Any]:
+    def _thinking_block_to_api(self, tb: ThinkingBlock) -> dict[str, Any]:
+        # M16 F10 L04: emit the stored block in Anthropic's content-block shape,
+        # signatures intact. Only set sub-fields are included (a redacted block
+        # has no thinking/signature). The stored ThinkingBlock is already
+        # API-shaped (Leg 01), so this is a faithful projection, not a re-mapping.
+        # The API 400s if a replayed thinking block is modified — copy
+        # signature/data verbatim; never truncate, re-encode, or re-order.
+        d: dict[str, Any] = {"type": tb.type}
+        if tb.thinking is not None:
+            d["thinking"] = tb.thinking
+        if tb.signature is not None:
+            d["signature"] = tb.signature
+        if tb.data is not None:
+            d["data"] = tb.data
+        return d
+
+    def _to_api_message(self, msg: Message, thinking_active: bool = False) -> dict[str, Any]:
         if msg.role == Role.TOOL and msg.tool_result:
             # M11 F8 L2: ``ToolResult.__post_init__`` normalizes non-str
             # content to JSON-str at construction, so ``msg.tool_result.content``
@@ -312,8 +430,16 @@ class AnthropicProvider(LLMProvider):
                     }
                 ],
             }
-        if msg.role == Role.ASSISTANT and msg.tool_calls:
+        if msg.role == Role.ASSISTANT and (msg.tool_calls or (thinking_active and msg.thinking)):
             content: list[dict[str, Any]] = []
+            # M16 F10 L04 (DD8): replay thinking (signatures intact) ONLY when
+            # thinking is active on THIS request; thinking must precede
+            # text/tool_use or Anthropic 400s the follow-up turn. When thinking
+            # is off, this loop is skipped → stored thinking is stripped,
+            # byte-identical to the pre-L03 projection.
+            if thinking_active:
+                for tb in msg.thinking:
+                    content.append(self._thinking_block_to_api(tb))
             if msg.content:
                 content.append({"type": "text", "text": msg.content})
             for tc in msg.tool_calls:

@@ -52,6 +52,7 @@ from the_one.db.codec import (
     encode_messages,
     messages_to_ui_events,
     pending_approvals_to_ui_events,
+    thinking_display_text,
     truncate_for_event,
 )
 from the_one.db.connection import get_connection
@@ -1563,6 +1564,22 @@ async def _process_and_broadcast(
                         # were broadcast, the client already has the text via
                         # the chunk path; suppress the duplicate broadcast.
                         await _send_to_session(session, event)
+
+                # M16 F10 L05 (DD2 reveal-after): surface captured thinking as a
+                # broadcast-only ``thinking`` event once the answer has settled
+                # (fires as the assistant msg is processed, after its content /
+                # chunks already streamed). BROADCAST-ONLY — no session.add_event:
+                # thinking is a projection DERIVED from msg.thinking, like the
+                # interim usage event above. session.history is fully rebuilt from
+                # the codec on every join (messages_to_ui_events), which re-derives
+                # the thinking event from the persisted msg.thinking — so adding it
+                # here would only inflate message_count for an entry immediately
+                # overwritten on the next join. Kept out of result_messages (below).
+                _thinking_text = thinking_display_text(msg.thinking)
+                if _thinking_text:
+                    await _send_to_session(
+                        session, {"type": "thinking", "content": _thinking_text}
+                    )
                 if msg.tool_calls:
                     # F5 L02: project parent_message_id for this turn from
                     # the just-yielded assistant Message's index. Per the

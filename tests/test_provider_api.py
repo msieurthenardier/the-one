@@ -263,6 +263,70 @@ class TestProviderAPI:
         get_resp = await client.get(f"/api/providers/{provider_id}")
         assert get_resp.json()["api_key"] == "***...7777"
 
+    async def test_create_anthropic_persists_thinking_enabled(self, client: AsyncClient) -> None:
+        """POST an anthropic provider with config.thinking_enabled=true → GET
+        round-trips the flag (F10-06). config is opaque passthrough — no
+        backend schema for the key."""
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Claude",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-secret1234",
+                "config": {"thinking_enabled": True},
+            },
+        )
+        assert create_resp.status_code == 201
+        provider_id = create_resp.json()["id"]
+
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+        assert data["config"]["thinking_enabled"] is True
+
+    async def test_update_masked_key_preserves_thinking_config(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT an anthropic provider with a MASKED api_key and a full config
+        (thinking_enabled + a second key) → the stored api_key is preserved
+        and BOTH config keys round-trip. model_copy(update=data) replaces the
+        config dict wholesale, so the client must re-send every config key it
+        wants preserved — this test pins that client-re-send contract."""
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Claude",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-secret5555",
+                "config": {"thinking_enabled": False},
+            },
+        )
+        assert create_resp.status_code == 201
+        provider_id = create_resp.json()["id"]
+
+        # PUT with the masked sentinel + a full config re-send (both keys).
+        put_resp = await client.put(
+            f"/api/providers/{provider_id}",
+            json={
+                "name": "Claude",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "__MASKED__",
+                "config": {"thinking_enabled": True, "num_ctx": 4096},
+            },
+        )
+        assert put_resp.status_code == 200
+        # Stored api_key preserved (masked response reflects the ORIGINAL key).
+        assert put_resp.json()["api_key"] == "***...5555"
+
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        data = get_resp.json()
+        assert data["config"]["thinking_enabled"] is True
+        assert data["config"]["num_ctx"] == 4096
+        assert data["api_key"] == "***...5555"
+
     async def test_delete_provider(self, client: AsyncClient) -> None:
         create_resp = await client.post(
             "/api/providers",

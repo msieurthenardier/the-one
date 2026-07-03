@@ -1,0 +1,76 @@
+# Behavior Test: Extended Thinking + Tool Turn Round-Trips
+
+**Slug**: `extended-thinking-tool-turn`
+**Status**: draft
+**Created**: 2026-07-02
+**Last Run**: never
+
+## Intent
+
+Verify the one thing unit tests cannot: that a **real Anthropic model** with extended
+thinking enabled can complete a turn that both emits thinking **and** calls a tool, and that
+the **follow-up turn** (carrying the tool result back) *also* completes without an API error —
+which only happens if the captured signed thinking blocks were replayed correctly, in the
+right order, on the second request. This is a live, multi-turn, cross-component flow (web
+chat → agent loop → Anthropic adapter → real API → tool dispatch → replay) that a fixtured
+unit test cannot exercise end-to-end. It also confirms the operator-facing surface: the
+thinking renders as a collapsed disclosure and survives a chat reopen (history replay). This
+is the acceptance gate for Mission 16's extended-thinking criterion.
+
+## Preconditions
+
+- The app is running and reachable (dev instance on `:8485` or installed app on `:8484`).
+- An **Anthropic API key** is stored in the credential store.
+- An agent exists (or is created during setup) that: uses the **Anthropic** provider, targets
+  an **adaptive-thinking-capable** Claude model (**Sonnet 4.6 or newer**), has the **Extended
+  thinking** toggle **ON** (the provider-editor checkbox — enablement is adaptive-only, no token
+  budget), and has **at least one tool enabled** whose invocation is easy to induce (e.g. a time/
+  math/read tool — something the model will reach for on a direct question).
+- The tool chosen is one the model reliably calls for the Step-2 prompt (pick the prompt to
+  match the enabled tool).
+
+## Observables Required
+
+- **browser** (DOM state, streamed chat content, the thinking `<details>` disclosure, error
+  bubbles, tool-trace shells — measured via chrome-devtools).
+- **browser** again for persistence (post-reload DOM after history replay).
+- *(optional corroboration)* **shell** — server log tail to confirm no Anthropic 400/error was
+  swallowed, and/or **http**/DB read of the session's persisted messages. Not required if the
+  DOM assertions are unambiguous.
+
+## Steps
+
+| # | Actions | Expected Results |
+|---|---------|------------------|
+| 1 | Navigate the browser to the app chat area. Select (or create) the thinking-enabled Anthropic agent described in Preconditions. Start a new chat. | The chat area loads with the thinking-capable Anthropic agent active and an empty transcript. |
+| 2 | (Setup) Confirm the agent's **Extended thinking** toggle is ON and a tool is enabled (via the agent/provider editor if needed). | (empty — setup only) |
+| 3 | Send a message that induces a single tool call and benefits from reasoning — e.g. a question the model must think through and then answer using the enabled tool (matched to that tool). | Within a reasonable time, the turn completes: an **answer bubble** is rendered, a **tool-call trace** appears for the turn, and **no error bubble** is shown. The turn's `done` fires. This completing at all is the primary witness — the tool round-trip is the follow-up turn, which the API rejects if thinking replay was wrong. |
+| 4 | Locate the thinking disclosure for that assistant turn. Expand it. | A collapsed-by-default **`Thinking` `<details>` disclosure** is present above/with the answer; expanding it reveals non-empty reasoning text. `[a11y]` the disclosure is keyboard-focusable and toggles via Enter/Space. |
+| 5 | (Wait/observe) Confirm the full turn settled — answer present, tool trace present, thinking present, no error, telemetry usage updated. | All four present together for the same turn; the telemetry overlay shows a non-zero used/max for the turn (thinking tokens are billed). |
+| 6 | Reload the page (or leave and re-open this chat) so history replays from persistence. | After history replay, the same turn re-renders **with** its thinking disclosure (collapsed) and its answer + tool trace — i.e. the thinking round-tripped through persistence, not just the live turn. No error bubble on replay. |
+| 7 | Send one more follow-up message in the same chat that again induces reasoning + a tool call. | The second thinking+tool turn also completes with no API error — confirming multi-turn replay is stable across an accumulating history, not just the first turn. |
+
+**Row conventions**: Step 2 is pure setup (no judgment). Step 5 is an observation/settle
+point. `[a11y]` marks the disclosure accessibility check.
+
+## Out of Scope
+
+- **Live token-by-token thinking streaming** — v1 reveals thinking whole after the answer
+  (flight DD2); this test does not assert streaming deltas.
+- **OpenAI / Ollama reasoning** — Anthropic-only this flight (DD5).
+- **The `reasoning_effort` knob** — backlog A4, a separate flight.
+- **Redacted-thinking-specific rendering** — if a redacted block appears it must not break the
+  turn, but inducing one reliably is not part of this test.
+- Provider-editor field mechanics (covered by the browser provider-editor unit/flow test).
+
+## Variants (optional)
+
+- **Thinking OFF (disabled), fresh chat:** the same prompt in a new chat with the **Extended
+  thinking toggle OFF** → the turn still completes, no thinking disclosure appears, and behavior
+  matches a normal non-thinking turn (regression guard that the toggle truly gates enablement).
+- **Mixed session (thinking on → off, DD8):** in a chat that already has thinking+tool turns
+  (steps 3–7), turn the **Extended thinking toggle OFF** and send another tool-inducing message
+  → the turn completes with **no API error** (the stored signed thinking blocks are stripped
+  from the thinking-off request, not replayed onto it) and no new thinking disclosure appears
+  for that turn. Guards the DD8 strip-when-off replay contract that a fixtured test can only
+  approximate.

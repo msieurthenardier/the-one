@@ -510,14 +510,15 @@ Deferred (own-mission candidate, 2026-06-23):
       routing-audit overlay, static-asset cache-busting, and the `enabled_tools`-disables-MCP
       bug. Carries: context compaction (Known Issue, now with F09-05 field evidence),
       aiosqlite teardown fix, per-model num_ctx. See `flights/09-provider-chat-hat/`.
-- [ ] Flight *(capability, planned)*: **Extended-thinking / reasoning support** —
-      add a thinking field to `Message`; capture signed thinking blocks in
-      `anthropic_provider.py` and replay in `_to_api_message()`; persist and surface
-      in the UI. A wanted capability (not the operator's bug). Spike de-risked
-      capture (`get_final_message()` carries signed blocks → low-effort); live UI
-      streaming of thinking deltas is the harder part (may need raw-event iteration
-      the L04 comment flags as "too invasive"). Scope OpenAI `o*`-reasoning and
-      `<think>`-tag open models per the audit.
+- [ ] Flight 10 *(capability — A1)*: **Extended-thinking / reasoning support** — **READY
+      (2026-07-02).** Implements ratified backlog **A1**: structured `thinking` field on
+      `Message` + codec round-trip; Anthropic enable/capture/replay (signed blocks before
+      `tool_use`); collapsible web-UI disclosure; Studio budget field; live behavior test.
+      Closes the two named extended-thinking criteria. **Scope (DD5): Anthropic-first;**
+      protocol built provider-agnostic so Ollama/OpenAI populate it later. **Deferred:** live
+      thinking-delta streaming (DD2 — capture-whole/reveal-after this flight) and OpenAI
+      `o*`/`<think>`-tag open models + the `reasoning_effort` knob (backlog **A4**). 6 legs;
+      Architect-reviewed. See `flights/10-extended-thinking-support/`.
 - [ ] Flights *(capability, audit-driven)*: **other SDK capabilities** — e.g.
       prompt caching, structured outputs / JSON mode, vision/multimodal, document
       inputs, reasoning-effort controls — each planned and prioritized from the

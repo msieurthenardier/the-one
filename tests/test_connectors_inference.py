@@ -552,7 +552,9 @@ class _RaisingProvider(LLMProvider):
     def __init__(self) -> None:
         super().__init__()
 
-    async def complete(self, messages, tools=None, temperature=0.0, max_tokens=16384):
+    async def complete(
+        self, messages, tools=None, temperature=0.0, max_tokens=16384, *, enable_thinking=None
+    ):
         raise RuntimeError("simulated provider failure")
 
 
@@ -673,7 +675,9 @@ async def test_run_engagement_inference_uses_channel_id_when_cache_miss(
         def __init__(self) -> None:
             super().__init__()
 
-        async def complete(self, messages, tools=None, temperature=0.0, max_tokens=16384):
+        async def complete(
+            self, messages, tools=None, temperature=0.0, max_tokens=16384, *, enable_thinking=None
+        ):
             captured["prompt"] = messages[0].content
             return Message.assistant("no")
 
@@ -715,7 +719,9 @@ async def test_run_engagement_inference_uses_cache_label_when_present(
         def __init__(self) -> None:
             super().__init__()
 
-        async def complete(self, messages, tools=None, temperature=0.0, max_tokens=16384):
+        async def complete(
+            self, messages, tools=None, temperature=0.0, max_tokens=16384, *, enable_thinking=None
+        ):
             captured["prompt"] = messages[0].content
             return Message.assistant("no")
 
@@ -756,7 +762,9 @@ async def test_run_engagement_inference_filters_history_before_prompt(
         def __init__(self) -> None:
             super().__init__()
 
-        async def complete(self, messages, tools=None, temperature=0.0, max_tokens=16384):
+        async def complete(
+            self, messages, tools=None, temperature=0.0, max_tokens=16384, *, enable_thinking=None
+        ):
             captured["prompt"] = messages[0].content
             return Message.assistant("no")
 

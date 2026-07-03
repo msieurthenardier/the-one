@@ -63,6 +63,7 @@ def seed_mock_agent(
     name: str = "test-agent",
     model: str = "mock-default",
     system_prompt: str = "You are a test agent.",
+    max_iterations: int | None = None,
 ) -> str:
     """POST an agent via /api/agents and return its name.
 
@@ -70,9 +71,14 @@ def seed_mock_agent(
     Default `model` matches the mock provider's default model.
 
     Optional AgentConfig fields (description, enabled_tools, kb_ids,
-    mcp_source_ids, max_iterations) are omitted; their
+    mcp_source_ids, max_iterations) are omitted by default; their
     defaults from `agent/config.py` apply. `extra: "ignore"` on AgentConfig
     means the API silently drops any unknown fields.
+
+    ``max_iterations`` (M16 F10 L05): when set, bounds the agent loop. A
+    static mock that returns the same tool_call every turn would otherwise
+    loop to the default ceiling (20); ``max_iterations=1`` gives a turn with
+    exactly one assistant message (thinking + tool_call) + one tool result.
     """
     payload = {
         "name": name,
@@ -80,6 +86,8 @@ def seed_mock_agent(
         "llm_model": model,
         "system_prompt": system_prompt,
     }
+    if max_iterations is not None:
+        payload["max_iterations"] = max_iterations
     r = httpx.post(f"{base_url}/api/agents", json=payload, timeout=5.0)
     assert r.status_code == 201, f"seed_mock_agent failed: {r.status_code} {r.text}"
     return r.json()["name"]
