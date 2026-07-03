@@ -53,10 +53,22 @@ class _MockPtySession(PtySession):
 
 @pytest.fixture(autouse=True)
 async def _registry_cleanup():
-    """Reset registry state after each test (in case the lifespan path
-    didn't fully drain)."""
+    """Reset registry state before AND after each test.
+
+    Before: any earlier test that drives the real app lifespan to
+    shutdown (e.g. ``with TestClient(app):``) latches the module-global
+    ``_shutting_down = True``, and ``register()`` then raises
+    ``RuntimeError: session registry is shutting down`` (the M17 F1 L4
+    ordering flake). The offending modules now reset after themselves
+    via the conftest ``reset_lifespan_singletons`` fixture; the pre-test
+    clear here is defense in depth so this module never depends on
+    suite ordering.
+
+    After: in case the lifespan path didn't fully drain.
+    """
     from the_one.tools._session_registry import _clear_for_test
 
+    await _clear_for_test()
     yield
     await _clear_for_test()
 

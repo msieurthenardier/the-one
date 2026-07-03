@@ -11,25 +11,25 @@ Drives a real Chromium session through the agent lifecycle:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-# M08 F4 KI: this test hangs under post-Leg-02 markup. Root cause not yet
-# identified — could be a real product bug from the rebrand OR a fixture-level
-# issue with the agent-CRUD flow. Skipped to unblock the Flight 4 close;
-# investigation deferred to a follow-on cleanup flight. See mission.md
-# Known Issues.
-#
-# F5 L01 update (in mission.md KI #4): with the broad-pytest SQLite isolation
-# fix in tests/conftest.py, the hang no longer reproduces. The test now fails
-# with the same .new-entity-btn DOM-visibility symptom as test_flow_provider_setup
-# (60+ retries × 500ms then timeout), exposing a likely real F4-rebrand-era UX
-# defect. Skip remains in place pending the cleanup flight that owns this UX
-# investigation. Same symptom class as test_flow_provider_setup.py.
-pytestmark = pytest.mark.skip(
-    reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified"
-)
+# History (M08 F4 → M17 F1): this module was skipped as "hangs, root cause
+# unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation fix
+# in tests/conftest.py; the remaining deterministic failure was root-caused in
+# M17 F1 L02: `components.css:719` hides the header `.new-entity-btn` via
+# `display: none` whenever the entity grid below is empty
+# (".page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded)").
+# `app_with_provider` seeds zero agents, so the Studio agents grid starts
+# empty: the create affordance is the in-canvas `-empty` variant
+# (data-testid="new-agent-btn-empty"), not the header CTA
+# (data-testid="new-agent-btn"). After a create lands, the grid populates and
+# the affordance flips to the header CTA. Tests must target the variant
+# matching the current grid state and must not reuse a locator across that
+# boundary. Same symptom class as test_flow_provider_setup.py.
 
 
 @pytest.mark.browser
@@ -42,8 +42,10 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     expect(empty).to_be_visible()
     expect(empty).to_contain_text("No agents yet")
 
-    # 2. Click + to enter create mode.
-    page.locator('[data-testid="new-agent-btn"]').click()
+    # 2. Click + to enter create mode. Zero agents exist, so the header CTA
+    #    (new-agent-btn) is display:none per components.css:719 — the create
+    #    affordance in EMPTY state is the in-canvas `-empty` variant.
+    page.locator('[data-testid="new-agent-btn-empty"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent")
 
     # 3-4. Fill name and description.
@@ -78,20 +80,41 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     # 12-13. Edit description, save, verify persisted (re-render keeps the value).
     description_input = page.locator('[data-field="description"]')
     description_input.fill("Edited description")
-    page.locator('[data-testid="save-agent-btn"]').click()
+    save_btn = page.locator('[data-testid="save-agent-btn"]')
+    save_btn.click()
     # After save, editor re-renders with updated agent. Description still set.
     expect(page.locator('[data-field="description"]')).to_have_value(
         "Edited description", timeout=5000
     )
+    # Synchronize with the END of the save chain before deleting: the PUT
+    # handler runs loadAll() + renderEditor() asynchronously (studio.js save
+    # flow), and its stale continuation can otherwise interleave with the
+    # delete below under CPU load — re-selecting the just-deleted agent and
+    # keeping the editor mounted over the empty grid (observed as a
+    # suite-only flake in M17 F1 L02). The re-rendered editor's Save button
+    # is disabled (clean state) — same sync idiom as the MCPs/Tools tests.
+    expect(save_btn).to_be_disabled(timeout=5000)
 
-    # 14. First click on Delete — confirm state ("Confirm Delete?").
+    # 14. First click on Delete — confirm state ("Confirm Delete?"). The
+    # armed state auto-reverts after 3s (App.confirmDelete revertMs), so the
+    # second click follows immediately.
     delete_btn.click()
     expect(delete_btn).to_have_text("Confirm Delete?")
 
     # 15. Second click — DELETE fires, agent removed, empty state returns.
-    delete_btn.click()
+    #     expect_response makes a silent re-arm (revert-window expiry under
+    #     load) fail loudly as a missing-DELETE timeout instead of a
+    #     confusing downstream visibility failure.
+    with page.expect_response(
+        lambda r: "/api/agents/" in r.url and r.request.method == "DELETE"
+    ) as delete_resp:
+        delete_btn.click()
+    assert delete_resp.value.status == 200, (
+        f"DELETE failed: {delete_resp.value.status} {delete_resp.value.text()}"
+    )
     expect(empty).to_be_visible(timeout=5000)
     expect(empty).to_contain_text("No agents yet")
     # Tile gone; main panel returns to the tile grid (with empty state).
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)
-    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
+    # Regex (not exact class string) — only `is-hidden` is the contract here.
+    expect(page.locator(".studio-editor")).to_have_class(re.compile(r"\bis-hidden\b"))

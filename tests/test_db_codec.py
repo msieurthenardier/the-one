@@ -812,9 +812,7 @@ class TestMessageThinkingCodec:
     def test_signature_preservation(self) -> None:
         """A ``type="thinking"`` block round-trips ``thinking`` + ``signature``
         verbatim (the signature MUST survive or the follow-up turn 400s)."""
-        block = ThinkingBlock(
-            type="thinking", thinking="let me think", signature="sig-abc-123"
-        )
+        block = ThinkingBlock(type="thinking", thinking="let me think", signature="sig-abc-123")
         rt = decode_messages(encode_messages([Message.assistant("ok", thinking=[block])]))
         assert len(rt[0].thinking) == 1
         got = rt[0].thinking[0]
@@ -875,12 +873,8 @@ class TestMessageThinkingCodec:
         msg = Message.assistant("here is the answer", tool_calls=[call], thinking=[tc])
         d = message_to_dict(msg)
         assert d["content"] == "here is the answer"
-        assert d["thinking"] == [
-            {"type": "thinking", "thinking": "reason", "signature": "sig"}
-        ]
-        assert d["tool_calls"] == [
-            {"id": "tc-1", "name": "search", "arguments": {"q": "x"}}
-        ]
+        assert d["thinking"] == [{"type": "thinking", "thinking": "reason", "signature": "sig"}]
+        assert d["tool_calls"] == [{"id": "tc-1", "name": "search", "arguments": {"q": "x"}}]
         rt = decode_messages(encode_messages([msg]))
         assert rt[0].content == "here is the answer"
         assert rt[0].thinking[0].signature == "sig"
@@ -890,9 +884,7 @@ class TestMessageThinkingCodec:
         """Forward-compat: a block with an unrecognized ``type`` round-trips its
         ``type`` plus whatever set sub-fields it carries without dropping —
         locks in the free-``str`` ``type`` property (no enum)."""
-        block = ThinkingBlock(
-            type="some_future_kind", thinking="t", signature="s", data="d"
-        )
+        block = ThinkingBlock(type="some_future_kind", thinking="t", signature="s", data="d")
         d = message_to_dict(Message.assistant("ok", thinking=[block]))
         assert d["thinking"] == [
             {"type": "some_future_kind", "thinking": "t", "signature": "s", "data": "d"}
@@ -911,9 +903,7 @@ class TestMessageThinkingCodec:
         stray empty optional keys). The real tripwire at the module bottom
         (``test_encode_emits_no_keys_when_all_optional_fields_default``) stays
         untouched; this guards the composed shape."""
-        msg = Message.assistant(
-            "hi", thinking=[ThinkingBlock(type="thinking", thinking="r")]
-        )
+        msg = Message.assistant("hi", thinking=[ThinkingBlock(type="thinking", thinking="r")])
         d = message_to_dict(msg)
         assert sorted(d.keys()) == ["content", "role", "thinking"]
 

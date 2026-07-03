@@ -35,6 +35,7 @@ def _seed_anthropic_provider(
     assert r.status_code == 201, f"seed_anthropic_provider failed: {r.status_code} {r.text}"
     return r.json()["id"]
 
+
 # ── Header / scaffold ────────────────────────────────────────────────────
 
 
@@ -302,9 +303,7 @@ def test_thinking_toggle_hidden_for_non_anthropic(app_clean: str, page: Page) ->
     page.goto(f"{app_clean}#admin/providers/new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.locator("#pf-type").select_option("openai")
-    expect(page.locator(".admin-pf-thinking-enabled")).to_have_class(
-        re.compile(r"\bis-hidden\b")
-    )
+    expect(page.locator(".admin-pf-thinking-enabled")).to_have_class(re.compile(r"\bis-hidden\b"))
 
 
 @pytest.mark.browser
@@ -330,9 +329,7 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_thinking_toggle_flips_save_from_disabled_to_enabled(
-    app_clean: str, page: Page
-) -> None:
+def test_thinking_toggle_flips_save_from_disabled_to_enabled(app_clean: str, page: Page) -> None:
     """Toggling the checkbox on an existing (clean) anthropic provider marks
     the form dirty (Save flips from disabled → enabled). Directly guards the
     [high] checkbox-aware getFormSnapshot patch — fails loudly if the snapshot

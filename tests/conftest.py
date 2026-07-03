@@ -348,3 +348,44 @@ async def isolated_db(tmp_path, monkeypatch):
 
     if _db_connection._connection is not None:
         await _db_connection.close_connection()
+
+
+@pytest.fixture
+def reset_lifespan_singletons():
+    """Restore process-global singleton state after a test that runs the
+    REAL app lifespan to completion (e.g. ``with TestClient(app):``).
+
+    The lifespan's shutdown branch calls each subsystem's
+    ``shutdown_drain()``, which latches module-global
+    ``_shutting_down = True`` in three modules
+    (``the_one.tools._session_registry``, ``the_one.mcp._pool``,
+    ``the_one.connectors._pool``). Left set, the latch makes any LATER
+    test in the same process that calls ``register()`` / ``acquire()``
+    fail with ``RuntimeError: ... shutting down`` — a pure test-ordering
+    flake (M17 F1 L4 root cause: ``test_lifespan.py``'s first test failed
+    whenever ``test_index_asset_cache_busting.py`` ran before it).
+
+    Activate module-wide in any module that drives the real ``lifespan``
+    to shutdown::
+
+        pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
+
+    The clears run via ``asyncio.run`` in a fresh loop: after a completed
+    ``shutdown_drain`` all three registries are empty with no live tasks,
+    so each ``_clear_for_test`` is a cheap flag/state reset — nothing
+    cross-loop is awaited.
+    """
+    yield
+
+    import asyncio as _asyncio
+
+    from the_one.connectors._pool import _clear_for_test as _clear_connector_pool
+    from the_one.mcp._pool import _clear_for_test as _clear_mcp_pool
+    from the_one.tools._session_registry import _clear_for_test as _clear_session_registry
+
+    async def _reset() -> None:
+        await _clear_session_registry()
+        await _clear_mcp_pool()
+        await _clear_connector_pool()
+
+    _asyncio.run(_reset())

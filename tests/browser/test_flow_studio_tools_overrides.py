@@ -1,9 +1,20 @@
-"""Studio agent-editor Tools-tab override tests for F6 leg 07.
+"""Studio agent-editor Tools-tab override tests (F6 leg 05/07 behaviors).
 
-Covers the L5 Studio updates: operator-disabled-tool surfacing, the
-per-tool `<details>` override panel (lazy-load, marker-aware widgets,
-NarrowSuperset locked chips), and the `tool_overrides` save round-trip
-through the API.
+Rewritten against post-M08-F4-rebrand markup in M17 F1 L02. The Tools tab
+now renders per-CATEGORY tiles (`.tools-category-tile[data-category]`,
+Filesystem/Execution/Web) with a master toggle, an `X / Y enabled` count
+badge, and an expand button that un-hides the category's tools body. Each
+tool inside is a `<details class="tool-tile tool-row-overrides"
+data-tool="...">`: the summary carries the visible checkbox
+(`input.checkbox-primary[data-tool]`) + name (`.mcp-tool-toggle-name`),
+and — for operator-enabled tools — an "Overrides" affordance that toggles
+the details open, lazy-loading the override fields into
+`.tool-row-overrides-body` (F6 L5 behavior preserved through the F4 L2
+restructure).
+
+Covers: operator-disabled-tool surfacing, the per-tool override panel
+(lazy-load dedupe, marker-aware widgets, NarrowSuperset locked chips), and
+the `tool_overrides` save round-trip through the API.
 
 Notes on tricky patterns:
 
@@ -18,6 +29,11 @@ Notes on tricky patterns:
 - NarrowSuperset locked chips render WITHOUT a remove button entirely
   — the assertion checks ``.chip[data-locked] .chip-remove`` count is
   0 (NOT just visually hidden via CSS).
+- Opening a tool's override panel clicks the summary's
+  ``.tool-tile-overrides-affordance`` (NOT the summary center): per the
+  HTML spec, clicks on the checkbox-label part of the summary toggle
+  only the checkbox, so the affordance area is the reliable open/close
+  target.
 - The dirty-gate assertions in this file aren't covered separately;
   ``test_flow_dirty_confirm.py`` already covers Studio's general
   dirty-gate plumbing. Tools-tab inputs feed into the same
@@ -34,15 +50,6 @@ import pytest
 from browser.seeders import SeededApp, seed_tool_config
 from playwright.sync_api import Page, expect
 
-# M08 F4 KI: Leg 02 restructured the Studio Tools tab into per-category tiles,
-# replacing the per-tool `<details>` override panel pattern this file asserts.
-# Whole file needs redesign-aware rewrite — deferred to a follow-on cleanup
-# flight. Module-level skip to unblock the Flight 4 close.
-# See mission.md Known Issues.
-pytestmark = pytest.mark.skip(
-    reason="M08 F4 KI: pre-rebrand Tools-tab assertions — needs redesign-aware rewrite"
-)
-
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
@@ -58,46 +65,69 @@ def _open_tools_tab(app: SeededApp, page: Page) -> None:
     )
 
 
+def _expand_category(page: Page, category: str) -> None:
+    """Expand a category tile so its tool tiles become visible/clickable."""
+    tile = page.locator(f'.tools-category-tile[data-category="{category}"]')
+    expect(tile).to_be_visible(timeout=8000)
+    tile.locator(".tools-category-tile-expand-btn").click()
+    expect(tile).to_have_attribute("aria-expanded", "true", timeout=2000)
+
+
+def _open_override_panel(page: Page, tool: str) -> None:
+    """Open a tool tile's override panel via its Overrides affordance.
+
+    The parent category tile must already be expanded. Clicking the
+    affordance (part of the `<summary>`, outside the checkbox label)
+    toggles the `<details>` open, which fires the lazy-load.
+    """
+    panel = page.locator(f'details.tool-row-overrides[data-tool="{tool}"]')
+    panel.locator(".tool-tile-overrides-affordance").click()
+
+
 # ── Tests ───────────────────────────────────────────────────────────
 
 
-@pytest.mark.skip(
-    reason=(
-        "M08 F4 KI: Leg 02 restructured the Studio Tools tab into per-category "
-        "tiles, replacing the grid render this test asserts. Needs redesign-aware "
-        "rewrite. See mission.md Known Issues."
-    )
-)
 @pytest.mark.browser
-def test_studio_tools_tab_renders_grid(app_with_agent: SeededApp, page: Page) -> None:
-    """Tools tab shows 19 tool rows (one per built-in)."""
+def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page: Page) -> None:
+    """Tools tab shows the three category tiles with 19 tool tiles total.
+
+    Guards the same intent as the pre-rebrand "19 tool rows" test: every
+    built-in tool is represented exactly once in the Tools tab.
+    """
     _open_tools_tab(app_with_agent, page)
-    rows = page.locator(".tool-row")
-    expect(rows.first).to_be_visible()
-    expect(rows).to_have_count(19)
+    tiles = page.locator(".tools-category-tile")
+    expect(tiles.first).to_be_visible()
+    expect(tiles).to_have_count(3)
+    for category in ("Filesystem", "Execution", "Web"):
+        expect(page.locator(f'.tools-category-tile[data-category="{category}"]')).to_be_visible()
+    # Tool tiles are built up-front (hidden until category expand) — count
+    # attached, not visible.
+    expect(page.locator("details.tool-tile")).to_have_count(19)
 
 
 @pytest.mark.browser
 def test_studio_disabled_tool_renders_with_strikethrough(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Operator-disabled tool: row carries `.tool-row-disabled`, name
-    span carries `.tool-name-strike`, and checkbox is `disabled`.
+    """Operator-disabled tool: its tile carries `.tool-row-disabled`, the
+    name span carries `.tool-name-strike`, and the checkbox is `disabled`.
     """
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=False)
     _open_tools_tab(app_with_agent, page)
-    row = page.locator('.tool-row:has(input[data-tool="web_search"])')
+    _expand_category(page, "Web")
+    row = page.locator('details.tool-tile[data-tool="web_search"]')
     expect(row).to_have_class(re.compile(r"\btool-row-disabled\b"))
-    expect(row.locator(".tool-name")).to_have_class(re.compile(r"\btool-name-strike\b"))
+    expect(row.locator(".mcp-tool-toggle-name")).to_have_class(re.compile(r"\btool-name-strike\b"))
     expect(row.locator('input[data-tool="web_search"]')).to_be_disabled()
 
 
 @pytest.mark.browser
 def test_studio_disabled_tool_tooltip(app_with_agent: SeededApp, page: Page) -> None:
-    """Disabled row's `title` attribute reads "Disabled by operator"."""
+    """Disabled tool tile's `title` attribute reads "Disabled by operator"."""
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=False)
     _open_tools_tab(app_with_agent, page)
-    row = page.locator('.tool-row:has(input[data-tool="web_search"])')
+    row = page.locator('details.tool-tile[data-tool="web_search"]')
+    expect(row).to_be_attached()
     title = row.get_attribute("title") or ""
     assert "Disabled by operator" in title, f"unexpected title: {title!r}"
 
@@ -113,7 +143,7 @@ def test_studio_re_enable_restores_interactivity(app_with_agent: SeededApp, page
     """
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=False)
     _open_tools_tab(app_with_agent, page)
-    row = page.locator('.tool-row:has(input[data-tool="web_search"])')
+    row = page.locator('details.tool-tile[data-tool="web_search"]')
     expect(row).to_have_class(re.compile(r"\btool-row-disabled\b"))
 
     # Operator re-enables via API (no UI; mirrors a different-tab edit).
@@ -124,7 +154,8 @@ def test_studio_re_enable_restores_interactivity(app_with_agent: SeededApp, page
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
-    row_after = page.locator('.tool-row:has(input[data-tool="web_search"])')
+    row_after = page.locator('details.tool-tile[data-tool="web_search"]')
+    expect(row_after).to_be_attached()
     # No longer carries the disabled class.
     cls = row_after.get_attribute("class") or ""
     assert "tool-row-disabled" not in cls, f"row still disabled: {cls!r}"
@@ -133,10 +164,10 @@ def test_studio_re_enable_restores_interactivity(app_with_agent: SeededApp, page
 
 @pytest.mark.browser
 def test_studio_override_panel_collapsed_by_default(app_with_agent: SeededApp, page: Page) -> None:
-    """Each enabled tool row has a sibling `<details
-    class="tool-row-overrides">` collapsed by default (no `open` attr).
-    The body contains a `<p class="loading">Loading…</p>` placeholder
-    (per tools-tab.js:117) — confirms the lazy-load seed is in place
+    """Each operator-enabled tool renders as a `<details
+    class="tool-tile tool-row-overrides">` collapsed by default (no `open`
+    attr). The body contains a `<p class="loading">Loading…</p>` placeholder
+    (seeded by tools-tab.js) — confirms the lazy-load seed is in place
     for the dedupe test below.
     """
     _open_tools_tab(app_with_agent, page)
@@ -161,6 +192,7 @@ def test_studio_override_panel_lazy_loads_schema(app_with_agent: SeededApp, page
     the first toggle.
     """
     _open_tools_tab(app_with_agent, page)
+    _expand_category(page, "Web")
     panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
 
     requests_seen: list[str] = []
@@ -174,8 +206,10 @@ def test_studio_override_panel_lazy_loads_schema(app_with_agent: SeededApp, page
 
     page.on("request", _on_request)
 
-    # First open — fires the fetch + renders fields.
-    panel.locator("summary").click()
+    # First open — fires the fetch + renders fields. Click the Overrides
+    # affordance (clicks on the checkbox-label part of the summary would
+    # toggle the checkbox instead of the details).
+    panel.locator(".tool-tile-overrides-affordance").click()
     # Wait for at least one rendered field as the "fields rendered" signal.
     expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible(
         timeout=5000
@@ -184,8 +218,8 @@ def test_studio_override_panel_lazy_loads_schema(app_with_agent: SeededApp, page
     expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_count(0)
 
     # Close + reopen — second open should NOT trigger a second fetch.
-    panel.locator("summary").click()
-    panel.locator("summary").click()
+    panel.locator(".tool-tile-overrides-affordance").click()
+    panel.locator(".tool-tile-overrides-affordance").click()
     # Field is already in the DOM (no Loading… placeholder ever appeared).
     expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible()
     expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_count(0)
@@ -209,8 +243,9 @@ def test_studio_override_narrow_int_uses_operator_max(
         config={"timeout_seconds_max": 60},
     )
     _open_tools_tab(app_with_agent, page)
+    _expand_category(page, "Web")
     panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
-    panel.locator("summary").click()
+    _open_override_panel(page, "http_request")
     field = panel.locator(
         'input[data-tool-override-field="timeout_seconds_max"]'
         '[data-tool-override-tool="http_request"]'
@@ -226,8 +261,9 @@ def test_studio_override_unmarked_field_hidden(app_with_agent: SeededApp, page: 
     must NOT render a `redirect_cap` widget.
     """
     _open_tools_tab(app_with_agent, page)
+    _expand_category(page, "Web")
     panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
-    panel.locator("summary").click()
+    _open_override_panel(page, "http_request")
     # Wait for at least one field to confirm the panel rendered.
     expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible(
         timeout=5000
@@ -251,8 +287,9 @@ def test_studio_override_narrow_superset_locked_chips(
         config={"command_denylist": ["rm", "dd"]},
     )
     _open_tools_tab(app_with_agent, page)
+    _expand_category(page, "Execution")
     panel = page.locator('details.tool-row-overrides[data-tool="shell"]')
-    panel.locator("summary").click()
+    _open_override_panel(page, "shell")
     chip_list = panel.locator('.chip-list-editor[data-tool-override-field="command_denylist"]')
     expect(chip_list).to_be_visible(timeout=5000)
     locked_chips = chip_list.locator('.chip[data-locked="true"]')
@@ -268,8 +305,9 @@ def test_studio_override_save_round_trips_via_api(app_with_agent: SeededApp, pag
     `tool_overrides.http_request.extra_allowed_hosts == ["localhost"]`.
     """
     _open_tools_tab(app_with_agent, page)
+    _expand_category(page, "Web")
     panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
-    panel.locator("summary").click()
+    _open_override_panel(page, "http_request")
     chip_list = panel.locator('.chip-list-editor[data-tool-override-field="extra_allowed_hosts"]')
     expect(chip_list).to_be_visible(timeout=5000)
     chip_input = chip_list.locator(".chip-list-input")

@@ -285,9 +285,7 @@ class TestProviderAPI:
         data = get_resp.json()
         assert data["config"]["thinking_enabled"] is True
 
-    async def test_update_masked_key_preserves_thinking_config(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_update_masked_key_preserves_thinking_config(self, client: AsyncClient) -> None:
         """PUT an anthropic provider with a MASKED api_key and a full config
         (thinking_enabled + a second key) → the stored api_key is preserved
         and BOTH config keys round-trip. model_copy(update=data) replaces the

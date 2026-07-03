@@ -1,6 +1,6 @@
 # Flight: Regression-Net Foundation
 
-**Status**: ready
+**Status**: landed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
@@ -31,7 +31,7 @@ Before any markup or visual change lands, make the regression net trustworthy: e
 
 **Testid registry lives at `docs/ui-testid-registry.md`**: models **two id classes** — literal ids (166 today) and parametric ids registered by static prefix pattern, e.g. `connector-row-{id}` (~35 today, built via concatenation). The sync test matches literals exactly and parametric families by prefix; on mismatch it fails loudly emitting the exact add/remove diff. Convention `{area}-{element}` for new ids; existing ids are grandfathered as-is (renaming load-bearing ids now would churn the very tests this flight stabilizes).
 
-**Hang modules: timebox, then defer with teeth**: `test_flow_agent_crud.py` and `test_flow_provider_setup.py` hang for an unidentified reason under post-M08-Leg-02 markup (suspect: hover-reveal opacity treatment near `components.css:660-699` — ".new-entity-btn era"). Budget one leg's timebox for root-cause. If unresolved: leave skipped with an updated skip reason naming Flight 3 (component rebuild replaces the suspect treatment) and a mandatory re-enable check in Flight 3's completion checklist. SC6 remains the mission-end gate either way.
+**Hang modules: timebox, then defer with teeth**: `test_flow_agent_crud.py` and `test_flow_provider_setup.py` were skipped as "hangs, root cause unidentified" under post-M08-Leg-02 markup. **Resolved by Leg 02 (2026-07-03)** — the earlier "hover-reveal opacity" suspect (`components.css:660-699`) was wrong: Playwright treats `opacity: 0` as visible, so that treatment never broke the tests. The actual mechanism is `components.css:719` — `.page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded) { display: none; }` — which hides the header create CTA whenever the entity grid is empty; both tests start empty and clicked the header testid, so Playwright retried a `display: none` element until timeout. (The hang itself had already been fixed by the F5 L01 SQLite-isolation fix; only the visibility failure remained.) The fix was a test-side locator swap to the in-canvas `-empty` CTA variant at empty-state points; both modules are re-enabled and passing — no deferral needed. The underlying state-split CTA UX is logged as a mission Known Issue assigned to Flight 3. SC6 remains the mission-end gate.
 
 **Perf baseline is a committed artifact**: `missions/17-ui-redesign/perf-baseline.md` — heap retention under the M08 F7 realistic-load procedure (`App.perf` via `?perf=1`, Chromium), plus coarse first-paint and interaction timings for the three areas. Captured on the pre-redesign branch point so every later flight compares against the same anchor.
 
@@ -66,11 +66,11 @@ Work is test-infrastructure only — no visual or product-code changes except wh
 
 ### Checkpoints
 
-- [ ] Guards test file green in default suite
-- [ ] Three rewrite modules re-enabled and passing via `make test-browser`
-- [ ] Hang modules root-caused OR dispositioned with Flight-3-linked skip reasons
-- [ ] `perf-baseline.md` committed with real numbers
-- [ ] `studio-smoke` behavior test run log shows pass with goldfinch apparatus
+- [x] Guards test file green in default suite
+- [x] Three rewrite modules re-enabled and passing via `make test-browser`
+- [x] Hang modules root-caused OR dispositioned with Flight-3-linked skip reasons (root-caused AND re-enabled — no deferral needed)
+- [x] `perf-baseline.md` committed with real numbers (created by Leg 03; commit lands at flight close per single-commit protocol)
+- [x] Behavior test run log shows pass with goldfinch apparatus (spec substitution per flight-log decision: `shell-navigation-smoke` authored + run live — 6/6 pass, `tests/behavior/shell-navigation-smoke/runs/2026-07-03-16-26-39.md`)
 
 ### Adaptation Criteria
 
@@ -86,9 +86,10 @@ Work is test-infrastructure only — no visual or product-code changes except wh
 
 > **Note:** Tentative; created one at a time as the flight progresses.
 
-- [ ] `testid-registry-and-guards` - Registry doc + `tests/test_ui_guards.py` (testid sync + innerHTML-sink guard)
-- [ ] `reenable-skipped-browser-modules` - Rewrite 3 stale modules; timeboxed root-cause on 2 hang modules
-- [ ] `perf-baseline-and-apparatus-proof` - Capture perf baseline artifact; run `studio-smoke` behavior test via goldfinch (Flight Director runs the behavior test directly)
+- [x] `testid-registry-and-guards` - Registry doc + `tests/test_ui_guards.py` (testid sync + innerHTML-sink guard)
+- [x] `reenable-skipped-browser-modules` - Rewrite 3 stale modules; timeboxed root-cause on 2 hang modules
+- [x] `perf-baseline-and-apparatus-proof` - Capture perf baseline artifact; run `studio-smoke` behavior test via goldfinch (Flight Director runs the behavior test directly — see Leg 03's precondition-readiness note in the flight log before the run)
+- [x] `unit-tier-stabilization` - *(added mid-flight, FD decision after Leg 01 findings)* Fix the pre-existing `test_lifespan` ordering flake + clear pre-existing ruff-format drift in six files
 
 ---
 
@@ -96,10 +97,10 @@ Work is test-infrastructure only — no visual or product-code changes except wh
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Tests passing (`make test-unit` + `make test-browser`)
-- [ ] Flight log updated
-- [ ] Documentation updated (CLAUDE.md testing section if guard commands change developer workflow)
+- [x] All legs completed
+- [x] Tests passing (`make test-unit` + `make test-browser`)
+- [x] Flight log updated
+- [x] Documentation updated (CLAUDE.md testing section if guard commands change developer workflow)
 
 ### Verification
 

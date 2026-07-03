@@ -14,20 +14,16 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
-# M08 F4 KI: this test hangs under post-Leg-02 markup. Root cause not yet
-# identified — could be a real product bug from the rebrand OR a fixture-level
-# issue with the empty-DB onboarding flow. Skipped to unblock the Flight 4
-# close; investigation deferred to a follow-on cleanup flight. See mission.md
-# Known Issues.
-#
-# F5 L01 update (in mission.md KI #4): with the broad-pytest SQLite isolation
-# fix in tests/conftest.py, the hang no longer reproduces. The test now fails
-# with a Playwright DOM-visibility error on .new-entity-btn (60+ retries × 500ms
-# then timeout), exposing a likely real F4-rebrand-era UX defect. Skip remains
-# in place pending the cleanup flight that owns this UX investigation.
-pytestmark = pytest.mark.skip(
-    reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified"
-)
+# History (M08 F4 → M17 F1): this module was skipped as "hangs, root cause
+# unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation fix
+# in tests/conftest.py; the remaining deterministic failure was root-caused in
+# M17 F1 L02: `components.css:719` hides the header `.new-entity-btn` via
+# `display: none` whenever the entity grid below is empty
+# (".page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded)").
+# In empty state the create affordance is the in-canvas `-empty` variant
+# (data-testid="new-provider-btn-empty"); after the first create lands, the
+# grid populates, the header CTA appears, and the `-empty` variant disappears.
+# Tests must target the variant matching the current grid state.
 
 
 @pytest.mark.browser
@@ -46,8 +42,10 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     page.goto(f"{base_url}#admin")
     page.locator(".section-nav-item", has_text="LLM Providers").click()
 
-    # 3. Click + New Provider.
-    page.locator('[data-testid="new-provider-btn"]').click()
+    # 3. Click + New Provider. The DB is empty, so the header CTA
+    #    (new-provider-btn) is display:none per components.css:719 — the
+    #    create affordance in EMPTY state is the in-canvas `-empty` variant.
+    page.locator('[data-testid="new-provider-btn-empty"]').click()
 
     # 4-5. Fill name, select mock type (auto-hides base_url and api_key inputs).
     page.locator("#pf-name").fill("Mock Test")
