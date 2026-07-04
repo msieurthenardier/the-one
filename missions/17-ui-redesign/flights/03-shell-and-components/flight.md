@@ -1,6 +1,6 @@
 # Flight: Shell and Shared Components
 
-**Status**: landed
+**Status**: completed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
