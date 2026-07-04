@@ -119,9 +119,10 @@
     --status-danger-bg-soft: rgba(248, 113, 113, 0.08);
 
     /* provider badges
-       NOTE: badge tokens are theme- and accent-stable (brand identity);
-       values unchanged in v3. Badge×on-color contrast is measured but not
-       gated this flight — gating lands with Flight 3's badge rebuild. */
+       NOTE: badge FILL tokens are theme- and accent-stable (brand identity);
+       values unchanged in v3. Badge×ink contrast is now GATED (M17 F3 L4):
+       each badge carries a per-badge --badge-ink-* token (below) so its
+       text clears body AA (≥4.5) on that fill in BOTH themes. */
     --badge-ollama: #2ecc71;
     --badge-openai-compatible: #d4a800;
     --badge-openai: #4a9eff;
@@ -137,10 +138,22 @@
     --badge-execution: #b8860b;   /* dark goldenrod */
     --badge-web: #c71585;         /* medium violet red */
 
-    /* panel geometry — compat aliases onto the v3 radius scale; Flight 3
-       migrates component CSS to --radius-* directly. */
-    --panel-radius: var(--radius-sm);
-    --panel-radius-sm: 4px;
+    /* per-badge ink (M17 F3 L4) — theme-STABLE (chosen by fill luminance,
+       and fills are theme-stable enough that one ink clears AA in both
+       themes): light-toned fills take dark ink (#101114), dark-toned fills
+       take white ink (#ffffff). Every --badge-* × --badge-ink-* pair is
+       gated ≥4.5 in tests/test_design_tokens_a11y.py (both themes). */
+    --badge-ink-ollama: #101114;
+    --badge-ink-openai-compatible: #101114;
+    --badge-ink-openai: #101114;
+    --badge-ink-anthropic: #ffffff;
+    --badge-ink-openrouter: #ffffff;
+    --badge-ink-mock: #101114;
+    --badge-ink-unknown: #101114;
+    --badge-ink-discord: #ffffff;
+    --badge-ink-filesystem: #101114;
+    --badge-ink-execution: #101114;
+    --badge-ink-web: #ffffff;
 
     /* nav rail — ladder-native (no palette island): rail is a plain
        surface with accent reserved for the active state. */
@@ -220,9 +233,17 @@
     --status-warning-bg-soft: rgba(161, 98, 7, 0.08);
     --status-warning-bg-soft-2: rgba(161, 98, 7, 0.12);
     --status-warning-border: rgba(161, 98, 7, 0.30);
-    --status-danger: #dc2626;
+    /* danger — red-700 (deepened from red-600 #dc2626 in M17 F3 fix): the
+       #dc2626 text failed body AA (1.4.3) on the composited --status-danger-bg-soft
+       fill over surface-elevated (4.02:1). red-700 clears ≥4.5 on the soft fill
+       composited over ALL THREE ladder surfaces (worst 5.34 on surface-elevated),
+       and darkening only strengthens the flat-surface body pairs (6.47/6.20) and
+       white-on-danger-fill (6.47). Soft-fill base stays MATCHED to the text hue
+       (both = 185,28,28) — the a11y gate reconstructs the fill from --status-danger,
+       so they must not diverge. Gated in tests/test_design_tokens_a11y.py. */
+    --status-danger: #b91c1c;
     --status-danger-muted: #b45252;
-    --status-danger-bg-soft: rgba(220, 38, 38, 0.06);
+    --status-danger-bg-soft: rgba(185, 28, 28, 0.06);
 
     /* provider badges — same brand colors in both themes (badges identify
        the provider, NOT the theme; brand stability over palette consistency) */
@@ -235,15 +256,28 @@
     --badge-unknown: #888888;
     --badge-discord: #5865F2;
 
-    /* tool category badges (F6 leg 02) — slightly lighter for light-mode
-       contrast while still meeting AA against --fg-on-accent (#ffffff). */
+    /* tool category badges (F6 leg 02) — filesystem/execution stay slightly
+       lighter than their dark-theme fills (both take dark ink; see
+       --badge-ink-*). web darkened #d63a93 → #cc2d87 (M17 F3 L4) so its
+       WHITE ink clears body AA (4.89:1; the old #d63a93 sat at 4.30). */
     --badge-filesystem: #0e8e8e;
     --badge-execution: #c5912a;
-    --badge-web: #d63a93;
+    --badge-web: #cc2d87;
 
-    /* panel geometry — compat aliases onto the v3 radius scale. */
-    --panel-radius: var(--radius-sm);
-    --panel-radius-sm: 4px;
+    /* per-badge ink (M17 F3 L4) — theme-stable; identical to the dark block.
+       Light fills → dark ink (#101114), dark fills → white ink (#ffffff).
+       Gated ≥4.5 in tests/test_design_tokens_a11y.py (both themes). */
+    --badge-ink-ollama: #101114;
+    --badge-ink-openai-compatible: #101114;
+    --badge-ink-openai: #101114;
+    --badge-ink-anthropic: #ffffff;
+    --badge-ink-openrouter: #ffffff;
+    --badge-ink-mock: #101114;
+    --badge-ink-unknown: #101114;
+    --badge-ink-discord: #ffffff;
+    --badge-ink-filesystem: #101114;
+    --badge-ink-execution: #101114;
+    --badge-ink-web: #ffffff;
 
     /* nav rail — ladder-native: the light theme's dark-navy palette island
        is RETIRED (v3 design decision); light rail in light theme. */

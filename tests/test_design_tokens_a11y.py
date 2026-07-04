@@ -23,9 +23,13 @@ can sit on in BOTH themes —
   v3 status families clear body AA — the dark theme's previous 3.0 UI
   carve-out is retired)
 
-Badge (``--badge-*``) on-color pairs are measured and recorded in the
-flight log but NOT gated here — badge values are pre-v3 legacy and
-gating lands with Flight 3's badge component rebuild.
+Badge (``--badge-*``) × ink (``--badge-ink-*``) pairs are GATED here as
+of Mission 17 Flight 03 Leg 04: every provider / tool / connector badge
+carries a per-badge ink (light-toned fills take dark ink, dark-toned
+fills take white ink) so its text clears body AA (≥4.5:1) on that fill
+in BOTH themes. web's light-theme fill was darkened (#d63a93 → #cc2d87)
+so its white ink clears the threshold. See the flight log for the final
+measured table.
 
 WCAG AA thresholds (per WCAG 2.1):
 
@@ -80,6 +84,20 @@ def contrast_ratio(fg_hex: str, bg_hex: str) -> float:
     l2 = _luminance(_hex_to_rgb(bg_hex))
     lighter, darker = (l1, l2) if l1 > l2 else (l2, l1)
     return (lighter + 0.05) / (darker + 0.05)
+
+
+def _alpha_composite(fg_hex: str, alpha: float, base_hex: str) -> str:
+    """Composite an opaque ``fg`` at ``alpha`` over an opaque ``base``, return #RRGGBB.
+
+    The WCAG contrast formula is flat (no alpha), so a low-alpha wash token
+    (``--status-danger-bg-soft`` is an rgba) must be resolved to the opaque
+    color it renders as before it can be audited. Standard source-over:
+    ``out = fg*alpha + base*(1-alpha)`` per channel.
+    """
+    fg = _hex_to_rgb(fg_hex)
+    base = _hex_to_rgb(base_hex)
+    out = tuple(fg[i] * alpha + base[i] * (1 - alpha) for i in range(3))
+    return "#" + "".join(f"{round(c * 255):02x}" for c in out)
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +192,7 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         ("fg_on_accent", "accent_api", 4.5),
         # Text on danger (red) — body threshold (delete-confirm states).
         # Dark pairs dark ink (#101114) with the bright #f87171 fill;
-        # light pairs white with the deep #dc2626 fill.
+        # light pairs white with the deep #b91c1c fill (red-700, M17 F3 fix).
         ("fg_on_danger", "status_danger", 4.5),
         # Code well — literal-hex pair in both themes (dark: one step
         # darker than bg; light: pale zinc + primary ink).
@@ -209,6 +227,85 @@ def test_status_text_passes_body_aa(theme: str, fg_key: str, bg_key: str) -> Non
     ratio = contrast_ratio(palette[fg_key], palette[bg_key])
     assert ratio >= 4.5, (
         f"{theme} status text fails body AA: {fg_key} on {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Danger text on the soft-danger FILL (≥ 4.5:1) — both themes (M17 F3 fix)
+# ---------------------------------------------------------------------------
+
+# --status-danger-bg-soft is a low-alpha rgba wash whose base color is the
+# --status-danger hue (the family is kept MATCHED in tokens.css: light soft
+# = rgba(185,28,28,0.06) matches --status-danger #b91c1c; dark soft =
+# rgba(248,113,113,0.08) matches #f87171). Because the wash is an rgba it is
+# NOT mirrored in design_tokens.py (see that module's "Deliberately NOT
+# mirrored" note); the gate reconstructs the rendered fill by compositing
+# --status-danger at the theme's soft alpha over each ladder surface, then
+# asserts --status-danger text clears body AA on that fill.
+#
+# This gates .btn-muted-destructive (components.css) — the real destructive
+# button (Danger Zone / delete across provider/connector/mcp-server editors,
+# general-tab, system-page): 12px normal-weight = body text needing ≥4.5:1.
+# The light-theme #dc2626 → #b91c1c deepening (M17 F3 accessibility fix)
+# cleared it; this test fails loudly if a future retune lightens it back.
+#
+# Alpha per theme MUST track --status-danger-bg-soft in tokens.css.
+_STATUS_DANGER_SOFT_ALPHA = {"dark": 0.08, "light": 0.06}
+
+
+@pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
+@pytest.mark.parametrize("theme", THEMES)
+def test_danger_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> None:
+    """`--status-danger` text ≥ 4.5:1 on the composited `--status-danger-bg-soft`
+    fill, over bg AND surface AND surface-elevated, in BOTH themes."""
+    palette = _palette(theme)
+    danger = palette["status_danger"]
+    alpha = _STATUS_DANGER_SOFT_ALPHA[theme]
+    fill = _alpha_composite(danger, alpha, palette[bg_key])
+    ratio = contrast_ratio(danger, fill)
+    assert ratio >= 4.5, (
+        f"{theme} danger-on-soft-fill fails body AA: status_danger on "
+        f"status-danger-bg-soft over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Badge × ink (≥ 4.5:1) — per-badge ink, both themes (M17 F3 L4)
+# ---------------------------------------------------------------------------
+
+# Every badge maps to (fill token, ink token). The fill is looked up per
+# theme (tool-badge fills diverge between themes; ink is theme-stable), so
+# each pair is asserted against BOTH themes. This is the "fix THEN gate"
+# contract from the flight DD "Badges": the fix is the per-badge ink (+ the
+# web light-fill tune); this test is the gate.
+_BADGE_INK_PAIRS = (
+    ("ollama", "badge_ollama", "badge_ink_ollama"),
+    ("openai-compatible", "badge_openai_compatible", "badge_ink_openai_compatible"),
+    ("openai", "badge_openai", "badge_ink_openai"),
+    ("anthropic", "badge_anthropic", "badge_ink_anthropic"),
+    ("openrouter", "badge_openrouter", "badge_ink_openrouter"),
+    ("mock", "badge_mock", "badge_ink_mock"),
+    ("unknown", "badge_unknown", "badge_ink_unknown"),
+    ("discord", "badge_discord", "badge_ink_discord"),
+    ("filesystem", "badge_filesystem", "badge_ink_filesystem"),
+    ("execution", "badge_execution", "badge_ink_execution"),
+    ("web", "badge_web", "badge_ink_web"),
+)
+
+
+@pytest.mark.parametrize("badge,fill_key,ink_key", _BADGE_INK_PAIRS)
+@pytest.mark.parametrize("theme", THEMES)
+def test_badge_ink_passes_body_aa(theme: str, badge: str, fill_key: str, ink_key: str) -> None:
+    """Every badge's ink clears body AA (≥ 4.5:1) on its fill, both themes.
+
+    Provider fills are theme-stable; tool-badge fills diverge by theme
+    (filesystem/execution lighter in light, web darkened for its white
+    ink) — the fill is resolved per theme, the ink is theme-stable.
+    """
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette[ink_key], palette[fill_key])
+    assert ratio >= 4.5, (
+        f"{theme} badge fails body AA: {badge} ink on fill = {ratio:.2f}:1 (need ≥ 4.5:1)"
     )
 
 

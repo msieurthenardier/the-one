@@ -395,16 +395,17 @@ App.registerArea({
     agentsContentEl.innerHTML =
       '<div class="page-header">' +
         '<h1 class="page-title">Agents</h1>' +
-        // Header CTA renders icon-only at rest; expands on hover. CSS hides
-        // it entirely when the grid below is empty, deferring the affordance
-        // to the empty-canvas's centered CTA (rendered by renderAgentList).
-        '<button class="new-entity-btn" type="button" data-testid="new-agent-btn" aria-label="New agent">' +
+        // Header CTA (M17 F3 leg 03 CTA unification): always visible with
+        // icon + text label, in BOTH empty and populated grid states. The
+        // empty-canvas renders a second instance of the same component
+        // (see renderAgentList) wired to the same handler.
+        '<button class="btn-outlined-primary" type="button" data-testid="new-agent-btn">' +
           App.icon('square-pen') + '<span>New Agent</span>' +
         '</button>' +
       '</div>' +
       '<div class="entity-tile-grid" role="listbox" aria-label="Agents"></div>';
     var agentListEl = agentsContentEl.querySelector('.entity-tile-grid');
-    var newAgentBtn = agentsContentEl.querySelector('.new-entity-btn');
+    var newAgentBtn = agentsContentEl.querySelector('[data-testid="new-agent-btn"]');
 
     // ── Section navigation ─────────────────────────────────────────────
 
@@ -1299,10 +1300,13 @@ App.registerArea({
         var msg = document.createElement('div');
         msg.textContent = 'No agents yet. Create one to get started.';
         inner.appendChild(msg);
+        // Second instance of the header CTA component (M17 F3 leg 03 CTA
+        // unification): same class + handler, NO data-testid — the unified
+        // testid (new-agent-btn) lives uniquely on the always-visible
+        // header CTA so strict-mode locators never double-match.
         var emptyBtn = document.createElement('button');
         emptyBtn.type = 'button';
-        emptyBtn.className = 'new-entity-btn is-expanded';
-        emptyBtn.setAttribute('data-testid', 'new-agent-btn-empty');
+        emptyBtn.className = 'btn-outlined-primary empty-canvas-cta';
         emptyBtn.innerHTML = App.icon('square-pen') + '<span>New Agent</span>';
         emptyBtn.addEventListener('click', enterCreateMode);
         inner.appendChild(emptyBtn);

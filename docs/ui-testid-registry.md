@@ -160,15 +160,11 @@ caught — but it cannot see where the attribute is emitted.
 | `model-ctx-chip` | studio | |
 | `nav-chat-btn` | shell | |
 | `nav-pending-badge` | shell | |
-| `new-agent-btn` | studio | |
-| `new-agent-btn-empty` | studio | |
+| `new-agent-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
 | `new-chat-btn` | chat | |
-| `new-connector-btn` | studio | |
-| `new-connector-btn-empty` | studio | |
-| `new-mcp-source-btn` | studio | |
-| `new-mcp-source-btn-empty` | studio | |
-| `new-provider-btn` | admin | |
-| `new-provider-btn-empty` | admin | |
+| `new-connector-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
+| `new-mcp-source-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
+| `new-provider-btn` | admin | Unified create CTA (M17 F3 L3) — always-visible header button |
 | `pending-approval-approve` | chat | |
 | `pending-approval-badge` | chat | |
 | `pending-approval-banner` | chat | |

@@ -1772,7 +1772,6 @@
   // ── Test Connection handler ─────────────────────────────────────────
 
   function handleTestConnection(accountId, container, testBtn) {
-    var statusEl = container.querySelector('[data-testid="connector-test-status"]');
     var detailsWrap = container.querySelector('[data-testid="connector-test-details-wrap"]');
     var detailsEl = container.querySelector('[data-testid="connector-test-details"]');
     var ledEl = container.querySelector('[data-testid="connector-test-led"]');
@@ -1785,10 +1784,6 @@
       ledEl.setAttribute('aria-label', 'Testing');
     }
     if (messageEl) messageEl.textContent = '';
-    if (statusEl) {
-      statusEl.hidden = false;
-      statusEl.textContent = 'Testing connection…';
-    }
     if (detailsWrap) detailsWrap.hidden = true;
     if (detailsEl) detailsEl.innerHTML = '';
 
@@ -1825,7 +1820,6 @@
 
   function renderTestConnectionBanner(container, report, accountId) {
     var escapeHtml = window.App.escapeHtml;
-    var statusEl = container.querySelector('[data-testid="connector-test-status"]');
     var detailsWrap = container.querySelector('[data-testid="connector-test-details-wrap"]');
     var detailsEl = container.querySelector('[data-testid="connector-test-details"]');
     var ledEl = container.querySelector('[data-testid="connector-test-led"]');
@@ -1869,10 +1863,10 @@
     if (messageEl) {
       messageEl.textContent = message || statusAriaLabel(status);
     }
-    // F5 L6 HAT round-7: statusEl removed; inline messageEl (next to LED)
-    // is the single source for the status text. The block-level status
-    // div was a duplicate of messageEl — operator-flagged in HAT.
-    void statusEl;
+    // M16 F5 L6 HAT round-7 removed the block-level connector-test-status
+    // element (duplicate of messageEl, operator-flagged in HAT); M17 F3 L3
+    // removed the dormant null-guarded statusEl queries for it — inline
+    // messageEl (next to LED) is the single source for the status text.
     if (detailsEl && detailsWrap) {
       // Hide the details panel on a clean "ok" status — green LED + message
       // is enough. Surface the details only when the operator needs to

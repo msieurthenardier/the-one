@@ -62,8 +62,14 @@
         '</button>';
     }
 
+    // Brand lockup (M17 F3): set-type wordmark + compact mark. The <img>
+    // mark is decorative (aria-hidden, empty alt); the text carries the
+    // accessible name.
     topbar.innerHTML =
-      '<img src="/static/brand/gleepglorp_banner.png" alt="GleepGlorp AI" class="app-topbar-banner">' +
+      '<div class="app-brand">' +
+        '<img src="/static/brand/topbar-icon-24.png" alt="" aria-hidden="true" class="app-brand-mark">' +
+        '<span class="app-brand-wordmark">GleepGlorp AI</span>' +
+      '</div>' +
       '<div class="app-topbar-actions">' + buttonsHtml + '</div>';
 
     // Wire each button to a direct hash navigation.

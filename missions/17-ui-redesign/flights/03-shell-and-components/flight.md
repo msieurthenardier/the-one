@@ -1,14 +1,16 @@
 # Flight: Shell and Shared Components
 
-**Status**: ready
+**Status**: landed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] SC1 — visual-language replacement (pixel-font branding retired here; last chamfer removed here)
-- [ ] SC3 — one component vocabulary (this flight builds it)
-- [ ] SC5 — keyboard/AT operability (vocabulary components ship keyboard-complete)
-- [ ] SC9 — documentation (gallery rebuilt as the living reference; apparatus doctrine completed)
+> Boxes stay unchecked pending mission-end verification; the inline notes record F3's delivered share.
+
+- [ ] SC1 — visual-language replacement (pixel-font branding retired here; last chamfer removed here) — **F3 delivered**: pixel-font banner PNG retired for the set-type "GleepGlorp AI" wordmark (Leg 02); the last `clip-path` chamfer + its guard allowance deleted (Leg 01); SC1 spot-check at flight verification found no alien-console remnants across the vocabulary/shell/gallery.
+- [ ] SC3 — one component vocabulary (this flight builds it) — **F3 delivered**: one shared vocabulary built in components.css (buttons/fields/`.field-select`/tabs/tiles/tables — Leg 01; modals/toasts/empty-states/badges — Leg 04) and used identically across areas; chat agent-select folded onto the shared `.field-select`; gallery re-authored as the living reference.
+- [ ] SC5 — keyboard/AT operability (vocabulary components ship keyboard-complete) — **F3 delivered**: every leg's a11y gate passed (tabs arrow-operable, selects/CTA/fields focusable with pinned focus, modal focus-trap preserved); CDP focus evidence recorded; accessibility review confirmed after the destructive-button contrast fix.
+- [ ] SC9 — documentation (gallery rebuilt as the living reference; apparatus doctrine completed) — **F3 delivered**: gallery sections re-authored to the new vocabulary (Legs 01/04); agents.md gained the Component vocabulary conventions subsection + four apparatus-doctrine additions and its design section de-staled (Leg 05).
 
 ---
 
@@ -72,12 +74,12 @@ Component work proceeds vocabulary-first (buttons/fields/tabs/tiles in component
 
 ### Checkpoints
 
-- [ ] Vocabulary components render in gallery + all areas, both themes; zero clip-path polygons (allowance deleted)
-- [ ] Wordmark AA both themes; banner PNG unreferenced
-- [ ] CTA unified; F1 state-split tests re-simplified; registry pruned
-- [ ] Badges AA-gated in suite (all pairs green)
-- [ ] panel-radius aliases gone; section-title heading fix in
-- [ ] Suites green; behavior gate passes; a11y review confirms
+- [x] Vocabulary components render in gallery + all areas, both themes; zero clip-path polygons (allowance deleted)
+- [x] Wordmark AA both themes; banner PNG unreferenced
+- [x] CTA unified; F1 state-split tests re-simplified; registry pruned
+- [x] Badges AA-gated in suite (all pairs green)
+- [x] panel-radius aliases gone; section-title heading fix in
+- [x] Suites green; behavior gate passes; a11y review confirms
 
 ### Adaptation Criteria
 
@@ -89,12 +91,12 @@ Component work proceeds vocabulary-first (buttons/fields/tabs/tiles in component
 
 > **Note:** Tentative; created one at a time as the flight progresses.
 
-- [ ] `vocabulary-core` - Buttons/fields (incl. `.field-select` styling)/tabs (L-bracket + allowance deleted)/tiles/tables; panel-radius migration (35 refs + 4 defs); gallery sections for these
-- [ ] `wordmark-and-shell` - Text wordmark + compact mark (banner sink guard entry updated); topbar/sidebar nav restyle; light/dark AA evidence
-- [ ] `cta-unification` - Product fix (state-split `:672` + hover-reveal `:633` deleted); ALL SIX test consumers migrated; 4 registry rows pruned; dead-selector cleanup bundle
-- [ ] `badges-and-overlays` - Badges per-badge-ink fix + suite gating; dialog.js/toast/empty-state restyling; their gallery sections
-- [ ] `semantics-docs` - Section-title heading fix + admin label quieting; agents.md vocabulary conventions + apparatus doctrine completion
-- [ ] `flight-verification` - Suites; dual-theme visual pass (focus via CDP); behavior gate; sink/registry ledger
+- [x] `vocabulary-core` - Buttons/fields (incl. `.field-select` styling)/tabs (L-bracket + allowance deleted)/tiles/tables; panel-radius migration (35 refs + 4 defs); gallery sections for these
+- [x] `wordmark-and-shell` - Text wordmark + compact mark (banner sink guard entry updated); topbar/sidebar nav restyle; light/dark AA evidence
+- [x] `cta-unification` - Product fix (state-split `:672` + hover-reveal `:633` deleted); ALL SIX test consumers migrated; 4 registry rows pruned; dead-selector cleanup bundle
+- [x] `badges-and-overlays` - Badges per-badge-ink fix + suite gating; dialog.js/toast/empty-state restyling; their gallery sections
+- [x] `semantics-docs` - Section-title heading fix + admin label quieting; agents.md vocabulary conventions + apparatus doctrine completion
+- [x] `flight-verification` - Suites; dual-theme visual pass (focus via CDP); behavior gate; sink/registry ledger (verification landed; behavior gate `shell-navigation-smoke` FD-pending at flight close)
 
 ---
 
@@ -102,10 +104,10 @@ Component work proceeds vocabulary-first (buttons/fields/tabs/tiles in component
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Tests passing
-- [ ] Flight log updated
-- [ ] Documentation updated
+- [x] All legs completed
+- [x] Tests passing
+- [x] Flight log updated
+- [x] Documentation updated
 
 ### Verification
 

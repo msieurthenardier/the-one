@@ -14,16 +14,14 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
-# History (M08 F4 → M17 F1): this module was skipped as "hangs, root cause
-# unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation fix
-# in tests/conftest.py; the remaining deterministic failure was root-caused in
-# M17 F1 L02: `components.css:719` hides the header `.new-entity-btn` via
-# `display: none` whenever the entity grid below is empty
-# (".page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded)").
-# In empty state the create affordance is the in-canvas `-empty` variant
-# (data-testid="new-provider-btn-empty"); after the first create lands, the
-# grid populates, the header CTA appears, and the `-empty` variant disappears.
-# Tests must target the variant matching the current grid state.
+# History (M08 F4 → M17 F1 → M17 F3): this module was skipped as "hangs, root
+# cause unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation
+# fix in tests/conftest.py; the remaining deterministic failure was root-caused
+# in M17 F1 L02 as the state-split create CTA (the affordance moved between an
+# in-canvas `-empty` variant and a hidden-when-empty header button). M17 F3 L3
+# unified the CTA: the header button (data-testid="new-provider-btn") is
+# always visible with an icon + text label in BOTH empty and populated grid
+# states, and the `-empty` testid variants are retired.
 
 
 @pytest.mark.browser
@@ -42,10 +40,9 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     page.goto(f"{base_url}#admin")
     page.locator(".section-nav-item", has_text="LLM Providers").click()
 
-    # 3. Click + New Provider. The DB is empty, so the header CTA
-    #    (new-provider-btn) is display:none per components.css:719 — the
-    #    create affordance in EMPTY state is the in-canvas `-empty` variant.
-    page.locator('[data-testid="new-provider-btn-empty"]').click()
+    # 3. Click the unified header CTA (+ New Provider). It is visible even
+    #    with an empty DB (M17 F3 L3 CTA unification).
+    page.locator('[data-testid="new-provider-btn"]').click()
 
     # 4-5. Fill name, select mock type (auto-hides base_url and api_key inputs).
     page.locator("#pf-name").fill("Mock Test")

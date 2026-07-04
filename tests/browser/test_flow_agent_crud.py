@@ -17,19 +17,15 @@ import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-# History (M08 F4 → M17 F1): this module was skipped as "hangs, root cause
-# unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation fix
-# in tests/conftest.py; the remaining deterministic failure was root-caused in
-# M17 F1 L02: `components.css:719` hides the header `.new-entity-btn` via
-# `display: none` whenever the entity grid below is empty
-# (".page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded)").
-# `app_with_provider` seeds zero agents, so the Studio agents grid starts
-# empty: the create affordance is the in-canvas `-empty` variant
-# (data-testid="new-agent-btn-empty"), not the header CTA
-# (data-testid="new-agent-btn"). After a create lands, the grid populates and
-# the affordance flips to the header CTA. Tests must target the variant
-# matching the current grid state and must not reuse a locator across that
-# boundary. Same symptom class as test_flow_provider_setup.py.
+# History (M08 F4 → M17 F1 → M17 F3): this module was skipped as "hangs, root
+# cause unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation
+# fix in tests/conftest.py; the remaining deterministic failure was root-caused
+# in M17 F1 L02 as the state-split create CTA (the affordance moved between an
+# in-canvas `-empty` variant and a hidden-when-empty header button). M17 F3 L3
+# unified the CTA: the header button (data-testid="new-agent-btn") is always
+# visible with an icon + text label in BOTH empty and populated grid states,
+# and the `-empty` testid variants are retired. Tests target the one unified
+# testid throughout.
 
 
 @pytest.mark.browser
@@ -42,10 +38,9 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     expect(empty).to_be_visible()
     expect(empty).to_contain_text("No agents yet")
 
-    # 2. Click + to enter create mode. Zero agents exist, so the header CTA
-    #    (new-agent-btn) is display:none per components.css:719 — the create
-    #    affordance in EMPTY state is the in-canvas `-empty` variant.
-    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    # 2. Click the unified header CTA to enter create mode. It is visible
+    #    even with zero agents (M17 F3 L3 CTA unification).
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent")
 
     # 3-4. Fill name and description.

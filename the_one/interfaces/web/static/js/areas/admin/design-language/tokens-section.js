@@ -26,9 +26,9 @@
   ];
 
   // v3 geometry + elevation scales (M17 F2): spacing ladder, radius scale,
-  // and the two-shadow system. (--panel-radius* aliases still exist for
-  // untouched component CSS until Flight 3 migrates it, but the gallery
-  // showcases the canonical v3 names.)
+  // and the two-shadow system. (The --panel-radius* compat aliases were
+  // retired in Flight 3 — all consumer refs migrated onto --radius-*/--space-*
+  // and the alias definitions deleted; the gallery shows the canonical names.)
   var SPACE_TOKENS = [
     '--space-1',
     '--space-2',

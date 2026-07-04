@@ -4,103 +4,170 @@
   window.App.admin = window.App.admin || {};
   window.App.admin.designLanguage = window.App.admin.designLanguage || {};
 
-  // SURFACES section samples a mixed set of brand chrome and list/tile
-  // primitives. Static miniatures for app-topbar and app-picker (no event
-  // bindings, no real renderTopBar invocation) so the gallery never
-  // re-mounts the real chrome. The iOS-toggle sample uses the canonical
-  // DOM template from tools-grid.js:67-72; the gallery-scoped
-  // .design-language-toggle-sample override in admin.css strips the
-  // primitive's absolute bottom-right anchoring so two states flow inline.
+  // SURFACES section samples the M17 F3 tile/list vocabulary plus brand
+  // chrome miniatures: entity tiles (surface + hairline + radius-md; hover
+  // shifts to --border-hover; selected = accent border), 40px list rows
+  // with hover surface shift, section-nav, static app-picker miniatures
+  // (no event bindings, no real renderTopBar invocation) and the
+  // iOS-toggle sample (canonical DOM template from tools-grid.js; the
+  // gallery-scoped .design-language-toggle-sample override in admin.css
+  // strips the primitive's absolute anchoring so two states flow inline).
+  // Rendered via createElement per the innerHTML-sink freeze (M17 F1).
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function el(tag, className) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    return node;
+  }
+
+  function sample(labelText) {
+    var wrap = el('div');
+    wrap.style.display = 'flex';
+    wrap.style.flexDirection = 'column';
+    wrap.style.gap = '8px';
+    var label = el('span');
+    label.style.fontFamily = 'var(--font-family-mono)';
+    label.style.fontSize = 'var(--font-size-tiny)';
+    label.style.color = 'var(--fg-muted)';
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    return wrap;
+  }
+
+  function tile(name, description, active) {
+    var node = el('div', 'entity-tile' + (active ? ' active' : ''));
+    node.setAttribute('role', 'listitem');
+    node.tabIndex = 0;
+    if (active) node.setAttribute('aria-selected', 'true');
+    var nameEl = el('span', 'entity-tile-name');
+    nameEl.textContent = name;
+    node.appendChild(nameEl);
+    var descEl = el('span', 'entity-tile-description');
+    descEl.textContent = description;
+    node.appendChild(descEl);
+    return node;
+  }
+
+  function pickerButton(labelText, current) {
+    var btn = el('button', 'app-picker-button');
+    btn.type = 'button';
+    if (current) btn.setAttribute('aria-current', 'page');
+    var iconWrap = el('span', 'app-picker-button-icon');
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 18 18');
+    svg.setAttribute('fill', 'currentColor');
+    var circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', '9');
+    circle.setAttribute('cy', '9');
+    circle.setAttribute('r', '6');
+    circle.setAttribute('fill', 'none');
+    circle.setAttribute('stroke', 'currentColor');
+    circle.setAttribute('stroke-width', '1.5');
+    svg.appendChild(circle);
+    iconWrap.appendChild(svg);
+    btn.appendChild(iconWrap);
+    var labelEl = el('span', 'app-picker-button-label');
+    labelEl.textContent = labelText;
+    btn.appendChild(labelEl);
+    return btn;
+  }
+
+  function toggleSwitch(on, ariaLabel) {
+    var label = el('label', 'tool-enable-switch');
+    var input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = !!on;
+    input.setAttribute('aria-label', ariaLabel);
+    label.appendChild(input);
+    var track = el('span', 'tool-enable-switch-track');
+    track.setAttribute('aria-hidden', 'true');
+    label.appendChild(track);
+    return label;
+  }
+
   function render(host) {
-    host.innerHTML =
-      // --- Entity tile (single) ---
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">entity-tile (single)</span>' +
-        '<div class="entity-tile" role="listitem" tabindex="0">' +
-          '<span class="entity-tile-name">Sample Tile</span>' +
-          '<span class="entity-tile-description">Short description text for the tile.</span>' +
-        '</div>' +
-      '</div>' +
+    // --- Entity tile (single) ---
+    var single = sample('entity-tile (single)');
+    single.appendChild(tile('Sample Tile', 'Short description text for the tile.', false));
+    host.appendChild(single);
 
-      // --- Entity tile grid ---
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">entity-tile-grid</span>' +
-        '<div class="entity-tile-grid">' +
-          '<div class="entity-tile" role="listitem" tabindex="0">' +
-            '<span class="entity-tile-name">Tile One</span>' +
-            '<span class="entity-tile-description">First grid tile.</span>' +
-          '</div>' +
-          '<div class="entity-tile active" role="listitem" tabindex="0" aria-selected="true">' +
-            '<span class="entity-tile-name">Tile Two (active)</span>' +
-            '<span class="entity-tile-description">Selected tile state.</span>' +
-          '</div>' +
-          '<div class="entity-tile" role="listitem" tabindex="0">' +
-            '<span class="entity-tile-name">Tile Three</span>' +
-            '<span class="entity-tile-description">Third grid tile.</span>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
+    // --- Entity tile grid ---
+    var gridSample = sample('entity-tile-grid');
+    var grid = el('div', 'entity-tile-grid');
+    grid.appendChild(tile('Tile One', 'First grid tile.', false));
+    grid.appendChild(tile('Tile Two (active)', 'Selected tile state.', true));
+    grid.appendChild(tile('Tile Three', 'Third grid tile.', false));
+    gridSample.appendChild(grid);
+    host.appendChild(gridSample);
 
-      // --- Section nav ---
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">section-nav</span>' +
-        '<div class="section-nav" style="max-width: 220px;">' +
-          '<button type="button" class="section-nav-item">Item one</button>' +
-          '<button type="button" class="section-nav-item" aria-current="page">Item two (current)</button>' +
-          '<button type="button" class="section-nav-item">Item three</button>' +
-        '</div>' +
-      '</div>' +
+    // --- Section nav ---
+    var navSample = sample('section-nav');
+    var nav = el('div', 'section-nav');
+    nav.style.maxWidth = '220px';
+    var items = ['Item one', 'Item two (current)', 'Item three'];
+    for (var i = 0; i < items.length; i++) {
+      var navBtn = el('button', 'section-nav-item');
+      navBtn.type = 'button';
+      if (i === 1) navBtn.setAttribute('aria-current', 'page');
+      navBtn.textContent = items[i];
+      nav.appendChild(navBtn);
+    }
+    navSample.appendChild(nav);
+    host.appendChild(navSample);
 
-      // --- List items ---
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">list-item</span>' +
-        '<div style="display: flex; flex-direction: column; gap: 4px; max-width: 320px;">' +
-          '<div class="list-item">Default list item</div>' +
-          '<div class="list-item active">Active list item</div>' +
-          '<div class="list-item confirm-delete">' +
-            '<span data-confirm-title>Confirm-delete list item</span>' +
-            '<button type="button" class="list-item-delete" aria-label="delete">×</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
+    // --- List items (40px rows, hover surface shift) ---
+    var listSample = sample('list-item');
+    var list = el('div');
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '4px';
+    list.style.maxWidth = '320px';
+    var plain = el('div', 'list-item');
+    plain.textContent = 'Default list item';
+    list.appendChild(plain);
+    var active = el('div', 'list-item active');
+    active.textContent = 'Active list item';
+    list.appendChild(active);
+    var confirm = el('div', 'list-item confirm-delete');
+    var confirmTitle = el('span');
+    confirmTitle.setAttribute('data-confirm-title', '');
+    confirmTitle.textContent = 'Confirm-delete list item';
+    confirm.appendChild(confirmTitle);
+    var deleteBtn = el('button', 'list-item-delete');
+    deleteBtn.type = 'button';
+    deleteBtn.setAttribute('aria-label', 'delete');
+    deleteBtn.textContent = '×';
+    confirm.appendChild(deleteBtn);
+    list.appendChild(confirm);
+    listSample.appendChild(list);
+    host.appendChild(listSample);
 
-      // --- App-picker miniature (rest + active, static) ---
-      // Post-Flight-3-Leg-2: the popover affordance was retired; .app-picker-button
-      // is now a flat top-bar area button. Sample shows rest vs aria-current="page".
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">app-picker-button (rest / active)</span>' +
-        '<div style="display: flex; gap: 12px; align-items: center;">' +
-          '<button type="button" class="app-picker-button">' +
-            '<span class="app-picker-button-icon">' +
-              '<svg viewBox="0 0 18 18" fill="currentColor"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
-            '</span>' +
-            '<span class="app-picker-button-label">System</span>' +
-          '</button>' +
-          '<button type="button" class="app-picker-button" aria-current="page">' +
-            '<span class="app-picker-button-icon">' +
-              '<svg viewBox="0 0 18 18" fill="currentColor"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
-            '</span>' +
-            '<span class="app-picker-button-label">System</span>' +
-          '</button>' +
-        '</div>' +
-      '</div>' +
+    // --- App-picker miniature (rest + active, static) ---
+    var pickerSample = sample('app-picker-button (rest / active)');
+    var pickerRow = el('div');
+    pickerRow.style.display = 'flex';
+    pickerRow.style.gap = '12px';
+    pickerRow.style.alignItems = 'center';
+    pickerRow.appendChild(pickerButton('System', false));
+    pickerRow.appendChild(pickerButton('System', true));
+    pickerSample.appendChild(pickerRow);
+    host.appendChild(pickerSample);
 
-      // --- iOS-toggle sample (ON + OFF, side by side via gallery-scoped override) ---
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">tool-enable-switch (iOS toggle)</span>' +
-        '<div class="design-language-toggle-sample">' +
-          '<label class="tool-enable-switch">' +
-            '<input type="checkbox" checked aria-label="ON state sample" />' +
-            '<span class="tool-enable-switch-track" aria-hidden="true"></span>' +
-          '</label>' +
-          '<span class="design-language-toggle-label">ON</span>' +
-          '<label class="tool-enable-switch">' +
-            '<input type="checkbox" aria-label="OFF state sample" />' +
-            '<span class="tool-enable-switch-track" aria-hidden="true"></span>' +
-          '</label>' +
-          '<span class="design-language-toggle-label">OFF</span>' +
-        '</div>' +
-      '</div>';
+    // --- iOS-toggle sample (ON + OFF side by side) ---
+    var toggleSample = sample('tool-enable-switch (iOS toggle)');
+    var toggleRow = el('div', 'design-language-toggle-sample');
+    toggleRow.appendChild(toggleSwitch(true, 'ON state sample'));
+    var onLabel = el('span', 'design-language-toggle-label');
+    onLabel.textContent = 'ON';
+    toggleRow.appendChild(onLabel);
+    toggleRow.appendChild(toggleSwitch(false, 'OFF state sample'));
+    var offLabel = el('span', 'design-language-toggle-label');
+    offLabel.textContent = 'OFF';
+    toggleRow.appendChild(offLabel);
+    toggleSample.appendChild(toggleRow);
+    host.appendChild(toggleSample);
   }
 
   window.App.admin.designLanguage.surfacesSection = { render: render };

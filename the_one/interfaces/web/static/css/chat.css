@@ -26,9 +26,10 @@
   }
   .area-chat .session-item:focus { outline: none; }
   .area-chat .session-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-  .area-chat .agent-select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-sm); outline: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
-  .area-chat .agent-select:focus { border-color: var(--accent); }
-  .area-chat .agent-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Layout-only: the select's visual chrome comes from the shared
+     .field-select vocabulary (components.css, M17 F3); this rule only
+     sizes it within the sidebar-actions flex row. */
+  .area-chat .agent-select { flex: 1; min-width: 0; }
   .area-chat .session-list { flex: 1; overflow-y: auto; padding: 8px; }
   .area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -75,7 +76,7 @@
     margin-left: auto;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     color: var(--accent);
     cursor: pointer;
     font-family: inherit;
@@ -129,7 +130,7 @@
     flex-shrink: 0;
   }
   .area-chat .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-  .area-chat .msg { max-width: 85%; padding: 10px 14px; border-radius: var(--panel-radius); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); white-space: pre-wrap; word-wrap: break-word; }
+  .area-chat .msg { max-width: 85%; padding: 10px 14px; border-radius: var(--radius-sm); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); white-space: pre-wrap; word-wrap: break-word; }
   .area-chat .msg.user { align-self: flex-end; background: var(--accent); color: var(--fg-on-accent); }
   .area-chat .msg.user.api { background: var(--accent-api); }
   /* M11 F06 L04: peer-attributed user bubble. Same specificity as
@@ -141,7 +142,7 @@
      visually distinct even when --surface-elevated reads close to
      --surface-translucent. */
   .area-chat .msg.user.msg-from-peer { align-self: flex-start; background: var(--surface-elevated); color: var(--fg); box-shadow: none; border: 1px solid var(--border); }
-  .area-chat .msg.assistant { align-self: flex-start; background: var(--surface-translucent); border: 1px solid var(--border); border-radius: var(--panel-radius); }
+  .area-chat .msg.assistant { align-self: flex-start; background: var(--surface-translucent); border: 1px solid var(--border); border-radius: var(--radius-sm); }
   .area-chat .msg.tool { align-self: flex-start; background: var(--surface-tool); font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-tool-msg); border-left: 3px solid var(--accent); }
   .area-chat .msg.tool.error { border-left-color: var(--status-danger); }
   /* L03: per-assistant-turn trace shell. <details>/<summary> for native
@@ -274,7 +275,7 @@
     flex-shrink: 0;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     color: var(--accent);
     cursor: pointer;
     font-family: inherit;
@@ -324,7 +325,7 @@
     padding: 0;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     color: var(--fg-muted);
     cursor: pointer;
   }
@@ -502,7 +503,7 @@
     color: var(--code-block-fg);
     border: 1px solid var(--border);
     padding: 12px 14px;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     overflow-x: auto;
   }
   /* Inline <code> (single-backtick) — subtle pill, distinct from prose. */
@@ -590,7 +591,7 @@
   .area-chat .chat-welcome-greeting { font-size: var(--font-size-display); font-weight: var(--font-weight-bold); color: var(--fg); margin: 0; letter-spacing: -0.02em; }
   .area-chat .chat-welcome-prompt { font-size: var(--font-size-body-lg); color: var(--fg-secondary); margin: 0 0 20px 0; line-height: var(--line-height-normal); }
   .area-chat .chat-welcome-list { display: flex; flex-direction: column; gap: 6px; }
-  .area-chat .chat-welcome-item { padding: 14px 16px; border-radius: var(--panel-radius); border: 1px solid var(--border); background: var(--surface-translucent); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color 0.15s, background 0.15s; }
+  .area-chat .chat-welcome-item { padding: 14px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-translucent); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color 0.15s, background 0.15s; }
   .area-chat .chat-welcome-item:hover { border-color: var(--accent); background-color: var(--accent-translucent); }
   .area-chat .chat-welcome-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .area-chat .chat-welcome-item-name { font-size: var(--font-size-body-lg); font-weight: var(--font-weight-semibold); }

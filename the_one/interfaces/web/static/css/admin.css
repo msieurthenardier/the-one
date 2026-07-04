@@ -47,7 +47,7 @@
   .area-admin .admin-theme-toggle {
     display: inline-flex;
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     padding: 2px;
     background-color: var(--accent-translucent);
   }
@@ -60,7 +60,7 @@
     font-weight: var(--font-weight-semibold);
     font-family: inherit;
     cursor: pointer;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     transition: background-color var(--motion-base) var(--ease-tactile), color var(--motion-base) var(--ease-tactile);
   }
   .area-admin .admin-theme-option:hover {
@@ -105,15 +105,18 @@
   /* === Model List === */
   .area-admin .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
   .area-admin .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  .area-admin .admin-pf-models-title { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); }
-  .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--panel-radius); }
+  /* Quiet vocabulary label (M17 F3 "admin labels" DD): the v2 mono-uppercase-
+     letterspaced eyebrow is retired for the `.section-title` quiet-label recipe
+     (sans, body-sm, weight 500, --fg-secondary). */
+  .area-admin .admin-pf-models-title { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); }
+  .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
   .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); }
   .area-admin .admin-pf-model-item:last-child { border-bottom: none; }
 
   /* === Ollama Lifecycle Panel === */
   .area-admin .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
   .area-admin .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
-  .area-admin .admin-pf-section-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); padding: 10px 0 4px; }
+  .area-admin .admin-pf-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
   .area-admin .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
   .area-admin .admin-pf-model-row:last-child { border-bottom: none; }
   /* .admin-pf-model-dot retired (Flight 3 Leg 04): Ollama lifecycle panel
@@ -147,13 +150,18 @@
   .area-admin .admin-pf-pull-error { font-size: var(--font-size-caption); color: var(--status-danger); padding: 4px 0; }
 
   /* === Provider Type Badges === */
-  .area-admin .admin-provider-badge--ollama { background: var(--badge-ollama); }
-  .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); }
-  .area-admin .admin-provider-badge--openai { background: var(--badge-openai); }
-  .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); }
-  .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); }
-  .area-admin .admin-provider-badge--mock { background: var(--badge-mock); }
-  .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); }
+  /* Per-badge ink (M17 F3 L4): each modifier overrides the base
+     `.admin-provider-badge { color: var(--fg-on-accent) }` with a fill-tuned
+     ink so text clears body AA on that fill in BOTH themes (gated in
+     tests/test_design_tokens_a11y.py). Modifiers follow the base rule in
+     source order at equal specificity, so the ink override wins. */
+  .area-admin .admin-provider-badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
+  .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
+  .area-admin .admin-provider-badge--openai { background: var(--badge-openai); color: var(--badge-ink-openai); }
+  .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
+  .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
+  .area-admin .admin-provider-badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
+  .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Category Badges (F6 leg 02) === */
   .area-admin .admin-tool-badge {
@@ -167,10 +175,10 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
-  .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); }
-  .area-admin .admin-tool-badge--execution { background: var(--badge-execution); }
-  .area-admin .admin-tool-badge--web { background: var(--badge-web); }
-  .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); }
+  .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
+  .area-admin .admin-tool-badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
+  .area-admin .admin-tool-badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
+  .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */
   /* L2 tile is a <div>, not <button>. The .entity-tile selector still
@@ -372,7 +380,7 @@
      needs to. */
   /* Chip-list editor — input affordance for array-typed fields (e.g.,
      host_allowlist). Treated as part of the .field-input family: hairline
-     border + panel-radius-sm, matching .field-input visually. Chips inside
+     border + small radius, matching .field-input visually. Chips inside
      use the canonical .chip primitive treatment (accent-translucent flat). */
   .area-admin .chip-list-editor,
   .area-studio .chip-list-editor {
@@ -383,7 +391,7 @@
     align-items: center;
     padding: 6px;
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     min-height: 40px;
     background: var(--surface);
   }
@@ -400,7 +408,7 @@
     padding: 2px 8px;
     background: var(--accent-translucent);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     font-size: var(--font-size-body-sm);
     color: var(--fg);
   }
@@ -439,6 +447,12 @@
     color: var(--status-danger);
     font-size: var(--font-size-tiny);
     margin: 4px 0 0 100px;  /* align with .field-row label gutter (100px) */
+  }
+  /* Inside a stacked .field-group (M17 F3 vocabulary) there is no label
+     gutter — the message sits flush under the control. Same layer,
+     higher specificity, so it wins over the row-gutter rule above. */
+  .area-admin .field-group .field-error {
+    margin: 0;
   }
 
   /* Per-field description (rendered when JSON Schema sets `description`).
@@ -602,10 +616,10 @@
   .area-admin .design-language-section { display: flex; flex-direction: column; gap: 8px; }
   .area-admin .design-language-section-body { display: flex; flex-direction: column; gap: 12px; }
   .area-admin .design-language-token-swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-  .area-admin .design-language-token-swatch { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius-sm); }
+  .area-admin .design-language-token-swatch { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--space-1); }
   .area-admin .design-language-token-swatch-color { width: 100%; height: 40px; border-radius: 4px; border: 1px solid var(--border); }
   .area-admin .design-language-token-swatch-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); word-break: break-all; }
-  .area-admin .design-language-button-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
+  .area-admin .design-language-button-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; align-items: start; }
 
   /* iOS-toggle gallery sample — strips the primitive's bottom-right absolute
      anchoring (designed for entity-tile placement) so two toggles render

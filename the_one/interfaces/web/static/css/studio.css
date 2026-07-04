@@ -176,7 +176,7 @@
        visual cue. */
     background-color: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius);
+    border-radius: var(--radius-sm);
     transition: border-color var(--motion-fast);
   }
   .area-studio .mcp-tool-item:hover { border-color: var(--accent); }
@@ -399,7 +399,7 @@
     padding: 12px 14px;
     background-color: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius);
+    border-radius: var(--radius-sm);
     position: relative;
   }
   /* Row 1 — toggle, name, protocol badge, Refresh. Refresh sits at the far
@@ -514,7 +514,7 @@
     padding: 12px 14px;
     background-color: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius);
+    border-radius: var(--radius-sm);
     position: relative;
   }
   .area-studio .tools-category-tile-row1 {
@@ -908,8 +908,11 @@
      connector type requires a matching rule here + a --badge-<type> token
      in tokens.css (see agents.md "Connector type extension checklist"
      layer 6). */
-  .area-studio .admin-connector-badge--discord { background: var(--badge-discord); }
-  .area-studio .admin-connector-badge--unknown { background: var(--badge-unknown); }
+  /* Per-badge ink (M17 F3 L4): connector badges compose .entity-tile-badge
+     (no ink of its own) so the ink lives on the modifier — fill-tuned to
+     clear body AA in both themes (gated in test_design_tokens_a11y.py). */
+  .area-studio .admin-connector-badge--discord { background: var(--badge-discord); color: var(--badge-ink-discord); }
+  .area-studio .admin-connector-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Empty-state banner for "no connector types registered yet" (HAT) ====
      Kept after F8 L2's `register("discord", DiscordPlugin)` landing for two
@@ -1051,7 +1054,7 @@
     color: var(--fg-secondary);
     background: var(--surface-elevated);
     padding: 4px 8px;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
   }
   .area-studio .connector-invite-hint {
     color: var(--fg-secondary);
@@ -1240,7 +1243,7 @@
     border-left: 2px solid var(--border);
     padding: 8px 0 8px 12px;
     background: var(--surface-elevated);
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
   }
   /* M11 F10 L5 HAT polish — drop the surface-elevated wrapper when in
      checkbox-list mode. Each `.mcp-tool-toggle-label` row already
@@ -1484,7 +1487,7 @@
   /* Discoverable Dropdown (M11 F3 L5) — live-data combobox shared by
      L6a's allowlist editor + L6b's routing-rules & per-agent overlay.
      Visual posture mirrors the existing `.chip-list-editor` (admin.css):
-     hairline border + panel-radius-sm. Color tokens are the project's
+     hairline border + small radius. Color tokens are the project's
      --fg / --fg-secondary / --fg-muted suite (tokens.css). */
   .area-studio .discoverable-dropdown,
   .discoverable-dropdown {
@@ -1526,7 +1529,7 @@
     overflow-y: auto;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     /* Floating surface — popover shadow (two-shadow system). */
     box-shadow: var(--shadow-popover);
     padding: 4px 0;

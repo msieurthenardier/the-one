@@ -135,7 +135,7 @@ App.registerArea({
       '<div id="sidebar-header">' +
         '<label class="section-title" for="chat-agent-select">Select Agent</label>' +
         '<div class="sidebar-actions">' +
-          '<select id="chat-agent-select" class="agent-select" data-testid="agent-select">' +
+          '<select id="chat-agent-select" class="agent-select field-select" data-testid="agent-select">' +
             '<option value="" disabled selected>Select agent…</option>' +
           '</select>' +
         '</div>' +
