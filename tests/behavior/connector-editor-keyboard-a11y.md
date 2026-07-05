@@ -3,7 +3,7 @@
 **Slug**: `connector-editor-keyboard-a11y`
 **Status**: active
 **Created**: 2026-06-04
-**Last Run**: 2026-06-04-19-52-56 (pass — 8/8 judged; step 9 optional/skipped)
+**Last Run**: 2026-07-05-23-30-52 (pass — 7/7 judged; step 9 optional/skipped; M12 F4 a11y survived Flight-5 re-skin)
 
 ## Intent
 

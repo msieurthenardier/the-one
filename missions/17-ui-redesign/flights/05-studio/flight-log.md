@@ -654,10 +654,16 @@ CDP spot-check).
   independent Witnessed validators. `captureScreenshot` was never needed (printToPDF +
   computed-style + a11y-tree evidence path); no apparatus wedge. **Studio's SC7 core-flow gate
   is green** — the studio down-payment on the mission-end both-theme SC7 sweep.
-- **SC5 connector-editor-keyboard-a11y — NOT re-run against the re-skin; deferred to F7.** Its
-  staleness was updated (8485 / prose; assertions unchanged) but its **last run is 2026-06-04**
-  (pre-re-skin). A fresh RUN against the re-skinned connector editor is **deferred to F7**; the
-  Accessibility Reviewer's live keyboard-a11y verification (dropdown flow live-driven, M12 F4
-  routing/live-region attrs grep-confirmed intact) + the Leg 6 dual-theme visual pass evidence
-  the interaction meanwhile. Non-blocking.
-- **Commit hash**: <to follow — this flight-completion commit>.
+- **SC5 connector-editor-keyboard-a11y — RAN and PASSED 7/7 against the re-skin.** (Corrected
+  post-commit: the sync-crew gate was slow — ~71 min — not wedged, and completed after the
+  flight commit `50b25ff`. Run log `runs/2026-07-05-23-30-52.md`.) The M12 F4 keyboard
+  routing-reorder (focusable tabindex=0 drag-handle SPAN, ArrowUp/Down reorder with focus
+  retained, "already first" boundary announcement) + General-tab live-status plumbing
+  (aria-live=polite / role=alert) **survived the Flight-5 connector-editor re-skin**. Driven on
+  a CDP chrome-devtools page (real `:focus`, `document.hasFocus()===true` each checkpoint) in one
+  continuous Executor session with independent per-checkpoint Validators. Seeded "Routing Fixture
+  (a11y-test)" connector cleaned up. **Both studio behavior gates are green** — SC5 + SC7.
+- **SC5 apparatus lesson**: goldfinch cannot observe `:focus`; the focus-critical reorder ran
+  entirely on chrome-devtools (the sanctioned focus apparatus), in ONE Executor session (a
+  re-spawn between arrow presses would drop focus). Prefer chrome-devtools for focus/keyboard flows.
+- **Commit hash**: `50b25ff` (flight commit); connector-a11y pass committed as a follow-up.
