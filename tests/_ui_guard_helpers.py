@@ -196,6 +196,174 @@ def classify_sinks(js_dir: Path = JS_DIR) -> tuple[dict[str, list[str]], dict[st
     return dynamic, static
 
 
+# ── markdown.js no-inner-HTML invariant guard (M17 F4 L1) ───────────────────
+#
+# The chat markdown pipeline's XSS guarantee is structural: markdown.js builds
+# DOM exclusively via createElement/createTextNode/setAttribute/appendChild,
+# never via an HTML-string sink. This guard freezes that invariant so a future
+# edit reintroducing an inner-HTML seam fails loudly. See the "No vendoring" DD
+# in the M17 F4 flight and the flight-log no-vendor decision record.
+
+MARKDOWN_JS = JS_DIR / "markdown.js"
+
+# The three literal HTML-string sink tokens that must NEVER appear in
+# markdown.js (camelCase — the prose comments use the hyphenated "inner-HTML"
+# spelling, which does not match). Word-boundary anchored.
+_MARKDOWN_HTML_SINK_TOKENS = re.compile(r"\b(innerHTML|outerHTML|insertAdjacentHTML)\b")
+
+# createElement(<arg>) call sites. `<arg>` captured up to the first `)` — the
+# markdown renderer never nests parens inside a createElement argument.
+_CREATE_ELEMENT_CALL = re.compile(r"createElement\(\s*([^)]*?)\s*\)")
+
+# A bare single- or double-quoted string literal (escapes allowed), nothing
+# else — e.g. 'p', 'div', 'blockquote'.
+_STRING_LITERAL_ARG = re.compile(r"^('(?:[^'\\\n]|\\.)*'|\"(?:[^\"\\\n]|\\.)*\")$")
+
+# The ONLY two dynamic (non-string-literal) createElement tag expressions the
+# markdown renderer is allowed to use, each proven bounded:
+#   'h' + lvl             -> h1..h6  (lvl is clamped to 1..6 by the ATX-heading
+#                                     parser regex /^(#{1,6})\s+/, so the tag is
+#                                     always a valid heading element)
+#   ordered ? 'ol' : 'ul' -> ol | ul (boolean ternary over two literals)
+# Whitespace-normalized (single spaces). Any OTHER non-literal arg — notably a
+# variable or a call carrying untrusted data — fails the guard.
+#
+# Allowance note (not a sink, do NOT "tighten" into a failure): injectIcon()
+# uses `new DOMParser().parseFromString(svg, 'image/svg+xml')` to turn a
+# TRUSTED icons.js SVG string (App.icon('copy'), a literal name) into DOM
+# without an inner-HTML assignment. That is the sanctioned no-inner-HTML path
+# for the copy-button glyph; it parses no untrusted data and is not scanned by
+# this guard (createElement + the three sink tokens are the only surfaces).
+MARKDOWN_DYNAMIC_CREATE_ELEMENT_ALLOWED: set[str] = {
+    "'h' + lvl",
+    "ordered ? 'ol' : 'ul'",
+}
+
+
+def find_markdown_html_sink_tokens(path: Path = MARKDOWN_JS) -> list[tuple[int, str, str]]:
+    """Return ``(line_number, token, stripped_line)`` for every literal
+    ``innerHTML``/``outerHTML``/``insertAdjacentHTML`` token in ``path``.
+    Empty list is the passing state."""
+    hits: list[tuple[int, str, str]] = []
+    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+        for m in _MARKDOWN_HTML_SINK_TOKENS.finditer(line):
+            hits.append((lineno, m.group(1), line.strip()))
+    return hits
+
+
+def find_markdown_bad_create_element_args(path: Path = MARKDOWN_JS) -> list[tuple[int, str]]:
+    """Return ``(line_number, arg)`` for every ``createElement`` call whose
+    argument is neither a bare string literal nor one of the two bounded
+    dynamic-tag expressions in ``MARKDOWN_DYNAMIC_CREATE_ELEMENT_ALLOWED``.
+    Empty list is the passing state."""
+    text = path.read_text()
+    bad: list[tuple[int, str]] = []
+    for m in _CREATE_ELEMENT_CALL.finditer(text):
+        arg = re.sub(r"\s+", " ", m.group(1).strip())
+        if _STRING_LITERAL_ARG.match(arg):
+            continue
+        if arg in MARKDOWN_DYNAMIC_CREATE_ELEMENT_ALLOWED:
+            continue
+        lineno = text.count("\n", 0, m.start()) + 1
+        bad.append((lineno, arg))
+    return bad
+
+
+# ── JS-string dead-CSS-var tripwire (M17 F3 debrief rec 5) ───────────────────
+#
+# The F3 Leg-1 dead-alias miss: a JS string referenced `var(--token)` for a
+# token that no longer existed in tokens.css. CSS treats an undefined custom
+# property as `unset` (silent), and test_token_definitions.py only scans *.css
+# — a `var(--x)` baked into a JS string (inline style / innerHTML template) is
+# invisible to it. This tripwire closes that gap by scanning JS STRING LITERALS
+# (comments excluded — the F4 survey found a prose `var(--space-N)` mention in a
+# tokens-section.js comment that is NOT a real reference).
+
+_JS_VAR_REF = re.compile(r"var\(\s*(--[a-zA-Z0-9_-]+)")
+_CSS_VAR_DEF = re.compile(r"^\s*(--[a-zA-Z0-9_-]+)\s*:", re.MULTILINE)
+FONTS_CSS = REPO_ROOT / "the_one" / "interfaces" / "web" / "static" / "css" / "fonts.css"
+
+
+def extract_js_string_contents(text: str) -> str:
+    """Concatenate the interiors of every JS string literal (single-, double-,
+    and backtick-quoted) in ``text``, newline-joined. Line (`//`) and block
+    (`/* */`) comments are excluded, so prose references inside comments do not
+    leak into the scan. Escape sequences inside strings are skipped."""
+    out: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+        if in_block_comment:
+            if ch == "*" and i + 1 < n and text[i + 1] == "/":
+                in_block_comment = False
+                i += 2
+                continue
+            i += 1
+            continue
+        if quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                out.append("".join(buf))
+                buf = []
+                quote = None
+                i += 1
+                continue
+            buf.append(ch)
+            i += 1
+            continue
+        # Not currently inside a string or comment.
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            in_line_comment = True
+            i += 2
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            in_block_comment = True
+            i += 2
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+            i += 1
+            continue
+        i += 1
+    return "\n".join(out)
+
+
+def defined_css_tokens() -> set[str]:
+    """Every ``--token`` DEFINED in tokens.css or fonts.css (the canonical
+    token modules)."""
+    defined: set[str] = set()
+    for css in (TOKENS_CSS, FONTS_CSS):
+        if css.exists():
+            defined |= set(_CSS_VAR_DEF.findall(css.read_text()))
+    return defined
+
+
+def find_js_dead_css_var_refs(js_dir: Path = JS_DIR) -> dict[str, set[str]]:
+    """Return ``{token: {defining_files}}`` for every ``var(--token)`` found in
+    a JS string literal whose token is NOT defined in tokens.css/fonts.css.
+    Empty dict is the passing state."""
+    defined = defined_css_tokens()
+    dead: dict[str, set[str]] = {}
+    for js_file in iter_js_files(js_dir):
+        strings = extract_js_string_contents(js_file.read_text())
+        for token in _JS_VAR_REF.findall(strings):
+            if token not in defined:
+                dead.setdefault(token, set()).add(relpath(js_file))
+    return dead
+
+
 # ── tokens.css theme-block parsing (mirror-sync guard) ──────────────────────
 
 _CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)

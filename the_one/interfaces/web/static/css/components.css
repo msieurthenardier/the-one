@@ -1155,7 +1155,11 @@
     padding: 4px 6px;
     color: var(--fg-muted);
     cursor: pointer;
-    opacity: 0;
+    /* M17 F4 L03: always-visible-but-quiet (F3 CTA lesson — no hover-reveal-only
+       affordance). Resting opacity keeps the copy control discoverable at rest;
+       wrap-hover / focus-within / the button's own hover+focus lift it to full.
+       The button is keyboard-reachable (a real <button> in the DOM) regardless. */
+    opacity: 0.6;
     transition: opacity 0.15s, color 0.15s, border-color 0.15s;
   }
   .markdown-code-wrap:hover .markdown-copy-btn,

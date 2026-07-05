@@ -1,14 +1,20 @@
 # Flight: Chat Re-skin + Markdown Hardening
 
-**Status**: ready
+**Status**: landed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
 
+> Boxes stay unchecked — these are mission-end criteria, verified at the F7 hardening/verification gate. The annotations below record F4's delivered share toward each.
+
 - [ ] SC1 — visual-language replacement (chat surface to the quiet vocabulary)
+  - **F4 share**: the chat surface was re-skinned to the quiet vocabulary — the loud full-`--accent` user bubble retuned to a quiet tint, disclosures/code wells/composer to vocabulary chrome; SC1 spot-check swept the chat surface in both themes (509 elements each) → **0 alien remnants** (no glows/gradients/text-shadows/filters).
 - [ ] SC3 — one component vocabulary (chat consumes it — buttons, fields, code wells)
+  - **F4 share**: chat consumes the F3 primitives directly — composer input → `.field-input`, stop → `.btn-muted-destructive`, send stays `.btn-filled-primary` (no per-area variants); code well + inline-code pill on the shared quiet code surface.
 - [ ] SC4 — modern chat experience (reading layout, streaming + stop, legible markdown/code, tool traces out of the reading flow)
+  - **F4 share**: single-column reading layout with refined turn distinction (tinted user block, near-full-width agent prose, content-column max-width), streaming with a first-class stop affordance, legible markdown/code (hardened parser, quiet code well, always-visible-but-quiet copy button), tool-trace + thinking disclosures kept out of the reading flow behind quiet `<details>`.
 - [ ] SC5 — keyboard/AT operability (composer, disclosures, stop affordance)
+  - **F4 share**: composer/stop/disclosures keyboard-operable — the stop affordance is keyboard-focusable and operable live during streaming (2px accent focus ring, CDP-evidenced); the a11y-reviewer independently drove a real streaming turn confirming a keyboard-operable stop; copy button keyboard-reachable (not hover-reveal-only).
 
 ---
 
@@ -72,10 +78,10 @@ Markdown hardening + the invariant guard + XSS suite land first (they protect th
 
 ### Checkpoints
 
-- [ ] markdown.js hardened; no-HTML-string invariant guard + XSS suite green; test_markdown.py still green (facade intact)
-- [ ] Chat reading layout + turn distinction in the vocabulary, both themes; composited-a11y gates green
-- [ ] Composer + stop affordance + code blocks + disclosures restyled; stop stays first-class; copy button discoverable
-- [ ] Suites green; chat-roundtrip behavior gate passes both themes; sink baseline ratcheted honestly
+- [x] markdown.js hardened; no-HTML-string invariant guard + XSS suite green; test_markdown.py still green (facade intact)
+- [x] Chat reading layout + turn distinction in the vocabulary, both themes; composited-a11y gates green
+- [x] Composer + stop affordance + code blocks + disclosures restyled; stop stays first-class; copy button discoverable
+- [ ] Suites green; chat-roundtrip behavior gate passes both themes; sink baseline ratcheted honestly *(suites green + sink baseline honest at 92 ✓; the chat-roundtrip Witnessed RUN is deferred to Flight 7's SC7 gate — spec authored + active, runtime interaction already evidenced by the a11y live-verification + the leg-4 dual-theme visual pass)*
 
 ### Adaptation Criteria
 
@@ -87,10 +93,10 @@ Markdown hardening + the invariant guard + XSS suite land first (they protect th
 
 > **Note:** Tentative; created one at a time as the flight progresses.
 
-- [ ] `markdown-hardening-and-xss-suite` - safeHref hardening; no-HTML-string invariant guard (with the 2 bounded-dynamic-tag + DOMParser allowances); XSS regression suite; JS-dead-CSS-var tripwire; CLAUDE.md stream_chunks fix; sink re-baseline to 92
-- [ ] `chat-reading-layout` - single-column reading layout, user/agent turn distinction to vocabulary (tinted user bubble, right-align preserved), composited-a11y gates for washed surfaces incl. the NEW tinted-user-bubble gate + stale-comment refresh; snapshot regen note
-- [ ] `composer-streaming-codeblocks` - composer + stop affordance to vocabulary (+ stop-on-danger-soft a11y gate), code-block well + copy button (+ code fg-on-bg a11y gate), inline code, disclosures (trace + thinking) chrome. *(Fattest leg — split into composer+stop | code+disclosures if it balloons.)*
-- [ ] `chat-verification` - suites (incl. test_markdown.py facade net green) + dual-theme visual pass (focus via CDP) + author + delegate `chat-roundtrip` behavior spec (mock provider, dev-mode precondition) + sink/registry ledger + browser wall-clock measure
+- [x] `markdown-hardening-and-xss-suite` - safeHref hardening; no-HTML-string invariant guard (with the 2 bounded-dynamic-tag + DOMParser allowances); XSS regression suite; JS-dead-CSS-var tripwire; CLAUDE.md stream_chunks fix; sink re-baseline to 92
+- [x] `chat-reading-layout` - single-column reading layout, user/agent turn distinction to vocabulary (tinted user bubble, right-align preserved), composited-a11y gates for washed surfaces incl. the NEW tinted-user-bubble gate + stale-comment refresh; snapshot regen note
+- [x] `composer-streaming-codeblocks` - composer + stop affordance to vocabulary (+ stop-on-danger-soft a11y gate), code-block well + copy button (+ code fg-on-bg a11y gate), inline code, disclosures (trace + thinking) chrome. *(Fattest leg — split into composer+stop | code+disclosures if it balloons.)*
+- [x] `chat-verification` - suites (incl. test_markdown.py facade net green) + dual-theme visual pass (focus via CDP) + author + delegate `chat-roundtrip` behavior spec (mock provider, dev-mode precondition) + sink/registry ledger + browser wall-clock measure *(landed 2026-07-04; `chat-roundtrip` spec authored + active — behavior-gate RUN is FD-pending, delegated at flight close, both themes)*
 
 ---
 
@@ -98,10 +104,10 @@ Markdown hardening + the invariant guard + XSS suite land first (they protect th
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Tests passing
-- [ ] Flight log updated (incl. the no-vendor decision record)
-- [ ] Documentation updated (agents.md chat/markdown notes; CLAUDE.md stream_chunks fix)
+- [x] All legs completed
+- [x] Tests passing
+- [x] Flight log updated (incl. the no-vendor decision record)
+- [x] Documentation updated (CLAUDE.md `stream_chunks` doc drift fixed in Leg 1; no `agents.md` chat/markdown note warranted — the re-skin was CSS-led and the `App.markdown` facade/API + chat contracts are unchanged by the no-vendor path)
 
 ### Verification
 

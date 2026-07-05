@@ -91,7 +91,7 @@ When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes availa
 **Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`):
 
 - `"response"` — scripted reply text (default: `"Mock response from the mock provider."`)
-- `"stream_chunks"` — number of streaming chunks to split the response into (default: non-streaming)
+- `"stream_chunks"` — a LIST of strings; when set (non-empty), `stream()` yields each list element as one streaming chunk in order. When unset/empty, the provider is non-streaming (default). (Not a chunk *count* — the values are the literal chunk texts, e.g. `["Hello, ", "world", "!"]`.)
 - `"input_tokens"` — `input_tokens` value emitted in `TokenUsage` for each turn (default: `0`). Set to a positive integer in tests that exercise the telemetry overlay or the `last_usage` persistence path (M10 F06); the default preserves all existing test expectations.
 
 - Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off

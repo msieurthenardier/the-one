@@ -3,7 +3,7 @@
 **Slug**: `shell-navigation-smoke`
 **Status**: active
 **Created**: 2026-07-03
-**Last Run**: 2026-07-04-19-31-43 (pass, 6/6 on the M17 F3 v3 UI shell gate — see runs/)
+**Last Run**: 2026-07-04-22-27-35 (pass, 6/6 — re-passed after the M17 F4 chat re-skin; see runs/)
 
 ## Intent
 

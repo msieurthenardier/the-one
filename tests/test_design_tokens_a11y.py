@@ -184,11 +184,18 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
 @pytest.mark.parametrize(
     "fg_key,bg_key,threshold",
     [
-        # Text on primary accent — body threshold (filled buttons, etc.)
+        # Text on primary accent — body threshold. Consumer today is
+        # .btn-filled-primary (accent fill + --fg-on-accent text). NOTE
+        # (M17 F04 L02): the chat .msg.user bubble NO LONGER uses this pair —
+        # it was retuned from a saturated --accent fill to an
+        # --accent-translucent tint (see test_tinted_user_bubble_text_passes_body_aa
+        # below). The pair stays gated because .btn-filled-primary still uses it.
         ("fg_on_accent", "accent", 4.5),
-        # accent_api is used as a chat message background at chat.css —
-        # text-on-color body threshold applies (foreground inherits
-        # --fg-on-accent from the parent .msg.user rule).
+        # accent_api is the SATURATED marker fill for API-sourced user
+        # messages (.msg.user.api, chat.css). Post-M17-F04-L02 the plain
+        # .msg.user bubble is a tint, so .msg.user.api PINS its own
+        # color: --fg-on-accent (it no longer inherits from .msg.user) — this
+        # pair therefore still reflects the rendered API bubble text-on-fill.
         ("fg_on_accent", "accent_api", 4.5),
         # Text on danger (red) — body threshold (delete-confirm states).
         # Dark pairs dark ink (#101114) with the bright #f87171 fill;
@@ -266,6 +273,112 @@ def test_danger_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> Non
     assert ratio >= 4.5, (
         f"{theme} danger-on-soft-fill fails body AA: status_danger on "
         f"status-danger-bg-soft over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chat washed surfaces (composited-a11y gates) — M17 F04 L02
+# ---------------------------------------------------------------------------
+#
+# The chat reading layout (F04 L02) paints text on several rgba WASH tokens.
+# The flat WCAG formula can't read alpha, so each wash is reconstructed with
+# _alpha_composite over a SINGLE known base surface, then the text color is
+# audited on the resulting opaque fill (the F3-debrief composited-a11y
+# pattern). Every wash below is authored as rgba-over-a-single-known-surface
+# (never wash-over-wash / color-mix, which the one-layer helper can't
+# reconstruct). The base surface behind the chat .messages log is --bg (body
+# background; no intermediate content-panel fill — verified in chat.css /
+# base.css), so every chat wash composites over --bg.
+#
+# NOT gated here because they are SOLID (non-rgba) surfaces already covered by
+# the fg-ladder × surface sweep at the top of this module:
+#   - tool-on-surface-tool  → fg_tool_msg × surface_tool  (body-AA ladder)
+#   - peer-on-elevated      → fg × surface_elevated       (body-AA ladder)
+# Adding a composite gate for a solid surface would be wrong (no alpha to
+# composite); the ladder sweep is their regression net.
+#
+# Alphas MUST track tokens.css. --accent-translucent is rgba(accent, α); the
+# base accent hue is the mirrored `accent` token. --surface-translucent is
+# rgba(white/near-black, 0.03) — its wash color is NOT a clean mirror token,
+# so it's spelled literally here (dark = #ffffff, light = #18181b, matching
+# tokens.css). These mirror the module's "rgba washes are not mirrored; their
+# bases are" policy in design_tokens.py.
+_ACCENT_TRANSLUCENT_ALPHA = {"dark": 0.10, "light": 0.08}
+_SURFACE_TRANSLUCENT = {
+    "dark": ("#ffffff", 0.03),  # rgba(255,255,255,0.03)
+    "light": ("#18181b", 0.03),  # rgba(24,24,27,0.03)
+}
+# Telemetry overlay resting opacity (chat.css .telemetry-overlay { opacity }).
+_TELEMETRY_RESTING_OPACITY = 0.7
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_tinted_user_bubble_text_passes_body_aa(theme: str) -> None:
+    """NEW (F04 L02): --fg text ≥ 4.5:1 on the composited --accent-translucent
+    tint (rgba accent) over --bg — the retuned .msg.user bubble, both themes.
+
+    Replaces the old saturated-accent user bubble (which relied on
+    --fg-on-accent × --accent). The bubble is now a quiet accent WASH with
+    primary --fg text; this gate is its regression net.
+    """
+    palette = _palette(theme)
+    alpha = _ACCENT_TRANSLUCENT_ALPHA[theme]
+    fill = _alpha_composite(palette["accent"], alpha, palette["bg"])
+    ratio = contrast_ratio(palette["fg"], fill)
+    assert ratio >= 4.5, (
+        f"{theme} tinted-user-bubble fails body AA: fg on accent-translucent "
+        f"over bg = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+@pytest.mark.parametrize(
+    "surface_label",
+    [
+        # .msg.assistant background: --surface-translucent over --bg.
+        "assistant-on-translucent",
+        # GFM table zebra: tbody tr:nth-child(even) is --surface-translucent
+        # too, nested inside the (also translucent) assistant bubble. Modeled
+        # single-layer over --bg per the "single known surface" rule — the
+        # extra 0.03 assistant layer is negligible and --fg clears by a wide
+        # margin either way; this gate is the tripwire, not a pixel model.
+        "table-zebra-on-translucent",
+    ],
+)
+@pytest.mark.parametrize("theme", THEMES)
+def test_translucent_surface_prose_passes_body_aa(theme: str, surface_label: str) -> None:
+    """F04 L02: --fg prose ≥ 4.5:1 on the composited --surface-translucent
+    wash over --bg (assistant bubble + GFM table zebra), both themes."""
+    palette = _palette(theme)
+    wash_hex, alpha = _SURFACE_TRANSLUCENT[theme]
+    fill = _alpha_composite(wash_hex, alpha, palette["bg"])
+    ratio = contrast_ratio(palette["fg"], fill)
+    assert ratio >= 4.5, (
+        f"{theme} {surface_label} fails body AA: fg on surface-translucent "
+        f"over bg = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_telemetry_ghost_value_holds_annotation_floor(theme: str) -> None:
+    """F04 L02: the telemetry overlay's --fg-secondary value readout, ghosted
+    at the resting opacity (0.7) over --bg, stays ≥ 3.0:1 (the annotation
+    floor), both themes.
+
+    The telemetry overlay is DELIBERATELY de-emphasized at rest (opacity 0.7);
+    hover/focus-within lifts it to opacity 1.0, where --fg-secondary on --bg is
+    fully body-AA via the fg-ladder sweep. This gate pins the RESTING ghost to
+    the same ≥3.0 annotation floor the deliberate --fg-faint exception uses:
+    legible-enough as a glanceable readout, and it fails loudly if a retune
+    drops the resting value below glanceability. Opacity over an opaque base is
+    an alpha composite of the text color onto the base.
+    """
+    palette = _palette(theme)
+    ghosted = _alpha_composite(palette["fg_secondary"], _TELEMETRY_RESTING_OPACITY, palette["bg"])
+    ratio = contrast_ratio(ghosted, palette["bg"])
+    assert ratio >= 3.0, (
+        f"{theme} telemetry-ghost value drops below the annotation floor: "
+        f"fg_secondary @ {_TELEMETRY_RESTING_OPACITY} opacity on bg = {ratio:.2f}:1 "
+        f"(need ≥ 3.0:1)"
     )
 
 
