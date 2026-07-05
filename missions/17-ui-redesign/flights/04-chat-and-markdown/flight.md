@@ -1,6 +1,6 @@
 # Flight: Chat Re-skin + Markdown Hardening
 
-**Status**: landed
+**Status**: completed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
