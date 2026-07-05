@@ -3,7 +3,7 @@
 **Slug**: `chat-roundtrip`
 **Status**: active
 **Created**: 2026-07-04
-**Last Run**: never
+**Last Run**: 2026-07-05-15-11-00 (pass, 5/5, light theme only — dark Variant deferred to the F7 mission-end gate; see runs/)
 
 ## Intent
 
