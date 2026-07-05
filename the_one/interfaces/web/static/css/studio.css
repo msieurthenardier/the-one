@@ -51,6 +51,11 @@
   /* Test-provider button row — sits below the LLM config field rows. */
   .area-studio .test-provider-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 
+  /* M07 F10 lazy-discovery intro (F5 L1) — sits at the top of the Built-in
+     Tools panel (no preceding section-title), so drop the .section-description
+     negative top-margin that assumes a title above it. */
+  .area-studio .tools-tab-intro { margin-top: 0; }
+
   /* === Studio Area: Tool Toggles === */
   /* Tool-actions buttons use .btn-outlined-primary; this override drops to caption-size + tighter padding. */
   .area-studio .tool-actions { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -85,8 +90,10 @@
 
   /* Capability panel — surfaces /api/show capabilities under the model
      selector. The danger-coloured `no tools` chip carries the warning by
-     itself; no separate banner. */
-  .area-studio .model-capabilities { margin-top: 6px; padding-left: 112px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
+     itself; no separate banner. F5 L1: the general-tab fields migrated
+     .field-row (100px label gutter) → stacked .field-group, so the caps row
+     aligns flush-left under the full-width model control (no gutter pad). */
+  .area-studio .model-capabilities { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
   .area-studio .model-capabilities:empty { display: none; }
   .area-studio .model-capabilities-label { color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.5px; font-size: var(--font-size-tiny); }
   /* F6.5 L04: per-model max-context-tokens chip surfaced next to the
@@ -867,41 +874,29 @@
      command-runtime dropdown. Low-emphasis tone (--fg-secondary,
      body-sm) matches the studio "informational text" idiom used by
      .mcp-tool-description / .mcp-capability-flags / .model-loading.
-     The .mcp-command-hint-row hides its label slot to keep the hint
-     left-aligned with the args chip-list above; the row inherits the
-     `.mcp-stdio-only.is-hidden` toggle the rest of the stdio rows use
-     for transport-switch visibility. */
+     M17 F5 L4: the args field migrated .field-row (100px label gutter) →
+     stacked .field-group, so the hint row dropped its empty label-slot +
+     .field-row wrapper and now aligns flush-left directly under the args
+     chip-list. A small negative top margin snugs it under the args field's
+     .field-group bottom margin. The row keeps the `.mcp-stdio-only.is-hidden`
+     toggle the rest of the stdio rows use for transport-switch visibility. */
   .area-studio .form-hint {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
     line-height: 1.4;
   }
-  .area-studio .mcp-command-hint-row label { /* empty label slot for grid alignment */ }
+  .area-studio .mcp-command-hint-row {
+    margin-top: calc(-1 * var(--space-2));
+    margin-bottom: var(--space-3);
+  }
 
-  /* === Inline field-level validation (M10 F6 L7 HAT) ============
-     Mirrors the .area-admin .field-error / .field-error-highlight
-     pattern (admin.css:355-370,448-454). Used by the connector
-     account editor to surface pre-flight validation errors adjacent
-     to the offending field row instead of dumping them in the
-     top action-cluster `.editor-error` span. Cleared by
-     clearFieldErrors() on next save attempt. */
-  .area-studio .field-row.field-error-highlight input,
-  .area-studio .field-row.field-error-highlight select,
-  .area-studio .field-row.field-error-highlight textarea {
-    border-color: var(--status-danger);
-  }
-  .area-studio .field-row.field-error-highlight label {
-    color: var(--status-danger);
-  }
-  .area-studio .field-row .field-error {
-    display: block;
-    color: var(--status-danger);
-    font-size: var(--font-size-tiny);
-    margin: 4px 0 0 100px;  /* aligns with .admin-pf-row label gutter */
-  }
-  .area-studio .field-row .field-error[hidden] {
-    display: none;
-  }
+  /* Inline field-level validation (M10 F6 L7 HAT) — the ``.area-studio
+     .field-row .field-error`` 100px-gutter exception + the
+     ``.field-error-highlight`` border/label rules were RETIRED in M17 F5 L2.
+     connector-editor (the sole + last studio consumer) migrated its name/type
+     rows to ``.field-group``; validation now flows through the un-scoped
+     components.css ``.field-input.is-invalid`` + ``.field-error`` vocabulary
+     (setFieldError toggles ``is-invalid`` on the control, no gutter). */
 
   /* === Connector Type Badges (M10 F8 L2) ====
      Mirrors the provider-badge pattern at admin.css:158-165. Adding a new
@@ -936,7 +931,7 @@
   .area-studio .connector-empty-types-banner code {
     font-family: monospace;
     font-size: 0.9em;
-    background: var(--surface-elevated));
+    background: var(--surface-elevated);
     padding: 1px 4px;
     border-radius: 3px;
   }
@@ -1019,11 +1014,12 @@
     height: 16px;
   }
 
-  /* F5 L6 HAT round-7: Invite section uses the 3-column field-row
-     pattern (label | info-icon | field-content). Copy + Refresh are
-     icon-only buttons matching the connector-pairing-copy-btn shape. */
+  /* Invite section (M17 F5 L3 — stacked ``.field-group``): the label +
+     info-icon sit on one line (``.field-group-label``) above the invite
+     field. ``.connector-invite-field`` is the horizontal hint/URL row
+     below. Copy + Refresh are icon-only buttons matching the
+     connector-pairing-copy-btn shape. */
   .area-studio .connector-invite-field {
-    flex: 1;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -1543,12 +1539,16 @@
   .discoverable-dropdown-group[hidden] {
     display: none;
   }
+  /* M17 F5 L3: quieted to the vocabulary label style — dropped the alien
+     mono / uppercase / letter-spacing treatment (the sole remaining alien
+     remnant in the on-vocabulary discoverable-dropdown). Now a plain,
+     muted small caption in the body font. The WAI-listbox keyboard a11y
+     (combobox/listbox roles, aria-activedescendant, arrow/enter/escape
+     handlers) is untouched — it lives entirely in discoverable-dropdown.js. */
   .discoverable-dropdown-group-header {
     padding: 4px 10px 2px;
-    font-family: var(--font-family-mono);
     font-size: var(--font-size-tiny);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-weight: var(--font-weight-medium);
     color: var(--fg-muted);
   }
   .discoverable-dropdown-item {
@@ -1606,16 +1606,13 @@
     opacity: 0.6;
   }
 
-  /* === M11 F5 L6 HAT round-2: Discord Runtime Config rows ===========
-     All four rows (Intents, Scope to servers, Bot status, Additional
-     Config) use the canonical 2-column ``.field-row.admin-pf-row``
-     layout (label cell on the left, content on the right). The right-
-     side content wrappers below fill the remaining column width and
-     stack their controls per row's needs. The pre-round-2 ``fieldset``
-     and ``details`` shapes are removed; no orphan CSS rules to clean
-     up (none existed for ``.discord-intents-fieldset`` /
-     ``.discord-advanced-kv-disclosure`` etc. — both shapes relied on
-     UA defaults pre-round-2). */
+  /* === Discord Runtime Config rows ==================================
+     M17 F5 L3: migrated from the M11-era 2-column ``.field-row.admin-pf-row``
+     (label-left, 100px gutter) to the stacked ``.field-group`` vocabulary
+     (label above control) so the Discord form matches the re-skinned
+     connector editor. The content-wrapper rules below (``.discord-presence-fields``
+     the select+name compound) stay — they lay out controls WITHIN a
+     field-group's stacked control slot. */
 
   /* Intents row: checkbox list stacks vertically in the right column. */
   .area-studio .discord-intents-checkbox-list {
@@ -1639,7 +1636,6 @@
      sized to its content, input filling the remaining space so the
      pair reads as a "[verb] [name]" sentence. */
   .area-studio .discord-presence-fields {
-    flex: 1;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1652,28 +1648,15 @@
     flex: 1;
   }
 
-  /* Additional Config row: the "Additional Config" pseudo-label mimics
-     ``.field-row label``'s typography (sentence-case, secondary fg,
-     fixed 100px gutter width) so the row aligns with the other 2-col
-     rows. The body fills the remaining column. */
+  /* Additional Config row (F5 L3 — stacked ``.field-group``): the
+     "Additional Config" pseudo-label sits ABOVE the kv-table body and
+     mirrors ``.field-group > label`` typography (body-sm, medium weight,
+     secondary fg). It's a ``<div>`` — the kv-table has many key/value
+     inputs, so there is no single control to bind a ``<label for>`` to. */
   .area-studio .discord-additional-config-label {
-    width: 100px;
     font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
     color: var(--fg-secondary);
-    flex-shrink: 0;
-    /* Align to the kv-table's first-row top edge — the kv-table is
-       a vertical stack of rows; without this the pseudo-label
-       center-aligns to the middle of the whole table block, which
-       reads oddly. ``.field-row``'s ``align-items: center`` is the
-       default; pull alignment to the top here. */
-    align-self: flex-start;
-    padding-top: 8px;
-  }
-  .area-studio .discord-additional-config-row {
-    /* Override the default ``align-items: center`` so the pseudo-label
-       and the kv-table top-align cleanly (the table is taller than
-       a single input row). */
-    align-items: flex-start;
   }
   .area-studio .discord-additional-config-body {
     flex: 1;

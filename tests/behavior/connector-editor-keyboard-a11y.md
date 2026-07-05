@@ -11,20 +11,19 @@ Verify the two accessibility behaviors from Mission-12 Flight 4 that **regress s
 
 ## Preconditions
 
-- the-one running host-native and reachable; `THE_ONE_DEV_MODE=true`; the-one restarted after the F4 JS/CSS changes.
-- The "Discord Constellation" connector (`58f1fe5a833f`) exists with **≥3 routing rules** configured under the editor's **Advanced tab → "// ROUTING" section** (so reorder has room to move a middle rule both up and down and to exercise the first/last boundaries). If fewer exist, the run adds rules first (unsaved) and discards on exit so the persisted set is unchanged.
-- Chrome MCP available; not mid-edit on the connector.
-- The operator can observe the editor in the Chrome MCP browser session.
+- the-one running host-native and reachable on `http://localhost:8485` (the mission dev instance — **not** 8484); `THE_ONE_DEV_MODE=true`; the-one restarted after any JS/CSS changes so the served working tree is current.
+- **A connector with ≥3 routing rules exists on 8485.** The original "Discord Constellation" fixture (`58f1fe5a833f`) is **gone** — do not assume any named connector. Seed a fresh connector (`POST /api/connectors`) or use any existing one, and ensure it has **≥3 routing rules** configured under the editor's **Advanced tab → Routing section** (so reorder has room to move a middle rule both up and down and to exercise the first/last boundaries). If fewer than 3 exist, the run adds rules first (unsaved) and discards on exit (step 2 / step 10) so the persisted set is left unchanged; if a connector was seeded fresh for the run, delete it on teardown.
+- A browser MCP apparatus is available (chrome-devtools or goldfinch, per the mission's registered apparatus); not mid-edit on the connector; the operator can observe the editor in the browser session. Never touch 8484.
 
 ## Observables Required
 
-- browser (DOM state, focused-element identity, live-region `textContent`, `aria-*`/`role` attributes, rule DOM order — measured via chrome-devtools MCP; keyboard driven via the MCP key-press/`evaluate_script` surface).
+- browser (DOM state, focused-element identity, live-region `textContent`, `aria-*`/`role` attributes, rule DOM order — measured via the registered browser MCP, chrome-devtools or goldfinch, against 8485; keyboard driven via the MCP key-press / script-eval surface).
 
 ## Steps
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Navigate to Studio → open the "Discord Constellation" connector editor → **Advanced tab → "// ROUTING" section** (there is no tab literally named "Access-and-Routing" in this build). Record the current routing-rule order (rule labels top-to-bottom) and rule count. | The routing-rules table renders with ≥3 rows, each with a drag handle (`[data-routing-drag-handle]`). Record the baseline order for later comparison. |
+| 1 | Navigate to Studio → open the seeded/target connector's editor → **Advanced tab → Routing section** (the section is labelled "Routing" — the old `// ROUTING` marker prose is retired; there is no tab literally named "Access-and-Routing" in this build). Record the current routing-rule order (rule labels top-to-bottom) and rule count. | The routing-rules table renders with ≥3 rows, each with a drag handle (`[data-routing-drag-handle]`). Record the baseline order for later comparison. |
 | 2 | (Setup, no judgment) If <3 rules existed, add rules to reach 3 and note that the `finally` must restore the original set. | (empty) |
 | 3 | Click into the page, then keyboard-focus the **second** rule's drag handle (Tab to it, or `.focus()` it via the MCP). Inspect the focused element. | The drag handle is in the tab order and receives focus (`document.activeElement` is the row-2 `[data-routing-drag-handle]`). [a11y] The handle has an `aria-label` describing the reorder operation; it does **not** carry a bare `role="button"` promising Enter/Space activation it doesn't implement. |
 | 4 | With the row-2 handle focused, press **ArrowDown** once. | The rule that was 2nd is now **3rd** (DOM order changed — `collectRoutingFromContainer`'s order, observable as the table row order). [a11y] **Focus is retained on the moved handle** (`document.activeElement` is still that same rule's handle, NOT `<body>`). [a11y] The persistent live region (`[data-routing-live-region]`, `aria-live="polite"`) `textContent` now reads a human-meaningful position announcement, e.g. "Rule moved to position 3 of N". |

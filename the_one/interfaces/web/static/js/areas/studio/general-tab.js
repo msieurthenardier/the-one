@@ -1,8 +1,11 @@
 // App.studio.renderGeneralTab — agent-editor General tab content (F5 leg 03).
 //
 // Carries the existing form fields (name [create-only], description,
-// system_prompt, provider_config_id, llm_model, max_iterations) using F4
-// .field-row / .field-input / .field-textarea / .field-select vocabulary.
+// system_prompt, provider_config_id, llm_model, max_iterations) using the
+// M17 F3 stacked .field-group (label ABOVE the control) + .field-input /
+// .field-textarea / .field-select vocabulary. Migrated from the legacy
+// label-left .field-row (100px gutter) in F5 leg 01; each field-group's
+// label carries `for` matched to its control `id` for label association.
 // Includes the Ollama VRAM warning placeholder + a Test button that POSTs
 // to /api/providers/{id}/test (handler in studio.js — this module just
 // wires the click) + an Advanced collapsible section with disabled
@@ -38,11 +41,11 @@
     // detects a name change for existing agents and POSTs to the
     // /api/agents/{name}/rename endpoint before the regular PUT save.
     html += '<div class="editor-section"><div class="section-title">Identity</div>';
-    html += '<div class="field-row"><label for="studio-name">Name</label>' +
+    html += '<div class="field-group"><label for="studio-name">Name</label>' +
       '<input id="studio-name" class="field-input" data-field="name" value="' +
       escapeAttr(cfg.name || '') + '" placeholder="agent-name" />' +
       '</div>';
-    html += '<div class="field-row"><label for="studio-description">Description</label>' +
+    html += '<div class="field-group"><label for="studio-description">Description</label>' +
       '<input id="studio-description" class="field-input" data-field="description" value="' + escapeAttr(cfg.description || '') + '" placeholder="What does this agent do?" />' +
       '</div>';
     html += '</div>';
@@ -51,7 +54,7 @@
     html += '<div class="editor-section"><div class="section-title">LLM Configuration</div>';
 
     // Provider dropdown
-    html += '<div class="field-row"><label for="studio-provider">Provider</label>';
+    html += '<div class="field-group"><label for="studio-provider">Provider</label>';
     html += '<select id="studio-provider" class="field-input field-select" data-field="provider_config_id">';
     if (!cfg.provider_config_id) {
       html += '<option value="" disabled selected>No provider — configure in Admin</option>';
@@ -75,7 +78,7 @@
     // ~370 models. A prior datalist+input variant was tried but its
     // value-driven filter trapped operators with a stale selection (the
     // dropdown showed only the previously-picked match).
-    html += '<div class="field-row"><label for="studio-model">Model</label>';
+    html += '<div class="field-group"><label for="studio-model">Model</label>';
     html += '<div class="field-model-wrap">';
     html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';
     html += '<option value="" disabled selected>Select a provider first</option>';
@@ -121,11 +124,11 @@
 
     // Behavior — max_iterations stays here (real AgentConfig storage).
     html += '<div class="editor-section"><div class="section-title">Behavior</div>';
-    html += '<div class="field-row"><label for="studio-retention-days">Chat History Retention (days)</label>' +
+    html += '<div class="field-group"><label for="studio-retention-days">Chat History Retention (days)</label>' +
       '<input id="studio-retention-days" class="field-input field-input-short" ' +
       'data-field="chat_history_retention_days" type="number" value="' +
       (cfg.chat_history_retention_days || 30) + '" min="1" max="365" /></div>';
-    html += '<div class="field-row"><label for="studio-max-iterations">Max Iterations</label>' +
+    html += '<div class="field-group"><label for="studio-max-iterations">Max Iterations</label>' +
       '<input id="studio-max-iterations" class="field-input field-input-short" data-field="max_iterations" type="number" value="' +
       (cfg.max_iterations || 20) + '" min="1" max="100" /></div>';
     html += '</div>';

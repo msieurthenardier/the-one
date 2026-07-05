@@ -306,16 +306,29 @@
     gap: var(--space-1);
     margin-bottom: var(--space-3);
   }
-  .field-group > label {
+  .field-group > label,
+  .field-group-label > label {
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-medium);
     color: var(--fg-secondary);
   }
+  /* Label header for a .field-group that pairs its label with an inline
+     affordance — an info-icon tooltip (.field-info-icon) or similar. Keeps
+     the label + icon on one line ABOVE the stacked control. The label + icon
+     stay SIBLINGS (never nest interactive content inside <label>). Shared
+     vocabulary primitive (F5) — the studio connector/discord/mcp editors and
+     any future stacked field with a help tooltip consume it. */
+  .field-group-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
   /* Inline validation — color + message, never color alone. Set
      ``.is-invalid`` on the control and render the message in a
-     ``.field-error`` element directly below it. (Studio's area-scoped
-     ``.field-row .field-error`` variant keeps its own gutter alignment
-     until the F5 re-skin.) */
+     ``.field-error`` element directly below it. (Studio's former area-scoped
+     ``.field-row .field-error`` 100px-gutter variant was retired in F5 L2
+     when connector-editor — its last consumer — migrated to ``.field-group``;
+     inline validation now flows through this un-scoped primitive.) */
   .field-input.is-invalid,
   .field-textarea.is-invalid,
   .field-select.is-invalid { border-color: var(--status-danger); }
@@ -350,6 +363,7 @@
     transition: color 0.15s ease;
   }
   .field-info-icon:hover { color: var(--accent); }
+  .field-info-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .field-info-icon svg { width: 14px; height: 14px; display: block; }
 
   /* === Checkbox Primary (form checkbox primitive) ===

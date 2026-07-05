@@ -24,6 +24,15 @@ import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
+# Poll window for the confirm dialog appearing after a trigger — see the same
+# constant in test_flow_dirty_confirm.py. App.confirmDialog appends the overlay
+# synchronously (dialog.js), so there is no earlier sync point; under full-suite
+# / same-lane load the click→handler→append chain is delayed by event-loop
+# scheduling and can overrun a tight expect timeout. A generous window is the
+# root-cause-aligned remedy (this file previously used timeouts as low as 3s,
+# which flaked under the F5 `system` browser lane's back-to-back load).
+_DIALOG_TIMEOUT = 8000
+
 
 def _open_editor(page: Page, app: SeededApp) -> None:
     """Navigate to the provider editor and wait for the Name input to mount."""
@@ -57,7 +66,9 @@ def test_back_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) 
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
-    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=3000)
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
+        timeout=_DIALOG_TIMEOUT
+    )
 
 
 @pytest.mark.browser
@@ -68,7 +79,7 @@ def test_back_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Pag
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(0)
@@ -83,7 +94,7 @@ def test_back_dialog_confirm_navigates_to_grid(app_with_provider: SeededApp, pag
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
@@ -106,7 +117,9 @@ def test_section_nav_when_dirty_shows_dialog(app_with_provider: SeededApp, page:
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     page.locator('.section-nav-item[data-section="general"]').click()
-    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=3000)
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
+        timeout=_DIALOG_TIMEOUT
+    )
 
 
 @pytest.mark.browser
@@ -117,7 +130,7 @@ def test_section_nav_dialog_cancel_keeps_editor(app_with_provider: SeededApp, pa
     _make_dirty(page)
     page.locator('.section-nav-item[data-section="general"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(0)
@@ -134,7 +147,7 @@ def test_section_nav_dialog_confirm_navigates_to_system(
     _make_dirty(page)
     page.locator('.section-nav-item[data-section="general"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
@@ -194,7 +207,7 @@ def test_dialog_escape_cancels(app_with_provider: SeededApp, page: Page) -> None
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.keyboard.press("Escape")
     expect(overlay).to_have_count(0)
@@ -209,7 +222,7 @@ def test_dialog_enter_confirms(app_with_provider: SeededApp, page: Page) -> None
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.keyboard.press("Enter")
     expect(overlay).to_have_count(0)

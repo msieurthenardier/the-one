@@ -64,7 +64,9 @@ from tests._ui_guard_helpers import (
     extract_testids,
     find_backtick_tripwire_hits,
     find_banned_css_vocabulary,
+    find_invalid_describedby_without_field_error,
     find_js_dead_css_var_refs,
+    find_label_for_without_control,
     find_markdown_bad_create_element_args,
     find_markdown_html_sink_tokens,
     id_appears_as_string_literal,
@@ -468,6 +470,109 @@ def test_no_new_dynamic_innerhtml_sinks() -> None:
             "Render via createElement/textContent or a static template instead of\n"
             "adding a dynamic sink. Sites found beyond baseline:\n" + "\n".join(lines)
         )
+
+
+# ── Field label-association guards (M17 F5 L1) ───────────────────────────────
+
+
+def test_field_group_label_for_resolves_to_control() -> None:
+    """Every literal ``<label for="X">`` in the JS sources resolves to a
+    literal control ``id="X"`` in the same file (helper-indirected targets
+    excepted in ``FIELD_FOR_ID_HELPER_INDIRECTED``).
+
+    Firm AC of the F5 studio re-skin: the ``.field-group`` migration hand-wires
+    label association at every site (``fieldGroup()`` is gallery-local, not
+    exported), so a renamed / dropped control id silently breaks the
+    ``label``→control pairing (WCAG 1.3.1 / 4.1.2). This guard fails naming the
+    dangling for-target. Probe: ``test_label_for_guard_flags_dangling_target``."""
+    viol = find_label_for_without_control()
+    if viol:
+        lines = [
+            "label[for] targets that resolve to no control id in the same file",
+            "(fix the id / for pairing, or add a helper-indirected target to",
+            "FIELD_FOR_ID_HELPER_INDIRECTED with a comment):",
+        ]
+        for target in sorted(viol):
+            files = ", ".join(sorted(viol[target]))
+            lines.append(f"  for={target!r}  (in: {files})")
+        raise AssertionError("\n".join(lines))
+
+
+def test_invalid_control_describedby_resolves_to_field_error() -> None:
+    """Every ``.is-invalid`` control's ``aria-describedby="Y"`` resolves to a
+    ``.field-error`` element ``id="Y"`` in the same file.
+
+    The inline-validation half of the label-association contract: an invalid
+    control must point assistive tech at its rendered error message. Vacuously
+    green today (no JS renders inline ``.is-invalid`` HTML-string validation —
+    studio uses ``.field-error-highlight`` on the row), but frozen so a future
+    inline-validation site can't ship a dangling ``aria-describedby``. Probe:
+    ``test_invalid_describedby_guard_flags_dangling_target``."""
+    viol = find_invalid_describedby_without_field_error()
+    if viol:
+        lines = [
+            "is-invalid control aria-describedby targets that resolve to no",
+            ".field-error id in the same file (wire the .field-error element's",
+            "id to match, or drop the aria-describedby):",
+        ]
+        for target in sorted(viol):
+            files = ", ".join(sorted(viol[target]))
+            lines.append(f"  aria-describedby={target!r}  (in: {files})")
+        raise AssertionError("\n".join(lines))
+
+
+def test_label_for_guard_flags_dangling_target(tmp_path) -> None:
+    """Probe: the label-for guard flags a field-group whose label points at a
+    missing control id, and passes a correctly-wired one."""
+    from tests._ui_guard_helpers import find_label_for_without_control as _scan
+
+    good = tmp_path / "good"
+    good.mkdir()
+    (good / "ok.js").write_text(
+        "var h = '<div class=\"field-group\">'"
+        "  + '<label for=\"studio-name\">Name</label>'"
+        '  + \'<input id="studio-name" class="field-input" />\''
+        "  + '</div>';\n"
+    )
+    assert _scan(good) == {}, "correctly-wired label/control should not flag"
+
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "broken.js").write_text(
+        "var h = '<div class=\"field-group\">'"
+        "  + '<label for=\"studio-name\">Name</label>'"
+        '  + \'<input id="studio-nam" class="field-input" />\''  # typo'd id
+        "  + '</div>';\n"
+    )
+    viol = _scan(bad)
+    assert "studio-name" in viol, "typo'd control id must be flagged as dangling"
+
+
+def test_invalid_describedby_guard_flags_dangling_target(tmp_path) -> None:
+    """Probe: the is-invalid aria-describedby guard flags a dangling error
+    reference and passes a correctly-wired ``.field-error`` association."""
+    from tests._ui_guard_helpers import (
+        find_invalid_describedby_without_field_error as _scan,
+    )
+
+    good = tmp_path / "good"
+    good.mkdir()
+    (good / "ok.js").write_text(
+        'var h = \'<input class="field-input is-invalid" '
+        'aria-describedby="f-error" />\''
+        '  + \'<span class="field-error" id="f-error">Bad</span>\';\n'
+    )
+    assert _scan(good) == {}, "wired is-invalid/field-error should not flag"
+
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "broken.js").write_text(
+        'var h = \'<input class="field-input is-invalid" '
+        'aria-describedby="f-error" />\''
+        '  + \'<span class="field-error" id="other-error">Bad</span>\';\n'
+    )
+    viol = _scan(bad)
+    assert "f-error" in viol, "dangling aria-describedby must be flagged"
 
 
 # ── markdown.js no-inner-HTML invariant guard (M17 F4 L1) ────────────────────

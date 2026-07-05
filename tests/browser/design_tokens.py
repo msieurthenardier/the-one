@@ -154,7 +154,10 @@ LIGHT: dict[str, str] = {
     "accent_api": "#0e7490",
     # status — deep 600/700 family; all >= 4.5:1 on bg/surface.
     "status_success": "#15803d",
-    "status_warning": "#a16207",
+    # amber-700 deepened from #a16207 (M17 F5 L1): #a16207 warning text failed
+    # body AA on the composited --status-warning-bg-soft fill; see the warning
+    # comment in tokens.css [data-theme="light"] and the warning soft-fill gate.
+    "status_warning": "#8f5606",
     # red-700 (M17 F3 fix): red-600 #dc2626 failed body AA on the soft-fill
     # composite; see the danger comment in tokens.css [data-theme="light"].
     "status_danger": "#b91c1c",

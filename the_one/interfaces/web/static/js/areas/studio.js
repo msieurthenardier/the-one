@@ -2498,6 +2498,18 @@ App.registerArea({
                 // new agent name (the area's URL keys on
                 // _selectedAgent.name; writeUrl_ re-serializes).
                 if (typeof writeUrl_ === 'function') writeUrl_();
+              } else if (self._agents.length > 0) {
+                // Save→delete race (F1 debrief): a concurrent DELETE removed
+                // this agent between the PUT resolving and loadAll(). Without
+                // this fallback the block silently no-ops, stranding a stale
+                // editor for a now-gone agent. Fall to the first agent (parity
+                // with handleDeleteEditor / _refresh).
+                selectAgent(self._agents[0]);
+              } else {
+                self._selectedAgent = null;
+                renderEmptyEditor();
+                updateContentVisibility();
+                if (typeof writeUrl_ === 'function') writeUrl_();
               }
             });
           })

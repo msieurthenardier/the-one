@@ -33,6 +33,18 @@ import pytest
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
 
+# Poll window for the confirm dialog appearing after a trigger (back / section
+# nav / hash change / tile / tab click). App.confirmDialog appends the overlay
+# and focuses Cancel *synchronously* (dialog.js) — there is no transition or
+# rAF to sync on, so the only observable is the overlay itself. The dialog
+# nonetheless "renders slower under full-suite load": the click→handler→append
+# chain is delayed by event-loop scheduling when many uvicorn/Chromium
+# subprocesses compete for CPU, occasionally overrunning Playwright's default
+# expect timeout (the F3-rec-6 / F4-flagged flake). A longer poll window is the
+# root-cause-aligned remedy (not a blind bump — there is no earlier sync point
+# to wait on); it matches this module's existing 8s editor-ready waits.
+_DIALOG_TIMEOUT = 8000
+
 
 def _wait_editor_ready(page: Page) -> None:
     """Wait for the agent editor to be the visible child in the main panel.
@@ -99,7 +111,7 @@ def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Pag
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-cancel-btn"]').click()
 
@@ -121,7 +133,7 @@ def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
 
@@ -148,7 +160,7 @@ def test_section_nav_when_dirty_opens_dialog(app_with_agent: SeededApp, page: Pa
     knowledge_btn.click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     # Cancel keeps us on agents.
     page.locator('[data-testid="modal-cancel-btn"]').click()
@@ -203,7 +215,7 @@ def test_hash_change_to_other_agent_when_dirty_opens_dialog(
     page.evaluate(f"location.hash = '#studio/agents/{other_name}/general'")
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
 
 @pytest.mark.browser
@@ -264,7 +276,7 @@ def test_modal_focus_trap_tab_cycles_forward(app_with_agent: SeededApp, page: Pa
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     # Cancel is focused first by default. Press Tab → Confirm.
     cancel = page.locator('[data-testid="modal-cancel-btn"]')
@@ -291,7 +303,9 @@ def test_modal_focus_trap_shift_tab_cycles_backward(app_with_agent: SeededApp, p
     _make_dirty(page)
     page.locator('[data-testid="back-agent-btn"]').click()
 
-    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible()
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
+        timeout=_DIALOG_TIMEOUT
+    )
 
     cancel = page.locator('[data-testid="modal-cancel-btn"]')
     confirm = page.locator('[data-testid="modal-confirm-btn"]')
@@ -314,7 +328,7 @@ def test_modal_escape_cancels(app_with_agent: SeededApp, page: Page) -> None:
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.keyboard.press("Escape")
 
@@ -334,7 +348,7 @@ def test_modal_enter_confirms(app_with_agent: SeededApp, page: Page) -> None:
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     # Cancel is focused; press Enter — should fire onConfirm and close.
     page.keyboard.press("Enter")
@@ -355,7 +369,7 @@ def test_modal_aria_contract(app_with_agent: SeededApp, page: Page) -> None:
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     expect(overlay).to_have_attribute("role", "dialog")
     expect(overlay).to_have_attribute("aria-modal", "true")
@@ -385,7 +399,7 @@ def test_modal_restore_focus_on_close(app_with_agent: SeededApp, page: Page) -> 
     back_btn.click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.keyboard.press("Escape")
     expect(overlay).to_have_count(0)
@@ -482,7 +496,7 @@ def test_singleton_modal_second_call_warns(app_with_agent: SeededApp, page: Page
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     # Try to open a second dialog while one is already open.
     page.evaluate("window.App.confirmDialog({})")

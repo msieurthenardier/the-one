@@ -4,7 +4,7 @@
  *
  *   App.markdown.parse(text)  -> { type: 'document', children: Node[] }
  *   App.markdown.render(text) -> DocumentFragment
- *   App.markdown.NodeType     -> frozen object with all 18 node-type string constants
+ *   App.markdown.NodeType     -> frozen object with all 19 node-type string constants
  *
  * AST node shape:
  *   { type: NodeType_value, children?: Node[], value?: string, meta?: object }

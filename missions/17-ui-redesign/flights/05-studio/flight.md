@@ -1,14 +1,16 @@
 # Flight: Studio Re-skin
 
-**Status**: ready
+**Status**: landed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] SC1 — visual-language replacement (studio surfaces to the vocabulary)
-- [ ] SC3 — one component vocabulary (studio consumes it; `.field-row`→`.field-group`)
-- [ ] SC5 — keyboard/AT operability (M12 F4 connector-editor a11y preserved, re-verified)
-- [ ] SC7 — behavior-verified core flows (agent create/edit spec authored + run)
+> Boxes stay unchecked — these are mission-end verification gates. The annotations record F5's share; F7 closes SC5/SC7 with the behavior-gate RUNS.
+
+- [ ] SC1 — visual-language replacement. **F5 share**: all studio surfaces (agent grid + editor 5 tabs, connector-editor + tabs + discord-form, mcp-editor, discoverable-dropdown) re-skinned to the v3 quiet vocabulary; dual-theme CDP visual pass confirms **0 alien remnants** across the studio surface (both themes).
+- [ ] SC3 — one component vocabulary. **F5 share**: studio consumes the vocabulary directly (no per-area variants); **32 real form fields migrated `.field-row`→`.field-group`** with full label-association (general-tab 6, connector 13, discord 4, mcp 9); the `.area-studio .field-error` gutter exception retired.
+- [ ] SC5 — keyboard/AT operability. **F5 share**: keyboard a11y **preserved** — discoverable-dropdown WAI-listbox (JS zero-diff) + M12 F4 connector routing-reorder / live-region (grep-confirmed intact); a11y reviewer live-drove the dropdown keyboard flow. The `connector-editor-keyboard-a11y` behavior spec's staleness was updated but it was **NOT re-run against the re-skinned editor** (last run 2026-06-04, pre-re-skin) — its fresh RUN is **deferred to F7**; the a11y reviewer's live verification + the dual-theme visual pass evidence the interaction meanwhile.
+- [ ] SC7 — behavior-verified core flows. **F5 share**: the `studio-agent-crud` gate **RAN and PASSED both themes** (2026-07-05-22-32-24 — light 9/9 checkpoints, dark variant 4/4; run log `tests/behavior/studio-agent-crud/runs/2026-07-05-22-32-24.md`, driven synchronously by the Flight-5 studio behavior-gate orchestrator). Studio's SC7 core-flow gate is green — the studio down-payment on the mission-end both-theme SC7 sweep.
 
 ---
 
@@ -70,11 +72,11 @@ Re-skin surface by surface (agent-editor + agent grid → connector surface → 
 
 ### Checkpoints
 
-- [ ] Agent surface (editor + grid + 5 tabs) to vocabulary, .field-group migrated, save-race fixed, M07 F10 copy in; composite gates green
-- [ ] Connector surface (editor + tabs + discord-form + grid + dropdown) to vocabulary, .field-group migrated, gutter exception gone, dropdown a11y preserved
-- [ ] MCP surface (editor + tab + grid) to vocabulary, .field-group migrated
-- [ ] Browser lanes in; guards green; docs (node-types) fixed
-- [ ] Suites green (via lanes); studio-agent-crud + connector-a11y specs PASS both/re-run; dual-theme visual pass; ledger
+- [x] Agent surface (editor + grid + 5 tabs) to vocabulary, .field-group migrated, save-race fixed, M07 F10 copy in; composite gates green
+- [x] Connector surface (editor + tabs + discord-form + grid + dropdown) to vocabulary, .field-group migrated, gutter exception gone, dropdown a11y preserved
+- [x] MCP surface (editor + tab + grid) to vocabulary, .field-group migrated
+- [x] Browser lanes in; guards green; docs (node-types) fixed
+- [x] Suites green (via lanes); dual-theme visual pass; ledger — **behavior specs authored/updated (studio-agent-crud active; connector-a11y staleness updated); their RUNS are FD-pending** (Flight Director runs the Executor/Validator crews after this leg)
 
 ### Adaptation Criteria
 
@@ -86,12 +88,12 @@ Re-skin surface by surface (agent-editor + agent grid → connector surface → 
 
 > **Note:** Tentative; created one at a time as the flight progresses.
 
-- [ ] `agent-surface` - agent-editor (General/Knowledge-stub/MCPs/Built-in Tools tab strip done once here) + agent grid to vocabulary; general-tab (7) .field-row→.field-group; M07 F10 lazy copy; save-race fix (unit test of the null-found fallback); VRAM-warning + tool-switch composite gates; label-association guards
-- [ ] `connector-editor-core` - connector-editor (4956 LOC) + connectors-tab (agent-editor Connectors panel content) + connectors-grid to vocabulary; 24 .field-row→.field-group; retire the .area-studio .field-error gutter exception; connector washes composite gates
-- [ ] `discord-and-dropdown` - discord-form (8 .field-row→.field-group) + discoverable-dropdown group-header quiet (a11y PRESERVED verbatim — a11y reviewer gates) + dropdown-wash composite gate. *(Split from connector-editor to isolate the a11y-sensitive dropdown work from bulk editor churn.)*
-- [ ] `mcp-surface` - mcp-server-editor + mcps-tab + mcp-servers-grid to vocabulary; 12 .field-row→.field-group
-- [ ] `browser-lanes-guards-docs` - per-area browser lanes (chat/studio/system/shared) + CLAUDE.md; dirty-back confirm-dialog flake fix (test_flow_dirty_confirm.py); guard/registry bookkeeping (label-association guards); markdown.js node-types 18→19 comment fix
-- [ ] `studio-verification` - suites via lanes + dual-theme visual pass (CDP focus) + author & RUN (sync sub-orchestrator) studio-agent-crud.md (with mock-provider precondition) + re-verify connector-editor-keyboard-a11y (update staleness + seed connector fixture) + ledger
+- [x] `agent-surface` - agent-editor (General/Knowledge-stub/MCPs/Built-in Tools tab strip done once here) + agent grid to vocabulary; general-tab (6) .field-row→.field-group; M07 F10 lazy copy; save-race fix (route-stub regression test of the null-found fallback); VRAM-warning + tool-switch composite gates; label-association guards. **Landed.**
+- [x] `connector-editor-core` - connector-editor (4956 LOC) + connectors-tab (agent-editor Connectors panel content) + connectors-grid to vocabulary; 13 .field-row→.field-group (of 17 real render sites; 3 ACL rows label-left exception, 5 chrome); retired the .area-studio .field-error gutter exception (connector-editor was its last consumer — NOT deferred to Leg 4); connector-empty-types-banner composite gate. **Landed.**
+- [x] `discord-and-dropdown` - discord-form (4 real .field-row render sites → .field-group; "8" was grep-inflated) + discoverable-dropdown group-header quiet (a11y PRESERVED verbatim — JS zero-diff, roles+handlers grep-confirmed) + dropdown-wash composite gate. Bot-Token info-icon un-nested from its `<label>` (a11y fix). *(Split from connector-editor to isolate the a11y-sensitive dropdown work from bulk editor churn.)* **Landed.**
+- [x] `mcp-surface` - mcp-server-editor migrated (9 real form-field render sites of the "12" grep count → `.field-group`; 1 chrome test-row kept as `.field-row` per the connector-test-row precedent; command-hint row de-guttered); mcps-tab + mcp-servers-grid needed ZERO changes (already pure vocabulary, zero `.field-row`); the env kv-table is not a `.field-row` (own tabular structure — no exception needed); a11y (label-assoc, MCPs-tab aria-expanded) preserved. **Landed.**
+- [x] `browser-lanes-guards-docs` - per-area browser lanes (chat/studio/system/shared) via `run-tests.sh --lane` (shared=complement → union always = full suite; 569=569 verified) + CLAUDE.md; dirty-back confirm-dialog flake fix (test_flow_dirty_confirm.py; extended to sibling test_flow_provider_dirty_confirm.py — same modal-under-load root cause surfaced by the system lane); guard/registry bookkeeping no-op (Legs 1-4: no new testids, label-assoc guards already green); markdown.js node-types 18→19 comment fix. **Landed.**
+- [x] `studio-verification` - suites via lanes (unit 3779p; studio lane 252p/7:38; full `-m browser` 562p/12:33 + 1 load-flake disposed) + dual-theme CDP visual pass (SC1 clean, both themes, all enumerated surfaces + focus) + **authored** studio-agent-crud.md (active, mock-provider precondition) + **updated** connector-editor-keyboard-a11y staleness (8485/Routing prose; assertions unchanged) + archived studio-smoke + ledger. **Behavior-gate RUNS are FD-pending** (this leg authors + statically verifies; the FD runs the sync Executor/Validator crews). **Landed.**
 
 ---
 
@@ -99,10 +101,10 @@ Re-skin surface by surface (agent-editor + agent grid → connector surface → 
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Tests passing (via lanes)
-- [ ] Flight log updated
-- [ ] Documentation updated (CLAUDE.md lanes; node-types fix)
+- [x] All legs completed
+- [x] Tests passing (via lanes)
+- [x] Flight log updated
+- [x] Documentation updated (CLAUDE.md lanes; node-types fix)
 
 ### Verification
 

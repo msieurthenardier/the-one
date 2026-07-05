@@ -200,7 +200,7 @@
                          escapeHtml(currentSerialized) + 's</option>';
     }
 
-    return '<select class="field-input field-select admin-pf-input admin-pf-select" id="' +
+    return '<select class="field-input field-select" id="' +
            escapeAttr(id) + '" data-field="' + escapeAttr(fieldName) + '" ' +
            'data-testid="' + escapeAttr(testId) + '">' +
            neverOptionHtml + customOptionHtml + ladderHtml +
@@ -259,9 +259,18 @@
   // `.editor-error` span. Mirrors the admin tools-editor's
   // `renderFieldErrors` pattern (admin.css:355-370,448-454).
   function clearFieldErrors(container) {
+    // F5 L2: the ``.field-group`` vocabulary carries validation on the CONTROL
+    // (``.is-invalid`` border + ``aria-invalid`` + ``aria-describedby`` → the
+    // ``.field-error`` message) rather than a ``.field-error-highlight`` class
+    // on the row (the retired ``.area-studio .field-row`` gutter exception).
     var rows = container.querySelectorAll('[data-field-row]');
     for (var i = 0; i < rows.length; i++) {
-      rows[i].classList.remove('field-error-highlight');
+      var ctrl = rows[i].querySelector('input, select, textarea');
+      if (ctrl) {
+        ctrl.classList.remove('is-invalid');
+        ctrl.removeAttribute('aria-invalid');
+        ctrl.removeAttribute('aria-describedby');
+      }
     }
     var spans = container.querySelectorAll('[data-field-error]');
     for (var j = 0; j < spans.length; j++) {
@@ -272,8 +281,13 @@
 
   function setFieldError(container, fieldName, message) {
     var row = container.querySelector('[data-field-row="' + fieldName + '"]');
-    if (row) row.classList.add('field-error-highlight');
     var span = container.querySelector('[data-field-error="' + fieldName + '"]');
+    var ctrl = row ? row.querySelector('input, select, textarea') : null;
+    if (ctrl) {
+      ctrl.classList.add('is-invalid');
+      ctrl.setAttribute('aria-invalid', 'true');
+      if (span && span.id) ctrl.setAttribute('aria-describedby', span.id);
+    }
     if (span) {
       span.textContent = message;
       span.removeAttribute('hidden');
@@ -425,12 +439,14 @@
     // operator concern); label shortened from "Chat-session continuation
     // window" to "Chat-session window".
     var contTipText = 'Inbound continues the same chat session within this window.';
-    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<div class="field-group">';
+    lifecycleHtml += '<div class="field-group-label">';
     lifecycleHtml += '<label for="cf-continuation-window">Chat-session window</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(contTipText) + '" ' +
             'aria-describedby="connector-continuation-help-text" ' +
             'data-testid="connector-continuation-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '</div>';
     lifecycleHtml += '<span id="connector-continuation-help-text" class="visually-hidden">' +
             escHtml(contTipText) + '</span>';
     lifecycleHtml += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
@@ -441,12 +457,14 @@
     // Idle timeout (F2) — F5 L6 HAT: rendered SECOND; label shortened
     // from "Pool idle timeout" to "Idle timeout".
     var idleTipText = 'Reap warm connection after inactivity.';
-    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<div class="field-group">';
+    lifecycleHtml += '<div class="field-group-label">';
     lifecycleHtml += '<label for="cf-idle-timeout">Idle timeout</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(idleTipText) + '" ' +
             'aria-describedby="connector-idle-help-text" ' +
             'data-testid="connector-idle-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '</div>';
     lifecycleHtml += '<span id="connector-idle-help-text" class="visually-hidden">' +
             escHtml(idleTipText) + '</span>';
     lifecycleHtml += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
@@ -467,12 +485,14 @@
             'this account and uses a lightweight inference call to decide whether ' +
             'to respond. Per-attached-agent toggles control which agents participate. ' +
             'When off, only @mentions, DMs, and /talk_to overrides engage the bot.';
-    lifecycleHtml += '<div class="field-row admin-pf-row cf-always-listen-row">';
+    lifecycleHtml += '<div class="field-group cf-always-listen-row">';
+    lifecycleHtml += '<div class="field-group-label">';
     lifecycleHtml += '<label for="cf-always-listen">Always Listen</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(alwaysListenTipText) + '" ' +
             'aria-describedby="connector-always-listen-help-text" ' +
             'data-testid="connector-always-listen-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '</div>';
     lifecycleHtml += '<span id="connector-always-listen-help-text" class="visually-hidden">' +
             escHtml(alwaysListenTipText) + '</span>';
     lifecycleHtml += '<label class="tool-enable-switch">';
@@ -513,15 +533,17 @@
             (inferenceRowsHidden ? ' hidden' : '') + '>';
 
     // Provider dropdown.
-    lifecycleHtml += '<div class="field-row admin-pf-row cf-inference-provider-row">';
+    lifecycleHtml += '<div class="field-group cf-inference-provider-row">';
+    lifecycleHtml += '<div class="field-group-label">';
     lifecycleHtml += '<label for="cf-inference-provider">Inference provider</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(inferenceProviderTipText) + '" ' +
             'aria-describedby="connector-inference-provider-help-text" ' +
             'data-testid="connector-config-inference-provider-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '</div>';
     lifecycleHtml += '<span id="connector-inference-provider-help-text" class="visually-hidden">' +
             escHtml(inferenceProviderTipText) + '</span>';
-    lifecycleHtml += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
+    lifecycleHtml += '<select class="field-input field-select" ' +
             'id="cf-inference-provider" data-field="inference_provider_config_id" ' +
             'data-testid="connector-config-inference-provider-select">';
     // Initial placeholder option only; full population happens async in
@@ -547,15 +569,17 @@
     // a provider that doesn't enumerate it via API — same pattern chat uses).
     // Pre-emit the persisted value as a selected option so the dirty-tracker's
     // mount snapshot reflects the persisted state pre-populate.
-    lifecycleHtml += '<div class="field-row admin-pf-row cf-inference-model-row">';
+    lifecycleHtml += '<div class="field-group cf-inference-model-row">';
+    lifecycleHtml += '<div class="field-group-label">';
     lifecycleHtml += '<label for="cf-inference-model">Inference model</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(inferenceModelTipText) + '" ' +
             'aria-describedby="connector-inference-model-help-text" ' +
             'data-testid="connector-config-inference-model-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '</div>';
     lifecycleHtml += '<span id="connector-inference-model-help-text" class="visually-hidden">' +
             escHtml(inferenceModelTipText) + '</span>';
-    lifecycleHtml += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
+    lifecycleHtml += '<select class="field-input field-select" ' +
             'id="cf-inference-model" data-field="inference_model" ' +
             'data-testid="connector-config-inference-model-select">';
     // Initial placeholder options. If no provider selected → "Select a
@@ -788,22 +812,22 @@
     var createType = (isCreate && account && typeof account.type === 'string') ? account.type : '';
 
     // Name
-    html += '<div class="field-row admin-pf-row" data-field-row="name">';
+    html += '<div class="field-group" data-field-row="name">';
     html += '<label for="cf-name">Name</label>';
-    html += '<input class="field-input admin-pf-input" id="cf-name" data-field="name" data-testid="connector-name-input" value="' +
+    html += '<input class="field-input" id="cf-name" data-field="name" data-testid="connector-name-input" value="' +
             escapeAttr(isCreate ? createName : (account.name || '')) +
             '" placeholder="My Discord bot" />';
-    html += '<span class="field-error" data-field-error="name" hidden></span>';
+    html += '<span class="field-error" id="cf-name-error" data-field-error="name" hidden></span>';
     html += '</div>';
 
     // Type — select on create, read-only display on edit. Mirrors MCP's
     // edit-time type immutability: changing type would invalidate the
     // config + secrets shape, so the type is locked once chosen.
-    html += '<div class="field-row admin-pf-row" data-field-row="type">';
+    html += '<div class="field-group" data-field-row="type">';
     html += '<label for="cf-type">Type</label>';
     if (isCreate) {
       var typeDisabledAttr = typesEmpty ? ' disabled aria-disabled="true"' : '';
-      html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="cf-type" data-field="type" data-testid="connector-type-select"' + typeDisabledAttr + '>';
+      html += '<select class="field-input field-select" id="cf-type" data-field="type" data-testid="connector-type-select"' + typeDisabledAttr + '>';
       if (typesEmpty) {
         html += '<option value="" disabled selected>No connector types registered yet</option>';
       } else {
@@ -827,10 +851,10 @@
       }
       html += '</select>';
     } else {
-      html += '<input class="field-input admin-pf-input" id="cf-type" data-field="type" data-testid="connector-type-readonly" value="' +
+      html += '<input class="field-input" id="cf-type" data-field="type" data-testid="connector-type-readonly" value="' +
               escapeAttr(account.type || '') + '" readonly />';
     }
-    html += '<span class="field-error" data-field-error="type" hidden></span>';
+    html += '<span class="field-error" id="cf-type-error" data-field-error="type" hidden></span>';
     html += '</div>';
 
     // Config kv editor — plaintext key-value rows.
@@ -852,7 +876,7 @@
     var connActiveType = (account && account.type) || '';
     var connEntry = (connRegistry && connActiveType) ? connRegistry.get(connActiveType) : undefined;
 
-    html += '<div class="field-row admin-pf-row connector-config-wrap">';
+    html += '<div class="field-group connector-config-wrap">';
     html += '<label>Config</label>';
     html += '<div class="connector-config" data-testid="connector-config">';
     if (connEntry && typeof connEntry.renderConnectionFields === 'function') {
@@ -2534,15 +2558,17 @@
     var defaultAgentTipText = "Picks up messages that don't match any " +
             "per-rule override below. Leave empty to fall back to the " +
             "first eligible agent alphabetically.";
-    html += '<div class="field-row admin-pf-row connector-routing-default-row">';
+    html += '<div class="field-group connector-routing-default-row">';
+    html += '<div class="field-group-label">';
     html += '<label for="connector-routing-default">Default agent</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + escapeAttr(defaultAgentTipText) + '" ' +
             'aria-describedby="connector-routing-default-help-text" ' +
             'data-testid="connector-routing-default-hint">' + infoIcon + '</button>';
+    html += '</div>';
     html += '<span id="connector-routing-default-help-text" class="visually-hidden">' +
             escapeHtml(defaultAgentTipText) + '</span>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
+    html += '<select class="field-input field-select" ' +
             'id="connector-routing-default" data-routing-default ' +
             'data-testid="connector-routing-default">';
     html += '<option value="">None</option>';

@@ -277,6 +277,101 @@ def test_danger_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> Non
 
 
 # ---------------------------------------------------------------------------
+# Warning text on the soft-warning FILL (≥ 4.5:1) — both themes (M17 F5 L1)
+# ---------------------------------------------------------------------------
+#
+# The SAME soft-fill-fg genre as the danger gate above (the F3-debrief
+# composited-a11y pattern). The studio VRAM/model warning
+# (studio.css `.studio-vram-warning`) paints --status-warning body-sm TEXT on
+# a --status-warning-bg-soft rgba wash — a body-text pair (≥4.5:1). The wash is
+# rgba (NOT mirrored), so the gate reconstructs the rendered fill by
+# compositing --status-warning at the theme's soft alpha over each ladder
+# surface, then asserts --status-warning text clears body AA on that fill.
+#
+# The light-theme fix (F5 L1): --status-warning #a16207 → #8f5606 (amber-700
+# deepened) because #a16207 text landed ≈4.0–4.4:1 on the composited soft fill.
+# This test fails loudly if a future retune lightens it back. Alpha per theme
+# MUST track --status-warning-bg-soft in tokens.css (both themes 0.08); the
+# soft wash tracks the base warning hue (matched family, like danger).
+_STATUS_WARNING_SOFT_ALPHA = {"dark": 0.08, "light": 0.08}
+
+
+@pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
+@pytest.mark.parametrize("theme", THEMES)
+def test_warning_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> None:
+    """`--status-warning` text ≥ 4.5:1 on the composited `--status-warning-bg-soft`
+    fill, over bg AND surface AND surface-elevated, in BOTH themes (VRAM warning)."""
+    palette = _palette(theme)
+    warning = palette["status_warning"]
+    alpha = _STATUS_WARNING_SOFT_ALPHA[theme]
+    fill = _alpha_composite(warning, alpha, palette[bg_key])
+    ratio = contrast_ratio(warning, fill)
+    assert ratio >= 4.5, (
+        f"{theme} warning-on-soft-fill fails body AA: status_warning on "
+        f"status-warning-bg-soft over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Connector empty-types banner prose on the soft-warning wash — both themes
+# (M17 F5 L2)
+# ---------------------------------------------------------------------------
+#
+# studio.css `.connector-empty-types-banner` paints body-sm --fg prose (and a
+# --status-warning <strong>) on a --status-warning-bg-soft rgba wash. Same
+# composited-a11y genre as the VRAM warning gate above: the wash is rgba (not
+# mirrored), so reconstruct the rendered fill by compositing --status-warning
+# at the soft alpha over each editor ladder surface, then assert the --fg body
+# prose clears body AA on that fill. The --status-warning <strong> reuses the
+# EXACT pair gated by test_warning_text_on_soft_fill_passes_body_aa above, so it
+# needs no separate assertion here. (The banner's <code> sits on a SOLID
+# --surface-elevated, so the fg-ladder sweep covers it — not composite-gated.)
+@pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
+@pytest.mark.parametrize("theme", THEMES)
+def test_connector_empty_types_banner_prose_passes_body_aa(theme: str, bg_key: str) -> None:
+    """`--fg` banner prose ≥ 4.5:1 on the composited `--status-warning-bg-soft`
+    fill, over bg AND surface AND surface-elevated, in BOTH themes."""
+    palette = _palette(theme)
+    alpha = _STATUS_WARNING_SOFT_ALPHA[theme]
+    fill = _alpha_composite(palette["status_warning"], alpha, palette[bg_key])
+    ratio = contrast_ratio(palette["fg"], fill)
+    assert ratio >= 4.5, (
+        f"{theme} connector empty-types banner prose fails body AA: fg on "
+        f"status-warning-bg-soft over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Indeterminate tool-switch thumb (≥ 3.0:1 UI) — both themes (M17 F5 L1)
+# ---------------------------------------------------------------------------
+#
+# The studio tools-tab master (category) toggle renders a TRISTATE switch: at
+# the partial-enabled state (0 < enabled < total) the track becomes
+# --accent-translucent (studio.css:66) and the thumb (::after) is solid
+# --accent, parked at the halfway position. The thumb is a non-text UI mark, so
+# it must clear the ≥3.0:1 UI/non-text threshold (WCAG 1.4.11) against its own
+# translucent track — otherwise the halfway thumb vanishes into the track and
+# the indeterminate state reads identical to "off". The track is an rgba wash,
+# so the gate reconstructs it by compositing --accent at the theme's
+# --accent-translucent alpha over --surface-elevated (the switch's own resting
+# track color and the conservative — lowest-contrast — ladder surface behind
+# it), then asserts the solid --accent thumb clears 3.0:1 on that fill.
+@pytest.mark.parametrize("theme", THEMES)
+def test_tool_switch_indeterminate_thumb_holds_ui_contrast(theme: str) -> None:
+    """The indeterminate tool-switch thumb (--accent) ≥ 3.0:1 on the composited
+    --accent-translucent track, both themes (stays visible at the halfway state)."""
+    palette = _palette(theme)
+    accent = palette["accent"]
+    alpha = _ACCENT_TRANSLUCENT_ALPHA[theme]
+    track = _alpha_composite(accent, alpha, palette["surface_elevated"])
+    ratio = contrast_ratio(accent, track)
+    assert ratio >= 3.0, (
+        f"{theme} indeterminate tool-switch thumb fails UI AA: accent thumb on "
+        f"accent-translucent track over surface-elevated = {ratio:.2f}:1 (need ≥ 3.0:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Chat washed surfaces (composited-a11y gates) — M17 F04 L02
 # ---------------------------------------------------------------------------
 #
@@ -328,6 +423,36 @@ def test_tinted_user_bubble_text_passes_body_aa(theme: str) -> None:
     assert ratio >= 4.5, (
         f"{theme} tinted-user-bubble fails body AA: fg on accent-translucent "
         f"over bg = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Discoverable-dropdown hover/focus item text (composited-a11y gate) — M17 F5 L3
+# ---------------------------------------------------------------------------
+#
+# The studio connector allowlist/routing discoverable-dropdown paints each
+# menu item's --fg text on a --accent-translucent WASH when the item is
+# hovered or keyboard-focused (studio.css: .discoverable-dropdown-item:hover /
+# --focused { background: --accent-translucent }). The menu's own background is
+# the solid --surface (studio.css .discoverable-dropdown-menu), so the wash
+# composites over --surface — NOT --bg. The flat WCAG formula can't read the
+# rgba alpha, so the gate reconstructs the fill (--accent at the theme's
+# --accent-translucent alpha over --surface) and asserts the --fg item text
+# still clears body AA (≥4.5:1) in the hovered/focused state, both themes.
+# (The aria-selected item's --accent text on the plain --surface is the
+# pre-existing accent×surface pair covered by the UI ladder sweep, ≥3.0 — not
+# introduced by this leg, so not re-gated here.)
+@pytest.mark.parametrize("theme", THEMES)
+def test_discoverable_dropdown_hover_item_text_passes_body_aa(theme: str) -> None:
+    """--fg item text ≥ 4.5:1 on the composited --accent-translucent hover/focus
+    wash over the dropdown menu's --surface background, both themes."""
+    palette = _palette(theme)
+    alpha = _ACCENT_TRANSLUCENT_ALPHA[theme]
+    fill = _alpha_composite(palette["accent"], alpha, palette["surface"])
+    ratio = contrast_ratio(palette["fg"], fill)
+    assert ratio >= 4.5, (
+        f"{theme} discoverable-dropdown hover item text fails body AA: fg on "
+        f"accent-translucent over surface = {ratio:.2f}:1 (need ≥ 4.5:1)"
     )
 
 

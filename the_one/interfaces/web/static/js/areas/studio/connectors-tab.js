@@ -496,7 +496,7 @@
       // peers/channels axis rows.
       function _buildAdmitDmsRow() {
         var row = document.createElement('div');
-        row.className = 'field-row admin-pf-row connector-admit-dms-row';
+        row.className = 'field-group connector-admit-dms-row';
         row.setAttribute('data-testid',
           'agent-connector-admit-dms-row-' + account.id);
 
@@ -814,7 +814,7 @@
       var alwaysListenForAccount = !!(alwaysListenMap && alwaysListenMap[account.id]);
       var accountAlwaysListenMaster = !!(account.config && account.config.always_listen);
       var alwaysListenRow = document.createElement('div');
-      alwaysListenRow.className = 'field-row admin-pf-row connector-always-listen-row';
+      alwaysListenRow.className = 'field-group connector-always-listen-row';
       var alwaysListenLabel = document.createElement('label');
       alwaysListenLabel.htmlFor = 'agent-always-listen-' + account.id;
       alwaysListenLabel.textContent = 'Always listen';

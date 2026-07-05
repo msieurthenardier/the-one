@@ -229,10 +229,17 @@
     /* status — deep 600/700 family; all ≥ 4.5:1 on bg/surface.
        Soft washes are quiet fills consistent with the ladders. */
     --status-success: #15803d;
-    --status-warning: #a16207;
-    --status-warning-bg-soft: rgba(161, 98, 7, 0.08);
-    --status-warning-bg-soft-2: rgba(161, 98, 7, 0.12);
-    --status-warning-border: rgba(161, 98, 7, 0.30);
+    /* amber-700 deepened from #a16207 in M17 F5 L1: #a16207 warning TEXT failed
+       body AA (1.4.3) on the composited --status-warning-bg-soft fill (≈4.0–4.4:1
+       over the light ladder — the studio VRAM/model warning is body-sm text on
+       this soft fill). #8f5606 clears ≥4.88:1 on bg/surface/elevated. Same
+       fix-then-gate move as the danger #dc2626→#b91c1c deepening below; the soft
+       washes track the base hue (matched family). Gated in
+       test_design_tokens_a11y.py::test_warning_text_on_soft_fill_passes_body_aa. */
+    --status-warning: #8f5606;
+    --status-warning-bg-soft: rgba(143, 86, 6, 0.08);
+    --status-warning-bg-soft-2: rgba(143, 86, 6, 0.12);
+    --status-warning-border: rgba(143, 86, 6, 0.30);
     /* danger — red-700 (deepened from red-600 #dc2626 in M17 F3 fix): the
        #dc2626 text failed body AA (1.4.3) on the composited --status-danger-bg-soft
        fill over surface-elevated (4.02:1). red-700 clears ≥4.5 on the soft fill

@@ -205,6 +205,26 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 - Mock LLM responses are deterministic via the `mock` provider type (see below)
 - See `tests/browser/conftest.py` for fixture documentation
 
+**Per-area browser test lanes** (M17 F5). The full browser suite runs ~13min, so a verification pass that only touches one UI area shouldn't have to pay the whole tax. `scripts/run-tests.sh` accepts a `--lane {chat|studio|system|shared}` selector that runs just that area's slice:
+
+```bash
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio    # Agent Studio slice
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane chat      # Chat slice
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane system    # Admin / providers slice
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane shared    # cross-cutting slice
+# Extra pytest args pass straight through, e.g. add `-x` or `-q`:
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio -q
+```
+
+Each lane runs independently green under the venv python (browser tests need `discord`, which the venv has and system `python3` does not — always pass `PYTHON=.venv/bin/python`). The full suite still runs exactly as before (`make test-browser`, no `--lane`).
+
+- **`chat`** — `test_flow_chat*`, `test_flow_markdown_chat`, `test_flow_new_chat`, `test_flow_streaming`, `test_flow_context_overlay_thresholds`, `test_flow_usage_restore`
+- **`studio`** — `test_flow_studio_*`, `test_studio_*`, `test_connector_*`, `test_mcp_*`, `test_flow_agent_*`, `test_flow_connector_*`
+- **`system`** — `test_flow_admin_*`, `test_flow_provider_*`
+- **`shared`** — the **complement**: every browser test file not claimed by the three area lanes (smoke, theme sync, markdown, keyboard, hash routing, oauth modal, dirty-confirm, cross-area gate, picker, seeders, app fixture, …)
+
+Lanes are hand-rolled basename globs over `tests/browser/` — no new deps, no per-test markers. Because `shared` is defined as the complement, the four lanes' union is *always* exactly the whole browser suite and no test file can be orphaned — a newly added `tests/browser/test_*.py` lands in `shared` until it is given an area glob in `scripts/run-tests.sh`. (Union verified: the four lanes collect the same test count as `-m browser tests/browser/`.)
+
 **Test patterns** (no mock libraries):
 
 - **`FakeLLM`** (`tests/conftest.py`): An `LLMProvider` subclass that returns pre-scripted `Message` responses in order. Records all calls for assertion. Enables deterministic agent loop testing.

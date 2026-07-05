@@ -179,13 +179,22 @@
       competing: 'Competing in'
     };
 
-    html += '<div class="field-row admin-pf-row discord-presence-row">';
+    // F5 L3: stacked ``.field-group`` vocabulary (label above control),
+    // replacing the F5 L6 label-left ``field-row admin-pf-row`` layout.
+    // "Bot status" is a GROUP caption over the compound (type select +
+    // name input) — each inner control carries its own visually-hidden
+    // ``<label for>`` below, so the caption stays a bare label. The
+    // label + info-icon sit on one line via the shared ``.field-group-label``
+    // primitive (label + icon are SIBLINGS — never nest the button in a label).
+    html += '<div class="field-group discord-presence-row">';
+    html += '<div class="field-group-label">';
     html += '<label>Bot status</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + _escapeAttr(presenceTipText) + '" ' +
             'aria-describedby="discord-presence-help-text" ' +
             'data-testid="discord-presence-hint">' +
             infoIcon + '</button>';
+    html += '</div>';
     html += '<span id="discord-presence-help-text" class="visually-hidden">' +
             _escapeHtml(presenceTipText) + '</span>';
     html += '<div class="discord-presence-fields">';
@@ -219,7 +228,12 @@
     html += '<details class="advanced-collapsible connector-advanced-section" ' +
             'data-testid="connector-advanced-section">';
     html += '<summary>Advanced</summary>';
-    html += '<div class="field-row admin-pf-row discord-additional-config-row" ' +
+    // F5 L3: stacked ``.field-group`` (label above the kv-table body),
+    // replacing the label-left ``field-row admin-pf-row`` gutter layout.
+    // The pseudo-label is a ``<div>`` (the kv-table has many key/value
+    // inputs — no single control to associate a ``<label for>`` with);
+    // it is styled to match ``.field-group > label`` typography.
+    html += '<div class="field-group discord-additional-config-row" ' +
             'data-testid="discord-additional-config-row">';
     html += '<div class="discord-additional-config-label">Additional Config</div>';
     html += '<div class="discord-additional-config-body">';
@@ -286,18 +300,22 @@
     // semantics); ``.field-input`` is added so the input picks up the
     // dark-theme styling + the substrate's ``attachStaticListeners``
     // dirty-tracking wiring.
+    // F5 L3: stacked ``.field-group`` (label above control). The info-icon
+    // button is un-nested from inside the ``<label>`` (a <button> nested in
+    // a <label> is invalid + a click-target ambiguity) into the shared
+    // ``.field-group-label`` primitive, where label + icon are siblings.
     var html = '';
-    html += '<div class="field-row admin-pf-row discord-credentials-row">';
-    html += '<label for="cf-discord-bot-token">';
-    html += 'Bot Token';
+    html += '<div class="field-group discord-credentials-row">';
+    html += '<div class="field-group-label">';
+    html += '<label for="cf-discord-bot-token">Bot Token</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + _escapeAttr(hintText) + '" ' +
             'aria-describedby="discord-bot-token-help-text" ' +
             'data-testid="connector-bot-token-hint">' +
             infoIcon + '</button>';
+    html += '</div>';
     html += '<span id="discord-bot-token-help-text" class="visually-hidden">' +
             _escapeHtml(hintText) + '</span>';
-    html += '</label>';
     html += '<div class="api-key-wrap">';
     html += '<input class="field-input kv-value-secret" type="password" id="cf-discord-bot-token" ' +
             'data-field="bot-token" data-testid="discord-bot-token" ' +
@@ -449,18 +467,20 @@
     var infoText = 'Open this to add the bot to a Discord server — needed once per server at setup.';
 
     var html = '';
-    // F5 L6 HAT round-7: 3-column field-row pattern
-    // (label | info-icon | field-content). Copy + Refresh are icon-only
-    // buttons matching the existing connector-pairing-copy-btn precedent.
-    // The testid moves from a <section> wrapper (pre-L2) to the
-    // outer field-row div so DOM-by-testid lookups keep resolving.
-    html += '<div class="field-row admin-pf-row connector-invite-row" ' +
+    // M17 F5 L3: stacked ``.field-group`` (label + info-icon on one line
+    // above the invite field). Copy + Refresh are icon-only buttons
+    // matching the existing connector-pairing-copy-btn precedent.
+    // The ``connector-invite-section`` testid stays on the outer div so
+    // DOM-by-testid lookups keep resolving.
+    html += '<div class="field-group connector-invite-row" ' +
             'data-testid="connector-invite-section">';
+    html += '<div class="field-group-label">';
     html += '<label>Invite link</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + _escapeAttr(infoText) + '" ' +
             'aria-describedby="connector-invite-help-text" ' +
             'data-testid="connector-invite-info">' + infoIcon + '</button>';
+    html += '</div>';
     html += '<span id="connector-invite-help-text" class="visually-hidden">' +
             _escapeHtml(infoText) + '</span>';
     html += '<div class="connector-invite-field">';

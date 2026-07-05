@@ -111,6 +111,113 @@ def id_appears_as_string_literal(testid: str, js_dir: Path = JS_DIR) -> bool:
     return any(pattern.search(f.read_text()) for f in iter_js_files(js_dir))
 
 
+# ── Field label-association guard (M17 F5 L1) ───────────────────────────────
+#
+# The M17 F3 ``.field-group`` vocabulary wires label association BY HAND at
+# every site (``fieldGroup()`` in the design-language gallery is gallery-local,
+# not exported): a ``<label for="X">`` must resolve to a control ``id="X"``, and
+# an ``.is-invalid`` control's ``aria-describedby="Y"`` must resolve to a
+# ``.field-error`` element ``id="Y"``. As the F5 studio re-skin migrates the 54
+# ``.field-row`` sites to ``.field-group``, these guards catch the easy
+# silent-drop (a label pointing at a renamed / removed id). Static-source scan
+# over LITERAL attribute values; ids emitted through a concatenation helper
+# (``id="' + escapeAttr(x) + '"``) are invisible to the literal scan, so their
+# literal for-targets live in ``FIELD_FOR_ID_HELPER_INDIRECTED`` below (the same
+# manual-exception pattern the testid registry uses for variable-carried ids).
+
+# Literal ``id="X"`` / ``for="X"`` / ``aria-describedby="X"`` with an
+# uninterrupted quoted value. The negative lookbehind ``(?<![\w-])`` keeps
+# ``id=`` from matching inside ``data-testid=`` / ``provider-id=`` etc. and
+# still matches an ``id="`` that opens a concatenated JS-string fragment
+# (preceded by a quote). ``_ATTR_FOR_PARAM`` catches a ``for`` value cut short
+# by the JS string terminator + concatenation (dynamic — skipped by the
+# resolver, like the parametric-testid case).
+_ATTR_ID = re.compile(r'(?<![\w-])id="([^"\'\n]+)"')
+_ATTR_ID_SETATTR = re.compile(r"setAttribute\(\s*'id'\s*,\s*'([^\"'\n]+)'")
+_ATTR_ID_PROP = re.compile(r"\.id\s*=\s*'([^'\n]+)'")
+_ATTR_FOR = re.compile(r'(?<![\w-])for="([^"\'\n]+)"')
+_ATTR_FOR_PARAM = re.compile(r'(?<![\w-])for="([^"\'\n]+)\'\s*\+')
+_ATTR_ARIA_DESCRIBEDBY = re.compile(r'aria-describedby="([^"\'\n]+)"')
+_ATTR_ARIA_DESCRIBEDBY_PARAM = re.compile(r'aria-describedby="([^"\'\n]+)\'\s*\+')
+
+# for-targets whose control ``id`` is emitted through a concatenation helper
+# (``renderLifecycleSelect`` in connector-editor.js renders
+# ``id="' + escapeAttr(id) + '"``) — invisible to the literal-id scan but
+# present at runtime. Verified by reading the helper. These two rows migrated
+# to ``.field-group`` in M17 F5 L2, but their ``<select>`` id is STILL emitted
+# via renderLifecycleSelect (concatenated), so the ``for`` target stays
+# helper-indirected; listed so the global resolver stays false-positive-free.
+# Prune only when renderLifecycleSelect is retired / emits a literal id.
+FIELD_FOR_ID_HELPER_INDIRECTED: set[str] = {
+    "cf-continuation-window",
+    "cf-idle-timeout",
+}
+
+
+def _literal_ids(text: str) -> set[str]:
+    """Every literal element id in ``text`` — ``id="X"`` HTML-string attrs,
+    ``setAttribute('id', 'X')`` calls, and ``el.id = 'X'`` property sets."""
+    return (
+        set(_ATTR_ID.findall(text))
+        | set(_ATTR_ID_SETATTR.findall(text))
+        | set(_ATTR_ID_PROP.findall(text))
+    )
+
+
+def _field_error_ids(text: str) -> set[str]:
+    """Literal ids carried by an element whose ``class`` contains
+    ``field-error`` (either attribute order), scanned line by line."""
+    ids: set[str] = set()
+    for line in text.splitlines():
+        if "field-error" not in line:
+            continue
+        for m in re.finditer(r'class="[^"\n]*field-error[^"\n]*"[^>]*?id="([^"\'\n]+)"', line):
+            ids.add(m.group(1))
+        for m in re.finditer(r'id="([^"\'\n]+)"[^>]*?class="[^"\n]*field-error[^"\n]*"', line):
+            ids.add(m.group(1))
+    return ids
+
+
+def find_label_for_without_control(js_dir: Path = JS_DIR) -> dict[str, set[str]]:
+    """Return ``{for_target: {files}}`` for every literal ``<label for="X">``
+    whose ``X`` resolves to no literal control ``id="X"`` in the SAME file
+    (helper-indirected targets excepted). Empty dict is the passing state."""
+    viol: dict[str, set[str]] = {}
+    for js_file in iter_js_files(js_dir):
+        text = js_file.read_text()
+        ids = _literal_ids(text)
+        param = set(_ATTR_FOR_PARAM.findall(text))
+        for target in _ATTR_FOR.findall(text):
+            if target in param or target in FIELD_FOR_ID_HELPER_INDIRECTED:
+                continue
+            if target not in ids:
+                viol.setdefault(target, set()).add(js_file.relative_to(js_dir).as_posix())
+    return viol
+
+
+def find_invalid_describedby_without_field_error(js_dir: Path = JS_DIR) -> dict[str, set[str]]:
+    """Return ``{describedby_target: {files}}`` for every control that carries
+    BOTH ``is-invalid`` and a literal ``aria-describedby="Y"`` on the same line
+    where ``Y`` resolves to no ``.field-error`` element ``id="Y"`` in the file.
+    Empty dict is the passing state (no inline-validation site drops its error
+    message association). Line-scoped: a control's class + aria-describedby are
+    authored on one HTML-string fragment line."""
+    viol: dict[str, set[str]] = {}
+    for js_file in iter_js_files(js_dir):
+        text = js_file.read_text()
+        error_ids = _field_error_ids(text)
+        param = set(_ATTR_ARIA_DESCRIBEDBY_PARAM.findall(text))
+        for line in text.splitlines():
+            if "is-invalid" not in line:
+                continue
+            for target in _ATTR_ARIA_DESCRIBEDBY.findall(line):
+                if target in param:
+                    continue
+                if target not in error_ids:
+                    viol.setdefault(target, set()).add(js_file.relative_to(js_dir).as_posix())
+    return viol
+
+
 # ── Sink classification ─────────────────────────────────────────────────────
 
 # Assignment anchor: .innerHTML = / .outerHTML =  (excludes == / === reads).
