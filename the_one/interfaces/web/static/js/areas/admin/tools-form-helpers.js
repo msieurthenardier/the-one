@@ -96,12 +96,16 @@
     // info icon is registered, but the registry warns + returns '' on
     // miss rather than throwing).
     //
-    // F6 HAT inline fix #4b: the info icon emits as a SIBLING after the
-    // input (rendered below) rather than nested inside the <label>, so
-    // operators see `label | input | ⓘ` per row. Operator-driven UX
-    // tweak after re-testing scenario 3.
+    // M17 F6 L3: migrated from the label-left `.field-row` to the stacked
+    // `.field-group` vocabulary. When a field carries a description, the label
+    // pairs with the info-icon on one line ABOVE the control via the shared
+    // `.field-group-label` primitive (the <button> stays a SIBLING of the
+    // <label>, never nested); the control stacks below. Fieldless labels sit
+    // directly in the `.field-group`. Same shape as the provider-editor L1
+    // migration.
     var label = '<label for="' + idAttr + '">' + escapeHtml(labelText) + '</label>';
-    var infoIcon = '';
+    var infoButton = '';
+    var descSpan = '';
     var descId = '';
     if (prop.description) {
       var iconHtml = (window.App && window.App.icon) ? window.App.icon('info') : '';
@@ -113,9 +117,9 @@
       // aria-describedby. Keep `title=` for mouse-hover UX (and to
       // preserve compatibility with browser tests that assert on the
       // title attribute).
-      infoIcon = '<button type="button" class="field-info-icon" title="' + descAttr + '" aria-describedby="' + descId + '">' +
-                 iconHtml + '</button>' +
-                 '<span id="' + descId + '" class="visually-hidden">' + escapeHtml(prop.description) + '</span>';
+      infoButton = '<button type="button" class="field-info-icon" title="' + descAttr + '" aria-describedby="' + descId + '">' +
+                   iconHtml + '</button>';
+      descSpan = '<span id="' + descId + '" class="visually-hidden">' + escapeHtml(prop.description) + '</span>';
     }
     var input = '';
     var ftype = prop.type;
@@ -255,12 +259,14 @@
         input = renderChipListEditor(name, union, marker, {
           lockedItems: lockedItems,
           attrPrefix: attrPrefix,
-          toolName: toolName
+          toolName: toolName,
+          controlId: idAttr
         });
       } else {
         input = renderChipListEditor(name, value || [], marker, {
           attrPrefix: attrPrefix,
-          toolName: toolName
+          toolName: toolName,
+          controlId: idAttr
         });
       }
     } else if (ftype === 'string' && hint === 'password') {
@@ -293,10 +299,18 @@
       rowAttrs += ' data-tool-override-tool="' + escapeAttr(toolName) + '" data-tool-override-field="' + safeName + '"';
     }
     // F6 HAT inline fix #4: the inline `<p class="field-description">` is
-    // gone — the description is now a tooltip on a sibling info-icon
-    // rendered AFTER the input (label | input | ⓘ).
-    return '<div class="field-row tools-editor-field" ' + rowAttrs + '>' +
-           label + input + infoIcon + '</div>';
+    // gone — the description is a tooltip on the info-icon that sits beside
+    // the label in the `.field-group-label` header, with a visually-hidden
+    // description span the input's aria-describedby points at.
+    // AC INVARIANT (M17 F6 L3): keep `.tools-editor-field` + `data-field-name`
+    // on the row — `renderFieldErrors` (:552) and `applyShowIf` key on them in
+    // BOTH the admin and studio lanes; dropping either silently breaks 422
+    // rendering + show_if visibility.
+    var labelBlock = infoButton
+      ? '<div class="field-group-label">' + label + infoButton + '</div>'
+      : label;
+    return '<div class="field-group tools-editor-field" ' + rowAttrs + '>' +
+           labelBlock + descSpan + input + '</div>';
   }
 
   // ── Chip-list editor ───────────────────────────────────────────────
@@ -308,6 +322,10 @@
   //     announce them). They get `data-locked` for visual styling.
   //   options.attrPrefix: 'data-field' | 'data-tool-override-field'
   //   options.toolName: string (when agent mode)
+  //   options.controlId: string → lands as `id` on the REAL focusable
+  //     `.chip-list-input` so a label's for-target can point at a labelable
+  //     control (the `.chip-list-editor` wrapper is a <div> — NOT labelable).
+  //     The M17 F6 L3 systemic fix for the chip-list label-for runtime-dangle.
   function renderChipListEditor(name, items, marker, options) {
     options = options || {};
     var escapeHtml = window.App.escapeHtml;
@@ -316,6 +334,7 @@
     var attrPrefix = options.attrPrefix || 'data-field';
     var toolName = options.toolName || null;
     var lockedItems = options.lockedItems || null;
+    var controlIdAttr = options.controlId ? ' id="' + escapeAttr(options.controlId) + '"' : '';
 
     var dataAttrs = attrPrefix + '="' + safeName + '" data-field-type="array"';
     if (toolName) {
@@ -343,7 +362,7 @@
                 '</span>';
       }
     }
-    html += '<input type="text" class="chip-list-input" placeholder="Add entry…" aria-label="Add entry" />';
+    html += '<input type="text"' + controlIdAttr + ' class="chip-list-input" placeholder="Add entry…" aria-label="Add entry" />';
     html += '</div>';
     return html;
   }

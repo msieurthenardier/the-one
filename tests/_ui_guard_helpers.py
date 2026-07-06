@@ -148,9 +148,20 @@ _ATTR_ARIA_DESCRIBEDBY_PARAM = re.compile(r'aria-describedby="([^"\'\n]+)\'\s*\+
 # via renderLifecycleSelect (concatenated), so the ``for`` target stays
 # helper-indirected; listed so the global resolver stays false-positive-free.
 # Prune only when renderLifecycleSelect is retired / emits a literal id.
+#
+# ``mf-args`` / ``mf-sandbox-writable-paths`` (mcp-server-editor.js): the two
+# chip-list ``label[for]`` targets. M17 F6 L3 fixed the runtime label-dangle by
+# landing the id on the real ``.chip-list-input`` via renderChipListEditor's
+# ``controlId`` option (the placeholder <div> the label used to target carried
+# no id — mountChipListEditors replaces it via ``outerHTML=`` which strips ids).
+# The id is emitted through the shared helper (``id="' + controlId + '"``),
+# invisible to the literal-id scan but present at runtime — asserted by the
+# runtime DOM guard in ``tests/browser/test_flow_chiplist_label_resolver.py``.
 FIELD_FOR_ID_HELPER_INDIRECTED: set[str] = {
     "cf-continuation-window",
     "cf-idle-timeout",
+    "mf-args",
+    "mf-sandbox-writable-paths",
 }
 
 

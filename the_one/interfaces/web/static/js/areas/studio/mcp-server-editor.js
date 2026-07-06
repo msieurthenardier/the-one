@@ -534,9 +534,15 @@
     html += '</label>';
     html += '</div>';
     // Writable paths chip-list (mounted via App.adminFormHelpers post-innerHTML).
+    // M17 F6 L3: the placeholder <div> carries NO id — mountChipListEditors
+    // replaces it via outerHTML= (which would strip an id), so the `label[for]`
+    // target is landed on the real `.chip-list-input` via renderChipListEditor's
+    // controlId (see mountChipListEditors / the re-mount path below). Post-mount
+    // selectors key on [data-field="sandbox-writable-paths"].chip-list-editor,
+    // not the id (js:873/917/1505), so dropping the placeholder id is safe.
     html += '<div class="field-group">';
     html += '<label for="mf-sandbox-writable-paths">Writable paths</label>';
-    html += '<div class="chip-list-editor" id="mf-sandbox-writable-paths" data-field="sandbox-writable-paths" data-field-type="array"></div>';
+    html += '<div class="chip-list-editor" data-field="sandbox-writable-paths" data-field-type="array"></div>';
     html += '</div>';
     html += '</div>';
 
@@ -717,9 +723,14 @@
     html += '</div>';
 
     // stdio: args (chip-list, mounted via App.adminFormHelpers post-innerHTML)
+    // M17 F6 L3: placeholder <div> carries NO id (mountChipListEditors replaces
+    // it via outerHTML=, which strips ids); the `label[for="mf-args"]` target is
+    // landed on the real `.chip-list-input` via renderChipListEditor's controlId.
+    // Post-mount selectors key on [data-field="args"].chip-list-editor
+    // (js:857/915/1484), not the id, so dropping the placeholder id is safe.
     html += '<div class="field-group mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-args">Arguments</label>';
-    html += '<div class="chip-list-editor" id="mf-args" data-field="args" data-field-type="array"></div>';
+    html += '<div class="chip-list-editor" data-field="args" data-field-type="array"></div>';
     html += '</div>';
 
     // F9 L2 vibing: helper text below the args field, dynamically updated
@@ -865,7 +876,7 @@
       var savedCmd = (source && source.config && source.config.command) || '';
       var savedArgsList = (source && source.config && source.config.args) || [];
       var derived = deriveStdioRuntimeSelection(savedCmd, savedArgsList);
-      argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs || [], null, {});
+      argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs || [], null, { controlId: 'mf-args' });
     }
     // F3 L5b: sandbox writable_paths chip-list (stdio only, but mount for
     // any type — visibility is controlled by the section's mcp-stdio-only
@@ -873,7 +884,7 @@
     var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
     if (sandboxPathsHost) {
       var sandboxPathsItems = (source && source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [];
-      sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-paths', sandboxPathsItems, null, {});
+      sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-paths', sandboxPathsItems, null, { controlId: 'mf-sandbox-writable-paths' });
     }
   }
 
@@ -1489,7 +1500,7 @@
         // the implicit `run` for `pipx run` (option (b) split) stay in
         // the saved JSON but never surface as editable chips the
         // operator could accidentally remove.
-        wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], null, {});
+        wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], null, { controlId: 'mf-args' });
         var newArgs = wrapper.firstChild;
         argsHost.parentNode.replaceChild(newArgs, argsHost);
         if (helpers.wireChipListEditor) {
@@ -1507,7 +1518,7 @@
         var wrapper3 = document.createElement('div');
         wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths',
           (source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [],
-          null, {});
+          null, { controlId: 'mf-sandbox-writable-paths' });
         var newSandboxPaths = wrapper3.firstChild;
         sandboxPathsHost.parentNode.replaceChild(newSandboxPaths, sandboxPathsHost);
         if (helpers.wireChipListEditor) {

@@ -1,16 +1,16 @@
 # Flight: System / Admin Re-skin
 
-**Status**: ready
+**Status**: landed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
 
 > Boxes stay unchecked — mission-end gates. Annotations record F6's share; F7 closes the sweep.
 
-- [ ] SC1 — visual-language replacement (System surfaces to vocabulary; badge eyebrows quieted)
-- [ ] SC3 — one component vocabulary (System consumes it; `.admin-pf-row`→`.field-group`; `.section-title` overload resolved)
-- [ ] SC5 — keyboard/AT operability (provider/tool editors keyboard-operable; the shared chip-list `label[for]` dangle fixed systemically)
-- [ ] SC7 — behavior-verified core flows (system-provider-config spec authored + run)
+- [ ] SC1 — visual-language replacement (System surfaces to vocabulary; badge eyebrows quieted) — **F6 share:** all System surfaces (providers grid+editor+Ollama panel, tools grid+editor, General page) render the v3 quiet vocabulary; badge/subtitle eyebrows quieted (mono/uppercase/letter-spacing dropped via area-scoped override, per-type ink preserved); 0 alien remnants across the admin surface. The one `.cap-chip` cross-area eyebrow survivor (shared admin/studio markup — an area-scoped quiet would split the shared vocabulary) is **deferred to F7's cross-area sweep**, not omitted.
+- [ ] SC3 — one component vocabulary (System consumes it; `.admin-pf-row`→`.field-group`; `.section-title` overload resolved) — **F6 share:** System consumes the shared vocabulary with no per-area variants; the 6 `.admin-pf-row` provider rows + the `.tools-editor` rows (shared `renderField`, both lanes) migrated to `.field-group`; the two `.area-admin` gutter exceptions retired (dead `.field-description` rule deleted, `.field-error` label-gutter folded into the base); the `.section-title` two-role overload resolved by DOCUMENTING the element-scoped convention (gallery note; no restyle, chat lane untouched).
+- [ ] SC5 — keyboard/AT operability (provider/tool editors keyboard-operable; the shared chip-list `label[for]` dangle fixed systemically) — **F6 share:** provider + tool editors keyboard-operable with visible focus (both themes); the shared chip-list `label[for]` runtime-dangle **CLOSED systemically** (`options.controlId` on the real `.chip-list-input`, mcp-server-editor placeholder-div repoint) — fixing admin tools **and all studio chip-list consumers** at once — carried by a new runtime DOM guard (`test_flow_chiplist_label_resolver.py`) that a static source-scan provably can't cover.
+- [ ] SC7 — behavior-verified core flows (system-provider-config spec authored + run) — **F6 share:** the `system-provider-config` behavior gate **PASSED both themes, 20/20** (light 10/10, dark 10/10; run log `tests/behavior/system-provider-config/runs/2026-07-06-02-37-37.md`) — the full-UI provider create/edit/test/delete flow witnessed on the re-skinned admin surface. The green System down-payment on the mission-end SC7.
 
 ---
 
@@ -70,11 +70,11 @@ Providers surface → tools surface (admin-only parts) → the shared tools-form
 
 ### Checkpoints
 
-- [ ] Providers surface (grid + editor + models) to vocabulary, .admin-pf-row migrated, badge eyebrows quieted, cap-chip-no-tools gate
-- [ ] Tools surface (grid + editor) to vocabulary, editor-error-banner gate, tool-badge quieted
-- [ ] Shared tools-form-helpers → .field-group + chip-list label[for] fix + runtime guard; BOTH studio + system lanes green
-- [ ] General page to vocabulary; section-title two-role resolved (targeted); .area-admin gutter exceptions retired; chat lane green
-- [ ] Suites green (via lanes); system-provider-config SC7 gate PASSES both themes; dual-theme visual pass; ledger
+- [x] Providers surface (grid + editor + models) to vocabulary, .admin-pf-row migrated, badge eyebrows quieted, cap-chip-no-tools gate
+- [x] Tools surface (grid + editor) to vocabulary, editor-error-banner gate, tool-badge quieted
+- [x] Shared tools-form-helpers → .field-group + chip-list label[for] fix + runtime guard; BOTH studio + system lanes green
+- [x] General page to vocabulary; section-title two-role resolved (targeted); .area-admin gutter exceptions retired; chat lane green
+- [x] Suites green (via lanes); dual-theme visual pass; ledger — DONE (Leg 5). system-provider-config SC7 gate spec AUTHORED (Leg 5); the gate **RUN PASSED both themes 20/20** (light 10/10, dark 10/10; run log `tests/behavior/system-provider-config/runs/2026-07-06-02-37-37.md`, chrome-devtools sync crew, seeded provider cleaned up) — FD-driven post-Leg-5
 
 ### Adaptation Criteria
 
@@ -86,11 +86,11 @@ Providers surface → tools surface (admin-only parts) → the shared tools-form
 
 > **Note:** Tentative; created one at a time as the flight progresses.
 
-- [ ] `providers-surface` - providers-grid + provider-editor + provider-models to vocabulary; 6 .admin-pf-row→.field-group (PRESERVE .admin-pf-* marker classes for the type-driven show/hide; thinking/num_ctx toggle stays label-left exception); badge eyebrow quiet; confirm .cap-chip-no-tools consumes the already-gated danger pair (no new gate); label-association
-- [ ] `tools-surface` - tools-grid + tools-editor (admin-only rows) to vocabulary; enabled-row→.field-group; confirm .editor-error-banner consumes the already-gated danger pair (no new gate); tool-badge quiet. (Note: tools-editor schema-field rows come from the shared renderField — migrated in leg 3; mid-flight the editor carries mixed .field-group + .field-row rows, expected, not a defect)
-- [ ] `shared-helpers-and-chiplist` - tools-form-helpers renderField .field-row→.field-group (2 call sites: admin tools-editor + studio tools-tab; KEEP .tools-editor-field + data-field-name markers) + chip-list label[for] systemic fix (options.controlId on .chip-list-input; enumerate the mcp-server-editor mf-{name} placeholder-div repoint) + RUNTIME guard in tests/browser/; re-verify studio + system lanes
-- [ ] `general-and-section-title` - system-page (General) to vocabulary; .section-title overload RESOLVED BY DOCUMENTING the element-scoped convention (gallery note; do NOT restyle, do NOT touch chat.js); delete the dead .field-description gutter rule (:461) + retire the .area-admin .field-error gutter (:445) after the .field-row sites migrate
-- [ ] `system-verification` - suites via lanes (system + cross-area studio + chat) + dual-theme visual pass (CDP focus) + author & RUN (sync sub-orchestrator, chrome-devtools, full UI create) system-provider-config.md both themes + independent a11y review + ledger
+- [x] `providers-surface` - providers-grid + provider-editor + provider-models to vocabulary; 6 .admin-pf-row→.field-group (PRESERVE .admin-pf-* marker classes for the type-driven show/hide; thinking/num_ctx toggle stays label-left exception); badge eyebrow quiet; confirm .cap-chip-no-tools consumes the already-gated danger pair (no new gate); label-association
+- [x] `tools-surface` - tools-grid + tools-editor (admin-only rows) to vocabulary; enabled-row→.field-group; confirm .editor-error-banner consumes the already-gated danger pair (no new gate); tool-badge quiet. (Note: tools-editor schema-field rows come from the shared renderField — migrated in leg 3; mid-flight the editor carries mixed .field-group + .field-row rows, expected, not a defect)
+- [x] `shared-helpers-and-chiplist` - tools-form-helpers renderField .field-row→.field-group (2 call sites: admin tools-editor + studio tools-tab; KEEP .tools-editor-field + data-field-name markers) + chip-list label[for] systemic fix (options.controlId on .chip-list-input; enumerate the mcp-server-editor mf-{name} placeholder-div repoint) + RUNTIME guard in tests/browser/; re-verify studio + system lanes
+- [x] `general-and-section-title` - system-page (General) to vocabulary; .section-title overload RESOLVED BY DOCUMENTING the element-scoped convention (gallery note; do NOT restyle, do NOT touch chat.js); delete the dead .field-description gutter rule (:461) + retire the .area-admin .field-error gutter (:445) after the .field-row sites migrate
+- [x] `system-verification` - suites via lanes (system + cross-area studio + chat) + full `-m browser`, all green (unit 3781 reconciled); dual-theme visual pass (CDP focus) over all admin surfaces; `.cap-chip` survivor DEFERRED to F7; `system-provider-config.md` AUTHORED (status active, full-UI-create, both themes) — the behavior-gate **RUN is FD-pending** (FD drives it via the sync chrome-devtools sub-orchestrator + independent a11y review after this leg lands) + ledger
 
 ---
 
@@ -98,10 +98,10 @@ Providers surface → tools surface (admin-only parts) → the shared tools-form
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Tests passing (via lanes — studio + system + chat re-verified for the cross-area changes)
-- [ ] Flight log updated
-- [ ] Documentation updated (section-title convention in the gallery)
+- [x] All legs completed
+- [x] Tests passing (via lanes — studio + system + chat re-verified for the cross-area changes)
+- [x] Flight log updated
+- [x] Documentation updated (section-title convention in the gallery)
 
 ### Verification
 

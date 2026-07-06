@@ -135,7 +135,11 @@
   .area-studio .tool-row-overrides summary { cursor: pointer; padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
   .area-studio .tool-row-overrides summary:hover { color: var(--accent); }
   .area-studio .tool-row-overrides-body { padding: 4px 8px 0; }
-  .area-studio .tool-row-overrides .field-row { margin-bottom: 8px; }
+  /* M17 F6 L3: the per-agent override panel's schema fields render via the
+     shared renderField, migrated .field-row → stacked .field-group. Keep the
+     compact 8px inter-field spacing here (tighter than .field-group's default
+     --space-3) — the override panel is a dense nested <details>. */
+  .area-studio .tool-row-overrides .field-group { margin-bottom: 8px; }
   .area-studio .tool-row-overrides .chip[data-locked] { background: var(--surface-elevated); opacity: 0.7; cursor: default; }
   .area-studio .tool-row-overrides .empty-state { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
   .area-studio .tool-row-overrides .loading { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }

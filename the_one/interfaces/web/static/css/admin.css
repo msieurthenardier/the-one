@@ -79,7 +79,14 @@
   }
 
   /* === Provider List === */
-  .area-admin .admin-provider-badge { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  /* Quiet vocabulary (M17 F6 L1, SC1): the v2 mono + UPPERCASE + letter-spaced
+     eyebrow is retired. Because the shared `.entity-tile-badge` base
+     (components.css) still declares mono/uppercase/letter-spacing and this
+     area-scoped selector outranks it (0,2,0 > 0,1,0), quieting is an explicit
+     OVERRIDE (sans / none / normal), not a mere deletion of the three
+     declarations. Per-type ink stays on the `--badge-ink-*`-gated
+     `.admin-provider-badge--{type}` modifiers below. */
+  .area-admin .admin-provider-badge { font-family: var(--font-family-sans); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: none; letter-spacing: normal; }
   .area-admin .admin-pf-model-delete.admin-pf-model-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
 
   /* === Form-control focus rings === */
@@ -164,16 +171,25 @@
   .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Category Badges (F6 leg 02) === */
+  /* Quiet vocabulary (M17 F6 L2, SC1): the v2 mono + UPPERCASE + letter-spaced
+     eyebrow is retired — mirrors the L1 provider-badge quiet. Because the
+     shared `.entity-tile-badge` base (components.css) still declares
+     mono/uppercase/letter-spacing and this area-scoped selector outranks it
+     (0,2,0 > 0,1,0), quieting is an explicit OVERRIDE (sans / none / normal),
+     NOT a mere deletion of the three declarations (a bare delete would let the
+     base reassert the eyebrow). Per-type ink stays on the `--badge-ink-*`-gated
+     `.admin-tool-badge--{category}` modifiers below. Scoped to the tools
+     surface — studio's shared base untouched. */
   .area-admin .admin-tool-badge {
-    font-family: var(--font-family-mono);
+    font-family: var(--font-family-sans);
     font-size: var(--font-size-tiny);
     font-weight: var(--font-weight-semibold);
     color: var(--fg-on-accent);
     padding: 2px 8px;
     border-radius: 4px;
     flex-shrink: 0;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    text-transform: none;
+    letter-spacing: normal;
   }
   .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
   .area-admin .admin-tool-badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
@@ -288,12 +304,15 @@
      The header re-shape moves it out of the small subtitle and into a
      monospace-labeled block so operators see it as "what the agent sees".
      The `.editor-subtitle-meta` modifier shrinks the now-just-category
-     subtitle. */
+     subtitle. Quiet vocabulary (M17 F6 L2, SC1): the mono + UPPERCASE +
+     letter-spaced eyebrow is retired to sans / none / normal (only this rule
+     declares those three — the `.editor-subtitle` base carries none — so this
+     is a plain quiet, not an override). Size (tiny) + `--fg-muted` ink kept. */
   .area-admin .editor-subtitle-meta {
-    font-family: var(--font-family-mono);
+    font-family: var(--font-family-sans);
     font-size: var(--font-size-tiny);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    text-transform: none;
+    letter-spacing: normal;
     color: var(--fg-muted);
   }
   /* Tools-editor prompt section — canonical .section-title quiet label
@@ -333,23 +352,14 @@
     box-sizing: border-box;
   }
 
-  /* === Field info icon (F6 HAT inline fix #4) ================================
-     Per-field descriptions are now tooltips on an info icon rendered as a
-     sibling AFTER the input element (operator UX tweak: `label | input | ⓘ`
-     instead of the prior `label-with-nested-ⓘ | input`). The parent
-     `.field-row` is `display:flex; align-items:center` (components.css), so
-     the icon participates as the third flex child — vertically centered
-     against the input by default, with `flex-shrink:0` so it never collapses.
-     For chip-list rows the chips can wrap to multiple lines; we top-align
-     the icon there so it stays anchored to the first chip row. */
-  /* Per-field info-icon layout context — base reset lives in components.css.
-     The admin-only override is the chip-list-row top-alignment so the icon
-     anchors to the first chip row instead of the wrapper's geometric centre. */
-  .area-admin .tools-editor-field .field-info-icon { align-self: center; }
-  .area-admin .tools-editor-field:has(.chip-list-editor) .field-info-icon {
-    align-self: flex-start;
-    padding-top: 8px;
-  }
+  /* === Field info icon (F6 HAT inline fix #4; M17 F6 L3) ====================
+     Per-field descriptions are tooltips on an info-icon that now sits BESIDE
+     the label inside the `.field-group-label` header (renderField migrated to
+     the stacked `.field-group` vocabulary in L3). The base `.field-info-icon`
+     reset (components.css) + `.field-group-label`'s `align-items: center` place
+     the icon correctly, so the former label-left flex-row overrides (icon as
+     third flex child, chip-list-row top-alignment) are retired — they keyed on
+     the old `.field-row` geometry that no longer applies. */
 
   /* === Field error highlight (F6 HAT inline fix #7) ==========================
      Applied to `.tools-editor-field` rows whose field is the offender of a
@@ -441,27 +451,17 @@
     font-size: var(--font-size-body);
   }
 
-  /* Inline 422 errors — surfaced adjacent to the matching field row. */
+  /* Inline 422 errors — the message sits flush under the control inside the
+     stacked .field-group (M17 F3 vocabulary; F6 L4 made this the default).
+     The old .field-row label-gutter (margin: 4px 0 0 100px) + its
+     .field-group escape were retired in F6 L4 once every admin .field-row
+     with a .field-error consumer migrated to .field-group (Legs 1-3). The
+     .field-group's own flex-column gap supplies the top spacing. */
   .area-admin .field-error {
     display: block;
     color: var(--status-danger);
     font-size: var(--font-size-tiny);
-    margin: 4px 0 0 100px;  /* align with .field-row label gutter (100px) */
-  }
-  /* Inside a stacked .field-group (M17 F3 vocabulary) there is no label
-     gutter — the message sits flush under the control. Same layer,
-     higher specificity, so it wins over the row-gutter rule above. */
-  .area-admin .field-group .field-error {
     margin: 0;
-  }
-
-  /* Per-field description (rendered when JSON Schema sets `description`).
-     100px left margin matches .field-row label width so the description
-     visually associates with the field input rather than the label. */
-  .area-admin .field-description {
-    font-size: var(--font-size-tiny);
-    color: var(--fg-secondary);
-    margin: 4px 0 0 100px;
   }
 
   /* Developer-visible cue when renderField hits an un-dispatched type —

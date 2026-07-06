@@ -212,6 +212,18 @@
     // fix #2) for visual parity with the grid tile's enable-switch. The
     // CSS lives under `.area-admin .tool-enable-switch …` (admin.css). The
     // `data-field="enabled"` attribute is preserved — drives getFormSnapshot.
+    //
+    // M17 F6 L2 — DOCUMENTED label-left toggle exception. This is a single
+    // toggle, so it stays on the label-left `.field-row` layout rather than
+    // stacking into a `.field-group` (stacking a lone toggle under its own
+    // label reads worse — same call as the L1 provider `thinking_enabled`
+    // toggle; F5 chrome-row precedent). The `.tools-editor-enabled-row` marker
+    // class + `data-field-name="enabled"` are PRESERVED. `<label for="tef-
+    // enabled">` targets the real `<input id="tef-enabled">` (labelable), so
+    // the association resolves at mount — label-association guards stay green.
+    // (Mid-flight the editor intentionally carries mixed `.field-group` +
+    // `.field-row` rows — this toggle exception plus the shared renderField
+    // schema rows, which migrate to `.field-group` in L3.)
     var titleText = enabled ? 'Enabled for all agents' : 'Disabled for all agents';
     return '<div class="field-row tools-editor-enabled-row" data-field-name="enabled">' +
            '<label for="tef-enabled">Enabled for all agents</label>' +

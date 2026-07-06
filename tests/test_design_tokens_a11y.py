@@ -276,6 +276,73 @@ def test_danger_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> Non
     )
 
 
+def test_cap_chip_no_tools_consumes_the_gated_danger_pair() -> None:
+    """`.cap-chip-no-tools` (admin.css) must paint `var(--status-danger)` text on
+    the `var(--status-danger-bg-soft)` fill — the EXACT pair already gated by
+    ``test_danger_text_on_soft_fill_passes_body_aa`` above.
+
+    M17 F6 L1 pins the usage (per the flight's composite-a11y DD: the danger-on-
+    soft pair is gated ONCE at the token level, not re-gated per surface). This
+    source-grep guard fails loudly if a future retune points the chip at a NOVEL
+    fg/bg triple — a signal that a fresh ``_alpha_composite`` gate is warranted
+    for whatever new pair it introduces. Its sibling danger surface,
+    ``.editor-error-banner``, is pinned by the leg-02 tools surface."""
+    import re
+    from pathlib import Path
+
+    admin_css = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/admin.css"
+    )
+    css = admin_css.read_text(encoding="utf-8")
+    # Isolate the `.cap-chip-no-tools { ... }` declaration block.
+    m = re.search(r"\.cap-chip-no-tools\s*\{([^}]*)\}", css)
+    assert m, ".cap-chip-no-tools rule not found in admin.css"
+    body = m.group(1)
+    assert "var(--status-danger-bg-soft)" in body, (
+        ".cap-chip-no-tools must fill with var(--status-danger-bg-soft) (the "
+        "already-gated soft pair); a novel fill needs its own composite gate"
+    )
+    assert "var(--status-danger)" in body, (
+        ".cap-chip-no-tools text/border must use var(--status-danger) (the "
+        "already-gated pair); a novel color needs its own composite gate"
+    )
+
+
+def test_editor_error_banner_consumes_the_gated_danger_pair() -> None:
+    """`.editor-error-banner` (admin.css) must paint `var(--status-danger)` text on
+    the `var(--status-danger-bg-soft)` fill — the EXACT pair already gated by
+    ``test_danger_text_on_soft_fill_passes_body_aa`` above.
+
+    M17 F6 L2 pins the usage (per the flight's composite-a11y DD: the danger-on-
+    soft pair is gated ONCE at the token level, not re-gated per surface — no new
+    ``_alpha_composite`` math). This is the sibling of
+    ``test_cap_chip_no_tools_consumes_the_gated_danger_pair``: the tools-editor's
+    prominent 422 / model-level error banner is the second admin danger-on-soft
+    surface. This source-grep guard fails loudly if a future retune points the
+    banner at a NOVEL fg/bg triple — a signal that a fresh composite gate is
+    warranted for whatever new pair it introduces."""
+    import re
+    from pathlib import Path
+
+    admin_css = (
+        Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css/admin.css"
+    )
+    css = admin_css.read_text(encoding="utf-8")
+    # Isolate the `.area-admin .editor-error-banner { ... }` declaration block
+    # (the base rule, not the `[hidden]` / ` svg` / `-text` companions).
+    m = re.search(r"\.area-admin\s+\.editor-error-banner\s*\{([^}]*)\}", css)
+    assert m, ".editor-error-banner rule not found in admin.css"
+    body = m.group(1)
+    assert "var(--status-danger-bg-soft)" in body, (
+        ".editor-error-banner must fill with var(--status-danger-bg-soft) (the "
+        "already-gated soft pair); a novel fill needs its own composite gate"
+    )
+    assert "var(--status-danger)" in body, (
+        ".editor-error-banner text/border must use var(--status-danger) (the "
+        "already-gated pair); a novel color needs its own composite gate"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Warning text on the soft-warning FILL (≥ 4.5:1) — both themes (M17 F5 L1)
 # ---------------------------------------------------------------------------
