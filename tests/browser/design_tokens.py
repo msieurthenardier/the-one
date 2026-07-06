@@ -1,10 +1,13 @@
-"""Design tokens — Python mirror of static/css/tokens.css blocks.
+"""Design tokens — Python mirror of static/css/tokens.css theme blocks.
 
 Single source of truth for tests that need to reference token values.
 Used by:
 
 - ``tests/test_design_tokens_a11y.py`` (WCAG AA contrast pairs; imports
   ``DARK`` / ``LIGHT``)
+- ``tests/test_ui_guards.py`` (``test_design_token_mirror_in_sync`` —
+  parses the top-level theme blocks of ``tokens.css`` and asserts every
+  mirror value below matches the CSS definition, hex-normalized)
 - ``tests/browser/test_visual_snapshots.py`` (theme-toggle helpers — no
   direct token reads but the module is imported as the canonical place
   for token names if a future snapshot needs them)
@@ -12,80 +15,180 @@ Used by:
   ``tokens.css`` (regex), NOT from this module — that test is a
   contract-vs-CSS check, deliberately independent of this Python mirror.
 
+Mirror scope (v3, Mission 17 Flight 02 Leg 01): every token whose CSS
+value is a **literal hex color** in its theme block. Deliberately NOT
+mirrored:
+
+- ``var()``-indirection tokens (nav rail, sidebar) — they resolve to
+  already-mirrored ladder values; mirroring the indirection would
+  duplicate data without adding audit surface.
+- ``rgba()`` wash tokens (``--*-translucent``, ``--status-*-bg-soft``,
+  ``--status-warning-border``) — alpha composites are not auditable with
+  the flat WCAG formula; their base colors are mirrored.
+- Badge fill + ink tokens (``--badge-*`` / ``--badge-ink-*``) — mirrored
+  as of M17 F3 L4: badge×ink contrast is now GATED in
+  ``test_design_tokens_a11y.py`` (every fill × its per-badge ink clears
+  body AA in both themes), so the fill and ink hexes must live here for
+  the audit to read them. ``--badge-ink-*`` is theme-stable; the fills
+  are brand-stable except the tool-badge light-theme fills
+  (filesystem/execution lighter; web darkened for its white ink).
+- Geometry/motion tokens (no color content).
+- ``shell_chrome_bg`` (mirrored pre-v3) — the shell chrome was retired
+  (neutralized in Leg 1, structure dismantled + tokens deleted in Leg 2b);
+  the topbar/sidebar text pairs are covered by the fg-ladder × surface
+  audits.
+
 If ``tokens.css`` values change (e.g., a future leg retunes a colour),
-update this file in lockstep. The brittleness is intentional: the
-hardcoded mirror is part of the contract that tests pin.
+update this file in lockstep — the mirror-sync guard in
+``tests/test_ui_guards.py`` fails loudly if you don't. The brittleness
+is intentional: the hardcoded mirror is part of the contract that tests
+pin.
 
 Note: keys use ``snake_case`` (``fg_secondary``) rather than the CSS
 hyphenated form (``--fg-secondary``) so they're valid Python identifiers
-when used as ``DARK["fg_secondary"]`` in test parametrisations.
+when used as ``DARK["fg_secondary"]`` in test parametrisations. The
+guard converts ``snake_case`` → ``--kebab-case`` when matching.
 """
 
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Dark theme — mirrors tokens.css [data-theme="dark"] block (lines ~22-87).
+# Dark theme — mirrors the tokens.css [data-theme="dark"] top-level block.
+# Lifted-charcoal neutral ladder; violet-400 accent.
 # ---------------------------------------------------------------------------
 
 DARK: dict[str, str] = {
-    "bg": "#0a0a0a",
-    "surface": "#1a1a1a",
-    "fg": "#e0e0e0",
-    "fg_secondary": "#888888",
-    "fg_tertiary": "#666666",
-    "fg_muted": "#a8a8a8",
-    "fg_on_accent": "#000000",
-    # fg_on_danger is BLACK in dark — white-on-#ff4a4a only reads at 3.32:1
-    # (fails body AA); black reads at 6.33:1.  Retuned in leg 07.
-    "fg_on_danger": "#000000",
-    # accent retuned cyan-400 → violet-400 in flight 01 leg 02 (GleepGlorp
-    # rebrand). Dark uses the lighter violet shade so accent-on-bg passes
-    # large/UI AA against #0a0a0a (≈9.5:1).
+    # surfaces
+    "bg": "#101114",
+    "surface": "#17181c",
+    "surface_elevated": "#1c1d22",
+    "surface_tool": "#1c1d22",
+    # borders
+    "border": "#26272c",
+    "border_hover": "#33343b",
+    "border_strong": "#4a4b55",
+    # text ladder — fg through fg_muted all clear body AA (>= 4.5:1) on
+    # bg, surface, AND surface-elevated; fg_faint is the deliberate
+    # 3.0-4.5 band exception (see test_design_tokens_a11y.py).
+    "fg": "#ededf0",
+    "fg_secondary": "#a1a3ad",
+    "fg_tertiary": "#8f919c",
+    "fg_muted": "#85878f",
+    "fg_faint": "#6b6d78",
+    "fg_on_accent": "#101114",
+    # fg_on_danger is dark ink in dark theme — the bright #f87171 danger
+    # fill reads 6.83:1 under dark ink; white would fail body AA.
+    "fg_on_danger": "#101114",
+    "fg_tool_msg": "#8f919c",
+    # accent — violet-400 (brand continuity per mission constraint);
+    # accent_api is badge-tier cyan (chat user-vs-API differentiation).
     "accent": "#a78bfa",
-    # accent_api shifted from violet (#7c4dff) → cyan-400 (the retired
-    # primary) so the user-vs-API chat message differentiation survives
-    # the primary-accent retune. Used as background for `.msg.user.api`.
     "accent_api": "#22d3ee",
-    "status_success": "#2ecc71",
-    "status_warning": "#f5a623",
-    "status_danger": "#ff4a4a",
-    "status_danger_muted": "#d56363",
-    # Shell chrome bg base color — the solid backdrop beneath the grain
-    # stripe layer in --shell-chrome-bg. Used for WCAG contrast checks on
-    # text rendered over the topbar/sidebar (the grain layer is ≤2.5%
-    # alpha — negligible perturbation; check against the base color).
-    "shell_chrome_bg": "#20202a",
+    # status — Tailwind-400 family; all >= 4.5:1 on bg/surface.
+    "status_success": "#4ade80",
+    "status_warning": "#fbbf24",
+    "status_danger": "#f87171",
+    "status_danger_muted": "#d98c8c",
+    # code well — one step darker than bg, primary fg (16.6:1).
+    "code_block_bg": "#0c0d10",
+    "code_block_fg": "#ededf0",
+    # provider / tool / connector badge FILLS — brand-stable (same in both
+    # themes for providers; tool fills diverge in light — see LIGHT below).
+    "badge_ollama": "#2ecc71",
+    "badge_openai_compatible": "#d4a800",
+    "badge_openai": "#4a9eff",
+    "badge_anthropic": "#9b59b6",
+    "badge_openrouter": "#7c3aed",
+    "badge_mock": "#888888",
+    "badge_unknown": "#888888",
+    "badge_discord": "#5865F2",
+    "badge_filesystem": "#008b8b",
+    "badge_execution": "#b8860b",
+    "badge_web": "#c71585",
+    # per-badge INK (M17 F3 L4) — theme-stable; light fills → dark ink,
+    # dark fills → white ink. Each fill × its ink is gated ≥4.5 both themes.
+    "badge_ink_ollama": "#101114",
+    "badge_ink_openai_compatible": "#101114",
+    "badge_ink_openai": "#101114",
+    "badge_ink_anthropic": "#ffffff",
+    "badge_ink_openrouter": "#ffffff",
+    "badge_ink_mock": "#101114",
+    "badge_ink_unknown": "#101114",
+    "badge_ink_discord": "#ffffff",
+    "badge_ink_filesystem": "#101114",
+    "badge_ink_execution": "#101114",
+    "badge_ink_web": "#ffffff",
 }
 
 
 # ---------------------------------------------------------------------------
-# Light theme — mirrors tokens.css [data-theme="light"] block (lines ~89-156).
+# Light theme — mirrors the tokens.css [data-theme="light"] top-level block.
+# White/near-white zinc ladder; violet-700 accent. Designed on its own
+# merits, not flipped from dark.
 # ---------------------------------------------------------------------------
 
 LIGHT: dict[str, str] = {
-    "bg": "#fafbfc",
-    "surface": "#ffffff",
-    "fg": "#0f172a",
-    "fg_secondary": "#334155",
-    "fg_tertiary": "#475569",
-    "fg_muted": "#64748b",
+    # surfaces
+    "bg": "#ffffff",
+    "surface": "#fafafa",
+    "surface_elevated": "#f4f4f5",
+    "surface_tool": "#f4f4f5",
+    # borders
+    "border": "#e4e4e7",
+    "border_hover": "#d4d4d8",
+    "border_strong": "#a1a1aa",
+    # text ladder — fg through fg_muted all clear body AA (>= 4.5:1) on
+    # bg, surface, AND surface-elevated; fg_faint is the deliberate
+    # 3.0-4.5 band exception (see test_design_tokens_a11y.py).
+    "fg": "#18181b",
+    "fg_secondary": "#52525b",
+    "fg_tertiary": "#5f5f68",
+    "fg_muted": "#6e6e77",
+    "fg_faint": "#898993",
     "fg_on_accent": "#ffffff",
     "fg_on_danger": "#ffffff",
-    # accent retuned cyan-700 → violet-700 in flight 01 leg 02 (GleepGlorp
-    # rebrand). Light uses the deeper violet shade so fg_on_accent (#ffffff)
-    # passes body AA against the accent fill (≈7.10:1).
+    "fg_tool_msg": "#5f5f68",
+    # accent — violet-700 (white-on-accent 7.10:1); accent_api cyan-700
+    # badge-tier (white-on-accent-api 5.36:1, accent-api-on-bg 5.36:1).
     "accent": "#6d28d9",
-    # accent_api shifted from violet (#6d28d9) → cyan-700 (the retired
-    # primary) so the user-vs-API chat message differentiation survives
-    # the primary-accent retune. Used as background for `.msg.user.api`.
     "accent_api": "#0e7490",
-    # success retuned green-600 → green-700 (~4.84:1 on bg/surface).
+    # status — deep 600/700 family; all >= 4.5:1 on bg/surface.
     "status_success": "#15803d",
-    # warning retuned yellow-600 → yellow-700 (~4.75:1 on bg/surface).
-    "status_warning": "#a16207",
-    "status_danger": "#dc2626",
-    "status_danger_muted": "#a85050",
-    # Shell chrome bg base color — silver backdrop beneath the grain layer
-    # in --shell-chrome-bg. See DARK entry for rationale.
-    "shell_chrome_bg": "#d4d8df",
+    # amber-700 deepened from #a16207 (M17 F5 L1): #a16207 warning text failed
+    # body AA on the composited --status-warning-bg-soft fill; see the warning
+    # comment in tokens.css [data-theme="light"] and the warning soft-fill gate.
+    "status_warning": "#8f5606",
+    # red-700 (M17 F3 fix): red-600 #dc2626 failed body AA on the soft-fill
+    # composite; see the danger comment in tokens.css [data-theme="light"].
+    "status_danger": "#b91c1c",
+    "status_danger_muted": "#b45252",
+    # code well — pale zinc + primary ink (16.1:1).
+    "code_block_bg": "#f4f4f5",
+    "code_block_fg": "#18181b",
+    # provider / tool / connector badge FILLS — providers brand-stable
+    # (same hex as dark); tool fills diverge: filesystem/execution lighter,
+    # web darkened #d63a93 → #cc2d87 so its white ink clears body AA.
+    "badge_ollama": "#2ecc71",
+    "badge_openai_compatible": "#d4a800",
+    "badge_openai": "#4a9eff",
+    "badge_anthropic": "#9b59b6",
+    "badge_openrouter": "#7c3aed",
+    "badge_mock": "#888888",
+    "badge_unknown": "#888888",
+    "badge_discord": "#5865F2",
+    "badge_filesystem": "#0e8e8e",
+    "badge_execution": "#c5912a",
+    "badge_web": "#cc2d87",
+    # per-badge INK (M17 F3 L4) — theme-stable; identical to the dark block.
+    "badge_ink_ollama": "#101114",
+    "badge_ink_openai_compatible": "#101114",
+    "badge_ink_openai": "#101114",
+    "badge_ink_anthropic": "#ffffff",
+    "badge_ink_openrouter": "#ffffff",
+    "badge_ink_mock": "#101114",
+    "badge_ink_unknown": "#101114",
+    "badge_ink_discord": "#ffffff",
+    "badge_ink_filesystem": "#101114",
+    "badge_ink_execution": "#101114",
+    "badge_ink_web": "#ffffff",
 }

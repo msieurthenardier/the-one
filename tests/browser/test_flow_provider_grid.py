@@ -1,12 +1,22 @@
 """Provider tile grid + page-header + hash routing tests for F6 leg 02.
 
-Covers:
-- LLM Providers page renders .page-header with title + "+ New Provider" button.
+Rewritten against post-M08-F4-rebrand markup in M17 F1 L02; re-simplified
+to the unified create-CTA contract in M17 F3 L3. Covers:
+- LLM Providers page renders .page-header with title; the header
+  "+ New Provider" CTA is ALWAYS visible (empty and populated states).
 - Tile grid renders provider tiles with name + badge + url.
 - Click tile navigates to #admin/providers/{id}; refresh preserves.
 - "+ New Provider" navigates to #admin/providers/new; refresh preserves.
-- Cancel from create returns to #admin/providers grid.
+- Back from a clean create form returns to #admin/providers grid.
 - Unknown provider id keeps URL stable; grid renders.
+
+Unified create CTA (M17 F3 L3): one always-visible header button per
+entity grid (data-testid="new-provider-btn", icon + text label). The
+former state-split — an in-canvas `-empty` variant owning the affordance
+while CSS hid the header button on empty grids — is retired. The empty
+canvas still renders a second instance of the same component (same class
++ handler, no testid) as an inviting duplicate; tests target the unified
+testid, which matches exactly one element in every state.
 """
 
 from __future__ import annotations
@@ -17,22 +27,31 @@ import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-# M08 F4 KI: multiple tests in this file assert pre-Leg-02 provider-grid
-# affordances that the rebrand changed (header CTA visibility, tile shape,
-# etc.). Module-level skip applied to unblock the Flight 4 close. The whole
-# file needs redesign-aware rewrite — deferred to a follow-on cleanup flight.
-# See mission.md Known Issues.
-pytestmark = pytest.mark.skip(
-    reason="M08 F4 KI: pre-rebrand provider-grid assertions — needs redesign-aware rewrite"
-)
-
 
 @pytest.mark.browser
-def test_provider_grid_page_header(app_clean: str, page: Page) -> None:
+def test_provider_grid_page_header_empty_state(app_clean: str, page: Page) -> None:
+    """EMPTY state: the unified header CTA is visible with its text label;
+    the empty canvas renders a second instance of the same component."""
     page.goto(f"{app_clean}#admin/providers")
     expect(page.locator(".area-admin .page-header")).to_be_visible(timeout=8000)
     expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers")
-    expect(page.locator('[data-testid="new-provider-btn"]')).to_be_visible()
+    header_cta = page.locator('[data-testid="new-provider-btn"]')
+    expect(header_cta).to_be_visible()
+    expect(header_cta).to_contain_text("New Provider")
+    # The empty canvas keeps an inviting duplicate: same component class
+    # + handler, no testid (the unified testid matches exactly one element).
+    expect(page.locator(".empty-canvas .empty-canvas-cta")).to_be_visible()
+
+
+@pytest.mark.browser
+def test_provider_grid_page_header_populated(app_with_provider: SeededApp, page: Page) -> None:
+    """POPULATED state: the same unified header CTA is visible."""
+    page.goto(f"{app_with_provider.base_url}#admin/providers")
+    expect(page.locator(".area-admin .page-header")).to_be_visible(timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers")
+    header_cta = page.locator('[data-testid="new-provider-btn"]')
+    expect(header_cta).to_be_visible()
+    expect(header_cta).to_contain_text("New Provider")
 
 
 @pytest.mark.browser
@@ -57,11 +76,25 @@ def test_provider_grid_renders_tiles(app_with_provider: SeededApp, page: Page) -
 
 
 @pytest.mark.browser
-def test_new_provider_button_navigates_to_new_url(app_clean: str, page: Page) -> None:
+def test_new_provider_canvas_cta_navigates_to_new_url(app_clean: str, page: Page) -> None:
+    """EMPTY state: the in-canvas duplicate CTA opens the create editor
+    (same handler as the header CTA)."""
     page.goto(f"{app_clean}#admin/providers")
+    expect(page.locator(".empty-canvas .empty-canvas-cta")).to_be_visible(timeout=8000)
+    page.locator(".empty-canvas .empty-canvas-cta").click()
+    # Editor opens (post-leg-03 uses .editor-title with "New Provider").
+    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=5000)
+    assert page.evaluate("location.hash") == "#admin/providers/new"
+
+
+@pytest.mark.browser
+def test_new_provider_header_cta_navigates_to_new_url(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """POPULATED state: the unified header CTA opens the create editor."""
+    page.goto(f"{app_with_provider.base_url}#admin/providers")
     expect(page.locator('[data-testid="new-provider-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="new-provider-btn"]').click()
-    # Editor opens (post-leg-03 uses .editor-title with "New Provider").
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers/new"
 

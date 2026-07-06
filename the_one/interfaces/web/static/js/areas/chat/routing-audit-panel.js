@@ -37,7 +37,7 @@
   }
 
   // Build the audit overlay — a centered, reasonably-sized modal (reusing the
-  // .modal-overlay / .modal-dialog glass styling from components.css) holding
+  // .modal-overlay / .modal-dialog styling from components.css) holding
   // a title, the Refresh control, a ✕ close button, and the routing entries
   // body. Mounted hidden by chat.js; open()/close() toggle visibility. The
   // close ✕ and backdrop-click handlers are wired here (once); ESC + focus

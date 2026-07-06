@@ -13,7 +13,9 @@ Covers:
 - Direct-load #studio/mcp-sources renders the MCP Servers page
 - Direct-load #studio/mcp-sources/new renders the editor
 - Refresh on #studio/mcp-sources preserves the section
-- Empty grid shows the centered CTA (precondition: empty mcp_sources table)
+- Empty grid shows the empty-canvas; the unified header CTA
+  (new-mcp-source-btn, M17 F3 L3) is visible (precondition: empty
+  mcp_sources table)
 
 Note: App.areas is closure-private in app.js, so tests use BEHAVIORAL DOM
 assertions (e.g., `[data-testid="save-mcp-source-btn"]` visible) rather
@@ -82,8 +84,10 @@ def test_studio_refresh_preserves_mcp_sources_section(app_clean: str, page: Page
 
 @pytest.mark.browser
 def test_studio_mcp_sources_empty_grid_shows_cta(app_clean: str, page: Page) -> None:
-    """Empty mcp_sources table → empty-canvas with centered CTA renders."""
+    """Empty mcp_sources table → empty-canvas renders; the unified header
+    CTA (M17 F3 L3) is visible in the empty state."""
     page.goto(f"{app_clean}#studio/mcp-sources")
-    page.wait_for_selector('[data-testid="new-mcp-source-btn-empty"]', timeout=8000)
-    cta = page.locator('[data-testid="new-mcp-source-btn-empty"]')
-    expect(cta).to_be_visible()
+    # The empty canvas is the synchronization point for the fetch resolving
+    # to an empty inventory (the header CTA renders before the fetch).
+    page.wait_for_selector(".empty-canvas", timeout=8000)
+    expect(page.locator('[data-testid="new-mcp-source-btn"]')).to_be_visible()

@@ -14,20 +14,14 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import Page, expect
 
-# M08 F4 KI: this test hangs under post-Leg-02 markup. Root cause not yet
-# identified — could be a real product bug from the rebrand OR a fixture-level
-# issue with the empty-DB onboarding flow. Skipped to unblock the Flight 4
-# close; investigation deferred to a follow-on cleanup flight. See mission.md
-# Known Issues.
-#
-# F5 L01 update (in mission.md KI #4): with the broad-pytest SQLite isolation
-# fix in tests/conftest.py, the hang no longer reproduces. The test now fails
-# with a Playwright DOM-visibility error on .new-entity-btn (60+ retries × 500ms
-# then timeout), exposing a likely real F4-rebrand-era UX defect. Skip remains
-# in place pending the cleanup flight that owns this UX investigation.
-pytestmark = pytest.mark.skip(
-    reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified"
-)
+# History (M08 F4 → M17 F1 → M17 F3): this module was skipped as "hangs, root
+# cause unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation
+# fix in tests/conftest.py; the remaining deterministic failure was root-caused
+# in M17 F1 L02 as the state-split create CTA (the affordance moved between an
+# in-canvas `-empty` variant and a hidden-when-empty header button). M17 F3 L3
+# unified the CTA: the header button (data-testid="new-provider-btn") is
+# always visible with an icon + text label in BOTH empty and populated grid
+# states, and the `-empty` testid variants are retired.
 
 
 @pytest.mark.browser
@@ -46,7 +40,8 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     page.goto(f"{base_url}#admin")
     page.locator(".section-nav-item", has_text="LLM Providers").click()
 
-    # 3. Click + New Provider.
+    # 3. Click the unified header CTA (+ New Provider). It is visible even
+    #    with an empty DB (M17 F3 L3 CTA unification).
     page.locator('[data-testid="new-provider-btn"]').click()
 
     # 4-5. Fill name, select mock type (auto-hides base_url and api_key inputs).

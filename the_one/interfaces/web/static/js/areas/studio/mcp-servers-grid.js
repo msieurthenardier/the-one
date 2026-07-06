@@ -42,10 +42,11 @@
     container.innerHTML =
       '<div class="page-header">' +
         '<h1 class="page-title">MCP Servers</h1>' +
-        // Header CTA renders icon-only at rest; expands on hover. CSS hides
-        // it entirely when the grid below is empty, deferring the affordance
-        // to the empty-canvas's centered CTA.
-        '<button class="new-entity-btn" type="button" data-testid="new-mcp-source-btn" aria-label="New MCP server">' +
+        // Header CTA (M17 F3 leg 03 CTA unification): always visible with
+        // icon + text label, in BOTH empty and populated grid states. The
+        // empty-canvas renders a second instance of the same component
+        // wired to the same handler.
+        '<button class="btn-outlined-primary" type="button" data-testid="new-mcp-source-btn">' +
           window.App.icon('square-pen') + '<span>New MCP Server</span>' +
         '</button>' +
       '</div>' +
@@ -53,7 +54,7 @@
         '<div class="admin-loading">Loading MCP servers…</div>' +
       '</div>';
 
-    var newMcpBtn = container.querySelector('.new-entity-btn');
+    var newMcpBtn = container.querySelector('[data-testid="new-mcp-source-btn"]');
     newMcpBtn.addEventListener('click', function () { onCreateMcpSource(); });
 
     var gridEl = container.querySelector('.entity-tile-grid');
@@ -67,12 +68,15 @@
         '<div class="empty-canvas">' +
           '<div class="empty-canvas-inner admin-provider-empty">' +
             '<div>No MCP servers configured. Add one to get started.</div>' +
-            '<button class="new-entity-btn is-expanded" type="button" data-testid="new-mcp-source-btn-empty">' +
+            // Second instance of the header CTA component: same class +
+            // handler, NO data-testid — the unified testid lives uniquely
+            // on the always-visible header CTA (no strict-mode double-match).
+            '<button class="btn-outlined-primary empty-canvas-cta" type="button">' +
               window.App.icon('square-pen') + '<span>New MCP Server</span>' +
             '</button>' +
           '</div>' +
         '</div>';
-      var emptyBtn = gridEl.querySelector('[data-testid="new-mcp-source-btn-empty"]');
+      var emptyBtn = gridEl.querySelector('.empty-canvas-cta');
       emptyBtn.addEventListener('click', function () { onCreateMcpSource(); });
       return;
     }

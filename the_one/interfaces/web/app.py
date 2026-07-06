@@ -1577,9 +1577,7 @@ async def _process_and_broadcast(
                 # overwritten on the next join. Kept out of result_messages (below).
                 _thinking_text = thinking_display_text(msg.thinking)
                 if _thinking_text:
-                    await _send_to_session(
-                        session, {"type": "thinking", "content": _thinking_text}
-                    )
+                    await _send_to_session(session, {"type": "thinking", "content": _thinking_text})
                 if msg.tool_calls:
                     # F5 L02: project parent_message_id for this turn from
                     # the just-yielded assistant Message's index. Per the

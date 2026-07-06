@@ -1,21 +1,27 @@
-"""Browser tests for the F8 L3+L4 Agent-editor MCPs tab.
+"""Browser tests for the Agent-editor MCPs tab (F8 L3+L4 flows).
 
-Tab matches the built-in Tools tab pattern: each MCP source is a
-`tool-row` with an attach toggle on the summary line, and a sibling
-`<details class="tool-row-overrides">` panel that shows per-tool
-checkboxes + credential override fields when expanded.
+Rewritten against post-M08-F4-rebrand markup in M17 F1 L02: each MCP
+source renders as a tile (`.mcp-source-tile`,
+data-testid="mcp-source-row-{id}") with an attach toggle
+(mcp-source-toggle-{id}) on row 1, an expand button
+(mcp-source-expand-{id}) that toggles `aria-expanded` on the tile, and a
+collapsible tools body (mcp-source-details-body-{id}) holding the
+per-tool checkboxes (mcp-tool-toggle-{id}-{tool}). The pre-rebrand
+`<details class="tool-row-overrides">` panel this file used to assert is
+gone; expansion is now button + `aria-expanded` + `hidden`-attr body.
 
 Tests cover:
   1. Attach a source via toggle → save → reload → still attached.
   2. Detach via toggle → save → reload → no longer attached.
-  3. Per-tool toggle (open details panel first) → save → reload → preserved.
-  4. Credential override (__MASKED__ round-trip).
+  3. Per-tool toggle (expand tile first) → save → reload → preserved.
+  4. (removed — see note at former test 4 site)
   5. Empty state when no MCP sources are registered.
-  6. Hash routing: deep-link auto-expands the right `<details>` panel.
+  6. Hash routing: deep-link auto-expands the right source tile.
   7. Auth-required inline notice (no popup).
   8. App.areas array-shape lock-test.
+  9. Auth-required notice uses source name, not DB id.
 
-Tests 3, 4, 6, 7 use page.route() to mock /api/mcp-sources/{id}/test/connect.
+Tests 3, 6, 7, 9 use page.route() to mock /api/mcp-sources/{id}/test/connect.
 """
 
 from __future__ import annotations
@@ -25,16 +31,6 @@ import json
 import httpx
 import pytest
 from playwright.sync_api import Page, expect
-
-# M08 F4 KI: Leg 02 restructured the agent-editor MCPs tab — the `tool-row`
-# + `<details class="tool-row-overrides">` shape this file asserts was
-# replaced by per-source glass tiles with inline per-tool toggles. Whole
-# file needs redesign-aware rewrite — deferred to a follow-on cleanup
-# flight. Module-level skip to unblock the Flight 4 close.
-# See mission.md Known Issues.
-pytestmark = pytest.mark.skip(
-    reason="M08 F4 KI: pre-rebrand MCPs-tab assertions — needs redesign-aware rewrite"
-)
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -91,15 +87,14 @@ def _mock_tools_connect(page: Page, source_id: str, tools: list[dict]) -> None:
     page.route(f"**/api/mcp-sources/{source_id}/test/connect", handler)
 
 
-def _open_details_panel(page: Page, source_id: str) -> None:
-    """Click the details panel's summary so it expands (lazy-loads body)."""
-    details = page.locator(f'[data-testid="mcp-source-details-{source_id}"]')
-    expect(details).to_be_visible(timeout=4000)
-    # Click the summary inside the details. Playwright's locator.click() on
-    # <details><summary> works because summary is the click target by default.
-    details.locator("summary").click()
-    # Confirm expansion via the [open] attribute.
-    expect(details).to_have_attribute("open", "", timeout=2000)
+def _expand_source_tile(page: Page, source_id: str) -> None:
+    """Click the source tile's expand button (lazy-loads the tools body)."""
+    tile = page.locator(f'[data-testid="mcp-source-row-{source_id}"]')
+    expect(tile).to_be_visible(timeout=4000)
+    page.locator(f'[data-testid="mcp-source-expand-{source_id}"]').click()
+    # Expansion is signalled via aria-expanded on the tile (+ un-hidden body).
+    expect(tile).to_have_attribute("aria-expanded", "true", timeout=2000)
+    expect(page.locator(f'[data-testid="mcp-source-details-body-{source_id}"]')).to_be_visible()
 
 
 # ── Test 1: Attach via toggle → save → reload → still attached ──────────────
@@ -250,8 +245,8 @@ def test_per_tool_toggle_persists(app_clean: str, page: Page) -> None:
 
     _navigate_to_agent_mcps_tab(page, app_clean, "toggle-test-agent")
 
-    # Open the details panel — that lazy-loads the per-tool checkboxes.
-    _open_details_panel(page, sid)
+    # Expand the source tile — that lazy-loads the per-tool checkboxes.
+    _expand_source_tile(page, sid)
 
     cb_a = page.locator(f'[data-testid="mcp-tool-toggle-{sid}-tool_a"]')
     expect(cb_a).to_be_visible(timeout=6000)
@@ -281,9 +276,9 @@ def test_per_tool_toggle_persists(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
-    # Deep-link auto-opens the details panel.
-    details = page.locator(f'[data-testid="mcp-source-details-{sid}"]')
-    expect(details).to_have_attribute("open", "", timeout=4000)
+    # Deep-link auto-expands the source tile.
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile).to_have_attribute("aria-expanded", "true", timeout=4000)
     cb_b_reload = page.locator(f'[data-testid="mcp-tool-toggle-{sid}-tool_b"]')
     expect(cb_b_reload).to_be_visible(timeout=6000)
     expect(cb_b_reload).not_to_be_checked()
@@ -357,9 +352,9 @@ def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
         "aria-selected", "true", timeout=8000
     )
 
-    # Details panel should be open.
-    details = page.locator(f'[data-testid="mcp-source-details-{sid}"]')
-    expect(details).to_have_attribute("open", "", timeout=4000)
+    # Source tile should be auto-expanded.
+    tile = page.locator(f'[data-testid="mcp-source-row-{sid}"]')
+    expect(tile).to_have_attribute("aria-expanded", "true", timeout=4000)
 
     # Tools should load from mocked endpoint.
     expect(page.locator(f'[data-testid="mcp-tool-toggle-{sid}-list_repos"]')).to_be_visible(
@@ -408,7 +403,7 @@ def test_auth_required_inline_notice_no_popup(app_clean: str, page: Page) -> Non
     page.on("popup", lambda p: popups.append(p))
 
     _navigate_to_agent_mcps_tab(page, app_clean, "auth-required-agent")
-    _open_details_panel(page, sid)
+    _expand_source_tile(page, sid)
 
     notice = page.locator(f'[data-testid="mcp-auth-required-notice-{sid}"]')
     expect(notice).to_be_visible(timeout=6000)
@@ -499,7 +494,7 @@ def test_auth_required_notice_uses_source_name_not_id(app_clean: str, page: Page
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_auth_required)
 
     _navigate_to_agent_mcps_tab(page, app_clean, "name-id-test-agent")
-    _open_details_panel(page, sid)
+    _expand_source_tile(page, sid)
 
     notice = page.locator(f'[data-testid="mcp-auth-required-notice-{sid}"]')
     expect(notice).to_be_visible(timeout=6000)

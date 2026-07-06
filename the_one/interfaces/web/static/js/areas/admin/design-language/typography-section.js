@@ -87,6 +87,70 @@
     monoSm.appendChild(monoSmSample);
     monoSm.appendChild(monoSmLabel);
     host.appendChild(monoSm);
+
+    renderSectionTitleConvention(host);
+  }
+
+  // M17 F6 L4 — surface the element-scoped `.section-title` convention in the
+  // gallery (closes the SC3 "one component vocabulary" overload item as
+  // intentional/element-handled). The class is worn by BOTH a true section
+  // HEADING and a quiet standalone LABEL; the ELEMENT differentiates the role,
+  // so no rename or new recipe is needed. The rename was deferred as churn
+  // without payoff (M17 F3 "Section-title semantics" DD); this note documents
+  // that decision where operators can see the two renderings side by side.
+  // The internal record lives in the components.css `.section-title` comment.
+  function renderSectionTitleConvention(host) {
+    var wrap = document.createElement('div');
+    wrap.style.marginTop = '20px';
+
+    var caption = document.createElement('div');
+    caption.style.fontFamily = 'var(--font-family-mono)';
+    caption.style.fontSize = 'var(--font-size-tiny)';
+    caption.style.color = 'var(--fg-muted)';
+    caption.style.marginBottom = '8px';
+    caption.textContent = '.section-title — element-scoped (one class, two roles)';
+    wrap.appendChild(caption);
+
+    // Heading role: h2.section-title takes the h3 size bump.
+    var heading = document.createElement('h2');
+    heading.className = 'section-title';
+    heading.textContent = 'Heading role — h2.section-title';
+    wrap.appendChild(heading);
+
+    var headingNote = document.createElement('span');
+    headingNote.style.fontFamily = 'var(--font-family-mono)';
+    headingNote.style.fontSize = 'var(--font-size-tiny)';
+    headingNote.style.color = 'var(--fg-muted)';
+    headingNote.textContent = 'h2 → h3-size bump (editor section headers)';
+    wrap.appendChild(headingNote);
+
+    // Quiet-label role: div/label.section-title stays body-sm.
+    var quietLabel = document.createElement('div');
+    quietLabel.className = 'section-title';
+    quietLabel.style.marginTop = '12px';
+    quietLabel.textContent = 'Quiet-label role — div/label.section-title';
+    wrap.appendChild(quietLabel);
+
+    var quietNote = document.createElement('span');
+    quietNote.style.fontFamily = 'var(--font-family-mono)';
+    quietNote.style.fontSize = 'var(--font-size-tiny)';
+    quietNote.style.color = 'var(--fg-muted)';
+    quietNote.textContent = 'div / label → body-sm quiet standalone label (chat agent-select, system page sections)';
+    wrap.appendChild(quietNote);
+
+    var convention = document.createElement('p');
+    convention.style.fontSize = 'var(--font-size-body-sm)';
+    convention.style.color = 'var(--fg-secondary)';
+    convention.style.lineHeight = 'var(--line-height-normal)';
+    convention.style.marginTop = '12px';
+    convention.textContent =
+      'Same class, ELEMENT-differentiated: h2.section-title gets the heading ' +
+      'size bump; every other element (div, label) renders as a body-sm quiet ' +
+      'standalone label. The overload is intentional and element-handled — the ' +
+      'class rename was deferred as churn without payoff (M17 F3).';
+    wrap.appendChild(convention);
+
+    host.appendChild(wrap);
   }
 
   window.App.admin.designLanguage.typographySection = { render: render };

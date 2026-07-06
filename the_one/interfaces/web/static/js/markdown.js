@@ -4,7 +4,7 @@
  *
  *   App.markdown.parse(text)  -> { type: 'document', children: Node[] }
  *   App.markdown.render(text) -> DocumentFragment
- *   App.markdown.NodeType     -> frozen object with all 18 node-type string constants
+ *   App.markdown.NodeType     -> frozen object with all 19 node-type string constants
  *
  * AST node shape:
  *   { type: NodeType_value, children?: Node[], value?: string, meta?: object }
@@ -35,8 +35,11 @@
  *   parsed via `DOMParser().parseFromString(svg, 'image/svg+xml').documentElement`
  *   to keep the no-inner-HTML invariant intact. Link href values pass
  *   through a scheme allow-list (`http`, `https`, `mailto`, `tel`,
- *   relative `/`, fragment `#`); other schemes (notably `javascript:`,
- *   `data:`, `vbscript:`, `file:`) are stripped to `#`.
+ *   root-relative `/`, fragment `#`); other schemes (notably `javascript:`,
+ *   `data:`, `vbscript:`, `file:`) and protocol-relative `//host` URLs are
+ *   stripped to `#`. The allow-list is anchored and fail-closed, so
+ *   obfuscated schemes (leading whitespace / control chars, mixed case)
+ *   also fall through to `#`.
  *
  * Robustness:
  *   parse(undefined) / parse(null) / parse('') -> { type: 'document', children: [] }
@@ -99,10 +102,21 @@
   }
 
   function safeHref(href) {
-    // Allow http:, https:, mailto:, tel:, relative (/), fragment (#).
-    // Other schemes — notably javascript:, data:, vbscript:, file: — fall
-    // through to '#'. The single source of truth for URL safety in the
-    // renderer is this function; the renderer trusts AST href values.
+    // Protocol-relative URLs (`//host/...`) inherit the page's scheme and
+    // resolve OFF-SITE. A markdown author writing `//host` is not clearly
+    // asking for that, so force `#` (M17 F4 L1 hardening decision). Checked
+    // first — a leading `/` would otherwise satisfy the relative-path branch
+    // of the allow-list below. Leading-whitespace variants (` //host`) are
+    // caught too, though they already fail the allow-list independently.
+    if (/^\s*\/\//.test(href)) return '#';
+    // Allow http:, https:, mailto:, tel:, root-relative (/), fragment (#).
+    // FAIL-CLOSED: javascript:, data:, vbscript:, file: — and obfuscated
+    // variants (leading whitespace / tab / newline / control chars, mixed
+    // case) — do not match the anchored allow-list and fall through to '#'.
+    // The `i` flag makes the scheme match case-insensitive; the anchor `^`
+    // (with no leading `\s`) means any leading junk defeats the match. This
+    // is the single source of truth for URL safety in the renderer; the
+    // renderer trusts AST href values.
     if (/^(https?:|mailto:|tel:|\/|#)/i.test(href)) return href;
     return '#';
   }

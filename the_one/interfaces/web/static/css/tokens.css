@@ -1,17 +1,27 @@
-/* Theme tokens — F2 (apply-tokens + visual-realization + light-realization).
+/* Theme tokens — Design Language v3 (Mission 17 Flight 02).
  *
- * Dark-theme values realized in leg 03 (originally NEXUS-style cyan + glow;
- * retuned to GleepGlorp violet/purple in Mission 08 Flight 01 Leg 02). Light-theme
- * values realized in leg 06 (Linear/Stripe-light quality: cool-tinted off-white
- * surfaces, deep navy text, drop-shadows replacing glows). Both themes share
- * the same token names; leg 07 enforces strict WCAG AA across both.
+ * "Quiet instrument panel": neutral ladders (bg → surface → surface-elevated),
+ * hairline borders, violet accent reserved for interactive/selected states.
+ * BOTH themes are designed on their own merits (dark is a lifted-charcoal
+ * ladder, light is white/near-white) — neither is a flip of the other.
+ *
+ * Retired effect categories are GONE (Legs 2a/2b): their token names are
+ * deleted and their consumer declarations removed — including the
+ * base.css shell-structure tokens (Leg 2b dismantled the shell).
  *
  * Token groups: surfaces, borders, text, accent, status, provider badges,
- * shadows, body backdrop, density-and-geometry.
+ * spacing/radius/shadows (:root — theme-agnostic), motion,
+ * density-and-geometry.
  *
  * The :root { color-scheme: dark light } rule is preserved here because
- * color-scheme is a meta-property informing native widget rendering (scrollbars,
- * form controls, default selection color) — it is NOT a theme token.
+ * color-scheme is a meta-property informing native widget rendering
+ * (scrollbars, form controls, default selection color) — it is NOT a
+ * theme token.
+ *
+ * Mirror contract: tests/browser/design_tokens.py mirrors every
+ * literal-hex palette token per theme; tests/test_ui_guards.py
+ * (test_design_token_mirror_in_sync) enforces the lockstep against this
+ * file. Retune a mirrored hex here → update the mirror in the same change.
  */
 
 @layer tokens {
@@ -19,16 +29,26 @@
   :root {
     color-scheme: dark light;
 
-    /* V3b button gradient — canonical 4-stop white→fade→dark wash applied to
-       the .app-picker-button / .btn-outlined-primary / .btn-filled-primary /
-       .btn-muted-destructive family. Theme-independent: all stops use fixed
-       rgba alphas that composite identically over either theme's background. */
-    --btn-v3-gradient: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.30) 0%,
-      rgba(255, 255, 255, 0.10) 35%,
-      rgba(255, 255, 255, 0.0) 50%,
-      rgba(0, 0, 0, 0.10) 100%
-    );
+    /* spacing scale — theme-agnostic 4/8/12/16/24/32/48/64 */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --space-8: 64px;
+
+    /* radius scale */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* elevation — exactly two shadows. In dark, elevation reads primarily
+       as a lighter surface (the ladder), not a bigger shadow. */
+    --shadow-popover: 0 4px 12px rgb(0 0 0 / 0.10);
+    --shadow-modal: 0 8px 30px rgb(0 0 0 / 0.18);
+
   }
 
   [data-theme="dark"] {
@@ -38,117 +58,71 @@
        would surface a light scrollbar on the dark app, and vice-versa. */
     color-scheme: dark;
 
-    /* surfaces */
-    --bg: #0a0a0a;
-    --surface: #1a1a1a;
-    --surface-elevated: #333333;
-    --surface-tool: #2d2d2d;
+    /* surfaces — lifted charcoal ladder (bg → surface → surface-elevated) */
+    --bg: #101114;
+    --surface: #17181c;
+    --surface-elevated: #1c1d22;
+    --surface-tool: #1c1d22;
+    --surface-translucent: rgba(255, 255, 255, 0.03);
 
-    /* borders */
-    --border: #2a2a2a;
-    --border-hover: #444444;
-    --border-strong: #666666;
+    /* borders — hairlines, one step above their surface */
+    --border: #26272c;
+    --border-hover: #33343b;
+    --border-strong: #4a4b55;
 
-    /* text */
-    --fg: #e0e0e0;
-    --fg-secondary: #888888;
-    /* M10 F5 L8 HAT: bumped from #666666 (~3.4:1 on #0a0a0a — fails WCAG AA)
-       to #999999 (~7.4:1 — passes AAA) so the chat sidebar's source badge,
-       agent-name, attribution labels, and operator-only label all read
-       clearly on dark. Matches --fg-tool-msg's value; 18 consumers benefit
-       at once (chat.css, studio.css, base.css). */
-    --fg-tertiary: #999999;
-    --fg-muted: #a8a8a8;
-    /* M10 F5 L8 HAT: bumped from #444444 (~2:1 on #0a0a0a — well below
-       WCAG AA) to #808080 (~5:1 — passes AA) so .msg-attribution
-       (sender name under bubble), .msg-attribution-ts, .telemetry .label,
-       and .mcp-tool-toggle-hint all read clearly on dark. Strikethrough
-       text (.tool-name-strike) remains subordinate via the strikethrough
-       itself, not via low contrast. */
-    --fg-faint: #808080;
-    --fg-on-accent: #000000;
-    --fg-on-accent-muted: #333333;
-    /* fg-on-danger is BLACK in dark to pass AA against the bright #ff4a4a (white-on-red is only 3.32:1; black is 6.33:1). Light theme keeps white-on-deeper-red. */
-    --fg-on-danger: #000000;
-    --fg-tool-msg: #999999;
+    /* text ladder — every tier ≥ 4.5:1 (body AA) on bg/surface/surface-elevated
+       EXCEPT --fg-faint, a deliberate ≥3.0 <4.5 exception (see a11y suite). */
+    --fg: #ededf0;
+    --fg-secondary: #a1a3ad;
+    --fg-tertiary: #8f919c;
+    /* muted clears body AA on all three surfaces (5.27/4.95/4.69) —
+       .pending-queued-chip makes muted-on-surface-elevated a real pair. */
+    --fg-muted: #85878f;
+    /* DELIBERATE EXCEPTION — faint tier sits in the 3.0–4.5 band
+       (3.67/3.45/3.27 on bg/surface/surface-elevated). De-emphasized
+       annotations only (.msg-attribution, telemetry labels); never body
+       prose or interactive affordances. Band-pinned in the a11y suite. */
+    --fg-faint: #6b6d78;
+    --fg-on-accent: #101114;
+    /* fg-on-danger matches fg-on-accent in dark: dark ink on the bright
+       #f87171 danger fill reads 6.83:1 (white would fail body AA). */
+    --fg-on-danger: #101114;
+    --fg-tool-msg: #8f919c;
 
-    /* accent */
+    /* accent — violet-400 (brand continuity); interactive/selected states
+       ONLY. accent-api is badge-tier (chat user-vs-API differentiation),
+       not an interactive accent. */
     --accent: #a78bfa;
     --accent-api: #22d3ee;
-    --accent-glow: rgba(167, 139, 250, 0.25);
-    --accent-glow-strong: rgba(167, 139, 250, 0.4);
-    --accent-translucent: rgba(167, 139, 250, 0.08);
-    --accent-translucent-hover: rgba(167, 139, 250, 0.12);
+    --accent-translucent: rgba(167, 139, 250, 0.10);
+    --accent-translucent-hover: rgba(167, 139, 250, 0.16);
 
-    /* glass — Mission 08 F2 L3, "C2" reflective treatment
-       (blur(20px) saturate(160%), accent-tinted bg, gleam-overlay reflection,
-       1px white inset top-edge highlight). Applied to chrome surfaces in scope:
-       entity-tile (this leg), then section-nav, popovers, modal, list-item,
-       topbar (subsequent vibe iterations). Glass surfaces replace the prior
-       accent-tinted shadow treatment on chrome per the flight's composition rule. */
-    --glass-bg: rgba(167, 139, 250, 0.04);
-    --glass-blur: 12px;
-    --glass-saturate: 130%;
-    --glass-border: rgba(167, 139, 250, 0.18);
-    --glass-highlight: rgba(255, 255, 255, 0.18);
-    --glass-gleam: linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 55%);
-
-    /* bezel — Mission 08 F2 L4, "P2 pullback" directional-depth treatment.
-       Top-left light convention: 1px sharp edges + 4px inner glow (NO 10px
-       outer glow — operator back-tracked from S3 to P2 after deciding S3 + 6%
-       gleam read as overly-frosted). Composed as a single multi-stop
-       box-shadow value so consumers `box-shadow: var(--bezel-shadow)`. */
-    --bezel-shadow:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18),
-      inset 2px 2px 4px rgba(255, 255, 255, 0.07),
-      inset -2px -2px 4px rgba(0, 0, 0, 0.09);
-    /* Simplified bezel for small pills — directional edges only, P2 alphas. */
-    --bezel-shadow-mini:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18);
-    /* Inverted bezel — Mission 08 F2 L5. "Pressed-in" inset shadow for input
-       affordances (fields, textareas, selects). Dark on top, light on bottom
-       — opposite of bezel which is light on top, dark on bottom. Distinguishes
-       input surfaces (recessed) from output panels (raised). */
-    --bezel-shadow-inset:
-      inset 0 1px 2px rgba(0, 0, 0, 0.18),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.06);
-
-    /* motion — Mission 08 F2 L5. Tactile easing + duration scale.
-       --ease-tactile is the workhorse easing for chrome state changes
-       (Material "standard" — fast-out, slow-in feels crisp + decisive).
-       Durations: fast for hover/focus/small state changes, base for panel
-       transitions and tab switches. Theme-agnostic (motion doesn't change
-       between themes) but tokens live here for consistency. */
+    /* motion — tactile easing + duration scale (unchanged from v2). */
     --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
     --motion-fast: 150ms;
     --motion-medium: 200ms;
     --motion-base: 250ms;
 
-    /* code-block — Mission 08 F3 L07. Read-only code/prompt artifact
-       affordance. Dark theme: terminal aesthetic (#000 bg + warning-orange
-       text). Light theme overrides further down: slate-50 surface-elevated
-       bg + slate-900 fg for AAA-grade legibility on white pages. */
-    --code-block-bg: #000;
-    --code-block-fg: var(--status-warning);
+    /* code-block — a "code well" one step DARKER than bg; primary fg. */
+    --code-block-bg: #0c0d10;
+    --code-block-fg: #ededf0;
 
-    /* status */
-    --status-success: #2ecc71;
-    --status-success-glow: rgba(46, 204, 113, 0.6);
-    --status-warning: #f5a623;
-    --status-warning-glow: rgba(245, 166, 35, 0.5);
-    --status-warning-bg-soft: rgba(245, 166, 35, 0.08);
-    --status-warning-bg-soft-2: rgba(245, 166, 35, 0.1);
-    --status-warning-border: rgba(245, 166, 35, 0.3);
-    --status-danger: #ff4a4a;
-    --status-danger-muted: #d56363;
-    --status-danger-glow: rgba(255, 74, 74, 0.5);
-    --status-danger-bg-soft: rgba(255, 74, 74, 0.08);
+    /* status — Tailwind-400 family; all ≥ 4.5:1 on bg/surface.
+       Soft washes are quiet fills consistent with the ladders. */
+    --status-success: #4ade80;
+    --status-warning: #fbbf24;
+    --status-warning-bg-soft: rgba(251, 191, 36, 0.08);
+    --status-warning-bg-soft-2: rgba(251, 191, 36, 0.12);
+    --status-warning-border: rgba(251, 191, 36, 0.30);
+    --status-danger: #f87171;
+    --status-danger-muted: #d98c8c;
+    --status-danger-bg-soft: rgba(248, 113, 113, 0.08);
 
     /* provider badges
-       NOTE: --badge-openai stays at #4a9eff regardless of --accent palette;
-       provider badges are theme- and accent-stable (per leg 02 decision). */
+       NOTE: badge FILL tokens are theme- and accent-stable (brand identity);
+       values unchanged in v3. Badge×ink contrast is now GATED (M17 F3 L4):
+       each badge carries a per-badge --badge-ink-* token (below) so its
+       text clears body AA (≥4.5) on that fill in BOTH themes. */
     --badge-ollama: #2ecc71;
     --badge-openai-compatible: #d4a800;
     --badge-openai: #4a9eff;
@@ -164,56 +138,35 @@
     --badge-execution: #b8860b;   /* dark goldenrod */
     --badge-web: #c71585;         /* medium violet red */
 
-    /* panel design tokens */
-    --panel-radius: 6px;
-    --panel-radius-sm: 4px;
-    --surface-translucent: rgba(255, 255, 255, 0.02);
-    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    /* per-badge ink (M17 F3 L4) — theme-STABLE (chosen by fill luminance,
+       and fills are theme-stable enough that one ink clears AA in both
+       themes): light-toned fills take dark ink (#101114), dark-toned fills
+       take white ink (#ffffff). Every --badge-* × --badge-ink-* pair is
+       gated ≥4.5 in tests/test_design_tokens_a11y.py (both themes). */
+    --badge-ink-ollama: #101114;
+    --badge-ink-openai-compatible: #101114;
+    --badge-ink-openai: #101114;
+    --badge-ink-anthropic: #ffffff;
+    --badge-ink-openrouter: #ffffff;
+    --badge-ink-mock: #101114;
+    --badge-ink-unknown: #101114;
+    --badge-ink-discord: #ffffff;
+    --badge-ink-filesystem: #101114;
+    --badge-ink-execution: #101114;
+    --badge-ink-web: #ffffff;
 
-    /* body backdrop */
-    /* Mission 08 F3.5 L1 — body backdrop matches the metallic chrome.
-       Body is only visible through main-content's top-left chamfer cut;
-       making it the chrome bg lets that corner read as "the chrome housing
-       continues around the panel" rather than a black hole. Light theme
-       retains its existing pale-fade gradient. */
-    --shell-bg: var(--shell-chrome-bg);
+    /* nav rail — ladder-native (no palette island): rail is a plain
+       surface with accent reserved for the active state. */
+    --nav-bg: var(--surface);
+    --nav-bg-active: var(--surface-elevated);
+    --nav-border: var(--border);
+    --nav-fg: var(--fg-secondary);
+    --nav-fg-hover: var(--fg);
+    --nav-fg-active: var(--accent);
 
-    /* Shell chrome — Mission 08 F3.5 L1. Theme-aware tokens drive the V1b
-       chamfered-with-accent-border treatment on #main-content (and topbar
-       + sidebar in subsequent iterations). Dark theme: 8px chamfer + accent
-       frame fill + black content fill. Light theme overrides further down:
-       0px chamfer + transparent fills (rectangular, untreated) — alien-
-       dashboard is dark-theme-only.
-       Note: starting at 8px; operator may retune larger once seen at full
-       viewport scale. */
-    --shell-chamfer: 14px;
-    --shell-frame-fill: var(--accent);
-    --shell-content-fill: #000;
-    --shell-frame-glow: var(--accent-glow);
-    /* Top-edge sheen for #app-topbar ("lit from above"). Stacked above
-       --shell-chrome-bg in the topbar's background. White overlay works
-       on both gunmetal (dark) and silver (light) chrome. Suppressed under
-       prefers-reduced-transparency (see @media block below). */
-    --shell-topbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 6px);
-    /* Metallic chrome bg for #app-topbar + #app-sidebar — gunmetal base
-       + brushed grain (horizontal stripes). Same treatment on both so they
-       read as one unified L-shaped housing component. The top-edge sheen
-       ("lit from above") is applied separately to #app-topbar only — if
-       it lived in this token, the sidebar would also paint a sheen at
-       its top (y=48px in viewport), creating a visible seam against the
-       topbar's already-faded sheen.
-       Grain-layer alternates (replace the first background layer):
-         Horizontal stripes (current): repeating-linear-gradient(180deg, transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
-         Vertical stripes:              repeating-linear-gradient(90deg,  transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
-         Diagonal 45°:                  repeating-linear-gradient(45deg,  transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
-         Wider horizontal bands:        repeating-linear-gradient(180deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 4px) */
-    /* To strip the grain layer (e.g., under reduced-transparency), edit
-       this token definition or use the @media block below — do NOT try to
-       override via cascade, as the value is a layered background and the
-       `repeating-linear-gradient(...)` cannot be selectively suppressed. */
-    --shell-chrome-bg:
-      repeating-linear-gradient(180deg, transparent 0 1px, rgba(255, 255, 255, 0.025) 1px 2px),
-      #20202a;
+    /* sidebar — same ladder surface as the rail; hairline borders carry
+       the separation (explicit color, never `transparent` — M04). */
+    --sidebar-bg: var(--surface);
 
     /* density-and-geometry */
     --sidebar-w: 240px;
@@ -222,139 +175,82 @@
     /* toggle control width — used by admin toggle inputs (e.g. built-in tools,
        system settings) for padding-left alignment of adjacent labels. */
     --toggle-width: 36px;
-
-    /* nav rail palette — chrome surface; same as body in dark so the rail
-       reads as a non-elevated edge. */
-    --nav-bg: var(--bg);
-    --nav-bg-active: var(--surface);
-    --nav-border: var(--border);
-    --nav-fg: var(--fg-secondary);
-    --nav-fg-hover: var(--fg);
-    --nav-fg-active: var(--accent);
-
-    /* Sidebar reads as body bg in dark (declarative; previously `transparent`
-       which let the body gradient bleed through — replaced for snapshot
-       stability and explicit intent). Light theme uses #cbd5e1 (slate-300). */
-    --sidebar-bg: var(--bg);
   }
 
   [data-theme="light"] {
     color-scheme: light;
 
-    /* surfaces — cool-tinted off-white; coordinates with the primary accent */
-    --bg: #fafbfc;
-    --surface: #ffffff;
-    --surface-elevated: #f1f5f9;
-    --surface-tool: #f3f4f6;
+    /* surfaces — white/near-white neutral ladder */
+    --bg: #ffffff;
+    --surface: #fafafa;
+    --surface-elevated: #f4f4f5;
+    --surface-tool: #f4f4f5;
+    --surface-translucent: rgba(24, 24, 27, 0.03);
 
-    /* borders — visibly darker than dark theme so they read on light surfaces */
-    --border: #e5e7eb;
-    --border-hover: #cbd5e1;
-    --border-strong: #94a3b8;
+    /* borders — zinc hairlines, visibly darker than the surfaces */
+    --border: #e4e4e7;
+    --border-hover: #d4d4d8;
+    --border-strong: #a1a1aa;
 
-    /* text — deep navy primary; AA-compliant secondary/tertiary; faint is
-       intentional secondary-tier (AA-borderline; used in faint contexts only) */
-    --fg: #0f172a;
-    --fg-secondary: #334155;
-    --fg-tertiary: #475569;
-    --fg-muted: #64748b;
-    --fg-faint: #94a3b8;
+    /* text ladder — every tier ≥ 4.5:1 (body AA) on bg/surface/surface-elevated
+       EXCEPT --fg-faint, a deliberate ≥3.0 <4.5 exception (see a11y suite). */
+    --fg: #18181b;
+    --fg-secondary: #52525b;
+    --fg-tertiary: #5f5f68;
+    /* muted clears body AA on all three surfaces (5.05/4.84/4.59). */
+    --fg-muted: #6e6e77;
+    /* DELIBERATE EXCEPTION — faint tier sits in the 3.0–4.5 band
+       (3.46/3.32/3.15 on bg/surface/surface-elevated). De-emphasized
+       annotations only (.msg-attribution, telemetry labels); never body
+       prose or interactive affordances. Band-pinned in the a11y suite. */
+    --fg-faint: #898993;
     --fg-on-accent: #ffffff;
-    --fg-on-accent-muted: #cbd5e1;
     --fg-on-danger: #ffffff;
-    --fg-tool-msg: #475569;
+    --fg-tool-msg: #5f5f68;
 
-    /* accent — violet-700 (#6d28d9) for strict WCAG AA on light surfaces
-       (white-on-accent reads at 5.36:1 — body AA pass; accent-on-bg reads at
-       5.17:1). [Historical: leg 06 initially shipped cyan-600 #0891b2 which
-       read at 4.46:1 — body-AA fail; leg 07 retuned to cyan-700 #0e7490;
-       Mission 08 Flight 01 Leg 02 retuned again from cyan-700 to violet-700.] */
+    /* accent — violet-700 (7.10:1 for white-on-accent, 7.10:1 on bg);
+       interactive/selected states ONLY. accent-api is badge-tier. */
     --accent: #6d28d9;
     --accent-api: #0e7490;
-    --accent-glow: rgba(109, 40, 217, 0.20);
-    --accent-glow-strong: rgba(109, 40, 217, 0.35);
-    --accent-translucent: rgba(109, 40, 217, 0.10);
-    --accent-translucent-hover: rgba(109, 40, 217, 0.15);
+    --accent-translucent: rgba(109, 40, 217, 0.08);
+    --accent-translucent-hover: rgba(109, 40, 217, 0.13);
 
-    /* glass — Mission 08 F2 L3, "M2" reflective treatment for light theme:
-       reflective slate-500 chrome (multi-stop top-to-bottom metal gradient)
-       layered with a faint violet bottom-fade so the brand undertone reads
-       beneath the silver. Pairs symmetrically with the dark-theme treatment
-       (also gleam-overlay reflection, accent-tinted base + border) — same
-       composition shape, theme-tuned tones. */
-    --glass-bg: rgba(100, 116, 139, 0.15);
-    --glass-blur: 12px;
-    --glass-saturate: 130%;
-    --glass-border: rgba(109, 40, 217, 0.40);
-    --glass-highlight: rgba(255, 255, 255, 0.95);
-    --glass-gleam:
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.40) 0%, rgba(148, 163, 184, 0.12) 45%, transparent 80%),
-      linear-gradient(to top, rgba(167, 139, 250, 0.05) 0%, transparent 50%);
-
-    /* bezel — Mission 08 F2 L4, "P2 pullback" treatment. Same alphas as dark
-       theme — white/black insets read in both palettes. */
-    --bezel-shadow:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18),
-      inset 2px 2px 4px rgba(255, 255, 255, 0.07),
-      inset -2px -2px 4px rgba(0, 0, 0, 0.09);
-    --bezel-shadow-mini:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18);
-    --bezel-shadow-inset:
-      inset 0 1px 2px rgba(15, 23, 42, 0.10),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.40);
-
-    /* motion — Mission 08 F2 L5. Same values as dark theme — motion is
-       theme-agnostic but tokens live in both theme blocks for consistency. */
+    /* motion — same values as dark; motion is theme-agnostic but tokens
+       live in both theme blocks for consistency. */
     --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
     --motion-fast: 150ms;
     --motion-medium: 200ms;
     --motion-base: 250ms;
 
-    /* code-block — Mission 08 F3 L07. Light theme overrides the dark
-       terminal aesthetic with a pale slate-50 (#f1f5f9) bg + slate-900
-       (#0f172a) fg. Composes the already-audited --surface-elevated +
-       --fg pair (~17:1 contrast — AAA). Black bg + warning-orange in
-       light theme was too harsh against the page chrome; this reads as
-       a "code well" without competing with the surrounding panels. */
-    --code-block-bg: var(--surface-elevated);
-    --code-block-fg: var(--fg);
+    /* code-block — pale zinc "code well" + primary ink (16.1:1). */
+    --code-block-bg: #f4f4f5;
+    --code-block-fg: #18181b;
 
-    /* Shell chrome — Mission 08 F3.5 L1. Light theme mirrors the dark
-       alien-dashboard aesthetic with light variants: white main panel
-       (instead of black) + silver-metallic chrome (instead of gunmetal). */
-    --shell-chamfer: 14px;
-    --shell-frame-fill: var(--accent);
-    --shell-content-fill: #fff;
-    --shell-frame-glow: var(--accent-glow);
-    /* Top-edge sheen for #app-topbar — same value as dark theme; the white
-       overlay reads on silver chrome as well as gunmetal. */
-    --shell-topbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 6px);
-    /* To strip the grain layer (e.g., under reduced-transparency), edit
-       this token definition or use the @media block below — do NOT try to
-       override via cascade, as the value is a layered background and the
-       `repeating-linear-gradient(...)` cannot be selectively suppressed. */
-    --shell-chrome-bg:
-      repeating-linear-gradient(180deg, transparent 0 1px, rgba(0, 0, 0, 0.05) 1px 2px),
-      #d4d8df;
-
-    /* status — Tailwind-700 variants tuned for strict body-AA on light
-       (≥ 4.5:1 against #fafbfc and #ffffff). Leg 06 used the -600 family
-       which sits ~3:1 — only the 3:1 large/UI threshold; leg 07 deepened
-       success and warning to -700 for body. Danger stays at #dc2626 (4.83:1
-       on bg — already passes body). */
+    /* status — deep 600/700 family; all ≥ 4.5:1 on bg/surface.
+       Soft washes are quiet fills consistent with the ladders. */
     --status-success: #15803d;
-    --status-success-glow: rgba(21, 128, 61, 0.3);
-    --status-warning: #a16207;
-    --status-warning-glow: rgba(161, 98, 7, 0.3);
-    --status-warning-bg-soft: rgba(161, 98, 7, 0.08);
-    --status-warning-bg-soft-2: rgba(161, 98, 7, 0.12);
-    --status-warning-border: rgba(161, 98, 7, 0.3);
-    --status-danger: #dc2626;
-    --status-danger-muted: #a85050;
-    --status-danger-glow: rgba(220, 38, 38, 0.3);
-    --status-danger-bg-soft: rgba(220, 38, 38, 0.06);
+    /* amber-700 deepened from #a16207 in M17 F5 L1: #a16207 warning TEXT failed
+       body AA (1.4.3) on the composited --status-warning-bg-soft fill (≈4.0–4.4:1
+       over the light ladder — the studio VRAM/model warning is body-sm text on
+       this soft fill). #8f5606 clears ≥4.88:1 on bg/surface/elevated. Same
+       fix-then-gate move as the danger #dc2626→#b91c1c deepening below; the soft
+       washes track the base hue (matched family). Gated in
+       test_design_tokens_a11y.py::test_warning_text_on_soft_fill_passes_body_aa. */
+    --status-warning: #8f5606;
+    --status-warning-bg-soft: rgba(143, 86, 6, 0.08);
+    --status-warning-bg-soft-2: rgba(143, 86, 6, 0.12);
+    --status-warning-border: rgba(143, 86, 6, 0.30);
+    /* danger — red-700 (deepened from red-600 #dc2626 in M17 F3 fix): the
+       #dc2626 text failed body AA (1.4.3) on the composited --status-danger-bg-soft
+       fill over surface-elevated (4.02:1). red-700 clears ≥4.5 on the soft fill
+       composited over ALL THREE ladder surfaces (worst 5.34 on surface-elevated),
+       and darkening only strengthens the flat-surface body pairs (6.47/6.20) and
+       white-on-danger-fill (6.47). Soft-fill base stays MATCHED to the text hue
+       (both = 185,28,28) — the a11y gate reconstructs the fill from --status-danger,
+       so they must not diverge. Gated in tests/test_design_tokens_a11y.py. */
+    --status-danger: #b91c1c;
+    --status-danger-muted: #b45252;
+    --status-danger-bg-soft: rgba(185, 28, 28, 0.06);
 
     /* provider badges — same brand colors in both themes (badges identify
        the provider, NOT the theme; brand stability over palette consistency) */
@@ -367,20 +263,40 @@
     --badge-unknown: #888888;
     --badge-discord: #5865F2;
 
-    /* tool category badges (F6 leg 02) — slightly lighter for light-mode
-       contrast while still meeting AA against --fg-on-accent (#ffffff). */
+    /* tool category badges (F6 leg 02) — filesystem/execution stay slightly
+       lighter than their dark-theme fills (both take dark ink; see
+       --badge-ink-*). web darkened #d63a93 → #cc2d87 (M17 F3 L4) so its
+       WHITE ink clears body AA (4.89:1; the old #d63a93 sat at 4.30). */
     --badge-filesystem: #0e8e8e;
     --badge-execution: #c5912a;
-    --badge-web: #d63a93;
+    --badge-web: #cc2d87;
 
-    /* panel design tokens — drop-shadow style replaces dark's glow shadows. */
-    --panel-radius: 6px;
-    --panel-radius-sm: 4px;
-    --surface-translucent: rgba(15, 23, 42, 0.02);
-    --panel-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    /* per-badge ink (M17 F3 L4) — theme-stable; identical to the dark block.
+       Light fills → dark ink (#101114), dark fills → white ink (#ffffff).
+       Gated ≥4.5 in tests/test_design_tokens_a11y.py (both themes). */
+    --badge-ink-ollama: #101114;
+    --badge-ink-openai-compatible: #101114;
+    --badge-ink-openai: #101114;
+    --badge-ink-anthropic: #ffffff;
+    --badge-ink-openrouter: #ffffff;
+    --badge-ink-mock: #101114;
+    --badge-ink-unknown: #101114;
+    --badge-ink-discord: #ffffff;
+    --badge-ink-filesystem: #101114;
+    --badge-ink-execution: #101114;
+    --badge-ink-web: #ffffff;
 
-    /* body backdrop — subtle but visible cool fade */
-    --shell-bg: var(--shell-chrome-bg);
+    /* nav rail — ladder-native: the light theme's dark-navy palette island
+       is RETIRED (v3 design decision); light rail in light theme. */
+    --nav-bg: var(--surface);
+    --nav-bg-active: var(--surface-elevated);
+    --nav-border: var(--border);
+    --nav-fg: var(--fg-secondary);
+    --nav-fg-hover: var(--fg);
+    --nav-fg-active: var(--accent);
+
+    /* sidebar — ladder surface (the slate-300 chrome panel is retired). */
+    --sidebar-bg: var(--surface);
 
     /* density-and-geometry */
     --sidebar-w: 240px;
@@ -388,32 +304,9 @@
     --topbar-h: 48px;
     /* toggle control width — matches dark theme definition */
     --toggle-width: 36px;
-
-    /* nav rail palette — intentionally dark navy so the rail reads as a
-       chrome surface against the light body. Internal palette uses the
-       dark theme's brighter accent (--accent in light is violet-700, which
-       under-reads on dark navy; we use the dark-theme violet-400 for the
-       active state — visible on the dark navy rail). */
-    --nav-bg: #0f172a;
-    --nav-bg-active: #1e293b;
-    --nav-border: #1e293b;
-    --nav-fg: #94a3b8;
-    --nav-fg-hover: #e2e8f0;
-    --nav-fg-active: #a78bfa;
-
-    /* sidebar palette — slate-300, clearly darker than body bg but much
-       lighter than the dark-navy rail. Establishes the rail < sidebar
-       < content elevation chain. */
-    --sidebar-bg: #cbd5e1;
   }
 
-  /* prefers-reduced-transparency fallback — Mission 08 F2 L3.
-     When the user agent (or OS) signals reduced-transparency preference,
-     override the glass tokens to opaque/non-blurring values so every glass
-     surface degrades to a solid panel at the token layer. No per-rule
-     overrides needed — consumers continue using var(--glass-*) and pick
-     up the fallback automatically. */
-  /* prefers-reduced-motion fallback — Mission 08 F2 L5.
+  /* prefers-reduced-motion fallback — Mission 08 F2 L5 (KEPT in v3).
      Vestibular-sensitive users get instant state changes; easing curves and
      color transitions stay but durations collapse to near-zero. */
   @media (prefers-reduced-motion: reduce) {
@@ -429,41 +322,4 @@
     }
   }
 
-  @media (prefers-reduced-transparency: reduce) {
-    [data-theme="dark"] {
-      --glass-bg: var(--surface);
-      --glass-blur: 0px;
-      --glass-saturate: 100%;
-      --glass-border: var(--border);
-      --glass-highlight: rgba(255, 255, 255, 0.06);
-      --glass-gleam: none;
-      /* Bezel degrades to a single 1px directional edge — preserves the
-         lit-corner elevation cue without the layered glows. */
-      --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
-      --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
-      --bezel-shadow-inset: inset 0 1px 0 rgba(0, 0, 0, 0.10);
-      /* Shell chrome degrades to its solid base color — grain stripe layer
-         dropped, frame glow + topbar sheen suppressed. Keep #20202a in
-         sync with --shell-chrome-bg base color (see token definition above). */
-      --shell-chrome-bg: #20202a;
-      --shell-frame-glow: transparent;
-      --shell-topbar-sheen: none;
-    }
-    [data-theme="light"] {
-      --glass-bg: var(--surface-elevated);
-      --glass-blur: 0px;
-      --glass-saturate: 100%;
-      --glass-border: var(--border);
-      --glass-highlight: rgba(15, 23, 42, 0.04);
-      --glass-gleam: none;
-      --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
-      --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
-      --bezel-shadow-inset: inset 0 1px 0 rgba(15, 23, 42, 0.06);
-      /* Shell chrome degrades to its solid base color. Keep #d4d8df in
-         sync with --shell-chrome-bg base color (see token definition above). */
-      --shell-chrome-bg: #d4d8df;
-      --shell-frame-glow: transparent;
-      --shell-topbar-sheen: none;
-    }
-  }
 }

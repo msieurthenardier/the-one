@@ -2057,12 +2057,12 @@ def _render_oauth_callback_page(
     window opened by the OAuth modal. It links the same studio CSS the
     SPA uses (``/static/css/...``) so the operator perceives continuity
     with the rest of GleepGlorp AI — violet-accent design system, Geist
-    Sans / Geist Mono typography, ``//``-prefixed mono-uppercase eyebrow.
+    Sans / Geist Mono typography, quiet mono-uppercase eyebrow.
 
     Args:
-        status: One of ``"success"``, ``"failed"``, ``"expired"``. Drives
-            the eyebrow color (success uses ``--status-success``; the
-            rest use ``--status-danger``).
+        status: One of ``"success"``, ``"failed"``, ``"expired"``.
+            Currently informational only (the quiet v3 card renders all
+            states in the same neutral treatment).
         heading: The H1 text. The success path's heading must contain
             the verbatim contract substring "Login successful. You may
             close this tab." (F5 §4) so legacy stake tests keep matching.
@@ -2087,7 +2087,6 @@ def _render_oauth_callback_page(
     stylesheets so the page automatically follows the operator's
     dark/light/auto preference resolved by ``theme.js``.
     """
-    eyebrow_color = "var(--status-success)" if status == "success" else "var(--status-danger)"
     auto_close_script = (
         "<script>setTimeout(function () { try { window.close(); } "
         "catch (e) { /* popup blocker / non-script-opened — ignore */ } }, "
@@ -2129,7 +2128,7 @@ def _render_oauth_callback_page(
   html, body {{ margin: 0; padding: 0; height: 100%; }}
   body {{
     font-family: var(--font-family-sans);
-    background: var(--shell-bg);
+    background: var(--bg);
     color: var(--fg);
     display: flex;
     align-items: center;
@@ -2145,7 +2144,7 @@ def _render_oauth_callback_page(
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow);
+    box-shadow: var(--shadow-popover);
     text-align: left;
   }}
   .oauth-callback-eyebrow {{
@@ -2156,12 +2155,6 @@ def _render_oauth_callback_page(
     letter-spacing: 1px;
     color: var(--fg-secondary);
     margin: 0 0 16px;
-  }}
-  .oauth-callback-eyebrow::before {{
-    content: "//";
-    padding-right: 0.4em;
-    color: {eyebrow_color};
-    font-weight: var(--font-weight-bold);
   }}
   .oauth-callback-heading {{
     font-family: var(--font-family-sans);
@@ -2182,7 +2175,7 @@ def _render_oauth_callback_page(
 </head>
 <body>
 <main class="oauth-callback-card" role="status" aria-live="polite">
-  <p class="oauth-callback-eyebrow">gleepglorp ai // oauth</p>
+  <p class="oauth-callback-eyebrow">gleepglorp ai — oauth</p>
   <h1 class="oauth-callback-heading">{heading}</h1>
   <p class="oauth-callback-detail">{detail_html}</p>
 </main>

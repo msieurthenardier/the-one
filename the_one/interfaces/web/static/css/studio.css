@@ -37,7 +37,7 @@
     margin-bottom: 12px;
   }
   .area-studio .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
-  .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .area-studio .field-input-short { max-width: 100px; }
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
@@ -50,6 +50,11 @@
   .area-studio .field-model-wrap .model-loading:empty { display: none; }
   /* Test-provider button row — sits below the LLM config field rows. */
   .area-studio .test-provider-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+  /* M07 F10 lazy-discovery intro (F5 L1) — sits at the top of the Built-in
+     Tools panel (no preceding section-title), so drop the .section-description
+     negative top-margin that assumes a title above it. */
+  .area-studio .tools-tab-intro { margin-top: 0; }
 
   /* === Studio Area: Tool Toggles === */
   /* Tool-actions buttons use .btn-outlined-primary; this override drops to caption-size + tighter padding. */
@@ -85,8 +90,10 @@
 
   /* Capability panel — surfaces /api/show capabilities under the model
      selector. The danger-coloured `no tools` chip carries the warning by
-     itself; no separate banner. */
-  .area-studio .model-capabilities { margin-top: 6px; padding-left: 112px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
+     itself; no separate banner. F5 L1: the general-tab fields migrated
+     .field-row (100px label gutter) → stacked .field-group, so the caps row
+     aligns flush-left under the full-width model control (no gutter pad). */
+  .area-studio .model-capabilities { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
   .area-studio .model-capabilities:empty { display: none; }
   .area-studio .model-capabilities-label { color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.5px; font-size: var(--font-size-tiny); }
   /* F6.5 L04: per-model max-context-tokens chip surfaced next to the
@@ -128,7 +135,11 @@
   .area-studio .tool-row-overrides summary { cursor: pointer; padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
   .area-studio .tool-row-overrides summary:hover { color: var(--accent); }
   .area-studio .tool-row-overrides-body { padding: 4px 8px 0; }
-  .area-studio .tool-row-overrides .field-row { margin-bottom: 8px; }
+  /* M17 F6 L3: the per-agent override panel's schema fields render via the
+     shared renderField, migrated .field-row → stacked .field-group. Keep the
+     compact 8px inter-field spacing here (tighter than .field-group's default
+     --space-3) — the override panel is a dense nested <details>. */
+  .area-studio .tool-row-overrides .field-group { margin-bottom: 8px; }
   .area-studio .tool-row-overrides .chip[data-locked] { background: var(--surface-elevated); opacity: 0.7; cursor: default; }
   .area-studio .tool-row-overrides .empty-state { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
   .area-studio .tool-row-overrides .loading { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
@@ -170,17 +181,13 @@
      100-char ellipsis) + chevron on the right. Body: full description with
      line breaks + input schema collapsible. */
   .area-studio .mcp-tool-item {
-    /* Glass + gleam + bezel echoing `.entity-tile` / `.mcp-source-tile`.
-       F4 L3. Hover gains accent border (no bg shift — the gleam reads
-       through unchanged). Open state has no special bg either; the
-       expanded body's dashed top-border is the visual cue. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
+    /* Quiet tile echoing `.entity-tile` / `.mcp-source-tile`: solid
+       surface + hairline border. Hover gains accent border. Open state
+       has no special bg; the expanded body's dashed top-border is the
+       visual cue. */
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     transition: border-color var(--motion-fast);
   }
   .area-studio .mcp-tool-item:hover { border-color: var(--accent); }
@@ -386,9 +393,9 @@
 
   /* === Agent-editor MCPs tab — MCP source TILE ============================
      Each MCP source on the agent-editor MCPs tab renders as a tile echoing
-     `.entity-tile`'s glass + gleam + bezel vocabulary, but as a presentation
-     container (not a clickable button) since the tile embeds its own
-     controls (attach toggle, Refresh, Expand). Mission 08 F4 L2 vibe.
+     `.entity-tile`'s quiet surface + hairline border vocabulary, but as a
+     presentation container (not a clickable button) since the tile embeds
+     its own controls (attach toggle, Refresh, Expand).
      Layout: column-flex full-width tiles separated by gap. */
   .area-studio .mcp-sources-list {
     display: flex;
@@ -401,13 +408,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     position: relative;
   }
   /* Row 1 — toggle, name, protocol badge, Refresh. Refresh sits at the far
@@ -505,10 +508,10 @@
 
   /* === Agent-editor Tools tab — CATEGORY TILES =============================
      Built-in tool categories (Filesystem / Execution / Web / …) render as
-     tiles echoing `.mcp-source-tile` (glass + gleam + bezel). Individual
-     tools inside the expanded body reuse the per-tool tile vocabulary the
-     MCPs tab introduced (`.mcp-tool-toggle-label` / `.mcp-tool-text` /
-     `.mcp-tool-toggle-name` / `.mcp-tool-description`). Mission 08 F4 L2. */
+     tiles echoing `.mcp-source-tile` (quiet surface + hairline border).
+     Individual tools inside the expanded body reuse the per-tool tile
+     vocabulary the MCPs tab introduced (`.mcp-tool-toggle-label` /
+     `.mcp-tool-text` / `.mcp-tool-toggle-name` / `.mcp-tool-description`). */
   .area-studio .tools-categories-list {
     display: flex;
     flex-direction: column;
@@ -520,13 +523,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     position: relative;
   }
   .area-studio .tools-category-tile-row1 {
@@ -859,11 +858,11 @@
   .area-studio .connector-routing-drag-handle:hover { color: var(--fg); }
   .area-studio .connector-routing-drag-handle:active { cursor: grabbing; }
   /* M12 F4 L1 A2: visible focus ring for the now-focusable keyboard-reorder
-     handle. Matches the studio input focus style (accent border + glow). */
+     handle. Matches the pinned focus form. */
   .area-studio .connector-routing-drag-handle:focus-visible {
     outline: 2px solid var(--accent);
+    outline-offset: 2px;
     border-radius: 3px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   .area-studio .connector-routing-drag-handle svg { width: 16px; height: 16px; display: block; }
   .area-studio .connector-routing-row.is-dragging { opacity: 0.5; }
@@ -879,50 +878,40 @@
      command-runtime dropdown. Low-emphasis tone (--fg-secondary,
      body-sm) matches the studio "informational text" idiom used by
      .mcp-tool-description / .mcp-capability-flags / .model-loading.
-     The .mcp-command-hint-row hides its label slot to keep the hint
-     left-aligned with the args chip-list above; the row inherits the
-     `.mcp-stdio-only.is-hidden` toggle the rest of the stdio rows use
-     for transport-switch visibility. */
+     M17 F5 L4: the args field migrated .field-row (100px label gutter) →
+     stacked .field-group, so the hint row dropped its empty label-slot +
+     .field-row wrapper and now aligns flush-left directly under the args
+     chip-list. A small negative top margin snugs it under the args field's
+     .field-group bottom margin. The row keeps the `.mcp-stdio-only.is-hidden`
+     toggle the rest of the stdio rows use for transport-switch visibility. */
   .area-studio .form-hint {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
     line-height: 1.4;
   }
-  .area-studio .mcp-command-hint-row label { /* empty label slot for grid alignment */ }
+  .area-studio .mcp-command-hint-row {
+    margin-top: calc(-1 * var(--space-2));
+    margin-bottom: var(--space-3);
+  }
 
-  /* === Inline field-level validation (M10 F6 L7 HAT) ============
-     Mirrors the .area-admin .field-error / .field-error-highlight
-     pattern (admin.css:355-370,448-454). Used by the connector
-     account editor to surface pre-flight validation errors adjacent
-     to the offending field row instead of dumping them in the
-     top action-cluster `.editor-error` span. Cleared by
-     clearFieldErrors() on next save attempt. */
-  .area-studio .field-row.field-error-highlight input,
-  .area-studio .field-row.field-error-highlight select,
-  .area-studio .field-row.field-error-highlight textarea {
-    border-color: var(--status-danger);
-    box-shadow: 0 0 0 1px var(--status-danger-glow);
-  }
-  .area-studio .field-row.field-error-highlight label {
-    color: var(--status-danger);
-  }
-  .area-studio .field-row .field-error {
-    display: block;
-    color: var(--status-danger);
-    font-size: var(--font-size-tiny);
-    margin: 4px 0 0 100px;  /* aligns with .admin-pf-row label gutter */
-  }
-  .area-studio .field-row .field-error[hidden] {
-    display: none;
-  }
+  /* Inline field-level validation (M10 F6 L7 HAT) — the ``.area-studio
+     .field-row .field-error`` 100px-gutter exception + the
+     ``.field-error-highlight`` border/label rules were RETIRED in M17 F5 L2.
+     connector-editor (the sole + last studio consumer) migrated its name/type
+     rows to ``.field-group``; validation now flows through the un-scoped
+     components.css ``.field-input.is-invalid`` + ``.field-error`` vocabulary
+     (setFieldError toggles ``is-invalid`` on the control, no gutter). */
 
   /* === Connector Type Badges (M10 F8 L2) ====
      Mirrors the provider-badge pattern at admin.css:158-165. Adding a new
      connector type requires a matching rule here + a --badge-<type> token
      in tokens.css (see agents.md "Connector type extension checklist"
      layer 6). */
-  .area-studio .admin-connector-badge--discord { background: var(--badge-discord); }
-  .area-studio .admin-connector-badge--unknown { background: var(--badge-unknown); }
+  /* Per-badge ink (M17 F3 L4): connector badges compose .entity-tile-badge
+     (no ink of its own) so the ink lives on the modifier — fill-tuned to
+     clear body AA in both themes (gated in test_design_tokens_a11y.py). */
+  .area-studio .admin-connector-badge--discord { background: var(--badge-discord); color: var(--badge-ink-discord); }
+  .area-studio .admin-connector-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Empty-state banner for "no connector types registered yet" (HAT) ====
      Kept after F8 L2's `register("discord", DiscordPlugin)` landing for two
@@ -946,7 +935,7 @@
   .area-studio .connector-empty-types-banner code {
     font-family: monospace;
     font-size: 0.9em;
-    background: var(--surface-elevated));
+    background: var(--surface-elevated);
     padding: 1px 4px;
     border-radius: 3px;
   }
@@ -1029,11 +1018,12 @@
     height: 16px;
   }
 
-  /* F5 L6 HAT round-7: Invite section uses the 3-column field-row
-     pattern (label | info-icon | field-content). Copy + Refresh are
-     icon-only buttons matching the connector-pairing-copy-btn shape. */
+  /* Invite section (M17 F5 L3 — stacked ``.field-group``): the label +
+     info-icon sit on one line (``.field-group-label``) above the invite
+     field. ``.connector-invite-field`` is the horizontal hint/URL row
+     below. Copy + Refresh are icon-only buttons matching the
+     connector-pairing-copy-btn shape. */
   .area-studio .connector-invite-field {
-    flex: 1;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -1064,7 +1054,7 @@
     color: var(--fg-secondary);
     background: var(--surface-elevated);
     padding: 4px 8px;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
   }
   .area-studio .connector-invite-hint {
     color: var(--fg-secondary);
@@ -1253,7 +1243,7 @@
     border-left: 2px solid var(--border);
     padding: 8px 0 8px 12px;
     background: var(--surface-elevated);
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
   }
   /* M11 F10 L5 HAT polish — drop the surface-elevated wrapper when in
      checkbox-list mode. Each `.mcp-tool-toggle-label` row already
@@ -1496,10 +1486,9 @@
 
   /* Discoverable Dropdown (M11 F3 L5) — live-data combobox shared by
      L6a's allowlist editor + L6b's routing-rules & per-agent overlay.
-     Visual posture mirrors the existing `.chip-list-editor` (admin.css
-     :388-433): glass-border, panel-radius-sm, inset bezel shadow,
-     accent-glow focus ring. Color tokens are the project's --fg /
-     --fg-secondary / --fg-muted suite (tokens.css :53-69). */
+     Visual posture mirrors the existing `.chip-list-editor` (admin.css):
+     hairline border + small radius. Color tokens are the project's
+     --fg / --fg-secondary / --fg-muted suite (tokens.css). */
   .area-studio .discoverable-dropdown,
   .discoverable-dropdown {
     display: flex;
@@ -1510,8 +1499,8 @@
   /* M11 F12 L5 fix cycle 4: chip-list-editor + input unified into a
      single container; the standalone ``.discoverable-dropdown-input-row``
      wrapper no longer exists in the DOM. The canonical
-     ``chip-list-editor`` styling (admin.css :390-448) owns the
-     container's bezel + inline-flex layout, and ``.chip-list-input``
+     ``chip-list-editor`` styling (admin.css) owns the container's
+     border + inline-flex layout, and ``.chip-list-input``
      (admin.css :437-448) owns the borderless typeahead input. The
      legacy ``.discoverable-dropdown-input`` class is preserved on the
      input element for compatibility but its visual treatment now flows
@@ -1539,9 +1528,10 @@
     max-height: 260px;
     overflow-y: auto;
     background: var(--surface);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
-    box-shadow: var(--bezel-shadow-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--space-1);
+    /* Floating surface — popover shadow (two-shadow system). */
+    box-shadow: var(--shadow-popover);
     padding: 4px 0;
   }
   .discoverable-dropdown-menu[hidden] {
@@ -1553,12 +1543,16 @@
   .discoverable-dropdown-group[hidden] {
     display: none;
   }
+  /* M17 F5 L3: quieted to the vocabulary label style — dropped the alien
+     mono / uppercase / letter-spacing treatment (the sole remaining alien
+     remnant in the on-vocabulary discoverable-dropdown). Now a plain,
+     muted small caption in the body font. The WAI-listbox keyboard a11y
+     (combobox/listbox roles, aria-activedescendant, arrow/enter/escape
+     handlers) is untouched — it lives entirely in discoverable-dropdown.js. */
   .discoverable-dropdown-group-header {
     padding: 4px 10px 2px;
-    font-family: var(--font-family-mono);
     font-size: var(--font-size-tiny);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-weight: var(--font-weight-medium);
     color: var(--fg-muted);
   }
   .discoverable-dropdown-item {
@@ -1616,16 +1610,13 @@
     opacity: 0.6;
   }
 
-  /* === M11 F5 L6 HAT round-2: Discord Runtime Config rows ===========
-     All four rows (Intents, Scope to servers, Bot status, Additional
-     Config) use the canonical 2-column ``.field-row.admin-pf-row``
-     layout (label cell on the left, content on the right). The right-
-     side content wrappers below fill the remaining column width and
-     stack their controls per row's needs. The pre-round-2 ``fieldset``
-     and ``details`` shapes are removed; no orphan CSS rules to clean
-     up (none existed for ``.discord-intents-fieldset`` /
-     ``.discord-advanced-kv-disclosure`` etc. — both shapes relied on
-     UA defaults pre-round-2). */
+  /* === Discord Runtime Config rows ==================================
+     M17 F5 L3: migrated from the M11-era 2-column ``.field-row.admin-pf-row``
+     (label-left, 100px gutter) to the stacked ``.field-group`` vocabulary
+     (label above control) so the Discord form matches the re-skinned
+     connector editor. The content-wrapper rules below (``.discord-presence-fields``
+     the select+name compound) stay — they lay out controls WITHIN a
+     field-group's stacked control slot. */
 
   /* Intents row: checkbox list stacks vertically in the right column. */
   .area-studio .discord-intents-checkbox-list {
@@ -1649,7 +1640,6 @@
      sized to its content, input filling the remaining space so the
      pair reads as a "[verb] [name]" sentence. */
   .area-studio .discord-presence-fields {
-    flex: 1;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1662,28 +1652,15 @@
     flex: 1;
   }
 
-  /* Additional Config row: the "Additional Config" pseudo-label mimics
-     ``.field-row label``'s typography (sentence-case, secondary fg,
-     fixed 100px gutter width) so the row aligns with the other 2-col
-     rows. The body fills the remaining column. */
+  /* Additional Config row (F5 L3 — stacked ``.field-group``): the
+     "Additional Config" pseudo-label sits ABOVE the kv-table body and
+     mirrors ``.field-group > label`` typography (body-sm, medium weight,
+     secondary fg). It's a ``<div>`` — the kv-table has many key/value
+     inputs, so there is no single control to bind a ``<label for>`` to. */
   .area-studio .discord-additional-config-label {
-    width: 100px;
     font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
     color: var(--fg-secondary);
-    flex-shrink: 0;
-    /* Align to the kv-table's first-row top edge — the kv-table is
-       a vertical stack of rows; without this the pseudo-label
-       center-aligns to the middle of the whole table block, which
-       reads oddly. ``.field-row``'s ``align-items: center`` is the
-       default; pull alignment to the top here. */
-    align-self: flex-start;
-    padding-top: 8px;
-  }
-  .area-studio .discord-additional-config-row {
-    /* Override the default ``align-items: center`` so the pseudo-label
-       and the kv-table top-align cleanly (the table is taller than
-       a single input row). */
-    align-items: flex-start;
   }
   .area-studio .discord-additional-config-body {
     flex: 1;

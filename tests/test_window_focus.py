@@ -21,7 +21,15 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
 from starlette.testclient import TestClient
+
+# ``with TestClient(app)`` (endpoint tests below) drives the REAL lifespan to
+# shutdown, which latches ``_shutting_down = True`` in the PTY session
+# registry, MCP pool, and connector pool. Reset those process-globals after
+# each test so later modules don't inherit the latch (M17 F1 L4
+# ordering-flake fix; fixture lives in tests/conftest.py).
+pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
 # ── focus_window() unit tests ─────────────────────────────────────────────────
 

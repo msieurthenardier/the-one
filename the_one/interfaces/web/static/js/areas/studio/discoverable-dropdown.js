@@ -163,7 +163,7 @@
     // canonical ``chip-list-editor`` pattern (tools-form-helpers.js
     // :285-303) used by built-in tool Path Allowlist / Path Denylist.
     // The wrapping element carries BOTH the ``chip-list-editor``
-    // class (so admin.css's inline-flex layout + bezel styling apply)
+    // class (so admin.css's inline-flex layout + border styling apply)
     // AND the legacy ``discoverable-dropdown-input-row`` class (kept
     // for any consumer-side CSS that still scopes to it). The input
     // carries BOTH the ``discoverable-dropdown-input`` class (existing

@@ -20,6 +20,81 @@ set -euo pipefail
 
 TEST_TIMEOUT="${TEST_TIMEOUT:-1200}"
 
+# --- Per-area browser test lanes (F5) --------------------------------------
+# `--lane {chat|studio|system|shared}` runs just one area's slice of the
+# browser suite so a verification pass need not pay the full ~13min tax.
+# chat/studio/system are basename-glob buckets over tests/browser/; `shared`
+# is the COMPLEMENT (every browser test file not claimed by the other three),
+# so the four lanes' union is always exactly the whole browser suite and no
+# test file can be orphaned — a newly-added test file lands in `shared` until
+# it is assigned an area glob. Implemented hand-rolled (no new deps): the lane
+# expands to `-m browser <files…>`, mirroring `make test-browser` semantics.
+# See CLAUDE.md "Per-area browser test lanes" for usage.
+lane=""
+pytest_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --lane) lane="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
+    --lane=*) lane="${1#--lane=}"; shift ;;
+    *) pytest_args+=("$1"); shift ;;
+  esac
+done
+
+if [[ -n "$lane" ]]; then
+  browser_dir="tests/browser"
+  shopt -s nullglob
+
+  # Expand basename glob patterns ($@) into existing file paths under browser_dir.
+  expand_lane() {
+    local p f
+    for p in "$@"; do
+      for f in "$browser_dir/"$p; do
+        [[ -e "$f" ]] && printf '%s\n' "$f"
+      done
+    done
+  }
+
+  # Area lane globs. Files are cleanly area-prefixed; patterns stay single-
+  # quoted so the '*' survives array storage and expands only in expand_lane.
+  chat_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py' \
+            'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
+            'test_flow_usage_restore.py')
+  studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_connector_*' 'test_mcp_*' \
+              'test_flow_agent_*' 'test_flow_connector_*')
+  system_pat=('test_flow_admin_*' 'test_flow_provider_*')
+
+  lane_files=()
+  case "$lane" in
+    chat)   mapfile -t lane_files < <(expand_lane "${chat_pat[@]}"   | sort -u) ;;
+    studio) mapfile -t lane_files < <(expand_lane "${studio_pat[@]}" | sort -u) ;;
+    system) mapfile -t lane_files < <(expand_lane "${system_pat[@]}" | sort -u) ;;
+    shared)
+      # Complement: all browser test files, minus the three area lanes and the
+      # pixel-only snapshot file (which carries no @pytest.mark.browser tests).
+      mapfile -t _assigned < <(
+        expand_lane "${chat_pat[@]}" "${studio_pat[@]}" "${system_pat[@]}" \
+                    'test_visual_snapshots.py' | sort -u)
+      mapfile -t _all < <(for f in "$browser_dir/"test_*.py; do printf '%s\n' "$f"; done | sort -u)
+      mapfile -t lane_files < <(comm -23 \
+        <(printf '%s\n' "${_all[@]}") <(printf '%s\n' "${_assigned[@]}"))
+      ;;
+    *)
+      echo "run-tests.sh: unknown lane '$lane' (want: chat|studio|system|shared)" >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ ${#lane_files[@]} -eq 0 ]]; then
+    echo "run-tests.sh: lane '$lane' matched no test files" >&2
+    exit 2
+  fi
+
+  echo "run-tests.sh: lane '$lane' — ${#lane_files[@]} browser test file(s)" >&2
+  set -- -m browser "${lane_files[@]}" "${pytest_args[@]}"
+else
+  set -- "${pytest_args[@]}"
+fi
+
 pgid=""
 watchdog=""
 timed_out=0

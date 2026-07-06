@@ -1,9 +1,18 @@
 # Behavior Test: Studio Smoke
 
 **Slug**: `studio-smoke`
-**Status**: draft
+**Status**: archived
 **Created**: 2026-05-26
 **Last Run**: never
+
+> **Archived (2026-07-05, Flight 05 Studio Re-skin, Leg 06).** Superseded by
+> [`studio-agent-crud`](./studio-agent-crud.md) as the SC7 studio behavior gate. This
+> draft was never run and is stale in every apparatus dimension: it targets the retired
+> port `8484` (the mission dev instance is now `8485`), the retired goldfinch-only
+> apparatus assumptions, and the gone "Discord Constellation" connector fixture. Retiring
+> it loses no regression coverage — `studio-agent-crud` covers a real create/edit/delete
+> flow and `connector-editor-keyboard-a11y` covers the connector-editor a11y surface. Kept
+> for history; not deleted.
 
 ## Intent
 
@@ -11,12 +20,12 @@ Smoke test for the Studio web UI. Verifies that the application loads, that core
 
 ## Preconditions
 
-- the-one is running host-native on `http://localhost:8484` (verified by an active probe: the operator opens the URL in the browser and sees the Studio render).
-- Operator has the Chrome MCP browser session attached to that URL.
+- the-one is running host-native on `http://127.0.0.1:8484` (verified by an active probe: the operator opens the URL in the browser and sees the Studio render).
+- Operator has the goldfinch MCP browser session attached to that URL.
 
 ## Observables Required
 
-- browser (DOM and rendered text in the Studio UI, measured via chrome-devtools MCP)
+- browser (DOM and rendered text in the Studio UI, measured via goldfinch MCP)
 
 ## Steps
 

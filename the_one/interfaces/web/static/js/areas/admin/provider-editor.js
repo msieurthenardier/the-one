@@ -122,14 +122,15 @@
     var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(type)) || { base_url: '', showBaseUrl: false, showApiKey: false };
 
     var html = '';
-    // Name
-    html += '<div class="field-row admin-pf-row">';
+    // Name — stacked `.field-group` (label above control), M17 F6 L1 migration
+    // from the label-left `.field-row admin-pf-row` layout.
+    html += '<div class="field-group">';
     html += '<label for="pf-name">Name</label>';
     html += '<input class="field-input admin-pf-input" id="pf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : provider.name) + '" placeholder="My Provider" />';
     html += '</div>';
 
     // Type
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="field-group">';
     html += '<label for="pf-type">Type</label>';
     html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-type" data-field="type">';
     if (isCreate) html += '<option value="" disabled selected>Select a provider…</option>';
@@ -142,14 +143,14 @@
 
     // Base URL
     var baseUrlValue = isCreate ? defaults.base_url : provider.base_url;
-    html += '<div class="field-row admin-pf-row admin-pf-base-url' + (defaults.showBaseUrl ? '' : ' is-hidden') + '">';
+    html += '<div class="field-group admin-pf-base-url' + (defaults.showBaseUrl ? '' : ' is-hidden') + '">';
     html += '<label for="pf-base-url">Base URL</label>';
     html += '<input class="field-input admin-pf-input" id="pf-base-url" data-field="base_url" value="' + escapeAttr(baseUrlValue || '') + '" placeholder="https://..." />';
     html += '</div>';
 
     // API Key (canonical .api-key-wrap + .api-key-eye)
     var apiKeyValue = isCreate ? '' : (provider.api_key || '');
-    html += '<div class="field-row admin-pf-row admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">';
+    html += '<div class="field-group admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">';
     html += '<label for="pf-api-key">API Key</label>';
     html += '<div class="api-key-wrap">';
     html += '<input class="field-input admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />';
@@ -163,18 +164,25 @@
     // with the default window (DEFAULT_NUM_CTX, mirrors _DEFAULT_NUM_CTX in
     // ollama_provider.py) for new providers, or the provider's stored value when
     // editing one that has it. Description is a tooltip on a focusable info-icon
-    // button (label | input | ⓘ + visually-hidden desc), mirroring the
-    // field-info-icon pattern in tools-form-helpers.js for consistent a11y.
+    // button. M17 F6 L1: migrated to the stacked `.field-group` + shared
+    // `.field-group-label` vocabulary — label + info-icon sit on one line ABOVE
+    // the control (the `.field-group-label` primitive keeps the <button> a
+    // SIBLING of the <label>, never nested). The `.admin-pf-num-ctx` marker
+    // class is preserved so the type-driven show/hide (wireEditorEvents) keeps
+    // working; the info-icon stays a descendant of that row so the a11y wiring
+    // (`aria-describedby` → `#pf-num-ctx-desc`) is unchanged.
     var DEFAULT_NUM_CTX = 32768;
     var numCtx = (!isCreate && provider.config && provider.config.num_ctx != null) ? provider.config.num_ctx : DEFAULT_NUM_CTX;
     var numCtxDesc = 'A larger window allows longer conversations but will slow down on partial-GPU setups because fewer layers fit in VRAM';
     var numCtxIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
     if (!numCtxIcon) numCtxIcon = 'ⓘ';
-    html += '<div class="field-row admin-pf-row admin-pf-num-ctx' + (defaults.showNumCtx ? '' : ' is-hidden') + '">';
+    html += '<div class="field-group admin-pf-num-ctx' + (defaults.showNumCtx ? '' : ' is-hidden') + '">';
+    html += '<div class="field-group-label">';
     html += '<label for="pf-num-ctx">Context Window</label>';
-    html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" required data-field="config.num_ctx" aria-describedby="pf-num-ctx-desc" value="' + escapeAttr(String(numCtx)) + '" />';
     html += '<button type="button" class="field-info-icon" title="' + escapeAttr(numCtxDesc) + '" aria-describedby="pf-num-ctx-desc">' + numCtxIcon + '</button>';
+    html += '</div>';
     html += '<span id="pf-num-ctx-desc" class="visually-hidden">' + escapeHtml(numCtxDesc) + '</span>';
+    html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" required data-field="config.num_ctx" aria-describedby="pf-num-ctx-desc" value="' + escapeAttr(String(numCtx)) + '" />';
     html += '</div>';
 
     // Extended thinking (config.thinking_enabled) — Anthropic-only on/off toggle
@@ -197,6 +205,13 @@
     var teDesc = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
     var teIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
     if (!teIcon) teIcon = 'ⓘ';
+    // M17 F6 L1 DOCUMENTED LABEL-LEFT EXCEPTION: the text fields above migrated
+    // to the stacked `.field-group` vocabulary, but the Extended-thinking toggle
+    // stays on the label-left `.field-row` layout (`label | ⓘ | switch` on one
+    // row). Stacking a single iOS-style toggle under its own label reads worse
+    // than the compact label-left form (the F5 chrome-row precedent). The
+    // `.admin-pf-thinking-enabled` marker class is preserved for the type-driven
+    // show/hide.
     html += '<div class="field-row admin-pf-row admin-pf-thinking-enabled' + (defaults.showThinkingEnabled ? '' : ' is-hidden') + '">';
     html += '<label for="pf-thinking-enabled">Extended thinking</label>';
     html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-describedby="pf-thinking-enabled-desc">' + teIcon + '</button>';
@@ -370,6 +385,21 @@
             // snapshot reset below only matters for the edit→edit case
             // where the editor stays mounted.
             if (isEdit) {
+              // Re-render the WHOLE display-only header text block (title +
+              // subtitle) from the freshly saved provider. On edit→edit the
+              // editor stays mounted and nothing else refreshes the header,
+              // so an edited Name / Base URL / Type would otherwise leave the
+              // H1 and the `type · base_url` subtitle stale. These nodes carry
+              // no data-field, so getFormSnapshot / dirty tracking are
+              // unaffected — textContent-only writes.
+              var titleEl = container.querySelector('.editor-title');
+              if (titleEl) titleEl.textContent = updated.name || '';
+              var subtitleEl = container.querySelector('.editor-subtitle');
+              if (subtitleEl) {
+                var subtitleParts = [updated.type];
+                if (updated.base_url) subtitleParts.push(updated.base_url);
+                subtitleEl.textContent = subtitleParts.join(' · ');
+              }
               snapshot = getFormSnapshot(container);
               dirty = false;
               checkDirty();

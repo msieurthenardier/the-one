@@ -862,9 +862,165 @@ def test_markdown_copy_button(page_with_app: Page) -> None:
         }"""
     )
     btn = page_with_app.locator("#md-test-host .markdown-copy-btn")
-    # force=True bypasses the opacity-0 default (button is visible-on-hover).
+    # M17 F4 L03: the copy button is now always-visible-but-quiet (resting
+    # opacity 0.6, no hover-reveal-only). force=True is retained as a harmless
+    # belt-and-braces against any transitional opacity during the click.
     btn.click(force=True)
     flash = page_with_app.locator(".app-flash").filter(has_text="Copied!")
     flash.wait_for(state="visible", timeout=2000)
     clipboard_text = page_with_app.evaluate("() => navigator.clipboard.readText()")
     assert clipboard_text == "console.log(1);\n"
+
+
+# ── XSS regression suite (M17 F4 L1) ──────────────────────────────────────────
+#
+# The markdown pipeline's XSS guarantee is STRUCTURAL: render() builds DOM via
+# createElement/createTextNode/setAttribute only — never an HTML-string sink —
+# and every link href passes the fail-closed safeHref allow-list. The cases
+# below are future-proofing TRIPWIRES: the payload classes are impossible to
+# execute today (untrusted markup reaches only textContent), but each fires the
+# instant an inner-HTML seam is reintroduced. Same parametrized page.evaluate
+# pattern as the corpus above; the no-inner-HTML static invariant lives in
+# tests/test_ui_guards.py::test_markdown_no_html_string_invariant.
+
+
+# Active-content payloads AS markdown body — must render as INERT TEXT (no live
+# script/iframe/img/svg element; the literal survives in textContent).
+XSS_BODY_PAYLOADS: list[str] = [
+    "<script>alert(1)</script>",  # script injection
+    "<img src=x onerror=alert(1)>",  # onerror event handler
+    '<iframe src="javascript:alert(1)"></iframe>',  # framed javascript:
+    "<svg onload=alert(1)>",  # svg-onload
+    # mXSS-style: a namespace/parse-differential payload that only detonates if
+    # the string is round-tripped through an innerHTML sink.
+    '<noscript><p title="</noscript><img src=x onerror=alert(1)>">',
+]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("payload", XSS_BODY_PAYLOADS)
+def test_markdown_xss_body_is_inert_text(page_with_app: Page, payload: str) -> None:
+    """Active-content markup in the markdown BODY renders as inert text — no
+    live ``script``/``iframe``/``img``/``svg`` element is created, and the
+    payload's ``alert(1)`` token survives verbatim in ``textContent``."""
+    result = page_with_app.evaluate(
+        """(src) => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(src));
+            return {
+                hasActiveEl: host.querySelector('script, iframe, img, svg') !== null,
+                text: host.textContent,
+            };
+        }""",
+        payload,
+    )
+    assert result["hasActiveEl"] is False, f"payload produced a live element: {payload!r}"
+    assert "alert(1)" in result["text"], f"payload text was mangled: {payload!r}"
+
+
+# safeHref boundary: (source, expected_href). Obfuscated dangerous schemes and
+# protocol-relative URLs -> '#'; valid schemes / root-relative / fragment pass
+# through unchanged. Every rendered link carries rel="noopener noreferrer".
+SAFEHREF_BOUNDARY_CASES: list[tuple[str, str]] = [
+    # --- obfuscated / dangerous -> '#' ---
+    ("[x]( javascript:alert(1))", "#"),  # leading space
+    ("[x](\tjavascript:alert(1))", "#"),  # leading tab
+    ("[x](\njavascript:alert(1))", "#"),  # leading newline
+    ("[x](JAVASCRIPT:alert(1))", "#"),  # upper-case scheme
+    ("[x](JaVaScRiPt:alert(1))", "#"),  # mixed-case scheme
+    ("[x](java\tscript:alert(1))", "#"),  # control char inside scheme
+    ("[x](vbscript:msgbox(1))", "#"),  # vbscript:
+    ("[x](VBScript:msgbox(1))", "#"),  # vbscript: mixed case
+    ("[x](data:text/html,foo)", "#"),  # data:
+    ("[x](file:///etc/passwd)", "#"),  # file:
+    ("[x](//evil.com/path)", "#"),  # protocol-relative (F4 hardening)
+    ("[x]( //evil.com)", "#"),  # protocol-relative w/ leading space
+    # --- valid -> pass through unchanged ---
+    ("[x](https://ok.com)", "https://ok.com"),
+    ("[x](http://ok.com)", "http://ok.com"),
+    ("[x](mailto:a@b.com)", "mailto:a@b.com"),
+    ("[x](tel:+15551234567)", "tel:+15551234567"),
+    ("[x](/rel/path)", "/rel/path"),  # root-relative (single slash) is safe
+    ("[x](#frag)", "#frag"),
+]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("source, expected_href", SAFEHREF_BOUNDARY_CASES)
+def test_markdown_safehref_boundary(page_with_app: Page, source: str, expected_href: str) -> None:
+    """safeHref boundary: obfuscated/dangerous/protocol-relative hrefs collapse
+    to ``#``; valid schemes pass through; every link is ``rel="noopener
+    noreferrer"``."""
+    result = page_with_app.evaluate(
+        """(src) => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(src));
+            const a = host.querySelector('a');
+            return a ? { href: a.getAttribute('href'), rel: a.getAttribute('rel') } : null;
+        }""",
+        source,
+    )
+    assert result is not None, f"no <a> rendered for {source!r}"
+    assert result["href"] == expected_href, f"href mismatch for {source!r}"
+    assert result["rel"] == "noopener noreferrer"
+
+
+@pytest.mark.browser
+def test_markdown_codefence_lang_is_class_attr_only(page_with_app: Page) -> None:
+    """A code-fence language tag carrying an attribute-injection payload lands
+    ONLY as the ``<code>`` class value (via setAttribute — no HTML parse), never
+    as a real event-handler attribute or a new element."""
+    source = '```js" onmouseover="alert(1)\ncode line\n```'
+    result = page_with_app.evaluate(
+        """(src) => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(src));
+            const code = host.querySelector('pre code');
+            return {
+                attrNames: Array.from(code.attributes).map((a) => a.name),
+                cls: code.getAttribute('class'),
+                onmouseover: code.getAttribute('onmouseover'),
+            };
+        }""",
+        source,
+    )
+    # The injection is trapped inside the single class value; setAttribute does
+    # not parse it into a second attribute.
+    assert result["attrNames"] == ["class"]
+    assert result["onmouseover"] is None
+    assert result["cls"] == 'language-js" onmouseover="alert(1)'
+
+
+# Streaming-boundary prefixes: what commitSafeBoundary() feeds to
+# App.markdown.render() for a committed prefix mid-stream. A half-written
+# javascript: link — sliced at ANY boundary — must never emit a live unsafe
+# href: malformed links fall back to literal text; complete ones pass through
+# safeHref. (findSafeRenderBoundary only chooses WHERE to cut; whatever prefix
+# is committed still goes through render()'s safeHref chokepoint.)
+STREAMING_BOUNDARY_PREFIXES: list[str] = [
+    "[x](javascript:",  # link opener, no closing paren -> literal text
+    "[x](javascript:alert(1)",  # unbalanced paren -> literal text
+    "[x](javascript:alert(1))",  # complete -> safeHref strips to '#'
+    "before\n\n[x](javascript:alert(1))",  # committed after a blank-line boundary
+    "[x](java\nscript:alert(1))",  # scheme split across a stream chunk
+]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("prefix", STREAMING_BOUNDARY_PREFIXES)
+def test_markdown_streaming_boundary_no_live_unsafe_href(page_with_app: Page, prefix: str) -> None:
+    """No committed streaming prefix — however sliced — emits an anchor whose
+    href is a live ``javascript:``/``data:``/``vbscript:`` scheme."""
+    hrefs = page_with_app.evaluate(
+        """(src) => {
+            const host = document.createElement('div');
+            host.appendChild(App.markdown.render(src));
+            return Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+        }""",
+        prefix,
+    )
+    for href in hrefs:
+        collapsed = href.strip().lower()
+        assert not collapsed.startswith(("javascript:", "data:", "vbscript:")), (
+            f"live unsafe href {href!r} emitted for streaming prefix {prefix!r}"
+        )

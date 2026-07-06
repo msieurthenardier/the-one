@@ -214,9 +214,7 @@ async def test_real_anthropic_streaming_thinking_premise() -> None:
 
     Deselected by default (``live`` marker); NOT run autonomously in Leg 02.
     """
-    provider = AnthropicProvider(
-        model=_THINKING_MODEL, config={"thinking_enabled": True}
-    )
+    provider = AnthropicProvider(model=_THINKING_MODEL, config={"thinking_enabled": True})
     try:
         streamed = ""
         final_msg = None

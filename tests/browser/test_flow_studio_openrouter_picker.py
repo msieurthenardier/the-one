@@ -41,7 +41,7 @@ def test_studio_openrouter_picker_renders_select(
     provider_id = app_with_openrouter_models.provider_id
 
     page.goto(f"{base_url}#studio")
-    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
     page.locator("#studio-provider").select_option(provider_id)
@@ -70,7 +70,7 @@ def test_studio_openrouter_no_tools_chip(
     provider_id = app_with_openrouter_models.provider_id
 
     page.goto(f"{base_url}#studio")
-    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
     page.locator("#studio-provider").select_option(provider_id)
@@ -93,7 +93,7 @@ def test_studio_openrouter_tools_model_no_no_tools_chip(
     provider_id = app_with_openrouter_models.provider_id
 
     page.goto(f"{base_url}#studio")
-    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
     page.locator("#studio-provider").select_option(provider_id)
@@ -115,7 +115,7 @@ def test_studio_openrouter_empty_caps_no_chip(
     provider_id = app_with_openrouter_models.provider_id
 
     page.goto(f"{base_url}#studio")
-    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
     page.locator("#studio-provider").select_option(provider_id)
@@ -140,9 +140,9 @@ def test_studio_picker_singleton_on_type_switch(
 
     page.goto(f"{base_url}#studio")
     expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
-    empty_btn = page.locator('[data-testid="new-agent-btn-empty"]')
-    expect(empty_btn).to_be_visible(timeout=5000)
-    empty_btn.click()
+    create_btn = page.locator('[data-testid="new-agent-btn"]')
+    expect(create_btn).to_be_visible(timeout=5000)
+    create_btn.click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
     for prov_id in (ollama_id, openrouter_id, ollama_id, openrouter_id):
@@ -182,7 +182,7 @@ def test_rapid_provider_switch_uses_final_selection(
 
     page.goto(f"{base_url}#studio")
     expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
-    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
     # Step 1: select openrouter (slow fetch in flight).
@@ -242,7 +242,7 @@ def test_picker_preserves_value_across_type_switch_as_custom(
 
     page.goto(f"{base_url}#studio")
     expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
-    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
     # Step 1: pick an openrouter model.

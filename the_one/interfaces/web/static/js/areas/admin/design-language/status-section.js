@@ -13,6 +13,36 @@
   // to claim vertical space.
   function render(host) {
     host.innerHTML =
+      // --- badges (provider / tool category / connector) ---
+      //     Per-badge ink (M17 F3 L4): each badge×ink pair clears body AA in
+      //     both themes. Provider + tool badges use their real .area-admin
+      //     classes (the gallery renders inside .area-admin). The connector
+      //     badge is .area-studio-scoped, so discord is shown via the shared
+      //     provider-badge base with inline fill/ink tokens for reference.
+      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
+        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">provider badges</span>' +
+        '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">' +
+          '<span class="admin-provider-badge admin-provider-badge--ollama">ollama</span>' +
+          '<span class="admin-provider-badge admin-provider-badge--openai-compatible">openai-compatible</span>' +
+          '<span class="admin-provider-badge admin-provider-badge--openai">openai</span>' +
+          '<span class="admin-provider-badge admin-provider-badge--anthropic">anthropic</span>' +
+          '<span class="admin-provider-badge admin-provider-badge--openrouter">openrouter</span>' +
+          '<span class="admin-provider-badge admin-provider-badge--mock">mock</span>' +
+          '<span class="admin-provider-badge admin-provider-badge--unknown">unknown</span>' +
+        '</div>' +
+        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">tool category badges</span>' +
+        '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">' +
+          '<span class="admin-tool-badge admin-tool-badge--filesystem">filesystem</span>' +
+          '<span class="admin-tool-badge admin-tool-badge--execution">execution</span>' +
+          '<span class="admin-tool-badge admin-tool-badge--web">web</span>' +
+          '<span class="admin-tool-badge admin-tool-badge--unknown">unknown</span>' +
+        '</div>' +
+        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">connector badge (studio-scoped; shown for reference)</span>' +
+        '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">' +
+          '<span class="admin-provider-badge" style="background: var(--badge-discord); color: var(--badge-ink-discord);">discord</span>' +
+        '</div>' +
+      '</div>' +
+
       // --- LED indicator primitive ---
       '<div style="display: flex; flex-direction: column; gap: 4px;">' +
         '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">indicator-led (canonical primitive)</span>' +
@@ -29,12 +59,12 @@
       '<div style="display: flex; flex-direction: column; gap: 4px;">' +
         '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">telemetry-strip (gallery sample)</span>' +
         '<div class="telemetry-strip">' +
-          '<div class="section-title">SYSTEM</div>' +
-          '<div class="telemetry-value"><span class="indicator-led indicator-led--success" aria-hidden="true"></span><span>ONLINE</span></div>' +
+          '<div class="section-title">System</div>' +
+          '<div class="telemetry-value"><span class="indicator-led indicator-led--success" aria-hidden="true"></span><span>Online</span></div>' +
         '</div>' +
         '<div class="telemetry-strip">' +
-          '<div class="section-title">AGENTS</div>' +
-          '<div class="telemetry-value">3 ACTIVE</div>' +
+          '<div class="section-title">Agents</div>' +
+          '<div class="telemetry-value">3 active</div>' +
         '</div>' +
         '<div class="telemetry-strip">' +
           '<div class="section-title">MCP</div>' +
@@ -81,21 +111,24 @@
       '</div>' +
 
       // --- empty-state ---
+      //     (--panel-radius-sm alias retired in L1; boxed with --radius-sm.)
       '<div style="display: flex; flex-direction: column; gap: 8px;">' +
         '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">empty-state</span>' +
-        '<div style="border: 1px dashed var(--border); border-radius: var(--panel-radius-sm);">' +
+        '<div style="border: 1px dashed var(--border); border-radius: var(--radius-sm);">' +
           '<div class="empty-state">Nothing here yet.</div>' +
         '</div>' +
       '</div>' +
 
-      // --- empty-canvas — fixed-height flex parent required ---
+      // --- empty-canvas — one-line statement + one primary action (the
+      //     vocabulary empty-state, M17 F3 L4). Fixed-height flex parent
+      //     required so the primitive's flex:1 claims vertical space. ---
       '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">empty-canvas (boxed)</span>' +
-        '<div style="height: 200px; display: flex; flex-direction: column; border: 1px dashed var(--border); border-radius: var(--panel-radius-sm);">' +
+        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">empty-canvas (statement + primary action)</span>' +
+        '<div style="height: 220px; display: flex; flex-direction: column; border: 1px dashed var(--border); border-radius: var(--radius-sm);">' +
           '<div class="empty-canvas">' +
             '<div class="empty-canvas-inner">' +
-              '<div style="font-size: var(--font-size-body-lg); margin-bottom: 8px;">No items yet</div>' +
-              '<div style="color: var(--fg-muted); font-size: var(--font-size-body-sm);">Sample empty-canvas CTA copy goes here.</div>' +
+              '<div>No items yet — create your first one to get started.</div>' +
+              '<button type="button" class="btn-outlined-primary empty-canvas-cta">Create item</button>' +
             '</div>' +
           '</div>' +
         '</div>' +

@@ -91,7 +91,7 @@ When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes availa
 **Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`):
 
 - `"response"` — scripted reply text (default: `"Mock response from the mock provider."`)
-- `"stream_chunks"` — number of streaming chunks to split the response into (default: non-streaming)
+- `"stream_chunks"` — a LIST of strings; when set (non-empty), `stream()` yields each list element as one streaming chunk in order. When unset/empty, the provider is non-streaming (default). (Not a chunk *count* — the values are the literal chunk texts, e.g. `["Hello, ", "world", "!"]`.)
 - `"input_tokens"` — `input_tokens` value emitted in `TokenUsage` for each turn (default: `0`). Set to a positive integer in tests that exercise the telemetry overlay or the `last_usage` persistence path (M10 F06); the default preserves all existing test expectations.
 
 - Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off
@@ -175,7 +175,7 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 
 **The test suite runs host-native — no Docker.** (Mission 15 Flight 01 retired the `docker exec` test flow.) Canonical command for non-interactive runs: `make test` (or `make test-unit` / `make test-bwrap` / `make test-browser`), which routes through `scripts/run-tests.sh` and uses the repo `.venv` when present (else `python3`). For ad-hoc single-file/single-test runs, `python -m pytest tests/...` against the project venv is fine.
 
-**Browser tests MUST go through `scripts/run-tests.sh` (i.e. `make test-browser`), never bare `python -m pytest -m browser`.** Browser tests spawn a per-test uvicorn subprocess plus a Playwright node driver + Chromium. Bare `python -m pytest` does NOT group-kill that subtree on interruption — the uvicorn/Chromium children orphan (re-parent to init) and peg a CPU core indefinitely, and the leaked load then starves *other* tests into timeout-failures that look like flakiness. `run-tests.sh` puts pytest in its own process group and SIGKILLs the whole group on exit or at `TEST_TIMEOUT` (default 1200s), so nothing orphans. Set a tighter `TEST_TIMEOUT` for small slices. (Inside CI this matters less — Concourse task containers are ephemeral and torn down after each build, so `ci/tasks/*.yml` call `python -m pytest` directly with `--timeout`. The GitHub Actions `test.yml` is now a `workflow_dispatch`-only break-glass fallback — see `ci/README.md`.)
+**Browser tests MUST go through `scripts/run-tests.sh` (i.e. `make test-browser`), never bare `python -m pytest -m browser`.** Browser tests spawn a per-test uvicorn subprocess plus a Playwright node driver + Chromium. Bare `python -m pytest` does NOT group-kill that subtree on interruption — the uvicorn/Chromium children orphan (re-parent to init) and peg a CPU core indefinitely, and the leaked load then starves *other* tests into timeout-failures that look like flakiness. `run-tests.sh` puts pytest in its own process group and SIGKILLs the whole group on exit or at `TEST_TIMEOUT` (default 1200s), so nothing orphans. Set a tighter `TEST_TIMEOUT` for small slices. For FULL `make test-browser` runs set `TEST_TIMEOUT=3600` — the default 1200s is tighter than the ~12.5min suite runtime plus load overhead and will kill a healthy run. (Inside CI this matters less — Concourse task containers are ephemeral and torn down after each build, so `ci/tasks/*.yml` call `python -m pytest` directly with `--timeout`. The GitHub Actions `test.yml` is now a `workflow_dispatch`-only break-glass fallback — see `ci/README.md`.)
 
 **Always pair pytest with `-x`** for autonomous runs unless you specifically want to see full failure surface — pytest-asyncio's per-test loop teardown can hang if a test leaves orphaned state on a torn-down loop, and `-x` exits on first failure before that hang surfaces. Without `-x`, a single broken test can wedge the suite indefinitely.
 
@@ -197,6 +197,8 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 - **`@pytest.mark.live`** decorator marks AIAT tests — all live in `tests/test_aiat.py`
 - Run live tests: `pytest -m live tests/test_aiat.py`
 
+> **Reviewers/verifiers: the canonical unit gate is `make test-unit`, NEVER `-m live`.** The `-m live` AIAT lane defaults `THE_ONE_TEST_URL` to `http://localhost:8484` — the operator's PROD app (`the-one-app.exe` / `make up`). Running `-m live` as an acceptance/verification step points the suite at that live prod instance (mutating it, and reporting *its* state — not the branch's). `make test-unit` (`-m 'not browser and not live and not pixel'`) is self-contained and the only correct box-checking gate; use the browser lanes (`scripts/run-tests.sh --lane …`) for UI verification and a dedicated dev instance (e.g. port 8485) for any live/manual checks — never 8484.
+
 **Browser tests** are end-to-end browser-driven tests using Playwright. They are excluded from default runs via `addopts = "-m 'not live and not browser'"` in `pyproject.toml`.
 
 - **`@pytest.mark.browser`** marks browser tests — all live in `tests/browser/`
@@ -204,6 +206,26 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 - Each test spawns its own app subprocess on a random port with an isolated `tmp_path` data_dir; teardown via SIGTERM
 - Mock LLM responses are deterministic via the `mock` provider type (see below)
 - See `tests/browser/conftest.py` for fixture documentation
+
+**Per-area browser test lanes** (M17 F5). The full browser suite runs ~13min, so a verification pass that only touches one UI area shouldn't have to pay the whole tax. `scripts/run-tests.sh` accepts a `--lane {chat|studio|system|shared}` selector that runs just that area's slice:
+
+```bash
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio    # Agent Studio slice
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane chat      # Chat slice
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane system    # Admin / providers slice
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane shared    # cross-cutting slice
+# Extra pytest args pass straight through, e.g. add `-x` or `-q`:
+PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio -q
+```
+
+Each lane runs independently green under the venv python (browser tests need `discord`, which the venv has and system `python3` does not — always pass `PYTHON=.venv/bin/python`). The full suite still runs exactly as before (`make test-browser`, no `--lane`).
+
+- **`chat`** — `test_flow_chat*`, `test_flow_markdown_chat`, `test_flow_new_chat`, `test_flow_streaming`, `test_flow_context_overlay_thresholds`, `test_flow_usage_restore`
+- **`studio`** — `test_flow_studio_*`, `test_studio_*`, `test_connector_*`, `test_mcp_*`, `test_flow_agent_*`, `test_flow_connector_*`
+- **`system`** — `test_flow_admin_*`, `test_flow_provider_*`
+- **`shared`** — the **complement**: every browser test file not claimed by the three area lanes (smoke, theme sync, markdown, keyboard, hash routing, oauth modal, dirty-confirm, cross-area gate, picker, seeders, app fixture, …)
+
+Lanes are hand-rolled basename globs over `tests/browser/` — no new deps, no per-test markers. Because `shared` is defined as the complement, the four lanes' union is *always* exactly the whole browser suite and no test file can be orphaned — a newly added `tests/browser/test_*.py` lands in `shared` until it is given an area glob in `scripts/run-tests.sh`. (Union verified: the four lanes collect the same test count as `-m browser tests/browser/`.)
 
 **Test patterns** (no mock libraries):
 

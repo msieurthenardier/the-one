@@ -35,6 +35,28 @@ def _seed_anthropic_provider(
     assert r.status_code == 201, f"seed_anthropic_provider failed: {r.status_code} {r.text}"
     return r.json()["id"]
 
+
+def _seed_openai_compatible_provider(
+    base_url: str,
+    *,
+    name: str = "compat-orig",
+    provider_base_url: str = "https://orig.example.com/v1",
+) -> str:
+    """POST an openai-compatible provider (base_url + api_key both editable in
+    the UI) and return its id. Used by the H1/subtitle re-render regression
+    (F7-01): openai-compatible shows the Base URL field so a single save can
+    edit BOTH the Name (drives the H1) and the Base URL (drives the subtitle)."""
+    payload = {
+        "name": name,
+        "type": "openai-compatible",
+        "base_url": provider_base_url,
+        "api_key": "sk-compat-seedkey1234",
+    }
+    r = httpx.post(f"{base_url}/api/providers", json=payload, timeout=5.0)
+    assert r.status_code == 201, f"seed_openai_compatible_provider failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
 # ── Header / scaffold ────────────────────────────────────────────────────
 
 
@@ -56,6 +78,33 @@ def test_editor_renders_canonical_header_in_create_mode(app_clean: str, page: Pa
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     # Create mode omits the subtitle paragraph entirely.
     expect(page.locator(".editor-subtitle")).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_header_rerenders_title_and_subtitle_on_edit_save(app_clean: str, page: Page) -> None:
+    """F7-01 regression: on an edit→edit save the editor stays mounted, so the
+    display-only header (H1 + `type · base_url` subtitle) must be re-rendered
+    from the saved provider. Editing BOTH Name and Base URL and saving must
+    update the H1 AND the subtitle in place — no reload. Guards the pre-existing
+    header-desync fix (both fields are editable; a Name-only re-render would
+    leave the subtitle stale by the identical mechanism)."""
+    provider_id = _seed_openai_compatible_provider(app_clean)
+    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    expect(page.locator(".editor-title")).to_have_text("compat-orig", timeout=8000)
+    expect(page.locator(".editor-subtitle")).to_contain_text("orig.example.com")
+    # Edit both the Name (drives the H1) and the Base URL (drives the subtitle).
+    page.locator("#pf-name").fill("compat-edited")
+    page.locator("#pf-base-url").fill("https://edited.example.com/v1")
+    save_btn = page.locator(".save-btn")
+    expect(save_btn).not_to_be_disabled()
+    save_btn.click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+    # No reload: the header must reflect the saved values in place.
+    expect(page.locator(".editor-title")).to_have_text("compat-edited")
+    expect(page.locator(".editor-subtitle")).to_contain_text("edited.example.com")
+    # And the old values must be gone (catches a stale-node no-op).
+    expect(page.locator(".editor-title")).not_to_have_text("compat-orig")
+    expect(page.locator(".editor-subtitle")).not_to_contain_text("orig.example.com")
 
 
 @pytest.mark.browser
@@ -302,9 +351,7 @@ def test_thinking_toggle_hidden_for_non_anthropic(app_clean: str, page: Page) ->
     page.goto(f"{app_clean}#admin/providers/new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.locator("#pf-type").select_option("openai")
-    expect(page.locator(".admin-pf-thinking-enabled")).to_have_class(
-        re.compile(r"\bis-hidden\b")
-    )
+    expect(page.locator(".admin-pf-thinking-enabled")).to_have_class(re.compile(r"\bis-hidden\b"))
 
 
 @pytest.mark.browser
@@ -330,9 +377,7 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_thinking_toggle_flips_save_from_disabled_to_enabled(
-    app_clean: str, page: Page
-) -> None:
+def test_thinking_toggle_flips_save_from_disabled_to_enabled(app_clean: str, page: Page) -> None:
     """Toggling the checkbox on an existing (clean) anthropic provider marks
     the form dirty (Save flips from disabled → enabled). Directly guards the
     [high] checkbox-aware getFormSnapshot patch — fails loudly if the snapshot

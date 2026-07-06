@@ -135,7 +135,7 @@ App.registerArea({
       '<div id="sidebar-header">' +
         '<label class="section-title" for="chat-agent-select">Select Agent</label>' +
         '<div class="sidebar-actions">' +
-          '<select id="chat-agent-select" class="agent-select" data-testid="agent-select">' +
+          '<select id="chat-agent-select" class="agent-select field-select" data-testid="agent-select">' +
             '<option value="" disabled selected>Select agent…</option>' +
           '</select>' +
         '</div>' +
@@ -164,8 +164,8 @@ App.registerArea({
             App.icon('square-pen') + '<span>New Chat</span></button></div>' +
         '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
         '<div class="input-area">' +
-          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
-          '<button class="btn-stop-turn" data-testid="chat-stop-btn" aria-label="Stop" hidden>' +
+          '<input class="field-input" data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
+          '<button class="btn-muted-destructive" data-testid="chat-stop-btn" aria-label="Stop" hidden>' +
             '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
             'Stop</button>' +
           '<button class="btn-filled-primary" data-testid="chat-send-btn" aria-keyshortcuts="Enter">Send</button></div>' +
@@ -177,7 +177,7 @@ App.registerArea({
     var headerNewBtn = content.querySelector('.new-chat-header');
     messagesEl = content.querySelector('.messages');
     inputEl = content.querySelector('.input-area input');
-    stopBtn = content.querySelector('.input-area .btn-stop-turn');
+    stopBtn = content.querySelector('.input-area .btn-muted-destructive');
     sendBtn = content.querySelector('.input-area .btn-filled-primary');
     agentBadgeEl = content.querySelector('.session-agent-badge');
 

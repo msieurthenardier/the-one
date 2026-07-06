@@ -42,18 +42,14 @@
     overflow-y: auto;
     margin: 0;
   }
-  /* Theme toggle — segmented control composed onto the V3b design-language
-     family. Container carries bezel-mini + glass-border + accent-translucent
-     base; active option mirrors the .app-picker-button[aria-current="page"]
-     treatment (accent-translucent-hover + accent border). */
+  /* Theme toggle — quiet segmented control: accent-translucent base +
+     hairline border; active option takes the solid accent fill. */
   .area-admin .admin-theme-toggle {
     display: inline-flex;
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
+    border: 1px solid var(--border);
+    border-radius: var(--space-1);
     padding: 2px;
     background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    box-shadow: var(--bezel-shadow-mini);
   }
   .area-admin .admin-theme-option {
     background: transparent;
@@ -64,39 +60,43 @@
     font-weight: var(--font-weight-semibold);
     font-family: inherit;
     cursor: pointer;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--space-1);
     transition: background-color var(--motion-base) var(--ease-tactile), color var(--motion-base) var(--ease-tactile);
   }
   .area-admin .admin-theme-option:hover {
     background-color: var(--accent-translucent-hover);
     transition: background-color var(--motion-fast) var(--ease-tactile), color var(--motion-fast) var(--ease-tactile);
   }
-  /* Active option = solid accent fill (the filled-primary button look),
-     same family as .btn-filled-primary. No outer glow halo. */
+  /* Active option = solid accent fill, same family as .btn-filled-primary. */
   .area-admin .admin-theme-option.active {
     background-color: var(--accent);
-    background-image: var(--btn-v3-gradient);
     color: var(--fg-on-accent);
     border-color: var(--accent);
   }
   .area-admin .admin-theme-option:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
 
   /* === Provider List === */
-  .area-admin .admin-provider-badge { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  /* Quiet vocabulary (M17 F6 L1, SC1): the v2 mono + UPPERCASE + letter-spaced
+     eyebrow is retired. Because the shared `.entity-tile-badge` base
+     (components.css) still declares mono/uppercase/letter-spacing and this
+     area-scoped selector outranks it (0,2,0 > 0,1,0), quieting is an explicit
+     OVERRIDE (sans / none / normal), not a mere deletion of the three
+     declarations. Per-type ink stays on the `--badge-ink-*`-gated
+     `.admin-provider-badge--{type}` modifiers below. */
+  .area-admin .admin-provider-badge { font-family: var(--font-family-sans); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: none; letter-spacing: normal; }
   .area-admin .admin-pf-model-delete.admin-pf-model-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
 
   /* === Form-control focus rings === */
-  .area-admin .admin-pf-input:focus-visible, .area-admin .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-pf-input:focus-visible, .area-admin .admin-pf-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
   /* Focus ring for the Ollama icon-only pull-cancel button (still per-area
      since it's a special icon-only affordance). Other Ollama-lifecycle
      buttons (Pull Model, Pull, Load, Unload, Delete) now compose canonical
      .btn-outlined-primary / .btn-filled-primary / .btn-muted-destructive which
      provide their own focus-visible. */
-  .area-admin .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* === Provider Form === */
   /* The .admin-provider-form / .admin-pf-cancel / .admin-pf-password-wrap /
@@ -112,17 +112,18 @@
   /* === Model List === */
   .area-admin .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
   .area-admin .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  .area-admin .admin-pf-models-title { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); }
-  .area-admin .admin-pf-models-title::before { content: "//"; padding-right: 0.4em; color: var(--accent); opacity: 0.6; font-weight: var(--font-weight-semibold); }
-  .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--panel-radius); }
+  /* Quiet vocabulary label (M17 F3 "admin labels" DD): the v2 mono-uppercase-
+     letterspaced eyebrow is retired for the `.section-title` quiet-label recipe
+     (sans, body-sm, weight 500, --fg-secondary). */
+  .area-admin .admin-pf-models-title { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); }
+  .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
   .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); }
   .area-admin .admin-pf-model-item:last-child { border-bottom: none; }
 
   /* === Ollama Lifecycle Panel === */
   .area-admin .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
   .area-admin .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
-  .area-admin .admin-pf-section-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); padding: 10px 0 4px; }
-  .area-admin .admin-pf-section-label::before { content: "//"; padding-right: 0.4em; color: var(--accent); opacity: 0.6; font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-pf-section-label { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); padding: 10px 0 4px; }
   .area-admin .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
   .area-admin .admin-pf-model-row:last-child { border-bottom: none; }
   /* .admin-pf-model-dot retired (Flight 3 Leg 04): Ollama lifecycle panel
@@ -140,7 +141,7 @@
      .chip; .cap-chip-no-tools uses the danger palette so the absence of
      tool support stands out at a glance. */
   .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; }
   .cap-chip-no-tools { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
 
   /* === Pull UI === */
@@ -156,30 +157,44 @@
   .area-admin .admin-pf-pull-error { font-size: var(--font-size-caption); color: var(--status-danger); padding: 4px 0; }
 
   /* === Provider Type Badges === */
-  .area-admin .admin-provider-badge--ollama { background: var(--badge-ollama); }
-  .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); }
-  .area-admin .admin-provider-badge--openai { background: var(--badge-openai); }
-  .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); }
-  .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); }
-  .area-admin .admin-provider-badge--mock { background: var(--badge-mock); }
-  .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); }
+  /* Per-badge ink (M17 F3 L4): each modifier overrides the base
+     `.admin-provider-badge { color: var(--fg-on-accent) }` with a fill-tuned
+     ink so text clears body AA on that fill in BOTH themes (gated in
+     tests/test_design_tokens_a11y.py). Modifiers follow the base rule in
+     source order at equal specificity, so the ink override wins. */
+  .area-admin .admin-provider-badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
+  .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
+  .area-admin .admin-provider-badge--openai { background: var(--badge-openai); color: var(--badge-ink-openai); }
+  .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
+  .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
+  .area-admin .admin-provider-badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
+  .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Category Badges (F6 leg 02) === */
+  /* Quiet vocabulary (M17 F6 L2, SC1): the v2 mono + UPPERCASE + letter-spaced
+     eyebrow is retired — mirrors the L1 provider-badge quiet. Because the
+     shared `.entity-tile-badge` base (components.css) still declares
+     mono/uppercase/letter-spacing and this area-scoped selector outranks it
+     (0,2,0 > 0,1,0), quieting is an explicit OVERRIDE (sans / none / normal),
+     NOT a mere deletion of the three declarations (a bare delete would let the
+     base reassert the eyebrow). Per-type ink stays on the `--badge-ink-*`-gated
+     `.admin-tool-badge--{category}` modifiers below. Scoped to the tools
+     surface — studio's shared base untouched. */
   .area-admin .admin-tool-badge {
-    font-family: var(--font-family-mono);
+    font-family: var(--font-family-sans);
     font-size: var(--font-size-tiny);
     font-weight: var(--font-weight-semibold);
     color: var(--fg-on-accent);
     padding: 2px 8px;
     border-radius: 4px;
     flex-shrink: 0;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    text-transform: none;
+    letter-spacing: normal;
   }
-  .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); }
-  .area-admin .admin-tool-badge--execution { background: var(--badge-execution); }
-  .area-admin .admin-tool-badge--web { background: var(--badge-web); }
-  .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); }
+  .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
+  .area-admin .admin-tool-badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
+  .area-admin .admin-tool-badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
+  .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */
   /* L2 tile is a <div>, not <button>. The .entity-tile selector still
@@ -289,18 +304,19 @@
      The header re-shape moves it out of the small subtitle and into a
      monospace-labeled block so operators see it as "what the agent sees".
      The `.editor-subtitle-meta` modifier shrinks the now-just-category
-     subtitle. */
+     subtitle. Quiet vocabulary (M17 F6 L2, SC1): the mono + UPPERCASE +
+     letter-spaced eyebrow is retired to sans / none / normal (only this rule
+     declares those three — the `.editor-subtitle` base carries none — so this
+     is a plain quiet, not an override). Size (tiny) + `--fg-muted` ink kept. */
   .area-admin .editor-subtitle-meta {
-    font-family: var(--font-family-mono);
+    font-family: var(--font-family-sans);
     font-size: var(--font-size-tiny);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    text-transform: none;
+    letter-spacing: normal;
     color: var(--fg-muted);
   }
-  /* Tools-editor prompt section — canonical .section-title eyebrow (// PROMPT)
-     + .code-block body. The .section-title rule already supplies the `//`
-     prefix and mono-uppercase tiny treatment; the editor-prompt-block
-     wrapper just adds layout. */
+  /* Tools-editor prompt section — canonical .section-title quiet label
+     + .code-block body; the editor-prompt-block wrapper just adds layout. */
   .area-admin .editor-prompt-block {
     margin-top: 12px;
     display: flex;
@@ -336,23 +352,14 @@
     box-sizing: border-box;
   }
 
-  /* === Field info icon (F6 HAT inline fix #4) ================================
-     Per-field descriptions are now tooltips on an info icon rendered as a
-     sibling AFTER the input element (operator UX tweak: `label | input | ⓘ`
-     instead of the prior `label-with-nested-ⓘ | input`). The parent
-     `.field-row` is `display:flex; align-items:center` (components.css), so
-     the icon participates as the third flex child — vertically centered
-     against the input by default, with `flex-shrink:0` so it never collapses.
-     For chip-list rows the chips can wrap to multiple lines; we top-align
-     the icon there so it stays anchored to the first chip row. */
-  /* Per-field info-icon layout context — base reset lives in components.css.
-     The admin-only override is the chip-list-row top-alignment so the icon
-     anchors to the first chip row instead of the wrapper's geometric centre. */
-  .area-admin .tools-editor-field .field-info-icon { align-self: center; }
-  .area-admin .tools-editor-field:has(.chip-list-editor) .field-info-icon {
-    align-self: flex-start;
-    padding-top: 8px;
-  }
+  /* === Field info icon (F6 HAT inline fix #4; M17 F6 L3) ====================
+     Per-field descriptions are tooltips on an info-icon that now sits BESIDE
+     the label inside the `.field-group-label` header (renderField migrated to
+     the stacked `.field-group` vocabulary in L3). The base `.field-info-icon`
+     reset (components.css) + `.field-group-label`'s `align-items: center` place
+     the icon correctly, so the former label-left flex-row overrides (icon as
+     third flex child, chip-list-row top-alignment) are retired — they keyed on
+     the old `.field-row` geometry that no longer applies. */
 
   /* === Field error highlight (F6 HAT inline fix #7) ==========================
      Applied to `.tools-editor-field` rows whose field is the offender of a
@@ -365,7 +372,6 @@
   .area-admin .tools-editor-field.field-error-highlight select,
   .area-admin .tools-editor-field.field-error-highlight .chip-list-editor {
     border-color: var(--status-danger);
-    box-shadow: 0 0 0 1px var(--status-danger-glow);
   }
   .area-admin .tools-editor-field.field-error-highlight label {
     color: var(--status-danger);
@@ -383,10 +389,9 @@
      studio.css) is preserved as it overrides only the single rule it
      needs to. */
   /* Chip-list editor — input affordance for array-typed fields (e.g.,
-     host_allowlist). Treated as part of the .field-input family per
-     M08F3L3 polish: recessed bezel-inset + glass-border + panel-radius-sm,
-     matching .field-input visually. Chips inside use the canonical .chip
-     primitive treatment (accent-translucent flat). */
+     host_allowlist). Treated as part of the .field-input family: hairline
+     border + small radius, matching .field-input visually. Chips inside
+     use the canonical .chip primitive treatment (accent-translucent flat). */
   .area-admin .chip-list-editor,
   .area-studio .chip-list-editor {
     flex: 1;
@@ -395,16 +400,15 @@
     gap: 4px;
     align-items: center;
     padding: 6px;
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
+    border: 1px solid var(--border);
+    border-radius: var(--space-1);
     min-height: 40px;
     background: var(--surface);
-    box-shadow: var(--bezel-shadow-inset);
   }
+  /* Container focus: border-color shift (no halo). */
   .area-admin .chip-list-editor:focus-within,
   .area-studio .chip-list-editor:focus-within {
     border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
   .area-admin .chip-list-editor .chip,
   .area-studio .chip-list-editor .chip {
@@ -413,8 +417,8 @@
     gap: 4px;
     padding: 2px 8px;
     background: var(--accent-translucent);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
+    border: 1px solid var(--border);
+    border-radius: var(--space-1);
     font-size: var(--font-size-body-sm);
     color: var(--fg);
   }
@@ -447,21 +451,17 @@
     font-size: var(--font-size-body);
   }
 
-  /* Inline 422 errors — surfaced adjacent to the matching field row. */
+  /* Inline 422 errors — the message sits flush under the control inside the
+     stacked .field-group (M17 F3 vocabulary; F6 L4 made this the default).
+     The old .field-row label-gutter (margin: 4px 0 0 100px) + its
+     .field-group escape were retired in F6 L4 once every admin .field-row
+     with a .field-error consumer migrated to .field-group (Legs 1-3). The
+     .field-group's own flex-column gap supplies the top spacing. */
   .area-admin .field-error {
     display: block;
     color: var(--status-danger);
     font-size: var(--font-size-tiny);
-    margin: 4px 0 0 100px;  /* align with .field-row label gutter (100px) */
-  }
-
-  /* Per-field description (rendered when JSON Schema sets `description`).
-     100px left margin matches .field-row label width so the description
-     visually associates with the field input rather than the label. */
-  .area-admin .field-description {
-    font-size: var(--font-size-tiny);
-    color: var(--fg-secondary);
-    margin: 4px 0 0 100px;
+    margin: 0;
   }
 
   /* Developer-visible cue when renderField hits an un-dispatched type —
@@ -616,10 +616,10 @@
   .area-admin .design-language-section { display: flex; flex-direction: column; gap: 8px; }
   .area-admin .design-language-section-body { display: flex; flex-direction: column; gap: 12px; }
   .area-admin .design-language-token-swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-  .area-admin .design-language-token-swatch { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius-sm); }
+  .area-admin .design-language-token-swatch { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--space-1); }
   .area-admin .design-language-token-swatch-color { width: 100%; height: 40px; border-radius: 4px; border: 1px solid var(--border); }
   .area-admin .design-language-token-swatch-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); word-break: break-all; }
-  .area-admin .design-language-button-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
+  .area-admin .design-language-button-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; align-items: start; }
 
   /* iOS-toggle gallery sample — strips the primitive's bottom-right absolute
      anchoring (designed for entity-tile placement) so two toggles render

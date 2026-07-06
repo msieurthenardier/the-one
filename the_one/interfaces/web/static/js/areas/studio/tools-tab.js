@@ -81,6 +81,20 @@
     // Leg 02's functional-batch section.
     panel.innerHTML = '';
 
+    // M07 F10 lazy-discovery copy (M17 F5 L1): convey the CAN-load semantics.
+    // Enabling a built-in tool adds it to the set the agent is ALLOWED to
+    // load; the agent loads a tool on demand during a run, not upfront — so an
+    // enabled tool is one the agent *can* load, distinct from one it *has*
+    // loaded this session. Tone mirrors the MCPs tab's "Expand to load tools…".
+    // Rendered via createElement/textContent (no innerHTML — the F1 sink freeze).
+    var intro = document.createElement('p');
+    intro.className = 'section-description tools-tab-intro';
+    intro.textContent =
+      'Built-in tools the agent can load. Enabling a tool adds it to the set ' +
+      'the agent is allowed to use — the agent loads each tool on demand during ' +
+      'a run, not all at once. The count shows how many in a category are enabled.';
+    panel.appendChild(intro);
+
     // Page-level All/None controls dropped in F4 L2 vibe — per-category
     // count badges and per-tool checkboxes are sufficient affordances.
     var listContainer = document.createElement('div');

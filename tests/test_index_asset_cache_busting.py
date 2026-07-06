@@ -16,10 +16,18 @@ Uses starlette.testclient.TestClient (already transitive via FastAPI).
 
 from __future__ import annotations
 
+import pytest
 from starlette.testclient import TestClient
 
 from the_one import __version__
 from the_one.interfaces.web.app import STATIC_DIR, app
+
+# ``with TestClient(app)`` drives the REAL lifespan to shutdown, which
+# latches ``_shutting_down = True`` in the PTY session registry, MCP pool,
+# and connector pool. Reset those process-globals after each test so later
+# modules don't inherit the latch (M17 F1 L4 ordering-flake fix; fixture
+# lives in tests/conftest.py).
+pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
 
 def test_index_appends_version_to_static_asset_refs() -> None:

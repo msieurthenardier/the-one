@@ -16,7 +16,8 @@ Covers:
 - Direct-load #studio/connectors renders the page
 - Direct-load #studio/connectors/new mounts the editor
 - Refresh on #studio/connectors preserves the section
-- Empty grid shows the centered CTA + the "Flight 8 will add Discord" copy
+- Empty grid shows the empty-canvas with the "Flight 8 will add Discord"
+  copy; the unified header CTA (new-connector-btn, M17 F3 L3) is visible
 - New-button → Cancel round-trip restores the empty-canvas grid
 
 M10 F2 L6: tests 4 and 7 originally asserted the placeholder editor's
@@ -98,11 +99,13 @@ def test_studio_refresh_preserves_connectors_section(app_clean: str, page: Page)
 
 @pytest.mark.browser
 def test_studio_connectors_empty_grid_shows_cta(app_clean: str, page: Page) -> None:
-    """Empty connectors table → empty-canvas with the Flight-8 copy renders."""
+    """Empty connectors table → empty-canvas with the Flight-8 copy renders;
+    the unified header CTA (M17 F3 L3) is visible in the empty state."""
     page.goto(f"{app_clean}#studio/connectors")
-    page.wait_for_selector('[data-testid="new-connector-btn-empty"]', timeout=8000)
-    cta = page.locator('[data-testid="new-connector-btn-empty"]')
-    expect(cta).to_be_visible()
+    # The empty canvas is the synchronization point for the fetch resolving
+    # to an empty inventory (the header CTA renders before the fetch).
+    page.wait_for_selector(".empty-canvas", timeout=8000)
+    expect(page.locator('[data-testid="new-connector-btn"]')).to_be_visible()
     # The "Flight 8 will add Discord" copy explains the production empty
     # state (no real connector types registered yet).
     expect(page.locator(".empty-canvas")).to_contain_text("Flight 8 will add Discord")
@@ -118,10 +121,11 @@ def test_studio_connectors_new_button_opens_form_then_cancel_returns_to_grid(
     real editor's name-input + cancel-button.
     """
     page.goto(f"{app_clean}#studio/connectors")
-    page.wait_for_selector('[data-testid="new-connector-btn-empty"]', timeout=8000)
+    # Sync on the empty canvas (fetch resolved to an empty inventory).
+    page.wait_for_selector(".empty-canvas", timeout=8000)
 
-    # Click the empty-canvas CTA → form mounts and URL updates.
-    page.locator('[data-testid="new-connector-btn-empty"]').click()
+    # Click the unified header CTA → form mounts and URL updates.
+    page.locator('[data-testid="new-connector-btn"]').click()
     expect(page.locator('[data-testid="connector-name-input"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/connectors/new"
 

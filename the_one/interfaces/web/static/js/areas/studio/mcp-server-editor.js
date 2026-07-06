@@ -519,14 +519,14 @@
       : sandbox.network_allowed === true;
     html += '<div class="editor-section mcp-stdio-only' + (sandboxHidden ? ' is-hidden' : '') + '" data-testid="mcp-sandbox-section">';
     html += '<div class="section-title">Sandbox</div>';
-    // Network allowed: 2-column field-row (label left, iOS-style toggle right).
-    // Mirrors admin tools-editor's renderEnabledRow pattern. The
-    // class="field-input" on the checkbox keeps attachStaticListeners wiring
-    // dirty-tracking via change events.
+    // Network allowed: stacked .field-group (M17 F5 L4 migration) — label
+    // above the iOS-style toggle, mirroring the connectors-tab Allow-DMs
+    // toggle field-group. The class="field-input" on the checkbox keeps
+    // attachStaticListeners wiring dirty-tracking via change events.
     var netTitleText = networkAllowed
       ? 'Network access enabled'
       : 'Network access disabled';
-    html += '<div class="field-row admin-pf-row mf-sandbox-network-row">';
+    html += '<div class="field-group mf-sandbox-network-row">';
     html += '<label for="mf-sandbox-network-allowed">Allow network access</label>';
     html += '<label class="tool-enable-switch" title="' + escapeAttr(netTitleText) + '">';
     html += '<input type="checkbox" class="field-input" id="mf-sandbox-network-allowed" data-field="sandbox-network-allowed"' + (networkAllowed ? ' checked' : '') + ' aria-label="Allow network access" />';
@@ -534,9 +534,15 @@
     html += '</label>';
     html += '</div>';
     // Writable paths chip-list (mounted via App.adminFormHelpers post-innerHTML).
-    html += '<div class="field-row admin-pf-row">';
+    // M17 F6 L3: the placeholder <div> carries NO id — mountChipListEditors
+    // replaces it via outerHTML= (which would strip an id), so the `label[for]`
+    // target is landed on the real `.chip-list-input` via renderChipListEditor's
+    // controlId (see mountChipListEditors / the re-mount path below). Post-mount
+    // selectors key on [data-field="sandbox-writable-paths"].chip-list-editor,
+    // not the id (js:873/917/1505), so dropping the placeholder id is safe.
+    html += '<div class="field-group">';
     html += '<label for="mf-sandbox-writable-paths">Writable paths</label>';
-    html += '<div class="chip-list-editor" id="mf-sandbox-writable-paths" data-field="sandbox-writable-paths" data-field-type="array"></div>';
+    html += '<div class="chip-list-editor" data-field="sandbox-writable-paths" data-field-type="array"></div>';
     html += '</div>';
     html += '</div>';
 
@@ -649,15 +655,15 @@
     var html = '';
 
     // Name
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="field-group">';
     html += '<label for="mf-name">Name</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : (source.name || '')) + '" placeholder="My MCP Server" />';
+    html += '<input class="field-input" id="mf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : (source.name || '')) + '" placeholder="My MCP Server" />';
     html += '</div>';
 
     // Type
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="field-group">';
     html += '<label for="mf-type">Type</label>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="mf-type" data-field="type">';
+    html += '<select class="field-input field-select" id="mf-type" data-field="type">';
     // F5 L6 HAT: ``hidden`` attribute keeps the placeholder out of the
     // open list while still displaying its text in the closed state —
     // matches the connector-editor type-select treatment.
@@ -685,9 +691,9 @@
     var customCommandValue = stdioSelection.customCommand || '';
     var customCommandHidden = (dropdownValue !== STDIO_CUSTOM_SENTINEL);
 
-    html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="field-group mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-command-runtime">Command</label>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="mf-command-runtime" data-field="command-runtime" data-testid="mcp-command-runtime">';
+    html += '<select class="field-input field-select" id="mf-command-runtime" data-field="command-runtime" data-testid="mcp-command-runtime">';
     for (var ri = 0; ri < STDIO_RUNTIME_OPTIONS.length; ri++) {
       var opt = STDIO_RUNTIME_OPTIONS[ri];
       var isSelected = (opt.value === dropdownValue);
@@ -702,24 +708,29 @@
     // preserved so any external selector that pinned to them keeps
     // working; the field only feeds `config.command` when the dropdown is
     // on the Custom sentinel (collectFormData enforces this).
-    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-custom-row' +
+    html += '<div class="field-group mcp-stdio-only mcp-command-custom-row' +
             (stdioHidden || customCommandHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-command">Custom command</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-command" data-field="command" data-testid="mcp-command-custom" ' +
+    html += '<input class="field-input" id="mf-command" data-field="command" data-testid="mcp-command-custom" ' +
             'value="' + escapeAttr(customCommandValue) + '" placeholder="bash /app/start.sh" />';
     html += '</div>';
 
     // stdio: cwd
     var cwdValue = (!isCreate && source.config && source.config.cwd) ? source.config.cwd : '';
-    html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="field-group mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-cwd">Working Directory</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-cwd" data-field="cwd" value="' + escapeAttr(cwdValue) + '" placeholder="(optional)" />';
+    html += '<input class="field-input" id="mf-cwd" data-field="cwd" value="' + escapeAttr(cwdValue) + '" placeholder="(optional)" />';
     html += '</div>';
 
     // stdio: args (chip-list, mounted via App.adminFormHelpers post-innerHTML)
-    html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
+    // M17 F6 L3: placeholder <div> carries NO id (mountChipListEditors replaces
+    // it via outerHTML=, which strips ids); the `label[for="mf-args"]` target is
+    // landed on the real `.chip-list-input` via renderChipListEditor's controlId.
+    // Post-mount selectors key on [data-field="args"].chip-list-editor
+    // (js:857/915/1484), not the id, so dropping the placeholder id is safe.
+    html += '<div class="field-group mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-args">Arguments</label>';
-    html += '<div class="chip-list-editor" id="mf-args" data-field="args" data-field-type="array"></div>';
+    html += '<div class="chip-list-editor" data-field="args" data-field-type="array"></div>';
     html += '</div>';
 
     // F9 L2 vibing: helper text below the args field, dynamically updated
@@ -727,17 +738,20 @@
     // matches the studio token convention; uses .form-hint for the new
     // class hook (added in studio.css alongside this leg).
     var initialHint = lookupStdioRuntimeHint(dropdownValue);
-    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-hint-row' + (stdioHidden ? ' is-hidden' : '') + '">';
-    html += '<label></label>';
+    // De-guttered (F5 L4): dropped the empty label-slot + `.field-row` wrapper
+    // so the hint aligns flush-left under the now-stacked `.field-group` args
+    // field above it (the migration invalidated the old 100px-gutter alignment
+    // whose whole purpose was to line up with the label-left args row).
+    html += '<div class="mcp-stdio-only mcp-command-hint-row' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<small class="form-hint mcp-command-hint" data-testid="mcp-command-hint">' +
             escapeHtml(initialHint) + '</small>';
     html += '</div>';
 
     // streamable-http: url
     var urlValue = (!isCreate && source.config && source.config.url) ? source.config.url : '';
-    html += '<div class="field-row admin-pf-row mcp-streamable-http-only' + (streamableHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="field-group mcp-streamable-http-only' + (streamableHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-url">URL</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-url" data-field="url" value="' + escapeAttr(urlValue) + '" placeholder="https://example.com/mcp" />';
+    html += '<input class="field-input" id="mf-url" data-field="url" value="' + escapeAttr(urlValue) + '" placeholder="https://example.com/mcp" />';
     html += '</div>';
 
     return html;
@@ -862,7 +876,7 @@
       var savedCmd = (source && source.config && source.config.command) || '';
       var savedArgsList = (source && source.config && source.config.args) || [];
       var derived = deriveStdioRuntimeSelection(savedCmd, savedArgsList);
-      argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs || [], null, {});
+      argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs || [], null, { controlId: 'mf-args' });
     }
     // F3 L5b: sandbox writable_paths chip-list (stdio only, but mount for
     // any type — visibility is controlled by the section's mcp-stdio-only
@@ -870,7 +884,7 @@
     var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
     if (sandboxPathsHost) {
       var sandboxPathsItems = (source && source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [];
-      sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-paths', sandboxPathsItems, null, {});
+      sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-paths', sandboxPathsItems, null, { controlId: 'mf-sandbox-writable-paths' });
     }
   }
 
@@ -1486,7 +1500,7 @@
         // the implicit `run` for `pipx run` (option (b) split) stay in
         // the saved JSON but never surface as editable chips the
         // operator could accidentally remove.
-        wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], null, {});
+        wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], null, { controlId: 'mf-args' });
         var newArgs = wrapper.firstChild;
         argsHost.parentNode.replaceChild(newArgs, argsHost);
         if (helpers.wireChipListEditor) {
@@ -1504,7 +1518,7 @@
         var wrapper3 = document.createElement('div');
         wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths',
           (source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [],
-          null, {});
+          null, { controlId: 'mf-sandbox-writable-paths' });
         var newSandboxPaths = wrapper3.firstChild;
         sandboxPathsHost.parentNode.replaceChild(newSandboxPaths, sandboxPathsHost);
         if (helpers.wireChipListEditor) {

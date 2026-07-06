@@ -11,25 +11,21 @@ Drives a real Chromium session through the agent lifecycle:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-# M08 F4 KI: this test hangs under post-Leg-02 markup. Root cause not yet
-# identified — could be a real product bug from the rebrand OR a fixture-level
-# issue with the agent-CRUD flow. Skipped to unblock the Flight 4 close;
-# investigation deferred to a follow-on cleanup flight. See mission.md
-# Known Issues.
-#
-# F5 L01 update (in mission.md KI #4): with the broad-pytest SQLite isolation
-# fix in tests/conftest.py, the hang no longer reproduces. The test now fails
-# with the same .new-entity-btn DOM-visibility symptom as test_flow_provider_setup
-# (60+ retries × 500ms then timeout), exposing a likely real F4-rebrand-era UX
-# defect. Skip remains in place pending the cleanup flight that owns this UX
-# investigation. Same symptom class as test_flow_provider_setup.py.
-pytestmark = pytest.mark.skip(
-    reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified"
-)
+# History (M08 F4 → M17 F1 → M17 F3): this module was skipped as "hangs, root
+# cause unidentified". The hang itself was fixed by the F5 L01 SQLite-isolation
+# fix in tests/conftest.py; the remaining deterministic failure was root-caused
+# in M17 F1 L02 as the state-split create CTA (the affordance moved between an
+# in-canvas `-empty` variant and a hidden-when-empty header button). M17 F3 L3
+# unified the CTA: the header button (data-testid="new-agent-btn") is always
+# visible with an icon + text label in BOTH empty and populated grid states,
+# and the `-empty` testid variants are retired. Tests target the one unified
+# testid throughout.
 
 
 @pytest.mark.browser
@@ -42,7 +38,8 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     expect(empty).to_be_visible()
     expect(empty).to_contain_text("No agents yet")
 
-    # 2. Click + to enter create mode.
+    # 2. Click the unified header CTA to enter create mode. It is visible
+    #    even with zero agents (M17 F3 L3 CTA unification).
     page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent")
 
@@ -78,20 +75,41 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     # 12-13. Edit description, save, verify persisted (re-render keeps the value).
     description_input = page.locator('[data-field="description"]')
     description_input.fill("Edited description")
-    page.locator('[data-testid="save-agent-btn"]').click()
+    save_btn = page.locator('[data-testid="save-agent-btn"]')
+    save_btn.click()
     # After save, editor re-renders with updated agent. Description still set.
     expect(page.locator('[data-field="description"]')).to_have_value(
         "Edited description", timeout=5000
     )
+    # Synchronize with the END of the save chain before deleting: the PUT
+    # handler runs loadAll() + renderEditor() asynchronously (studio.js save
+    # flow), and its stale continuation can otherwise interleave with the
+    # delete below under CPU load — re-selecting the just-deleted agent and
+    # keeping the editor mounted over the empty grid (observed as a
+    # suite-only flake in M17 F1 L02). The re-rendered editor's Save button
+    # is disabled (clean state) — same sync idiom as the MCPs/Tools tests.
+    expect(save_btn).to_be_disabled(timeout=5000)
 
-    # 14. First click on Delete — confirm state ("Confirm Delete?").
+    # 14. First click on Delete — confirm state ("Confirm Delete?"). The
+    # armed state auto-reverts after 3s (App.confirmDelete revertMs), so the
+    # second click follows immediately.
     delete_btn.click()
     expect(delete_btn).to_have_text("Confirm Delete?")
 
     # 15. Second click — DELETE fires, agent removed, empty state returns.
-    delete_btn.click()
+    #     expect_response makes a silent re-arm (revert-window expiry under
+    #     load) fail loudly as a missing-DELETE timeout instead of a
+    #     confusing downstream visibility failure.
+    with page.expect_response(
+        lambda r: "/api/agents/" in r.url and r.request.method == "DELETE"
+    ) as delete_resp:
+        delete_btn.click()
+    assert delete_resp.value.status == 200, (
+        f"DELETE failed: {delete_resp.value.status} {delete_resp.value.text()}"
+    )
     expect(empty).to_be_visible(timeout=5000)
     expect(empty).to_contain_text("No agents yet")
     # Tile gone; main panel returns to the tile grid (with empty state).
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)
-    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
+    # Regex (not exact class string) — only `is-hidden` is the contract here.
+    expect(page.locator(".studio-editor")).to_have_class(re.compile(r"\bis-hidden\b"))

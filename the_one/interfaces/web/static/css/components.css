@@ -1,8 +1,15 @@
 @layer components {
   /* === Shared Flash === */
-  .app-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--fg-on-accent); padding: 10px 48px; border-radius: var(--panel-radius-sm); font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; box-shadow: 0 0 12px var(--accent-glow-strong); }
+  /* Toast — a floating surface; elevation comes from the popover shadow
+     (two-shadow system). */
+  /* Toast — quiet vocabulary (M17 F3 L4 finish): surface + hairline +
+     shadow-popover + --fg ink (was an accent-filled pill). The error
+     variant keeps the surface but takes danger ink + a danger hairline.
+     --fg on --surface and --status-danger on --surface both clear body AA
+     (gated in test_design_tokens_a11y.py). */
+  .app-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--surface); color: var(--fg); border: 1px solid var(--border); padding: 10px 48px; border-radius: var(--radius-sm); font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; box-shadow: var(--shadow-popover); }
   .app-flash.visible { opacity: 1; }
-  .app-flash.error { background: var(--status-danger); color: var(--fg-on-danger); box-shadow: 0 0 12px var(--status-danger-glow); }
+  .app-flash.error { color: var(--status-danger); border-color: var(--status-danger); }
 
   /* === Skip Link === */
   .skip-link {
@@ -15,17 +22,32 @@
     padding: 8px 16px;
     text-decoration: none;
     font-weight: var(--font-weight-bold);
-    border-bottom-right-radius: var(--panel-radius-sm);
+    border-bottom-right-radius: var(--radius-sm);
   }
   .skip-link:focus { top: 0; outline: 2px solid var(--fg); outline-offset: 2px; }
 
   /* === Top Bar Components === */
-  /* Brand banner image replaces the prior <h1> wordmark + icon combo. */
-  .app-topbar-banner {
-    height: 32px;
-    width: auto;
-    display: block;
+  /* Brand lockup (M17 F3) — set-type wordmark + compact mark, retiring the
+     pixel-font banner PNG. Wordmark ink is --fg on the --nav-bg rail: AA by
+     construction in both themes (--nav-bg aliases --surface; the fg ladder ×
+     surface sweep in test_design_tokens_a11y.py gates the pair at 4.5:1). */
+  .app-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     flex-shrink: 0;
+  }
+  .app-brand-mark {
+    width: 24px;
+    height: 24px;
+    display: block;
+  }
+  .app-brand-wordmark {
+    font-size: var(--font-size-h3);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+    line-height: 1;
+    white-space: nowrap;
   }
   .app-topbar-actions {
     display: flex;
@@ -34,49 +56,51 @@
   }
 
   /* === Top-bar area buttons === */
-  /* Three flat buttons, one per registered area (Chat / Agent Studio / System).
-     V3b family treatment: accent-translucent base + V3 gradient + glass-border
-     + bezel-mini. Active area gets aria-current="page" for a stronger
-     "you are here" treatment. (Class name retained from the prior app-picker
-     popover affordance for design-language gallery + test-selector continuity.) */
+  /* Three flat nav buttons, one per registered area (Chat / Agent Studio /
+     System). v3 vocabulary: quiet ghost fill at rest (transparent,
+     fg-secondary ink); hover steps to --surface-elevated (--nav-bg aliases
+     --surface, so a --surface hover would be invisible on the rail); the
+     current area's button (aria-current="page") takes the accent-translucent
+     wash + accent border + --fg ink — the same selected-state shape as
+     .section-nav-item, keeping accent as border/wash rather than small-size
+     text ink. Pinned focus form. (Class name retained from the prior
+     app-picker popover affordance for gallery + test-selector continuity.) */
   .app-picker-button {
-    height: 36px;
+    height: 32px;
     padding: 0 12px;
     display: flex;
     align-items: center;
     gap: 8px;
-    border-radius: var(--panel-radius-sm);
-    background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    background-color: transparent;
+    border: 1px solid transparent;
     cursor: pointer;
-    color: var(--accent);
+    color: var(--fg-secondary);
     font-family: inherit;
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-semibold);
-    box-shadow: var(--bezel-shadow-mini);
     transition:
       background-color var(--motion-base) var(--ease-tactile),
       border-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      color var(--motion-base) var(--ease-tactile);
   }
   .app-picker-button-icon { display: inline-flex; align-items: center; justify-content: center; }
   .app-picker-button-icon svg { width: 18px; height: 18px; display: block; }
   .app-picker-button-label { white-space: nowrap; }
   .app-picker-button:hover {
-    background-color: var(--accent-translucent-hover);
-    border-color: var(--accent);
+    background-color: var(--surface-elevated);
+    color: var(--fg);
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
       border-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      color var(--motion-fast) var(--ease-tactile);
   }
-  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-  /* "You are here" state — current area's button. Stronger accent-translucent
-     background + accent border. */
+  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* "You are here" state — current area's button. */
   .app-picker-button[aria-current="page"] {
-    background-color: var(--accent-translucent-hover);
+    background-color: var(--accent-translucent);
     border-color: var(--accent);
+    color: var(--fg);
   }
 
   /* === Nav pending-approval badge (M11 F17 L9 — Leg E) === */
@@ -131,8 +155,11 @@
      primitive (not a list-item consumer). The legacy class names persist
      on emit sites for test-selector / styling-hook continuity. */
   .list-item {
+    /* M17 F3 list vocabulary: 40-44px rows, hover = surface shift,
+       separators (where a consumer draws them) are hairlines only. */
+    min-height: 40px;
     padding: 8px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     font-size: var(--font-size-body-sm);
     cursor: pointer;
     color: var(--fg-secondary);
@@ -142,16 +169,13 @@
   }
   .list-item:hover { background: var(--surface); color: var(--fg); }
   .list-item.active {
-    /* Mini-glass — Mission 08 F2 L3 + L4. Small pills get the gleam-overlay
-       image + accent-translucent base + simplified directional bezel (no
-       backdrop-filter — perf + small surface doesn't benefit from blur). */
+    /* Selected pill: accent-translucent wash + accent border. */
     background-color: var(--accent-translucent);
-    background-image: var(--glass-gleam);
     color: var(--fg);
     border: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-mini);
   }
-  .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
+  /* Inset ring: negative offset keeps the ring inside scroll/clip containers. */
+  .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
   .list-item-delete {
     display: none;
@@ -163,12 +187,12 @@
     font-size: var(--font-size-tiny);
     padding: 2px 4px;
     flex-shrink: 0;
-    transition: color 0.2s, filter 0.2s;
+    transition: color 0.2s;
   }
   .list-item:hover .list-item-delete,
   .list-item:focus-within .list-item-delete { display: block; }
-  .list-item-delete:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
-  .list-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .list-item-delete:hover { color: var(--status-danger); }
+  .list-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .list-item-delete svg { width: 12px; height: 12px; display: block; }
 
   /* === Form Field Primitives (editable form rows) === */
@@ -188,45 +212,53 @@
     flex: 1;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 8px 12px;
     color: var(--fg);
     font-family: inherit;
     font-size: var(--font-size-body);
     outline: none;
-    /* Pressed-in feel — Mission 08 F2 L5. Input affordances are recessed
-       (opposite of raised output panels). */
-    box-shadow: var(--bezel-shadow-inset);
   }
   .field-input:focus { border-color: var(--accent); }
   .field-input:focus-visible {
     border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .field-textarea {
     width: 100%;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 10px 12px;
     color: var(--fg);
     font-family: inherit;
     font-size: var(--font-size-body);
     outline: none;
     resize: vertical;
-    /* Pressed-in feel — see .field-input. */
-    box-shadow: var(--bezel-shadow-inset);
   }
   .field-textarea:focus { border-color: var(--accent); }
   .field-textarea:focus-visible {
     border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
-  /* The URL-encoded color in the data URL below is an SVG arrow exception:
-     CSS variables can't be used inside data URLs. */
+  /* Vocabulary select (M17 F3): self-sufficient — carries the full quiet
+     surface + hairline + pinned-focus form on its own, so consumers no
+     longer need to compose .field-input alongside it (existing
+     ``field-input field-select`` composition stays harmless: the shared
+     declarations are value-identical). The URL-encoded color in the data
+     URL below is an SVG arrow exception: CSS variables can't be used
+     inside data URLs. */
   .field-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    outline: none;
     appearance: none;
     -webkit-appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
@@ -238,8 +270,8 @@
   .field-select:focus { border-color: var(--accent); }
   .field-select:focus-visible {
     border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   /* .field-select option styling — Mission 08 F2 L5. Native <option> CSS
      support varies across browsers (Chrome/Edge limited, Firefox respects
@@ -263,6 +295,52 @@
   }
   .field-select option:disabled { color: var(--fg-muted); }
 
+  /* === Stacked field group (M17 F3 — the vocabulary field form) ===
+     Label ABOVE the control; optional hint and inline validation message
+     below it. This is the v3 field convention; the legacy label-left
+     ``.field-row`` (100px gutter) remains for existing area forms and
+     migrates per-area in the F4-6 re-skins. */
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-3);
+  }
+  .field-group > label,
+  .field-group-label > label {
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-secondary);
+  }
+  /* Label header for a .field-group that pairs its label with an inline
+     affordance — an info-icon tooltip (.field-info-icon) or similar. Keeps
+     the label + icon on one line ABOVE the stacked control. The label + icon
+     stay SIBLINGS (never nest interactive content inside <label>). Shared
+     vocabulary primitive (F5) — the studio connector/discord/mcp editors and
+     any future stacked field with a help tooltip consume it. */
+  .field-group-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  /* Inline validation — color + message, never color alone. Set
+     ``.is-invalid`` on the control and render the message in a
+     ``.field-error`` element directly below it. (Studio's former area-scoped
+     ``.field-row .field-error`` 100px-gutter variant was retired in F5 L2
+     when connector-editor — its last consumer — migrated to ``.field-group``;
+     inline validation now flows through this un-scoped primitive.) */
+  .field-input.is-invalid,
+  .field-textarea.is-invalid,
+  .field-select.is-invalid { border-color: var(--status-danger); }
+  .field-error {
+    font-size: var(--font-size-caption);
+    color: var(--status-danger);
+  }
+  .field-hint {
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+
   /* === Info icon (<button> reset for tooltip-on-hover affordance) ===
      The form helper renders this as a `<button>` for a11y; without a reset
      it picks up the browser's native button styling (grey background,
@@ -285,6 +363,7 @@
     transition: color 0.15s ease;
   }
   .field-info-icon:hover { color: var(--accent); }
+  .field-info-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .field-info-icon svg { width: 14px; height: 14px; display: block; }
 
   /* === Checkbox Primary (form checkbox primitive) ===
@@ -329,13 +408,13 @@
     outline-offset: 2px;
   }
 
-  /* === Section Title (// PREFIX) === */
+  /* === Section Title === */
+  /* Quiet label (v3): sans, small, medium weight, secondary ink — no
+     prefix marker, no uppercase, no letter-spacing. */
   .section-title {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    font-weight: var(--font-weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
     color: var(--fg-secondary);
     margin-top: 24px;
     margin-bottom: 12px;
@@ -345,135 +424,169 @@
      top padding. The 24px above kicks in only for sibling headers, where
      the operator wanted more breathing room. */
   .section-title:first-child { margin-top: 0; }
-  .section-title::before {
-    content: "//";
-    padding-right: 0.4em;
-    color: var(--accent);
-    font-weight: var(--font-weight-bold);
-  }
+  /* Real section HEADINGS (h2) get an element-scoped size bump. The
+     `.section-title` class is worn by BOTH true headings (studio
+     connector-editor "Connection"/"Credentials"/… h2s) AND a non-heading
+     quiet label (chat sidebar `<label class="section-title" for="chat-agent-select">`
+     at areas/chat.js). A bare `.section-title { font-size }` rule would inflate
+     that label too; the `h2` element scope keeps the label at body-sm. The
+     class rename is deferred (churn without payoff — M17 F3 "Section-title
+     semantics" DD). */
+  h2.section-title { font-size: var(--font-size-h3); }
 
-  /* === Buttons: Outlined-Primary (secondary affordance) === */
-  /* Mission 08 F2 L5 — V3b rest treatment. "Bubbled at rest" with the V3
-     glossy-band gradient (white-to-fade top + dark-fade bottom), accent-
-     translucent base, tile-style --glass-border, and the raised bezel-mini
-     elevation cue. Hover deepens the violet and stays in the same gradient
-     shape. Asymmetric in/out transitions match the .entity-tile pattern. */
+  /* === Button vocabulary (M17 F3 — one vocabulary, four variants) ===
+     Variants: PRIMARY (.btn-filled-primary — flat accent fill),
+     SECONDARY (.btn-outlined-primary — quiet surface + hairline border),
+     GHOST (.btn-ghost — borderless, surface shift on hover), and
+     DANGER (.btn-muted-destructive — soft danger fill + muted danger
+     border). Class names retained from the v2 vocabulary for
+     test-selector / consumer continuity; the *treatment* is v3.
+
+     Conventions: 32px control height, --radius-sm, flat fills (no
+     gradients, no shadows at rest), pinned focus form (2px accent
+     outline, +2px offset). ONE primary per region — every other action
+     in the same view region takes secondary/ghost/danger. */
   .btn-outlined-primary {
-    background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
-    padding: 4px 10px;
-    color: var(--accent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--fg);
     font-size: var(--font-size-body-sm);
     cursor: pointer;
     font-family: inherit;
-    box-shadow: var(--bezel-shadow-mini);
     transition:
       background-color var(--motion-base) var(--ease-tactile),
       border-color var(--motion-base) var(--ease-tactile),
-      color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      color var(--motion-base) var(--ease-tactile);
   }
   .btn-outlined-primary:hover {
-    background-color: var(--accent-translucent-hover);
-    border-color: var(--accent);
+    background-color: var(--surface-elevated);
+    border-color: var(--border-hover);
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
       border-color var(--motion-fast) var(--ease-tactile),
-      color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      color var(--motion-fast) var(--ease-tactile);
   }
-  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
+  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .btn-outlined-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* === Buttons: Filled-Primary (primary CTA) === */
-  /* Mission 08 F2 L5 — V3b family treatment in saturated form. Same V3
-     gradient shape as outlined-primary, but on top of a solid accent fill
-     (vs translucent) and with the outer --accent-glow halo to read as the
-     primary CTA. Bezel-mini + asymmetric motion match the family. */
   .btn-filled-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 16px;
     background-color: var(--accent);
-    background-image: var(--btn-v3-gradient);
-    border: none;
-    border-radius: var(--panel-radius-sm);
-    padding: 8px 24px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     color: var(--fg-on-accent);
     font-weight: var(--font-weight-semibold);
     cursor: pointer;
     font-family: inherit;
-    font-size: var(--font-size-body);
-    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--accent-glow);
+    font-size: var(--font-size-body-sm);
     transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      opacity var(--motion-base) var(--ease-tactile);
   }
-  .btn-filled-primary:hover {
-    transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
-  }
-  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-  .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  .btn-filled-primary:hover { opacity: 0.9; }
+  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* === Buttons: Muted-Destructive (delete-confirm style) === */
-  /* Mission 08 F2 L5 — V3b rest treatment in destructive tone. Same gradient
-     shape as outlined-primary (theme-agnostic white→fade→dark) on a soft
-     danger background, with the danger-muted border for semantic identity. */
-  .btn-muted-destructive {
-    background-color: var(--status-danger-bg-soft);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--status-danger-muted);
-    border-radius: var(--panel-radius-sm);
-    padding: 3px 10px;
-    color: var(--status-danger-muted);
-    font-size: var(--font-size-caption);
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--fg-secondary);
+    font-size: var(--font-size-body-sm);
     cursor: pointer;
     font-family: inherit;
-    box-shadow: var(--bezel-shadow-mini);
+    transition:
+      background-color var(--motion-base) var(--ease-tactile),
+      color var(--motion-base) var(--ease-tactile);
+  }
+  .btn-ghost:hover {
+    background-color: var(--surface);
+    color: var(--fg);
+    transition:
+      background-color var(--motion-fast) var(--ease-tactile),
+      color var(--motion-fast) var(--ease-tactile);
+  }
+  .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-muted-destructive {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    background-color: var(--status-danger-bg-soft);
+    border: 1px solid var(--status-danger-muted);
+    border-radius: var(--radius-sm);
+    color: var(--status-danger);
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    font-family: inherit;
     transition:
       background-color var(--motion-base) var(--ease-tactile),
       color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      border-color var(--motion-base) var(--ease-tactile);
   }
   .btn-muted-destructive:hover {
-    color: var(--status-danger);
     border-color: var(--status-danger);
-    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--status-danger-glow);
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
       color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      border-color var(--motion-fast) var(--ease-tactile);
   }
-  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
+  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .btn-muted-destructive:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Button size modifiers ===
-     Optional modifiers overriding the primitive's default padding +
-     font-size + border-radius. Compose onto any of .btn-outlined-primary,
-     .btn-filled-primary, or .btn-muted-destructive.
+     Optional modifiers overriding the primitive's default height +
+     font-size. Compose onto any button variant.
 
      Example:
        <button class="btn-outlined-primary btn-sm">Refresh</button>
        <button class="btn-filled-primary btn-lg">Continue</button>
 
-     Defaults (no modifier) keep each primitive's idiomatic size — see the
-     three primitive rules above. The modifiers come AFTER the primitives
-     in source order so equal-specificity later-wins resolves to them. */
-  .btn-sm { padding: 2px 8px; font-size: var(--font-size-tiny); border-radius: 4px; }
-  .btn-lg { padding: 8px 20px; font-size: var(--font-size-body); border-radius: var(--panel-radius-sm); }
-  .btn-xl { padding: 12px 32px; font-size: var(--font-size-h3); border-radius: var(--panel-radius); }
+     Defaults (no modifier) keep the vocabulary's 32px height. The
+     modifiers come AFTER the primitives in source order so
+     equal-specificity later-wins resolves to them. */
+  .btn-sm { height: 24px; padding: 0 8px; font-size: var(--font-size-tiny); }
+  .btn-lg { height: 36px; padding: 0 20px; font-size: var(--font-size-body); }
+  .btn-xl { height: 40px; padding: 0 28px; font-size: var(--font-size-body-lg); }
+
+  /* Icon sizing inside vocabulary buttons: App.icon() svgs ship 24×24
+     width/height attributes, so an explicit CSS size is required. 16px
+     pairs with the 32px control height. Per-consumer overrides later in
+     the file (e.g. .refresh-btn svg 14px) win by source order. */
+  .btn-outlined-primary svg,
+  .btn-filled-primary svg,
+  .btn-ghost svg,
+  .btn-muted-destructive svg { width: 16px; height: 16px; flex-shrink: 0; }
 
   /* === Chip + Chip-Remove (single-use lift for vocabulary completeness) === */
   /* Mission 08 F2 L5 polish: accent-tinted flat color (no gradient, no bezel)
      so chips read as part of the brand vocabulary without competing with
      buttons/tiles' raised treatment. */
-  .chip { background: var(--accent-translucent); border: 1px solid var(--glass-border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
-  .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s, filter 0.2s; background: transparent; border: none; padding: 0; }
-  .chip-remove:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
-  .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .chip { background: var(--accent-translucent); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
+  .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s; background: transparent; border: none; padding: 0; }
+  .chip-remove:hover { color: var(--status-danger); }
+  .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
 
   /* === Empty State (empty-list / empty-canvas messaging) === */
@@ -505,6 +618,13 @@
     font-size: var(--font-size-body-lg);
     line-height: var(--line-height-normal);
   }
+  /* Spacing hook for the in-canvas create CTA (M17 F3 leg 03 CTA
+     unification): the canvas CTA is a second instance of the SAME
+     vocabulary button component as the always-visible header CTA
+     (same class, same handler — no separate `-empty` variant). The
+     inline-flex button auto-centers under .empty-canvas-inner's
+     text-align: center; margin-top gives breathing room below the copy. */
+  .empty-canvas-cta { margin-top: 16px; }
   /* When `.empty-canvas` sits inside a `.entity-tile-grid` (used by
      LLM Providers + Studio Agents — both reuse the grid container as
      their inventory mount), override the grid's CSS-grid layout so
@@ -525,54 +645,44 @@
     flex-direction: column;
     gap: 6px;
     padding: 12px 14px;
-    /* Glass surface — Mission 08 F2 L3 ("C2" reflective treatment).
-       background-color holds the accent-tinted base; background-image holds
-       the gleam-overlay reflection. backdrop-filter blurs whatever is
-       behind. Hover/active rules update background-color only (not the
-       shorthand) so the gleam image survives state changes. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    /* Bezel — Mission 08 F2 L4. Directional top-left stacked-depth bezel
-       replaces the bare inset-highlight from L3. */
-    box-shadow: var(--bezel-shadow);
+    /* Quiet surface: solid fill + hairline border; hierarchy comes from
+       the surface ladder, not effects. No shadows at rest (M17 F3 tile
+       vocabulary: surface + hairline + radius-md). */
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     color: var(--fg);
     text-align: left;
     cursor: pointer;
     font-family: inherit;
     font-size: var(--font-size-body);
     position: relative;
-    /* Motion — Mission 08 F2 L5. Asymmetric transitions: fast on mouse-in
-       (the :hover rule overrides with --motion-fast), slower on mouse-out
-       (this base rule's --motion-base applies when :hover stops matching).
-       Pattern reads as crisp engagement + gentle disengagement. */
+    /* Motion — asymmetric transitions: fast on mouse-in (the :hover rule
+       overrides with --motion-fast), slower on mouse-out (this base rule's
+       --motion-base applies when :hover stops matching). Pattern reads as
+       crisp engagement + gentle disengagement. */
     transition:
       border-color var(--motion-base) var(--ease-tactile),
-      background-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
+      background-color var(--motion-base) var(--ease-tactile);
   }
+  /* Hover — quiet: border steps to --border-hover + one surface-ladder
+     step up. Accent is reserved for the SELECTED state (below). */
   .entity-tile:hover {
-    border-color: var(--accent);
-    background-color: var(--accent-translucent);
+    border-color: var(--border-hover);
+    background-color: var(--surface-elevated);
     transition:
       border-color var(--motion-fast) var(--ease-tactile),
-      background-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
+      background-color var(--motion-fast) var(--ease-tactile);
   }
+  /* Inset ring: negative offset keeps the ring inside the tile bounds. */
   .entity-tile:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
-    box-shadow: inset 0 0 0 3px var(--accent-glow);
   }
   .entity-tile[aria-selected="true"],
   .entity-tile.active {
     border-color: var(--accent);
     background-color: var(--accent-translucent-hover);
-    /* Prior accent-glow shadow intentionally dropped — glass surfaces use the
-       inset highlight as their elevation cue (composition rule, F2 L3). */
   }
   .entity-tile-name {
     font-size: var(--font-size-body-lg);
@@ -652,71 +762,17 @@
     color: var(--fg);
     margin: 0;
   }
-  /* New-entity button (header CTA): icon-only at rest, expands into the
-     full pill on hover/focus. Mirrors chat's .new-chat-header pattern;
-     pure-CSS animation via max-width + padding transitions; <span> opacity
-     fades in over the same window. The .is-expanded modifier overrides
-     all of this for the always-expanded empty-state CTA. */
-  .new-entity-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--panel-radius-sm);
-    color: var(--accent);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    padding: 4px 8px;
-    max-width: 32px;
-    overflow: hidden;
-    white-space: nowrap;
-    transition: max-width 0.2s ease, padding 0.2s ease, background 0.2s ease, border-color 0.2s ease;
-  }
-  .new-entity-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
-  .new-entity-btn span { opacity: 0; transition: opacity 0.15s ease 0.05s; }
-  .new-entity-btn:hover,
-  .new-entity-btn:focus-visible {
-    max-width: 240px;
-    padding: 4px 10px;
-    background: var(--accent-translucent-hover);
-    border-color: var(--accent);
-  }
-  .new-entity-btn:hover span,
-  .new-entity-btn:focus-visible span { opacity: 1; }
-  .new-entity-btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-
-  /* Always-expanded variant — used as the CTA inside an empty-canvas. The
-     .empty-canvas-inner parent has text-align: center, so the inline-flex
-     button auto-centers; margin-top creates breathing room below the
-     message. */
-  .new-entity-btn.is-expanded {
-    max-width: none;
-    margin: 16px 0 0 0;
-    padding: 8px 18px;
-    background: var(--accent-translucent);
-    border-color: var(--accent);
-    font-size: var(--font-size-body);
-  }
-  .new-entity-btn.is-expanded span { opacity: 1; }
-  .new-entity-btn.is-expanded svg { width: 18px; height: 18px; }
-  .new-entity-btn.is-expanded:hover,
-  .new-entity-btn.is-expanded:focus-visible {
-    max-width: none;
-    padding: 8px 18px;
-    background: var(--accent-translucent-hover);
-  }
-
-  /* Hide the header create-button when the inventory below is empty —
-     the empty-canvas's centered CTA owns the call-to-action affordance
-     until the user has at least one entity. */
-  .page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded) { display: none; }
+  /* New-entity header CTA (M17 F3 leg 03 CTA unification): one
+     always-visible vocabulary button (.btn-outlined-primary, icon +
+     text label) per entity grid, in BOTH empty and populated states.
+     The former icon-only/hover-reveal treatment and the
+     `:has(.empty-canvas)`-driven display:none state-split are retired —
+     the create affordance no longer moves between two buttons. The
+     empty-canvas keeps a second instance of the same component
+     (.empty-canvas-cta spacing hook, defined with the empty-state
+     rules above); the margin-left:auto pins the header CTA to the
+     header's right edge. */
+  .page-header > .btn-outlined-primary { margin-left: auto; flex-shrink: 0; }
 
   /* === Section Navigation (sidebar sub-section nav) === */
   /* Vertical list of <button> elements representing in-area section navigation.
@@ -730,43 +786,48 @@
     padding: 8px;
     border-bottom: 1px solid var(--border);
   }
-  /* Both themes: drop the section-nav bottom border — it paints a visible
-     line on the metallic chrome sidebar bg (alien-dashboard aesthetic
-     prefers continuous panel surfaces). */
+  /* Both themes: drop the section-nav bottom border — the sidebar reads
+     as one continuous quiet surface. */
   .section-nav { border-bottom: 0; }
+  /* Header quieted to --fg (v3: accent is reserved for interactive/selected
+     states — a static header in accent read as v2 loudness, and accent at
+     this size is only UI-threshold gated, not body-AA). */
   .section-nav-header {
     font-weight: var(--font-weight-bold);
-    color: var(--accent);
+    color: var(--fg);
     font-size: var(--font-size-body-lg);
     padding: 4px 10px 8px;
   }
   .section-nav-item {
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 8px 10px;
     color: var(--fg);
     font-family: inherit;
     font-size: var(--font-size-body-sm);
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    transition:
+      background-color var(--motion-base) var(--ease-tactile),
+      color var(--motion-base) var(--ease-tactile),
+      border-color var(--motion-base) var(--ease-tactile);
   }
-  .section-nav-item:hover { background: var(--surface); color: var(--fg); }
+  /* Hover steps to --surface-elevated: --sidebar-bg aliases --surface, so
+     the prior var(--surface) hover fill was invisible on the sidebar. */
+  .section-nav-item:hover { background: var(--surface-elevated); color: var(--fg); }
+  /* Inset ring: negative offset keeps the ring inside the sidebar list. */
   .section-nav-item:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
-    box-shadow: inset 0 0 0 3px var(--accent-glow);
   }
   .section-nav-item[aria-current="page"] {
-    /* Mini-glass — Mission 08 F2 L3 + L4 — same shape as .list-item.active:
-       gleam-overlay image + accent-translucent base + simplified bezel. */
+    /* Selected item: accent-translucent wash + accent border — same shape
+       as .list-item.active. */
     background-color: var(--accent-translucent);
-    background-image: var(--glass-gleam);
     color: var(--fg);
     font-weight: var(--font-weight-bold);
     border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-mini);
   }
 
   /* === Tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
@@ -786,7 +847,8 @@
   .tab {
     background: transparent;
     border: none;
-    border-left: 2px solid transparent;
+    /* Transparent bottom border reserves the selected-underline's 2px so
+       selecting a tab causes no layout jump. */
     border-bottom: 2px solid transparent;
     padding: 10px 16px;
     color: var(--fg-secondary);
@@ -798,35 +860,17 @@
     position: relative;
   }
   .tab:hover { color: var(--fg); }
+  /* Inset ring: negative offset keeps the ring inside the tablist strip. */
   .tab:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
+  /* Selected tab — quiet 2px accent underline (M17 F3; the v2 L-bracket
+     chamfer is retired with the banned-token allowance). Keyed off
+     aria-selected, the tabs.js-managed state attribute. */
   .tab[aria-selected="true"] {
     color: var(--accent);
-  }
-  /* L-bracket accent on the selected tab — paints a 2px-thick stripe along
-     the left + bottom edges joined by a 5px chamfer diagonal at the bottom-
-     left corner. Borders alone can't paint the diagonal segment (clip-path
-     would leave it bare), so the entire L-stripe is painted as an accent
-     fill clipped to the stripe shape. */
-  .tab[aria-selected="true"]::before {
-    content: '';
-    position: absolute;
-    inset: 0 0 -2px -2px;
-    background: var(--accent);
-    clip-path: polygon(
-      0 0,
-      2px 0,
-      2px calc(100% - 7px),
-      7px calc(100% - 2px),
-      100% calc(100% - 2px),
-      100% 100%,
-      5px 100%,
-      0 calc(100% - 5px)
-    );
-    pointer-events: none;
+    border-bottom-color: var(--accent);
   }
   .tabpanel {
     flex: 1;
@@ -899,10 +943,9 @@
   .test-result-warning { color: var(--status-warning); }
   .test-result-pending { color: var(--fg-secondary); }
 
-  /* === Indicator LED (Mission 08 F2 L5) ===
-     10px round dot with a reflective top-left crescent + a darker
-     bottom-right shadow (D2+shadow vibe-iteration result). Outer glow
-     uses the matching --status-*-glow token. Idle state has no glow.
+  /* === Indicator LED ===
+     10px flat round status dot. Color is never the only signal — every
+     LED is paired with a text label (see accessibility contract below).
      Use directly as `<span class="indicator-led indicator-led--success">`,
      or rely on the `.test-result-*` retrofit below which renders the LED
      as a ::before pseudo on every existing connection-test result.
@@ -930,14 +973,11 @@
     height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
-    background-image:
-      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
-      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
   }
-  .indicator-led--success { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
-  .indicator-led--warning { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
-  .indicator-led--danger { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
-  .indicator-led--idle { background-color: var(--fg-muted); /* no glow */ }
+  .indicator-led--success { background-color: var(--status-success); }
+  .indicator-led--warning { background-color: var(--status-warning); }
+  .indicator-led--danger { background-color: var(--status-danger); }
+  .indicator-led--idle { background-color: var(--fg-muted); }
 
   /* Retrofit: .test-result-* gets the LED dot via ::before so existing
      connection-test consumers (provider editor, agent editor) pick it up
@@ -955,14 +995,11 @@
     vertical-align: middle;
     border-radius: 50%;
     flex-shrink: 0;
-    background-image:
-      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
-      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
   }
-  .test-result-ok::before { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
-  .test-result-fail::before { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
-  .test-result-warning::before { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
-  .test-result-pending::before { background-color: var(--fg-muted); /* no glow on idle */ }
+  .test-result-ok::before { background-color: var(--status-success); }
+  .test-result-fail::before { background-color: var(--status-danger); }
+  .test-result-warning::before { background-color: var(--status-warning); }
+  .test-result-pending::before { background-color: var(--fg-muted); }
 
   /* === Save / Cancel button (disabled-SSoT pattern) === */
   /* Save and Cancel both use `disabled` as the SOLE source of truth (lifted
@@ -1028,7 +1065,7 @@
      Compose: <div class="banner banner-{variant}">…</div>. */
   .banner {
     padding: 10px 14px;
-    border-radius: 0 var(--panel-radius-sm) var(--panel-radius-sm) 0;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     border-left: 3px solid transparent;
     font-size: var(--font-size-body-sm);
     line-height: var(--line-height-normal);
@@ -1064,7 +1101,7 @@
   .api-key-wrap .field-input { flex: 1; }
   .api-key-eye { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
   .api-key-eye:hover { color: var(--fg); border-color: var(--border-strong); }
-  .api-key-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .api-key-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .api-key-eye svg { width: 14px; height: 14px; display: block; }
 
   /* === Advanced collapsible (Coming-soon stub disclosure) === */
@@ -1086,7 +1123,6 @@
   .advanced-collapsible > summary:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   .advanced-collapsible[open] > summary { color: var(--fg); }
   .advanced-caption {
@@ -1109,7 +1145,7 @@
     color: var(--code-block-fg);
     border: 1px solid var(--border);
     padding: 12px 14px;
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--radius-sm);
     font-family: var(--font-family-mono);
     font-size: var(--font-size-body-sm);
     line-height: 1.5;
@@ -1129,11 +1165,15 @@
     right: 8px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--panel-radius-sm);
+    border-radius: var(--radius-sm);
     padding: 4px 6px;
     color: var(--fg-muted);
     cursor: pointer;
-    opacity: 0;
+    /* M17 F4 L03: always-visible-but-quiet (F3 CTA lesson — no hover-reveal-only
+       affordance). Resting opacity keeps the copy control discoverable at rest;
+       wrap-hover / focus-within / the button's own hover+focus lift it to full.
+       The button is keyboard-reachable (a real <button> in the DOM) regardless. */
+    opacity: 0.6;
     transition: opacity 0.15s, color 0.15s, border-color 0.15s;
   }
   .markdown-code-wrap:hover .markdown-copy-btn,
@@ -1149,7 +1189,6 @@
     opacity: 1;
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
   }
   .markdown-copy-btn svg {
     width: 14px;
@@ -1176,9 +1215,6 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    /* Lighter overlay (was 0.5) — Mission 08 F2 L3 — so the modal-dialog's
-       backdrop-filter refraction reads through the dim, instead of looking
-       like a flat dark mask with a glass panel pasted on top. */
     background: rgba(0, 0, 0, 0.3);
     z-index: 200;
     display: flex;
@@ -1187,16 +1223,14 @@
     padding: 16px;
   }
   .modal-dialog {
-    /* Glass — Mission 08 F2 L3. Modal sits on top of .modal-overlay's
-       (now-reduced) dark backdrop; backdrop-filter blurs through to the
-       content beneath. var(--panel-shadow) dropped — competes with glass. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
+    /* Floating surface: solid fill + hairline border + --radius-lg + the
+       modal shadow (two-shadow system). radius-lg (12px) distinguishes the
+       blocking modal from inline surfaces (radius-md tiles / radius-sm
+       controls) — M17 F3 L4 vocabulary pass. */
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-modal);
     padding: 24px;
     min-width: 320px;
     max-width: 480px;
