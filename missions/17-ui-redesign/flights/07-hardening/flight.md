@@ -1,13 +1,13 @@
 # Flight: Hardening & Mission-End Acceptance
 
-**Status**: ready
+**Status**: landed
 **Mission**: [UI Redesign — Clean, Professional, Consistent](../../mission.md)
 
 ## Contributing to Criteria
 
 > This is the ACCEPTANCE flight — it VERIFIES and CHECKS all nine SC boxes in mission.md with cited evidence.
 
-- [ ] SC1 · SC2 · SC3 · SC4 · SC5 · SC6 · SC7 · SC8 · SC9 — all verified to mission-end here.
+- [x] SC1 · SC2 · SC3 · SC4 · SC5 · SC6 · SC7 · SC8 · SC9 — all verified to mission-end here.
 
 ---
 
@@ -80,11 +80,11 @@ Leg 1 (consistency fixes) → Leg 2 (SC2 completeness + SC9 docs) → Leg 3 (mis
 
 ### Checkpoints
 
-- [ ] (L1) `.cap-chip` quieted (un-scoped, both lanes both themes); H1-desync full-header fix + regression check; aiosqlite disposition
-- [ ] (L2) SC2 CSS-driven completeness assertion green + documented exclusions; SC9 docs current
-- [ ] (L3a) SC8 perf Scenario 1 re-run on 8485 within budget vs +6.55%/+20%; chat-roundtrip DARK PASSES; system-provider-config + studio-agent-crud-dark RE-RUN green; shell-nav re-smoke
-- [ ] (L3b) Full suites green (unit canonical + browser 532+/0 module-skips + token/contrast/guards); final guard audit (incl. mirror-sync + runtime chip-list); theme-sync-unset disposition
-- [ ] (L3b) SC1-SC9 all verified with cited evidence; the 9 boxes checked in mission.md
+- [x] (L1) `.cap-chip` quieted (un-scoped, both lanes both themes); H1-desync full-header fix + regression check; aiosqlite disposition
+- [x] (L2) SC2 CSS-driven completeness assertion green + documented exclusions; SC9 docs current
+- [x] (L3a) SC8 perf Scenario 1 re-run on 8485 within budget vs +6.55%/+20%; chat-roundtrip DARK PASSES; system-provider-config + studio-agent-crud-dark RE-RUN green; shell-nav re-smoke
+- [x] (L3b) Full suites green (unit canonical 3782/0-fail + browser 566/0-fail/0 module-skips + token/contrast/guards); final guard audit (incl. mirror-sync + runtime chip-list); theme-sync-unset disposition (F2-fixed, confirmed)
+- [x] (L3b) SC1-SC9 all verified with cited evidence; the 9 boxes checked in mission.md
 
 ### Adaptation Criteria
 
@@ -96,10 +96,10 @@ Leg 1 (consistency fixes) → Leg 2 (SC2 completeness + SC9 docs) → Leg 3 (mis
 
 > **Note:** Tentative; created one at a time.
 
-- [ ] `consistency-fixes` - .cap-chip un-scoped quiet + H1-desync full-header (title+subtitle) re-render fix (+ regression check) + aiosqlite disposition; re-verify admin/studio/chat/system lanes
-- [ ] `sc2-completeness-and-docs` - SC2 CSS-driven contrast-completeness assertion + documented non-text exclusions; SC9 docs currency (agents.md/gallery/CLAUDE.md incl. the static+runtime guard pattern + section-title convention + the never-`-m live` note)
-- [ ] `3a-empirical` - the exclusive-instance judgment-bearing measurements, FD-sequenced on 8485 (never overlapping): SC8 perf Scenario 1 re-run (on 8485, vs the +6.55%/+20% baseline) + the behavior runs — chat-roundtrip DARK + system-provider-config RE-RUN (both themes) + studio-agent-crud dark RE-RUN + shell-nav smoke; real Accessibility Validator
-- [ ] `3b-verdict` - full suites (unit canonical + full browser 532+/0-module-skips + token/contrast/guards) + final guard audit (incl. mirror-sync + runtime chip-list) + SC1-SC9 verification with cited evidence (consuming Leg-3a's settled measurements) + theme-sync-unset known-issue disposition + CHECK the 9 SC boxes in mission.md
+- [x] `consistency-fixes` - .cap-chip un-scoped quiet + H1-desync full-header (title+subtitle) re-render fix (+ regression check) + aiosqlite disposition; re-verify admin/studio/chat/system lanes
+- [x] `sc2-completeness-and-docs` - SC2 CSS-driven contrast-completeness assertion + documented non-text exclusions; SC9 docs currency (agents.md/gallery/CLAUDE.md incl. the static+runtime guard pattern + section-title convention + the never-`-m live` note)
+- [x] `3a-empirical` - the exclusive-instance judgment-bearing measurements, FD-sequenced on 8485 (never overlapping): SC8 perf Scenario 1 re-run (on 8485, vs the +6.55%/+20% baseline) + the behavior runs — chat-roundtrip DARK + system-provider-config RE-RUN (both themes) + studio-agent-crud dark RE-RUN + shell-nav smoke; real Accessibility Validator
+- [x] `3b-verdict` - full suites (unit canonical + full browser 532+/0-module-skips + token/contrast/guards) + final guard audit (incl. mirror-sync + runtime chip-list) + SC1-SC9 verification with cited evidence (consuming Leg-3a's settled measurements) + theme-sync-unset known-issue disposition + CHECK the 9 SC boxes in mission.md
 
 ---
 
@@ -107,11 +107,11 @@ Leg 1 (consistency fixes) → Leg 2 (SC2 completeness + SC9 docs) → Leg 3 (mis
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] All suites passing (unit canonical + full browser + token/contrast/guards)
-- [ ] Flight log updated
-- [ ] Documentation current (SC9)
-- [ ] All 9 SC boxes checked in mission.md with cited evidence
+- [x] All legs completed
+- [x] All suites passing (unit canonical 3782/0-fail + full browser 566/0-fail + token/contrast/guards)
+- [x] Flight log updated
+- [x] Documentation current (SC9)
+- [x] All 9 SC boxes checked in mission.md with cited evidence
 
 ### Verification
 

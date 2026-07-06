@@ -385,6 +385,21 @@
             // snapshot reset below only matters for the edit→edit case
             // where the editor stays mounted.
             if (isEdit) {
+              // Re-render the WHOLE display-only header text block (title +
+              // subtitle) from the freshly saved provider. On edit→edit the
+              // editor stays mounted and nothing else refreshes the header,
+              // so an edited Name / Base URL / Type would otherwise leave the
+              // H1 and the `type · base_url` subtitle stale. These nodes carry
+              // no data-field, so getFormSnapshot / dirty tracking are
+              // unaffected — textContent-only writes.
+              var titleEl = container.querySelector('.editor-title');
+              if (titleEl) titleEl.textContent = updated.name || '';
+              var subtitleEl = container.querySelector('.editor-subtitle');
+              if (subtitleEl) {
+                var subtitleParts = [updated.type];
+                if (updated.base_url) subtitleParts.push(updated.base_url);
+                subtitleEl.textContent = subtitleParts.join(' · ');
+              }
               snapshot = getFormSnapshot(container);
               dirty = false;
               checkDirty();

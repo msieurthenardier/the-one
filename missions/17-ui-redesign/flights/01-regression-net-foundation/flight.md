@@ -5,9 +5,9 @@
 
 ## Contributing to Criteria
 
-- [ ] SC6 — Regression net intact and healthier than before (module-skip removal starts here)
-- [ ] SC7 — Behavior-verified core flows (apparatus proven before redesign begins)
-- [ ] SC8 — No performance regression (fresh baseline captured here)
+- [x] SC6 — Regression net intact and healthier than before (module-skip removal starts here)
+- [x] SC7 — Behavior-verified core flows (apparatus proven before redesign begins)
+- [x] SC8 — No performance regression (fresh baseline captured here)
 
 ---
 

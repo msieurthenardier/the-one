@@ -5,9 +5,9 @@
 
 ## Contributing to Criteria
 
-- [ ] SC1 — Complete visual-language replacement (token layer: glows/glass/bezels/chamfer/chrome retired here) — *F2 delivered the token-layer share: retired categories neutralized then removed, banned-token guard active; box stays unchecked pending mission-end verification (tab L-bracket handed to F3)*
-- [ ] SC2 — Both themes individually designed and accessible (new palette + full-palette AA audit land here) — *F2 delivered the token-layer share: v3 palette landed in both themes, full-palette AA parametrization + mirror-sync guard green; box stays unchecked pending mission-end verification*
-- [ ] SC9 — Documentation reflects the new language (design-system reference + apparatus doctrine start here) — *F2 delivered the token-layer share: agents.md v3 design-system section + apparatus doctrine landed; box stays unchecked pending mission-end verification*
+- [x] SC1 — Complete visual-language replacement (token layer: glows/glass/bezels/chamfer/chrome retired here) — *F2 delivered the token-layer share: retired categories neutralized then removed, banned-token guard active; box stays unchecked pending mission-end verification (tab L-bracket handed to F3)*
+- [x] SC2 — Both themes individually designed and accessible (new palette + full-palette AA audit land here) — *F2 delivered the token-layer share: v3 palette landed in both themes, full-palette AA parametrization + mirror-sync guard green; box stays unchecked pending mission-end verification*
+- [x] SC9 — Documentation reflects the new language (design-system reference + apparatus doctrine start here) — *F2 delivered the token-layer share: agents.md v3 design-system section + apparatus doctrine landed; box stays unchecked pending mission-end verification*
 
 ---
 

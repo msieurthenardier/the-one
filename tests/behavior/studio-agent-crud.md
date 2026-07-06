@@ -3,7 +3,7 @@
 **Slug**: `studio-agent-crud`
 **Status**: active
 **Created**: 2026-07-05
-**Last Run**: 2026-07-05-22-32-24 (pass — light 9/9; dark variant 4/4 condensed)
+**Last Run**: 2026-07-06-06-06-19 (pass — DARK 9/9 full flow; cap-chip quiet non-regression confirmed on studio agent-tiles; F7 re-run; see runs/)
 
 ## Intent
 

@@ -3,7 +3,7 @@
 **Slug**: `system-provider-config`
 **Status**: active
 **Created**: 2026-07-05
-**Last Run**: 2026-07-06-02-37-37 — pass (20/20 checkpoints; light 10/10, dark 10/10) — [run log](system-provider-config/runs/2026-07-06-02-37-37.md)
+**Last Run**: 2026-07-06-05-41-42 — pass (20/20; light 10/10, dark 10/10; F7 H1/subtitle re-render confirmed both themes; cap-chip quiet on grid) — [run log](system-provider-config/runs/2026-07-06-05-41-42.md)
 
 ## Intent
 

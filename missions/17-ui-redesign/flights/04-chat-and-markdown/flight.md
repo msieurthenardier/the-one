@@ -7,13 +7,13 @@
 
 > Boxes stay unchecked — these are mission-end criteria, verified at the F7 hardening/verification gate. The annotations below record F4's delivered share toward each.
 
-- [ ] SC1 — visual-language replacement (chat surface to the quiet vocabulary)
+- [x] SC1 — visual-language replacement (chat surface to the quiet vocabulary)
   - **F4 share**: the chat surface was re-skinned to the quiet vocabulary — the loud full-`--accent` user bubble retuned to a quiet tint, disclosures/code wells/composer to vocabulary chrome; SC1 spot-check swept the chat surface in both themes (509 elements each) → **0 alien remnants** (no glows/gradients/text-shadows/filters).
-- [ ] SC3 — one component vocabulary (chat consumes it — buttons, fields, code wells)
+- [x] SC3 — one component vocabulary (chat consumes it — buttons, fields, code wells)
   - **F4 share**: chat consumes the F3 primitives directly — composer input → `.field-input`, stop → `.btn-muted-destructive`, send stays `.btn-filled-primary` (no per-area variants); code well + inline-code pill on the shared quiet code surface.
-- [ ] SC4 — modern chat experience (reading layout, streaming + stop, legible markdown/code, tool traces out of the reading flow)
+- [x] SC4 — modern chat experience (reading layout, streaming + stop, legible markdown/code, tool traces out of the reading flow)
   - **F4 share**: single-column reading layout with refined turn distinction (tinted user block, near-full-width agent prose, content-column max-width), streaming with a first-class stop affordance, legible markdown/code (hardened parser, quiet code well, always-visible-but-quiet copy button), tool-trace + thinking disclosures kept out of the reading flow behind quiet `<details>`.
-- [ ] SC5 — keyboard/AT operability (composer, disclosures, stop affordance)
+- [x] SC5 — keyboard/AT operability (composer, disclosures, stop affordance)
   - **F4 share**: composer/stop/disclosures keyboard-operable — the stop affordance is keyboard-focusable and operable live during streaming (2px accent focus ring, CDP-evidenced); the a11y-reviewer independently drove a real streaming turn confirming a keyboard-operable stop; copy button keyboard-reachable (not hover-reveal-only).
 
 ---

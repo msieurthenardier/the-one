@@ -197,6 +197,8 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 - **`@pytest.mark.live`** decorator marks AIAT tests — all live in `tests/test_aiat.py`
 - Run live tests: `pytest -m live tests/test_aiat.py`
 
+> **Reviewers/verifiers: the canonical unit gate is `make test-unit`, NEVER `-m live`.** The `-m live` AIAT lane defaults `THE_ONE_TEST_URL` to `http://localhost:8484` — the operator's PROD app (`the-one-app.exe` / `make up`). Running `-m live` as an acceptance/verification step points the suite at that live prod instance (mutating it, and reporting *its* state — not the branch's). `make test-unit` (`-m 'not browser and not live and not pixel'`) is self-contained and the only correct box-checking gate; use the browser lanes (`scripts/run-tests.sh --lane …`) for UI verification and a dedicated dev instance (e.g. port 8485) for any live/manual checks — never 8484.
+
 **Browser tests** are end-to-end browser-driven tests using Playwright. They are excluded from default runs via `addopts = "-m 'not live and not browser'"` in `pyproject.toml`.
 
 - **`@pytest.mark.browser`** marks browser tests — all live in `tests/browser/`

@@ -7,10 +7,10 @@
 
 > Boxes stay unchecked pending mission-end verification; the inline notes record F3's delivered share.
 
-- [ ] SC1 — visual-language replacement (pixel-font branding retired here; last chamfer removed here) — **F3 delivered**: pixel-font banner PNG retired for the set-type "GleepGlorp AI" wordmark (Leg 02); the last `clip-path` chamfer + its guard allowance deleted (Leg 01); SC1 spot-check at flight verification found no alien-console remnants across the vocabulary/shell/gallery.
-- [ ] SC3 — one component vocabulary (this flight builds it) — **F3 delivered**: one shared vocabulary built in components.css (buttons/fields/`.field-select`/tabs/tiles/tables — Leg 01; modals/toasts/empty-states/badges — Leg 04) and used identically across areas; chat agent-select folded onto the shared `.field-select`; gallery re-authored as the living reference.
-- [ ] SC5 — keyboard/AT operability (vocabulary components ship keyboard-complete) — **F3 delivered**: every leg's a11y gate passed (tabs arrow-operable, selects/CTA/fields focusable with pinned focus, modal focus-trap preserved); CDP focus evidence recorded; accessibility review confirmed after the destructive-button contrast fix.
-- [ ] SC9 — documentation (gallery rebuilt as the living reference; apparatus doctrine completed) — **F3 delivered**: gallery sections re-authored to the new vocabulary (Legs 01/04); agents.md gained the Component vocabulary conventions subsection + four apparatus-doctrine additions and its design section de-staled (Leg 05).
+- [x] SC1 — visual-language replacement (pixel-font branding retired here; last chamfer removed here) — **F3 delivered**: pixel-font banner PNG retired for the set-type "GleepGlorp AI" wordmark (Leg 02); the last `clip-path` chamfer + its guard allowance deleted (Leg 01); SC1 spot-check at flight verification found no alien-console remnants across the vocabulary/shell/gallery.
+- [x] SC3 — one component vocabulary (this flight builds it) — **F3 delivered**: one shared vocabulary built in components.css (buttons/fields/`.field-select`/tabs/tiles/tables — Leg 01; modals/toasts/empty-states/badges — Leg 04) and used identically across areas; chat agent-select folded onto the shared `.field-select`; gallery re-authored as the living reference.
+- [x] SC5 — keyboard/AT operability (vocabulary components ship keyboard-complete) — **F3 delivered**: every leg's a11y gate passed (tabs arrow-operable, selects/CTA/fields focusable with pinned focus, modal focus-trap preserved); CDP focus evidence recorded; accessibility review confirmed after the destructive-button contrast fix.
+- [x] SC9 — documentation (gallery rebuilt as the living reference; apparatus doctrine completed) — **F3 delivered**: gallery sections re-authored to the new vocabulary (Legs 01/04); agents.md gained the Component vocabulary conventions subsection + four apparatus-doctrine additions and its design section de-staled (Leg 05).
 
 ---
 

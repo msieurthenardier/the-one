@@ -43,7 +43,14 @@ audit summary and any documented deliberate exceptions.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
+
+# parse_tokens_css_theme_blocks reads the SOURCE OF TRUTH (tokens.css) — the
+# SC2 completeness net below enumerates from it, never from the mirror.
+from _ui_guard_helpers import parse_tokens_css_theme_blocks
 
 # DARK / LIGHT live in tests/browser/design_tokens.py — single source of
 # truth for any test that references token values.  pytest's
@@ -644,3 +651,159 @@ def test_fg_faint_band_exception(theme: str, bg_key: str) -> None:
         f"{theme} --fg-faint drifted out of the deliberate-exception band on {bg_key}: "
         f"ratio={ratio:.2f}:1 (band: 3.0 ≤ r < 4.5)"
     )
+
+
+# ---------------------------------------------------------------------------
+# SC2 completeness net — every fg-role token is audited or exempt (M17 F7 L2)
+# ---------------------------------------------------------------------------
+#
+# The parametrized gates above audit a CURATED set of fg-role tokens. SC2
+# ("all palette tokens audited for contrast, with documented exceptions") needs
+# a machine-checked guarantee that the curated set stays COMPLETE — that a new
+# fg / accent / status / code-block token added to tokens.css cannot slip in
+# unaudited and undocumented.
+#
+# The hole this closes: the mirror-sync guard
+# (``test_ui_guards.py::test_design_token_mirror_in_sync``) is strictly
+# mirror→CSS — it iterates the ``design_tokens.py`` mirror and checks each key
+# exists in ``tokens.css``. A literal-hex token added to ``tokens.css`` but NOT
+# to the mirror satisfies BOTH nets silently: it is absent from the mirror (so
+# mirror-sync never looks at it) AND absent from the a11y parametrizations
+# (which read their values from that same mirror). This is exactly the "did we
+# forget to audit a token" hole SC2 must close.
+#
+# So this net enumerates from ``tokens.css`` (the SOURCE OF TRUTH) via
+# ``parse_tokens_css_theme_blocks()`` — NOT from the mirror. For every token in
+# the fg-role families it asserts the token is either:
+#
+#   - GATED — a literal-hex value that is present in the ``design_tokens.py``
+#     mirror (DARK & LIGHT, the a11y suite's value source) AND referenced by
+#     its mirror-key in this module (so a contrast assertion actually exercises
+#     it); OR
+#   - EXEMPT — named in ``_CONTRAST_EXEMPT`` below with a rationale.
+#
+# A fg-role token that is neither gated nor exempt fails LOUDLY, naming the
+# token. Probe-verified (M17 F7 L2): planting an ungated literal-hex
+# ``--fg-probe`` in tokens.css makes this test fail naming ``--fg-probe``.
+
+# The color families where a standalone or composited fg-on-bg contrast pair is
+# meaningful — the enumeration scope. STRUCTURAL families are deliberately OUT
+# OF SCOPE (they carry no standalone fg-on-bg ratio, so "contrast completeness"
+# does not apply to them) and are documented here rather than enumerated:
+#
+#   - ``--border-*`` / ``--border`` — hairlines; non-text separators. Their
+#     3:1 UI-contrast where load-bearing (e.g. focus rings) is a separate
+#     concern from text/large-text contrast and not this suite's remit.
+#   - ``--nav-*`` / ``--sidebar-*`` — ``var()`` indirections onto already-gated
+#     ladder values (nav-fg → fg-secondary, nav-bg → surface); auditing the
+#     indirection would double-count the ladder it resolves to.
+#   - ``--surface-*`` (incl. the standalone ``--surface-tool``) / ``--bg`` —
+#     BACKGROUNDS, not foregrounds; they appear in the gates only as the
+#     ``bg_key`` half of a pair, never as a fg needing its own ratio.
+#   - ``--badge-*`` / ``--badge-ink-*`` — gated by their OWN dedicated suite
+#     (``test_badge_ink_passes_body_aa``, every fill × ink both themes); a
+#     completeness net over them would duplicate that gate.
+#   - geometry / motion tokens — no color content.
+_FG_ROLE_PREFIXES = ("--fg", "--accent", "--status", "--code-block")
+
+# Matches a full literal-hex value (``#rgb`` … ``#rrggbbaa``). rgba()/var()
+# values do NOT match — an rgba wash has no flat WCAG ratio, so it can only be
+# accounted-for via ``_CONTRAST_EXEMPT``, never "gated".
+_HEX_LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}$")
+
+# Documented non-text / composited exclusions among the fg-role prefixes.
+# These are rgba WASH tokens: the flat WCAG formula cannot read their alpha, so
+# they have no standalone contrast ratio. Where text or non-text marks sit ON a
+# wash, the rendered opaque fill is reconstructed with ``_alpha_composite`` and
+# gated at the CONSUMER site (cited per entry) — the wash token itself stays
+# exempt. Each entry's base hue is an already-gated literal-hex token.
+_CONTRAST_EXEMPT: dict[str, str] = {
+    "--accent-translucent": (
+        "rgba wash of the gated --accent hue; no standalone ratio. Composited-"
+        "gated at consumers: test_tinted_user_bubble_text_passes_body_aa, "
+        "test_tool_switch_indeterminate_thumb_holds_ui_contrast, "
+        "test_discoverable_dropdown_hover_item_text_passes_body_aa."
+    ),
+    "--accent-translucent-hover": (
+        "rgba hover wash of the gated --accent hue; a transient hover fill, no "
+        "text pair of its own (its resting sibling --accent-translucent carries "
+        "the gated consumer pairs)."
+    ),
+    "--status-danger-bg-soft": (
+        "rgba wash of the gated --status-danger hue; composited-gated by "
+        "test_danger_text_on_soft_fill_passes_body_aa (and its usage pins "
+        "test_cap_chip_no_tools_/test_editor_error_banner_consumes_the_gated_"
+        "danger_pair)."
+    ),
+    "--status-warning-bg-soft": (
+        "rgba wash of the gated --status-warning hue; composited-gated by "
+        "test_warning_text_on_soft_fill_passes_body_aa and "
+        "test_connector_empty_types_banner_prose_passes_body_aa."
+    ),
+    "--status-warning-bg-soft-2": (
+        "rgba wash of the gated --status-warning hue (denser variant); a fill "
+        "only, no text sits directly on it — the base hue is the gated "
+        "--status-warning."
+    ),
+    "--status-warning-border": (
+        "rgba hairline of the gated --status-warning hue; a non-text UI border, "
+        "no standalone text ratio."
+    ),
+}
+
+
+def _referenced_in_this_module(mirror_key: str) -> bool:
+    """True if ``mirror_key`` (snake_case) appears as a quoted string literal in
+    this module's source — i.e. a contrast assertion above actually reads it.
+
+    Ties the completeness net's notion of "gated" to a real reference in
+    ``test_design_tokens_a11y.py`` (not merely presence in the mirror), so a
+    token mirrored-but-never-asserted still fails the net."""
+    src = Path(__file__).read_text(encoding="utf-8")
+    return re.search(rf"""["']{re.escape(mirror_key)}["']""", src) is not None
+
+
+def test_sc2_every_fg_role_token_is_gated_or_exempt() -> None:
+    """SC2 completeness: every fg-role token in ``tokens.css`` is either GATED
+    (literal-hex, mirrored in DARK & LIGHT, and referenced by a contrast
+    assertion here) or EXEMPT (documented in ``_CONTRAST_EXEMPT``).
+
+    Enumerates from ``tokens.css`` (source of truth) via
+    ``parse_tokens_css_theme_blocks`` — NOT from the mirror — so a literal-hex
+    token added to the CSS but not the mirror fails LOUDLY naming the token
+    (the mirror→CSS-only mirror-sync guard cannot see it). Both theme blocks
+    are checked; a token present in only one theme surfaces as a per-theme
+    failure line."""
+    blocks = parse_tokens_css_theme_blocks()
+
+    failures: list[str] = []
+    for theme in ("dark", "light"):
+        for name, value in sorted(blocks[theme].items()):
+            if not name.startswith(_FG_ROLE_PREFIXES):
+                continue
+            if name in _CONTRAST_EXEMPT:
+                continue  # documented non-text / composited exclusion
+            mirror_key = name[2:].replace("-", "_")
+            mirror = DARK if theme == "dark" else LIGHT
+            gated = (
+                _HEX_LITERAL.match(value) is not None
+                and mirror_key in mirror
+                and _referenced_in_this_module(mirror_key)
+            )
+            if not gated:
+                reason = (
+                    "non-literal value (no flat WCAG ratio) and not in _CONTRAST_EXEMPT"
+                    if _HEX_LITERAL.match(value) is None
+                    else "literal-hex but absent from the design_tokens.py mirror "
+                    "and/or unreferenced by any contrast assertion in this module"
+                )
+                failures.append(f"  [{theme}] {name} = {value!r}: {reason}")
+
+    if failures:
+        raise AssertionError(
+            "SC2 contrast-completeness: fg-role token(s) in tokens.css are "
+            "neither GATED nor EXEMPT.\n"
+            "Either add a contrast gate for the token (and mirror it in "
+            "tests/browser/design_tokens.py) OR add it to _CONTRAST_EXEMPT with "
+            "a rationale:\n" + "\n".join(failures)
+        )

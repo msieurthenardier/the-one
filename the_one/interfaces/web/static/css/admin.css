@@ -141,7 +141,7 @@
      .chip; .cap-chip-no-tools uses the danger palette so the absence of
      tool support stands out at a glance. */
   .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; }
   .cap-chip-no-tools { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
 
   /* === Pull UI === */
