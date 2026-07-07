@@ -468,6 +468,57 @@ disclosure; the `signature` is identical across display modes, so replay is unaf
 replay-when-on, strip-when-off (DD8). The field is provider-agnostic — Ollama/OpenAI may populate
 it in a later flight with no protocol change.
 
+### `provider-request-param-config-surface` (M16 F11)
+
+Per-request LLM params that not every provider needs, and that don't warrant a change to the
+`LLMProvider` ABC's constructor/method signatures, are configured through the free-form
+`LLMProviderConfig.config` dict rather than new formal parameters. A4 (M16 F11) added three:
+`reasoning_effort`, `response_format`, `stop`. Keeping the ABC signature unchanged avoids a
+hand-rolled-test-double cascade — every provider subclass and test double would otherwise need
+updating for a signature change three separate providers don't all need. Canonical resolvers live
+in `the_one/llm/_request_params.py`: `resolve_reasoning_effort`, `resolve_response_format`,
+`resolve_stop`, backed by `_coerce_effort`, `_coerce_response_format`, `_coerce_stop`.
+
+**Precedence** (mirrors the pre-existing `resolve_extended_thinking` (`anthropic_provider.py`) and
+`effective_num_ctx` (`ollama_provider.py`) lineage): per-provider `config` key → env
+(`THE_ONE_REASONING_EFFORT` / `THE_ONE_RESPONSE_FORMAT` / `THE_ONE_STOP`) → default `None`. Each
+provider's `__init__` coerces the raw `config` value via the matching `_coerce_*` helper at
+construction time; the resolver itself coerces *only* the env read, at call time. The split keeps
+`_coerce_*` independently unit-testable and matches the established precedent exactly.
+
+**Canonical→native mapping is per-provider (DD3)**: the shared module normalizes shape only; each
+provider's own request-kwargs assembly maps the canonical value to its native wire shape.
+Anthropic (`the_one/llm/anthropic_provider.py:_build_kwargs`) maps to `output_config.effort` /
+`output_config.format` (json_schema-only — canonical `json_object` no-ops with a logged warning,
+since Anthropic's structured-output surface has no bare-JSON mode) plus top-level
+`stop_sequences`. OpenAI, OpenRouter, and Ollama's `/v1` path share the OpenAI-compat shape
+(`the_one/llm/openai_provider.py:_a4_request_kwargs`, `the_one/llm/ollama_provider.py:_v1_a4_kwargs`)
+— `reasoning_effort`, `stop`, and `response_format` with a `json_schema` wrapper that synthesizes a
+required `name`. Ollama's native `/api/chat` path (`the_one/llm/ollama_provider.py:_native_body` /
+`:_native_options`) uses body-level `think` / `format` plus `options.stop` instead of the
+OpenAI-compat keys. **Subclass caveat**: `OpenRouterProvider` inherits `OpenAIProvider`'s
+request-building methods but reads its own config in its own `__init__` via the shared
+`the_one/llm/openai_provider.py:_read_a4_config` helper (`OpenRouterProvider.__init__`
+deliberately does not call `OpenAIProvider.__init__` — see that file's docstring) — a future A4
+key must be threaded through `_read_a4_config` for OpenRouter to pick it up, not assumed to arrive
+via `super().__init__()`.
+
+**UI surface**: only `reasoning_effort` gets a provider-config editor field — Admin's
+`the_one/interfaces/web/static/js/areas/admin/provider-editor.js` renders a `<select>` bound to
+`data-field="config.reasoning_effort"`. `response_format` and `stop` are config/env-only (no UI
+field; the file documents this inline as "config/env-only response_format + stop, DD6"). The save
+path seeds `payload.config` from the existing provider's config object before overlaying
+type-specific fields, so out-of-band keys (`response_format`, `stop`, or anything set via API/DB
+rather than through the UI) survive a UI-triggered save instead of being wiped by the backend's
+field-level-replace update (`existing.model_copy(update=data)`).
+
+Citations: `the_one/llm/_request_params.py` (resolvers + coercers); `the_one/llm/anthropic_provider.py:_build_kwargs`
+(and its `resolve_extended_thinking` precedent in the same file); `the_one/llm/openai_provider.py:_a4_request_kwargs`
+/ `:_read_a4_config`; `the_one/llm/openrouter_provider.py:OpenRouterProvider.__init__` (subclass caveat);
+`the_one/llm/ollama_provider.py:_v1_a4_kwargs` / `:_native_body` / `:_native_options` (and its `effective_num_ctx`
+precedent in the same file); `the_one/interfaces/web/static/js/areas/admin/provider-editor.js` (UI field +
+save-path config seeding).
+
 ### Mission-specific (M10)
 
 Patterns that emerged in Mission 10 (bi-directional comms connectors) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above. Future missions extending this file add their own `### Mission-specific (M{NN})` subsection per the same pattern.

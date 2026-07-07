@@ -8,6 +8,14 @@ from typing import Any
 import httpx
 
 from the_one.llm import ollama_api
+from the_one.llm._request_params import (
+    _coerce_effort,
+    _coerce_response_format,
+    _coerce_stop,
+    resolve_reasoning_effort,
+    resolve_response_format,
+    resolve_stop,
+)
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm._toolcall_recovery import recover_and_strip
 from the_one.llm.base import (
@@ -177,12 +185,67 @@ class OllamaProvider(LLMProvider):
         self._configured_num_ctx: int | None = (
             _coerce_num_ctx(config.get("num_ctx")) if isinstance(config, dict) else None
         )
+        # M16 F11 L04 (A4): reasoning_effort / response_format / stop, read the
+        # same way as _configured_num_ctx above — coerced to canonical-or-None
+        # via the shared L01 helpers, never raising on absent/non-dict/junk.
+        # Consumed by _v1_a4_kwargs() (the /v1 OpenAI-compat path) and by
+        # _native_options()/_native_body() (the native /api/chat path).
+        self._reasoning_effort_config: str | None = (
+            _coerce_effort(config.get("reasoning_effort")) if isinstance(config, dict) else None
+        )
+        self._response_format_config: dict[str, Any] | None = (
+            _coerce_response_format(config.get("response_format"))
+            if isinstance(config, dict)
+            else None
+        )
+        self._stop_config: list[str] | None = (
+            _coerce_stop(config.get("stop")) if isinstance(config, dict) else None
+        )
         # Runtime ``num_ctx`` to send on native requests, resolved from the
         # model's advertised window + the per-provider override
         # (``effective_num_ctx``). None → omit num_ctx and let Ollama use its
         # default. Set in ``_resolve_max_context_tokens``; only consulted on the
         # native path.
         self._runtime_num_ctx: int | None = None
+
+    def _v1_a4_kwargs(self) -> dict[str, Any]:
+        """A4 request-kwargs addition for the ``/v1`` OpenAI-compat path.
+
+        M16 F11 L04: identical mapping to ``OpenAIProvider._a4_request_kwargs``
+        (Wire-Format Premise, flight-log.md) — ``stop``->``stop``,
+        effort->``reasoning_effort``, json_object passthrough, json_schema
+        re-wrapped with a required ``name`` (caller-supplied or synthesized
+        ``"response"``). Returns ``{}`` when nothing is configured.
+
+        DRY note (leg decision: duplicate locally, not shared): this is copy
+        #2 of the OpenAI-compat A4 mapping (OpenRouter inherits OpenAI's via
+        ``complete``/``stream``, so it isn't a separate copy) — the
+        rule-of-three hasn't triggered. Forward-note: if a THIRD ``/v1``-style
+        provider ever needs this exact mapping, lift it into
+        ``_request_params.py::to_openai_compat_a4(effort, rf, stop)`` and
+        update all call sites then — do not re-litigate the DRY question
+        before that trigger. This mapping must stay byte-for-byte identical
+        in behavior to ``OpenAIProvider._a4_request_kwargs`` (L05's
+        conformance matrix asserts /v1 and OpenAI emit identical wire shapes
+        for shared config — it will catch drift if the two copies diverge).
+        """
+        out: dict[str, Any] = {}
+        stop = resolve_stop(self._stop_config)
+        if stop:
+            out["stop"] = stop
+        effort = resolve_reasoning_effort(self._reasoning_effort_config)
+        if effort:
+            out["reasoning_effort"] = effort
+        rf = resolve_response_format(self._response_format_config)
+        if rf:
+            if rf.get("type") == "json_object":
+                out["response_format"] = {"type": "json_object"}
+            elif rf.get("type") == "json_schema" and rf.get("schema") is not None:
+                out["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": rf.get("name") or "response", "schema": rf["schema"]},
+                }
+        return out
 
     def _auth_headers(self) -> dict[str, str]:
         """Return ``{Authorization: Bearer <key>}`` only when api_key is
@@ -254,6 +317,7 @@ class OllamaProvider(LLMProvider):
         }
         if tools:
             payload["tools"] = [self.tool_schema(t) for t in tools]
+        payload.update(self._v1_a4_kwargs())
 
         async with httpx.AsyncClient(timeout=300, headers=self._auth_headers()) as client:
             resp = await client.post(
@@ -344,6 +408,7 @@ class OllamaProvider(LLMProvider):
         }
         if tools:
             body["tools"] = [self.tool_schema(t) for t in tools]
+        body.update(self._v1_a4_kwargs())
 
         content = ""
         usage: TokenUsage | None = None
@@ -435,6 +500,11 @@ class OllamaProvider(LLMProvider):
         options: dict[str, Any] = {"temperature": temperature, "num_predict": max_tokens}
         if self._runtime_num_ctx is not None:
             options["num_ctx"] = self._runtime_num_ctx
+        # M16 F11 L04 (A4): native ``stop`` lives under ``options``, unlike the
+        # /v1 path's top-level ``stop`` key.
+        stop = resolve_stop(self._stop_config)
+        if stop:
+            options["stop"] = stop
         return options
 
     def _native_body(
@@ -452,6 +522,20 @@ class OllamaProvider(LLMProvider):
         # Native /api/chat accepts the SAME tool schema shape as OpenAI.
         if tools:
             body["tools"] = [self.tool_schema(t) for t in tools]
+        # M16 F11 L04 (A4): body-level ``think`` (reasoning) and ``format``
+        # (structured output) — native's distinct shapes vs. the /v1 path's
+        # ``reasoning_effort``/``response_format``. F10 left ``enable_thinking``
+        # accept-and-ignore on this provider, so ``think`` is A4's first use of
+        # this key — no conflict with any existing thinking wiring.
+        effort = resolve_reasoning_effort(self._reasoning_effort_config)
+        if effort:
+            body["think"] = effort
+        rf = resolve_response_format(self._response_format_config)
+        if rf:
+            if rf.get("type") == "json_object":
+                body["format"] = "json"
+            elif rf.get("type") == "json_schema" and rf.get("schema") is not None:
+                body["format"] = rf["schema"]
         return body
 
     def _to_native_message(self, msg: Message) -> dict[str, Any]:

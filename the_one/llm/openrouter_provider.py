@@ -87,7 +87,7 @@ class OpenRouterProvider(OpenAIProvider):
         model: str = "",
         api_key: str | None = None,
         base_url: str = "https://openrouter.ai/api/v1",
-        config: dict | None = None,  # accepted for factory uniformity; unused
+        config: dict | None = None,  # A4 keys read via _read_a4_config; referer/title hardcoded
         timeout: httpx.Timeout | None = None,
         **kwargs: Any,
     ):
@@ -128,6 +128,14 @@ class OpenRouterProvider(OpenAIProvider):
             else os.environ.get("OPENROUTER_API_KEY")
         )
         self._lookup_base_url = base_url
+
+        # M16 F11 L03: read the A4 request params (reasoning_effort /
+        # response_format / stop) from this constructor's own explicit
+        # ``config`` param. OpenAIProvider.__init__ is never called (see
+        # above), so this must be done here directly rather than inherited —
+        # keeps the instance-attr parity contract
+        # (test_subclass_has_all_parent_instance_attrs) satisfied.
+        self._read_a4_config(config)
 
         # M08 F7 L05 (F6.5 debrief AI #1): defuse the manual-state-mirror
         # tripwire. Any future instance state added to

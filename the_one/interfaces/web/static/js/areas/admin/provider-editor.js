@@ -222,6 +222,31 @@
     html += '</label>';
     html += '</div>';
 
+    // Reasoning effort (config.reasoning_effort) — F11-06. Rides the free-form
+    // config dict (config.reasoning_effort), same pattern as num_ctx. Shown for
+    // reasoning-capable provider types (anthropic, openai, openrouter, ollama,
+    // openai-compatible — see TYPE_DEFAULTS.showReasoningEffort in admin.js).
+    // Optional: the empty "Provider default" option means omit the key
+    // entirely (server-side _coerce_effort('') -> None), so an operator who
+    // never touches this field gets prior behavior unchanged.
+    var reasoningEffort = (!isCreate && provider.config && provider.config.reasoning_effort) ? provider.config.reasoning_effort : '';
+    var reDesc = 'Guides how much the model reasons before answering (reasoning-capable models). Leave on Provider default to omit.';
+    var reIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';
+    if (!reIcon) reIcon = 'ⓘ';
+    html += '<div class="field-group admin-pf-reasoning-effort' + (defaults.showReasoningEffort ? '' : ' is-hidden') + '">';
+    html += '<div class="field-group-label">';
+    html += '<label for="pf-reasoning-effort">Reasoning Effort</label>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(reDesc) + '" aria-describedby="pf-reasoning-effort-desc">' + reIcon + '</button>';
+    html += '</div>';
+    html += '<span id="pf-reasoning-effort-desc" class="visually-hidden">' + escapeHtml(reDesc) + '</span>';
+    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-reasoning-effort" data-field="config.reasoning_effort" aria-describedby="pf-reasoning-effort-desc">';
+    html += '<option value=""' + (reasoningEffort === '' ? ' selected' : '') + '>Provider default</option>';
+    html += '<option value="low"' + (reasoningEffort === 'low' ? ' selected' : '') + '>low</option>';
+    html += '<option value="medium"' + (reasoningEffort === 'medium' ? ' selected' : '') + '>medium</option>';
+    html += '<option value="high"' + (reasoningEffort === 'high' ? ' selected' : '') + '>high</option>';
+    html += '</select>';
+    html += '</div>';
+
     return html;
   }
 
@@ -295,6 +320,7 @@
     var apiKeyRow = container.querySelector('.admin-pf-api-key');
     var numCtxRow = container.querySelector('.admin-pf-num-ctx');
     var thinkingEnabledRow = container.querySelector('.admin-pf-thinking-enabled');
+    var reasoningEffortRow = container.querySelector('.admin-pf-reasoning-effort');
     if (typeSelect) {
       typeSelect.addEventListener('change', function () {
         var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(typeSelect.value)) || {};
@@ -302,6 +328,7 @@
         apiKeyRow.classList.toggle('is-hidden', !defaults.showApiKey);
         if (numCtxRow) numCtxRow.classList.toggle('is-hidden', !defaults.showNumCtx);
         if (thinkingEnabledRow) thinkingEnabledRow.classList.toggle('is-hidden', !defaults.showThinkingEnabled);
+        if (reasoningEffortRow) reasoningEffortRow.classList.toggle('is-hidden', !defaults.showReasoningEffort);
         baseUrlInput.value = defaults.base_url || '';
         checkDirty();
       });
@@ -364,7 +391,7 @@
       saveBtn.addEventListener('click', function () {
         var errorEl = container.querySelector('.editor-error');
         errorEl.textContent = '';
-        var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit);
+        var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider);
         if (!payload) return; // validation failed; collectFormData wrote error
         var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
         var method = isEdit ? 'PUT' : 'POST';
@@ -531,7 +558,7 @@
     }
   }
 
-  function collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit) {
+  function collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider) {
     /* Validate + collect payload. Mirrors pre-leg-03 admin.js:440-477 (Save
        handler's prologue) but returns null + writes error when invalid.
        Preserves the MASKED_SENTINEL substitution from admin.js:466-470. */
@@ -574,9 +601,22 @@
     }
     var payload = { name: name, type: selectedType, base_url: baseUrl, api_key: apiKey };
 
+    /* Config-preservation seed (Phase-2d review fix, F11). The backend's
+       update_provider does existing.model_copy(update=data) — a field-level
+       REPLACE, not a deep merge. So whatever `config` object this function
+       sends becomes the ENTIRE stored config; any key the UI doesn't render
+       (e.g. config/env-only response_format + stop, DD6) would otherwise be
+       silently wiped on every Save. Seed from a shallow clone of the existing
+       provider config (edit mode) so the type-specific blocks below only
+       overlay the fields they own, preserving everything else. Create mode
+       has no existing provider, so it starts from {}. */
+    payload.config = (isEdit && provider && provider.config) ? Object.assign({}, provider.config) : {};
+
     // OpenRouter optional ranking-header inputs (Task 9) — read values,
     // validate client-side (server re-validates), drop empty values so
-    // the saved config doesn't carry empty-string keys.
+    // the saved config doesn't carry empty-string keys. Overlays onto the
+    // seeded payload.config (add/delete only the keys this branch owns)
+    // rather than replacing it outright.
     if (selectedType === 'openrouter') {
       var refererInput = container.querySelector('[data-field="config.referer"]');
       var titleInput = container.querySelector('[data-field="config.title"]');
@@ -596,10 +636,8 @@
         return null;
       }
 
-      var cfg = {};
-      if (orReferer) cfg.referer = orReferer;
-      if (orTitle) cfg.title = orTitle;
-      payload.config = cfg;
+      if (orReferer) payload.config.referer = orReferer; else delete payload.config.referer;
+      if (orTitle) payload.config.title = orTitle; else delete payload.config.title;
     }
 
     // Ollama Context Window (config.num_ctx) — F09-05. Now REQUIRED and always
@@ -631,6 +669,17 @@
       var teInput = container.querySelector('[data-field="config.thinking_enabled"]');
       payload.config = payload.config || {};
       payload.config.thinking_enabled = !!(teInput && teInput.checked);
+    }
+
+    // Reasoning effort (config.reasoning_effort) — F11-06. Collected only when
+    // the field is shown (reasoning-capable types). Always persist the
+    // explicit value (matches thinking_enabled's always-persist; makes the
+    // edit round-trip deterministic). The empty string is a valid, harmless
+    // value — the server-side _coerce_effort('') falls through to None.
+    if (defaults.showReasoningEffort) {
+      var reInput = container.querySelector('[data-field="config.reasoning_effort"]');
+      payload.config = payload.config || {};
+      payload.config.reasoning_effort = reInput ? reInput.value : '';
     }
 
     return payload;

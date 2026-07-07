@@ -529,9 +529,20 @@ Deferred (own-mission candidate, 2026-06-23):
       live-wire-format planning gate; the HAT backend-currency precondition; the `thinking_display_text`
       `type`-filter A2 risk; the `effort`-in-config (not-ABC) A4 guidance; two small deferred fixes
       (live-broadcast `visibility`; empty-thinking-text tests); the still-open aiosqlite teardown flake.
-- [ ] Flights *(capability, audit-driven)*: **other SDK capabilities** — e.g.
-      prompt caching, structured outputs / JSON mode, vision/multimodal, document
-      inputs, reasoning-effort controls — each planned and prioritized from the
-      Flight 1B gap backlog, implemented behind the `LLMProvider` contract.
+- [ ] Flight 11 *(capability — A4)*: **Request-param capabilities — reasoning_effort,
+      structured outputs / JSON mode, stop sequences** — **READY (planned + design-
+      reviewed 2026-07-06).** Delivers backlog **A4** via the provider config surface
+      (config→env→default `resolve_*` helpers, no `LLMProvider` ABC change → no
+      test-double cascade), provider-native structured-output pass-through (strict
+      client-side validation deferred), extended cross-provider conformance matrix
+      (+OpenRouter), + a guided live HAT. Split from A2 (operator, 2026-07-06): A2
+      (vision/document `Message.content` widening) is the following flight. 7 legs
+      (L07 optional HAT). See `flights/11-request-params-stop-format-effort/`.
+- [ ] Flights *(capability, audit-driven)*: **remaining SDK capabilities** — A2
+      (vision/multimodal + document inputs via `Message.content` widening — next
+      flight), plus prompt caching (A3), and the lower-tier A5/B1–B4 — each planned
+      and prioritized from the Flight 1B gap backlog, implemented behind the
+      `LLMProvider` contract **or explicitly deferred with a recorded reason** at
+      mission close.
 - [ ] Flight N *(optional)*: **Alignment** — hands-on session exercising real
       models and tuning judgment-call behavior that benefits from human feedback.

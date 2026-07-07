@@ -1037,3 +1037,139 @@ async def test_end_to_end_enable_thinking_false_strips_replay(monkeypatch):
     assert "thinking" not in sent
     assistant = _assistant_entry(sent["messages"])
     assert _indices(assistant["content"], "thinking") == []
+
+
+# --------------------------------------------------------------------------
+# M16 F11 L02 (A4): reasoning_effort / response_format / stop wiring
+# --------------------------------------------------------------------------
+
+
+def test_init_reads_a4_config(monkeypatch):
+    """__init__ coerces the three A4 config keys into instance attrs."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    prov = AnthropicProvider(
+        model="claude-test",
+        config={
+            "reasoning_effort": "high",
+            "response_format": {"type": "json_schema", "schema": {"type": "object"}},
+            "stop": ["</s>"],
+        },
+    )
+    assert prov._reasoning_effort_config == "high"
+    assert prov._response_format_config == {"type": "json_schema", "schema": {"type": "object"}}
+    assert prov._stop_config == ["</s>"]
+
+
+def test_init_a4_config_none_when_absent_or_non_dict(monkeypatch):
+    """Absent/None/non-dict/junk config coerces all three A4 attrs to None,
+    never raising (mirrors test_init_thinking_enabled_none_when_absent_or_non_dict)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    for prov in (
+        AnthropicProvider(model="claude-test"),
+        AnthropicProvider(model="claude-test", config=None),
+        AnthropicProvider(model="claude-test", config="nope"),
+        AnthropicProvider(model="claude-test", config={}),
+        AnthropicProvider(model="claude-test", config={"reasoning_effort": True}),
+    ):
+        assert prov._reasoning_effort_config is None
+        assert prov._response_format_config is None
+        assert prov._stop_config is None
+
+
+def _prov_with_config(config: dict[str, Any] | None) -> AnthropicProvider:
+    return AnthropicProvider(model="claude-test", api_key="x", config=config)
+
+
+async def test_build_kwargs_stop_wired():
+    """resolve_stop non-empty -> kwargs['stop_sequences']; unset -> key absent."""
+    prov = _prov_with_config({"stop": ["</s>", "STOP"]})
+    kwargs = prov._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert kwargs["stop_sequences"] == ["</s>", "STOP"]
+
+    prov_unset = _prov_with_config(None)
+    kwargs_unset = prov_unset._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert "stop_sequences" not in kwargs_unset
+
+
+async def test_build_kwargs_reasoning_effort_wired():
+    """resolve_reasoning_effort non-empty -> output_config['effort']; unset -> no effort key."""
+    prov = _prov_with_config({"reasoning_effort": "high"})
+    kwargs = prov._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert kwargs["output_config"]["effort"] == "high"
+
+    prov_unset = _prov_with_config(None)
+    kwargs_unset = prov_unset._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert "output_config" not in kwargs_unset
+
+
+async def test_build_kwargs_response_format_json_schema_wired():
+    """Canonical json_schema -> output_config['format'] verbatim (type + schema)."""
+    prov = _prov_with_config(
+        {"response_format": {"type": "json_schema", "schema": {"type": "object"}}}
+    )
+    kwargs = prov._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert kwargs["output_config"]["format"] == {
+        "type": "json_schema",
+        "schema": {"type": "object"},
+    }
+
+
+async def test_build_kwargs_response_format_json_object_noop_warns(caplog):
+    """Canonical json_object sets no output_config['format'] on Anthropic and
+    logs a warning naming the reason (no bare JSON mode on this surface)."""
+    prov = _prov_with_config({"response_format": {"type": "json_object"}})
+    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
+        kwargs = prov._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+
+    assert "output_config" not in kwargs
+    records = [r for r in caplog.records if r.name == _LOGGER_NAME]
+    assert any("json_schema-only" in r.message or "json_schema" in r.message for r in records)
+
+
+async def test_build_kwargs_output_config_omitted_when_empty():
+    """Neither effort nor format set -> no output_config key at all (never empty)."""
+    prov = _prov_with_config({})
+    kwargs = prov._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert "output_config" not in kwargs
+
+
+async def test_build_kwargs_effort_coexists_with_thinking(monkeypatch):
+    """thinking_enabled + reasoning_effort both present -> both kwargs['thinking']
+    and kwargs['output_config']['effort'] set, neither clobbers the other."""
+    monkeypatch.delenv("THE_ONE_ANTHROPIC_EXTENDED_THINKING", raising=False)
+    prov = _prov_with_config({"thinking_enabled": True, "reasoning_effort": "high"})
+    kwargs = prov._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert kwargs["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert kwargs["output_config"]["effort"] == "high"
+
+
+async def test_build_kwargs_a4_none_path_no_config_no_env(monkeypatch):
+    """No A4 config and no A4 env -> neither stop_sequences nor output_config appears."""
+    monkeypatch.delenv("THE_ONE_REASONING_EFFORT", raising=False)
+    monkeypatch.delenv("THE_ONE_RESPONSE_FORMAT", raising=False)
+    monkeypatch.delenv("THE_ONE_STOP", raising=False)
+    prov = _prov_with_config(None)
+    kwargs = prov._build_kwargs([Message.user("hi")], None, 0.0, 16384)
+    assert "stop_sequences" not in kwargs
+    assert "output_config" not in kwargs
+
+
+async def test_temperature_retry_preserves_a4_kwargs(monkeypatch):
+    """The temperature-retry only pops 'temperature'; the retried call still
+    carries stop_sequences and output_config from A4 config."""
+    rec = _CreateRecorder(
+        side_effects=[make_bad_request("temperature: unsupported")],
+        default_response=_StubResponse(),
+    )
+    prov = _provider_with_create_config(
+        monkeypatch, rec, {"stop": ["</s>"], "reasoning_effort": "high"}
+    )
+
+    result = await prov.complete(_user_msg())
+
+    assert isinstance(result, Message)
+    assert len(rec.calls) == 2  # original + retry
+    retried = rec.calls[1]
+    assert "temperature" not in retried
+    assert retried["stop_sequences"] == ["</s>"]
+    assert retried["output_config"]["effort"] == "high"

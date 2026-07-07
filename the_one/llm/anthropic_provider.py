@@ -8,6 +8,14 @@ from typing import Any
 
 import anthropic
 
+from the_one.llm._request_params import (
+    _coerce_effort,
+    _coerce_response_format,
+    _coerce_stop,
+    resolve_reasoning_effort,
+    resolve_response_format,
+    resolve_stop,
+)
 from the_one.llm._schema_sanitize import UnsanitizableToolSchema, sanitize_tool_schema
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
@@ -135,6 +143,14 @@ class AnthropicProvider(LLMProvider):
         self._thinking_enabled_config: bool | None = (
             _coerce_bool(config.get("thinking_enabled")) if isinstance(config, dict) else None
         )
+        # M16 F11 L02 (A4): the three cross-provider request params, coerced
+        # here (canonical-or-None) and resolved (config → env → default) at
+        # each ``_build_kwargs`` call — mirrors the ``_thinking_enabled_config``
+        # read above.
+        _cfg = config if isinstance(config, dict) else {}
+        self._reasoning_effort_config = _coerce_effort(_cfg.get("reasoning_effort"))
+        self._response_format_config = _coerce_response_format(_cfg.get("response_format"))
+        self._stop_config = _coerce_stop(_cfg.get("stop"))
 
     async def _resolve_max_context_tokens(self) -> None:
         # Catalog-sourced (M16 F05): replaces the prior no-op that assumed all
@@ -230,6 +246,29 @@ class AnthropicProvider(LLMProvider):
             # models; on Opus 4.6 / Sonnet 4.6 it's already the default and
             # setting it explicitly is harmless.
             kwargs["thinking"] = {"type": "adaptive", "display": "summarized"}
+
+        # M16 F11 L02 (A4): stop / reasoning_effort / structured output from
+        # config surface. Independent top-level params — compose alongside
+        # `thinking` above, don't replace it (Wire-Format Premise, flight-log).
+        stop = resolve_stop(self._stop_config)
+        if stop:
+            kwargs["stop_sequences"] = stop
+        output_config: dict[str, Any] = {}
+        effort = resolve_reasoning_effort(self._reasoning_effort_config)
+        if effort:
+            output_config["effort"] = effort
+        rf = resolve_response_format(self._response_format_config)
+        if rf:
+            if rf.get("type") == "json_schema" and rf.get("schema") is not None:
+                output_config["format"] = {"type": "json_schema", "schema": rf["schema"]}
+            else:
+                logger.warning(
+                    "anthropic: response_format %r has no Anthropic surface "
+                    "(structured output is json_schema-only); ignoring.",
+                    rf.get("type"),
+                )
+        if output_config:
+            kwargs["output_config"] = output_config
         return kwargs
 
     async def complete(
