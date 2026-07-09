@@ -81,10 +81,15 @@ class ScriptedProvider:
     provider: Any
     call_count: Callable[[], int]
     reconfigure: Callable[[CannedTurn], None] = lambda _turn: None
-    # Parsed JSON request bodies captured by the stateful handler, turn by turn.
-    # Populated only by transport-backed constructors (OpenAI/OpenRouter) so a
-    # caller can assert on the *sent* wire payload (e.g. the sanitized tool
-    # schema on the OpenRouter ``anthropic/*`` route). ``None`` elsewhere.
+    # Sent request bodies, turn by turn, uniformly exposed across all four
+    # request-capable constructors (M16 F11 L05): OpenAI/OpenRouter/Ollama
+    # populate parsed JSON bodies from their MockTransport handler (Ollama
+    # path-filtered to exclude ``/api/show``); Anthropic exposes its
+    # ``_CreateRecorder``/``_StreamRecorder`` kwargs dicts directly (the kwargs
+    # ARE the sent request — ``output_config``/``stop_sequences`` ride as
+    # native keys). Lets a caller assert on the *sent* wire payload (e.g. the
+    # sanitized tool schema on the OpenRouter ``anthropic/*`` route, or the A4
+    # config→wire matrix). ``None`` only for Mock (no request path).
     request_bodies: list[dict[str, Any]] | None = None
 
 
@@ -185,16 +190,22 @@ def _anthropic_response_for(turn: CannedTurn) -> _StubResponse:
     return _StubResponse(content=blocks)
 
 
-def make_anthropic(turns: list[CannedTurn], *, streaming: bool = False) -> ScriptedProvider:
+def make_anthropic(
+    turns: list[CannedTurn], *, streaming: bool = False, config: dict | None = None
+) -> ScriptedProvider:
     """Build an AnthropicProvider serving ``turns`` via a side-effects queue.
 
     ``streaming=True`` wires ``messages.stream`` instead of ``messages.create``;
     the text deltas for each turn are the turn's ``content`` (split into one
     delta) and the final message carries the tool_use/text blocks.
+
+    ``config`` (M16 F11 L05, A4 matrix): threaded straight into the
+    ``AnthropicProvider`` constructor's free-form ``config`` kwarg (read by
+    ``_read_a4_config``). ``None`` (the default) preserves existing call sites.
     """
     from the_one.llm.anthropic_provider import AnthropicProvider
 
-    prov = AnthropicProvider(model="claude-test", api_key="sk-test")
+    prov = AnthropicProvider(model="claude-test", api_key="sk-test", config=config)
 
     if streaming:
 
@@ -209,7 +220,14 @@ def make_anthropic(turns: list[CannedTurn], *, streaming: bool = False) -> Scrip
         recorder = _CreateRecorder([_anthropic_response_for(t) for t in turns])
         prov.client.messages.create = recorder  # type: ignore[assignment]
 
-    return ScriptedProvider(provider=prov, call_count=lambda: len(recorder.calls))
+    # A4 matrix (L05): the recorded ``create``/``stream`` kwargs ARE the sent
+    # request — ``output_config``/``stop_sequences`` (when present) are keys
+    # in each dict, so exposing ``recorder.calls`` directly as
+    # ``request_bodies`` gives the A4 test the same uniform accessor the
+    # transport-backed providers use.
+    return ScriptedProvider(
+        provider=prov, call_count=lambda: len(recorder.calls), request_bodies=recorder.calls
+    )
 
 
 # ===========================================================================
@@ -272,20 +290,33 @@ def _openai_stream_body(turn: CannedTurn) -> str:
     return "\n\n".join(lines) + "\n\n"
 
 
-def make_openai(turns: list[CannedTurn], *, streaming: bool = False) -> ScriptedProvider:
+def make_openai(
+    turns: list[CannedTurn], *, streaming: bool = False, config: dict | None = None
+) -> ScriptedProvider:
     """Build an OpenAIProvider whose ``/chat/completions`` serves ``turns`` in order.
 
     The handler is stateful — a call counter routes the first hit to turn-1 and
     the second to turn-2 on the same path. ``call_count()`` exposes the counter
     so the round-trip can assert it reached exactly 2.
+
+    ``config`` (M16 F11 L05, A4 matrix): threaded into the ``OpenAIProvider``
+    constructor's free-form ``config`` kwarg. ``None`` (the default) preserves
+    existing call sites. The handler also appends each parsed request body to
+    ``request_bodies`` (mirroring ``make_openrouter``) so a caller can assert
+    on the sent wire payload.
     """
     import openai
 
     from the_one.llm.openai_provider import OpenAIProvider
 
     counter = {"n": 0}
+    request_bodies: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        try:
+            request_bodies.append(json.loads(request.content))
+        except (ValueError, TypeError):
+            request_bodies.append({})
         idx = counter["n"]
         counter["n"] += 1
         turn = turns[idx]
@@ -298,13 +329,15 @@ def make_openai(turns: list[CannedTurn], *, streaming: bool = False) -> Scripted
         return httpx.Response(200, json=_openai_complete_body(turn))
 
     transport = httpx.MockTransport(handler)
-    prov = OpenAIProvider(model="gpt-test", api_key="x")
+    prov = OpenAIProvider(model="gpt-test", api_key="x", config=config)
     prov.client = openai.AsyncOpenAI(
         api_key="x",
         base_url=str(prov.client.base_url),
         http_client=httpx.AsyncClient(transport=transport),
     )
-    return ScriptedProvider(provider=prov, call_count=lambda: counter["n"])
+    return ScriptedProvider(
+        provider=prov, call_count=lambda: counter["n"], request_bodies=request_bodies
+    )
 
 
 # ===========================================================================
@@ -318,6 +351,7 @@ def make_openrouter(
     *,
     model: str = "anthropic/claude-3.5-haiku",
     streaming: bool = False,
+    config: dict | None = None,
 ) -> ScriptedProvider:
     """Build an OpenRouterProvider whose ``/chat/completions`` serves ``turns``.
 
@@ -340,6 +374,11 @@ def make_openrouter(
     turn-by-turn) so a caller can assert the *sent* tool schema was sanitized on
     the ``anthropic/*`` route — proving the sanitize ran end-to-end through
     ``complete()``/``stream()``, not just via the standalone ``tool_schema()``.
+
+    ``config`` (M16 F11 L05, A4 matrix): threaded into the
+    ``OpenRouterProvider`` constructor's explicit ``config`` param (DD5's
+    OpenRouter config→wire assertion). ``None`` (the default) preserves
+    existing call sites.
     """
     import openai
 
@@ -365,7 +404,7 @@ def make_openrouter(
         return httpx.Response(200, json=_openai_complete_body(turn))
 
     transport = httpx.MockTransport(handler)
-    prov = OpenRouterProvider(model=model, api_key="x")
+    prov = OpenRouterProvider(model=model, api_key="x", config=config)
     prov.client = openai.AsyncOpenAI(
         api_key="x",
         base_url=str(prov.client.base_url),
@@ -425,7 +464,11 @@ def _ollama_stream_chunks(turn: CannedTurn) -> list[dict[str, Any]]:
 
 
 def make_ollama(
-    turns: list[CannedTurn], monkeypatch: Any, *, streaming: bool = False
+    turns: list[CannedTurn],
+    monkeypatch: Any,
+    *,
+    streaming: bool = False,
+    config: dict | None = None,
 ) -> ScriptedProvider:
     """Build an OllamaProvider serving ``turns`` in order.
 
@@ -433,13 +476,27 @@ def make_ollama(
     call and has no persistent client, so the transport is injected via a
     ``httpx.AsyncClient.__init__`` monkeypatch (auto-undone by the fixture).
     The handler also serves ``/api/show`` → ``{"model_info": {}}`` for the
-    context-length resolver (NOT ``supports_tools()``, which these paths never
-    call). For ``stream()``, ``the_one.llm.ollama_api.chat_stream`` is
-    monkeypatched with a stateful async-generator factory.
+    context-length resolver AND (M16 F03 L08C's recovery gate) the
+    ``supports_tools()`` capabilities lookup — both hit the same endpoint. For
+    ``stream()``, ``the_one.llm.ollama_api.chat_stream`` is monkeypatched with
+    a stateful async-generator factory.
+
+    ``config`` (M16 F11 L05, A4 matrix): threaded into the ``OllamaProvider``
+    constructor's free-form ``config`` kwarg. ``None`` (the default) preserves
+    existing call sites.
+
+    **Request capture (path-filtered).** ``complete()`` POSTs to ``/api/show``
+    both before (context-length resolve) and, on a plain-text turn, after
+    (``supports_tools()``) the real ``/chat/completions`` call — a blanket
+    capture would land the A4 body at the wrong index. So capture is gated to
+    the ``/chat/completions`` path only (mirroring the existing turn-counter's
+    ``/api/show`` special-case below); the ``stream()`` path never hits
+    ``/api/show`` at this seam, so ``fake_chat_stream`` captures unconditionally.
     """
     from the_one.llm.ollama_provider import OllamaProvider
 
     counter = {"n": 0}
+    request_bodies: list[dict[str, Any]] = []
 
     if streaming:
         from the_one.llm import ollama_api
@@ -447,6 +504,7 @@ def make_ollama(
         async def fake_chat_stream(
             base_url: str, body: Any, headers: Any = None
         ) -> AsyncIterator[dict[str, Any]]:
+            request_bodies.append(body)
             idx = counter["n"]
             counter["n"] += 1
             for chunk in _ollama_stream_chunks(turns[idx]):
@@ -458,6 +516,10 @@ def make_ollama(
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/api/show"):
                 return httpx.Response(200, json={"model_info": {}})
+            try:
+                request_bodies.append(json.loads(request.content))
+            except (ValueError, TypeError):
+                request_bodies.append({})
             idx = counter["n"]
             counter["n"] += 1
             return httpx.Response(200, json=_ollama_complete_body(turns[idx]))
@@ -470,8 +532,10 @@ def make_ollama(
 
         monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
 
-    prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1")
-    return ScriptedProvider(provider=prov, call_count=lambda: counter["n"])
+    prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1", config=config)
+    return ScriptedProvider(
+        provider=prov, call_count=lambda: counter["n"], request_bodies=request_bodies
+    )
 
 
 # ===========================================================================

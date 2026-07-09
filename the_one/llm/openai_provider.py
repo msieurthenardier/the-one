@@ -9,6 +9,14 @@ from typing import Any
 import httpx
 import openai
 
+from the_one.llm._request_params import (
+    _coerce_effort,
+    _coerce_response_format,
+    _coerce_stop,
+    resolve_reasoning_effort,
+    resolve_response_format,
+    resolve_stop,
+)
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
     LLMProvider,
@@ -63,6 +71,42 @@ class OpenAIProvider(LLMProvider):
         if base_url is not None:
             client_kwargs["base_url"] = base_url
         self.client = openai.AsyncOpenAI(**client_kwargs)
+        self._read_a4_config(kwargs.get("config"))
+
+    def _read_a4_config(self, config: Any) -> None:
+        """Read the A4 request params (reasoning_effort / response_format / stop)
+        from the free-form provider ``config`` into canonical-or-None instance
+        attrs. Called from BOTH OpenAIProvider.__init__ and (because it skips
+        super().__init__) OpenRouterProvider.__init__ — keeps the instance-attr
+        parity contract (test_subclass_has_all_parent_instance_attrs) satisfied."""
+        _cfg = config if isinstance(config, dict) else {}
+        self._reasoning_effort_config = _coerce_effort(_cfg.get("reasoning_effort"))
+        self._response_format_config = _coerce_response_format(_cfg.get("response_format"))
+        self._stop_config = _coerce_stop(_cfg.get("stop"))
+
+    def _a4_request_kwargs(self) -> dict[str, Any]:
+        """A4 request-kwargs addition, native OpenAI shapes (Wire-Format Premise,
+        flight-log.md): ``stop``->``stop``, effort->``reasoning_effort``,
+        json_object passthrough, json_schema re-wrapped with a required ``name``
+        (caller-supplied or synthesized ``"response"``). Returns ``{}`` when
+        nothing is configured."""
+        out: dict[str, Any] = {}
+        stop = resolve_stop(self._stop_config)
+        if stop:
+            out["stop"] = stop
+        effort = resolve_reasoning_effort(self._reasoning_effort_config)
+        if effort:
+            out["reasoning_effort"] = effort
+        rf = resolve_response_format(self._response_format_config)
+        if rf:
+            if rf.get("type") == "json_object":
+                out["response_format"] = {"type": "json_object"}
+            elif rf.get("type") == "json_schema" and rf.get("schema") is not None:
+                out["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": rf.get("name") or "response", "schema": rf["schema"]},
+                }
+        return out
 
     async def aclose(self) -> None:
         """Release the persistent OpenAI HTTP client.
@@ -104,6 +148,7 @@ class OpenAIProvider(LLMProvider):
         }
         if tools:
             kwargs["tools"] = [self.tool_schema(t) for t in tools]
+        kwargs.update(self._a4_request_kwargs())
 
         response = await self.client.chat.completions.create(**kwargs)
         choice = response.choices[0]
@@ -158,6 +203,7 @@ class OpenAIProvider(LLMProvider):
         }
         if tools:
             kwargs["tools"] = [self.tool_schema(t) for t in tools]
+        kwargs.update(self._a4_request_kwargs())
 
         stream = await self.client.chat.completions.create(**kwargs)
 

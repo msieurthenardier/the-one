@@ -630,3 +630,150 @@ async def test_ollama_recovery_roundtrip_stream(monkeypatch):
     assert final2.message.tool_calls == []
     assert final2.message.content == RECOVERY_FINAL_ANSWER
     assert final2.message.content
+
+
+# ===========================================================================
+# 7. A4 config→wire matrix (M16 F11 L05)
+# ===========================================================================
+#
+# One canonical A4 config, fed through each request-capable provider's real
+# construction + complete()/stream() drive, asserting the SENT request
+# carries the params in that provider's correct native wire shape (unlike the
+# round-trip suite above, which asserts a single canonical ``Message`` shape
+# regardless of wire dialect). This is the systematic cross-provider proof
+# that the per-provider unit tests (L02 Anthropic, L03 OpenAI/OpenRouter, L04
+# Ollama) are mutually consistent, and the home of the DD5 OpenRouter
+# config→wire assertion.
+#
+# - OpenAI / OpenRouter / Ollama (``/v1``) share one OpenAI-compat wire shape:
+#   ``reasoning_effort`` (str), ``stop`` (list), ``response_format`` re-wrapped
+#   with a synthesized ``name``.
+# - Anthropic maps the same config to its own native surface:
+#   ``output_config = {"effort": ..., "format": {...}}`` + top-level
+#   ``stop_sequences``.
+# - Mock has no request path — N/A, not asserted (documented here rather than
+#   a silent omission).
+#
+# The shared config uses ``json_schema`` for ``response_format`` (honored by
+# all four request-capable providers) so the matrix is a uniform positive
+# assertion. The ``json_object`` variance (OpenAI/Ollama honor it; Anthropic
+# no-ops + WARNs) is per-provider behavior already covered by the L02-L04
+# unit tests and is deliberately NOT re-litigated here.
+
+A4_CONFIG = {
+    "reasoning_effort": "high",
+    "response_format": {"type": "json_schema", "schema": {"type": "object"}},
+    "stop": ["</s>"],
+}
+
+_EXPECTED_OPENAI_COMPAT_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {"name": "response", "schema": {"type": "object"}},
+}
+
+_EXPECTED_ANTHROPIC_OUTPUT_CONFIG = {
+    "effort": "high",
+    "format": {"type": "json_schema", "schema": {"type": "object"}},
+}
+_EXPECTED_ANTHROPIC_STOP_SEQUENCES = ["</s>"]
+
+
+def _chat_completions_body(request_bodies) -> dict:
+    """The captured ``/chat/completions`` (or Anthropic ``create``/``stream``
+    kwargs) body for a single-turn A4 drive.
+
+    Capture is already path-filtered at the harness (Ollama's ``/api/show``
+    context/capability POSTs never land in ``request_bodies``), so index 0 is
+    unambiguously the request the A4 params rode on for every provider —
+    asserted explicitly here rather than indexing blind at each call site.
+    """
+    assert request_bodies, "harness captured no request bodies"
+    return request_bodies[0]
+
+
+def _assert_a4_openai_compat_wire(body: dict) -> None:
+    assert body["reasoning_effort"] == "high"
+    assert body["stop"] == ["</s>"]
+    assert body["response_format"] == _EXPECTED_OPENAI_COMPAT_RESPONSE_FORMAT
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compat providers: openai, openrouter, ollama (/v1) share one wire
+# shape. Ollama needs ``monkeypatch``; the uniform ``(turns, monkeypatch,
+# streaming=, config=)`` signature mirrors PROVIDER_FACTORIES above.
+# ---------------------------------------------------------------------------
+
+
+def _a4_openai_factory(turns, monkeypatch, *, streaming=False, config=None):
+    return make_openai(turns, streaming=streaming, config=config)
+
+
+def _a4_openrouter_factory(turns, monkeypatch, *, streaming=False, config=None):
+    return make_openrouter(turns, streaming=streaming, config=config)
+
+
+def _a4_ollama_factory(turns, monkeypatch, *, streaming=False, config=None):
+    return make_ollama(turns, monkeypatch, streaming=streaming, config=config)
+
+
+# DD5: OpenRouter is present in the matrix, asserted config→wire (the sent
+# request body carries the params) — not attribute-existence alone.
+A4_OPENAI_COMPAT_FACTORIES = [
+    pytest.param(_a4_openai_factory, id="openai"),
+    pytest.param(_a4_openrouter_factory, id="openrouter"),
+    pytest.param(_a4_ollama_factory, id="ollama"),
+]
+# Mock is N/A here — it has no request path, so A4 wire-emission cannot be
+# asserted; deliberately excluded, not silently forgotten.
+
+
+@pytest.mark.parametrize("factory", A4_OPENAI_COMPAT_FACTORIES)
+async def test_a4_config_to_wire_complete_openai_compat(factory, monkeypatch):
+    """A single ``complete()`` drive is enough — the A4 params ride every
+    request, so the two-turn tool round-trip isn't needed to read one body."""
+    scripted = factory([PLAIN_TURN], monkeypatch, config=A4_CONFIG)
+    m = await scripted.provider.complete([Message.user("hi")], tools=None)
+    assert m.content == FINAL_ANSWER
+
+    _assert_a4_openai_compat_wire(_chat_completions_body(scripted.request_bodies))
+
+
+@pytest.mark.parametrize("factory", A4_OPENAI_COMPAT_FACTORIES)
+async def test_a4_config_to_wire_stream_openai_compat(factory, monkeypatch):
+    scripted = factory([PLAIN_TURN], monkeypatch, streaming=True, config=A4_CONFIG)
+    final, _ = await _collect_final_chunk(
+        scripted.provider.stream([Message.user("hi")], tools=None)
+    )
+    assert final.message is not None
+    assert final.message.content == FINAL_ANSWER
+
+    _assert_a4_openai_compat_wire(_chat_completions_body(scripted.request_bodies))
+
+
+# ---------------------------------------------------------------------------
+# Anthropic: distinct native wire shape (output_config + top-level
+# stop_sequences), asserted separately from the OpenAI-compat matrix above.
+# ---------------------------------------------------------------------------
+
+
+async def test_a4_config_to_wire_complete_anthropic():
+    scripted = make_anthropic([PLAIN_TURN], config=A4_CONFIG)
+    m = await scripted.provider.complete([Message.user("hi")], tools=None)
+    assert m.content == FINAL_ANSWER
+
+    sent = _chat_completions_body(scripted.request_bodies)
+    assert sent["output_config"] == _EXPECTED_ANTHROPIC_OUTPUT_CONFIG
+    assert sent["stop_sequences"] == _EXPECTED_ANTHROPIC_STOP_SEQUENCES
+
+
+async def test_a4_config_to_wire_stream_anthropic():
+    scripted = make_anthropic([PLAIN_TURN], streaming=True, config=A4_CONFIG)
+    final, _ = await _collect_final_chunk(
+        scripted.provider.stream([Message.user("hi")], tools=None)
+    )
+    assert final.message is not None
+    assert final.message.content == FINAL_ANSWER
+
+    sent = _chat_completions_body(scripted.request_bodies)
+    assert sent["output_config"] == _EXPECTED_ANTHROPIC_OUTPUT_CONFIG
+    assert sent["stop_sequences"] == _EXPECTED_ANTHROPIC_STOP_SEQUENCES
