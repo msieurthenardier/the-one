@@ -1,6 +1,6 @@
 # Flight: Request-Param Capabilities — reasoning_effort, structured outputs, stop (A4)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -253,7 +253,7 @@ drives it all against live models.
 
 ### Completion Checklist
 - [x] All legs completed (L01–L07; L07 HAT Anthropic-only, OpenAI/Ollama deferred)
-- [ ] Code merged *(PR #150 open — draft; merge post-review)*
+- [x] Code merged *(PR #150 → main, 2026-07-08; release v0.3.1)*
 - [x] Tests passing (full suite `make test-unit` 3895 passed/10 skipped; extended
       conformance matrix green; L07 live HAT 6/6 on Anthropic)
 - [x] `the_one/agents.md` updated with the A4 config-key conventions
