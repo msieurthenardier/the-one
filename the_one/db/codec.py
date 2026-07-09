@@ -7,8 +7,11 @@ from typing import Any
 
 from the_one.db.models import PendingApproval
 from the_one.llm.base import (
+    ContentBlock,
+    ImageContent,
     Message,
     Role,
+    TextContent,
     ThinkingBlock,
     TokenUsage,
     ToolCall,
@@ -85,6 +88,41 @@ def _thinking_block_from_dict(d: dict[str, Any]) -> ThinkingBlock:
     )
 
 
+def _content_block_to_dict(b: ContentBlock) -> dict[str, Any]:
+    """Encode a single ``ContentBlock`` (M16 F12 L02).
+
+    Mirrors ``_thinking_block_to_dict``'s style: non-None sub-fields only.
+    ``TextContent`` always emits ``text`` (required, non-optional field).
+    ``ImageContent`` emits ``data`` and/or ``url`` only when set — at least
+    one is guaranteed present by ``ImageContent.__post_init__``.
+    """
+    if isinstance(b, TextContent):
+        return {"type": "text", "text": b.text}
+    d: dict[str, Any] = {"type": "image", "media_type": b.media_type}
+    if b.data is not None:
+        d["data"] = b.data
+    if b.url is not None:
+        d["url"] = b.url
+    return d
+
+
+def _content_block_from_dict(d: dict[str, Any]) -> ContentBlock:
+    """Decode a single ``ContentBlock`` dict (M16 F12 L02).
+
+    Deliberately departs from ``_thinking_block_from_dict``'s permissive
+    any-type construction (F10 Rec 5 anti-pattern): content blocks are user
+    data selecting between distinct dataclasses with no safe default target,
+    so an unrecognized ``type`` RAISES rather than silently dropping the
+    block (which would lose input, unlike a display-only thinking type).
+    """
+    t = d.get("type")
+    if t == "text":
+        return TextContent(text=d["text"])
+    if t == "image":
+        return ImageContent(media_type=d["media_type"], data=d.get("data"), url=d.get("url"))
+    raise ValueError(f"unknown content block type: {t!r}")
+
+
 def _tool_result_to_dict(tr: ToolResult) -> dict[str, Any]:
     d: dict[str, Any] = {
         "tool_call_id": tr.tool_call_id,
@@ -104,7 +142,16 @@ def _usage_to_dict(u: TokenUsage) -> dict[str, Any]:
 
 def message_to_dict(msg: Message) -> dict[str, Any]:
     """Serialize a Message dataclass to a plain dict."""
-    d: dict[str, Any] = {"role": msg.role.value, "content": msg.content}
+    # M16 F12 L02: content-aware — str emits unchanged (byte-identical to
+    # pre-multimodal rows); list[ContentBlock] (USER-only, DD2/DD3) encodes
+    # each block via _content_block_to_dict. json.dumps(ContentBlock) would
+    # TypeError on the dataclass directly, so this is the required codec hop.
+    content: Any = (
+        [_content_block_to_dict(b) for b in msg.content]
+        if isinstance(msg.content, list)
+        else msg.content
+    )
+    d: dict[str, Any] = {"role": msg.role.value, "content": content}
     if msg.tool_calls:
         d["tool_calls"] = [_tool_call_to_dict(tc) for tc in msg.tool_calls]
     # M16 F10 L01 (DD1): emit thinking with a TRUTHY guard — a structural
@@ -168,9 +215,18 @@ def message_from_dict(d: dict[str, Any]) -> Message:
             input_tokens=u.get("input_tokens", 0),
             output_tokens=u.get("output_tokens", 0),
         )
+    # M16 F12 L02: content-aware — str decodes unchanged (byte-identical to
+    # pre-multimodal rows); list decodes each block via
+    # _content_block_from_dict (raises on an unknown block type — F10 Rec 5:
+    # never silently drop unrecognized content). Legacy rows with no
+    # "content" key default to "" as before.
+    raw = d.get("content", "")
+    content: str | list[ContentBlock] = (
+        [_content_block_from_dict(b) for b in raw] if isinstance(raw, list) else raw
+    )
     return Message(
         role=Role(d["role"]),
-        content=d.get("content", ""),
+        content=content,
         tool_calls=tool_calls,
         thinking=thinking,
         tool_result=tool_result,

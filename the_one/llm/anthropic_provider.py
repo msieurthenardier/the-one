@@ -19,10 +19,13 @@ from the_one.llm._request_params import (
 from the_one.llm._schema_sanitize import UnsanitizableToolSchema, sanitize_tool_schema
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
+    ContentBlock,
+    ImageContent,
     LLMProvider,
     Message,
     Role,
     StreamChunk,
+    TextContent,
     ThinkingBlock,
     TokenUsage,
     ToolCall,
@@ -460,6 +463,24 @@ class AnthropicProvider(LLMProvider):
             d["data"] = tb.data
         return d
 
+    def _content_block_to_api(self, b: ContentBlock) -> dict[str, Any]:
+        # M16 F12 L04 (DD4/DD5): map a single ContentBlock to Anthropic's
+        # native content-block shape. TextContent -> {type:text}; ImageContent
+        # -> {type:image, source:{...}}, preferring base64 (DD5 universal
+        # path) over url when both are set.
+        if isinstance(b, TextContent):
+            return {"type": "text", "text": b.text}
+        assert isinstance(b, ImageContent)
+        if b.data is not None:
+            source: dict[str, Any] = {
+                "type": "base64",
+                "media_type": b.media_type,
+                "data": b.data,
+            }
+        else:
+            source = {"type": "url", "url": b.url}
+        return {"type": "image", "source": source}
+
     def _to_api_message(self, msg: Message, thinking_active: bool = False) -> dict[str, Any]:
         if msg.role == Role.TOOL and msg.tool_result:
             # M11 F8 L2: ``ToolResult.__post_init__`` normalizes non-str
@@ -500,12 +521,18 @@ class AnthropicProvider(LLMProvider):
         # The helper handles all four absence variants; legacy back-compat
         # is preserved when both fields are None (byte-identical payload).
         # F6 DD §2 audit premise refined: the prefix IS the projection.
-        # L4 contract: this branch passes through a string content; future
-        # vision/multimodal would route via a separate content-list branch
-        # and would NOT call build_user_message_content (it would build the
-        # projection per content-block, or fall back to a different shape
-        # per DD §5's divert criterion).
-        return {"role": msg.role.value, "content": build_user_message_content(msg)}
+        # M16 F12 L04 (DD4 supersedes the old L4 comment): build_user_message_content
+        # is now shape-aware (str | list[ContentBlock]) and IS called on every
+        # USER/SYSTEM turn. The str path below is byte-identical to before; the
+        # list path (multimodal — images, plus the DD4 prefix TextContent) maps
+        # each block to its native Anthropic content-block shape.
+        projected = build_user_message_content(msg)
+        if isinstance(projected, list):
+            return {
+                "role": msg.role.value,
+                "content": [self._content_block_to_api(b) for b in projected],
+            }
+        return {"role": msg.role.value, "content": projected}
 
 
 register_provider("anthropic", AnthropicProvider)

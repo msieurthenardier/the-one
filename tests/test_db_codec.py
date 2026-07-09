@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from the_one.db.codec import (
+    _content_block_from_dict,
+    _content_block_to_dict,
     _tool_result_to_dict,
     decode_messages,
     encode_messages,
@@ -14,8 +18,11 @@ from the_one.db.codec import (
     thinking_display_text,
 )
 from the_one.llm.base import (
+    ContentBlock,
+    ImageContent,
     Message,
     Role,
+    TextContent,
     ThinkingBlock,
     TokenUsage,
     ToolCall,
@@ -906,6 +913,142 @@ class TestMessageThinkingCodec:
         msg = Message.assistant("hi", thinking=[ThinkingBlock(type="thinking", thinking="r")])
         d = message_to_dict(msg)
         assert sorted(d.keys()) == ["content", "role", "thinking"]
+
+
+# ---------------------------------------------------------------------------
+# M16 F12 L02 — Message.content as list[ContentBlock] round-trip (multimodal
+# USER-only content; the DD2 fork the codec pays for — dataclass content
+# blocks aren't JSON-serializable, so the opaque str passthrough is widened
+# with an isinstance-dispatched block codec, mirroring the ThinkingBlock
+# precedent on the encode side but deliberately departing on decode: an
+# unrecognized block type RAISES rather than silently dropping (F10 Rec 5)).
+# ---------------------------------------------------------------------------
+
+
+class TestContentBlockCodec:
+    """``Message.content`` round-trips as either ``str`` (byte-identical,
+    unchanged) or ``list[ContentBlock]`` (each block encoded/decoded via
+    ``_content_block_to_dict``/``_content_block_from_dict``)."""
+
+    def test_str_content_byte_identical(self) -> None:
+        """The str path is untouched — same behavior as every pre-F12 test."""
+        msg = Message.user("hello world")
+        d = message_to_dict(msg)
+        assert d["content"] == "hello world"
+        rt = decode_messages(encode_messages([msg]))
+        assert rt[0].content == "hello world"
+
+    def test_list_content_round_trip_all_block_shapes(self) -> None:
+        """A USER message with [TextContent, ImageContent(data=...),
+        ImageContent(url=...)] survives message_to_dict -> json.dumps ->
+        json.loads -> message_from_dict equal to the original."""
+        blocks: list[ContentBlock] = [
+            TextContent(text="what is this?"),
+            ImageContent(media_type="image/png", data="YmFzZTY0ZGF0YQ=="),
+            ImageContent(media_type="image/jpeg", url="https://example.com/pic.jpg"),
+        ]
+        msg = Message.user(blocks)
+        d = message_to_dict(msg)
+        assert d["content"] == [
+            {"type": "text", "text": "what is this?"},
+            {"type": "image", "media_type": "image/png", "data": "YmFzZTY0ZGF0YQ=="},
+            {"type": "image", "media_type": "image/jpeg", "url": "https://example.com/pic.jpg"},
+        ]
+        # Full round-trip through the JSON encode/decode boundary.
+        json_str = json.dumps([d])
+        rt = [message_from_dict(rd) for rd in json.loads(json_str)]
+        assert rt[0].content == blocks
+
+    def test_encode_decode_via_helpers_round_trip(self) -> None:
+        """encode_messages -> decode_messages round-trips list content equal
+        to the original, using the module's own JSON boundary."""
+        blocks: list[ContentBlock] = [
+            TextContent(text="see attached"),
+            ImageContent(media_type="image/png", data="abc123"),
+        ]
+        msg = Message.user(blocks)
+        rt = decode_messages(encode_messages([msg]))
+        assert rt[0].content == blocks
+
+    def test_image_content_data_only(self) -> None:
+        """data-only ImageContent emits/decodes without a url key."""
+        block = ImageContent(media_type="image/png", data="abc123")
+        d = _content_block_to_dict(block)
+        assert d == {"type": "image", "media_type": "image/png", "data": "abc123"}
+        assert _content_block_from_dict(d) == block
+
+    def test_image_content_url_only(self) -> None:
+        """url-only ImageContent emits/decodes without a data key."""
+        block = ImageContent(media_type="image/png", url="https://example.com/x.png")
+        d = _content_block_to_dict(block)
+        assert d == {
+            "type": "image",
+            "media_type": "image/png",
+            "url": "https://example.com/x.png",
+        }
+        assert _content_block_from_dict(d) == block
+
+    def test_image_content_both_data_and_url(self) -> None:
+        """Both data and url set -> both emitted, both decoded."""
+        block = ImageContent(media_type="image/png", data="abc123", url="https://example.com/x.png")
+        d = _content_block_to_dict(block)
+        assert d == {
+            "type": "image",
+            "media_type": "image/png",
+            "data": "abc123",
+            "url": "https://example.com/x.png",
+        }
+        assert _content_block_from_dict(d) == block
+
+    def test_empty_list_content_round_trips(self) -> None:
+        """Empty list content encodes to [] and decodes to [] (matches L01's
+        lenient empty-list on the dataclass side)."""
+        msg = Message.user([])
+        d = message_to_dict(msg)
+        assert d["content"] == []
+        rt = decode_messages(encode_messages([msg]))
+        assert rt[0].content == []
+
+    def test_unknown_block_type_raises_on_decode(self) -> None:
+        """An unrecognized block type on decode RAISES rather than being
+        silently dropped (F10 Rec 5 anti-pattern — content blocks are user
+        data with no safe default target, unlike the permissive thinking-type
+        decode)."""
+        with pytest.raises(ValueError, match="unknown content block type"):
+            _content_block_from_dict({"type": "video", "url": "https://example.com/v.mp4"})
+
+    def test_unknown_block_type_raises_through_message_from_dict(self) -> None:
+        """The raise propagates through the full message_from_dict path, not
+        just the block-level helper."""
+        raw = {
+            "role": "user",
+            "content": [{"type": "video", "url": "https://example.com/v.mp4"}],
+        }
+        with pytest.raises(ValueError, match="unknown content block type"):
+            message_from_dict(raw)
+
+    def test_legacy_str_content_decodes(self) -> None:
+        """A legacy dict with plain str content (no blocks, pre-F12 shape)
+        decodes unchanged — the back-compat case."""
+        msg = message_from_dict({"role": "user", "content": "just text"})
+        assert msg.content == "just text"
+
+    def test_legacy_missing_content_key_decodes_to_empty_str(self) -> None:
+        """No content key at all -> default "" (pre-existing behavior,
+        untouched by the list branch)."""
+        msg = message_from_dict({"role": "assistant"})
+        assert msg.content == ""
+
+    def test_list_content_on_non_user_role_raises_on_decode(self) -> None:
+        """A persisted list-content dict on a non-USER role raises via
+        Message.__post_init__'s role guard on decode — the codec relies on
+        the dataclass invariant (DD3), not its own role check."""
+        raw = {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hi"}],
+        }
+        with pytest.raises(AssertionError, match="only valid on USER messages"):
+            message_from_dict(raw)
 
 
 # ---------------------------------------------------------------------------

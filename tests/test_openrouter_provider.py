@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from tests.fixtures.tool_schemas import PRESS_KEY_INPUT_SCHEMA
-from the_one.llm.base import Message, Role
+from the_one.llm.base import ImageContent, Message, Role, TextContent
 
 # Leg-01 ``press_key`` fixture (top-level ``anyOf`` is the #122 trigger the
 # leg-01 sanitizer flattens), shared across the conformance suite via
@@ -416,3 +416,32 @@ class TestStreaming:
         assert chunks, "stream returned no chunks"
         assert chunks[-1].is_final is True
         assert chunks[-1].usage is None
+
+
+class TestImageProjectionInheritance:
+    """M16 F12 L05: OpenRouterProvider overrides neither ``_to_api_message``
+    nor ``_content_block_to_api`` — it inherits OpenAIProvider's image
+    projection for free. This smoke test confirms inheritance (no
+    OpenRouter code change)."""
+
+    def test_inherits_image_projection_from_openai_provider(self):
+        from the_one.llm.openai_provider import OpenAIProvider
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        blocks = [
+            TextContent(text="hi"),
+            ImageContent(media_type="image/png", data="QUJD"),
+        ]
+        msg = Message.user(list(blocks))
+
+        openai_prov = OpenAIProvider(model="gpt-4o", api_key="x")
+        openrouter_prov = OpenRouterProvider(model="openai/gpt-4o", api_key="x")
+
+        openai_result = openai_prov._to_api_message(msg)
+        openrouter_result = openrouter_prov._to_api_message(msg)
+
+        assert openrouter_result == openai_result
+        assert openrouter_result["content"] == [
+            {"type": "text", "text": "hi"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}},
+        ]

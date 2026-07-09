@@ -9,7 +9,17 @@ OpenAIProvider inheritance) call from ``_to_api_message``.
 
 from __future__ import annotations
 
-from the_one.llm.base import Message, Role, build_user_message_content
+import pytest
+
+from the_one.llm.base import (
+    ContentBlock,
+    ImageContent,
+    Message,
+    Role,
+    TextContent,
+    build_user_message_content,
+    content_to_text,
+)
 
 
 class TestBuildUserMessageContent:
@@ -45,3 +55,162 @@ class TestBuildUserMessageContent:
         # future caller violates the contract.
         msg = Message(role=Role.ASSISTANT, content="hi", peer_name="alice")
         assert build_user_message_content(msg) == "hi"
+
+
+class TestContentBlockConstruction:
+    """M16 F12 L01 (DD2): TextContent + ImageContent dataclasses."""
+
+    def test_text_content_holds_text(self) -> None:
+        block = TextContent(text="hello")
+        assert block.text == "hello"
+        assert isinstance(block, ContentBlock)
+
+    def test_image_content_with_data_only(self) -> None:
+        block = ImageContent(media_type="image/png", data="Zm9v")
+        assert block.media_type == "image/png"
+        assert block.data == "Zm9v"
+        assert block.url is None
+        assert isinstance(block, ContentBlock)
+
+    def test_image_content_with_url_only(self) -> None:
+        block = ImageContent(media_type="image/png", url="https://example.com/a.png")
+        assert block.data is None
+        assert block.url == "https://example.com/a.png"
+
+    def test_image_content_with_both_data_and_url_allowed(self) -> None:
+        # Edge case: "at least one" guard, not "exactly one" — provider
+        # mapping prefers `data` (base64 universal), decided at L04-L06.
+        block = ImageContent(media_type="image/png", data="Zm9v", url="https://example.com/a.png")
+        assert block.data == "Zm9v"
+        assert block.url == "https://example.com/a.png"
+
+    def test_image_content_requires_data_or_url(self) -> None:
+        with pytest.raises(AssertionError):
+            ImageContent(media_type="image/png")
+
+
+class TestMessageUserFactoryAcceptsBlockList:
+    """M16 F12 L01: ``Message.user()`` widened to str | list[ContentBlock]."""
+
+    def test_user_factory_accepts_block_list(self) -> None:
+        blocks: list[ContentBlock] = [
+            TextContent(text="look at this"),
+            ImageContent(media_type="image/png", data="Zm9v"),
+        ]
+        msg = Message.user(blocks)
+        assert msg.content == blocks
+        assert msg.role == Role.USER
+
+
+class TestMessageContentAssert:
+    """M16 F12 L01 (DD3): conditional assert — str always OK; list[ContentBlock]
+    OK only on Role.USER; anything else raises AssertionError via explicit
+    ``raise`` (not a bare ``assert``, so the role guard survives ``-O``)."""
+
+    def test_str_content_on_any_role_is_fine(self) -> None:
+        for role in Role:
+            Message(role=role, content="hi")
+
+    def test_user_role_block_list_is_fine(self) -> None:
+        Message(role=Role.USER, content=[TextContent(text="hi")])
+
+    def test_empty_block_list_on_user_is_allowed(self) -> None:
+        # Lenient-by-design: the assert validates shape + role, not content
+        # semantics — mirrors the empty-str precedent.
+        Message(role=Role.USER, content=[])
+
+    def test_block_list_on_assistant_role_raises(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.ASSISTANT, content=[TextContent(text="hi")])
+
+    def test_block_list_on_system_role_raises(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.SYSTEM, content=[TextContent(text="hi")])
+
+    def test_block_list_on_tool_role_raises(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.TOOL, content=[TextContent(text="hi")])
+
+    def test_list_of_junk_raises(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.USER, content=["not a block"])
+
+    def test_non_str_non_list_content_raises(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.USER, content=42)
+
+
+class TestBuildUserMessageContentBlockList:
+    """M16 F12 L01 (DD4): list[ContentBlock] content is shape-aware — a
+    separate prepended TextContent prefix block, never merged into the
+    user's own blocks."""
+
+    def test_list_content_with_both_fields_prepends_prefix_block(self) -> None:
+        blocks = [TextContent(text="hi"), ImageContent(media_type="image/png", data="x")]
+        msg = Message.user(list(blocks), peer_name="alice", channel_name="general")
+        result = build_user_message_content(msg)
+        assert result == [TextContent(text="[from alice in #general]:"), *blocks]
+
+    def test_list_content_with_peer_name_only_prepends_prefix_block(self) -> None:
+        blocks = [TextContent(text="hi")]
+        msg = Message.user(list(blocks), peer_name="alice")
+        result = build_user_message_content(msg)
+        assert result == [TextContent(text="[from alice]:"), *blocks]
+
+    def test_list_content_with_channel_name_only_prepends_prefix_block(self) -> None:
+        blocks = [TextContent(text="hi")]
+        msg = Message.user(list(blocks), channel_name="general")
+        result = build_user_message_content(msg)
+        assert result == [TextContent(text="[in #general]:"), *blocks]
+
+    def test_list_content_with_neither_omits_prefix_block(self) -> None:
+        blocks = [TextContent(text="hi"), ImageContent(media_type="image/png", data="x")]
+        msg = Message.user(list(blocks))
+        result = build_user_message_content(msg)
+        assert result == blocks
+
+    def test_list_content_with_neither_returns_a_copy_not_the_same_list(self) -> None:
+        blocks = [TextContent(text="hi")]
+        msg = Message.user(blocks)
+        result = build_user_message_content(msg)
+        assert result == blocks
+        assert result is not msg.content
+
+    def test_empty_list_content_with_neither_returns_empty_list(self) -> None:
+        msg = Message.user([])
+        assert build_user_message_content(msg) == []
+
+    def test_empty_list_content_with_prefix_returns_just_the_prefix_block(self) -> None:
+        msg = Message.user([], peer_name="alice")
+        assert build_user_message_content(msg) == [TextContent(text="[from alice]:")]
+
+
+class TestContentToText:
+    """M16 F12 L03: ``content_to_text`` flattens content to a plain-text
+    projection for str-only consumers (e.g. the inference classifier's
+    history render). Dispatch is by ``isinstance``, not a type string."""
+
+    def test_str_passthrough_unchanged(self) -> None:
+        assert content_to_text("hello world") == "hello world"
+
+    def test_empty_str_passthrough(self) -> None:
+        assert content_to_text("") == ""
+
+    def test_text_only_list_joins_with_single_space(self) -> None:
+        blocks: list[ContentBlock] = [TextContent(text="hello"), TextContent(text="world")]
+        assert content_to_text(blocks) == "hello world"
+
+    def test_image_block_becomes_placeholder(self) -> None:
+        blocks: list[ContentBlock] = [ImageContent(media_type="image/png", data="Zm9v")]
+        assert content_to_text(blocks) == "[image]"
+
+    def test_mixed_text_and_image_ordering_preserved(self) -> None:
+        blocks: list[ContentBlock] = [
+            TextContent(text="look at this"),
+            ImageContent(media_type="image/png", data="Zm9v"),
+            TextContent(text="cool right?"),
+        ]
+        assert content_to_text(blocks) == "look at this [image] cool right?"
+
+    def test_empty_list_returns_empty_string(self) -> None:
+        assert content_to_text([]) == ""

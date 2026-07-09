@@ -30,7 +30,7 @@ import httpx
 import openai
 import pytest
 
-from the_one.llm.base import Message
+from the_one.llm.base import ImageContent, Message, TextContent
 from the_one.llm.openai_provider import OpenAIProvider
 from the_one.llm.openrouter_provider import OpenRouterProvider
 
@@ -408,3 +408,128 @@ class TestConfigToWireOpenRouter:
         assert "stop" not in body
         assert "reasoning_effort" not in body
         assert "response_format" not in body
+
+
+# ---------------------------------------------------------------------------
+# _to_api_message / _content_block_to_api — image projection (M16 F12 L05)
+# ---------------------------------------------------------------------------
+
+
+class TestImageProjection:
+    """The USER-turn fallthrough forks on ``isinstance(projected, list)``:
+    ``str`` content is byte-identical to before; ``list[ContentBlock]``
+    content is mapped to OpenAI content parts via ``_content_block_to_api``.
+    Pure/synchronous — construct the provider directly, no network."""
+
+    def _build(self) -> OpenAIProvider:
+        return OpenAIProvider(model="gpt-4o", api_key="x")
+
+    def test_str_content_byte_identical(self):
+        prov = self._build()
+        msg = Message.user("hello there")
+
+        api_msg = prov._to_api_message(msg)
+
+        assert api_msg == {"role": "user", "content": "hello there"}
+
+    def test_text_block_maps_to_text_part(self):
+        prov = self._build()
+        msg = Message.user([TextContent(text="hi")])
+
+        api_msg = prov._to_api_message(msg)
+
+        assert api_msg == {
+            "role": "user",
+            "content": [{"type": "text", "text": "hi"}],
+        }
+
+    def test_image_base64_maps_to_data_uri(self):
+        prov = self._build()
+        msg = Message.user(
+            [TextContent(text="look"), ImageContent(media_type="image/png", data="QUJD")]
+        )
+
+        api_msg = prov._to_api_message(msg)
+
+        assert api_msg == {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "look"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,QUJD"},
+                },
+            ],
+        }
+
+    def test_image_url_passthrough_when_no_data(self):
+        prov = self._build()
+        msg = Message.user([ImageContent(media_type="image/jpeg", url="https://example.com/x.jpg")])
+
+        api_msg = prov._to_api_message(msg)
+
+        assert api_msg == {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "https://example.com/x.jpg"},
+                }
+            ],
+        }
+
+    def test_image_base64_preferred_over_url_when_both_set(self):
+        prov = self._build()
+        msg = Message.user(
+            [
+                ImageContent(
+                    media_type="image/png",
+                    data="QUJD",
+                    url="https://example.com/should-not-be-used.png",
+                )
+            ]
+        )
+
+        api_msg = prov._to_api_message(msg)
+
+        assert api_msg == {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,QUJD"},
+                }
+            ],
+        }
+
+    def test_prefix_block_mapped_as_leading_text_part(self):
+        prov = self._build()
+        msg = Message.user(
+            [TextContent(text="hi")],
+            peer_name="alice",
+            channel_name="general",
+        )
+
+        api_msg = prov._to_api_message(msg)
+
+        assert api_msg["role"] == "user"
+        assert api_msg["content"][0] == {
+            "type": "text",
+            "text": "[from alice in #general]:",
+        }
+        assert api_msg["content"][1] == {"type": "text", "text": "hi"}
+
+    def test_content_block_to_api_text(self):
+        prov = self._build()
+        assert prov._content_block_to_api(TextContent(text="hi")) == {
+            "type": "text",
+            "text": "hi",
+        }
+
+    def test_content_block_to_api_image_data(self):
+        prov = self._build()
+        block = ImageContent(media_type="image/png", data="QUJD")
+        assert prov._content_block_to_api(block) == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,QUJD"},
+        }
