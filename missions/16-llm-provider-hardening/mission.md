@@ -308,6 +308,19 @@ spans the agent layer too.
 
 ## Known Issues
 
+- [ ] **Provider-tuning config should move to the agent level (future mission).**
+      Discovered during the Flight 11 (A4) HAT (2026-07-08, operator): the tuning
+      knobs `num_ctx`, `thinking_enabled`, and `reasoning_effort` all live on the
+      **provider** config surface (`LLMProviderConfig.config`) because that is the
+      only persistent config store today — there is no per-model or per-agent config
+      surface. This means agents sharing one provider connection cannot tune effort
+      / thinking / context independently. Operator direction: a future mission should
+      introduce an **agent-level** config surface and migrate these (and other
+      provider-scoped tuning) down to it. Not an A4 defect — A4 correctly followed
+      the ratified provider-config precedent (DD1/DD6); this is a data-model
+      evolution beyond this mission's scope. Candidate for `/mission-debrief`
+      → future-mission scoping.
+
 Confirmed by the Flight 1 spike (2026-06-17):
 
 - [x] ~~**#122 — Anthropic rejects tool `input_schema` with top-level
@@ -529,9 +542,9 @@ Deferred (own-mission candidate, 2026-06-23):
       live-wire-format planning gate; the HAT backend-currency precondition; the `thinking_display_text`
       `type`-filter A2 risk; the `effort`-in-config (not-ABC) A4 guidance; two small deferred fixes
       (live-broadcast `visibility`; empty-thinking-text tests); the still-open aiosqlite teardown flake.
-- [ ] Flight 11 *(capability — A4)*: **Request-param capabilities — reasoning_effort,
-      structured outputs / JSON mode, stop sequences** — **READY (planned + design-
-      reviewed 2026-07-06).** Delivers backlog **A4** via the provider config surface
+- [x] Flight 11 *(capability — A4)*: **Request-param capabilities — reasoning_effort,
+      structured outputs / JSON mode, stop sequences** — **LANDED (2026-07-08; PR #150).**
+      Delivers backlog **A4** via the provider config surface
       (config→env→default `resolve_*` helpers, no `LLMProvider` ABC change → no
       test-double cascade), provider-native structured-output pass-through (strict
       client-side validation deferred), extended cross-provider conformance matrix

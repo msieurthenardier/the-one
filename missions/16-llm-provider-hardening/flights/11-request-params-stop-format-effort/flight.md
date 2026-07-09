@@ -1,6 +1,6 @@
 # Flight: Request-Param Capabilities — reasoning_effort, structured outputs, stop (A4)
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -243,7 +243,7 @@ drives it all against live models.
       provider-config `reasoning_effort` field (num_ctx / thinking-toggle precedent)
       with a config round-trip. Split from L05 (UI surface, different verification);
       droppable to config/env-only if the operator prefers (DD6).
-- [ ] `hat-and-alignment` *(optional)* — L07: guided HAT driving effort + structured
+- [x] `hat-and-alignment` *(optional)* — L07: guided HAT driving effort + structured
       outputs + stop against live Anthropic/OpenAI/Ollama; fix wire-format/default
       surprises inline (F10 pattern); refresh/author a behavior-test spec if warranted.
 
@@ -252,13 +252,14 @@ drives it all against live models.
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (full suite + extended conformance matrix)
-- [ ] `the_one/agents.md` updated with the A4 config-key conventions
+- [x] All legs completed (L01–L07; L07 HAT Anthropic-only, OpenAI/Ollama deferred)
+- [ ] Code merged *(PR #150 open — draft; merge post-review)*
+- [x] Tests passing (full suite `make test-unit` 3895 passed/10 skipped; extended
+      conformance matrix green; L07 live HAT 6/6 on Anthropic)
+- [x] `the_one/agents.md` updated with the A4 config-key conventions
       (`reasoning_effort` / `response_format` / `stop` resolution + precedence)
-- [ ] Mission criterion #3 checkbox advanced (A4 implemented; strict-validation
-      deferral recorded)
+- [x] Mission criterion #3 checkbox advanced (A4 implemented; strict-validation
+      deferral recorded; A2 + A3/A5/B1–B4 remain for mission close)
 
 ### Verification
 

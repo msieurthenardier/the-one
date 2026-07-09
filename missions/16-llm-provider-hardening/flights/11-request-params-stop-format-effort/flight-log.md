@@ -707,3 +707,78 @@ convention (resolver precedence + per-provider native mapping + OpenRouter subcl
 caveat) per the flight Completion Checklist. Legs L01–L06 set `completed` and
 checked off in flight.md. Committing the batch; flight stays `in-flight` pending
 L07 (optional operator-guided HAT).
+
+---
+
+## L07 — HAT run (2026-07-08, operator-guided, Anthropic-only)
+
+**Scope**: live-verified on **Anthropic** (`claude-sonnet-4-6`, adaptive thinking
+on) via the running dev backend on :8485, rebuilt from this branch (`d5a359d`) and
+confirmed serving our code at the asset level (curled `provider-editor.js` /
+`admin.js` contained the L06 field + the config-wipe fix). OpenAI + Ollama live
+verification **deferred** (operator had no live OpenAI reasoning key / local Ollama
+this session) — their wire paths remain proven hermetically by the L05 conformance
+matrix + unit tests; the two L04 Ollama HAT-confirm items (`/v1` effort→`think`
+translation; `/v1` json_schema-wrapper acceptance) carry forward.
+
+**Result: PASS (6/6).**
+- **S1 backend currency** — PASS (served assets contain our code; pid 3652178).
+- **S2 reasoning_effort field renders** — PASS (dropdown present, Provider default
+  selected; live-confirms L06).
+- **S3 save-preserves-config (config-wipe fix)** — **PASS**, the highest-value step
+  (no automated coverage): set `response_format`+`stop` out-of-band via API, then a
+  UI Save that added `reasoning_effort:high` preserved all four keys
+  (`thinking_enabled`, `response_format`, `stop`, `reasoning_effort`). Pre-fix this
+  Save would have wiped `response_format`/`stop`.
+- **S4 reasoning_effort behavioral delta** — PASS: same river-crossing puzzle at
+  `high` vs `low` (fresh sessions). High showed verbose working-through +
+  mid-answer self-correction + a full state table; low gave a lean, direct, still-
+  correct list. Visible effort difference.
+- **S5 structured outputs (json_schema)** — PASS on retry (see Finding 1): returned
+  well-formed `{"answer": "..."}` matching the schema.
+- **S6 stop sequence** — PASS on a fresh session (see Finding 2): `stop:["5"]`
+  truncated "count to 10" to `1 2 3 4` (plain text, confirming `response_format`
+  cleared).
+
+### Findings (recorded; neither is an A4 defect, neither blocks landing)
+
+**Finding 1 — Anthropic strict structured output requires
+`additionalProperties: false` on object schemas.** S5 attempt 1 400'd:
+`output_config.format.schema: For 'object' type, 'additionalProperties' must be
+explicitly set to false`. This actually **confirmed the wire path end-to-end** (the
+request reached Anthropic with `output_config.format` correctly assembled by L02) —
+Anthropic rejected the schema *content*, not the request shape. Per **DD2**
+(provider-native pass-through, no client-side schema repair), the-one forwards the
+caller's schema as-is; a non-compliant schema is caught by the provider's strict
+mode, exactly the recorded DD2 trade-off. The fix was to the *test* schema (add
+`additionalProperties:false`), after which S5 passed. **Candidate follow-up
+(optional, out of scope):** an opt-in schema normalizer that injects
+`additionalProperties:false` for strict-mode providers — a convenience, not a
+correctness gap. Worth a usage note in the response_format docs.
+
+**Finding 2 — provider config changes don't affect an already-open chat session
+(session-cached agent).** S6 attempt 1 returned the *previous* config's behavior
+(still JSON, counted to 10) because `app.py` holds a per-session cached `agent`
+(`session.agent`, evicted/`aclose`d at `app.py:566`/`:637`) whose provider read the
+A4 config **once at construction**; a mid-conversation config edit doesn't reach it.
+A **fresh session** picked up the new config immediately (S6 then passed). This is
+**pre-existing infrastructure behavior shared by `thinking_enabled`/`num_ctx`**, not
+an A4 bug — but it is an operator-facing caveat for the L06 admin field: setting
+`reasoning_effort` in the UI won't change an already-open chat until a new session
+(or restart). Recorded as a UX caveat; a provider-config-change → session-agent
+eviction hook is a candidate follow-up (broader than A4). *(This is distinct from
+the config-wipe fix, which S3 verified — persistence is correct; live-propagation
+to running sessions is the caching caveat.)*
+
+### Design direction surfaced (recorded as a mission Known Issue)
+
+Operator: the provider-scoped tuning knobs (`num_ctx`, `thinking_enabled`,
+`reasoning_effort`) should move to an **agent-level** config surface in a future
+mission — agents sharing a provider connection can't tune independently today
+(there is no per-model/per-agent config store). Logged to
+`missions/16-llm-provider-hardening/mission.md` Known Issues as a future-mission
+candidate. Not an A4 defect (A4 followed the ratified DD1/DD6 provider-config
+precedent).
+
+**Provider config restored** to its original `{"thinking_enabled": true}` after the
+run. Dev backend left running on :8485.
