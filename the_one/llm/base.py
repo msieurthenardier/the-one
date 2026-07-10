@@ -74,9 +74,16 @@ class ImageContent:
     url: str | None = None  # native on Anthropic/OpenAI; Ollama = documented gap (DD5)
 
     def __post_init__(self) -> None:
-        assert self.data is not None or self.url is not None, (
-            "ImageContent requires one of data (base64) or url"
-        )
+        """Require at least one of ``data``/``url``.
+
+        Uses an explicit ``raise AssertionError`` rather than a bare
+        ``assert`` statement — a bare ``assert`` is stripped under
+        ``python -O``, which would silently let a fully-empty
+        ``ImageContent`` through. Matches the sibling convention in
+        ``Message.__post_init__`` above.
+        """
+        if self.data is None and self.url is None:
+            raise AssertionError("ImageContent requires one of data (base64) or url")
 
 
 ContentBlock = TextContent | ImageContent

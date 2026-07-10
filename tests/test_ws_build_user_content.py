@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from the_one.interfaces.web.app import _build_user_content
 from the_one.llm.base import ImageContent, TextContent
 
@@ -57,3 +59,24 @@ def test_multiple_images_all_included() -> None:
         ImageContent(media_type="image/png", data="aaa"),
         ImageContent(media_type="image/jpeg", data="bbb"),
     ]
+
+
+class TestMalformedImagePayloadRaises:
+    """M18 F02 L01: the WS message branch wraps this call in a narrow
+    ``try/except Exception`` (``the_one/interfaces/web/app.py``,
+    ``websocket_endpoint``) specifically because ``_build_user_content``
+    can raise on a malformed ``images`` entry. Pinned here at the
+    function level; loop-survival (the guard actually catching these and
+    keeping the WS alive) is covered by
+    ``tests/test_ws_message_branch_crash_guard.py``.
+    """
+
+    def test_unexpected_image_key_raises_type_error(self) -> None:
+        images = [{"media_type": "image/png", "data": "abc", "bogus_key": "x"}]
+        with pytest.raises(TypeError):
+            _build_user_content("what is this?", images)
+
+    def test_missing_data_and_url_raises_assertion_error(self) -> None:
+        images = [{"media_type": "image/png"}]
+        with pytest.raises(AssertionError):
+            _build_user_content("what is this?", images)

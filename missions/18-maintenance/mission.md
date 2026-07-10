@@ -86,9 +86,10 @@ N/A — this mission clears known issues rather than surfacing new ones.
       check without undoing the Concourse cost-shift (C1/C4). **LANDED** — pip-audit
       24→2 (2 dev/toolchain-only; runtime closure clean); 7 CVE floors raised in
       `pyproject.toml` so the installer re-resolve is guaranteed; new `pr-lint.yml`.
-- [ ] Flight 2: **Input robustness** — `ImageContent` bare-assert → `raise` +
+- [x] Flight 2: **Input robustness** — `ImageContent` bare-assert → `raise` +
       generic `except` on the WS message branch (S2/S1); image size/count cap
-      (S3).
+      (S3). **LANDED** — narrow content-build guard + malformed-shape validation;
+      10 MB/image, max 10 count; real crash-guard + browser tests.
 - [ ] Flight 3: **Attach-UI accessibility** — live-region on the staging region
       (A1), distinguishing per-image accessible names (A2), remove-glyph contrast
       (A3). One coherent leg over `chat.js`/`components.css`.

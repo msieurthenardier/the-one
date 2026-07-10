@@ -464,6 +464,40 @@ _session_inflight: dict[str, set[asyncio.Task]] = {}
 _inflight_resume_tasks: set[asyncio.Task] = set()
 
 
+# M18 F02 L02: defense-in-depth caps on chat image attachments, not a
+# strict security boundary — the provider enforces its own, stricter,
+# per-image limit. These bound self-inflicted memory pressure from an
+# unbounded client payload. Per-image ~10 MB is generous (covers typical
+# photo/screenshot attachments); max count 10 is a round, permissive
+# default. No separate total-payload cap: count x per-image (~100 MB
+# worst case) already bounds the total, so a third constant would be
+# redundant (documented decision, M18 F02 L02).
+IMAGE_ATTACHMENT_CAP_BYTES = 10 * 1024 * 1024  # ~10 MB per image (decoded size)
+IMAGE_ATTACHMENT_MAX_COUNT = 10  # max attachments per turn
+
+
+def _approx_image_bytes(img: dict[str, Any]) -> int:
+    """Approximate the decoded byte size of an image dict's base64 payload.
+
+    Base64 inflates raw bytes by ~4/3, so decoded size ≈ ``len(data) * 3/4``
+    (M18 F02 L02 design review: exact-enough for a defense-in-depth cap,
+    no need to actually decode). Images specified via ``url`` (no `data`)
+    carry no client-supplied size to check — the provider fetches those
+    directly — so this returns 0 for them (unbounded by this cap; the
+    provider enforces its own per-image limit for URL-sourced images).
+
+    Defensive backstop: a non-dict ``img`` (shouldn't reach here — the
+    caller validates shape first) returns 0 rather than raising, so this
+    stays safe to call directly.
+    """
+    if not isinstance(img, dict):
+        return 0
+    data = img.get("data")
+    if not isinstance(data, str):
+        return 0
+    return (len(data) * 3) // 4
+
+
 def _build_user_content(
     user_input: str, images: list[dict[str, Any]] | None
 ) -> str | list[ContentBlock]:
@@ -2201,6 +2235,69 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             if not user_input and not images:
                 continue
 
+            # M18 F02 L02: reject an over-count/over-size images payload
+            # BEFORE the auto-join block below — an oversized attachment
+            # should not spin up an unnecessary session. Reuses the Leg-1
+            # error-surfacing shape (system event + continue) so the loop
+            # stays alive.
+            if images:
+                # Review fix (post-L02): validate SHAPE before the
+                # count/size logic below touches it. A non-list `images`
+                # (e.g. an int) blows up `len(images)`; a list containing
+                # non-dict items (e.g. a bare string, or `images` itself
+                # being a string so iteration hands out individual chars)
+                # blows up `_approx_image_bytes`'s `.get(...)` call. Both
+                # used to propagate out of the `while True` loop, killing
+                # the connection — the exact crash class Leg 1 fixes.
+                # Reject with the same system-event + continue shape used
+                # everywhere else in this handler.
+                if not isinstance(images, list) or not all(isinstance(img, dict) for img in images):
+                    logger.warning(
+                        "Rejected message: malformed images payload (expected a list of objects)"
+                    )
+                    await ws.send_json(
+                        {
+                            "type": "system",
+                            "content": (
+                                "Malformed images payload; expected a list of image objects."
+                            ),
+                        }
+                    )
+                    continue
+                if len(images) > IMAGE_ATTACHMENT_MAX_COUNT:
+                    logger.warning(
+                        "Rejected message: %d images exceeds max count %d",
+                        len(images),
+                        IMAGE_ATTACHMENT_MAX_COUNT,
+                    )
+                    await ws.send_json(
+                        {
+                            "type": "system",
+                            "content": (
+                                f"Too many images attached ({len(images)}); "
+                                f"max is {IMAGE_ATTACHMENT_MAX_COUNT}."
+                            ),
+                        }
+                    )
+                    continue
+                oversized = next(
+                    (
+                        img
+                        for img in images
+                        if _approx_image_bytes(img) > IMAGE_ATTACHMENT_CAP_BYTES
+                    ),
+                    None,
+                )
+                if oversized is not None:
+                    cap_mb = IMAGE_ATTACHMENT_CAP_BYTES // (1024 * 1024)
+                    logger.warning(
+                        "Rejected message: image exceeds per-image cap of %d bytes",
+                        IMAGE_ATTACHMENT_CAP_BYTES,
+                    )
+                    notice = f"An attached image exceeds the {cap_mb} MB per-image limit."
+                    await ws.send_json({"type": "system", "content": notice})
+                    continue
+
             # Auto-join a session if none active
             if not session:
                 try:
@@ -2229,7 +2326,24 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # The shared per-session lock (from ``the_one.sessions``)
             # serializes successive messages on the same session;
             # broadcasts go to all current subscribers.
-            content = _build_user_content(user_input, images)
+            try:
+                content = _build_user_content(user_input, images)
+            except Exception as exc:
+                # M18 F02 L01: NARROW guard around just the content-build
+                # call — a malformed image dict (unexpected key -> TypeError
+                # from ImageContent(**img); both data/url absent -> the
+                # ImageContent guard) used to propagate out of the `while
+                # True` loop and drop the connection. The outer `try`
+                # (below) already handles WebSocketDisconnect; this inner
+                # guard must stay scoped to content-build only so it does
+                # not also swallow that disconnect. Mirrors the sibling
+                # auto-create except block above (log + system event +
+                # continue), using the WS-loop-local `session` directly
+                # rather than `_send_to_session` (which broadcasts to every
+                # subscriber — wrong call site for a per-connection error).
+                logger.exception("Failed to build user content from images payload")
+                await ws.send_json({"type": "system", "content": f"Cannot process message: {exc}"})
+                continue
             task = asyncio.create_task(_spawn_message_processing(session, content, "web", ws))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)

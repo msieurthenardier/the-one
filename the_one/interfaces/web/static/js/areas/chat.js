@@ -138,6 +138,14 @@ App.registerArea({
     // `.btn-muted-destructive[hidden]` override elsewhere in chat.css for
     // the same footgun). Each chicklet itself also uses `.chip`/`.chip-remove`
     // — no CSS file change.
+    // M18 F02 L02: client-side mirror of the server's authoritative caps
+    // (the_one/interfaces/web/app.py IMAGE_ATTACHMENT_CAP_BYTES /
+    // IMAGE_ATTACHMENT_MAX_COUNT). UX-only — a client that bypasses these
+    // is still bounded by the server-side check, which is the authoritative
+    // guard. Kept in sync by convention (no shared constants module between
+    // the Python backend and this static JS file).
+    var IMAGE_ATTACHMENT_CAP_BYTES = 10 * 1024 * 1024; // ~10 MB per image
+    var IMAGE_ATTACHMENT_MAX_COUNT = 10; // max attachments per turn
     var stagedImages = [];
     var attachmentsEl;
     function renderAttachments() {
@@ -1547,6 +1555,15 @@ App.registerArea({
       fileInputEl.value = '';
       if (!files.length) return;
       if (isCurrentBusy()) return;
+      // M18 F02 L02: per-file size check + count cap. `plannedCount` (NOT
+      // `stagedImages.length` alone) tracks images already staged PLUS
+      // ones scheduled earlier in this same batch — FileReader is async,
+      // so a multi-select batch would otherwise schedule more than
+      // IMAGE_ATTACHMENT_MAX_COUNT reads before any of them resolves and
+      // increments `stagedImages`.
+      var plannedCount = stagedImages.length;
+      var rejectedForSize = false;
+      var rejectedForCount = false;
       for (var i = 0; i < files.length; i++) {
         (function (file) {
           // Only image/* is staged — a non-image pick (accept="image/*"
@@ -1554,6 +1571,15 @@ App.registerArea({
           // manipulation, e.g. Playwright's set_input_files) is silently
           // ignored per-file.
           if (file.type.indexOf('image/') !== 0) return;
+          if (file.size > IMAGE_ATTACHMENT_CAP_BYTES) {
+            rejectedForSize = true;
+            return;
+          }
+          if (plannedCount >= IMAGE_ATTACHMENT_MAX_COUNT) {
+            rejectedForCount = true;
+            return;
+          }
+          plannedCount++;
           var reader = new FileReader();
           reader.onload = function () {
             var result = String(reader.result || '');
@@ -1563,6 +1589,26 @@ App.registerArea({
           };
           reader.readAsDataURL(file);
         })(files[i]);
+      }
+      // Notices via the established addMsg('system', ...) mechanism
+      // (design review — coordinate with the Flight 3 a11y live-region,
+      // which will announce these once it lands; for now this is at
+      // minimum visible in the message list).
+      if (rejectedForSize) {
+        addMsg(
+          'system',
+          'One or more images exceed the ' +
+            Math.floor(IMAGE_ATTACHMENT_CAP_BYTES / (1024 * 1024)) +
+            ' MB per-image limit and were not attached.'
+        );
+      }
+      if (rejectedForCount) {
+        addMsg(
+          'system',
+          'Only up to ' +
+            IMAGE_ATTACHMENT_MAX_COUNT +
+            ' images can be attached per message; extra selections were not attached.'
+        );
       }
     });
 
