@@ -114,10 +114,18 @@ class TestMessagesToUIEvents:
         assert messages_to_ui_events(msgs) == []
 
     def test_user_message(self) -> None:
-        msgs = [Message.user("hello")]
+        # Fix: message-timestamp-on-replay — Message.user now defaults
+        # created_at, so the projected event carries a "ts" key. Pin an
+        # explicit created_at for a deterministic exact-dict assertion.
+        msgs = [Message.user("hello", created_at="2024-01-01T00:00:00+00:00")]
         events = messages_to_ui_events(msgs)
         assert len(events) == 1
-        assert events[0] == {"type": "user", "content": "hello", "source": "restored"}
+        assert events[0] == {
+            "type": "user",
+            "content": "hello",
+            "source": "restored",
+            "ts": "2024-01-01T00:00:00+00:00",
+        }
 
     def test_user_message_list_content_projects_to_string(self) -> None:
         """M16 F12 L08: an image-bearing USER message (list[ContentBlock])
@@ -146,10 +154,15 @@ class TestMessagesToUIEvents:
         assert events[0]["content"] == "[image]"
 
     def test_assistant_text(self) -> None:
-        msgs = [Message.assistant("hi there")]
+        # Fix: message-timestamp-on-replay — pin created_at for determinism.
+        msgs = [Message.assistant("hi there", created_at="2024-01-01T00:00:00+00:00")]
         events = messages_to_ui_events(msgs)
         assert len(events) == 1
-        assert events[0] == {"type": "assistant", "content": "hi there"}
+        assert events[0] == {
+            "type": "assistant",
+            "content": "hi there",
+            "ts": "2024-01-01T00:00:00+00:00",
+        }
 
     def test_assistant_tool_calls(self) -> None:
         tc1 = ToolCall(id="tc-1", name="read_file", arguments={"path": "/tmp/x"})
@@ -176,10 +189,19 @@ class TestMessagesToUIEvents:
 
     def test_assistant_with_both_text_and_tool_calls(self) -> None:
         tc = ToolCall(id="tc-1", name="read_file", arguments={"path": "/tmp/x"})
-        msgs = [Message.assistant("Let me check that", tool_calls=[tc])]
+        # Fix: message-timestamp-on-replay — pin created_at for determinism.
+        msgs = [
+            Message.assistant(
+                "Let me check that", tool_calls=[tc], created_at="2024-01-01T00:00:00+00:00"
+            )
+        ]
         events = messages_to_ui_events(msgs)
         assert len(events) == 2
-        assert events[0] == {"type": "assistant", "content": "Let me check that"}
+        assert events[0] == {
+            "type": "assistant",
+            "content": "Let me check that",
+            "ts": "2024-01-01T00:00:00+00:00",
+        }
         # F5 L02: tool_call carries discriminator
         assert events[1] == {
             "type": "tool_call",
@@ -223,24 +245,34 @@ class TestMessagesToUIEvents:
         assert messages_to_ui_events([]) == []
 
     def test_full_conversation(self) -> None:
+        # Fix: message-timestamp-on-replay — pin created_at on every
+        # user/assistant turn for a deterministic exact-dict assertion below.
+        ts = "2024-01-01T00:00:00+00:00"
         msgs = [
             Message.system("You are helpful"),
-            Message.user("Hi"),
-            Message.assistant("Hello!"),
-            Message.user("Read a file"),
+            Message.user("Hi", created_at=ts),
+            Message.assistant("Hello!", created_at=ts),
+            Message.user("Read a file", created_at=ts),
             Message.assistant(
-                "Sure", tool_calls=[ToolCall(id="t1", name="read_file", arguments={"path": "/x"})]
+                "Sure",
+                tool_calls=[ToolCall(id="t1", name="read_file", arguments={"path": "/x"})],
+                created_at=ts,
             ),
             Message.tool(ToolResult(tool_call_id="t1", content="file data")),
-            Message.assistant("Here's the file content"),
+            Message.assistant("Here's the file content", created_at=ts),
         ]
         events = messages_to_ui_events(msgs)
         assert len(events) == 7
         # system skipped
-        assert events[0] == {"type": "user", "content": "Hi", "source": "restored"}
-        assert events[1] == {"type": "assistant", "content": "Hello!"}
-        assert events[2] == {"type": "user", "content": "Read a file", "source": "restored"}
-        assert events[3] == {"type": "assistant", "content": "Sure"}
+        assert events[0] == {"type": "user", "content": "Hi", "source": "restored", "ts": ts}
+        assert events[1] == {"type": "assistant", "content": "Hello!", "ts": ts}
+        assert events[2] == {
+            "type": "user",
+            "content": "Read a file",
+            "source": "restored",
+            "ts": ts,
+        }
+        assert events[3] == {"type": "assistant", "content": "Sure", "ts": ts}
         # F5 L02: tool_call + tool_result carry discriminator; index 4 is
         # the assistant w/ tool_calls, so parent_message_id is "replay-msg-4".
         assert events[4] == {
@@ -257,7 +289,7 @@ class TestMessagesToUIEvents:
             "parent_message_id": "replay-msg-4",
             "tool_call_id": "t1",
         }
-        assert events[6] == {"type": "assistant", "content": "Here's the file content"}
+        assert events[6] == {"type": "assistant", "content": "Here's the file content", "ts": ts}
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +481,7 @@ class TestMessagesToUiEventsThinking:
     """
 
     def test_thinking_event_emitted_with_joined_text(self) -> None:
+        # Fix: message-timestamp-on-replay — pin created_at for determinism.
         msgs = [
             Message.assistant(
                 "the answer",
@@ -456,12 +489,18 @@ class TestMessagesToUiEventsThinking:
                     ThinkingBlock(type="thinking", thinking="step one", signature="s1"),
                     ThinkingBlock(type="thinking", thinking="step two", signature="s2"),
                 ],
+                created_at="2024-01-01T00:00:00+00:00",
             )
         ]
         events = messages_to_ui_events(msgs)
         assert len(events) == 2
-        assert events[0] == {"type": "assistant", "content": "the answer"}
+        assert events[0] == {
+            "type": "assistant",
+            "content": "the answer",
+            "ts": "2024-01-01T00:00:00+00:00",
+        }
         # Thinking event AFTER the assistant content event, carries parent id.
+        # No "ts" — thinking events render no attribution row.
         assert events[1] == {
             "type": "thinking",
             "content": "step one\n\nstep two",
@@ -469,9 +508,16 @@ class TestMessagesToUiEventsThinking:
         }
 
     def test_no_thinking_emits_no_thinking_event(self) -> None:
-        msgs = [Message.assistant("plain answer")]
+        # Fix: message-timestamp-on-replay — pin created_at for determinism.
+        msgs = [Message.assistant("plain answer", created_at="2024-01-01T00:00:00+00:00")]
         events = messages_to_ui_events(msgs)
-        assert events == [{"type": "assistant", "content": "plain answer"}]
+        assert events == [
+            {
+                "type": "assistant",
+                "content": "plain answer",
+                "ts": "2024-01-01T00:00:00+00:00",
+            }
+        ]
         assert not any(e["type"] == "thinking" for e in events)
 
     def test_redacted_only_projects_marker(self) -> None:
@@ -811,6 +857,77 @@ class TestMessageChannelNameCodec:
 
 
 # ---------------------------------------------------------------------------
+# Fix: message-timestamp-on-replay — Message.created_at round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestMessageCreatedAtCodec:
+    """``Message.created_at`` round-trips through ``message_to_dict`` ↔
+    ``message_from_dict``: the key is emitted only when non-None,
+    deserialization defaults to None when the key is absent (back-compat
+    with every pre-fix session row). Mirrors ``TestMessagePeerNameCodec``.
+    """
+
+    def test_message_to_dict_emits_created_at_when_non_none(self) -> None:
+        msg = Message(role=Role.USER, content="hi", created_at="2024-01-01T00:00:00+00:00")
+        d = message_to_dict(msg)
+        assert d["created_at"] == "2024-01-01T00:00:00+00:00"
+
+    def test_message_to_dict_omits_created_at_when_none(self) -> None:
+        msg = Message(role=Role.USER, content="hi", created_at=None)
+        d = message_to_dict(msg)
+        assert "created_at" not in d
+
+    def test_message_from_dict_restores_created_at(self) -> None:
+        d = {"role": "user", "content": "hi", "created_at": "2024-01-01T00:00:00+00:00"}
+        msg = message_from_dict(d)
+        assert msg.created_at == "2024-01-01T00:00:00+00:00"
+
+    def test_message_from_dict_back_compat_no_created_at_key(self) -> None:
+        """A dict WITHOUT a created_at key (every pre-fix persisted row)
+        loads as None — back-compat."""
+        d = {"role": "user", "content": "hi"}
+        msg = message_from_dict(d)
+        assert msg.created_at is None
+
+    def test_full_round_trip_with_created_at(self) -> None:
+        msgs = [Message.user("hi", created_at="2024-01-01T00:00:00+00:00")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].created_at == "2024-01-01T00:00:00+00:00"
+
+    def test_full_round_trip_without_created_at_on_bare_message(self) -> None:
+        """A bare Message (not built via the user()/assistant() factories)
+        has created_at=None and round-trips as None."""
+        msgs = [Message(role=Role.SYSTEM, content="you are helpful")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].created_at is None
+
+    def test_message_user_factory_defaults_created_at_non_none(self) -> None:
+        """``Message.user`` defaults created_at to a non-None ISO timestamp
+        (the fix) — unlike peer_name/channel_id/channel_name, which default
+        to None."""
+        assert Message.user("hi").created_at is not None
+
+    def test_message_user_kwarg_sets_created_at(self) -> None:
+        """``Message.user`` threads an explicit created_at kwarg through to
+        the constructor unchanged (no re-stamping)."""
+        assert (
+            Message.user("hi", created_at="2024-01-01T00:00:00+00:00").created_at
+            == "2024-01-01T00:00:00+00:00"
+        )
+
+    def test_round_trip_with_created_at_and_peer_name(self) -> None:
+        """Both fields compose: created_at and peer_name round-trip
+        independently (cross-cutting back-compat check — neither field
+        interferes with the other's encode/decode site).
+        """
+        msgs = [Message.user("hi", created_at="2024-01-01T00:00:00+00:00", peer_name="alice")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].created_at == "2024-01-01T00:00:00+00:00"
+        assert rt[0].peer_name == "alice"
+
+
+# ---------------------------------------------------------------------------
 # M16 F10 L01 — Message.thinking round-trip (structured extended-thinking
 # blocks; truthy-guarded list sibling of tool_calls, NOT the emit-when-non-none
 # convention)
@@ -932,13 +1049,15 @@ class TestMessageThinkingCodec:
     def test_thinking_bearing_message_still_omits_empty_optionals(self) -> None:
         """Belt-and-suspenders: the tripwire's invariant still holds for a
         thinking-bearing assistant message — an assistant message with ONLY a
-        thinking block emits exactly ``{"role", "content", "thinking"}`` (no
-        stray empty optional keys). The real tripwire at the module bottom
+        thinking block emits exactly ``{"role", "content", "thinking",
+        "created_at"}`` (no stray empty optional keys). ``created_at`` is
+        present because ``Message.assistant`` defaults it (fix:
+        message-timestamp-on-replay); the real tripwire at the module bottom
         (``test_encode_emits_no_keys_when_all_optional_fields_default``) stays
         untouched; this guards the composed shape."""
         msg = Message.assistant("hi", thinking=[ThinkingBlock(type="thinking", thinking="r")])
         d = message_to_dict(msg)
-        assert sorted(d.keys()) == ["content", "role", "thinking"]
+        assert sorted(d.keys()) == ["content", "created_at", "role", "thinking"]
 
 
 # ---------------------------------------------------------------------------
@@ -1109,14 +1228,22 @@ class TestMessageChannelContextCompositionCodec:
         assert rt[0].channel_name == "general"
 
     def test_encode_emits_no_keys_when_all_optional_fields_default(self) -> None:
-        """A default ``Message.user("hi")`` encodes to ``{"role", "content"}``
-        only — no optional keys (visibility, peer_name, channel_id,
-        channel_name) appear when each is at its None default.
+        """A ``Message`` with every optional field at its dataclass ``None``
+        default encodes to ``{"role", "content"}`` only — no optional keys
+        (visibility, peer_name, channel_id, channel_name, created_at) appear.
 
         This pins the back-compat invariant globally for the
         ``message-additive-back-compat-via-emit-when-non-none`` convention:
         a Message with no optional fields set encodes byte-identical to
-        pre-M10-F3 (and pre-M11-F6, and pre-M11-F7) rows.
+        pre-M10-F3 (and pre-M11-F6, and pre-M11-F7, and pre-message-
+        timestamp-on-replay) rows.
+
+        Fix: message-timestamp-on-replay — constructs the bare dataclass
+        directly rather than via ``Message.user(...)``. The factory itself
+        now defaults ``created_at`` to a non-None ISO timestamp (that's the
+        fix), so ``Message.user("hi")`` is no longer "all optional fields at
+        default"; the bare constructor is what actually exercises the
+        all-defaults case this test is pinning.
 
         TRIPWIRE: any new optional Message field added via the
         ``message-additive-back-compat-via-emit-when-non-none`` convention
@@ -1127,9 +1254,19 @@ class TestMessageChannelContextCompositionCodec:
         intentional coupling between this test and the convention's
         citation count is what keeps the tripwire load-bearing.
         """
-        msg = Message.user("hi")
+        msg = Message(role=Role.USER, content="hi")
         d = message_to_dict(msg)
         assert sorted(d.keys()) == ["content", "role"]
+
+    def test_message_user_factory_emits_created_at_key(self) -> None:
+        """Companion to the tripwire above: ``Message.user(...)`` (the real
+        construction path used throughout the app) DOES emit a
+        ``created_at`` key by default — the factory opts every USER/
+        ASSISTANT message into a timestamp so replay can render one.
+        """
+        msg = Message.user("hi")
+        d = message_to_dict(msg)
+        assert sorted(d.keys()) == ["content", "created_at", "role"]
 
 
 class TestMessagesToUiEventsVisibility:
@@ -1190,15 +1327,26 @@ class TestMessagesToUiEventsVisibility:
         assert "visibility" not in events[1]
 
     def test_existing_assistant_text_event_shape_unchanged_when_untagged(self) -> None:
-        """Pure addition: untagged events keep their pre-F3 shape exactly."""
-        msgs = [Message.assistant("hi there")]
+        """Pure addition: untagged events keep their pre-F3 shape exactly
+        (modulo the "ts" key — fix: message-timestamp-on-replay pins
+        created_at here for a deterministic assertion)."""
+        msgs = [Message.assistant("hi there", created_at="2024-01-01T00:00:00+00:00")]
         events = messages_to_ui_events(msgs)
-        assert events[0] == {"type": "assistant", "content": "hi there"}
+        assert events[0] == {
+            "type": "assistant",
+            "content": "hi there",
+            "ts": "2024-01-01T00:00:00+00:00",
+        }
 
     def test_existing_user_event_shape_unchanged_when_untagged(self) -> None:
-        msgs = [Message.user("hello")]
+        msgs = [Message.user("hello", created_at="2024-01-01T00:00:00+00:00")]
         events = messages_to_ui_events(msgs)
-        assert events[0] == {"type": "user", "content": "hello", "source": "restored"}
+        assert events[0] == {
+            "type": "user",
+            "content": "hello",
+            "source": "restored",
+            "ts": "2024-01-01T00:00:00+00:00",
+        }
 
     def test_existing_tool_call_event_shape_unchanged_when_untagged(self) -> None:
         tc = ToolCall(id="tc-1", name="read_file", arguments={"path": "/x"})
@@ -1381,6 +1529,84 @@ class TestMessagesToUiEventsChannelContext:
             assert event["type"] in ("assistant", "tool_result")
             assert "channel_id" not in event
             assert "channel_name" not in event
+
+
+# ---------------------------------------------------------------------------
+# Fix: message-timestamp-on-replay — created_at UI-event ("ts") projection
+# ---------------------------------------------------------------------------
+
+
+class TestMessagesToUiEventsCreatedAt:
+    """``messages_to_ui_events`` projects ``created_at`` as ``ts`` ONLY onto
+    USER and ASSISTANT events (the two bubble types the Chat UI stamps with
+    an attribution row via ``renderAttribution``). tool_call/tool_result/
+    thinking events never carry ``ts``. The key is present only when the
+    source ``created_at`` is non-None — legacy pre-fix rows (created_at is
+    None) project with no ``ts`` key, exactly as before this fix.
+    """
+
+    def test_projects_ts_on_user_event_when_created_at_set(self) -> None:
+        msgs = [Message.user("hi", created_at="2024-01-01T00:00:00+00:00")]
+        events = messages_to_ui_events(msgs)
+        assert events[0]["ts"] == "2024-01-01T00:00:00+00:00"
+
+    def test_omits_ts_on_user_event_when_created_at_none(self) -> None:
+        """Direct constructor — bypasses the Message.user() factory default
+        so created_at is genuinely None, mirroring a legacy pre-fix row."""
+        msgs = [Message(role=Role.USER, content="hi", created_at=None)]
+        events = messages_to_ui_events(msgs)
+        assert "ts" not in events[0]
+
+    def test_projects_ts_on_assistant_event_when_created_at_set(self) -> None:
+        msgs = [Message.assistant("hi there", created_at="2024-01-01T00:00:00+00:00")]
+        events = messages_to_ui_events(msgs)
+        assert events[0]["ts"] == "2024-01-01T00:00:00+00:00"
+
+    def test_omits_ts_on_assistant_event_when_created_at_none(self) -> None:
+        msgs = [Message(role=Role.ASSISTANT, content="hi there", created_at=None)]
+        events = messages_to_ui_events(msgs)
+        assert "ts" not in events[0]
+
+    def test_does_not_project_ts_on_tool_call_event(self) -> None:
+        tc = ToolCall(id="tc-1", name="read_file", arguments={"path": "/x"})
+        msgs = [Message.assistant("", tool_calls=[tc], created_at="2024-01-01T00:00:00+00:00")]
+        events = messages_to_ui_events(msgs)
+        tc_events = [e for e in events if e["type"] == "tool_call"]
+        assert len(tc_events) == 1
+        assert "ts" not in tc_events[0]
+
+    def test_does_not_project_ts_on_tool_result_event(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        msgs = [Message.tool(tr)]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 1
+        assert events[0]["type"] == "tool_result"
+        assert "ts" not in events[0]
+
+    def test_does_not_project_ts_on_thinking_event(self) -> None:
+        msgs = [
+            Message.assistant(
+                "",
+                thinking=[ThinkingBlock(type="thinking", thinking="reason", signature="s")],
+                created_at="2024-01-01T00:00:00+00:00",
+            )
+        ]
+        events = messages_to_ui_events(msgs)
+        thinking_events = [e for e in events if e["type"] == "thinking"]
+        assert len(thinking_events) == 1
+        assert "ts" not in thinking_events[0]
+
+    def test_mixed_created_at_session(self) -> None:
+        """One tagged + one untagged (legacy) user message: present-and-absent
+        ts keys, mirroring the visibility/peer_name mixed-session pattern."""
+        msgs = [
+            Message.user("with-ts", created_at="2024-01-01T00:00:00+00:00"),
+            Message(role=Role.USER, content="no-ts", created_at=None),
+        ]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 2
+        assert events[0]["ts"] == "2024-01-01T00:00:00+00:00"
+        assert "ts" not in events[1]
 
 
 class TestMessageVisibilityClassmethodKwargs:

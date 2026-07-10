@@ -9,6 +9,8 @@ OpenAIProvider inheritance) call from ``_to_api_message``.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from the_one.llm.base import (
@@ -17,6 +19,7 @@ from the_one.llm.base import (
     Message,
     Role,
     TextContent,
+    ToolResult,
     build_user_message_content,
     content_to_text,
 )
@@ -220,3 +223,45 @@ class TestContentToText:
 
     def test_empty_list_returns_empty_string(self) -> None:
         assert content_to_text([]) == ""
+
+
+class TestMessageCreatedAt:
+    """Fix: message-timestamp-on-replay. ``Message.created_at`` is None on
+    the bare dataclass; ``Message.user``/``Message.assistant`` default it to
+    ``_utcnow_iso()`` when the caller doesn't supply one explicitly.
+    ``Message.system``/``Message.tool`` never set it (those roles render no
+    attribution timestamp in the Chat UI).
+    """
+
+    def test_bare_message_created_at_is_none(self) -> None:
+        assert Message(role=Role.USER, content="hi").created_at is None
+
+    def test_user_factory_defaults_created_at_to_iso_string(self) -> None:
+        msg = Message.user("hi")
+        assert isinstance(msg.created_at, str)
+        assert msg.created_at is not None
+        # Round-trips through datetime.fromisoformat without raising —
+        # confirms it's a well-formed ISO 8601 string (the format
+        # _utcnow_iso() and Message.user/assistant emit).
+        datetime.fromisoformat(msg.created_at)
+
+    def test_user_factory_accepts_explicit_created_at(self) -> None:
+        msg = Message.user("hi", created_at="2024-01-01T00:00:00+00:00")
+        assert msg.created_at == "2024-01-01T00:00:00+00:00"
+
+    def test_assistant_factory_defaults_created_at_to_iso_string(self) -> None:
+        msg = Message.assistant("hi there")
+        assert isinstance(msg.created_at, str)
+        assert msg.created_at is not None
+        datetime.fromisoformat(msg.created_at)
+
+    def test_assistant_factory_accepts_explicit_created_at(self) -> None:
+        msg = Message.assistant("hi there", created_at="2024-01-01T00:00:00+00:00")
+        assert msg.created_at == "2024-01-01T00:00:00+00:00"
+
+    def test_system_factory_leaves_created_at_none(self) -> None:
+        assert Message.system("you are helpful").created_at is None
+
+    def test_tool_factory_leaves_created_at_none(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        assert Message.tool(tr).created_at is None
