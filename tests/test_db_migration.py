@@ -18,23 +18,31 @@ from the_one.db.schema import CURRENT_VERSION, ensure_schema
 
 @pytest.fixture
 async def setup(tmp_path):
-    """Set up a SQLite connection and a JSON agents directory."""
+    """Set up a SQLite connection and a JSON agents directory.
+
+    F04 L01 (Mission 18): the connection is opened via ``async with`` so
+    the close is guaranteed in-loop even if a consuming test raises
+    (e.g. an assertion failure) — a bare trailing ``await conn.close()``
+    after ``yield`` is skipped when the test body raises, orphaning the
+    connection's worker thread on a to-be-torn-down event loop (the
+    `Event loop is closed` teardown artifact; see maintenance report
+    2026-07-10 finding T1). This fixture is consumed by 4 tests, so a
+    leak here was the highest-leverage fragile site.
+    """
     db_path = tmp_path / "test.db"
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
 
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
 
-    store = SQLiteAgentStore(conn)
+        store = SQLiteAgentStore(conn)
 
-    with patch("the_one.db.migration.settings") as mock_settings:
-        mock_settings.agents_dir = agents_dir
-        yield store, agents_dir
-
-    await conn.close()
+        with patch("the_one.db.migration.settings") as mock_settings:
+            mock_settings.agents_dir = agents_dir
+            yield store, agents_dir
 
 
 def _write_json_config(agents_dir: Path, name: str, **overrides) -> None:
@@ -1795,117 +1803,123 @@ class TestSchemaV16:
         ``TestSchemaV15.test_v15_legacy_v14_row_decodes_with_none_idle_timeout``.
         """
         db_path = tmp_path / "v16-from-real-v15.db"
-        conn = await aiosqlite.connect(str(db_path))
-        conn.row_factory = aiosqlite.Row
-        await conn.execute("PRAGMA foreign_keys=ON")
+        # F04 L01 (Mission 18): this connection was the deterministic leak
+        # (maintenance report T1) — opened here but never closed, which is
+        # why the aiosqlite worker-thread `Event loop is closed` teardown
+        # warning got attributed to the next class, TestSchemaV17. `async
+        # with` guarantees the in-loop close regardless of how the test exits.
+        async with aiosqlite.connect(str(db_path)) as conn:
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA foreign_keys=ON")
 
-        await conn.execute(
-            "CREATE TABLE schema_version ("
-            "    version INTEGER PRIMARY KEY,"
-            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
-            ")"
-        )
-        for v in range(1, 16):
-            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
-        # v15-shape chat_sessions (no v16 columns).
-        await conn.execute(
-            "CREATE TABLE chat_sessions ("
-            "    id TEXT PRIMARY KEY,"
-            "    agent_name TEXT,"
-            "    title TEXT DEFAULT 'New chat',"
-            "    messages TEXT DEFAULT '[]',"
-            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
-            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
-            ")"
-        )
-        # v15-shape connector_accounts (no session_continuation_seconds).
-        await conn.execute(
-            "CREATE TABLE connector_accounts ("
-            "    id TEXT PRIMARY KEY,"
-            "    type TEXT NOT NULL,"
-            "    config TEXT DEFAULT '{}',"
-            "    secrets TEXT DEFAULT '{}',"
-            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
-            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
-            "    name TEXT NOT NULL DEFAULT '',"
-            "    idle_timeout_seconds INTEGER NULL"
-            ")"
-        )
-        # v15-era agents shape (post-v11 — has mcp_overrides, no v17
-        # connector_account_ids). Needed so the v17 ALTER block in
-        # ``ensure_schema`` finds the table to ADD COLUMN against.
-        await conn.execute(
-            "CREATE TABLE agents ("
-            "    name TEXT PRIMARY KEY,"
-            "    description TEXT DEFAULT '',"
-            "    provider_config_id TEXT,"
-            "    llm_model TEXT DEFAULT '',"
-            "    system_prompt TEXT DEFAULT '',"
-            "    enabled_tools TEXT,"
-            "    disabled_tools TEXT DEFAULT '[]',"
-            "    max_iterations INTEGER DEFAULT 20,"
-            "    kb_ids TEXT DEFAULT '[]',"
-            "    mcp_source_ids TEXT DEFAULT '[]',"
-            "    tool_overrides TEXT,"
-            "    mcp_overrides TEXT,"
-            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
-            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
-            ")"
-        )
-        # Seed rows against the v15 shape.
-        await conn.execute(
-            "INSERT INTO chat_sessions (id, agent_name, title) VALUES (?, ?, ?)",
-            ("seeded-session", "test-agent", "Pre-v16 session"),
-        )
-        await conn.execute(
-            "INSERT INTO connector_accounts (id, name, type, config, secrets, idle_timeout_seconds)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            ("seeded-account", "stub-account", "stub", "{}", "{}", 1800),
-        )
-        await conn.commit()
+            await conn.execute(
+                "CREATE TABLE schema_version ("
+                "    version INTEGER PRIMARY KEY,"
+                "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+                ")"
+            )
+            for v in range(1, 16):
+                await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
+            # v15-shape chat_sessions (no v16 columns).
+            await conn.execute(
+                "CREATE TABLE chat_sessions ("
+                "    id TEXT PRIMARY KEY,"
+                "    agent_name TEXT,"
+                "    title TEXT DEFAULT 'New chat',"
+                "    messages TEXT DEFAULT '[]',"
+                "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+                "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+                ")"
+            )
+            # v15-shape connector_accounts (no session_continuation_seconds).
+            await conn.execute(
+                "CREATE TABLE connector_accounts ("
+                "    id TEXT PRIMARY KEY,"
+                "    type TEXT NOT NULL,"
+                "    config TEXT DEFAULT '{}',"
+                "    secrets TEXT DEFAULT '{}',"
+                "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+                "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+                "    name TEXT NOT NULL DEFAULT '',"
+                "    idle_timeout_seconds INTEGER NULL"
+                ")"
+            )
+            # v15-era agents shape (post-v11 — has mcp_overrides, no v17
+            # connector_account_ids). Needed so the v17 ALTER block in
+            # ``ensure_schema`` finds the table to ADD COLUMN against.
+            await conn.execute(
+                "CREATE TABLE agents ("
+                "    name TEXT PRIMARY KEY,"
+                "    description TEXT DEFAULT '',"
+                "    provider_config_id TEXT,"
+                "    llm_model TEXT DEFAULT '',"
+                "    system_prompt TEXT DEFAULT '',"
+                "    enabled_tools TEXT,"
+                "    disabled_tools TEXT DEFAULT '[]',"
+                "    max_iterations INTEGER DEFAULT 20,"
+                "    kb_ids TEXT DEFAULT '[]',"
+                "    mcp_source_ids TEXT DEFAULT '[]',"
+                "    tool_overrides TEXT,"
+                "    mcp_overrides TEXT,"
+                "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+                "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+                ")"
+            )
+            # Seed rows against the v15 shape.
+            await conn.execute(
+                "INSERT INTO chat_sessions (id, agent_name, title) VALUES (?, ?, ?)",
+                ("seeded-session", "test-agent", "Pre-v16 session"),
+            )
+            await conn.execute(
+                "INSERT INTO connector_accounts"
+                " (id, name, type, config, secrets, idle_timeout_seconds)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                ("seeded-account", "stub-account", "stub", "{}", "{}", 1800),
+            )
+            await conn.commit()
 
-        await ensure_schema(conn)
+            await ensure_schema(conn)
 
-        # Seeded chat_sessions row survived with NULLs on all v16 columns
-        # (post-v23 the column is ``connector_id``, renamed by v23 via
-        # ``ALTER TABLE chat_sessions RENAME COLUMN``).
-        async with conn.execute(
-            "SELECT id, agent_name, title, platform, connector_id,"
-            " channel_id, thread_id, peer_id, session_metadata, last_inbound_at"
-            " FROM chat_sessions WHERE id = 'seeded-session'"
-        ) as cur:
-            row = await cur.fetchone()
-        assert row is not None
-        assert row["agent_name"] == "test-agent"
-        assert row["title"] == "Pre-v16 session"
-        for col in (
-            "platform",
-            "connector_id",
-            "channel_id",
-            "thread_id",
-            "peer_id",
-            "session_metadata",
-            "last_inbound_at",
-        ):
-            assert row[col] is None, f"{col} should be NULL on legacy row, got {row[col]!r}"
+            # Seeded chat_sessions row survived with NULLs on all v16 columns
+            # (post-v23 the column is ``connector_id``, renamed by v23 via
+            # ``ALTER TABLE chat_sessions RENAME COLUMN``).
+            async with conn.execute(
+                "SELECT id, agent_name, title, platform, connector_id,"
+                " channel_id, thread_id, peer_id, session_metadata, last_inbound_at"
+                " FROM chat_sessions WHERE id = 'seeded-session'"
+            ) as cur:
+                row = await cur.fetchone()
+            assert row is not None
+            assert row["agent_name"] == "test-agent"
+            assert row["title"] == "Pre-v16 session"
+            for col in (
+                "platform",
+                "connector_id",
+                "channel_id",
+                "thread_id",
+                "peer_id",
+                "session_metadata",
+                "last_inbound_at",
+            ):
+                assert row[col] is None, f"{col} should be NULL on legacy row, got {row[col]!r}"
 
-        # Seeded connectors row survived with idle_timeout preserved
-        # and session_continuation_seconds=NULL (post-v23 table renamed
-        # from connector_accounts via row-rewrite).
-        async with conn.execute(
-            "SELECT id, idle_timeout_seconds, session_continuation_seconds"
-            " FROM connectors WHERE id = 'seeded-account'"
-        ) as cur:
-            acc_row = await cur.fetchone()
-        assert acc_row is not None
-        assert acc_row["idle_timeout_seconds"] == 1800
-        assert acc_row["session_continuation_seconds"] is None
+            # Seeded connectors row survived with idle_timeout preserved
+            # and session_continuation_seconds=NULL (post-v23 table renamed
+            # from connector_accounts via row-rewrite).
+            async with conn.execute(
+                "SELECT id, idle_timeout_seconds, session_continuation_seconds"
+                " FROM connectors WHERE id = 'seeded-account'"
+            ) as cur:
+                acc_row = await cur.fetchone()
+            assert acc_row is not None
+            assert acc_row["idle_timeout_seconds"] == 1800
+            assert acc_row["session_continuation_seconds"] is None
 
-        # Head pointer landed at CURRENT_VERSION (≥16).
-        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
-            versions = [r[0] for r in await cur.fetchall()]
-        assert 16 in versions, versions
-        assert max(versions) == CURRENT_VERSION, versions
+            # Head pointer landed at CURRENT_VERSION (≥16).
+            async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+                versions = [r[0] for r in await cur.fetchall()]
+            assert 16 in versions, versions
+            assert max(versions) == CURRENT_VERSION, versions
 
 
 class TestSchemaV17:
@@ -2085,8 +2099,9 @@ class TestSchemaV17:
         assert 17 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
 
-        await conn.close()
-
+        # F04 L01 (Mission 18): removed a duplicate `await conn.close()`
+        # here (dead code — idempotent per aiosqlite 0.22.1's close guard,
+        # but confusing; see maintenance report T1).
         await conn.close()
 
 

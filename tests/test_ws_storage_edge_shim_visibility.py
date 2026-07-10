@@ -41,7 +41,7 @@ from the_one.interfaces.web.app import (
     _process_and_broadcast,
     _resume_paused_session,
 )
-from the_one.llm.base import Message, ToolCall, ToolResult
+from the_one.llm.base import Message, ThinkingBlock, ToolCall, ToolResult
 
 
 class _ShimStubAgent:
@@ -538,3 +538,101 @@ async def test_live_broadcast_omits_visibility_on_web_native_session(
     assert user_event["type"] == "user"
     assert user_event["content"] == "web hello"
     assert "visibility" not in user_event
+
+
+# ---------------------------------------------------------------------------
+# 11. DOC1 (M18 F04 L02) — live ``thinking`` broadcast carries visibility
+#     when the yielded message already has it set
+# ---------------------------------------------------------------------------
+
+
+async def test_live_thinking_broadcast_carries_visibility_when_set(
+    monkeypatch,
+) -> None:
+    """DOC1: the live ``thinking`` event mirrors codec.py's replay
+    projection (``vis = {"visibility": msg.visibility} if msg.visibility
+    is not None else {}``, ``db/codec.py`` ~332/383-388) — same key, same
+    when-set handling.
+
+    Constructs the yielded assistant Message with ``visibility`` already
+    set (as it would be for a message tagged before ``agent.step``
+    yields it) so the test doesn't depend on ``tag_post_step_visibility``
+    timing — see the sister test below for the documented timing caveat
+    on connector-tagged sessions, where tagging runs AFTER this broadcast.
+    """
+    captured = _patch_broadcast_and_save(monkeypatch)
+
+    system_msg = Message.system("system")
+    assistant_reply = Message.assistant(
+        "here is my answer",
+        visibility=OPERATOR_VISIBILITY,
+        thinking=[ThinkingBlock(type="thinking", thinking="reasoning about the answer")],
+    )
+    agent = _ShimStubAgent(
+        step_messages=[assistant_reply],
+        agent_messages=[system_msg],
+    )
+    session = Session(
+        id="cs-DOC1-1",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-18T00:00:00+00:00",
+        platform="stub",
+    )
+
+    await _process_and_broadcast(session, "operator hello")
+
+    thinking_events = [e for e in captured if e.get("type") == "thinking"]
+    assert len(thinking_events) == 1, captured
+    thinking_event = thinking_events[0]
+    assert thinking_event["content"] == "reasoning about the answer"
+    assert thinking_event.get("visibility") == OPERATOR_VISIBILITY
+
+
+# ---------------------------------------------------------------------------
+# 12. DOC1 (M18 F04 L02) — live ``thinking`` broadcast omits visibility
+#     when the yielded message doesn't have it set yet (connector timing
+#     caveat)
+# ---------------------------------------------------------------------------
+
+
+async def test_live_thinking_broadcast_omits_visibility_when_unset(
+    monkeypatch,
+) -> None:
+    """DOC1 sister test: when the yielded assistant Message has
+    ``visibility=None`` at broadcast time, the live ``thinking`` event
+    MUST NOT carry the ``visibility`` key — mirrors codec.py's when-None
+    handling exactly (omitted, not null).
+
+    This is also the connector-tagged-session case in practice:
+    ``tag_post_step_visibility`` (``connectors/post_step_metadata.py:57``)
+    runs AFTER the step loop that broadcasts this event, so
+    ``msg.visibility`` is still ``None`` here even on a connector-attached
+    session — full live/replay parity for those sessions is reached only
+    after persistence + rejoin, not at broadcast time. See the code
+    comment at the broadcast site (``app.py``, live thinking broadcast).
+    """
+    captured = _patch_broadcast_and_save(monkeypatch)
+
+    system_msg = Message.system("system")
+    assistant_reply = Message.assistant(
+        "here is my answer",
+        thinking=[ThinkingBlock(type="thinking", thinking="reasoning about the answer")],
+    )
+    agent = _ShimStubAgent(
+        step_messages=[assistant_reply],
+        agent_messages=[system_msg],
+    )
+    session = Session(
+        id="cs-DOC1-2",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-18T00:00:00+00:00",
+        platform="stub",
+    )
+
+    await _process_and_broadcast(session, "operator hello")
+
+    thinking_events = [e for e in captured if e.get("type") == "thinking"]
+    assert len(thinking_events) == 1, captured
+    thinking_event = thinking_events[0]
+    assert thinking_event["content"] == "reasoning about the answer"
+    assert "visibility" not in thinking_event

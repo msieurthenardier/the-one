@@ -510,7 +510,9 @@ field; the file documents this inline as "config/env-only response_format + stop
 path seeds `payload.config` from the existing provider's config object before overlaying
 type-specific fields, so out-of-band keys (`response_format`, `stop`, or anything set via API/DB
 rather than through the UI) survive a UI-triggered save instead of being wiped by the backend's
-field-level-replace update (`existing.model_copy(update=data)`).
+field-level-replace update (`existing.model_copy(update=data)`). This save-path pattern is named
+and generalized as its own convention — see `seed-before-overlay for partial-field UI saves` under
+`### Mission-specific (M16)` below.
 
 Citations: `the_one/llm/_request_params.py` (resolvers + coercers); `the_one/llm/anthropic_provider.py:_build_kwargs`
 (and its `resolve_extended_thinking` precedent in the same file); `the_one/llm/openai_provider.py:_a4_request_kwargs`
@@ -518,6 +520,25 @@ Citations: `the_one/llm/_request_params.py` (resolvers + coercers); `the_one/llm
 `the_one/llm/ollama_provider.py:_v1_a4_kwargs` / `:_native_body` / `:_native_options` (and its `effective_num_ctx`
 precedent in the same file); `the_one/interfaces/web/static/js/areas/admin/provider-editor.js` (UI field +
 save-path config seeding).
+
+### Mission-specific (M16)
+
+Patterns that emerged in Mission 16 (LLM provider hardening) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above, per the same pattern established by `### Mission-specific (M10)` below.
+
+### `rule-of-three OpenAI-compat duplication`
+
+OpenAI, OpenRouter, and Ollama's `/v1` path share the OpenAI-compat wire shape, so the same small mapping logic is currently **duplicated by hand across exactly two call sites** rather than factored into a shared helper:
+
+- Request-kwargs assembly (M16 F11): `the_one/llm/openai_provider.py:_a4_request_kwargs` and `the_one/llm/ollama_provider.py:_v1_a4_kwargs` independently build the `reasoning_effort` / `stop` / `response_format` (`json_schema`-wrapped) OpenAI-compat kwargs — see `provider-request-param-config-surface (M16 F11)` above.
+- Content-block projection (M16 F12): `the_one/llm/openai_provider.py:_content_block_to_api` and `the_one/llm/ollama_provider.py:_content_block_to_api` independently map `ContentBlock` to the OpenAI-compat content-part shape (`the_one/llm/anthropic_provider.py:_content_block_to_api` is a third, Anthropic-native implementation and is NOT part of this duplication — it maps to a different wire shape).
+
+**The rule**: two duplicated implementations of the same OpenAI-compat mapping are tolerated as-is — do NOT preemptively extract a shared helper on the second occurrence. Lift the logic into a shared module only when a **genuine third `/v1`-shaped provider** arrives (OpenRouter today inherits `OpenAIProvider`'s methods directly rather than reimplementing them, so it doesn't count as a third independent implementation). Until then, `tests/test_llm_provider_cross_provider_conformance.py` (the cross-provider tool-use round-trip conformance suite, M16 F04 L02) is the drift net: it exercises OpenAI, Ollama, and OpenRouter through the same canonical script, so the two hand-duplicated mappings diverging would surface there before shipping, without paying the abstraction cost of a shared helper for only two call sites.
+
+Source: maintenance report 2026-07-10 finding DOC2 (Mission 18 Flight 4), generalizing the code-comment-only convention already present at both `_a4_request_kwargs` and `_v1_a4_kwargs`.
+
+### `seed-before-overlay for partial-field UI saves`
+
+See `provider-request-param-config-surface (M16 F11)` above for the full write-up (the save path seeds `payload.config` from the existing provider's config object before overlaying type-specific fields, so out-of-band keys set via API/DB rather than through the UI survive a UI-triggered save instead of being wiped by the backend's field-level-replace update). Named here as its own convention because the pattern generalizes beyond provider-config saves: **any UI editor that only exposes a subset of a config object's fields must seed the save payload from the existing persisted object before overlaying the fields the UI actually edited**, or a save silently drops fields the UI never rendered. Citation: `the_one/interfaces/web/static/js/areas/admin/provider-editor.js` (seeding) + `existing.model_copy(update=data)` (the field-level-replace backend update it protects against).
 
 ### Mission-specific (M10)
 

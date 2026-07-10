@@ -1,11 +1,11 @@
 # Flight: Test-infra & doc hygiene
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Post-Mission-16 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] aiosqlite teardown durably fixed (T1)
-- [ ] Doc/coverage hygiene: live-thinking `visibility` (DOC1), `agents.md` promotions (DOC2), behavior-test specs (T2/T3)
+- [x] aiosqlite teardown durably fixed (T1)
+- [x] Doc/coverage hygiene: live-thinking `visibility` (DOC1), `agents.md` promotions (DOC2), behavior-test specs (T2/T3)
 
 ---
 
@@ -83,10 +83,10 @@ intermittent red surfaces. Oldest carried item — fix, don't accept.
   no-text; rejoin-no-crash). Specs only — runs happen later via `/behavior-test`.
 
 ### Checkpoints
-- [ ] Full suite green with NO `Event loop is closed` teardown warning (multi-pass)
-- [ ] Live thinking broadcast carries `visibility`
-- [ ] Two `agents.md` conventions written; two Mission-16 lines corrected
-- [ ] `save-preserves-config` + `vision-round-trip` specs authored
+- [x] Full suite green with NO `Event loop is closed` teardown warning (multi-pass)
+- [x] Live thinking broadcast carries `visibility`
+- [x] Two `agents.md` conventions written; two Mission-16 lines corrected (already correct — verified, no change)
+- [x] `save-preserves-config` + `vision-round-trip` specs authored
 
 ### Adaptation Criteria
 **Divert if**: the durable aiosqlite fix requires reworking the migration-test
@@ -96,18 +96,18 @@ silently.
 
 ### Legs
 > Planned one at a time during `/agentic-workflow`.
-- [ ] `aiosqlite-teardown-durable-fix` — fixture-scope/`asyncio_mode` close (T1)
-- [ ] `doc-coverage-hygiene` — visibility emit + agents.md promotions + M16 corrections + 2 behavior-test specs (DOC1/DOC2/T2/T3)
+- [x] `aiosqlite-teardown-durable-fix` — fixture-scope/`asyncio_mode` close (T1)
+- [x] `doc-coverage-hygiene` — visibility emit + agents.md promotions + M16 corrections + 2 behavior-test specs (DOC1/DOC2/T2/T3)
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (no teardown warning across passes)
-- [ ] Documentation updated (`agents.md`, Mission-16 artifacts, 2 behavior specs)
+- [x] All legs completed
+- [ ] Code merged (PR opened; merge on land)
+- [x] Tests passing (3997 passed / 0 failed; teardown warning absent across normal + file-order-permuted runs)
+- [x] Documentation updated (`agents.md` M16 conventions, M16 corrections verified, 2 behavior specs)
 
 ### Verification
 Multi-pass green suite with the teardown warning gone; `agents.md` + Mission-16
