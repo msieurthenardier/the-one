@@ -1,7 +1,12 @@
 # Mission: Post-Mission-16 Maintenance
 
-**Status**: active
+**Status**: completed
 **Depends on**: none (clears debt surfaced after Mission 16; touches `llm/`, `agent/`, `db/`, `interfaces/web/`, CI, deps)
+
+> **Closed 2026-07-10.** All 7 success criteria met across 4 flights (PRs #154–#157).
+> Codebase returned to Flight Ready. Deferred advisories (static type checker,
+> GH Action SHA-pinning, AAA reduced-motion) recorded in `maintenance/2026-07-10.md`
+> for a future cycle.
 
 ## Outcome
 
@@ -27,27 +32,32 @@ fixed) and the corresponding overstated Mission-16 lines are corrected here.
 
 ## Success Criteria
 
-- [ ] The four runtime-path dependency CVEs (aiohttp, starlette, cryptography,
+- [x] The four runtime-path dependency CVEs (aiohttp, starlette, cryptography,
       python-multipart) are patched and `uv.lock` no longer pins vulnerable
-      versions; pip-audit confirms the delta. *(D1)*
-- [ ] A malformed `images` WebSocket payload no longer crashes the receive loop —
+      versions; pip-audit confirms the delta. *(D1)* — **Flight 1** (pip-audit 24→2,
+      runtime closure clean; 7 CVE floors raised in `pyproject.toml`).
+- [x] A malformed `images` WebSocket payload no longer crashes the receive loop —
       the message branch catches broadly like its sibling branches, and
       `ImageContent`'s guard is `raise`, not a `-O`-strippable bare `assert`.
-      *(S1 + S2)*
-- [ ] Image attachments have a lightweight size/count cap (client + server).
-      *(S3)*
-- [ ] A pre-merge CI gate exists again — a fast lint-only (+ pip-audit) check runs
+      *(S1 + S2)* — **Flight 2** (narrow content-build guard + malformed-shape validation).
+- [x] Image attachments have a lightweight size/count cap (client + server).
+      *(S3)* — **Flight 2** (10 MB/image, max 10).
+- [x] A pre-merge CI gate exists again — a fast lint-only (+ pip-audit) check runs
       on pull requests — without undoing the deliberate cost-shift of the heavy
-      lanes to post-merge Concourse. *(C1 + C4)*
-- [ ] The attach-UI accessibility gaps are closed: a live-region announces
+      lanes to post-merge Concourse. *(C1 + C4)* — **Flight 1** (`pr-lint.yml`;
+      verified green on PRs #154–#157).
+- [x] The attach-UI accessibility gaps are closed: a live-region announces
       staging/removal, each staged image has a distinguishing accessible name, and
-      the remove-glyph meets 4.5:1 in light theme. *(A1 + A2 + A3)*
-- [ ] The aiosqlite `Event loop is closed` teardown is durably fixed (fixture-scope
-      / `asyncio_mode`), not formally accepted. *(T1)*
-- [ ] Doc/coverage hygiene: the live-thinking `visibility` field is emitted on the
+      the remove-glyph meets 4.5:1 in light theme. *(A1 + A2 + A3)* — **Flight 3**
+      (+ composited-contrast regression gate).
+- [x] The aiosqlite `Event loop is closed` teardown is durably fixed (fixture-scope
+      / `asyncio_mode`), not formally accepted. *(T1)* — **Flight 4** (deterministic
+      leak at `test_db_migration.py:1798` fixed + fragile closes hardened to
+      `async with`; warning absent across permuted runs).
+- [x] Doc/coverage hygiene: the live-thinking `visibility` field is emitted on the
       broadcast path; the two promised `agents.md` promotions are written; and a
       `/behavior-test` spec is authored for `save-preserves-config` and for
-      `vision-round-trip`. *(DOC1 + DOC2 + T2 + T3)*
+      `vision-round-trip`. *(DOC1 + DOC2 + T2 + T3)* — **Flight 4**.
 
 ## Stakeholders
 
@@ -95,8 +105,10 @@ N/A — this mission clears known issues rather than surfacing new ones.
       (A3). One coherent leg over `chat.js`/`components.css`. **LANDED** — hidden
       `aria-live` delta element; 1-based names; `--status-danger` resting + restored
       hover; new composited-contrast regression gate. Browser 9/9, token-a11y 145.
-- [ ] Flight 4: **Test-infra & doc hygiene** — durable aiosqlite teardown fix
+- [x] Flight 4: **Test-infra & doc hygiene** — durable aiosqlite teardown fix
       (T1); live-thinking `visibility` emit + two `agents.md` promotions
       (DOC1/DOC2); correct the two overstated Mission-16 lines (Leg-09 "dead code";
       Windows packaging). Author `save-preserves-config` + `vision-round-trip`
-      behavior-test specs (T2/T3).
+      behavior-test specs (T2/T3). **LANDED** — deterministic leak at
+      `test_db_migration.py:1798` fixed + fragile closes hardened to `async with`
+      (warning gone); `visibility` emit; M16 `agents.md` conventions; 2 draft specs.

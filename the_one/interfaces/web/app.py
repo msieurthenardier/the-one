@@ -1644,7 +1644,32 @@ async def _process_and_broadcast(
                 # overwritten on the next join. Kept out of result_messages (below).
                 _thinking_text = thinking_display_text(msg.thinking)
                 if _thinking_text:
-                    await _send_to_session(session, {"type": "thinking", "content": _thinking_text})
+                    # DOC1 (Mission 18 F04 L02): mirror codec.py's replay
+                    # projection visibility handling (``vis = {"visibility":
+                    # msg.visibility} if msg.visibility is not None else {}``,
+                    # codec.py ~332/383-388) so the live broadcast carries the
+                    # same shape as the persisted-replay event: same key,
+                    # omitted (not null) when visibility is None.
+                    #
+                    # Timing caveat: for connector-tagged sessions,
+                    # ``tag_post_step_visibility`` (post_step_metadata.py:57)
+                    # sets ``msg.visibility`` AFTER this step loop completes —
+                    # so at this broadcast point ``msg.visibility`` is still
+                    # None for those sessions and no ``visibility`` key is
+                    # emitted live; the connector-tagged value only becomes
+                    # visible after persistence + session rejoin re-derives it
+                    # via codec.py. Live parity is therefore exact today for
+                    # non-connector / operator-typed turns, and reached only
+                    # after rejoin for connector turns — still strictly better
+                    # than emitting no visibility field at all (closes the F10
+                    # action item; see maintenance report 2026-07-10 DOC1).
+                    thinking_event: dict[str, Any] = {
+                        "type": "thinking",
+                        "content": _thinking_text,
+                    }
+                    if msg.visibility is not None:
+                        thinking_event["visibility"] = msg.visibility
+                    await _send_to_session(session, thinking_event)
                 if msg.tool_calls:
                     # F5 L02: project parent_message_id for this turn from
                     # the just-yielded assistant Message's index. Per the
