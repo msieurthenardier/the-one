@@ -210,9 +210,11 @@ spans the agent layer too.
       mission close):** `context_window_for()` resolves cache→seed→default off a
       bundled models.dev seed + daily refresh; the OpenAI prefix table is deleted
       (`ImportError`-confirmed) and Anthropic's hard-coded `200_000` is replaced.
-      *Footnotes:* a residual `_OPENAI_FLOOR` no-regression floor (acknowledged,
-      not primary truth) and a Windows-packaging seed-collection bug (see Known
-      Issues) — neither reintroduces the drift pattern this criterion targets.
+      *Footnote:* a residual `_OPENAI_FLOOR` no-regression floor (acknowledged, not
+      primary truth) — does not reintroduce the drift pattern this criterion
+      targets. *(The Windows-packaging seed-collection concern initially footnoted
+      here was found already-resolved by the 2026-07-10 maintenance inspection — see
+      Known Issues.)*
 - [x] No agent framework is added and the provider layer still wraps official
       SDKs; the `LLMProvider` contract and the provider-shape-portability
       convention (`Message.content` is always `str`; `ToolResult` normalization)
@@ -344,14 +346,16 @@ spans the agent layer too.
       evolution beyond this mission's scope. Candidate for `/mission-debrief`
       → future-mission scoping.
 
-- [ ] **Model-catalog seed JSON not collected into the frozen Windows build.**
-      Surfaced by the Flight 5 debrief and re-confirmed at mission close (2026-07-10):
-      the bundled models.dev seed that backs `context_window_for()` (criterion #8)
-      isn't packaged into the frozen Windows build, so that build silently falls
-      back to class-default context windows instead of the catalog. Orthogonal to
-      whether the *sourcing mechanism* satisfies #8 (it does) — this is a packaging
-      collection gap, shipped-but-broken on one platform. Candidate for a
-      routine-maintenance fix; carry to next packaging/maintenance work.
+- [x] ~~**Model-catalog seed JSON not collected into the frozen Windows build.**~~
+      **RESOLVED — was already fixed (correction, 2026-07-10).** The 2026-07-10
+      routine-maintenance inspection (CI/CD + Inspector) found the seed
+      `the_one/llm/data/model_catalog.json` **is** collected on both the wheel/sdist
+      (`pyproject.toml` package-data) and frozen (`packaging/windows/the-one.spec`
+      `collect_data_files`) paths — fixed in commit `69512d2` (2026-06-20), gated by
+      a `doctor` frozen-smoke on release. The mission-close note that recorded this
+      as an open gap was stale (the fix landed the same day as the F05 HAT but after
+      the debrief's source note). No action needed. See `maintenance/2026-07-10.md`
+      (C2).
 
 Confirmed by the Flight 1 spike (2026-06-17):
 
