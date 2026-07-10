@@ -1,9 +1,9 @@
 # Behavior Test: Save preserves out-of-band provider config (seed-before-overlay)
 
 **Slug**: `save-preserves-config`
-**Status**: draft
+**Status**: active
 **Created**: 2026-07-10
-**Last Run**: never
+**Last Run**: 2026-07-10-19-51-00 (pass, 4/4)
 
 ## Intent
 

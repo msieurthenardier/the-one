@@ -1,9 +1,9 @@
 # Behavior Test: Vision round-trip — image-grounded replies, image-only send, rejoin
 
 **Slug**: `vision-round-trip`
-**Status**: draft
+**Status**: active
 **Created**: 2026-07-10
-**Last Run**: never
+**Last Run**: 2026-07-10-20-09-44 (pass, 7/7; Step 4 required an apparatus-fix rerun — see run log)
 
 ## Intent
 
