@@ -67,7 +67,7 @@ from the_one.db.repositories import (
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.middleware import OriginAllowlistMiddleware, build_default_allowlist
-from the_one.llm.base import Message, Role
+from the_one.llm.base import ContentBlock, ImageContent, Message, Role, TextContent, content_to_text
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
 from the_one.sessions import (
     add_subscriber,
@@ -464,9 +464,31 @@ _session_inflight: dict[str, set[asyncio.Task]] = {}
 _inflight_resume_tasks: set[asyncio.Task] = set()
 
 
+def _build_user_content(
+    user_input: str, images: list[dict[str, Any]] | None
+) -> str | list[ContentBlock]:
+    """Build the WS user-turn content: plain ``str`` when no images are
+    attached (text-only path is byte-identical to pre-L08 behaviour), else
+    ``list[ContentBlock]``.
+
+    Text + images -> ``[TextContent(text=user_input), *ImageContent(**img)
+    for img in images]``. Images with no text -> ``[ImageContent(**img) for
+    img in images]`` — deliberately **no** empty ``TextContent``: Anthropic
+    400s on an empty-text content block ("text content blocks must contain
+    non-whitespace text").
+    """
+    if not images:
+        return user_input
+    blocks: list[ContentBlock] = []
+    if user_input:
+        blocks.append(TextContent(text=user_input))
+    blocks.extend(ImageContent(**img) for img in images)
+    return blocks
+
+
 async def _spawn_message_processing(
     session: Session,
-    user_input: str,
+    user_input: str | list[ContentBlock],
     source: str,
     exclude_user_echo: WebSocket | None,
 ) -> None:
@@ -1432,7 +1454,7 @@ async def _broadcast_one(
 
 async def _process_and_broadcast(
     session: Session,
-    user_input: str,
+    user_input: str | list[ContentBlock],
     source: str = "web",
     exclude_user_echo: WebSocket | None = None,
 ) -> list[dict[str, Any]]:
@@ -1440,8 +1462,19 @@ async def _process_and_broadcast(
     # Auto-load Ollama model if needed (fast check, safe to run every message)
     await _ensure_ollama_model_loaded(session)
 
-    # Broadcast user message
-    user_event: dict[str, Any] = {"type": "user", "content": user_input, "source": source}
+    # Broadcast user message. M16 F12 L08: project through content_to_text —
+    # user_input may be a list[ContentBlock] (image-bearing turn); the live
+    # WS event and session.add_event's title-slice both require a plain str.
+    # Without this projection, list content reaches ws.send_json (stdlib
+    # json.dumps, no custom encoder) and raises TypeError, which
+    # _send_to_session's try/except silently swallows as a "dead" socket —
+    # desyncing the sender from their own session on the very first image
+    # send (never sees the assistant reply).
+    user_event: dict[str, Any] = {
+        "type": "user",
+        "content": content_to_text(user_input),
+        "source": source,
+    }
     # M10 F06 L6: close the F5 live-broadcast carry-forward. The
     # operator-typed message on a connector-attached session must
     # carry the visibility tag at LIVE broadcast time (the refresh
@@ -2159,9 +2192,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                             t.cancel()
                 continue
 
-            # Regular message
+            # Regular message. M16 F12 L08: `images` is an optional list of
+            # {data, media_type} dicts staged by the frontend attach control.
+            # The empty-guard accepts text-OR-images so an image-only turn
+            # (empty text box) is not silently dropped.
             user_input = payload.get("message", "")
-            if not user_input:
+            images = payload.get("images") or []
+            if not user_input and not images:
                 continue
 
             # Auto-join a session if none active
@@ -2192,7 +2229,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # The shared per-session lock (from ``the_one.sessions``)
             # serializes successive messages on the same session;
             # broadcasts go to all current subscribers.
-            task = asyncio.create_task(_spawn_message_processing(session, user_input, "web", ws))
+            content = _build_user_content(user_input, images)
+            task = asyncio.create_task(_spawn_message_processing(session, content, "web", ws))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)
             # F7 L03 (cancel-backend) / F09-03: add the task to the

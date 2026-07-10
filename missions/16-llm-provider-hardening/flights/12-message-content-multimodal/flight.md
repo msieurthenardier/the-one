@@ -1,6 +1,6 @@
 # Flight: Multimodal `Message.content` — vision (image) inputs (A2)
 
-**Status**: in-flight
+**Status**: completed
 **Mission**: [LLM Provider Layer Hardening & Capability Completeness](../../mission.md)
 
 ## Contributing to Criteria
@@ -256,7 +256,7 @@ same additive-back-compat discipline `ThinkingBlock` used in F10.
 - [x] `conformance-matrix-multimodal` — L07: extend the cross-provider conformance
       suite — an image-content USER message projects to each provider's native wire
       shape (hermetic; the A4-L05 pattern).
-- [ ] `ingestion-and-vision-hat` *(optional)* — L08: minimal **send-path** producer
+- [x] `ingestion-and-vision-hat` *(optional)* — L08: minimal **send-path** producer
       — a chat-input image attach/paste control → a new WS payload shape (images
       alongside `message`) → `app.py` + `Agent.step` construct a list-content USER
       `Message` — + a live Anthropic vision HAT (real image in → model returns a

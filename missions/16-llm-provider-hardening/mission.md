@@ -551,9 +551,17 @@ Deferred (own-mission candidate, 2026-06-23):
       (+OpenRouter), + a guided live HAT. Split from A2 (operator, 2026-07-06): A2
       (vision/document `Message.content` widening) is the following flight. 7 legs
       (L07 optional HAT). See `flights/11-request-params-stop-format-effort/`.
-- [ ] Flights *(capability, audit-driven)*: **remaining SDK capabilities** — A2
-      (vision/multimodal + document inputs via `Message.content` widening — next
-      flight), plus prompt caching (A3), and the lower-tier A5/B1–B4 — each planned
+- [x] Flight 12 *(capability — A2)*: **Multimodal `Message.content` — vision (image)
+      inputs** — **LANDED (2026-07-10; PR #151; release v0.3.2).** Widens
+      `Message.content` to `str | list[ContentBlock]` (canonical `TextContent`/
+      `ImageContent`, provider-neutral) mapped to each provider's native image wire
+      shape; `str` path byte-identical (no migration); extended cross-provider
+      conformance + a **live Anthropic vision HAT** (image-upload producer built,
+      Claude answered grounded in the image; two latent WS/title bugs fixed). 8 legs
+      (L08 = the promoted ingestion + HAT). Documents/PDF + own-image bubble
+      thumbnail = recorded follow-ups. See `flights/12-message-content-multimodal/`.
+- [ ] Flights *(capability, audit-driven)*: **remaining SDK capabilities** — prompt
+      caching (A3), and the lower-tier A5/B1–B4 — each planned
       and prioritized from the Flight 1B gap backlog, implemented behind the
       `LLMProvider` contract **or explicitly deferred with a recorded reason** at
       mission close.

@@ -16,6 +16,7 @@ from the_one.llm.base import (
     TokenUsage,
     ToolCall,
     ToolResult,
+    content_to_text,
 )
 
 # M08 F6 L02: shared projection-time truncation for tool_result.content.
@@ -352,10 +353,15 @@ def messages_to_ui_events(
             {"channel_name": msg.channel_name} if msg.channel_name is not None else {}
         )
         if msg.role == Role.USER:
+            # M16 F12 L08: project through content_to_text — msg.content may
+            # be a list[ContentBlock] (image-bearing turn). Without this, a
+            # raw dataclass list reaches ws.send_json (stdlib json.dumps, no
+            # custom encoder) on session join/replay and raises TypeError,
+            # killing the WS unhandled.
             events.append(
                 {
                     "type": "user",
-                    "content": msg.content,
+                    "content": content_to_text(msg.content),
                     "source": "restored",
                     **vis,
                     **peer,

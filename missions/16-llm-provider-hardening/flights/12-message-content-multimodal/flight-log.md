@@ -164,6 +164,41 @@ Conformance file **45 passed** (was 40 → +5 A2 tests). Diff test-only (no
 All 7 autonomous legs landed; L08 (ingestion + vision HAT) remains optional/deferred.
 Next: Phase-2d batch code review + single commit + draft PR.
 
+### L08 — image ingestion producer + live vision HAT (2026-07-09/10)
+
+**Promoted from optional** at operator request ("might as well send an image…
+looking forward to doing it myself"). Built the minimal image-ingestion producer +
+the `content_to_text` event-projection fix, then ran a live Anthropic vision HAT.
+
+**Build** (recon-mapped 4 touch points + 1 shared fix): `chat.js` file-attach
+control → `images` on the WS payload; `app.py` builds `[TextContent(text),
+*ImageContent(...)]` (text present) or `[ImageContent(...)]` (image-only — **no
+empty `TextContent`**, which Anthropic 400s) + widened `_process_and_broadcast`/
+`_spawn_message_processing` hints; `Agent.step` hint widened (body unchanged —
+`Message.user` is polymorphic); **`content_to_text(user_input)` at the live-broadcast
+`user_event` site (`app.py`) AND the `messages_to_ui_events` USER branch
+(`codec.py`)** — this single fix closes **two latent bugs any image message would
+trigger**: (a) `json.dumps` `TypeError` on list content → **kills the WS on
+replay/join** and desyncs the sender on the first live send; (b) `Session.add_event`
+title-slice corrupting the `str`-typed `session.title`. Design review (Sonnet:
+approve-with-changes) caught the source-scan→**Playwright browser test** correction
+(the repo HAS a `tests/browser/` suite) + the image-only 400 risk — both folded.
+New tests: `test_process_and_broadcast_image_content.py`, `test_ws_build_user_content.py`,
+`tests/browser/test_flow_chat_image_attach.py`. Verified: hermetic 129, browser 5,
+**full `make test-unit` 3976 passed / 10 skipped**, ruff clean.
+
+**HAT (operator-driven, live Anthropic, `claude-sonnet-4-6` on :8485 rebuilt from
+this branch): PASS.** Vision confirmed end-to-end — Claude answered grounded in the
+attached image. Two inline UX fixes during the HAT (operator feedback): (1) the
+attach was **silent** → added a staged-image indicator; (2) moved it to a
+**chicklet row above the input** + **multi-image** support (each attach appends a
+removable chicklet; `multiple` file input) — the wire path already supported N
+images. A real bug caught+fixed in the multi-image work: a live `FileList` reference
+collapsed when the input `.value` was cleared (snapshotted to fix). Final browser
+suite **5 passed** + `test_ui_guards` 14. Deferred (recorded): the user's own image
+**thumbnail in the sent bubble** (shows text + `[image]` today), attach-while-busy,
+documents/PDF, client-side size limits.
+
 ---
 
 ## Decisions

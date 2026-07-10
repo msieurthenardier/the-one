@@ -119,6 +119,32 @@ class TestMessagesToUIEvents:
         assert len(events) == 1
         assert events[0] == {"type": "user", "content": "hello", "source": "restored"}
 
+    def test_user_message_list_content_projects_to_string(self) -> None:
+        """M16 F12 L08: an image-bearing USER message (list[ContentBlock])
+        MUST project through content_to_text — a raw dataclass list reaching
+        the WS ``content`` key would crash ``json.dumps`` (no custom encoder)
+        on session join/replay, killing the WS unhandled (see app.py
+        ``_send_to_session``).
+        """
+        msg = Message(
+            role=Role.USER,
+            content=[
+                TextContent(text="what is this?"),
+                ImageContent(media_type="image/png", data="abc"),
+            ],
+        )
+        events = messages_to_ui_events([msg])
+        assert len(events) == 1
+        assert events[0]["content"] == "what is this? [image]"
+        assert isinstance(events[0]["content"], str)
+
+    def test_user_message_image_only_list_content_projects_to_string(self) -> None:
+        """Image-only (no text) list content also projects to a string —
+        the ``[image]`` placeholder, not an empty string or a crash."""
+        msg = Message(role=Role.USER, content=[ImageContent(media_type="image/png", data="abc")])
+        events = messages_to_ui_events([msg])
+        assert events[0]["content"] == "[image]"
+
     def test_assistant_text(self) -> None:
         msgs = [Message.assistant("hi there")]
         events = messages_to_ui_events(msgs)

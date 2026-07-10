@@ -45,6 +45,11 @@ caught — but it cannot see where the attribute is emitted.
 | `cancel-mcp-source-btn` | studio | |
 | `cancel-provider-btn` | admin | |
 | `cancel-tool-btn` | admin | |
+| `chat-attach-btn` | chat | |
+| `chat-attachment` | chat | one per staged-image chicklet (chat-attachments row) |
+| `chat-attachment-remove` | chat | one per chicklet — removes just that image |
+| `chat-attachments` | chat | chicklet row above the composer, above .input-area |
+| `chat-image-input` | chat | |
 | `chat-input` | chat | |
 | `chat-send-btn` | chat | |
 | `chat-stop-btn` | chat | |
