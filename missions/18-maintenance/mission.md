@@ -90,9 +90,11 @@ N/A — this mission clears known issues rather than surfacing new ones.
       generic `except` on the WS message branch (S2/S1); image size/count cap
       (S3). **LANDED** — narrow content-build guard + malformed-shape validation;
       10 MB/image, max 10 count; real crash-guard + browser tests.
-- [ ] Flight 3: **Attach-UI accessibility** — live-region on the staging region
+- [x] Flight 3: **Attach-UI accessibility** — live-region on the staging region
       (A1), distinguishing per-image accessible names (A2), remove-glyph contrast
-      (A3). One coherent leg over `chat.js`/`components.css`.
+      (A3). One coherent leg over `chat.js`/`components.css`. **LANDED** — hidden
+      `aria-live` delta element; 1-based names; `--status-danger` resting + restored
+      hover; new composited-contrast regression gate. Browser 9/9, token-a11y 145.
 - [ ] Flight 4: **Test-infra & doc hygiene** — durable aiosqlite teardown fix
       (T1); live-thinking `visibility` emit + two `agents.md` promotions
       (DOC1/DOC2); correct the two overstated Mission-16 lines (Leg-09 "dead code";

@@ -49,6 +49,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-attachment` | chat | one per staged-image chicklet (chat-attachments row) |
 | `chat-attachment-remove` | chat | one per chicklet — removes just that image |
 | `chat-attachments` | chat | chicklet row above the composer, above .input-area |
+| `chat-attachments-status` | chat | visually-hidden aria-live="polite" status; announces a stage/remove delta, separate from the chicklet row (M18 F03 L01) |
 | `chat-image-input` | chat | |
 | `chat-input` | chat | |
 | `chat-send-btn` | chat | |
