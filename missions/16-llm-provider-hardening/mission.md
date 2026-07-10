@@ -1,7 +1,12 @@
 # Mission: LLM Provider Layer Hardening & Capability Completeness
 
-**Status**: active
+**Status**: completed
 **Depends on**: none (touches `the_one/llm/` + `the_one/agent/`; independent of M15's packaging work)
+
+> **Closed 2026-07-10.** 8 of 9 criteria met; #6 (Gemma reliable tool use) deliberately
+> rescoped to chat-only by design (operator-ratified, F03 L08C). A1/A2/A4 implemented;
+> A3/A5/B1–B4 explicitly deferred with recorded reasons. See
+> [mission-debrief.md](mission-debrief.md).
 
 > **Origin (2026-06-17).** Scoped out of a research conversation that asked
 > "should we drop the hand-rolled agent loop for a framework?" The investigation
@@ -160,10 +165,13 @@ spans the agent layer too.
       Ollama / OpenRouter, the capabilities the official SDK exposes vs. what the
       `LLMProvider` layer currently wires through — yielding a prioritized gap
       backlog. *(the bound on "implement whatever the SDKs expose")*
-- [ ] **Each prioritized capability gap is either implemented behind the
+- [x] **Each prioritized capability gap is either implemented behind the
       `LLMProvider` contract or explicitly deferred** with a recorded reason — so
       the provider layer's coverage of its SDKs is intentional, not accidental.
       *(capability-completeness; scope set by the audit + operator priority)*
+      **✓ MET (mission close, 2026-07-10):** A1 (F10), A2 (F12), A4 (F11)
+      implemented; A3/A5/B1–B4 explicitly deferred with recorded rationale — see
+      `mission-debrief.md` → **Deferred Capabilities**.
 - [x] With extended thinking enabled on an Anthropic model, a single turn that
       both emits thinking **and** calls a tool completes without an API error,
       and the follow-up turn (carrying the tool result) also succeeds — i.e.
@@ -193,16 +201,31 @@ spans the agent layer too.
       tool_result→final-answer round-trip works uniformly through the
       `LLMProvider` contract. *(this is the regression net that stops future
       provider-quirk drift)*
-- [ ] Model context-window limits for OpenAI and Anthropic are sourced without a
+- [x] Model context-window limits for OpenAI and Anthropic are sourced without a
       hand-maintained per-model table that silently drifts. (The sourcing
       mechanism — live fetch with caching vs. a generated/cached catalog — is
       deliberately left to the open question; OpenAI in particular cannot be
       live-fetched the way Ollama/OpenRouter are, since its API exposes no
-      context-window field.) *(test-backed)*
-- [ ] No agent framework is added and the provider layer still wraps official
+      context-window field.) *(test-backed)* **✓ MET (Flight 5; confirmed at
+      mission close):** `context_window_for()` resolves cache→seed→default off a
+      bundled models.dev seed + daily refresh; the OpenAI prefix table is deleted
+      (`ImportError`-confirmed) and Anthropic's hard-coded `200_000` is replaced.
+      *Footnotes:* a residual `_OPENAI_FLOOR` no-regression floor (acknowledged,
+      not primary truth) and a Windows-packaging seed-collection bug (see Known
+      Issues) — neither reintroduces the drift pattern this criterion targets.
+- [x] No agent framework is added and the provider layer still wraps official
       SDKs; the `LLMProvider` contract and the provider-shape-portability
       convention (`Message.content` is always `str`; `ToolResult` normalization)
       are preserved. *(records the strategic decision as a verifiable boundary)*
+      **✓ MET (mission close):** no framework added; ABC still its original five
+      methods + one keyword-only param (`enable_thinking`); F11 routed all of A4
+      through the config surface (no ABC change). **Convention evolved (A2, F12):**
+      `Message.content` is now `str | list[ContentBlock]` — the `str`-identical
+      fast path is preserved (list content only when an image is actually
+      attached, USER-turn-only), and `ToolResult` normalization is untouched;
+      provider-shape-portability is maintained via per-provider `_to_api_message`
+      projection. The literal "always `str`" wording is superseded by the
+      byte-identical-`str`-path guarantee.
 
 ## Stakeholders
 
@@ -320,6 +343,15 @@ spans the agent layer too.
       the ratified provider-config precedent (DD1/DD6); this is a data-model
       evolution beyond this mission's scope. Candidate for `/mission-debrief`
       → future-mission scoping.
+
+- [ ] **Model-catalog seed JSON not collected into the frozen Windows build.**
+      Surfaced by the Flight 5 debrief and re-confirmed at mission close (2026-07-10):
+      the bundled models.dev seed that backs `context_window_for()` (criterion #8)
+      isn't packaged into the frozen Windows build, so that build silently falls
+      back to class-default context windows instead of the catalog. Orthogonal to
+      whether the *sourcing mechanism* satisfies #8 (it does) — this is a packaging
+      collection gap, shipped-but-broken on one platform. Candidate for a
+      routine-maintenance fix; carry to next packaging/maintenance work.
 
 Confirmed by the Flight 1 spike (2026-06-17):
 
