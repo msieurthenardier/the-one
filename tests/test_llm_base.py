@@ -85,6 +85,12 @@ class TestContentBlockConstruction:
         assert block.url == "https://example.com/a.png"
 
     def test_image_content_requires_data_or_url(self) -> None:
+        """M18 F02 L01: the guard uses an explicit ``raise AssertionError``
+        rather than a bare ``assert`` statement — a bare ``assert`` is
+        stripped under ``python -O``, which would silently construct a
+        useless data-less/url-less ``ImageContent``. Mirrors
+        ``TestMessageContentAssert`` below (``Message.__post_init__``'s
+        own explicit-raise convention)."""
         with pytest.raises(AssertionError):
             ImageContent(media_type="image/png")
 

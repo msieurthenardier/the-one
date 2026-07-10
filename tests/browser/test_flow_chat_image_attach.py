@@ -223,6 +223,71 @@ def test_chat_two_images_send_includes_both_and_omits_empty_text(
 
 
 @pytest.mark.browser
+def test_chat_attach_over_count_caps_at_max_and_notices(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """M18 F02 L02: selecting more than IMAGE_ATTACHMENT_MAX_COUNT (10)
+    images in a single multi-select batch stages only the first 10 and
+    surfaces a system notice for the rest — the client-side mirror of the
+    server's authoritative count cap (chat.js `IMAGE_ATTACHMENT_MAX_COUNT`,
+    app.py `IMAGE_ATTACHMENT_MAX_COUNT`)."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+
+    page.goto(base_url)
+    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+
+    files = [_png_file(name=f"img{i}.png") for i in range(11)]
+    image_input = page.locator('[data-testid="chat-image-input"]')
+    image_input.set_input_files(files=files)
+    expect(image_input).to_have_attribute("data-staged", "true", timeout=5000)
+
+    chips = page.locator('[data-testid="chat-attachment"]')
+    expect(chips).to_have_count(10)
+
+    system_notice = page.locator('[data-testid="message"].system').filter(
+        has_text="Only up to 10 images"
+    )
+    expect(system_notice).to_be_visible(timeout=5000)
+
+
+@pytest.mark.browser
+def test_chat_attach_oversized_file_rejected_with_notice(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """M18 F02 L02: a file exceeding the per-image byte cap (~10 MB) is
+    rejected client-side before FileReader ever starts — no chicklet
+    appears, `data-staged` never flips, and a system notice explains why."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+
+    page.goto(base_url)
+    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+
+    oversized = {
+        "name": "huge.png",
+        "mimeType": "image/png",
+        # One byte over the 10 MB per-image cap (chat.js
+        # IMAGE_ATTACHMENT_CAP_BYTES / app.py IMAGE_ATTACHMENT_CAP_BYTES).
+        "buffer": b"\x00" * (10 * 1024 * 1024 + 1),
+    }
+    image_input = page.locator('[data-testid="chat-image-input"]')
+    image_input.set_input_files(files=[oversized])
+
+    system_notice = page.locator('[data-testid="message"].system').filter(
+        has_text="per-image limit"
+    )
+    expect(system_notice).to_be_visible(timeout=5000)
+
+    # No chicklet was staged and the async-staged marker never flips —
+    # the rejection happens before FileReader.readAsDataURL is invoked.
+    expect(page.locator('[data-testid="chat-attachment"]')).to_have_count(0)
+    expect(image_input).not_to_have_attribute("data-staged", "true")
+
+
+@pytest.mark.browser
 def test_chat_text_only_send_unaffected(app_with_agent: SeededApp, page: Page) -> None:
     """Regression guard: a text-only send (no attach) stays byte-identical
     to pre-L08 behaviour — no stray `[image]` indicator, no `images` key

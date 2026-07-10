@@ -1,6 +1,6 @@
 # Flight: Input robustness
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Post-Mission-16 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
@@ -75,9 +75,9 @@ Pick conservative limits (document them); make the constant discoverable, not
 magic-buried.
 
 ### Checkpoints
-- [ ] Malformed `images` payload → error surfaced, connection stays up (test)
-- [ ] `ImageContent` guard raises under `-O` semantics (test)
-- [ ] Over-size / over-count attachment rejected client + server (test)
+- [x] Malformed `images` payload → error surfaced, connection stays up (test)
+- [x] `ImageContent` guard raises under `-O` semantics (test)
+- [x] Over-size / over-count attachment rejected client + server (test)
 
 ### Adaptation Criteria
 **Divert if**: crash-proofing the message branch reveals other unguarded raise
@@ -86,18 +86,18 @@ sites in the same loop worth catching — note them; fix in-scope only if trivia
 
 ### Legs
 > Planned one at a time during `/agentic-workflow`.
-- [ ] `ws-crash-proofing` — `ImageContent` raise + generic except on the message branch (S1/S2)
-- [ ] `image-attachment-cap` — client + server size/count limits (S3)
+- [x] `ws-crash-proofing` — `ImageContent` raise + generic except on the message branch (S1/S2)
+- [x] `image-attachment-cap` — client + server size/count limits (S3)
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated (note the cap + limits where operator-relevant)
+- [x] All legs completed
+- [ ] Code merged (PR opened; merge on land)
+- [x] Tests passing (3986 passed / 0 failed; crash-guard 11/11 incl. malformed shapes; browser 7/7)
+- [x] Documentation updated (cap constants documented inline)
 
 ### Verification
 Malformed and oversized payloads are handled gracefully (tests); the connection no
