@@ -113,6 +113,90 @@ App.registerArea({
     var pendingApprovals = []; // M11 F17 L9 (Leg E) — left-panel pending section
     var currentAgentName = null;
     var messagesEl, inputEl, sendBtn, stopBtn, sessionListEl, agentSelect, agentBadgeEl;
+    var fileInputEl, attachBtn;
+    // M16 F12 L08: minimal image-ingestion producer. Staged images
+    // ({data: base64, media_type}) are collected by the file-attach handler
+    // and consumed (and cleared) by the next performSend.
+    // HAT fix (post-L08): a visible chicklet-row preview was added above the
+    // composer so the operator can see what's attached.
+    // HAT fix round 2 (post-L08): the single-image `stagedImage` slot is now
+    // a `stagedImages` ARRAY — attaching APPENDS rather than replacing, and
+    // the hidden file input carries `multiple` so one OS-picker interaction
+    // can stage several images at once. The chicklet row lives in
+    // `attachmentsEl` (`.chat-attachments`, resolved alongside
+    // fileInputEl/attachBtn below) as a sibling ABOVE `.input-area` — the
+    // standard multi-attachment layout — rather than inline inside the
+    // composer. `renderAttachments()` fully rebuilds the row from
+    // `stagedImages` on every mutation (append/remove/clear) and mirrors
+    // non-empty-ness onto a `data-staged="true"` attribute on the file input
+    // so a test can deterministically wait for the async FileReader(s) to
+    // finish before driving send.
+    // NOTE: container visibility is driven via `style.display` (NOT the
+    // `hidden` attribute) — `.chip` sets `display: inline-flex`
+    // unconditionally, which beats the UA `[hidden]{display:none}` rule at
+    // equal specificity (author origin wins over UA origin; see the
+    // `.btn-muted-destructive[hidden]` override elsewhere in chat.css for
+    // the same footgun). Each chicklet itself also uses `.chip`/`.chip-remove`
+    // — no CSS file change.
+    var stagedImages = [];
+    var attachmentsEl;
+    function renderAttachments() {
+      if (fileInputEl) {
+        if (stagedImages.length) fileInputEl.setAttribute('data-staged', 'true');
+        else fileInputEl.removeAttribute('data-staged');
+      }
+      if (!attachmentsEl) return;
+      attachmentsEl.innerHTML = '';
+      for (var i = 0; i < stagedImages.length; i++) {
+        attachmentsEl.appendChild(buildAttachmentChip(stagedImages[i], i));
+      }
+      attachmentsEl.style.display = stagedImages.length ? 'flex' : 'none';
+    }
+    // One removable chicklet: thumbnail + a per-chip ✕ that removes just
+    // this image (closes over `idx` — safe because renderAttachments()
+    // rebuilds every chip from scratch on every mutation, so indices are
+    // never stale by the time a click fires).
+    function buildAttachmentChip(img, idx) {
+      var chip = document.createElement('div');
+      chip.className = 'chat-attachment chip';
+      chip.setAttribute('data-testid', 'chat-attachment');
+      chip.setAttribute('data-attachment-index', String(idx));
+
+      var thumb = document.createElement('img');
+      thumb.className = 'chat-attachment-thumb';
+      thumb.alt = 'Staged image attachment';
+      thumb.style.width = '24px';
+      thumb.style.height = '24px';
+      thumb.style.objectFit = 'cover';
+      thumb.style.borderRadius = '4px';
+      thumb.style.display = 'block';
+      thumb.src = 'data:' + img.media_type + ';base64,' + img.data;
+      chip.appendChild(thumb);
+
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'chat-attachment-remove chip-remove';
+      removeBtn.setAttribute('data-testid', 'chat-attachment-remove');
+      removeBtn.setAttribute('aria-label', 'Remove attached image');
+      removeBtn.style.fontSize = '12px';
+      removeBtn.textContent = '✕';
+      removeBtn.addEventListener('click', function () { removeStagedImage(idx); });
+      chip.appendChild(removeBtn);
+
+      return chip;
+    }
+    function appendStagedImage(img) {
+      stagedImages.push(img);
+      renderAttachments();
+    }
+    function removeStagedImage(idx) {
+      stagedImages.splice(idx, 1);
+      renderAttachments();
+    }
+    function clearStagedImages() {
+      stagedImages = [];
+      renderAttachments();
+    }
     // Per-session one-slot queue: key is session id, value is the pending message text.
     // Mirrors inFlightSessions shape so session-switch and onclose handle both together.
     var pendingQueuedMessages = Object.create(null);
@@ -163,8 +247,30 @@ App.registerArea({
           '<button class="new-chat-header" type="button" data-testid="new-chat-btn" aria-label="Start a new conversation with this agent">' +
             App.icon('square-pen') + '<span>New Chat</span></button></div>' +
         '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
+        // HAT fix round 2 (post-L08): chicklet row of staged-image previews
+        // — a sibling ABOVE .input-area (the standard multi-attachment
+        // layout), rather than an inline single-image chip inside the
+        // composer. Hidden until an image is staged. NOTE: hidden via
+        // inline style="display:none" (NOT the `hidden` attribute) — .chip
+        // (used per-chicklet, not on this container) sets `display:
+        // inline-flex` unconditionally, which beats the UA
+        // `[hidden]{display:none}` rule at equal specificity (author origin
+        // wins over UA origin; see the .btn-muted-destructive[hidden]
+        // override elsewhere in chat.css for the same footgun) — so this
+        // container is driven purely via style.display, never `hidden`.
+        // renderAttachments() rebuilds the chicklets and toggles visibility.
+        '<div class="chat-attachments" data-testid="chat-attachments" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>' +
         '<div class="input-area">' +
           '<input class="field-input" data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
+          // M16 F12 L08: minimal image-ingestion producer. The file input is
+          // hidden (triggered via the attach button) — this is the control
+          // Playwright drives via set_input_files. accept="image/*" restricts
+          // the OS picker; the change handler also gates on file.type.
+          // `multiple` (HAT fix round 2) lets one OS-picker interaction
+          // stage several images in a single `change` event.
+          '<input type="file" accept="image/*" multiple data-testid="chat-image-input" hidden />' +
+          '<button class="btn-outlined-primary" type="button" data-testid="chat-attach-btn" aria-label="Attach image">' +
+            App.icon('plus') + '</button>' +
           '<button class="btn-muted-destructive" data-testid="chat-stop-btn" aria-label="Stop" hidden>' +
             '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
             'Stop</button>' +
@@ -177,6 +283,9 @@ App.registerArea({
     var headerNewBtn = content.querySelector('.new-chat-header');
     messagesEl = content.querySelector('.messages');
     inputEl = content.querySelector('.input-area input');
+    fileInputEl = content.querySelector('.input-area input[type="file"]');
+    attachBtn = content.querySelector('.input-area .btn-outlined-primary');
+    attachmentsEl = content.querySelector('.chat-attachments');
     stopBtn = content.querySelector('.input-area .btn-muted-destructive');
     sendBtn = content.querySelector('.input-area .btn-filled-primary');
     agentBadgeEl = content.querySelector('.session-agent-badge');
@@ -846,9 +955,24 @@ App.registerArea({
     // `done` handler (dequeue of a held message) so the two paths can never
     // diverge. Does NOT touch the input value — callers manage that (the direct
     // path clears it; the dequeue path must not clobber what the user is typing).
+    //
+    // M16 F12 L08: when image(s) are staged, the outgoing payload gains an
+    // `images` field (text-only sends stay byte-identical — no `images` key).
+    // The optimistic bubble mirrors the backend's content_to_text projection
+    // ("text [image]", or just "[image]" with no text) so the sender sees the
+    // same shape the server will broadcast/persist. Staged images are
+    // cleared after every send, sent or held (HAT fix round 2: now the
+    // whole `stagedImages` array, not a single-shot slot).
     function performSend(text) {
-      addMsg('user', text, 'You');
-      ws.send(JSON.stringify({ message: text }));
+      var payload = { message: text };
+      var displayText = text;
+      if (stagedImages.length) {
+        payload.images = stagedImages;
+        displayText = text ? text + ' [image]' : '[image]';
+        clearStagedImages();
+      }
+      addMsg('user', displayText, 'You');
+      ws.send(JSON.stringify(payload));
       if (currentSessionId) inFlightSessions[currentSessionId] = true;
       sendBtn.disabled = true;
       updateStopControl();
@@ -857,7 +981,7 @@ App.registerArea({
 
     function send() {
       var text = inputEl.value.trim();
-      if (!text) return;
+      if (!text && !stagedImages.length) return;
       // Blocked by health gate (agent deleted, provider missing, etc.) — never queue.
       if (sessionBannerEl || inputEl.disabled) return;
 
@@ -879,6 +1003,12 @@ App.registerArea({
         if (!currentSessionId) return;
         if (pendingQueuedMessages[currentSessionId]) return;
         pendingQueuedMessages[currentSessionId] = text;
+        // The hold queue carries text only (F09-04 predates image attach) —
+        // attach-while-a-turn-is-running is explicitly out of scope for L08
+        // (the attach handler below already ignores staging while busy, but
+        // this guards the rare race where a turn starts busy between staging
+        // and send).
+        clearStagedImages();
         inputEl.value = '';
         showPendingQueued(text);
         return;
@@ -1389,6 +1519,52 @@ App.registerArea({
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     });
     sendBtn.addEventListener('click', send);
+
+    // M16 F12 L08: minimal image-ingestion producer. The trigger button opens
+    // the OS file picker; the hidden file input's `change` handler reads
+    // EVERY selected file (HAT fix round 2: `multiple` + iterate
+    // fileInputEl.files, appending — a prior selection is not replaced) via
+    // FileReader.readAsDataURL and stages {data, media_type} (base64 payload
+    // with the `data:...;base64,` prefix stripped) per file for the next
+    // performSend. Attach-while-a-turn-is-running is out of scope for L08
+    // (the F09-04 hold queue carries text only) — both handlers ignore the
+    // interaction while the current session is busy rather than staging an
+    // image that would silently be dropped by the hold-queue clear above.
+    attachBtn.addEventListener('click', function () {
+      if (isCurrentBusy() || (sessionBannerEl || inputEl.disabled)) return;
+      fileInputEl.click();
+    });
+    fileInputEl.addEventListener('change', function () {
+      // Snapshot into a real array BEFORE clearing `.value` below — the
+      // input's `.files` FileList is LIVE (tied to the element), so
+      // resetting `.value` empties it in place; a stored reference to the
+      // FileList itself (rather than to the individual File objects) would
+      // silently see length 0 by the time the loop below runs.
+      var files = fileInputEl.files ? Array.prototype.slice.call(fileInputEl.files) : [];
+      // Reset the input value so selecting the SAME file(s) again still
+      // fires `change` (browsers do not re-fire change for an unchanged
+      // value).
+      fileInputEl.value = '';
+      if (!files.length) return;
+      if (isCurrentBusy()) return;
+      for (var i = 0; i < files.length; i++) {
+        (function (file) {
+          // Only image/* is staged — a non-image pick (accept="image/*"
+          // already restricts the OS picker, but this guards direct DOM
+          // manipulation, e.g. Playwright's set_input_files) is silently
+          // ignored per-file.
+          if (file.type.indexOf('image/') !== 0) return;
+          var reader = new FileReader();
+          reader.onload = function () {
+            var result = String(reader.result || '');
+            var comma = result.indexOf(',');
+            var base64 = comma >= 0 ? result.slice(comma + 1) : result;
+            appendStagedImage({ data: base64, media_type: file.type });
+          };
+          reader.readAsDataURL(file);
+        })(files[i]);
+      }
+    });
 
     // F7 L04: stop/cancel button — send the cancel action, then optimistically
     // reset the thinking indicator and discard any pending queued message. The

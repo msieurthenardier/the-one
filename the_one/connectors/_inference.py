@@ -44,7 +44,7 @@ from the_one.connectors.post_step_metadata import resolve_channel_name
 from the_one.db.models import Connector
 from the_one.db.repositories import LLMProviderRepository
 from the_one.llm import get_provider
-from the_one.llm.base import LLMProvider, Message, Role
+from the_one.llm.base import LLMProvider, Message, Role, content_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,12 @@ def _render_history_for_prompt(filtered: list[Message]) -> str:
     lines: list[str] = []
     for m in filtered:
         role_label = "user" if m.role == Role.USER else "assistant"
-        content = m.content
+        # M16 F12 L03: project to str before use — a list-content USER turn
+        # (DD3) would otherwise stringify to its Python repr here. The other
+        # USER/assistant/tool `.content` readers in the codebase are DD3-safe
+        # (assistant/tool-gated) or a tracked deferral (codec.py's
+        # messages_to_ui_events) — see the F12 L03 leg doc.
+        content = content_to_text(m.content)
         if m.role == Role.USER and m.visibility == OPERATOR_VISIBILITY:
             content = f"[operator] {content}"
         lines.append(f"{role_label}: {content}")

@@ -39,7 +39,7 @@ from tests.fixtures.tool_schemas import (
     UNSANITIZABLE_ANYOF_SCHEMA,
     make_bad_request,
 )
-from the_one.llm.base import Message, ToolCall, ToolResult
+from the_one.llm.base import ImageContent, Message, TextContent, ToolCall, ToolResult
 
 # ---------------------------------------------------------------------------
 # The one canonical provider-neutral script (DD2)
@@ -777,3 +777,160 @@ async def test_a4_config_to_wire_stream_anthropic():
     sent = _chat_completions_body(scripted.request_bodies)
     assert sent["output_config"] == _EXPECTED_ANTHROPIC_OUTPUT_CONFIG
     assert sent["stop_sequences"] == _EXPECTED_ANTHROPIC_STOP_SEQUENCES
+
+
+# ===========================================================================
+# 8. A2 image-projection matrix (M16 F12 L07)
+# ===========================================================================
+#
+# One canonical image-content USER ``Message``, projected through each
+# provider's ``_to_api_message`` (a PURE method — no network, deterministic
+# from the input ``Message``) to its correct native wire shape. Mirrors the
+# A4 config→wire matrix's structure (shared input, per-provider expected
+# shape, OpenAI-compat grouping) applied to the L04-L06 image-content
+# projections, with an explicit OpenAI ≡ OpenRouter ≡ Ollama-``/v1`` parity
+# assertion — the drift-catcher the L05/L06 forward-notes promised for their
+# deliberate ``_content_block_to_api`` duplication.
+#
+# Asserting ``_to_api_message`` output directly is equivalent to and simpler
+# than driving ``complete()``/``stream()`` through the scripted transport
+# (which A4 needed only because config→wire required full request assembly):
+# the method's return value already IS the wire ``messages``-array entry.
+#
+# - Anthropic: native content-block shape (``type: image``, ``source:
+#   {type: base64, media_type, data}``).
+# - OpenAI / OpenRouter / Ollama (``/v1``): the shared OpenAI-compat
+#   content-part shape (``type: image_url``, ``image_url: {url:
+#   data:...;base64,...}``).
+# - Ollama native (``/api/chat``, via ``_to_native_message``): NOT a
+#   content-part list — text blocks join into a single ``content`` string,
+#   image blocks collect into a separate ``images: [base64, ...]`` array.
+# - Mock has no ``_to_api_message``/wire path at all — N/A, not asserted
+#   (documented here, not a silent omission).
+
+A2_IMAGE_MESSAGE = Message.user(
+    [TextContent("describe this"), ImageContent(media_type="image/png", data="AAA")]
+)
+
+_EXPECTED_ANTHROPIC_IMAGE_CONTENT = [
+    {"type": "text", "text": "describe this"},
+    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAA"}},
+]
+
+_EXPECTED_OPENAI_COMPAT_IMAGE_CONTENT = [
+    {"type": "text", "text": "describe this"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
+]
+
+_EXPECTED_OLLAMA_NATIVE_IMAGE_MESSAGE = {
+    "role": "user",
+    "content": "describe this",
+    "images": ["AAA"],
+}
+
+
+def test_a2_image_projection_anthropic():
+    from the_one.llm.anthropic_provider import AnthropicProvider
+
+    prov = AnthropicProvider(model="claude-test", api_key="x")
+    sent = prov._to_api_message(A2_IMAGE_MESSAGE)
+    assert sent == {"role": "user", "content": _EXPECTED_ANTHROPIC_IMAGE_CONTENT}
+
+
+def test_a2_image_projection_openai_compat_parity():
+    """OpenAI, OpenRouter, and Ollama ``/v1`` must emit the IDENTICAL
+    content-part shape for the shared image-content input. Ollama's ``/v1``
+    ``_content_block_to_api`` is a deliberate, documented COPY of OpenAI's
+    mapping (not a shared import, per the L06 rule-of-three note) — if a
+    future edit to one mapper drifts from the others, this assertion is the
+    net that catches it."""
+    from the_one.llm.ollama_provider import OllamaProvider
+    from the_one.llm.openai_provider import OpenAIProvider
+    from the_one.llm.openrouter_provider import OpenRouterProvider
+
+    openai = OpenAIProvider(model="gpt-4o", api_key="x")
+    openrouter = OpenRouterProvider(model="openai/gpt-4o", api_key="x")
+    ollama_v1 = OllamaProvider(model="qwen2.5:7b", base_url="http://t:11434")
+
+    openai_sent = openai._to_api_message(A2_IMAGE_MESSAGE)
+    openrouter_sent = openrouter._to_api_message(A2_IMAGE_MESSAGE)
+    ollama_v1_sent = ollama_v1._to_api_message(A2_IMAGE_MESSAGE)
+
+    assert openai_sent == openrouter_sent == ollama_v1_sent
+    assert openai_sent == {"role": "user", "content": _EXPECTED_OPENAI_COMPAT_IMAGE_CONTENT}
+
+
+def test_a2_image_projection_ollama_native():
+    from the_one.llm.ollama_provider import OllamaProvider
+
+    ollama = OllamaProvider(model="qwen2.5:7b", base_url="http://t:11434")
+    sent = ollama._to_native_message(A2_IMAGE_MESSAGE)
+    assert sent == _EXPECTED_OLLAMA_NATIVE_IMAGE_MESSAGE
+
+
+# Mock N/A: MockProvider has no ``_to_api_message``/``_to_native_message`` at
+# all — no request assembly, no wire path — so there is nothing to project.
+# Deliberately excluded, not silently forgotten (mirrors the A4 Mock-N/A note).
+
+
+# ---------------------------------------------------------------------------
+# url-only ImageContent (the DD5 documented gap): native on
+# Anthropic/OpenAI/OpenRouter, skipped + WARNed on both Ollama paths
+# (``/v1`` and native) — a cross-provider record of the asymmetry.
+# ---------------------------------------------------------------------------
+
+A2_IMAGE_URL_MESSAGE = Message.user(
+    [
+        TextContent("describe this"),
+        ImageContent(media_type="image/png", url="https://example.com/x.png"),
+    ]
+)
+
+
+def test_a2_image_url_projection_native_providers():
+    from the_one.llm.anthropic_provider import AnthropicProvider
+    from the_one.llm.openai_provider import OpenAIProvider
+    from the_one.llm.openrouter_provider import OpenRouterProvider
+
+    anthropic_sent = AnthropicProvider(model="claude-test", api_key="x")._to_api_message(
+        A2_IMAGE_URL_MESSAGE
+    )
+    assert anthropic_sent["content"][1] == {
+        "type": "image",
+        "source": {"type": "url", "url": "https://example.com/x.png"},
+    }
+
+    openai_sent = OpenAIProvider(model="gpt-4o", api_key="x")._to_api_message(A2_IMAGE_URL_MESSAGE)
+    assert openai_sent["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/x.png"},
+    }
+
+    openrouter_sent = OpenRouterProvider(model="openai/gpt-4o", api_key="x")._to_api_message(
+        A2_IMAGE_URL_MESSAGE
+    )
+    assert openrouter_sent["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/x.png"},
+    }
+
+
+def test_a2_image_url_projection_ollama_gap(caplog):
+    """A url-only ``ImageContent`` has no native/``/v1`` target on Ollama
+    (base64-only, DD5) — both paths skip the image and WARN rather than
+    fetching the URL."""
+    from the_one.llm.ollama_provider import OllamaProvider
+
+    ollama = OllamaProvider(model="qwen2.5:7b", base_url="http://t:11434")
+
+    with caplog.at_level(logging.WARNING, logger="the_one.llm.ollama_provider"):
+        v1_sent = ollama._to_api_message(A2_IMAGE_URL_MESSAGE)
+    assert v1_sent == {"role": "user", "content": [{"type": "text", "text": "describe this"}]}
+    assert any(r.name == "the_one.llm.ollama_provider" for r in caplog.records)
+
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING, logger="the_one.llm.ollama_provider"):
+        native_sent = ollama._to_native_message(A2_IMAGE_URL_MESSAGE)
+    assert native_sent == {"role": "user", "content": "describe this"}
+    assert any(r.name == "the_one.llm.ollama_provider" for r in caplog.records)

@@ -19,10 +19,13 @@ from the_one.llm._request_params import (
 )
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm.base import (
+    ContentBlock,
+    ImageContent,
     LLMProvider,
     Message,
     Role,
     StreamChunk,
+    TextContent,
     TokenUsage,
     ToolCall,
     build_user_message_content,
@@ -286,7 +289,34 @@ class OpenAIProvider(LLMProvider):
         # The helper handles all four absence variants; legacy back-compat
         # is preserved when both fields are None (byte-identical payload).
         # F6 DD §2 audit premise refined: the prefix IS the projection.
-        return {"role": msg.role.value, "content": build_user_message_content(msg)}
+        # M16 F12 L05 (DD4): build_user_message_content is now shape-aware
+        # (str | list[ContentBlock]) and IS called on every USER/SYSTEM turn.
+        # The str path below is byte-identical to before; the list path
+        # (multimodal — images, plus the DD4 prefix TextContent) maps each
+        # block to an OpenAI content part via _content_block_to_api.
+        projected = build_user_message_content(msg)
+        if isinstance(projected, list):
+            return {
+                "role": msg.role.value,
+                "content": [self._content_block_to_api(b) for b in projected],
+            }
+        return {"role": msg.role.value, "content": projected}
+
+    def _content_block_to_api(self, b: ContentBlock) -> dict[str, Any]:
+        # M16 F12 L05 (DD4/DD5): map a single ContentBlock to an OpenAI
+        # content part. TextContent -> {type:text}; ImageContent ->
+        # {type:image_url, image_url:{url}}, preferring a base64 data: URI
+        # (DD5 universal path) over a plain url when both are set.
+        #
+        # Forward-note: this is the identical OpenAI-compat mapping Ollama
+        # /v1 needs (L06) — lift to a shared `to_openai_compat_content`
+        # helper at rule-of-three (A4 precedent); L07's conformance matrix
+        # asserts OpenAI and Ollama-/v1 emit identical shapes in the meantime.
+        if isinstance(b, TextContent):
+            return {"type": "text", "text": b.text}
+        assert isinstance(b, ImageContent)
+        url = f"data:{b.media_type};base64,{b.data}" if b.data is not None else b.url
+        return {"type": "image_url", "image_url": {"url": url}}
 
 
 register_provider("openai", OpenAIProvider)

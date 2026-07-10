@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -19,15 +20,20 @@ from the_one.llm._request_params import (
 from the_one.llm._streaming import _StreamAccumulator
 from the_one.llm._toolcall_recovery import recover_and_strip
 from the_one.llm.base import (
+    ContentBlock,
+    ImageContent,
     LLMProvider,
     Message,
     Role,
     StreamChunk,
+    TextContent,
     TokenUsage,
     ToolCall,
     build_user_message_content,
 )
 from the_one.llm.registry import register_provider
+
+logger = logging.getLogger(__name__)
 
 # F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
 # Ollama hosts a heterogeneous mix of tokenisers (Llama 3, Qwen, Gemma,
@@ -556,7 +562,29 @@ class OllamaProvider(LLMProvider):
                     for tc in msg.tool_calls
                 ],
             }
-        return {"role": msg.role.value, "content": build_user_message_content(msg)}
+        projected = build_user_message_content(msg)
+        if isinstance(projected, list):
+            # M16 F12 L06: native /api/chat has no content-part shape — a
+            # user message carries a text ``content`` string PLUS a
+            # message-level ``images: [base64, …]`` array. TextContent blocks
+            # (including the DD4 prefix block) join into ``content``;
+            # ImageContent blocks contribute their base64 ``data`` to
+            # ``images``. A url-only ImageContent has no native target
+            # (base64-only, per DD5) — skipped + warned, not fetched.
+            texts: list[str] = []
+            images: list[str] = []
+            for b in projected:
+                if isinstance(b, TextContent):
+                    texts.append(b.text)
+                elif isinstance(b, ImageContent) and b.data is not None:
+                    images.append(b.data)
+                else:
+                    logger.warning("ollama native: remote image URL not supported; skipping")
+            out: dict[str, Any] = {"role": msg.role.value, "content": " ".join(texts)}
+            if images:
+                out["images"] = images
+            return out
+        return {"role": msg.role.value, "content": projected}
 
     @staticmethod
     def _native_usage(data: dict[str, Any]) -> TokenUsage | None:
@@ -658,6 +686,28 @@ class OllamaProvider(LLMProvider):
             message=msg,
         )
 
+    @staticmethod
+    def _content_block_to_api(b: ContentBlock) -> dict[str, Any] | None:
+        """Map a single ``ContentBlock`` to an OpenAI-compat content part.
+
+        M16 F12 L06: same mapping as OpenAI's ``/v1``-style content-part
+        projection (L05) — a forward-note, not a shared import: Ollama's
+        ``/v1`` layer has no remote-URL support (DD5), so unlike OpenAI this
+        copy only ever emits the base64 data-URI form. If a THIRD ``/v1``-style
+        provider needs this exact mapping, lift it at that rule-of-three
+        trigger; don't pre-emptively share two copies. Returns ``None`` for a
+        url-only ``ImageContent`` (documented gap — caller logs + skips).
+        """
+        if isinstance(b, TextContent):
+            return {"type": "text", "text": b.text}
+        if b.data is not None:
+            return {
+                "type": "image_url",
+                "image_url": {"url": f"data:{b.media_type};base64,{b.data}"},
+            }
+        logger.warning("ollama /v1: remote image URL not supported; skipping")
+        return None
+
     def _to_api_message(self, msg: Message) -> dict[str, Any]:
         if msg.role == Role.TOOL and msg.tool_result:
             return {
@@ -685,7 +735,13 @@ class OllamaProvider(LLMProvider):
         # The helper handles all four absence variants; legacy back-compat
         # is preserved when both fields are None (byte-identical payload).
         # F6 DD §2 audit premise refined: the prefix IS the projection.
-        return {"role": msg.role.value, "content": build_user_message_content(msg)}
+        projected = build_user_message_content(msg)
+        if isinstance(projected, list):
+            parts = [self._content_block_to_api(b) for b in projected]
+            content: Any = [p for p in parts if p is not None]
+        else:
+            content = projected
+        return {"role": msg.role.value, "content": content}
 
 
 register_provider("ollama", OllamaProvider)

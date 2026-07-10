@@ -31,7 +31,15 @@ from the_one.llm.anthropic_provider import (
     _coerce_bool,
     resolve_extended_thinking,
 )
-from the_one.llm.base import Message, ThinkingBlock, ToolCall, ToolResult
+from the_one.llm.base import (
+    ContentBlock,
+    ImageContent,
+    Message,
+    TextContent,
+    ThinkingBlock,
+    ToolCall,
+    ToolResult,
+)
 
 _LOGGER_NAME = "the_one.llm.anthropic_provider"
 
@@ -1173,3 +1181,94 @@ async def test_temperature_retry_preserves_a4_kwargs(monkeypatch):
     assert "temperature" not in retried
     assert retried["stop_sequences"] == ["</s>"]
     assert retried["output_config"]["effort"] == "high"
+
+
+# --------------------------------------------------------------------------
+# M16 F12 L04: image projection in _to_api_message's USER-turn list branch
+# --------------------------------------------------------------------------
+
+
+def test_image_projection_base64_and_url_blocks(monkeypatch):
+    """A list-content USER message maps text/base64-image/url-image blocks
+    to Anthropic's native content-block shape, in order."""
+    prov = _replay_provider(monkeypatch)
+    blocks: list[ContentBlock] = [
+        TextContent(text="hi"),
+        ImageContent(media_type="image/png", data="BASE64"),
+        ImageContent(media_type="image/jpeg", url="https://x/y.jpg"),
+    ]
+    msg = Message.user(blocks)
+
+    out = prov._to_api_message(msg)
+
+    assert out == {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "hi"},
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "BASE64"},
+            },
+            {
+                "type": "image",
+                "source": {"type": "url", "url": "https://x/y.jpg"},
+            },
+        ],
+    }
+
+
+def test_image_projection_base64_preferred_over_url(monkeypatch):
+    """DD5: when an ImageContent carries both data and url, base64 wins."""
+    prov = _replay_provider(monkeypatch)
+    msg = Message.user([ImageContent(media_type="image/png", data="BASE64", url="https://x/y.png")])
+
+    content = prov._to_api_message(msg)["content"]
+
+    assert content == [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "BASE64"},
+        }
+    ]
+
+
+def test_image_projection_prefix_block_mapped_natively(monkeypatch):
+    """With peer_name/channel_name set on a list-content USER message, the
+    projected content begins with a native text block carrying the DD4
+    bracket prefix, followed by the user's own blocks."""
+    prov = _replay_provider(monkeypatch)
+    msg = Message.user(
+        [TextContent(text="hello"), ImageContent(media_type="image/png", data="BASE64")],
+        peer_name="alice",
+        channel_name="general",
+    )
+
+    content = prov._to_api_message(msg)["content"]
+
+    assert content[0] == {"type": "text", "text": "[from alice in #general]:"}
+    assert content[1] == {"type": "text", "text": "hello"}
+    assert content[2] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "BASE64"},
+    }
+
+
+def test_str_content_projection_byte_identical(monkeypatch):
+    """The plain str-content path is untouched by the DD4 fork — same output
+    as before the multimodal branch existed."""
+    prov = _replay_provider(monkeypatch)
+    msg = Message.user("hello there", peer_name="bob")
+
+    out = prov._to_api_message(msg)
+
+    assert out == {"role": "user", "content": "[from bob]: hello there"}
+
+
+def test_str_content_projection_no_peer_channel_byte_identical(monkeypatch):
+    """Legacy no-prefix str path stays a plain string, unaffected by the fork."""
+    prov = _replay_provider(monkeypatch)
+    msg = Message.user("plain text")
+
+    out = prov._to_api_message(msg)
+
+    assert out == {"role": "user", "content": "plain text"}

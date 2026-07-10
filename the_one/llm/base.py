@@ -43,6 +43,46 @@ class ThinkingBlock:
 
 
 @dataclass
+class TextContent:
+    """A plain-text content block within a `list[ContentBlock]` user message.
+
+    M16 F12 L01 (DD2): load-bearing, not a convenience wrapper — content is
+    `str` XOR `list[ContentBlock]`, so a user's typed text becomes a block
+    (this type) when an image is present alongside it. Also used by
+    ``build_user_message_content`` to carry the peer/channel bracket prefix
+    as a separate prepended block on the list path (DD4).
+    """
+
+    text: str
+
+
+@dataclass
+class ImageContent:
+    """A single image content block within a `list[ContentBlock]` user message.
+
+    M16 F12 L01 (DD2): provider-neutral — mirrors the `ThinkingBlock`
+    precedent (a canonical dataclass each provider maps to its native wire
+    shape at `_to_api_message`; see `the_one/agents.md` →
+    `provider-shape-portability`). `data` (base64) is the universal path;
+    `url` is native on Anthropic/OpenAI but a documented gap on Ollama (no
+    remote-URL fetch — DD5). Both may be set simultaneously (provider
+    mapping prefers `data`); at least one is required.
+    """
+
+    media_type: str  # e.g. "image/png", "image/jpeg"
+    data: str | None = None  # base64 (universal path)
+    url: str | None = None  # native on Anthropic/OpenAI; Ollama = documented gap (DD5)
+
+    def __post_init__(self) -> None:
+        assert self.data is not None or self.url is not None, (
+            "ImageContent requires one of data (base64) or url"
+        )
+
+
+ContentBlock = TextContent | ImageContent
+
+
+@dataclass
 class ToolResult:
     tool_call_id: str
     # M11 F8 L2: annotation widened from `str` to `str | dict | list[Any]`
@@ -81,7 +121,7 @@ class TokenUsage:
 @dataclass
 class Message:
     role: Role
-    content: str = ""
+    content: str | list[ContentBlock] = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     # M16 F10 L01 (DD1/DD2): structured extended-thinking blocks. A list —
     # NOT a scalar — because criterion #1 replays blocks WITH their signatures
@@ -149,22 +189,42 @@ class Message:
     channel_name: str | None = None
 
     def __post_init__(self) -> None:
-        """Assert content is str at construction time.
+        """Assert content is str, or a USER-only list[ContentBlock].
 
         M11 F8 L2: ``Message.content`` is constructed at three classes
         of sites — provider response parsers (build str from API
         response), codec decoders (decode str from JSON), and factory
         methods (``Message.system``/``user``/``assistant``/``tool``).
-        A non-str arriving here means a provider-parser defect, NOT
-        a legitimate structured payload (compare ``ToolResult.content``
+        A non-str/non-list arriving here means a provider-parser defect,
+        NOT a legitimate structured payload (compare ``ToolResult.content``
         which CAN be structured pre-normalization). Assert rather than
         normalize so the defect surfaces loudly.
 
+        M16 F12 L01 (DD2/DD3): widened to also accept
+        ``list[ContentBlock]`` (``TextContent`` | ``ImageContent``) — but
+        ONLY on ``Role.USER`` messages (images/documents are inputs;
+        SYSTEM/ASSISTANT/TOOL content stays ``str``). Both invalid branches
+        use an explicit ``raise AssertionError`` rather than a bare
+        ``assert`` statement — a bare ``assert`` is stripped under
+        ``python -O``, which would silently let a non-USER block-list
+        through and break the DD3 invariant. Empty ``list`` content on
+        USER is allowed by design: this validates shape + role, not
+        content semantics (mirrors the empty-``str`` precedent).
+
         See ``the_one/agents.md`` → ``provider-shape-portability``.
         """
-        assert isinstance(self.content, str), (
-            f"Message.content must be str, got {type(self.content).__name__}"
-        )
+        c = self.content
+        if isinstance(c, str):
+            pass
+        elif isinstance(c, list) and all(isinstance(b, (TextContent, ImageContent)) for b in c):
+            if self.role != Role.USER:
+                raise AssertionError(
+                    f"list[ContentBlock] content is only valid on USER messages, got {self.role}"
+                )
+        else:
+            raise AssertionError(
+                f"Message.content must be str or list[ContentBlock], got {type(c).__name__}"
+            )
 
     @classmethod
     def system(cls, content: str, *, visibility: str | None = None) -> Message:
@@ -173,7 +233,7 @@ class Message:
     @classmethod
     def user(
         cls,
-        content: str,
+        content: str | list[ContentBlock],
         *,
         visibility: str | None = None,
         peer_name: str | None = None,
@@ -218,9 +278,9 @@ class Message:
         )
 
 
-def build_user_message_content(msg: Message) -> str:
-    """Build the LLM-payload content string for a user message,
-    projecting peer_name and channel_name as an inline bracket prefix.
+def build_user_message_content(msg: Message) -> str | list[ContentBlock]:
+    """Build the LLM-payload content for a user message, projecting
+    peer_name and channel_name as an inline bracket prefix.
 
     Format depends on which fields are set (all use ``is not None``,
     NOT truthiness — empty strings round-trip as-is per the
@@ -231,6 +291,15 @@ def build_user_message_content(msg: Message) -> str:
     - channel_name only                 → ``[in #{ch}]: {content}``
     - neither set                       → ``{content}`` (byte-identical
       to pre-F6 + pre-F7 payload — legacy back-compat)
+
+    M16 F12 L01 (DD4): ``list[ContentBlock]`` content is shape-aware — the
+    prefix (when applicable) is a SEPARATE prepended ``TextContent`` block,
+    not merged into the user's own text block (the user's blocks are never
+    rewritten). When no prefix applies, returns a fresh copy
+    (``list(msg.content)``) rather than the same list reference, so a
+    downstream provider adapter can't mutate the caller's list — mirrors
+    the str path, which is aliasing-immune by construction (a new str is
+    always built).
 
     Defensive: returns ``msg.content`` unchanged for any non-USER
     role (the projection is meaningful only on inbound user turns;
@@ -248,6 +317,15 @@ def build_user_message_content(msg: Message) -> str:
         return msg.content
     peer = msg.peer_name
     ch = msg.channel_name
+    if isinstance(msg.content, list):
+        prefix = None
+        if peer is not None and ch is not None:
+            prefix = f"[from {peer} in #{ch}]:"
+        elif peer is not None:
+            prefix = f"[from {peer}]:"
+        elif ch is not None:
+            prefix = f"[in #{ch}]:"
+        return [TextContent(text=prefix), *msg.content] if prefix else list(msg.content)
     if peer is not None and ch is not None:
         return f"[from {peer} in #{ch}]: {msg.content}"
     if peer is not None:
@@ -255,6 +333,31 @@ def build_user_message_content(msg: Message) -> str:
     if ch is not None:
         return f"[in #{ch}]: {msg.content}"
     return msg.content
+
+
+def content_to_text(content: str | list[ContentBlock]) -> str:
+    """Flatten message content to a plain-text projection for str-only consumers.
+
+    ``str`` → returned as-is. ``list`` → ``TextContent`` texts joined by a single
+    space; each ``ImageContent`` → a ``"[image]"`` placeholder (mirrors the MCP
+    layer's image→placeholder flattening in ``mcp/client.py``). For consumers that
+    need a text view of content and cannot render blocks (e.g. the inference
+    classifier's history render).
+
+    M16 F12 L03: dispatch is by ``isinstance`` — NOT a ``type`` string — per the
+    F10 Rec 5 no-hardcoded-type-filter guidance. The union is closed
+    (``ContentBlock = TextContent | ImageContent``), so this is exhaustive; empty
+    list → ``""``.
+    """
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    for b in content:
+        if isinstance(b, TextContent):
+            parts.append(b.text)
+        elif isinstance(b, ImageContent):
+            parts.append("[image]")
+    return " ".join(parts)
 
 
 @dataclass

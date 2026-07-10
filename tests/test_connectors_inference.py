@@ -33,7 +33,14 @@ from the_one.connectors.base import (
     InboundEnvelope,
 )
 from the_one.db.models import Connector, LLMProviderConfig
-from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
+from the_one.llm.base import (
+    ImageContent,
+    LLMProvider,
+    Message,
+    TextContent,
+    ToolCall,
+    ToolResult,
+)
 from the_one.llm.mock import MockProvider
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -199,6 +206,56 @@ def test_render_history_for_prompt_ordering() -> None:
         "assistant: second",
         "user: third",
     ]
+
+
+def test_render_history_for_prompt_str_content_byte_identical() -> None:
+    """M16 F12 L03: the str path is byte-identical to pre-hardening output —
+    ``content_to_text`` returns a str unchanged, so nothing about the
+    existing rendering behavior shifts.
+    """
+    peer_user = Message.user("peer says hi", visibility=None)
+    operator_user = Message.user("operator says steer", visibility=OPERATOR_VISIBILITY)
+    asst = Message.assistant("a reply")
+
+    rendered = _render_history_for_prompt([peer_user, operator_user, asst])
+
+    assert rendered == (
+        "user: peer says hi\nuser: [operator] operator says steer\nassistant: a reply"
+    )
+
+
+def test_render_history_for_prompt_list_content_user_message() -> None:
+    """M16 F12 L03: a list-content USER turn (DD3) is flattened via
+    ``content_to_text`` instead of stringifying to a Python repr. No
+    operator-visibility prefix here — the raw text + image placeholder join
+    directly, with no stray double space.
+    """
+    list_user = Message.user(
+        [TextContent(text="look at this"), ImageContent(media_type="image/png", data="Zm9v")],
+        visibility=None,
+    )
+
+    rendered = _render_history_for_prompt([list_user])
+
+    assert rendered == "user: look at this [image]"
+    assert "  " not in rendered
+
+
+def test_render_history_for_prompt_list_content_user_message_with_operator_prefix() -> None:
+    """M16 F12 L03: a list-content USER turn with operator visibility gets
+    the ``[operator] `` prefix applied AFTER flattening — the note says
+    ``_render_history_for_prompt`` reads raw ``m.content`` (no DD4 prefix
+    block present), so ``content_to_text`` only sees the user's own blocks.
+    """
+    list_user = Message.user(
+        [TextContent(text="steer the bot"), ImageContent(media_type="image/png", data="Zm9v")],
+        visibility=OPERATOR_VISIBILITY,
+    )
+
+    rendered = _render_history_for_prompt([list_user])
+
+    assert rendered == "user: [operator] steer the bot [image]"
+    assert "  " not in rendered
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -9,7 +9,15 @@ from the_one.agent._context import current_tool_call_id
 from the_one.agent._governor import govern_tool_content, governor_defaults
 from the_one.agent.config import BASE_PROMPT, CHAT_ONLY_PROMPT
 from the_one.db.codec import truncate_for_event
-from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall, ToolResult
+from the_one.llm.base import (
+    ContentBlock,
+    LLMProvider,
+    Message,
+    Role,
+    TokenUsage,
+    ToolCall,
+    ToolResult,
+)
 from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools.base import ToolRegistry
 
@@ -196,7 +204,7 @@ class Agent:
 
     async def step(
         self,
-        user_input: str,
+        user_input: str | list[ContentBlock],
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
         on_usage: Callable[[TokenUsage], Awaitable[None]] | None = None,
     ) -> AsyncIterator[Message]:
