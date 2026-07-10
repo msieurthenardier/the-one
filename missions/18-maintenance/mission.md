@@ -1,6 +1,6 @@
 # Mission: Post-Mission-16 Maintenance
 
-**Status**: planning
+**Status**: active
 **Depends on**: none (clears debt surfaced after Mission 16; touches `llm/`, `agent/`, `db/`, `interfaces/web/`, CI, deps)
 
 ## Outcome
@@ -81,9 +81,11 @@ N/A — this mission clears known issues rather than surfacing new ones.
 > **Note:** Scaffolded from the 2026-07-10 maintenance report. Flights 1–3 are the
 > load-bearing core; Flight 4 is hygiene and can slip if the mission needs to shrink.
 
-- [ ] Flight 1: **Supply-chain & CI gate** — bump the four runtime-path CVE pins +
+- [x] Flight 1: **Supply-chain & CI gate** — bump the four runtime-path CVE pins +
       regenerate `uv.lock` (D1); restore a pre-merge lint-only (+ pip-audit) PR
-      check without undoing the Concourse cost-shift (C1/C4).
+      check without undoing the Concourse cost-shift (C1/C4). **LANDED** — pip-audit
+      24→2 (2 dev/toolchain-only; runtime closure clean); 7 CVE floors raised in
+      `pyproject.toml` so the installer re-resolve is guaranteed; new `pr-lint.yml`.
 - [ ] Flight 2: **Input robustness** — `ImageContent` bare-assert → `raise` +
       generic `except` on the WS message branch (S2/S1); image size/count cap
       (S3).

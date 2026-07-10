@@ -12,7 +12,6 @@ dependencies = [
     "readability-lxml>=0.8",
     "markdownify>=0.13",
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
     "rich>=13.0",
     "prompt-toolkit>=3.0",
     "fastapi>=0.115",
@@ -20,21 +19,53 @@ dependencies = [
     "websockets>=13.0",
     "jinja2>=3.1",
     "aiosqlite>=0.20",
-    "cryptography>=43.0",
     # M10 mission constraint: "Wire-protocol clients use maintained SDKs
     # with pinned versions" — F8 L2 pins discord.py (the Discord gateway
     # SDK used by DiscordPlugin in F8 L3+). Bound to 2.4.x to lock the
     # connector's surface against accidental major-version SDK upgrades.
     "discord.py>=2.4,<2.5",
     "mcp==1.27.0",
-    # CVE floors (transitive deps promoted to explicit floors so the image
-    # build — which re-resolves from these ranges, not uv.lock — picks them
-    # up). aiohttp via discord.py (closes CVE-2026-34993, CVE-2026-47265);
-    # idna via httpx/anyio/requests (closes CVE-2026-45409); starlette via
-    # fastapi/mcp/sse-starlette (closes PYSEC-2026-161).
-    "aiohttp>=3.14.0",
+    # CVE floors (deps — some direct, most transitive — promoted to
+    # explicit floors so any resolve that starts from these ranges instead
+    # of uv.lock, e.g. `pip install -e ".[gui,all-llms]"` in
+    # .github/workflows/windows-installer.yml, still lands on the fixed
+    # versions, not just uv.lock's pins). Each line cites the version that
+    # fixed the CVE, verified against the advisory:
+    #  - aiohttp via discord.py (closes PYSEC-2026-237, CVE-2026-54273,
+    #    CVE-2026-54274, CVE-2026-54276, CVE-2026-54277, CVE-2026-54278,
+    #    CVE-2026-54279, CVE-2026-54280 — 2026-07-10 pip-audit run)
+    #  - idna via httpx/anyio/requests (closes CVE-2026-45409)
+    #  - starlette via fastapi/mcp/sse-starlette (closes PYSEC-2026-248,
+    #    PYSEC-2026-249 — same run)
+    #  - cryptography, direct dep (closes GHSA-537c-gmf6-5ccf, a
+    #    statically-linked vulnerable OpenSSL; fixed in 48.0.1)
+    #  - pydantic-settings, direct dep (closes GHSA-4xgf-cpjx-pc3j,
+    #    CVE-2026-58203, symlink escape in NestedSecretsSettingsSource;
+    #    fixed in 2.14.2)
+    #  - python-multipart, pure transitive via fastapi/starlette upload
+    #    parsing (no prior explicit floor; closes GHSA-5rvq-cxj2-64vf /
+    #    CVE-2026-53539 and GHSA-v9pg-7xvm-68hf / CVE-2026-53540; fixed in
+    #    0.0.31)
+    #  - soupsieve, pure transitive via readability-lxml's bs4 dep (no
+    #    prior explicit floor; closes GHSA-2wc2-fm75-p42x /
+    #    CVE-2026-49476 and GHSA-836r-79rf-4m37 / CVE-2026-49477; fixed in
+    #    2.8.4)
+    #  - lxml-html-clean, pure transitive via readability-lxml (no prior
+    #    explicit floor; closes GHSA-4jhm-jv67-739f / CVE-2026-49825,
+    #    xlink:href javascript: URL bypass; fixed in 0.4.5)
+    #  - lxml is not itself CVE-affected here; floor is forced by the
+    #    lxml-html-clean>=0.4.5 requirement above (lxml-html-clean 0.4.5
+    #    requires lxml>=6.1.1) — a dependency-of-the-pin floor, not an
+    #    independent CVE fix.
+    "aiohttp>=3.14.1",
     "idna>=3.15",
-    "starlette>=1.0.1",
+    "starlette>=1.3.1",
+    "cryptography>=48.0.1",
+    "pydantic-settings>=2.14.2",
+    "python-multipart>=0.0.31",
+    "soupsieve>=2.8.4",
+    "lxml-html-clean>=0.4.5",
+    "lxml>=6.1.1",
     "platformdirs>=4.0",
     # ConPTY backend for Windows PTY sessions (M15 F3 Leg 2). The env marker
     # ensures this never installs on Linux/macOS — pywinpty is Windows-only.

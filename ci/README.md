@@ -6,13 +6,22 @@ instead of GitHub Actions, to conserve GitHub Actions minutes. GitHub Actions
 fallback). `windows-installer.yml` (the `v*`-tag release path) is **untouched** and
 still owns official releases.
 
+**Pre-merge gate (GitHub Actions):** `pr-lint.yml` runs on every `pull_request`
+targeting `main` — `ruff check` + `ruff format --check` + a runtime-only `pip-audit`,
+all fail-on-nonzero. This restores automated pre-merge verification (maintenance
+report 2026-07-10 finding C1: 10 PRs had merged with no automated gate) without
+re-enabling the heavy lanes (test/browser/windows/bwrap) on PR triggers — those stay
+cost-shifted to post-merge Concourse. See "Pre-merge lint + audit gate" below for the
+pip-audit policy.
+
 Pipeline UI: `http://localhost:8080/teams/the-one/pipelines/the-one`.
 
 ## What runs where
 
 | Check | Task file | GH Actions equivalent |
 |---|---|---|
-| Lint (ruff check + format) | `ci/tasks/lint.yml` | "lint" job (`lint.yml`) |
+| Lint (ruff check + format) | `ci/tasks/lint.yml` | "lint" job (`lint.yml`, break-glass) + `pr-lint.yml` "lint" job (pre-merge, PRs) |
+| Runtime-only pip-audit | — | `pr-lint.yml` "pip-audit" job (pre-merge, PRs) |
 | Full default test suite | `ci/tasks/test.yml` | "test" job (`test.yml`) |
 | Browser tests (Playwright) | `ci/tasks/browser.yml` | "browser" job (`test.yml`) |
 | Windows curated subset (~427 tests) | `ci/tasks/windows-tests.yml` | "windows" job (`test.yml`) |
@@ -22,7 +31,30 @@ Pipeline UI: `http://localhost:8080/teams/the-one/pipelines/the-one`.
 All five CI lanes run in parallel (`in_parallel`, `fail_fast: false`) as a single `ci`
 job. The browser lane is the long pole (~9 min on Concourse, vs ~15 min on GH shared
 runners). On Concourse the full browser suite runs on **every push to `main`** — the
-path-filter that rationed it on GitHub Actions (minutes cost) is gone (DD5).
+path-filter that rationed it on GitHub Actions (minutes cost) is gone (DD5). None of
+these five lanes run on GitHub Actions PR triggers — `pr-lint.yml` (lint + pip-audit
+only) is the only pre-merge GH Actions gate; the heavy lanes stay post-merge on
+Concourse.
+
+## Pre-merge lint + audit gate
+
+`.github/workflows/pr-lint.yml` triggers `on: pull_request` (branches: `[main]`) and
+runs two jobs, both fail-on-nonzero:
+
+- **lint** — `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/`,
+  pinned to the same `ruff==0.15.15` version as `ci/tasks/lint.yml` (parity with the
+  Concourse lane).
+- **pip-audit** — audits the **runtime dependency closure only**: `uv export --no-dev
+  --no-emit-project --format requirements-txt` (excludes dev/toolchain deps and the
+  editable self-entry, which `pip-audit -r` can't resolve under `--require-hashes`)
+  piped into `pip-audit -r`. This is a **deliberate policy change** from the existing
+  `make audit` target (`Makefile:229-231`, `pip-audit --skip-editable || true`,
+  warn-only): the PR gate is blocking. It stays green once the runtime closure is
+  clean (Flight 01 Leg 01 closed the seven open clusters as of 2026-07-10) and only
+  re-reddens when a new runtime CVE appears — the intended signal. Dev-only findings
+  (e.g. `msgpack` via pip-audit's own `cachecontrol` dependency, or the `pip`
+  toolchain itself) are out of scope by construction (`--no-dev` excludes them), not
+  suppressed via an ignore-list.
 
 ## Daily use
 

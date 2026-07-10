@@ -1,0 +1,54 @@
+name: pr-lint
+
+# Fast pre-merge gate on pull requests targeting main: ruff (check + format) + a
+# runtime-only pip-audit. Routine full test/browser/windows/bwrap lanes stay on
+# local Concourse (post-merge on main, M15 F8 cost-shift) — this workflow does
+# NOT re-enable them on PR triggers; see ci/README.md for the full lane map.
+#
+# pip-audit here is a DELIBERATE POLICY CHANGE from `make audit`
+# (Makefile:229-231, `pip-audit --skip-editable || true`, warn-only): this job
+# FAILS the build on a runtime-closure finding. It audits `uv export --no-dev
+# --no-emit-project` (the runtime dependency closure only — no dev/toolchain
+# deps, no editable self-entry) so it doesn't get red on dev-only findings
+# (e.g. msgpack via pip-audit's own cachecontrol dep, or the pip toolchain
+# itself) that carry no runtime risk. It only re-reddens when a new runtime
+# CVE appears — the intended signal (Flight 01 Leg 02, maintenance report
+# 2026-07-10 finding C4).
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff==0.15.15
+      - name: Ruff check
+        run: ruff check the_one/ tests/
+      - name: Ruff format check
+        run: ruff format --check the_one/ tests/
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Install pip-audit
+        run: pip install pip-audit>=2.7
+      - name: Export runtime-only dependency closure
+        run: uv export --no-dev --no-emit-project --format requirements-txt > runtime-requirements.txt
+      - name: pip-audit (runtime closure — fails on findings)
+        run: pip-audit -r runtime-requirements.txt
