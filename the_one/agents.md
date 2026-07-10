@@ -435,12 +435,13 @@ def message_from_dict(d: dict[str, Any]) -> Message:
 
 Use `is not None` for the emit guard, NOT truthy (`if msg.<new_field>:`). Empty strings, zero counts, and other falsy-but-meaningful values must round-trip; the absence sentinel is `None` and only `None`.
 
-Citations (n=5 — pattern is well past codification threshold):
+Citations (n=6 — pattern is well past codification threshold):
 - `tool_result.metadata` (M08 F7 L05 / F5 L3) — `the_one/db/codec.py:45` (`if tr.metadata is not None`).
 - `Message.visibility` (M10 F3 L2) — `the_one/db/codec.py:66, 117` (encode + decode).
 - `Message.peer_name` (M11 F6 L1) — `the_one/db/codec.py:72, 119` (encode + decode).
 - `Message.channel_id` (M11 F7 L2) — `the_one/db/codec.py:78, 121` (encode + decode).
 - `Message.channel_name` (M11 F7 L2) — `the_one/db/codec.py:84, 123` (encode + decode).
+- `Message.created_at` (fix: message-timestamp-on-replay) — `the_one/db/codec.py` `message_to_dict`/`message_from_dict` (encode + decode). Unlike the other four citations, the dataclass default (`None`) is NOT what `Message.user`/`Message.assistant` construct with — those two factories default `created_at` to a non-None ISO timestamp (`_utcnow_iso()`) so live and replayed turns can render a "· HH:MM UTC" attribution. The emit-when-non-None guard still applies at the codec boundary; only a bare `Message(...)` (or `Message.system`/`Message.tool`) leaves it at `None`.
 
 Cross-cutting compose test (`tests/test_db_codec.py::TestMessagePeerNameCodec::test_round_trip_with_peer_name_and_visibility`) confirms multiple emit-when-non-None fields compose without interference — each is independently emitted/decoded against its own None default.
 

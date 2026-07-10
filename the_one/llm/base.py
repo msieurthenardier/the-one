@@ -5,10 +5,24 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow_iso() -> str:
+    """Current UTC time as an ISO 8601 string, used to stamp ``Message.created_at``.
+
+    Fix: message-timestamp-on-replay. Single source of truth for the "now"
+    used by ``Message.user``/``Message.assistant`` when the caller doesn't
+    supply an explicit ``created_at`` (e.g. a codec decode reconstructing a
+    historical row). Timezone-aware (UTC) so the frontend's ``fmtTs`` (which
+    reads ``getUTCHours``/etc.) renders a stable value regardless of host
+    timezone.
+    """
+    return datetime.now(timezone.utc).isoformat()
 
 
 class Role(str, Enum):
@@ -194,6 +208,20 @@ class Message:
     # resolved but name not yet cached). Meaningful only on Role.USER
     # messages; assistant/tool messages leave it at the default.
     channel_name: str | None = None
+    # Fix: message-timestamp-on-replay. Per-message creation timestamp (ISO
+    # 8601, UTC) so historical USER/ASSISTANT turns can render a "You ·
+    # HH:MM UTC" / "<agent> · HH:MM UTC" attribution on session replay —
+    # today the live UI shows a client-render-time timestamp
+    # (``new Date()`` in chat.js) but nothing is persisted, so replayed
+    # turns show no time at all. None on the dataclass itself (a bare
+    # ``Message(role=..., content=...)`` is unchanged); only the
+    # ``Message.user``/``Message.assistant`` factories default it to
+    # ``_utcnow_iso()`` when not explicitly provided. Deliberately NOT set
+    # by ``Message.system``/``Message.tool`` — those roles never render a
+    # timestamp. The codec emits the key only when non-None — pre-fix rows
+    # decode with created_at=None unchanged (message-additive-back-compat-
+    # via-emit-when-non-none convention, ``the_one/agents.md``).
+    created_at: str | None = None
 
     def __post_init__(self) -> None:
         """Assert content is str, or a USER-only list[ContentBlock].
@@ -246,6 +274,7 @@ class Message:
         peer_name: str | None = None,
         channel_id: str | None = None,
         channel_name: str | None = None,
+        created_at: str | None = None,
     ) -> Message:
         return cls(
             role=Role.USER,
@@ -254,6 +283,7 @@ class Message:
             peer_name=peer_name,
             channel_id=channel_id,
             channel_name=channel_name,
+            created_at=created_at if created_at is not None else _utcnow_iso(),
         )
 
     @classmethod
@@ -265,6 +295,7 @@ class Message:
         *,
         visibility: str | None = None,
         thinking: list[ThinkingBlock] | None = None,
+        created_at: str | None = None,
     ) -> Message:
         return cls(
             role=Role.ASSISTANT,
@@ -273,6 +304,7 @@ class Message:
             usage=usage,
             visibility=visibility,
             thinking=thinking or [],
+            created_at=created_at if created_at is not None else _utcnow_iso(),
         )
 
     @classmethod

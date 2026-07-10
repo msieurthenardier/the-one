@@ -188,6 +188,11 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
     # name not yet cached).
     if msg.channel_name is not None:
         d["channel_name"] = msg.channel_name
+    # Fix: message-timestamp-on-replay. Emit created_at only when non-None.
+    # Pre-fix rows had no created_at key; preserve that shape for back-compat
+    # (mirrors the peer_name/channel_id/channel_name pattern above).
+    if msg.created_at is not None:
+        d["created_at"] = msg.created_at
     return d
 
 
@@ -240,6 +245,9 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         channel_id=d.get("channel_id"),
         # M11 F07 L02: channel_name — None on pre-F7 rows without the key.
         channel_name=d.get("channel_name"),
+        # Fix: message-timestamp-on-replay. created_at — None on pre-fix
+        # rows without the key.
+        created_at=d.get("created_at"),
     )
 
 
@@ -352,6 +360,15 @@ def messages_to_ui_events(
         channel_name_spread = (
             {"channel_name": msg.channel_name} if msg.channel_name is not None else {}
         )
+        # Fix: message-timestamp-on-replay. created_at flows into USER and
+        # ASSISTANT events only (the two bubble types the Chat UI stamps
+        # with a "<attribution> · HH:MM UTC" line via renderAttribution —
+        # tool_call/tool_result/thinking events render no attribution row).
+        # Absent key when source created_at is None (legacy pre-fix rows) —
+        # the frontend already treats a missing/null ``ts`` as "no
+        # timestamp" (chat.js addMsg falls back to render-time `Date()` only
+        # on the LIVE path, which never reaches this projection).
+        ts_spread = {"ts": msg.created_at} if msg.created_at is not None else {}
         if msg.role == Role.USER:
             # M16 F12 L08: project through content_to_text — msg.content may
             # be a list[ContentBlock] (image-bearing turn). Without this, a
@@ -367,11 +384,12 @@ def messages_to_ui_events(
                     **peer,
                     **channel_id_spread,
                     **channel_name_spread,
+                    **ts_spread,
                 }
             )
         elif msg.role == Role.ASSISTANT:
             if msg.content:
-                events.append({"type": "assistant", "content": msg.content, **vis})
+                events.append({"type": "assistant", "content": msg.content, **vis, **ts_spread})
             # M16 F10 L05: project captured thinking as a ``thinking`` event —
             # AFTER the assistant-content event, BEFORE the tool_call events —
             # only when there is displayable reasoning text. No-thinking turns
