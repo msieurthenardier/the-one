@@ -169,7 +169,12 @@ def test_body_text_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         "accent_api",
         # status_danger_muted: idle-state color for delete affordances
         # (text + border), used on body bg AND inside surface contexts
-        # (chip-remove on chip surface; session-delete on session-item).
+        # (session-delete on session-item, .list-item-delete). NOTE (M18 F3
+        # L1 A3 fix): .chip-remove no longer uses this token at rest — it
+        # was retuned to --status-danger (body AA on the composited chip
+        # fill; see test_chip_remove_danger_on_chip_fill_passes_body_aa
+        # below), so it's no longer an example consumer of this UI-threshold
+        # pair.
         "status_danger_muted",
     ],
 )
@@ -280,6 +285,46 @@ def test_danger_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> Non
     assert ratio >= 4.5, (
         f"{theme} danger-on-soft-fill fails body AA: status_danger on "
         f"status-danger-bg-soft over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Danger glyph on the chip's accent-translucent FILL (≥ 4.5:1) — both themes
+# (M18 F3 L1 A3 fix; review-polish regression gate, obs 1)
+# ---------------------------------------------------------------------------
+
+# --accent-translucent is a low-alpha rgba wash (base color --accent) that
+# .chip (components.css) uses as its fill; .chip-remove sits on top of it.
+# Because the wash is an rgba it is NOT mirrored in design_tokens.py (see
+# that module's "Deliberately NOT mirrored" note); the gate reconstructs the
+# rendered fill by compositing --accent at the theme's translucent alpha over
+# each ladder surface, then asserts --status-danger text clears body AA on
+# that fill.
+#
+# This gates `.chip-remove` (components.css, the `.chat-attachment.chip`
+# remove glyph in the chat attach UI): M18 F3 L1's contrast fix retuned its
+# resting color from --status-danger-muted (≈4.14:1 in light theme, failed
+# body AA) to --status-danger. This test is the durable regression net so a
+# future --status-danger / --accent-translucent retune can't silently
+# regress that fix.
+#
+# Alpha per theme MUST track --accent-translucent in tokens.css.
+_ACCENT_TRANSLUCENT_ALPHA = {"dark": 0.10, "light": 0.08}
+
+
+@pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
+@pytest.mark.parametrize("theme", THEMES)
+def test_chip_remove_danger_on_chip_fill_passes_body_aa(theme: str, bg_key: str) -> None:
+    """`--status-danger` glyph text ≥ 4.5:1 on the composited `--accent-translucent`
+    chip fill, over bg AND surface AND surface-elevated, in BOTH themes."""
+    palette = _palette(theme)
+    danger = palette["status_danger"]
+    alpha = _ACCENT_TRANSLUCENT_ALPHA[theme]
+    fill = _alpha_composite(palette["accent"], alpha, palette[bg_key])
+    ratio = contrast_ratio(danger, fill)
+    assert ratio >= 4.5, (
+        f"{theme} chip-remove danger fails body AA: status_danger on "
+        f"accent-translucent over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
     )
 
 

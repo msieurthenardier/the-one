@@ -179,6 +179,75 @@ def test_chat_attachment_remove_clears_only_that_chicklet(
 
 
 @pytest.mark.browser
+def test_chat_attachment_live_region_announces_stage_and_remove(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """M18 F03 L01 (A1): a dedicated visually-hidden `aria-live="polite"`
+    status element — SEPARATE from the visible `.chat-attachments` chicklet
+    row — announces a short delta on each stage/remove mutation. The row
+    itself must NOT carry `aria-live` (it fully rebuilds via `innerHTML` on
+    every mutation, so making it the live region would re-announce every
+    remaining chip on each removal)."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+
+    page.goto(base_url)
+    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+
+    status_el = page.locator('[data-testid="chat-attachments-status"]')
+    expect(status_el).to_have_attribute("aria-live", "polite")
+    # Visually-hidden utility class (sr-only pattern) — present but not painted.
+    class_attr = status_el.get_attribute("class") or ""
+    assert "visually-hidden" in class_attr
+
+    # The visible chicklet row is a distinct element and must not itself be
+    # a live region (over-announce risk called out in the leg spec).
+    attachments_row = page.locator('[data-testid="chat-attachments"]')
+    assert attachments_row.get_attribute("aria-live") is None
+
+    _attach_and_wait_staged(page, name="first.png")
+    expect(status_el).to_have_text("Image staged", timeout=5000)
+
+    _attach_and_wait_staged(page, name="second.png")
+    expect(status_el).to_have_text("2 images staged", timeout=5000)
+
+    page.locator('[data-testid="chat-attachment-remove"]').first.click()
+    expect(status_el).to_have_text("Image removed", timeout=5000)
+
+
+@pytest.mark.browser
+def test_chat_staged_images_have_distinct_accessible_names(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """M18 F03 L01 (A2): with two images staged, the thumbnail `alt` and the
+    remove-button `aria-label` both carry a distinguishing 1-based index —
+    previously every staged image shared an identical accessible name, so a
+    screen-reader user could not tell which remove button removed which."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+
+    page.goto(base_url)
+    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+
+    _attach_and_wait_staged(page, name="first.png")
+    _attach_and_wait_staged(page, name="second.png")
+
+    chips = page.locator('[data-testid="chat-attachment"]')
+    expect(chips).to_have_count(2)
+
+    alts = [chips.nth(i).locator("img").get_attribute("alt") for i in range(2)]
+    assert alts == ["Staged image 1", "Staged image 2"]
+    assert len(set(alts)) == 2
+
+    remove_btns = page.locator('[data-testid="chat-attachment-remove"]')
+    labels = [remove_btns.nth(i).get_attribute("aria-label") for i in range(2)]
+    assert labels == ["Remove staged image 1", "Remove staged image 2"]
+    assert len(set(labels)) == 2
+
+
+@pytest.mark.browser
 def test_chat_two_images_send_includes_both_and_omits_empty_text(
     app_with_agent: SeededApp, page: Page
 ) -> None:

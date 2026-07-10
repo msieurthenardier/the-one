@@ -1,6 +1,6 @@
 # Flight: Attach-UI accessibility
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Post-Mission-16 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
@@ -69,9 +69,9 @@ A3's contrast is a token change; assert the resolved color/token, not a screensh
 reduced-motion — AAA, pre-existing shared component. Carry as an advisory.)*
 
 ### Checkpoints
-- [ ] Staging region announces stage/remove to SR (live-region present)
-- [ ] Each staged image + remove button has a distinguishing accessible name
-- [ ] Remove glyph ≥ 4.5:1 in light theme
+- [x] Staging region announces stage/remove to SR (live-region present)
+- [x] Each staged image + remove button has a distinguishing accessible name
+- [x] Remove glyph ≥ 4.5:1 in light theme
 
 ### Adaptation Criteria
 **Divert if**: adding the live-region introduces double-announcement with an
@@ -80,15 +80,15 @@ existing chat-status region — reconcile to one polite region.
 
 ### Legs
 > Planned one at a time during `/agentic-workflow`.
-- [ ] `attach-ui-a11y-pass` — live-region + distinguishing names + remove-glyph contrast (A1/A2/A3)
+- [x] `attach-ui-a11y-pass` — live-region + distinguishing names + remove-glyph contrast (A1/A2/A3) — landed 2026-07-10, pending review
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
+- [x] All legs completed
+- [ ] Code merged (PR opened; merge on land)
 - [ ] Tests passing (browser DOM assertions)
 - [ ] `docs/ui-testid-registry.md` updated if any testid added
 

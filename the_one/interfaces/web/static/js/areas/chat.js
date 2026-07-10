@@ -160,6 +160,18 @@ App.registerArea({
       }
       attachmentsEl.style.display = stagedImages.length ? 'flex' : 'none';
     }
+    // M18 F03 L01 (A1): a SEPARATE visually-hidden aria-live="polite" status
+    // element announces a short delta per stage/remove mutation. Deliberately
+    // NOT on the visible `.chat-attachments` row above — that row fully
+    // rebuilds via innerHTML on every mutation (see renderAttachments()), so
+    // making IT the live region would re-announce all N remaining chips on
+    // every single removal. This element's `textContent` is instead set to
+    // just the delta for the mutation that just happened, mirroring the
+    // aria-live="polite" precedent set by pendingQueuedEl (chat.js ~line 61).
+    var attachmentsStatusEl;
+    function announceAttachmentChange(text) {
+      if (attachmentsStatusEl) attachmentsStatusEl.textContent = text;
+    }
     // One removable chicklet: thumbnail + a per-chip ✕ that removes just
     // this image (closes over `idx` — safe because renderAttachments()
     // rebuilds every chip from scratch on every mutation, so indices are
@@ -170,9 +182,15 @@ App.registerArea({
       chip.setAttribute('data-testid', 'chat-attachment');
       chip.setAttribute('data-attachment-index', String(idx));
 
+      // M18 F03 L01 (A2): interpolate the 1-based index so no two staged
+      // images share an identical accessible name (thumbnail alt / remove
+      // aria-label) — with multi-image staging a user relying on a screen
+      // reader could not otherwise tell which chip/remove-button was which.
+      var displayIndex = idx + 1;
+
       var thumb = document.createElement('img');
       thumb.className = 'chat-attachment-thumb';
-      thumb.alt = 'Staged image attachment';
+      thumb.alt = 'Staged image ' + displayIndex;
       thumb.style.width = '24px';
       thumb.style.height = '24px';
       thumb.style.objectFit = 'cover';
@@ -185,7 +203,7 @@ App.registerArea({
       removeBtn.type = 'button';
       removeBtn.className = 'chat-attachment-remove chip-remove';
       removeBtn.setAttribute('data-testid', 'chat-attachment-remove');
-      removeBtn.setAttribute('aria-label', 'Remove attached image');
+      removeBtn.setAttribute('aria-label', 'Remove staged image ' + displayIndex);
       removeBtn.style.fontSize = '12px';
       removeBtn.textContent = '✕';
       removeBtn.addEventListener('click', function () { removeStagedImage(idx); });
@@ -196,10 +214,14 @@ App.registerArea({
     function appendStagedImage(img) {
       stagedImages.push(img);
       renderAttachments();
+      announceAttachmentChange(
+        stagedImages.length === 1 ? 'Image staged' : stagedImages.length + ' images staged'
+      );
     }
     function removeStagedImage(idx) {
       stagedImages.splice(idx, 1);
       renderAttachments();
+      announceAttachmentChange('Image removed');
     }
     function clearStagedImages() {
       stagedImages = [];
@@ -268,6 +290,13 @@ App.registerArea({
         // container is driven purely via style.display, never `hidden`.
         // renderAttachments() rebuilds the chicklets and toggles visibility.
         '<div class="chat-attachments" data-testid="chat-attachments" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>' +
+        // M18 F03 L01 (A1): visually-hidden status element announcing a
+        // short delta ("Image staged" / "Image removed" / "N images
+        // staged") on each staged-image mutation. Kept SEPARATE from the
+        // chicklet row above (which fully rebuilds via innerHTML and would
+        // over-announce on removal — see the comment on
+        // announceAttachmentChange()).
+        '<div class="visually-hidden" aria-live="polite" data-testid="chat-attachments-status"></div>' +
         '<div class="input-area">' +
           '<input class="field-input" data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
           // M16 F12 L08: minimal image-ingestion producer. The file input is
@@ -294,6 +323,7 @@ App.registerArea({
     fileInputEl = content.querySelector('.input-area input[type="file"]');
     attachBtn = content.querySelector('.input-area .btn-outlined-primary');
     attachmentsEl = content.querySelector('.chat-attachments');
+    attachmentsStatusEl = content.querySelector('[data-testid="chat-attachments-status"]');
     stopBtn = content.querySelector('.input-area .btn-muted-destructive');
     sendBtn = content.querySelector('.input-area .btn-filled-primary');
     agentBadgeEl = content.querySelector('.session-agent-badge');
@@ -1590,10 +1620,13 @@ App.registerArea({
           reader.readAsDataURL(file);
         })(files[i]);
       }
-      // Notices via the established addMsg('system', ...) mechanism
-      // (design review — coordinate with the Flight 3 a11y live-region,
-      // which will announce these once it lands; for now this is at
-      // minimum visible in the message list).
+      // Cap-rejection notices announce via the established addMsg('system',
+      // ...) mechanism, which lands in the message log's own
+      // role="log" aria-live="polite" region (chat.js ~line 279) — that has
+      // always announced these to SR users. The M18 F03 L01 a11y pass added
+      // a SEPARATE live-region (announceAttachmentChange()) that only
+      // covers the staging-row silence (stage/remove of individual
+      // chicklets); it is intentionally not wired to these cap notices.
       if (rejectedForSize) {
         addMsg(
           'system',
