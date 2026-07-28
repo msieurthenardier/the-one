@@ -47,7 +47,9 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install pip-audit
-        run: pip install pip-audit>=2.7
+        # Quoted — unquoted, bash parses `>=2.7` as a redirect and installs
+        # pip-audit unpinned while writing stdout to a stray file named `=2.7`.
+        run: pip install "pip-audit>=2.7"
       - name: Export runtime-only dependency closure
         run: uv export --no-dev --no-emit-project --format requirements-txt > runtime-requirements.txt
       - name: pip-audit (runtime closure — fails on findings)
