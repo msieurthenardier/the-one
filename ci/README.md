@@ -7,7 +7,7 @@ fallback). `windows-installer.yml` (the `v*`-tag release path) is **untouched** 
 still owns official releases.
 
 **Pre-merge gate (GitHub Actions):** `pr-lint.yml` runs on every `pull_request`
-targeting `main` — `ruff check` + `ruff format --check` + a runtime-only `pip-audit`,
+targeting `main` — `ruff check` + `ruff format --check` + a release-closure `pip-audit`,
 all fail-on-nonzero. This restores automated pre-merge verification (maintenance
 report 2026-07-10 finding C1: 10 PRs had merged with no automated gate) without
 re-enabling the heavy lanes (test/browser/windows/bwrap) on PR triggers — those stay
@@ -21,7 +21,7 @@ Pipeline UI: `http://localhost:8080/teams/the-one/pipelines/the-one`.
 | Check | Task file | GH Actions equivalent |
 |---|---|---|
 | Lint (ruff check + format) | `ci/tasks/lint.yml` | "lint" job (`lint.yml`, break-glass) + `pr-lint.yml` "lint" job (pre-merge, PRs) |
-| Runtime-only pip-audit | — | `pr-lint.yml` "pip-audit" job (pre-merge, PRs) |
+| Release-closure pip-audit | — | `pr-lint.yml` "pip-audit" job (pre-merge, PRs) |
 | Full default test suite | `ci/tasks/test.yml` | "test" job (`test.yml`) |
 | Browser tests (Playwright) | `ci/tasks/browser.yml` | "browser" job (`test.yml`) |
 | Windows curated subset (~427 tests) | `ci/tasks/windows-tests.yml` | "windows" job (`test.yml`) |
@@ -44,16 +44,22 @@ runs two jobs, both fail-on-nonzero:
 - **lint** — `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/`,
   pinned to the same `ruff==0.15.15` version as `ci/tasks/lint.yml` (parity with the
   Concourse lane).
-- **pip-audit** — audits the **runtime dependency closure only**: `uv export --no-dev
-  --no-emit-project --format requirements-txt` (excludes dev/toolchain deps and the
-  editable self-entry, which `pip-audit -r` can't resolve under `--require-hashes`)
-  piped into `pip-audit -r`. This is a **deliberate policy change** from the existing
-  `make audit` target (`Makefile:229-231`, `pip-audit --skip-editable || true`,
-  warn-only): the PR gate is blocking. It stays green once the runtime closure is
-  clean (Flight 01 Leg 01 closed the seven open clusters as of 2026-07-10) and only
-  re-reddens when a new runtime CVE appears — the intended signal. Dev-only findings
-  (e.g. `msgpack` via pip-audit's own `cachecontrol` dependency, or the `pip`
-  toolchain itself) are out of scope by construction (`--no-dev` excludes them), not
+- **pip-audit** — audits the **release dependency closure**: `uv export --no-dev
+  --no-emit-project --extra gui --extra all-llms --format requirements-txt` (the
+  closure the Windows installer actually ships — `windows-installer.yml` installs
+  `.[gui,all-llms]`; excludes dev/toolchain deps and the editable self-entry) fed to
+  `pip-audit --disable-pip -r`. `--disable-pip` audits the pinned+hashed export
+  as written with no resolver/dry-run install — needed because the gui extra's linux
+  marker pulls `pycairo` (via `pywebview[gtk]`), which can't metadata-build on the
+  runner and isn't part of the shipped artifact anyway. The extras were added
+  2026-07-28 after pillow's advisories (gui-extra-only, so invisible to the previous
+  base-runtime-only export) were caught by a full-venv audit instead of this gate.
+  This is a **deliberate policy change** from the existing `make audit` target
+  (`Makefile:229-231`, `pip-audit --skip-editable || true`, warn-only): the PR gate
+  is blocking. It stays green while the release closure is clean and only re-reddens
+  when a new CVE appears in it — the intended signal. Dev-only findings (e.g.
+  `msgpack` via pip-audit's own `cachecontrol` dependency, or the `pip` toolchain
+  itself) are out of scope by construction (`--no-dev` excludes them), not
   suppressed via an ignore-list.
 
 ## Daily use
