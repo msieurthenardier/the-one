@@ -1,6 +1,6 @@
 # Leg: 05-icon-system
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Design Language & Theme Architecture](../flight.md)
 
 ## Objective

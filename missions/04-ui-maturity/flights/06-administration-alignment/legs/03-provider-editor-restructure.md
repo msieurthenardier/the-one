@@ -1,6 +1,6 @@
 # Leg: 03-provider-editor-restructure
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Administration Alignment](../flight.md)
 
 ## Objective

@@ -1,6 +1,6 @@
 # Leg: 02-provider-tile-grid-and-page-headers
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Administration Alignment](../flight.md)
 
 ## Objective
@@ -800,7 +800,7 @@ Append to `flight-log.md` under `## Leg Progress`:
 
 ```markdown
 ### 02-provider-tile-grid-and-page-headers
-**Status**: landed
+**Status**: completed
 **Started**: <ISO timestamp>
 **Completed**: <ISO timestamp>
 

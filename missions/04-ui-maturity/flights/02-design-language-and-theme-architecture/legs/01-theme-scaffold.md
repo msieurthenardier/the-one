@@ -1,6 +1,6 @@
 # Leg: 01-theme-scaffold
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Design Language & Theme Architecture](../flight.md)
 
 ## Objective
