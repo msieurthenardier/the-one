@@ -1,19 +1,21 @@
 name: pr-lint
 
 # Fast pre-merge gate on pull requests targeting main: ruff (check + format) + a
-# runtime-only pip-audit. Routine full test/browser/windows/bwrap lanes stay on
+# release-closure pip-audit. Routine full test/browser/windows/bwrap lanes stay on
 # local Concourse (post-merge on main, M15 F8 cost-shift) — this workflow does
 # NOT re-enable them on PR triggers; see ci/README.md for the full lane map.
 #
 # pip-audit here is a DELIBERATE POLICY CHANGE from `make audit`
 # (Makefile:229-231, `pip-audit --skip-editable || true`, warn-only): this job
-# FAILS the build on a runtime-closure finding. It audits `uv export --no-dev
-# --no-emit-project` (the runtime dependency closure only — no dev/toolchain
-# deps, no editable self-entry) so it doesn't get red on dev-only findings
-# (e.g. msgpack via pip-audit's own cachecontrol dep, or the pip toolchain
-# itself) that carry no runtime risk. It only re-reddens when a new runtime
-# CVE appears — the intended signal (Flight 01 Leg 02, maintenance report
-# 2026-07-10 finding C4).
+# FAILS the build on a release-closure finding. It audits `uv export --no-dev
+# --no-emit-project --extra gui --extra all-llms` (the closure the Windows
+# installer ships — no dev/toolchain deps, no editable self-entry) so it
+# doesn't get red on dev-only findings (e.g. msgpack via pip-audit's own
+# cachecontrol dep, or the pip toolchain itself) that carry no shipped risk.
+# It only re-reddens when a new CVE appears in the release closure — the
+# intended signal (Flight 01 Leg 02, maintenance report 2026-07-10 finding
+# C4; extras added 2026-07-28 after gui-only pillow advisories slipped past
+# the base-runtime-only export).
 on:
   pull_request:
     branches: [main]
@@ -50,7 +52,18 @@ jobs:
         # Quoted — unquoted, bash parses `>=2.7` as a redirect and installs
         # pip-audit unpinned while writing stdout to a stray file named `=2.7`.
         run: pip install "pip-audit>=2.7"
-      - name: Export runtime-only dependency closure
-        run: uv export --no-dev --no-emit-project --format requirements-txt > runtime-requirements.txt
-      - name: pip-audit (runtime closure — fails on findings)
-        run: pip-audit -r runtime-requirements.txt
+      - name: Export release dependency closure (runtime + installer extras)
+        # --extra gui --extra all-llms: audit the closure the Windows
+        # installer actually ships (windows-installer.yml installs
+        # ".[gui,all-llms]"), not just the base runtime deps — pillow's
+        # 2026-07-28 advisories were invisible to the base-only export
+        # because pillow only enters via the gui extra.
+        run: uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
+      - name: pip-audit (release closure — fails on findings)
+        # --disable-pip: audit the pinned+hashed export exactly as written,
+        # no resolver/dry-run install. Required here because the gui extra's
+        # linux marker pulls pycairo (via pywebview[gtk]), whose metadata
+        # build needs system cairo/pkg-config the runner doesn't have — and
+        # the linux gtk chain isn't part of the shipped artifact anyway.
+        # Exit semantics verified: 1 on findings, 0 clean.
+        run: pip-audit --disable-pip -r release-requirements.txt
