@@ -1,6 +1,6 @@
 # Leg: 08-snapshots-and-docs
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Design Language & Theme Architecture](../flight.md)
 
 ## Objective

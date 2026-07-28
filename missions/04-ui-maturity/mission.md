@@ -1,6 +1,16 @@
 # Mission: UI Maturity
 
-**Status**: active
+**Status**: completed
+
+> **Closed 2026-07-27 (retroactive).** All 6 flights landed and were debriefed by
+> 2026-04-28; the mission was left `active` by oversight and is closed as of the
+> F6 debrief date. All 9 success criteria were met (evidence: F1–F6 flight
+> debriefs; F6 HAT verified the alignment trio end-state). The UI surface was
+> subsequently reworked again by [Mission 17 — UI Redesign](../17-ui-redesign/mission.md).
+> Three Known Issues below were punted and remain open backlog as of this close:
+> theme generator under Settings, session-cumulative telemetry, and the
+> single-line chat input (still `<input>` at `chat.js:301`) — candidates for a
+> future mission's planning pool.
 
 ## Outcome
 
@@ -21,15 +31,15 @@ The mission addresses these in two phases. The first three flights lay groundwor
 
 ## Success Criteria
 
-- [ ] The interface presents a coherent visual identity — typography, spacing, color, and interaction patterns are consistent across all areas
-- [ ] The color system meets accessibility contrast standards (WCAG AA) for text, interactive elements, and focus indicators
-- [ ] Visual themes are swappable without code changes, allowing palette and density adjustments through configuration
-- [ ] Navigation state (current area and active sub-view, including selected entity) is reflected in the URL and survives page refresh
-- [ ] A persistent top-level navigation pattern surfaces the current app identity and provides consistent access to the area switcher
-- [ ] Common interaction patterns (creating a new entity, editing, confirming destructive actions, displaying empty states) behave consistently across all areas
-- [ ] Critical user flows (start a new chat, create and configure an agent, add and verify a provider) progress without dead-ends, unexplained errors, or unclear next steps
-- [ ] Automated browser tests cover the critical user flows and fail on regression, runnable both locally and in CI
-- [ ] Each functional area (Chat, Studio, Administration) reflects the established design language and meets a quality bar suitable for showing to external developers without apology
+- [x] The interface presents a coherent visual identity — typography, spacing, color, and interaction patterns are consistent across all areas
+- [x] The color system meets accessibility contrast standards (WCAG AA) for text, interactive elements, and focus indicators
+- [x] Visual themes are swappable without code changes, allowing palette and density adjustments through configuration
+- [x] Navigation state (current area and active sub-view, including selected entity) is reflected in the URL and survives page refresh
+- [x] A persistent top-level navigation pattern surfaces the current app identity and provides consistent access to the area switcher
+- [x] Common interaction patterns (creating a new entity, editing, confirming destructive actions, displaying empty states) behave consistently across all areas
+- [x] Critical user flows (start a new chat, create and configure an agent, add and verify a provider) progress without dead-ends, unexplained errors, or unclear next steps
+- [x] Automated browser tests cover the critical user flows and fail on regression, runnable both locally and in CI
+- [x] Each functional area (Chat, Studio, Administration) reflects the established design language and meets a quality bar suitable for showing to external developers without apology
 
 ## Stakeholders
 

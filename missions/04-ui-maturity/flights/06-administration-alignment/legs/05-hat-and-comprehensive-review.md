@@ -1,6 +1,6 @@
 # Leg: 05-hat-and-comprehensive-review
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Administration Alignment](../flight.md)
 
 ## Objective

@@ -1,6 +1,6 @@
 # Leg: 01-system-merge-and-section-nav-lift
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Administration Alignment](../flight.md)
 
 ## Objective
@@ -613,7 +613,7 @@ Append to `flight-log.md` under `## Leg Progress`:
 
 ```markdown
 ### 01-system-merge-and-section-nav-lift
-**Status**: landed
+**Status**: completed
 **Started**: <ISO timestamp>
 **Completed**: <ISO timestamp>
 

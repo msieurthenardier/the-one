@@ -1,6 +1,6 @@
 # Flight: Input robustness
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Post-Mission-16 Maintenance](../../mission.md)
 
 ## Contributing to Criteria

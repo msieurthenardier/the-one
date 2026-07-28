@@ -1,6 +1,6 @@
 # Leg: 04-dirty-state-and-confirm-dialog-wiring
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Administration Alignment](../flight.md)
 
 ## Objective

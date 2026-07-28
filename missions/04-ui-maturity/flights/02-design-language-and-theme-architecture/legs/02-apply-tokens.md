@@ -1,6 +1,6 @@
 # Leg: 02-apply-tokens
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Design Language & Theme Architecture](../flight.md)
 
 ## Objective

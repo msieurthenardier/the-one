@@ -1,6 +1,6 @@
 # Leg: 03-visual-realization
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Design Language & Theme Architecture](../flight.md)
 
 ## Objective

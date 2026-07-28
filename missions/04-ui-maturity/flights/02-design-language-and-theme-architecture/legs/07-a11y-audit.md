@@ -1,6 +1,6 @@
 # Leg: 07-a11y-audit
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Design Language & Theme Architecture](../flight.md)
 
 ## Objective

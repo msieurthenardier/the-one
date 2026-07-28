@@ -1,6 +1,6 @@
 # Leg: 09-hat-and-alignment
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Design Language & Theme Architecture](../flight.md)
 
 ## Objective
