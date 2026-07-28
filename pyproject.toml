@@ -24,7 +24,9 @@ dependencies = [
     # SDK used by DiscordPlugin in F8 L3+). Bound to 2.4.x to lock the
     # connector's surface against accidental major-version SDK upgrades.
     "discord.py>=2.4,<2.5",
-    "mcp==1.27.0",
+    # 1.28.1 closes PYSEC-2026-3481/3482/3483 (2026-07-28 pr-lint pip-audit
+    # run; 1.27.2 fixed only 3481/3482 — 3483 needed 1.28.1).
+    "mcp==1.28.1",
     # CVE floors (deps — some direct, most transitive — promoted to
     # explicit floors so any resolve that starts from these ranges instead
     # of uv.lock, e.g. `pip install -e ".[gui,all-llms]"` in
@@ -57,7 +59,11 @@ dependencies = [
     #    lxml-html-clean>=0.4.5 requirement above (lxml-html-clean 0.4.5
     #    requires lxml>=6.1.1) — a dependency-of-the-pin floor, not an
     #    independent CVE fix.
+    #  - click, pure transitive via uvicorn/mcp (no prior explicit floor;
+    #    closes PYSEC-2026-2132; fixed in 8.3.3 — 2026-07-28 pr-lint
+    #    pip-audit run)
     "aiohttp>=3.14.1",
+    "click>=8.3.3",
     "idna>=3.15",
     "starlette>=1.3.1",
     "cryptography>=48.0.1",
