@@ -27,6 +27,7 @@ ADMIN_JS = JS_DIR / "areas" / "admin.js"
 
 REASONING_CAPABLE_TYPES = (
     "anthropic",
+    "anthropic-plan",
     "openai",
     "openrouter",
     "ollama",

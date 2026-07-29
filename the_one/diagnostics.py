@@ -165,6 +165,7 @@ def _probe_desktop_shell() -> ProbeResult:
 _LLM_PROVIDER_MODULES: tuple[str, ...] = (
     "the_one.llm.ollama_provider",
     "the_one.llm.anthropic_provider",
+    "the_one.llm.anthropic_plan_provider",
     "the_one.llm.openai_provider",
     "the_one.llm.openrouter_provider",
     "the_one.llm.mock",

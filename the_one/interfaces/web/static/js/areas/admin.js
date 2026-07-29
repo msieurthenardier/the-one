@@ -184,6 +184,13 @@ App.registerArea({
       'openai-compatible': { base_url: '', showBaseUrl: true, showApiKey: true, showReasoningEffort: true },
       'openai': { base_url: 'https://api.openai.com/v1', showBaseUrl: false, showApiKey: true, showReasoningEffort: true },
       'anthropic': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true, showThinkingEnabled: true, showReasoningEffort: true },
+      // anthropic-plan (M19 F01 L03): OAuth sign-in instead of an API key —
+      // no api-key input EVER (mission criterion), base_url hidden but
+      // force-submitted from this default (the model requires it and the
+      // type is NOT URL-validation-skipped). Thinking/reasoning surface
+      // mirrors 'anthropic' so extended-thinking parity is reachable.
+      // showPlanSignIn drives the sign-in section's type-driven show/hide.
+      'anthropic-plan': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: false, showThinkingEnabled: true, showReasoningEffort: true, showPlanSignIn: true },
       'mock': { base_url: '', showBaseUrl: false, showApiKey: false },
       'openrouter': { base_url: 'https://openrouter.ai/api/v1', showBaseUrl: true, showApiKey: true, showReasoningEffort: true }
     };

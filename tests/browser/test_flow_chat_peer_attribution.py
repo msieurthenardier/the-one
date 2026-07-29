@@ -32,6 +32,7 @@ brittle. Future refactor can de-duplicate into a shared fixture module.
 from __future__ import annotations
 
 import os
+import re
 import signal
 import socket
 import sqlite3
@@ -243,10 +244,13 @@ def test_chat_renders_peer_attribution(
     expect(operator_user_bubbles).to_have_count(1)
 
     # Assertion 3: first peer bubble's immediately-following attribution
-    # element has class 'msg-attribution from-peer' and text 'alice'.
-    # renderHistory emits ts=null on replay (codec doesn't carry ts for
-    # restored messages), so the ' · {ts}' suffix is suppressed —
-    # attribution text is the bare peer name.
+    # element has class 'msg-attribution from-peer' and text starting with
+    # 'alice'. Since the message-timestamp-on-replay fix (PR #159,
+    # 8b02669), Message.user()/assistant() persist created_at and the codec
+    # projects it as `ts` on replay, so restored attributions render with a
+    # ' · HH:MM:SS UTC' suffix — assert prefix + suffix shape, not bare
+    # equality (this test predated the fix and was asserting the pre-fix
+    # bare-name rendering; caught stale in M19 F01 L03's full-suite run).
     first_peer = peer_bubbles.nth(0)
     first_peer_attr = first_peer.evaluate(
         """el => {
@@ -265,8 +269,9 @@ def test_chat_renders_peer_attribution(
     assert "from-peer" in first_peer_attr["cls"], (
         f"expected from-peer class on first peer attribution, got cls={first_peer_attr['cls']!r}"
     )
-    assert first_peer_attr["text"] == "alice", (
-        f"expected first peer attribution text 'alice', got {first_peer_attr['text']!r}"
+    assert re.fullmatch(r"alice( · \d{2}:\d{2}(:\d{2})? UTC)?", first_peer_attr["text"]), (
+        f"expected first peer attribution 'alice' (+ optional ' · HH:MM[:SS] UTC' "
+        f"timestamp suffix), got {first_peer_attr['text']!r}"
     )
 
     # Assertion 4: second peer bubble's attribution is 'bob' and from-peer.
@@ -284,8 +289,9 @@ def test_chat_renders_peer_attribution(
     assert "from-peer" in second_peer_attr["cls"], (
         f"expected from-peer class on second peer attribution, got cls={second_peer_attr['cls']!r}"
     )
-    assert second_peer_attr["text"] == "bob", (
-        f"expected second peer attribution text 'bob', got {second_peer_attr['text']!r}"
+    assert re.fullmatch(r"bob( · \d{2}:\d{2}(:\d{2})? UTC)?", second_peer_attr["text"]), (
+        f"expected second peer attribution 'bob' (+ optional ' · HH:MM[:SS] UTC' "
+        f"timestamp suffix), got {second_peer_attr['text']!r}"
     )
 
     # Assertion 5: operator-typed user bubble's attribution is 'You' on
@@ -304,8 +310,9 @@ def test_chat_renders_peer_attribution(
     assert "from-you" in op_user_attr["cls"], (
         f"expected from-you class on operator-typed attribution, got cls={op_user_attr['cls']!r}"
     )
-    assert op_user_attr["text"] == "You", (
-        f"expected operator-typed attribution text 'You', got {op_user_attr['text']!r}"
+    assert re.fullmatch(r"You( · \d{2}:\d{2}(:\d{2})? UTC)?", op_user_attr["text"]), (
+        f"expected operator-typed attribution 'You' (+ optional ' · HH:MM[:SS] UTC' "
+        f"timestamp suffix), got {op_user_attr['text']!r}"
     )
 
     # Assertion 6: computed style on the peer bubble — the source-order

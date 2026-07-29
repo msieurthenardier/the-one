@@ -180,6 +180,19 @@ caught — but it cannot see where the attribute is emitted.
 | `pending-queued` | chat | |
 | `pending-queued-cancel` | chat | |
 | `pending-queued-region` | chat | |
+| `plan-code-input` | admin | anthropic-plan sign-in: consent-code paste field (no `data-field` — deliberately outside the dirty snapshot) |
+| `plan-code-submit-btn` | admin | anthropic-plan sign-in: submit pasted code → POST /oauth/code |
+| `plan-connected-indicator` | admin | anthropic-plan sign-in: connected-state label |
+| `plan-reauth-btn` | admin | anthropic-plan sign-in: standing re-auth affordance (connected state) |
+| `plan-reset-btn` | admin | anthropic-plan sign-in: reset connection (two-step confirm) → DELETE /oauth |
+| `plan-signin-btn` | admin | anthropic-plan sign-in: save-gated sign-in affordance |
+| `plan-signin-consent` | admin | anthropic-plan sign-in: consent block wrapper (URL + code paste) |
+| `plan-signin-copy-btn` | admin | anthropic-plan sign-in: copy authorize URL |
+| `plan-signin-error` | admin | anthropic-plan sign-in: inline error area |
+| `plan-signin-hint` | admin | anthropic-plan sign-in: save-first hint (create mode) |
+| `plan-signin-open-btn` | admin | anthropic-plan sign-in: gesture-context popup opener |
+| `plan-signin-url` | admin | anthropic-plan sign-in: copyable authorize URL (readonly input) |
+| `plan-test-reauth` | admin | provider /test result: distinct reauth_required message span |
 | `provider-card` | admin | |
 | `purge-history-btn` | studio | |
 | `reset-mcp-connection-btn` | studio | |

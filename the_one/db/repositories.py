@@ -1384,7 +1384,7 @@ class LLMProviderRepository:
     async def create(self, provider: LLMProviderConfig) -> None:
         await self.conn.execute(
             "INSERT INTO llm_providers (id, name, type, base_url, api_key, config,"
-            " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " secrets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             self._to_row(provider),
         )
         await self.conn.commit()
@@ -1394,15 +1394,37 @@ class LLMProviderRepository:
             raise KeyError(f"Provider not found: {provider.id}")
         await self.conn.execute(
             "UPDATE llm_providers SET name=?, type=?, base_url=?, api_key=?,"
-            " config=?, updated_at=? WHERE id=?",
+            " config=?, secrets=?, updated_at=? WHERE id=?",
             (
                 provider.name,
                 provider.type,
                 provider.base_url,
                 self.encryptor.encrypt_optional(provider.api_key),
                 json.dumps(provider.config),
+                _encrypt_secrets_blob(self.encryptor, provider.secrets),
                 now_iso(),
                 provider.id,
+            ),
+        )
+        await self.conn.commit()
+
+    async def update_secrets(self, provider_id: str, secrets: dict[str, Any]) -> None:
+        """Replace ONLY the encrypted OAuth-secrets blob for one provider.
+
+        M19 F01 L01 (leg design decision): token persistence after an OAuth
+        exchange/refresh goes through this dedicated method — NOT the
+        full-model :meth:`update` — so the PUT-preserve contract in the API
+        layer and token writes stay independent (a token write can never
+        clobber concurrent config edits, and vice versa).
+        """
+        if not await self._exists(provider_id):
+            raise KeyError(f"Provider not found: {provider_id}")
+        await self.conn.execute(
+            "UPDATE llm_providers SET secrets=?, updated_at=? WHERE id=?",
+            (
+                _encrypt_secrets_blob(self.encryptor, secrets),
+                now_iso(),
+                provider_id,
             ),
         )
         await self.conn.commit()
@@ -1427,11 +1449,15 @@ class LLMProviderRepository:
             provider.base_url,
             self.encryptor.encrypt_optional(provider.api_key),
             json.dumps(provider.config),
+            _encrypt_secrets_blob(self.encryptor, provider.secrets),
             provider.created_at,
             provider.updated_at,
         )
 
     def _row_to_model(self, row: aiosqlite.Row) -> LLMProviderConfig:
+        # ``secrets`` uses the shared tolerant decrypt: a v33-migrated row
+        # carries the plaintext '{}' column default, which InvalidToken-
+        # falls-back to {} until the first real secrets write re-encrypts.
         return LLMProviderConfig(
             id=row["id"],
             name=row["name"],
@@ -1439,6 +1465,7 @@ class LLMProviderRepository:
             base_url=row["base_url"],
             api_key=self.encryptor.decrypt_optional(row["api_key"]),
             config=json.loads(row["config"] or "{}"),
+            secrets=_decrypt_secrets_blob(self.encryptor, row["secrets"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

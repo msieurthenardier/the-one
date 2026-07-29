@@ -134,9 +134,7 @@ class AnthropicProvider(LLMProvider):
     def __init__(self, model: str = "claude-sonnet-4-6", api_key: str | None = None, **kwargs: Any):
         super().__init__()
         self.model = model
-        self.client = anthropic.AsyncAnthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
-        )
+        self.client = self._build_client(api_key)
         # M16 F10 L03 (adaptive pivot): per-provider extended-thinking on/off,
         # read from the free-form ``config`` dict (``config["thinking_enabled"]``
         # — the exact key Leg 06's admin toggle writes). Coerced to ``bool | None``
@@ -154,6 +152,33 @@ class AnthropicProvider(LLMProvider):
         self._reasoning_effort_config = _coerce_effort(_cfg.get("reasoning_effort"))
         self._response_format_config = _coerce_response_format(_cfg.get("response_format"))
         self._stop_config = _coerce_stop(_cfg.get("stop"))
+
+    def _build_client(self, api_key: str | None) -> anthropic.AsyncAnthropic:
+        """Construct the SDK client. Seam for subclasses (M19 F01 DD-4):
+        ``AnthropicPlanProvider`` overrides this to build a bearer-token
+        (``auth_token``) client with the OAuth beta header instead of the
+        ``x-api-key`` client below. Behavior-preserving extraction — the
+        body is byte-identical to the previous inline construction."""
+        return anthropic.AsyncAnthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+
+    async def _before_request(self) -> None:
+        """Pre-request hook, awaited at the top of ``complete()`` and ``stream()``.
+
+        M19 F01 DD-4: a deliberate no-op here — the API-key provider's
+        behavior is unchanged. ``AnthropicPlanProvider`` overrides this to
+        ensure a fresh OAuth access token before every request. The hook
+        exists because the SDK client is built eagerly in a sync
+        ``__init__`` (no seam to ``await`` a refresh) and the only other
+        async pre-call hook (``_resolve_max_context_tokens_if_needed``)
+        swallows all exceptions, which would silently eat the typed
+        re-auth-required error.
+
+        Note: ``stream()`` is an async generator, so for streaming this
+        hook runs at FIRST ITERATION (generators execute lazily) and any
+        error it raises surfaces during iteration — that is the intended
+        contract; do not convert ``stream()`` to an eager coroutine.
+        """
+        return None
 
     async def _resolve_max_context_tokens(self) -> None:
         # Catalog-sourced (M16 F05): replaces the prior no-op that assumed all
@@ -283,6 +308,7 @@ class AnthropicProvider(LLMProvider):
         *,
         enable_thinking: bool | None = None,
     ) -> Message:
+        await self._before_request()
         await self._resolve_max_context_tokens_if_needed()
         kwargs = self._build_kwargs(messages, tools, temperature, max_tokens, enable_thinking)
 
@@ -356,6 +382,7 @@ class AnthropicProvider(LLMProvider):
         practice, Anthropic raises BadRequestError on request submission
         (before any text deltas), so the gate is defence-in-depth.
         """
+        await self._before_request()
         await self._resolve_max_context_tokens_if_needed()
         kwargs = self._build_kwargs(messages, tools, temperature, max_tokens, enable_thinking)
         yielded_any = False

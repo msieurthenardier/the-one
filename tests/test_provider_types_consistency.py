@@ -1,6 +1,6 @@
 """Pin the three provider-type representations to one source of truth.
 
-The 6 valid ``LLMProviderConfig.type`` values live in three places that
+The 7 valid ``LLMProviderConfig.type`` values live in three places that
 must agree. This file is the cross-layer contract test. If any of these
 asserts fail, fix the drift in ``the_one/db/_provider_types.py`` and the
 re-derivation in the offending site (do NOT edit a single site to make
@@ -14,10 +14,10 @@ from typing import get_args
 import aiosqlite
 import pytest
 
-from the_one.agent.factory import _PROVIDER_TYPE_MAP
 from the_one.db._provider_types import PROVIDER_TYPES
 from the_one.db.models import LLMProviderConfig
 from the_one.db.schema import ensure_schema
+from the_one.llm.registry import PROVIDER_TYPE_MAP
 
 
 def test_provider_types_tuple_has_expected_members() -> None:
@@ -30,6 +30,7 @@ def test_provider_types_tuple_has_expected_members() -> None:
         "anthropic",
         "mock",
         "openrouter",
+        "anthropic-plan",
     }
 
 
@@ -41,10 +42,11 @@ def test_pydantic_literal_matches_provider_types() -> None:
     assert set(get_args(annotation)) == set(PROVIDER_TYPES)
 
 
-def test_factory_provider_type_map_keys_match_provider_types() -> None:
-    """The agent factory must dispatch every declared provider type to a
-    registry name."""
-    assert set(_PROVIDER_TYPE_MAP.keys()) == set(PROVIDER_TYPES)
+def test_provider_type_map_keys_match_provider_types() -> None:
+    """The dispatch map (lifted to ``the_one.llm.registry`` in M19 F01 L02;
+    consumed by the agent factory, connector inference, and the provider API
+    branches) must dispatch every declared provider type to a registry name."""
+    assert set(PROVIDER_TYPE_MAP.keys()) == set(PROVIDER_TYPES)
 
 
 @pytest.mark.asyncio

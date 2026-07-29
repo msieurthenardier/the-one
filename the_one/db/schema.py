@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 32
+CURRENT_VERSION = 33
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS llm_providers (
     base_url TEXT NOT NULL,
     api_key TEXT,
     config TEXT DEFAULT '{{}}',
+    secrets TEXT NOT NULL DEFAULT '{{}}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1899,3 +1900,61 @@ CREATE INDEX idx_chat_sessions_external_key
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (32,))
         await conn.commit()
         version = 32
+
+    if version < 33:
+        # M19 F01 L01 — rebuild llm_providers to (a) add the encrypted
+        # OAuth-secrets column ``secrets TEXT NOT NULL DEFAULT '{}'`` for
+        # the anthropic-plan provider type (DD-2: whole-dict Fernet blob;
+        # managed keys access_token / refresh_token / token_expires_at /
+        # scope / token_type) and (b) regenerate the ``type`` CHECK
+        # constraint from PROVIDER_TYPES, picking up 'anthropic-plan'.
+        # SQLite has no ALTER TABLE DROP CONSTRAINT, so one rebuild covers
+        # both — the v12 ceremony verbatim: ``executescript`` is REQUIRED
+        # (PRAGMA foreign_keys=OFF only holds within the same script as the
+        # DROP/RENAME; ``agents.provider_config_id`` references this table),
+        # ``DROP TABLE IF EXISTS llm_providers_new`` is the defensive
+        # prelude for a crash between CREATE and RENAME, and INSERT OR
+        # IGNORE INTO schema_version is LAST so a partial-apply leaves
+        # version=32 and the next call retries cleanly. Existing rows carry
+        # the plaintext '{}' column default — the repository's tolerant
+        # InvalidToken decrypt reads that as empty secrets and the next
+        # secrets write re-encrypts properly.
+        #
+        # Defensive: skip the rebuild when ``llm_providers`` is missing
+        # (hand-built partial-schema test fixtures that don't run through
+        # the full migration chain — the v29/v30 precedent).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_providers'"
+        ) as cursor:
+            llm_providers_present = (await cursor.fetchone()) is not None
+        if llm_providers_present:
+            await conn.executescript(f"""\
+PRAGMA foreign_keys=OFF;
+
+DROP TABLE IF EXISTS llm_providers_new;
+
+CREATE TABLE llm_providers_new (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ({_PROVIDER_TYPES_SQL})),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{{}}',
+    secrets TEXT NOT NULL DEFAULT '{{}}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO llm_providers_new
+    (id, name, type, base_url, api_key, config, created_at, updated_at)
+    SELECT id, name, type, base_url, api_key, config, created_at, updated_at
+    FROM llm_providers;
+
+DROP TABLE llm_providers;
+ALTER TABLE llm_providers_new RENAME TO llm_providers;
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (33,))
+        await conn.commit()
+        version = 33

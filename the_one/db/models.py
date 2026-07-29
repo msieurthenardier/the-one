@@ -23,10 +23,24 @@ class LLMProviderConfig(BaseModel):
     # NOTE: keep this ``Literal[...]`` spelled out explicitly — Pydantic /
     # static type checkers cannot consume ``Literal[*PROVIDER_TYPES]``
     # unpacking. The module-load assertion below pins the two in sync.
-    type: Literal["ollama", "openai-compatible", "openai", "anthropic", "mock", "openrouter"]
+    type: Literal[
+        "ollama",
+        "openai-compatible",
+        "openai",
+        "anthropic",
+        "mock",
+        "openrouter",
+        "anthropic-plan",
+    ]
     base_url: str
     api_key: str | None = None
     config: dict = Field(default_factory=dict)
+    # M19 F01 L01 — OAuth-managed credential blob for ``anthropic-plan``
+    # providers (access_token / refresh_token / token_expires_at / scope /
+    # token_type). Encrypted at rest as a whole-dict Fernet blob by
+    # ``LLMProviderRepository`` (DD-2); stripped from every API response
+    # (``_provider_response`` exposes an ``oauth_active`` boolean instead).
+    secrets: dict = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 

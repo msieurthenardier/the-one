@@ -194,3 +194,104 @@ async def test_config_num_ctx_roundtrip(repo):
     await repo.update(_make_provider(type="ollama", config={"num_ctx": 8192}))
     refetched = await repo.get("p1")
     assert refetched.config["num_ctx"] == 8192
+
+
+# ── OAuth secrets blob (M19 F01 L01) ─────────────────────────────────────
+
+
+_TOKEN_SET = {
+    "access_token": "sk-ant-oat01-accesstoken123",
+    "refresh_token": "sk-ant-ort01-refreshtoken456",
+    "token_expires_at": 1785300000,
+    "scope": "org:create_api_key user:profile user:inference",
+    "token_type": "Bearer",
+}
+
+
+@pytest.mark.asyncio
+async def test_secrets_ciphertext_at_rest(repo, encryptor):
+    """The raw secrets column is ciphertext: not '{}', and no token
+    substring appears in it. Decrypted read returns the original dict."""
+    await repo.create(_make_provider(type="anthropic-plan", secrets=dict(_TOKEN_SET)))
+
+    async with repo.conn.execute("SELECT secrets FROM llm_providers WHERE id = ?", ("p1",)) as cur:
+        row = await cur.fetchone()
+    raw_value = row["secrets"]
+    assert raw_value != "{}"
+    for token in (_TOKEN_SET["access_token"], _TOKEN_SET["refresh_token"]):
+        assert token not in raw_value
+    import json as _json
+
+    assert _json.loads(encryptor.decrypt(raw_value)) == _TOKEN_SET
+
+    fetched = await repo.get("p1")
+    assert fetched.secrets == _TOKEN_SET
+
+
+@pytest.mark.asyncio
+async def test_secrets_default_empty_roundtrip(repo):
+    await repo.create(_make_provider())
+    fetched = await repo.get("p1")
+    assert fetched.secrets == {}
+
+
+@pytest.mark.asyncio
+async def test_legacy_plaintext_secrets_row_reads_as_empty(repo):
+    """A pre-migration row carries plaintext '{}' (the v33 column default).
+
+    The tolerant InvalidToken decrypt reads it back as {} without raising."""
+    await repo.conn.execute(
+        "INSERT INTO llm_providers (id, name, type, base_url, api_key, config, secrets,"
+        " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "legacy",
+            "Legacy",
+            "anthropic",
+            "https://api.anthropic.com",
+            None,
+            "{}",
+            "{}",
+            "2026-01-01",
+            "2026-01-01",
+        ),
+    )
+    await repo.conn.commit()
+    fetched = await repo.get("legacy")
+    assert fetched.secrets == {}
+
+
+@pytest.mark.asyncio
+async def test_update_secrets_replaces_only_secrets(repo, encryptor):
+    """update_secrets() writes the blob without touching other columns."""
+    await repo.create(
+        _make_provider(type="anthropic-plan", name="Plan", config={"thinking_enabled": True})
+    )
+    await repo.update_secrets("p1", dict(_TOKEN_SET))
+
+    fetched = await repo.get("p1")
+    assert fetched.secrets == _TOKEN_SET
+    assert fetched.name == "Plan"
+    assert fetched.config == {"thinking_enabled": True}
+
+    # Rotated write replaces the whole blob.
+    await repo.update_secrets("p1", {"access_token": "new-at"})
+    refetched = await repo.get("p1")
+    assert refetched.secrets == {"access_token": "new-at"}
+
+
+@pytest.mark.asyncio
+async def test_update_secrets_nonexistent_raises(repo):
+    with pytest.raises(KeyError, match="Provider not found"):
+        await repo.update_secrets("nope", {"access_token": "x"})
+
+
+@pytest.mark.asyncio
+async def test_full_update_persists_secrets_field(repo):
+    """Model-level update() writes provider.secrets (used by the API's
+    PUT preserve path, which pins managed keys from the stored row)."""
+    await repo.create(_make_provider(type="anthropic-plan", secrets=dict(_TOKEN_SET)))
+    updated = _make_provider(type="anthropic-plan", name="Renamed", secrets=dict(_TOKEN_SET))
+    await repo.update(updated)
+    fetched = await repo.get("p1")
+    assert fetched.name == "Renamed"
+    assert fetched.secrets == _TOKEN_SET
