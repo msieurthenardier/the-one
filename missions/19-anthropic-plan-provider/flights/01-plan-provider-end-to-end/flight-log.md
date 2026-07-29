@@ -8,6 +8,9 @@ In-flight. Branch `flight/01-plan-provider-end-to-end` created off `main` @ 91d8
 
 ### Flight Director Notes
 
+- 2026-07-29: Flight-end batch review (Reviewer, Haiku): **[HANDOFF:confirmed]** — all leg ACs verified against the diff, security checks passed (no token logging/leakage, ciphertext at rest, single-flight refresh), focused suites re-run by the reviewer (202/202) plus full unit re-run (4133/0/10). Out-of-scope items scrutinized and accepted (test-count reconciliation; pre-existing `test_flow_chat_peer_attribution.py` fix is test-only/behavior-accepting).
+- 2026-07-29: Legs 1-3 statuses → `completed`; batch committed @ bf1e1d2 (`flight/1: Anthropic plan provider — ...`, Mission: 19 trailer); branch pushed; draft PR #164 opened with leg checklist (HAT unchecked). Leg 4 (`uat-and-alignment`) designed lightweight per interactive-leg protocol — risk-tier N/A (no autonomous implementation; fixes gated per fix-vs-feature protocol). Flight paused awaiting operator for the HAT session.
+
 - 2026-07-28: Phase file `leg-execution.md` loaded and validated. Flight `ready` → `in-flight`. Orchestration mode: batched review/commit at flight end per agentic-workflow (per-leg Developer spawns, single Reviewer pass after last autonomous leg). HAT leg runs interactively with the operator — not spawned autonomously.
 - 2026-07-28: Leg 1 (`oauth-foundation-and-registration`) risk-tiered **HIGH** — schema migration (v33 table rebuild), shared-interface change (provider type tuple pinned by module-load asserts), security-sensitive surface (OAuth secrets storage + API contract). Per-leg design review required before implementation.
 - 2026-07-28: Leg 1 implementation landed (Developer, [HANDOFF:review-needed] noted — deferred to flight-end batch). Spike PASS via browser-apparatus fallback. Suite 4071/0/10. Deviation accepted: `_build_client()` seam instead of inline construction (behavior-preserving, recorded in Deviations).
