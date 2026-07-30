@@ -3,7 +3,9 @@
 **Slug**: `system-provider-config`
 **Status**: active
 **Created**: 2026-07-05
-**Last Run**: 2026-07-06-05-41-42 — pass (20/20; light 10/10, dark 10/10; F7 H1/subtitle re-render confirmed both themes; cap-chip quiet on grid) — [run log](system-provider-config/runs/2026-07-06-05-41-42.md)
+**Last Run**: 2026-07-30-17-45-00 — pass (20/20; light 10/10 incl. row 9 upgraded via filmstrip re-capture, dark 10/10; post-M19-F01 provider-editor.js re-run) — [run log](system-provider-config/runs/2026-07-30-17-45-00.md)
+
+> **Apparatus note (from run 2026-07-30)**: for the row-9 armed state (or any sub-3s transient UI state), single-shot screenshot round-trips lose the race to the revert window. Use the **filmstrip technique**: `performance_start_trace` with screenshots enabled → drive arm(+fire) in ONE `evaluate_script` call (no inter-call gaps) → `performance_stop_trace` → extract the embedded Screenshot frame from the repaint burst as the rendered-state evidence. Proven in both themes.
 
 ## Intent
 
