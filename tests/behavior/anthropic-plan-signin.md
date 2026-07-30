@@ -1,9 +1,9 @@
 # Behavior Test: Anthropic Plan Provider Sign-In
 
 **Slug**: `anthropic-plan-signin`
-**Status**: draft
+**Status**: active
 **Created**: 2026-07-28
-**Last Run**: never
+**Last Run**: 2026-07-30-03-16-41 (PASS 6/6 — see `anthropic-plan-signin/runs/2026-07-30-03-16-41.md`)
 
 ## Intent
 
