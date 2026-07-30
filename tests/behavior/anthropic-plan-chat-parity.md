@@ -1,9 +1,9 @@
 # Behavior Test: Anthropic Plan Provider Chat Parity
 
 **Slug**: `anthropic-plan-chat-parity`
-**Status**: draft
+**Status**: active
 **Created**: 2026-07-28
-**Last Run**: never
+**Last Run**: 2026-07-30-17-10-08 (PASS 5/5 on claude-haiku-4-5 — see `anthropic-plan-chat-parity/runs/2026-07-30-17-10-08.md`; Sonnet/Opus blocked account-side per mission known issue)
 
 ## Intent
 
