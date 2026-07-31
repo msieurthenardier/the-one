@@ -262,12 +262,23 @@
 
   // ── Anthropic plan sign-in (M19 F01 L03) ──────────────────────────────
   //
-  // Save-gated OAuth sign-in UX for the anthropic-plan type (flight DD-1 /
-  // DD-7). State machine: signed-out → awaiting-code → connected, derived
+  // OAuth sign-in UX for the anthropic-plan type (flight DD-1 / DD-7).
+  // State machine: signed-out → awaiting-code → connected, derived
   // from provider.oauth_active plus a local awaitingUrl. There is NO
   // persistent "revoked" state — the /test result's reauth_required status
   // is the only revoked signal; the connected state's Re-authenticate
   // control is the standing re-auth affordance.
+  //
+  // Create mode is auto-save-then-start (HAT fix, supersedes the original
+  // disabled-until-saved gate): the OAuth endpoints are
+  // /api/providers/{id}/… and need the row to exist, so a create-mode
+  // Sign-in click first runs the EXACT create path the Create button uses
+  // (inline validation included, via the shared performSave). The
+  // create→edit transition replaces the editor closure (orchestrator
+  // re-render), so the "now start OAuth" intent crosses instances through
+  // the module-scoped pendingAutoSignInId one-shot below: the re-mounted
+  // edit-mode wirePlanSignIn sees its provider id flagged and calls
+  // startFlow immediately.
   //
   // Nothing here polls and nothing carries data-field: state advances only
   // on explicit user actions and endpoint responses, and the dirty
@@ -276,6 +287,11 @@
   // the local provider reference is refreshed in place (Object.assign on
   // the same object the orchestrator holds) WITHOUT touching the snapshot,
   // so no unsaved-changes trap appears.
+
+  // One-shot handoff across the create→edit editor re-render: holds the id
+  // of a provider just created by a sign-in-initiated auto-save. Consumed
+  // (and cleared) by the next edit-mode wirePlanSignIn mount for that id.
+  var pendingAutoSignInId = null;
 
   function renderPlanSignInShell(provider, callbacks) {
     var isCreate = !provider;
@@ -289,7 +305,7 @@
     return html;
   }
 
-  function wirePlanSignIn(container, provider) {
+  function wirePlanSignIn(container, provider, requestCreateSave) {
     var isEdit = !!provider;
     var body = container.querySelector('.admin-pf-plan-signin .plan-signin-body');
     if (!body) return;
@@ -441,14 +457,20 @@
       signInBtn.textContent = 'Sign in with Anthropic';
       row.appendChild(signInBtn);
       if (!isEdit) {
-        // Save-gated (DD-7): the OAuth endpoints are /api/providers/{id}/…
-        // and need the row to exist.
-        signInBtn.disabled = true;
-        var hint = document.createElement('span');
-        hint.className = 'plan-signin-hint';
-        hint.setAttribute('data-testid', 'plan-signin-hint');
-        hint.textContent = 'Save the provider first to enable sign-in.';
-        row.appendChild(hint);
+        // Auto-save-then-start (HAT fix): run the shared create path first
+        // (the row must exist for /oauth/start). Validation failure renders
+        // the editor's normal inline error and nothing is saved; save
+        // failure renders the existing save-error handling and the flow is
+        // NOT entered. On success the create→edit re-render consumes
+        // pendingAutoSignInId and starts the OAuth flow (see module note).
+        signInBtn.addEventListener('click', function () {
+          clearError();
+          if (requestCreateSave) {
+            requestCreateSave(function (created) {
+              pendingAutoSignInId = created.id;
+            });
+          }
+        });
       } else {
         signInBtn.addEventListener('click', function () { startFlow(signInBtn); });
       }
@@ -582,6 +604,16 @@
     }
 
     renderState();
+
+    // Consume the create→edit auto-start handoff (HAT fix): this edit-mode
+    // mount is the re-render that immediately follows a sign-in-initiated
+    // create — start the OAuth flow now. One-shot: cleared before starting.
+    // A just-created provider is never connected, so the signed-out block
+    // (and its sign-in button) is on screen when this fires.
+    if (isEdit && provider && pendingAutoSignInId === provider.id) {
+      pendingAutoSignInId = null;
+      startFlow(body.querySelector('[data-testid="plan-signin-btn"]'));
+    }
   }
 
   function getFormSnapshot(container) {
@@ -672,8 +704,10 @@
 
     /* Anthropic plan sign-in section (M19 F01 L03) — mounted for every
        editor instance; visibility is type-driven (above). Owns its own
-       fetches; deliberately outside the dirty machinery. */
-    wirePlanSignIn(container, provider);
+       OAuth fetches; deliberately outside the dirty machinery. performSave
+       (hoisted declaration below) is handed in so the create-mode sign-in
+       button can run the auto-save-then-start path (HAT fix). */
+    wirePlanSignIn(container, provider, performSave);
 
     /* Eye toggle. */
     var eyeBtn = container.querySelector('.api-key-eye');
@@ -726,61 +760,70 @@
     }
 
     /* Save: editor sub-module owns the fetch. Orchestrator's
-       onSaveSuccess callback handles state mutation + URL update. */
+       onSaveSuccess callback handles state mutation + URL update.
+       Factored into performSave (HAT fix) so the create-mode plan sign-in
+       button reuses the EXACT same path — validation, payload construction
+       (seed-before-overlay), error rendering. onCreateSuccess (optional)
+       fires only on a successful CREATE, and BEFORE onSaveSuccess so the
+       pendingAutoSignInId handoff is in place when the create→edit
+       re-render (a microtask behind onSaveSuccess) mounts the new editor. */
+    function performSave(onCreateSuccess) {
+      var errorEl = container.querySelector('.editor-error');
+      errorEl.textContent = '';
+      var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider);
+      if (!payload) return; // validation failed; collectFormData wrote error
+      var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
+      var method = isEdit ? 'PUT' : 'POST';
+      fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || (isEdit ? 'Save failed' : 'Create failed')); });
+          return r.json();
+        })
+        .then(function (updated) {
+          window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
+          if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
+          if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
+          // For create→edit transition the orchestrator re-renders the
+          // editor with the new provider — closure is replaced. The
+          // snapshot reset below only matters for the edit→edit case
+          // where the editor stays mounted.
+          if (isEdit) {
+            // Re-render the WHOLE display-only header text block (title +
+            // subtitle) from the freshly saved provider. On edit→edit the
+            // editor stays mounted and nothing else refreshes the header,
+            // so an edited Name / Base URL / Type would otherwise leave the
+            // H1 and the `type · base_url` subtitle stale. These nodes carry
+            // no data-field, so getFormSnapshot / dirty tracking are
+            // unaffected — textContent-only writes.
+            var titleEl = container.querySelector('.editor-title');
+            if (titleEl) titleEl.textContent = updated.name || '';
+            var subtitleEl = container.querySelector('.editor-subtitle');
+            if (subtitleEl) {
+              var subtitleParts = [updated.type];
+              if (updated.base_url) subtitleParts.push(updated.base_url);
+              subtitleEl.textContent = subtitleParts.join(' · ');
+            }
+            snapshot = getFormSnapshot(container);
+            dirty = false;
+            checkDirty();
+          }
+        })
+        .catch(function (err) {
+          // Surface the trace to DevTools so backend stacks (which
+          // would otherwise die with the next click as errorEl.textContent
+          // is overwritten) survive for debugging.
+          console.error('provider save failed', err);
+          errorEl.textContent = err.message || String(err);
+        });
+    }
+
     var saveBtn = container.querySelector('.save-btn');
     if (saveBtn) {
-      saveBtn.addEventListener('click', function () {
-        var errorEl = container.querySelector('.editor-error');
-        errorEl.textContent = '';
-        var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider);
-        if (!payload) return; // validation failed; collectFormData wrote error
-        var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
-        var method = isEdit ? 'PUT' : 'POST';
-        fetch(url, {
-          method: method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || (isEdit ? 'Save failed' : 'Create failed')); });
-            return r.json();
-          })
-          .then(function (updated) {
-            window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
-            if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
-            // For create→edit transition the orchestrator re-renders the
-            // editor with the new provider — closure is replaced. The
-            // snapshot reset below only matters for the edit→edit case
-            // where the editor stays mounted.
-            if (isEdit) {
-              // Re-render the WHOLE display-only header text block (title +
-              // subtitle) from the freshly saved provider. On edit→edit the
-              // editor stays mounted and nothing else refreshes the header,
-              // so an edited Name / Base URL / Type would otherwise leave the
-              // H1 and the `type · base_url` subtitle stale. These nodes carry
-              // no data-field, so getFormSnapshot / dirty tracking are
-              // unaffected — textContent-only writes.
-              var titleEl = container.querySelector('.editor-title');
-              if (titleEl) titleEl.textContent = updated.name || '';
-              var subtitleEl = container.querySelector('.editor-subtitle');
-              if (subtitleEl) {
-                var subtitleParts = [updated.type];
-                if (updated.base_url) subtitleParts.push(updated.base_url);
-                subtitleEl.textContent = subtitleParts.join(' · ');
-              }
-              snapshot = getFormSnapshot(container);
-              dirty = false;
-              checkDirty();
-            }
-          })
-          .catch(function (err) {
-            // Surface the trace to DevTools so backend stacks (which
-            // would otherwise die with the next click as errorEl.textContent
-            // is overwritten) survive for debugging.
-            console.error('provider save failed', err);
-            errorEl.textContent = err.message || String(err);
-          });
-      });
+      saveBtn.addEventListener('click', function () { performSave(); });
     }
 
     /* Test: only in edit mode. */

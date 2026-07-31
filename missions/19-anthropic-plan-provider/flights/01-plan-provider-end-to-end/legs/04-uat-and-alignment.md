@@ -1,6 +1,6 @@
 # Leg: uat-and-alignment
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Anthropic Plan Provider End-to-End](../flight.md)
 
 ## Objective
@@ -18,14 +18,14 @@ Guided HAT session: the operator verifies the full plan-provider experience agai
 
 ## Verification Steps (acceptance criteria)
 
-- [ ] **0. Session setup**: `make restart`; operator confirms the web UI loads and they can reach claude.ai signed in (decay-prone precondition probe).
-- [ ] **1. HAT prep**: add the plan-provider Variant entry to `tests/behavior/extended-thinking-tool-turn.md` (input delta: provider under test = the plan provider created in step 2).
-- [ ] **2. `/behavior-test anthropic-plan-signin`** passes (operator performs the consent + hands over the code; run log committed).
-- [ ] **3. `/behavior-test anthropic-plan-chat-parity`** passes (operator names the deterministic tool in preconditions; performs the restart step; run log committed).
-- [ ] **4. `extended-thinking-tool-turn` (plan variant)** passes (run log committed).
-- [ ] **5. Re-runs**: `system-provider-config` and `save-preserves-config` pass (run logs committed).
-- [ ] **6. Free-form UAT**: operator exercises anything else they care about (reset/re-auth flow, second account, Studio binding); issues fixed inline per the gate until the operator is satisfied.
-- [ ] **7. Close-out**: leg `completed`; flight → `landed`; flight checked off in mission.md; final commit; PR marked ready for review.
+- [x] **0. Session setup**: `make restart`; operator confirms the web UI loads and they can reach claude.ai signed in (decay-prone precondition probe).
+- [x] **1. HAT prep**: add the plan-provider Variant entry to `tests/behavior/extended-thinking-tool-turn.md` (input delta: provider under test = the plan provider created in step 2).
+- [x] **2. `/behavior-test anthropic-plan-signin`** passes (operator performs the consent + hands over the code; run log committed).
+- [x] **3. `/behavior-test anthropic-plan-chat-parity`** passes (operator names the deterministic tool in preconditions; performs the restart step; run log committed).
+- [ ] **4. `extended-thinking-tool-turn` (plan variant)** passes (run log committed). *(Disposition: NOT RUN — blocked by the account-side extra-usage entitlement gate; Sonnet/Opus hard-429, Haiku lacks adaptive thinking. Operator accepted as known issue; runnable any time post-entitlement. See flight log 2026-07-30.)*
+- [x] **5. Re-runs**: `system-provider-config` and `save-preserves-config` pass (run logs committed).
+- [x] **6. Free-form UAT**: operator exercises anything else they care about (reset/re-auth flow, second account, Studio binding); issues fixed inline per the gate until the operator is satisfied.
+- [x] **7. Close-out**: leg `completed`; flight → `landed`; flight checked off in mission.md; final commit; PR marked ready for review.
 
 ## Notes
 

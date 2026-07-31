@@ -1,10 +1,12 @@
 """Browser tests for the anthropic-plan provider editor sign-in UX (M19 F01 L03).
 
-Covers the save-gated sign-in flow (DD-1/DD-7): type-driven field visibility
-(no API key, no base URL), the disabled-until-saved sign-in affordance, the
-consent UI (copyable URL + code paste), inline error rendering, the
-connected / re-authenticate / reset states, and the distinct
-``reauth_required`` /test message.
+Covers the sign-in flow (DD-1/DD-7, create mode auto-save-then-start per the
+HAT fix): type-driven field visibility (no API key, no base URL), the
+create-mode sign-in affordance that auto-saves the provider before starting
+OAuth (with inline validation when the name is missing), the consent UI
+(copyable URL + code paste), inline error rendering, the connected /
+re-authenticate / reset states, and the distinct ``reauth_required`` /test
+message.
 
 Network boundary (leg design-review resolved):
 
@@ -204,17 +206,20 @@ def _stub_models(page: Page, provider_id: str) -> None:
     )
 
 
-# ── Create mode: field visibility + save gate ────────────────────────────
+# ── Create mode: field visibility + auto-save-then-start sign-in ─────────
 
 
 @pytest.mark.browser
-def test_plan_type_selectable_with_no_api_key_no_base_url_and_gated_signin(
+def test_plan_type_selectable_with_no_api_key_no_base_url_and_autosave_signin(
     app_clean: str, page: Page
 ) -> None:
     """Selecting "Anthropic (Plan)" in create mode: no API-key input, no
     base-url input, thinking/reasoning surface present (parity with
-    anthropic), and a sign-in affordance disabled with a hint until the row
-    is saved."""
+    anthropic), and an ENABLED sign-in affordance (HAT fix — inverts the
+    original disabled-until-saved gate): clicking it with a name filled
+    auto-saves the provider through the exact Create path, transitions the
+    editor to edit mode, and immediately enters the awaiting-code state."""
+    _block_claude_ai(page)
     page.goto(f"{app_clean}#admin/providers/new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     # Picker label follows the parenthetical precedent.
@@ -230,12 +235,53 @@ def test_plan_type_selectable_with_no_api_key_no_base_url_and_gated_signin(
     expect(page.locator(".admin-pf-reasoning-effort")).not_to_have_class(
         re.compile(r"\bis-hidden\b")
     )
-    # Sign-in section visible; affordance disabled + hint until saved (DD-7).
+    # Sign-in section visible; affordance ENABLED, no save-first hint.
     expect(page.locator(".admin-pf-plan-signin")).not_to_have_class(re.compile(r"\bis-hidden\b"))
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible()
-    expect(signin_btn).to_be_disabled()
-    expect(page.locator('[data-testid="plan-signin-hint"]')).to_contain_text("Save the provider")
+    expect(signin_btn).not_to_be_disabled()
+    expect(page.locator('[data-testid="plan-signin-hint"]')).to_have_count(0)
+
+    # Click with a name filled: auto-save (create) then awaiting-code UI.
+    page.locator("#pf-name").fill("My Plan")
+    signin_btn.click()
+    expect(page.locator('[data-testid="plan-signin-consent"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="plan-signin-url"]')).to_have_value(
+        re.compile(r"^https://claude\.ai/oauth/authorize\?")
+    )
+    expect(page.locator('[data-testid="plan-code-input"]')).to_be_visible()
+    # The auto-save transitioned the editor to edit mode exactly as a
+    # manual Create does (Test button, subtitle with the force-submitted
+    # default base_url)…
+    expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible()
+    expect(page.locator(".editor-subtitle")).to_contain_text(PLAN_BASE_URL)
+    # …and the provider row now exists via the API.
+    providers = httpx.get(f"{app_clean}/api/providers", timeout=5.0).json()
+    assert [(p["name"], p["type"]) for p in providers] == [("My Plan", "anthropic-plan")]
+    # No error rendered (popup-blocked/aborted degrades silently).
+    expect(page.locator('[data-testid="plan-signin-error"]')).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
+    app_clean: str, page: Page
+) -> None:
+    """Clicking the create-mode sign-in affordance with an empty Name shows
+    the editor's normal inline validation, saves nothing, and does NOT
+    enter the awaiting-code state."""
+    page.goto(f"{app_clean}#admin/providers/new")
+    expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
+    page.locator("#pf-type").select_option("anthropic-plan")
+    signin_btn = page.locator('[data-testid="plan-signin-btn"]')
+    expect(signin_btn).to_be_visible()
+    expect(signin_btn).not_to_be_disabled()
+    signin_btn.click()
+    # The editor's normal inline validation (verbatim message).
+    expect(page.locator(".editor-error")).to_have_text("Name is required.")
+    # No awaiting-code UI, still create mode, and NO provider created.
+    expect(page.locator('[data-testid="plan-signin-consent"]')).to_have_count(0)
+    expect(page.locator(".editor-title")).to_have_text("New Provider")
+    assert httpx.get(f"{app_clean}/api/providers", timeout=5.0).json() == []
 
 
 @pytest.mark.browser
@@ -257,12 +303,13 @@ def test_plan_section_hides_when_type_switched_away(app_clean: str, page: Page) 
 
 @pytest.mark.browser
 def test_create_save_enables_signin_and_click_shows_consent_ui(app_clean: str, page: Page) -> None:
-    """Create + save an anthropic-plan provider (base_url force-submitted
-    invisibly, save validates), then click the now-enabled sign-in
-    affordance: /oauth/start is called and the consent UI renders — the
-    authorize URL as copyable text, an Open button, and the code paste field
-    with its confirm control. Popup blocking (or the abort here) degrades to
-    the copyable URL without error."""
+    """Create + save an anthropic-plan provider MANUALLY (base_url
+    force-submitted invisibly, save validates), then click the sign-in
+    affordance in edit mode — behavior unchanged by the create-mode
+    auto-save HAT fix: /oauth/start is called and the consent UI renders —
+    the authorize URL as copyable text, an Open button, and the code paste
+    field with its confirm control. Popup blocking (or the abort here)
+    degrades to the copyable URL without error."""
     _block_claude_ai(page)
     page.goto(f"{app_clean}#admin/providers/new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
@@ -275,7 +322,7 @@ def test_create_save_enables_signin_and_click_shows_consent_ui(app_clean: str, p
     # force-submitted default base_url (proves the hidden field submitted).
     expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator(".editor-subtitle")).to_contain_text(PLAN_BASE_URL)
-    # Sign-in affordance now enabled, hint gone.
+    # Sign-in affordance enabled in edit mode; no hint exists anywhere now.
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible()
     expect(signin_btn).not_to_be_disabled()

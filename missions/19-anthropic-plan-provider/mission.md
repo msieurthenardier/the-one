@@ -57,4 +57,4 @@ Multiple accounts are supported the same way any provider supports multiple conf
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] Flight 1: Anthropic plan provider end-to-end — redirect-URI spike first, then credential acquisition and storage, provider implementation with automatic renewal, provider-type registration, Administration UI, and acceptance behavior tests. Pre-declared split point if leg design exceeds budget: credential acquisition/storage vs. provider + UI + parity tests.
+- [x] Flight 1: Anthropic plan provider end-to-end — redirect-URI spike first, then credential acquisition and storage, provider implementation with automatic renewal, provider-type registration, Administration UI, and acceptance behavior tests. Pre-declared split point if leg design exceeds budget: credential acquisition/storage vs. provider + UI + parity tests.

@@ -1,17 +1,17 @@
 # Flight: Anthropic Plan Provider End-to-End
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Anthropic Individual Plan Provider](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] An operator can create an Anthropic individual-plan provider in Administration and complete authentication by signing in with their Anthropic account in a browser — no API key is ever entered. *(behavior-test-backed: `anthropic-plan-signin`)*
-- [ ] An agent bound to a plan provider completes chat turns — including streaming, tool use, and extended thinking — with parity to the existing Anthropic API-key provider. *(behavior-test-backed: `anthropic-plan-chat-parity`; extended thinking via a plan-provider variant of the existing `extended-thinking-tool-turn` spec, run at HAT)*
-- [ ] Plan credentials survive application restarts and are stored encrypted at rest, never appearing unmasked in API responses or logs. *(unit: repository test asserts raw DB column is ciphertext; API strip tests)*
-- [ ] Expired short-lived credentials are renewed automatically during normal operation, with no operator intervention. *(unit: credential-source refresh tests against mocked token endpoint)*
-- [ ] When renewal is no longer possible, the operator sees a clear re-authenticate affordance in Administration, and agents fail with an actionable error rather than silently. *(browser test: seeded revoked-token state renders re-auth affordance; unit: typed re-auth error path)*
-- [ ] Multiple plan providers (distinct Anthropic accounts) can coexist and be independently bound to different agents. *(integration test: two plan configs, independently keyed credential sources)*
-- [ ] The provider's connection test and model listing work in Administration, consistent with other provider types. *(behavior-test-backed: `anthropic-plan-signin` step 6, `anthropic-plan-chat-parity` step 1; unit: `/test` + `/models` branch tests per DD-5)*
+- [x] An operator can create an Anthropic individual-plan provider in Administration and complete authentication by signing in with their Anthropic account in a browser — no API key is ever entered. *(behavior-test-backed: `anthropic-plan-signin`)*
+- [x] An agent bound to a plan provider completes chat turns — including streaming, tool use, and extended thinking — with parity to the existing Anthropic API-key provider. *(behavior-test-backed: `anthropic-plan-chat-parity`; extended thinking via a plan-provider variant of the existing `extended-thinking-tool-turn` spec, run at HAT)*
+- [x] Plan credentials survive application restarts and are stored encrypted at rest, never appearing unmasked in API responses or logs. *(unit: repository test asserts raw DB column is ciphertext; API strip tests)*
+- [x] Expired short-lived credentials are renewed automatically during normal operation, with no operator intervention. *(unit: credential-source refresh tests against mocked token endpoint)*
+- [x] When renewal is no longer possible, the operator sees a clear re-authenticate affordance in Administration, and agents fail with an actionable error rather than silently. *(browser test: seeded revoked-token state renders re-auth affordance; unit: typed re-auth error path)*
+- [x] Multiple plan providers (distinct Anthropic accounts) can coexist and be independently bound to different agents. *(integration test: two plan configs, independently keyed credential sources)*
+- [x] The provider's connection test and model listing work in Administration, consistent with other provider types. *(behavior-test-backed: `anthropic-plan-signin` step 6, `anthropic-plan-chat-parity` step 1; unit: `/test` + `/models` branch tests per DD-5)*
 
 ---
 
@@ -68,7 +68,8 @@ Deliver the `anthropic-plan` provider type end-to-end: an operator signs in with
 - Both specs require a real Pro/Max account sign-in, which only the operator can perform → they run in the HAT leg with the operator present. Implementation legs carry unit/integration coverage with a mocked token endpoint.
 
 **DD-7 — Sign-in UX ordering and persistence**
-- The sign-in affordance is disabled (with a hint) until the provider row is saved — start-auth and submit-code are `/api/providers/{id}/...` endpoints and need the row to exist (the MCP editor solved the same ordering with its post-create path). The submit-code exchange persists tokens server-side to the saved row; the operator does not need a second Save for credentials, and the editor must not present an unsaved-changes trap after connecting. `anthropic-plan` inherits the reasoning-capable config surface in `TYPE_DEFAULTS` (`showThinkingEnabled`, `showReasoningEffort` as applicable to the anthropic type) — without it, extended-thinking parity would be unreachable from the UI.
+- *(Amended 2026-07-31, HAT step 6 operator feedback: the disabled-until-saved gate was awkward in practice. The affordance is now enabled in create mode and performs an auto-save-then-start — the editor creates/saves the row first, then calls `/oauth/start` on the new id. The backend requirement below is unchanged; only the UX ordering moved from manual to automatic.)*
+- ~~The sign-in affordance is disabled (with a hint) until the provider row is saved~~ The sign-in flow ensures the row is saved before starting — start-auth and submit-code are `/api/providers/{id}/...` endpoints and need the row to exist (the MCP editor solved the same ordering with its post-create path). The submit-code exchange persists tokens server-side to the saved row; the operator does not need a second Save for credentials, and the editor must not present an unsaved-changes trap after connecting. `anthropic-plan` inherits the reasoning-capable config surface in `TYPE_DEFAULTS` (`showThinkingEnabled`, `showReasoningEffort` as applicable to the anthropic type) — without it, extended-thinking parity would be unreachable from the UI.
 
 ### Prerequisites
 
@@ -132,7 +133,7 @@ Carry-forwards from prior debriefs applied to this flight:
 - [x] `oauth-foundation-and-registration` - PKCE spike (first task; **hard stop** — if the spike contradicts DD-1, divert before any migration/contract work begins; the leg spec must restate this), PKCE flow module, migration v33 (secrets column + regenerated CHECK), indivisible type-registration atom (tuple, Literal, factory map, registry loader entry + pip-extra alias, `AnthropicPlanProvider` skeleton, consistency-test 7-member update), repository secrets encryption with strip-on-create / strip-in-response / preserve-on-PUT + `oauth_active`, start-auth + submit-code endpoints (exchange persists tokens), migration + contract unit tests (incl. ciphertext-at-rest assertion)
 - [x] `credential-source-and-provider-mechanics` - self-resolving credential-source registry (single-flight, eviction on update/delete/reset, re-read-inside-lock adoption), `_before_request` no-op hook in `AnthropicProvider` + plan override, refresh/rotation strategy, typed re-auth-required error path end-to-end, `/test` + `/models` branches via accessor with catalog passthrough + static fallback, conformance-suite parametrization, connector-inference construction test, two-config independence test, `_PROVIDER_TYPE_MAP` lift into registry
 - [x] `admin-ui-signin` - provider editor sign-in UX (save-gated affordance, popup + copyable URL, paste-code field, connected/re-auth/reset states, no unsaved-changes trap), `/providers/types` literal-list entry + its pinned tests (`test_provider_api.py:2024-2043`, deferred from Leg 1 so the type doesn't appear in the picker before editor support exists), `TYPE_DEFAULTS` (incl. base_url + thinking/reasoning surface), badges across ALL token sites (tokens.css both theme blocks, `tests/browser/design_tokens.py` mirror, `_BADGE_INK_PAIRS` a11y parametrization, admin.css, providers-grid `KNOWN_BADGE_TYPES`, status-section swatch), testid registry, browser tests (incl. seeded revoked-token re-auth affordance), docs updates
-- [ ] `uat-and-alignment` *(HAT)* - Guided session with the operator: live sign-in with a real Pro/Max account, run `/behavior-test anthropic-plan-signin` and `/behavior-test anthropic-plan-chat-parity`, run the plan-provider variant of `extended-thinking-tool-turn` (add the Variant entry to that spec at HAT prep), re-run `system-provider-config` and `save-preserves-config` (provider-editor.js changed), fix issues iteratively until the operator is satisfied
+- [x] `uat-and-alignment` *(HAT)* - Guided session with the operator: live sign-in with a real Pro/Max account, run `/behavior-test anthropic-plan-signin` and `/behavior-test anthropic-plan-chat-parity`, run the plan-provider variant of `extended-thinking-tool-turn` (add the Variant entry to that spec at HAT prep), re-run `system-provider-config` and `save-preserves-config` (provider-editor.js changed), fix issues iteratively until the operator is satisfied
 
 ---
 
@@ -140,10 +141,10 @@ Carry-forwards from prior debriefs applied to this flight:
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (`make test` green; browser suite green)
-- [ ] Documentation updated (CLAUDE.md LLM-layer note, testid registry)
+- [x] Tests passing (`make test` green; browser suite green)
+- [x] Documentation updated (CLAUDE.md LLM-layer note, testid registry)
 
 ### Verification
 
