@@ -51,7 +51,7 @@ Multiple accounts are supported the same way any provider supports multiple conf
 
 ## Known Issues
 
-- [ ] **Third-party plan usage bills to Anthropic "extra usage", not the plan's included window** — discovered in Flight 1 (HAT), affects the mission premise. Plan OAuth sign-in works end-to-end, but Anthropic's current policy routes third-party app inference to the account's extra-usage balance ($200 promo credit for eligible accounts); without that entitlement, Sonnet/Opus requests hard-429 (bare `'Error'`, no retry-after) while Haiku works. Not addressable in the-one's code; remediation is account-side (enable extra usage / claim credit at claude.ai/settings/usage). Ref: anthropics/claude-code#45326.
+- [ ] **Third-party plan usage bills to Anthropic "extra usage", not the plan's included window** — discovered in Flight 1 (HAT), affects the mission premise. Plan OAuth sign-in works end-to-end, but Anthropic's current policy routes third-party app inference to the account's extra-usage balance ($200 promo credit for eligible accounts); without that entitlement, Sonnet/Opus requests hard-429 (bare `'Error'`, no retry-after) while Haiku works. Not addressable in the-one's code; remediation is account-side (enable extra usage / claim credit at claude.ai/settings/usage). Ref: anthropics/claude-code#45326. **Operator adjudication 2026-07-31: accepted as-is — no message-mapping or entitlement-surfacing work will be done; this entry stands as diagnostic documentation only.**
 
 ## Flights
 

@@ -74,7 +74,7 @@ Single-flight missions are legitimate when the work shares one risk profile, and
 
 ## Action Items
 
-- [ ] **Product decision, next mission kickoff**: how should the-one handle the extra-usage entitlement gate? Minimum is 429-message mapping; the larger question is whether to surface entitlement status proactively in the connected-provider UI rather than let operators discover it via a failed chat.
+- [x] **Product decision, extra-usage entitlement gate** — **adjudicated by the operator 2026-07-31: no action. The bare 429 is acceptable as-is.** Neither the message-mapping fix nor proactive entitlement surfacing will be pursued; the constraint stays documented as a mission known issue for diagnosis purposes. Re-open only if the entitlement gate starts affecting operators other than the device owner.
 - [ ] Bundle the create-mode double-click guard (+ test) into the next `provider-editor.js` flight.
 - [ ] Run the `extended-thinking-tool-turn` plan variant once the account has extra-usage entitlement; update the mission known issue. Add as a `routine-maintenance` checklist line so it doesn't age silently.
 - [ ] Promote two conventions into `the_one/agents.md`: "third caller triggers the lift," and "OAuth stack choice depends on fixed-vs-registrable client."
