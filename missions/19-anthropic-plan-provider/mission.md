@@ -1,6 +1,6 @@
 # Mission: Anthropic Individual Plan Provider
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
