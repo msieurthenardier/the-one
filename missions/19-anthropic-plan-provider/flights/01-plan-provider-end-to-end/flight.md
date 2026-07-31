@@ -1,6 +1,6 @@
 # Flight: Anthropic Plan Provider End-to-End
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Anthropic Individual Plan Provider](../../mission.md)
 
 ## Contributing to Criteria
