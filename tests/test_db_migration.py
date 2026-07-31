@@ -5433,3 +5433,194 @@ class TestSchemaV32:
         assert versions.count(32) == 1, f"v32 row should appear exactly once: {versions}"
 
         await conn.close()
+
+
+class TestSchemaV33:
+    """Tests for the v33 migration: ``llm_providers`` rebuild (M19 F01 L01).
+
+    Adds ``secrets TEXT NOT NULL DEFAULT '{}'`` (encrypted anthropic-plan
+    OAuth token blob, DD-2) and regenerates the ``type`` CHECK from
+    ``PROVIDER_TYPES`` (picking up ``anthropic-plan``) via the v12
+    table-rebuild ceremony. All connections here use ``async with``
+    (M18 F04 convention).
+    """
+
+    @staticmethod
+    async def _build_v32_db(conn: aiosqlite.Connection) -> None:
+        """Hand-build a populated v32-shape DB: pre-rebuild llm_providers
+        (six-type CHECK, no ``secrets``) plus an ``agents`` table whose
+        ``provider_config_id`` FK references it."""
+        await conn.executescript("""
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE llm_providers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL CHECK (type IN ('ollama', 'openai-compatible', 'openai',
+                    'anthropic', 'mock', 'openrouter')),
+                base_url TEXT NOT NULL,
+                api_key TEXT,
+                config TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE agents (
+                name TEXT PRIMARY KEY,
+                provider_config_id TEXT REFERENCES llm_providers(id) ON DELETE SET NULL
+            );
+        """)
+        for v in range(1, 33):
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
+        # One row per legacy type; NULL and legacy-plaintext api_key mixed in.
+        rows = [
+            ("p-ollama", "Ollama", "ollama", "http://localhost:11434", None, '{"num_ctx": 8192}'),
+            ("p-compat", "Compat", "openai-compatible", "http://localhost:8000/v1", "legacy", "{}"),
+            ("p-openai", "OpenAI", "openai", "https://api.openai.com/v1", "enc-blob-1", "{}"),
+            (
+                "p-anthropic",
+                "Anthropic",
+                "anthropic",
+                "https://api.anthropic.com",
+                "enc-blob-2",
+                "{}",
+            ),
+            ("p-mock", "Mock", "mock", "http://mock", None, '{"response": "hi"}'),
+            (
+                "p-openrouter",
+                "OpenRouter",
+                "openrouter",
+                "https://openrouter.ai/api/v1",
+                "enc-blob-3",
+                "{}",
+            ),
+        ]
+        for pid, name, ptype, url, key, config in rows:
+            await conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url, api_key, config,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (pid, name, ptype, url, key, config, "2026-01-01T00:00:00", "2026-01-02T00:00:00"),
+            )
+        await conn.execute(
+            "INSERT INTO agents (name, provider_config_id) VALUES (?, ?)",
+            ("agent-1", "p-anthropic"),
+        )
+        await conn.commit()
+
+    async def test_v33_fresh_db_has_secrets_column_and_plan_type(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → secrets column present (NOT NULL,
+        default '{}'), CHECK includes anthropic-plan, head at 33."""
+        db_path = tmp_path / "v33-fresh.db"
+        async with aiosqlite.connect(str(db_path)) as conn:
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await ensure_schema(conn)
+
+            async with conn.execute("PRAGMA table_info(llm_providers)") as cur:
+                cols = {r["name"]: r for r in await cur.fetchall()}
+            assert "secrets" in cols
+            assert cols["secrets"]["type"] == "TEXT"
+            assert cols["secrets"]["notnull"] == 1
+            assert cols["secrets"]["dflt_value"] == "'{}'"
+
+            # anthropic-plan row inserts into a fresh DB.
+            await conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+                ("p-plan", "Plan", "anthropic-plan", "https://api.anthropic.com"),
+            )
+            await conn.commit()
+
+            async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+                row = await cur.fetchone()
+            assert row[0] == CURRENT_VERSION == 33
+
+    async def test_v33_populated_upgrade_preserves_rows_and_fk(self, tmp_path) -> None:
+        """A populated v32 DB migrates: all six legacy-type rows survive
+        byte-identical, the secrets column defaults to plaintext '{}', and
+        the agents.provider_config_id FK still targets llm_providers."""
+        db_path = tmp_path / "v33-populated.db"
+        async with aiosqlite.connect(str(db_path)) as conn:
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await self._build_v32_db(conn)
+
+            await ensure_schema(conn)
+
+            async with conn.execute("SELECT * FROM llm_providers ORDER BY id") as cur:
+                rows = {r["id"]: dict(r) for r in await cur.fetchall()}
+            assert len(rows) == 6
+            # Byte-identical legacy columns; secrets defaulted to '{}'.
+            assert rows["p-ollama"]["api_key"] is None
+            assert rows["p-ollama"]["config"] == '{"num_ctx": 8192}'
+            assert rows["p-compat"]["api_key"] == "legacy"
+            assert rows["p-anthropic"]["api_key"] == "enc-blob-2"
+            for row in rows.values():
+                assert row["secrets"] == "{}"
+                assert row["created_at"] == "2026-01-01T00:00:00"
+                assert row["updated_at"] == "2026-01-02T00:00:00"
+
+            # FK still declared against llm_providers…
+            async with conn.execute("PRAGMA foreign_key_list(agents)") as cur:
+                fks = [dict(r) for r in await cur.fetchall()]
+            assert any(fk["table"] == "llm_providers" for fk in fks)
+            # …and still functional: ON DELETE SET NULL fires post-rebuild.
+            await conn.execute("DELETE FROM llm_providers WHERE id = 'p-anthropic'")
+            await conn.commit()
+            async with conn.execute(
+                "SELECT provider_config_id FROM agents WHERE name = 'agent-1'"
+            ) as cur:
+                row = await cur.fetchone()
+            assert row["provider_config_id"] is None
+
+            async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+                head = await cur.fetchone()
+            assert head[0] == CURRENT_VERSION
+
+    async def test_v33_plan_row_inserts_into_migrated_db(self, tmp_path) -> None:
+        """An anthropic-plan row must insert into the MIGRATED DB — the
+        fresh-DB CHECK (auto-derived) can't catch a missing upgrade path."""
+        db_path = tmp_path / "v33-plan-insert.db"
+        async with aiosqlite.connect(str(db_path)) as conn:
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await self._build_v32_db(conn)
+
+            # Pre-migration: the six-type CHECK rejects anthropic-plan.
+            with pytest.raises(aiosqlite.IntegrityError):
+                await conn.execute(
+                    "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+                    ("p-plan", "Plan", "anthropic-plan", "https://api.anthropic.com"),
+                )
+
+            await ensure_schema(conn)
+
+            await conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+                ("p-plan", "Plan", "anthropic-plan", "https://api.anthropic.com"),
+            )
+            await conn.commit()
+            async with conn.execute(
+                "SELECT type, secrets FROM llm_providers WHERE id = 'p-plan'"
+            ) as cur:
+                row = await cur.fetchone()
+            assert row["type"] == "anthropic-plan"
+            assert row["secrets"] == "{}"
+
+    async def test_v33_idempotent_on_rerun(self, tmp_path) -> None:
+        """ensure_schema twice: v33 stamped once, rows intact."""
+        db_path = tmp_path / "v33-rerun.db"
+        async with aiosqlite.connect(str(db_path)) as conn:
+            conn.row_factory = aiosqlite.Row
+            await conn.execute("PRAGMA foreign_keys=ON")
+            await self._build_v32_db(conn)
+
+            await ensure_schema(conn)
+            await ensure_schema(conn)
+
+            async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+                versions = [r[0] for r in await cur.fetchall()]
+            assert versions.count(33) == 1, f"v33 row should appear exactly once: {versions}"
+            async with conn.execute("SELECT COUNT(*) FROM llm_providers") as cur:
+                count = (await cur.fetchone())[0]
+            assert count == 6

@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import logging
 
-from the_one.agent.factory import _PROVIDER_TYPE_MAP
 from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.connectors._pool import _get_account_cache_snapshot
 from the_one.connectors.base import InboundEnvelope
@@ -45,6 +44,7 @@ from the_one.db.models import Connector
 from the_one.db.repositories import LLMProviderRepository
 from the_one.llm import get_provider
 from the_one.llm.base import LLMProvider, Message, Role, content_to_text
+from the_one.llm.registry import PROVIDER_TYPE_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -167,11 +167,9 @@ async def _resolve_inference_provider(
       ``fallback_llm_model``. Partial pair OR either None → None.
 
     Mirrors the agent/factory.py provider-construction pattern (the
-    ``_PROVIDER_TYPE_MAP`` lookup + ``get_provider`` factory call); the
-    cross-subsystem import is intentional (single-source-of-truth for the
-    provider-type → registry-name dispatch). A future refactor could lift
-    ``_PROVIDER_TYPE_MAP`` to ``the_one/llm/registry.py`` if a third caller
-    emerges (YAGNI bias from agents.md).
+    ``PROVIDER_TYPE_MAP`` lookup + ``get_provider`` factory call). M19 F01
+    L02: the map lives in ``the_one.llm.registry`` — the forward-noted lift
+    happened when the provider API branches became the third caller.
     """
     conn_id = connector_inference_provider_config_id
     conn_model = connector_inference_model
@@ -211,21 +209,24 @@ async def _resolve_inference_provider(
         return None
 
     try:
-        # Mirror the agent/factory.py:258-278 construction pattern.
-        # Note: ``_PROVIDER_TYPE_MAP`` is currently private to
-        # ``agent/factory.py``; importing it across the connector→agent
-        # boundary is a layering smell that L7 accepts (single-caller,
-        # single source-of-truth). A future refactor could lift the map
-        # to ``the_one/llm/registry.py`` if a third caller emerges
-        # (YAGNI bias per agents.md).
-        registry_name = _PROVIDER_TYPE_MAP[config.type]
-        return get_provider(
-            registry_name,
-            model=target_model,
-            base_url=config.base_url,
-            api_key=config.api_key,
-            config=config.config,
-        )
+        # Mirror the agent/factory.py construction pattern. M19 F01 L02:
+        # the type→registry map now lives in ``the_one.llm.registry``
+        # (the third caller emerged, so the forward-noted lift happened).
+        registry_name = PROVIDER_TYPE_MAP[config.type]
+        provider_kwargs = {
+            "model": target_model,
+            "base_url": config.base_url,
+            "api_key": config.api_key,
+            "config": config.config,
+        }
+        # Plan providers self-resolve their credential source by
+        # provider-config id (DD-3) — construction always succeeds; a
+        # missing/expired token surfaces at REQUEST time as the typed
+        # re-auth error, deliberately NOT swallowed by the construction
+        # ``except`` below.
+        if registry_name == "anthropic-plan":
+            provider_kwargs["provider_config_id"] = config.id
+        return get_provider(registry_name, **provider_kwargs)
     except Exception:
         logger.warning(
             "inference: provider construction failed for id=%r model=%r",

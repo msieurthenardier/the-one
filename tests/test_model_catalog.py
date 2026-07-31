@@ -210,3 +210,42 @@ class TestSeedShape:
             assert result >= expected_window, (
                 f"seed regressed openai/{model_id}: expected >={expected_window}, got {result}"
             )
+
+
+# ---------------------------------------------------------------------------
+# models_for — public enumeration accessor (M19 F01 L02, DD-5 fallback)
+# ---------------------------------------------------------------------------
+
+
+class TestModelsFor:
+    """The anthropic-plan /models static fallback enumerates the full
+    catalog section through this accessor (previously only reachable via
+    the private _get_catalog())."""
+
+    def test_returns_full_anthropic_section(self):
+        from the_one.llm.model_catalog import models_for
+
+        section = models_for("anthropic")
+        assert section, "anthropic section must not be empty"
+        assert all(isinstance(m, str) and isinstance(w, int) for m, w in section.items())
+        # Consistent with the point lookup for every entry.
+        for model_id, window in section.items():
+            assert context_window_for("anthropic", model_id) == window
+
+    def test_unknown_provider_returns_empty(self):
+        from the_one.llm.model_catalog import models_for
+
+        assert models_for("no-such-provider") == {}
+
+    def test_failed_catalog_load_fails_open_empty(self):
+        from the_one.llm.model_catalog import models_for
+
+        _reset_for_tests({})  # loaded-but-empty catalog (fail-open state)
+        assert models_for("anthropic") == {}
+
+    def test_returns_copy_not_live_section(self):
+        from the_one.llm.model_catalog import models_for
+
+        first = models_for("anthropic")
+        first.clear()
+        assert models_for("anthropic"), "mutating the returned dict must not affect the catalog"

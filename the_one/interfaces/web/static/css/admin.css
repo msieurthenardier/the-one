@@ -166,9 +166,24 @@
   .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
   .area-admin .admin-provider-badge--openai { background: var(--badge-openai); color: var(--badge-ink-openai); }
   .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
+  .area-admin .admin-provider-badge--anthropic-plan { background: var(--badge-anthropic-plan); color: var(--badge-ink-anthropic-plan); }
   .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
   .area-admin .admin-provider-badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
   .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
+
+  /* === Anthropic plan sign-in section (M19 F01 L03) === */
+  /* Save-gated OAuth sign-in UX in the provider editor. Layout only —
+     buttons/inputs/LED reuse the canonical primitives (btn-*, .field-input,
+     .indicator-led, .banner). */
+  .area-admin .plan-signin-body { display: flex; flex-direction: column; gap: var(--space-3); }
+  .area-admin .plan-signin-desc { margin: 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); line-height: var(--line-height-normal); }
+  .area-admin .plan-signin-actions { display: flex; align-items: center; gap: var(--space-3); }
+  .area-admin .plan-signin-hint { font-size: var(--font-size-caption); color: var(--fg-muted); }
+  .area-admin .plan-connected-row { display: flex; align-items: center; gap: var(--space-3); }
+  .area-admin .plan-connected-text { font-size: var(--font-size-body-sm); color: var(--fg); }
+  .area-admin .plan-signin-url-row, .area-admin .plan-code-row { display: flex; align-items: center; gap: var(--space-2); }
+  .area-admin .plan-signin-url-row .field-input, .area-admin .plan-code-row .field-input { flex: 1; min-width: 0; }
+  .area-admin .plan-signin-url { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); }
 
   /* === Tool Category Badges (F6 leg 02) === */
   /* Quiet vocabulary (M17 F6 L2, SC1): the v2 mono + UPPERCASE + letter-spaced

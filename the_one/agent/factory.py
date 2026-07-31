@@ -9,8 +9,8 @@ from the_one.agent.config import BASE_PROMPT, AgentConfig, compose_system_prompt
 from the_one.agent.core import Agent
 from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
-from the_one.db._provider_types import PROVIDER_TYPES
 from the_one.llm import get_provider
+from the_one.llm.registry import PROVIDER_TYPE_MAP
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
@@ -115,23 +115,10 @@ async def _build_source_index(
         }
 
 
-# Map provider config type to LLM registry name. Keys MUST equal
-# ``PROVIDER_TYPES`` exactly (pinned by
-# ``tests/test_provider_types_consistency.py``); the ``openai-compatible`` →
-# ``ollama`` re-route is the one historical alias and lives here only.
-_PROVIDER_TYPE_MAP = {
-    "ollama": "ollama",
-    "openai-compatible": "ollama",
-    "openai": "openai",
-    "anthropic": "anthropic",
-    "mock": "mock",
-    "openrouter": "openrouter",
-}
-
-assert set(_PROVIDER_TYPE_MAP.keys()) == set(PROVIDER_TYPES), (
-    "_PROVIDER_TYPE_MAP keys drifted from PROVIDER_TYPES — "
-    "every type declared in db/_provider_types.py must dispatch to a registry name."
-)
+# M19 F01 L02: the provider-type → registry-name map now lives in
+# ``the_one.llm.registry.PROVIDER_TYPE_MAP`` (single source of truth for the
+# three dispatch callers: this factory, ``connectors/_inference.py``, and the
+# provider API branches). The module-load drift assert moved with it.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,11 +249,11 @@ class AgentFactory:
             raise ProviderNotFoundError(str(exc)) from exc
 
         # Map config type to registry name
-        registry_name = _PROVIDER_TYPE_MAP.get(provider_config.type)
+        registry_name = PROVIDER_TYPE_MAP.get(provider_config.type)
         if registry_name is None:
             raise ValueError(
                 f"Unknown provider type '{provider_config.type}'. "
-                f"Supported types: {', '.join(sorted(_PROVIDER_TYPE_MAP))}"
+                f"Supported types: {', '.join(sorted(PROVIDER_TYPE_MAP))}"
             )
 
         provider_kwargs: dict[str, Any] = {
@@ -282,6 +269,12 @@ class AgentFactory:
         # the ollama registry to avoid passing an unknown kwarg to others.
         if registry_name == "ollama":
             provider_kwargs["native_api"] = provider_config.type == "ollama"
+        # M19 F01 L02 (DD-3): plan providers self-resolve their credential
+        # source by provider-config id — no static access token is threaded.
+        # Scoped to the plan type (mirrors the ``native_api`` scoping above)
+        # so no other constructor receives an unexpected kwarg.
+        if registry_name == "anthropic-plan":
+            provider_kwargs["provider_config_id"] = provider_config.id
 
         llm = get_provider(registry_name, **provider_kwargs)
 

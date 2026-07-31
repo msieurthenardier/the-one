@@ -70,6 +70,8 @@ Four layers compose bottom-up: **Interfaces** (CLI + Web/FastAPI) → **Agent** 
 
 **Watch-out**: the provider edit form sends the literal `__MASKED__` for unchanged API keys. `update_provider` in `interfaces/web/api.py` detects this sentinel and preserves the stored value. Anyone touching the provider edit form needs to know this contract.
 
+**LLM layer — `anthropic-plan` provider type (M19)**: chats on a Claude Pro/Max subscription via OAuth sign-in from Administration (popup or copyable URL + code paste) — no API key ever; tokens live Fernet-encrypted in `llm_providers.secrets` (stripped from every response — `oauth_active` is the UI signal) and auto-refresh via the per-provider single-flight credential source in `the_one/llm/plan_credentials.py`.
+
 Full module map, layer internals, tool-authorship contract, constraint surfaces (Filesystem/Execution/Web Configs), cross-Config dispatch, PTY session lifecycle, MCP F2/F3 contracts, MCP error translation, operator workflows — all in `the_one/agents.md`. Don't duplicate that material here.
 
 ## Desktop launcher (`the-one app`)
@@ -86,7 +88,7 @@ Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port
 
 ### Dev mode and the mock provider
 
-When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes available alongside `ollama`, `openai-compatible`, `openai`, and `anthropic`. The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field — defaults to `"Mock response from the mock provider."` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
+When `THE_ONE_DEV_MODE=true` is set, an extra provider type `mock` becomes available alongside the standard types (`ollama`, `openai-compatible`, `openai`, `anthropic`, `anthropic-plan`, `openrouter`). The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field — defaults to `"Mock response from the mock provider."` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
 
 **Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`):
 

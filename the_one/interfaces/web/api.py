@@ -44,7 +44,7 @@ from the_one.db.repositories import (
     ToolConfigRepository,
 )
 from the_one.encryption import Encryptor, get_encryptor
-from the_one.llm import ollama_api
+from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
 
 router = APIRouter(prefix="/api")
 
@@ -3902,10 +3902,55 @@ def _mask_api_key(key: str | None) -> str | None:
     return _emit_mask(key)
 
 
+# OAuth-managed keys stored in ``llm_providers.secrets`` for the
+# ``anthropic-plan`` type (M19 F01 DD-2). Written ONLY by the OAuth
+# exchange/refresh paths (never by operator create/PUT); stripped from
+# every response. Mirrors the MCP ``_OAUTH_MANAGED_SECRET_KEYS`` contract.
+_PLAN_OAUTH_MANAGED_KEYS = anthropic_oauth.OAUTH_MANAGED_SECRET_KEYS
+
+# In-process pending PKCE state for /oauth/start → /oauth/code, keyed by
+# provider id. A repeated /start replaces the entry (the older consent
+# window's code becomes unexchangeable — acceptable; the error message
+# tells the operator to use the newest window). Process-local by design:
+# the exchange must happen in the same process that generated the
+# verifier. No TTL — entries are evicted on successful exchange or
+# replaced by the next /start; a stale entry is one dict-slot of strings.
+_plan_oauth_pending: dict[str, dict[str, str]] = {}
+
+
 def _provider_response(provider: LLMProviderConfig) -> dict[str, Any]:
     data = provider.model_dump()
     data["api_key"] = _mask_api_key(provider.api_key)
+    # DD-2 read direction: NEVER expose the secrets blob — not even masked.
+    # The UI-facing signal is the ``oauth_active`` boolean instead: true iff
+    # a usable token set (access_token AND refresh_token — stricter than
+    # MCP's any-key rule, pinned by test) is stored. Always present, and
+    # ``False`` for non-plan types (frontend ignores unknown fields).
+    secrets_dict = data.pop("secrets", None) or {}
+    data["oauth_active"] = bool(
+        secrets_dict.get("access_token") and secrets_dict.get("refresh_token")
+    )
     return data
+
+
+def _plan_bearer_client(anthropic_mod: Any, token: str) -> Any:
+    """Build a bearer-mode Anthropic SDK client for plan-token calls.
+
+    Mirrors ``AnthropicPlanProvider._build_client``: ``auth_token`` bearer
+    mode + the OAuth beta header, with ``api_key`` force-nulled so the
+    SDK's ``ANTHROPIC_API_KEY`` env fallback can't flip it into
+    ``x-api-key`` mode. Takes the (handler-locally imported) ``anthropic``
+    module as a parameter so tests can substitute it via ``sys.modules``.
+    """
+    from the_one.llm.anthropic_plan_provider import OAUTH_BETA_HEADER
+
+    client = anthropic_mod.AsyncAnthropic(
+        api_key=None,
+        auth_token=token,
+        default_headers={"anthropic-beta": OAUTH_BETA_HEADER},
+    )
+    client.api_key = None
+    return client
 
 
 def _auth_headers(api_key: str | None) -> dict[str, str]:
@@ -3958,6 +4003,7 @@ async def list_provider_types() -> list[dict[str, str]]:
         {"value": "openai-compatible", "label": "OpenAI-Compatible"},
         {"value": "openai", "label": "OpenAI"},
         {"value": "anthropic", "label": "Anthropic"},
+        {"value": "anthropic-plan", "label": "Anthropic (Plan)"},
         {"value": "openrouter", "label": "OpenRouter"},
     ]
     if settings.dev_mode:
@@ -3985,6 +4031,10 @@ async def create_provider(request: Request) -> dict[str, Any]:
         )
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
+    # DD-2 create direction: secrets are OAuth-managed — force-empty
+    # regardless of the client-supplied body. Token material enters ONLY
+    # via the /oauth/code exchange path.
+    data["secrets"] = {}
     provider = LLMProviderConfig.model_validate(data)
     # URL safety: refuse non-https for non-localhost when the provider type
     # actually transmits an API key (skips ``mock`` / ``ollama``).
@@ -4021,6 +4071,20 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
     if _looks_masked(incoming_key):
         data["api_key"] = existing.api_key
 
+    # DD-2 update direction: OAuth-managed secret keys are pinned from the
+    # stored row — a PUT can neither overwrite nor seed them (only the
+    # /oauth/code exchange and the Leg-2 refresh path write them), and a
+    # PUT that omits ``secrets`` entirely preserves the stored token set.
+    # Mirrors the MCP source managed-keys preserve block above.
+    incoming_secrets = data.get("secrets")
+    resolved_secrets = dict(incoming_secrets) if isinstance(incoming_secrets, dict) else {}
+    for key in _PLAN_OAUTH_MANAGED_KEYS:
+        if key in existing.secrets:
+            resolved_secrets[key] = existing.secrets[key]
+        elif key in resolved_secrets:
+            del resolved_secrets[key]
+    data["secrets"] = resolved_secrets
+
     updated = existing.model_copy(update=data)
     # URL safety check on the RESOLVED base_url — i.e. after
     # ``model_copy(update=data)`` has merged any ``__MASKED__``-preserved
@@ -4032,6 +4096,10 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
         if not ok:
             raise HTTPException(status_code=422, detail=msg)
     await repo.update(updated)
+    # DD-3 invalidation contract: a provider update evicts the cached plan
+    # credential source so the next consumer re-reads the stored row.
+    # No-op for non-plan types / uncached ids.
+    plan_credentials.evict_credential_source(provider_id)
     return _provider_response(updated)
 
 
@@ -4066,7 +4134,153 @@ async def delete_provider(provider_id: str) -> dict[str, str]:
         )
 
     await repo.delete(provider_id)
+    # Drop any pending OAuth sign-in state for the deleted provider so a
+    # later /oauth/code can't resurrect it (it would 404 anyway on the
+    # row-existence re-check, but don't leak the verifier slot). Also
+    # evict the cached credential source (DD-3 invalidation contract).
+    _plan_oauth_pending.pop(provider_id, None)
+    plan_credentials.evict_credential_source(provider_id)
     return {"status": "ok"}
+
+
+async def _get_plan_provider_or_raise(provider_id: str) -> LLMProviderConfig:
+    """Load a provider row and require the ``anthropic-plan`` type.
+
+    404 for an unknown id; 409 when the row exists but is not a plan
+    provider (the OAuth sign-in endpoints are type-specific).
+    """
+    repo = await _provider_repo()
+    try:
+        provider = await repo.get(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+    if provider.type != "anthropic-plan":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Provider '{provider_id}' is type '{provider.type}', not 'anthropic-plan'. "
+                "OAuth sign-in only applies to Anthropic plan providers."
+            ),
+        )
+    return provider
+
+
+@router.post("/providers/{provider_id}/oauth/start")
+async def start_provider_oauth(provider_id: str) -> dict[str, str]:
+    """Begin the PKCE sign-in flow for a saved anthropic-plan provider.
+
+    Generates a fresh verifier/state pair, parks them in the in-process
+    pending map (replacing any prior pending entry for this provider —
+    the older consent window's code becomes unexchangeable), and returns
+    the claude.ai authorize URL for the frontend popup / copyable link
+    (DD-1, DD-7: the row must already be saved, hence the id-scoped route).
+    """
+    await _get_plan_provider_or_raise(provider_id)
+    verifier = anthropic_oauth.generate_verifier()
+    state = anthropic_oauth.generate_state()
+    _plan_oauth_pending[provider_id] = {"verifier": verifier, "state": state}
+    authorize_url = anthropic_oauth.build_authorize_url(
+        code_challenge=anthropic_oauth.derive_challenge(verifier),
+        state=state,
+    )
+    return {"authorize_url": authorize_url}
+
+
+@router.post("/providers/{provider_id}/oauth/code")
+async def submit_provider_oauth_code(provider_id: str, request: Request) -> dict[str, Any]:
+    """Exchange a pasted consent code and persist the token set (DD-7).
+
+    Accepts ``{"code": "..."}`` — bare code or the ``code#state`` display
+    form, whitespace tolerated. Tokens are written server-side to the
+    saved row's encrypted secrets via the dedicated ``update_secrets``
+    repository method; the response is the masked provider (now with
+    ``oauth_active: true``). No second Save is needed in the editor.
+    """
+    # Re-check row existence at exchange time — the provider may have been
+    # deleted between /start and /code (edge case: 404, entry evicted by
+    # the delete handler; popping again here is harmless).
+    await _get_plan_provider_or_raise(provider_id)
+
+    data = await request.json()
+    pasted = data.get("code") if isinstance(data, dict) else None
+    if not isinstance(pasted, str) or not pasted.strip():
+        raise HTTPException(status_code=422, detail="Body must include a non-empty 'code'.")
+
+    pending = _plan_oauth_pending.get(provider_id)
+    if pending is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No sign-in flow is pending for this provider. "
+                "Start the sign-in flow first, then paste the code it displays."
+            ),
+        )
+
+    code, embedded_state = anthropic_oauth.split_pasted_code(pasted)
+    if not code:
+        raise HTTPException(status_code=422, detail="Pasted code is empty after normalization.")
+    if embedded_state is not None and embedded_state != pending["state"]:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The pasted code belongs to a different sign-in window. "
+                "Use the code from the most recently opened sign-in page, "
+                "or restart the sign-in flow."
+            ),
+        )
+
+    try:
+        token_set = await anthropic_oauth.exchange_code(
+            code,
+            verifier=pending["verifier"],
+            state=pending["state"],
+        )
+    except anthropic_oauth.OAuthExchangeError as exc:
+        # Invalid/expired/already-used code, or a stale window. Actionable
+        # 400 — the operator re-runs the sign-in flow for a fresh code.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Sign-in code exchange failed: {exc} "
+                "The code may be expired or already used — restart the "
+                "sign-in flow and paste the newly displayed code."
+            ),
+        )
+
+    repo = await _provider_repo()
+    try:
+        await repo.update_secrets(provider_id, token_set.to_secrets())
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+    _plan_oauth_pending.pop(provider_id, None)
+    # Fresh sign-in over a possibly-cached source: evict so the next
+    # consumer builds a source that reads the just-persisted token set
+    # (one line — simpler than relying on the re-read-adoption rule).
+    plan_credentials.evict_credential_source(provider_id)
+
+    provider = await repo.get(provider_id)
+    return _provider_response(provider)
+
+
+@router.delete("/providers/{provider_id}/oauth")
+async def reset_provider_oauth(provider_id: str) -> dict[str, Any]:
+    """Reset the plan provider's OAuth connection (M19 F01 L02).
+
+    Backend half of the Leg-3 "reset connection" control: clears the
+    OAuth-managed secret keys (any non-managed keys survive — surgical,
+    not a wholesale wipe), evicts the cached credential source and any
+    pending sign-in verifier. The row itself is untouched; the response
+    is the masked provider, now with ``oauth_active: false``. Stored
+    tokens are NOT revoked upstream — this is a local disconnect.
+    """
+    provider = await _get_plan_provider_or_raise(provider_id)
+    remaining = {k: v for k, v in provider.secrets.items() if k not in _PLAN_OAUTH_MANAGED_KEYS}
+    repo = await _provider_repo()
+    await repo.update_secrets(provider_id, remaining)
+    _plan_oauth_pending.pop(provider_id, None)
+    plan_credentials.evict_credential_source(provider_id)
+    provider = await repo.get(provider_id)
+    return _provider_response(provider)
 
 
 @router.post("/providers/{provider_id}/test")
@@ -4118,6 +4332,29 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
                 client = anthropic.AsyncAnthropic(api_key=provider.api_key)
                 await client.models.list()
                 return {"status": "ok", "detail": "Connected to Anthropic"}
+            except anthropic.AnthropicError as e:
+                return {"status": "error", "detail": str(e)}
+        elif provider.type == "anthropic-plan":
+            import anthropic
+
+            # DD-3/DD-5: the token comes from the credential-source
+            # accessor (refreshing if needed) — never constructed inline.
+            # Re-auth-required follows the established /test contract:
+            # HTTP 200 + a status field, with the distinct
+            # ``reauth_required`` value (NOT a 4xx — deliberate alignment
+            # with the 200-on-provider-failure family; Leg 3's editor
+            # keys its affordance on ``oauth_active`` and may branch on
+            # this status too).
+            try:
+                token = await plan_credentials.get_credential_source(provider.id).get_access_token()
+            except plan_credentials.ReauthRequiredError as e:
+                return {"status": "reauth_required", "detail": str(e)}
+            except anthropic_oauth.OAuthError as e:
+                return {"status": "error", "detail": str(e)}
+            try:
+                client = _plan_bearer_client(anthropic, token)
+                await client.models.list()
+                return {"status": "ok", "detail": "Connected to Anthropic (plan)"}
             except anthropic.AnthropicError as e:
                 return {"status": "error", "detail": str(e)}
         elif provider.type == "openrouter":
@@ -4306,6 +4543,40 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
             ]
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
+    elif provider.type == "anthropic-plan":
+        import anthropic
+
+        from the_one.llm.model_catalog import context_window_for, models_for
+
+        # DD-5: live listing with a token from the credential-source
+        # accessor; on ANY failure (re-auth required, network, upstream
+        # rejection of plan tokens) fall back to the static Anthropic
+        # catalog entries so the Studio model picker always has options.
+        # Context windows resolve via provider name "anthropic" — the
+        # catalog's _TARGET_PROVIDERS doesn't know the plan type string.
+        try:
+            token = await plan_credentials.get_credential_source(provider.id).get_access_token()
+            client = _plan_bearer_client(anthropic, token)
+            response = await client.models.list()
+            return [
+                {
+                    "id": m.id,
+                    "name": getattr(m, "display_name", m.id),
+                    "context_length": context_window_for("anthropic", m.id),
+                }
+                for m in response.data
+            ]
+        except Exception:
+            logger.warning(
+                "anthropic-plan: live model listing failed for provider %r; "
+                "serving static catalog fallback",
+                provider_id,
+                exc_info=True,
+            )
+            return [
+                {"id": model_id, "name": model_id, "context_length": window}
+                for model_id, window in sorted(models_for("anthropic").items())
+            ]
 
     return []
 
@@ -4441,20 +4712,21 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
 async def rotate_encryption_key() -> dict[str, str]:
     """Rotate the encryption key with crash-safe ordering.
 
-    Re-encrypts every LLM provider row's ``api_key``, every MCP source row's
+    Re-encrypts every LLM provider row's ``api_key`` AND ``secrets`` blob
+    (M19 F01: the anthropic-plan OAuth token set), every MCP source row's
     ``secrets`` blob, AND every connector account row's ``secrets`` blob
     using a freshly generated key in memory and commits the DB transaction
     *before* the new key file replaces the old one via temp-file +
-    ``os.replace``. All three surfaces commit atomically — a partial
+    ``os.replace``. All four surfaces commit atomically — a partial
     rotation that handled only a subset would leave the others encrypted
     under a key that no longer exists on disk. If the DB commit fails, the
     on-disk key file is left byte-identical to its pre-rotation contents so
-    existing ciphertext on all three surfaces remains decryptable.
+    existing ciphertext on all four surfaces remains decryptable.
 
-    Migration-residue MCP and connector rows (plaintext ``'{}'`` carried
-    over from the column default) are tolerated via InvalidToken-swallowing
-    decrypt; they are normalized to proper ciphertext for ``{}`` as a
-    side-effect.
+    Migration-residue MCP, connector, and provider-secrets rows (plaintext
+    ``'{}'`` carried over from the column default) are tolerated via
+    InvalidToken-swallowing decrypt; they are normalized to proper
+    ciphertext for ``{}`` as a side-effect.
     """
     encryptor = get_encryptor(settings.data_dir)
     if encryptor.key_path is None:
@@ -4473,6 +4745,26 @@ async def rotate_encryption_key() -> dict[str, str]:
     ) as cur:
         rows = await cur.fetchall()
     decrypted = [(row["id"], encryptor.decrypt(row["api_key"])) for row in rows]
+
+    # Fourth surface (M19 F01): llm_providers.secrets — the anthropic-plan
+    # OAuth token blob. Tolerant decrypt mirrors the MCP path below: rows
+    # migrated by v33 carry the plaintext '{}' column default, which Fernet
+    # rejects with InvalidToken; treat as empty and let rotation normalize
+    # them to proper ciphertext. JSON decode errors are NOT swallowed.
+    async with conn.execute("SELECT id, secrets FROM llm_providers") as cur:
+        provider_secret_rows = await cur.fetchall()
+    decrypted_provider_secrets: list[tuple[str, dict[str, Any]]] = []
+    for row in provider_secret_rows:
+        ciphertext = row["secrets"]
+        if not ciphertext:
+            prov_secrets_dict: dict[str, Any] = {}
+        else:
+            try:
+                plaintext = encryptor.decrypt(ciphertext)
+                prov_secrets_dict = json.loads(plaintext)
+            except InvalidToken:
+                prov_secrets_dict = {}
+        decrypted_provider_secrets.append((row["id"], prov_secrets_dict))
 
     async with conn.execute("SELECT id, secrets FROM mcp_sources") as cur:
         mcp_rows = await cur.fetchall()
@@ -4523,6 +4815,10 @@ async def rotate_encryption_key() -> dict[str, str]:
 
     # 3. Re-encrypt every row using the new encryptor.
     reencrypted = [(pid, new_encryptor.encrypt(pt)) for pid, pt in decrypted]
+    reencrypted_provider_secrets = [
+        (pid, new_encryptor.encrypt(json.dumps(secrets_dict)))
+        for pid, secrets_dict in decrypted_provider_secrets
+    ]
     reencrypted_mcps = [
         (sid, new_encryptor.encrypt(json.dumps(secrets_dict)))
         for sid, secrets_dict in decrypted_mcps
@@ -4537,12 +4833,18 @@ async def rotate_encryption_key() -> dict[str, str]:
     #    cache does not surface uncommitted ciphertext encrypted with the
     #    new (not-yet-on-disk) key. The key file is untouched at this
     #    point, so re-raising leaves the system fully recoverable. The
-    #    single commit() covers ALL THREE tables — a failure in any UPDATE
-    #    loop rolls back all three atomically.
+    #    single commit() covers ALL FOUR surfaces (llm_providers.api_key,
+    #    llm_providers.secrets, mcp_sources.secrets, connectors.secrets) —
+    #    a failure in any UPDATE loop rolls back all of them atomically.
     try:
         for pid, ct in reencrypted:
             await conn.execute(
                 "UPDATE llm_providers SET api_key = ? WHERE id = ?",
+                (ct, pid),
+            )
+        for pid, ct in reencrypted_provider_secrets:
+            await conn.execute(
+                "UPDATE llm_providers SET secrets = ? WHERE id = ?",
                 (ct, pid),
             )
         for sid, ct in reencrypted_mcps:

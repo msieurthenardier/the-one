@@ -29,6 +29,7 @@ import pytest
 from tests.fixtures.scripted_transport import (
     CannedTurn,
     make_anthropic,
+    make_anthropic_plan,
     make_mock,
     make_ollama,
     make_openai,
@@ -82,6 +83,16 @@ def _anthropic_factory(turns, monkeypatch, *, streaming=False):
     return make_anthropic(turns, streaming=streaming)
 
 
+def _anthropic_plan_factory(turns, monkeypatch, *, streaming=False):
+    # M19 F01 L02: static test token + dummy provider_config_id — the
+    # explicit access_token wins over credential-source resolution, so no
+    # DB/registry is consulted. Conformance rides the inherited request
+    # path; the history/projection/serialization suites are covered by
+    # inheritance (direct AnthropicProvider fixtures) and are deliberately
+    # NOT re-parametrized (see the flight log).
+    return make_anthropic_plan(turns, streaming=streaming)
+
+
 def _openai_factory(turns, monkeypatch, *, streaming=False):
     return make_openai(turns, streaming=streaming)
 
@@ -96,6 +107,7 @@ def _mock_factory(turns, monkeypatch, *, streaming=False):
 
 PROVIDER_FACTORIES = [
     pytest.param(_anthropic_factory, id="anthropic"),
+    pytest.param(_anthropic_plan_factory, id="anthropic-plan"),
     pytest.param(_openai_factory, id="openai"),
     pytest.param(_ollama_factory, id="ollama"),
     pytest.param(_mock_factory, id="mock"),

@@ -2022,19 +2022,36 @@ class TestEnsureV1:
 class TestProviderTypesEndpoint:
     """Tests for GET /api/providers/types (dev-mode-aware list)."""
 
-    async def test_returns_5_types_when_dev_mode_off(self, client: AsyncClient) -> None:
+    async def test_returns_6_types_when_dev_mode_off(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = False
             resp = await client.get("/api/providers/types")
         assert resp.status_code == 200
         data = resp.json()
         values = [t["value"] for t in data]
-        assert set(values) == {"ollama", "openai-compatible", "openai", "anthropic", "openrouter"}
+        # anthropic-plan is NOT dev-gated (M19 F01 L03) — present with dev off.
+        assert set(values) == {
+            "ollama",
+            "openai-compatible",
+            "openai",
+            "anthropic",
+            "anthropic-plan",
+            "openrouter",
+        }
         # Each entry has the expected shape
         for entry in data:
             assert set(entry.keys()) == {"value", "label"}
 
-    async def test_returns_6_types_when_dev_mode_on(self, client: AsyncClient) -> None:
+    async def test_anthropic_plan_label_is_parenthetical(self, client: AsyncClient) -> None:
+        """The picker label follows the "Mock (dev)" parenthetical precedent."""
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = False
+            resp = await client.get("/api/providers/types")
+        assert resp.status_code == 200
+        labels = {t["value"]: t["label"] for t in resp.json()}
+        assert labels["anthropic-plan"] == "Anthropic (Plan)"
+
+    async def test_returns_7_types_when_dev_mode_on(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = True
             resp = await client.get("/api/providers/types")
@@ -2042,7 +2059,8 @@ class TestProviderTypesEndpoint:
         values = [t["value"] for t in resp.json()]
         assert "mock" in values
         assert "openrouter" in values
-        assert len(values) == 6
+        assert "anthropic-plan" in values
+        assert len(values) == 7
 
     async def test_types_route_does_not_collide_with_id_route(self, client: AsyncClient) -> None:
         """Regression: /providers/types must be registered before /providers/{id}.
@@ -2464,3 +2482,692 @@ class TestOpenRouterModelsEndpointErrorMapping:
         resp = await client.get(f"/api/providers/{provider_id}/models")
         assert resp.status_code == 502
         assert "unreachable" in resp.json()["detail"].lower()
+
+
+# ── anthropic-plan secrets contract + OAuth endpoints (M19 F01 L01) ──────
+
+
+@pytest.fixture
+async def plan_env(tmp_path):
+    """Like ``client`` but also exposes the DB connection and encryptor so
+    tests can assert on ciphertext-at-rest / stored token values (which the
+    API deliberately never returns)."""
+    db_path = tmp_path / "test.db"
+
+    conn = await aiosqlite.connect(str(db_path))
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await ensure_schema(conn)
+
+    test_key = Fernet.generate_key()
+    key_path = tmp_path / "test.key"
+    key_path.write_bytes(test_key)
+    test_encryptor = Encryptor(test_key, key_path=key_path)
+
+    with (
+        patch("the_one.interfaces.web.api.get_connection", return_value=conn),
+        patch("the_one.interfaces.web.api.get_encryptor", return_value=test_encryptor),
+    ):
+        test_app = FastAPI()
+        test_app.include_router(router)
+
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield SimpleNamespace(client=c, conn=conn, encryptor=test_encryptor)
+
+    await conn.close()
+
+
+_PLAN_PROVIDER_BODY = {
+    "name": "Claude Plan",
+    "type": "anthropic-plan",
+    "base_url": "https://api.anthropic.com",
+}
+
+
+def _plan_token_set(**overrides):
+    from the_one.llm.anthropic_oauth import TokenSet
+
+    defaults = {
+        "access_token": "sk-ant-oat01-planaccess",
+        "refresh_token": "sk-ant-ort01-planrefresh",
+        "token_expires_at": 1785300000,
+        "scope": "org:create_api_key user:profile user:inference",
+        "token_type": "Bearer",
+    }
+    defaults.update(overrides)
+    return TokenSet(**defaults)
+
+
+async def _read_stored_secrets(env, provider_id: str) -> dict:
+    import json as _json
+
+    async with env.conn.execute(
+        "SELECT secrets FROM llm_providers WHERE id = ?", (provider_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    raw = row["secrets"]
+    if raw == "{}":
+        return {}
+    return _json.loads(env.encryptor.decrypt(raw))
+
+
+async def _signed_in_plan_provider(env, token_set=None) -> str:
+    """Create a plan provider and complete /oauth/start + /oauth/code with a
+    mocked token-endpoint exchange. Returns the provider id."""
+    create = await env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+    assert create.status_code == 201, create.text
+    provider_id = create.json()["id"]
+
+    start = await env.client.post(f"/api/providers/{provider_id}/oauth/start")
+    assert start.status_code == 200, start.text
+
+    exchange = AsyncMock(return_value=token_set or _plan_token_set())
+    with patch("the_one.llm.anthropic_oauth.exchange_code", exchange):
+        code_resp = await env.client.post(
+            f"/api/providers/{provider_id}/oauth/code", json={"code": "consent-code-1"}
+        )
+    assert code_resp.status_code == 200, code_resp.text
+    return provider_id
+
+
+class TestPlanProviderSecretsContract:
+    async def test_create_forces_empty_secrets(self, plan_env) -> None:
+        """POST with a client-supplied secrets payload stores {} — token
+        material cannot enter via create."""
+        resp = await plan_env.client.post(
+            "/api/providers",
+            json={
+                **_PLAN_PROVIDER_BODY,
+                "secrets": {"access_token": "smuggled", "refresh_token": "smuggled2"},
+            },
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert "secrets" not in body
+        assert body["oauth_active"] is False
+        assert await _read_stored_secrets(plan_env, body["id"]) == {}
+
+    async def test_get_strips_secrets_and_exposes_oauth_active(self, plan_env) -> None:
+        provider_id = await _signed_in_plan_provider(plan_env)
+        resp = await plan_env.client.get(f"/api/providers/{provider_id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "secrets" not in body
+        assert body["oauth_active"] is True
+        # No token substring anywhere in the response.
+        assert "planaccess" not in resp.text
+        assert "planrefresh" not in resp.text
+
+    async def test_oauth_active_false_for_legacy_types(self, plan_env) -> None:
+        """The field appears for ALL providers and is False for non-plan
+        types (frontend ignores unknown fields today)."""
+        resp = await plan_env.client.post(
+            "/api/providers",
+            json={
+                "name": "Anthropic API",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-key",
+            },
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["oauth_active"] is False
+        assert "secrets" not in body
+
+        listed = await plan_env.client.get("/api/providers")
+        for item in listed.json():
+            assert "secrets" not in item
+            assert item["oauth_active"] is False
+
+    async def test_oauth_active_requires_both_tokens(self, plan_env) -> None:
+        """Pin the chosen rule: access_token AND refresh_token (stricter
+        than MCP's any-key rule)."""
+        provider_id = await _signed_in_plan_provider(
+            plan_env, token_set=_plan_token_set(refresh_token=None)
+        )
+        resp = await plan_env.client.get(f"/api/providers/{provider_id}")
+        assert resp.json()["oauth_active"] is False
+
+    async def test_put_without_secrets_preserves_managed_keys(self, plan_env) -> None:
+        provider_id = await _signed_in_plan_provider(plan_env)
+        stored_before = await _read_stored_secrets(plan_env, provider_id)
+
+        resp = await plan_env.client.put(
+            f"/api/providers/{provider_id}",
+            json={**_PLAN_PROVIDER_BODY, "name": "Renamed Plan"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Renamed Plan"
+        assert resp.json()["oauth_active"] is True
+        assert await _read_stored_secrets(plan_env, provider_id) == stored_before
+
+    async def test_put_cannot_overwrite_managed_keys(self, plan_env) -> None:
+        provider_id = await _signed_in_plan_provider(plan_env)
+        stored_before = await _read_stored_secrets(plan_env, provider_id)
+
+        resp = await plan_env.client.put(
+            f"/api/providers/{provider_id}",
+            json={
+                **_PLAN_PROVIDER_BODY,
+                "secrets": {
+                    "access_token": "attacker-at",
+                    "refresh_token": "attacker-rt",
+                    "token_expires_at": 1,
+                },
+            },
+        )
+        assert resp.status_code == 200
+        assert await _read_stored_secrets(plan_env, provider_id) == stored_before
+
+    async def test_put_cannot_seed_managed_keys(self, plan_env) -> None:
+        """A PUT on a never-signed-in provider cannot plant token material."""
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+
+        resp = await plan_env.client.put(
+            f"/api/providers/{provider_id}",
+            json={
+                **_PLAN_PROVIDER_BODY,
+                "secrets": {"access_token": "seeded", "refresh_token": "seeded2"},
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["oauth_active"] is False
+        assert await _read_stored_secrets(plan_env, provider_id) == {}
+
+
+class TestPlanOAuthEndpoints:
+    async def test_start_returns_authorize_url(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+
+        resp = await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        assert resp.status_code == 200
+        url = resp.json()["authorize_url"]
+        assert url.startswith("https://claude.ai/oauth/authorize?")
+        assert "client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e" in url
+        assert "code_challenge_method=S256" in url
+        assert "state=" in url
+
+    async def test_start_unknown_provider_404(self, plan_env) -> None:
+        resp = await plan_env.client.post("/api/providers/nope/oauth/start")
+        assert resp.status_code == 404
+
+    async def test_start_non_plan_type_409(self, plan_env) -> None:
+        create = await plan_env.client.post(
+            "/api/providers",
+            json={
+                "name": "Anthropic API",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+            },
+        )
+        provider_id = create.json()["id"]
+        resp = await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        assert resp.status_code == 409
+        assert "anthropic-plan" in resp.json()["detail"]
+
+    async def test_code_without_start_409(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        resp = await plan_env.client.post(
+            f"/api/providers/{provider_id}/oauth/code", json={"code": "abc"}
+        )
+        assert resp.status_code == 409
+        assert "Start the sign-in flow" in resp.json()["detail"]
+
+    async def test_code_exchange_persists_and_returns_masked_provider(self, plan_env) -> None:
+        provider_id = await _signed_in_plan_provider(plan_env)
+        stored = await _read_stored_secrets(plan_env, provider_id)
+        assert stored["access_token"] == "sk-ant-oat01-planaccess"
+        assert stored["refresh_token"] == "sk-ant-ort01-planrefresh"
+        assert stored["token_expires_at"] == 1785300000
+
+        resp = await plan_env.client.get(f"/api/providers/{provider_id}")
+        assert resp.json()["oauth_active"] is True
+
+    async def test_code_exchange_receives_pending_verifier_and_state(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        start = await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        url = start.json()["authorize_url"]
+
+        exchange = AsyncMock(return_value=_plan_token_set())
+        with patch("the_one.llm.anthropic_oauth.exchange_code", exchange):
+            resp = await plan_env.client.post(
+                f"/api/providers/{provider_id}/oauth/code", json={"code": "  the-code  "}
+            )
+        assert resp.status_code == 200
+        args, kwargs = exchange.call_args
+        assert args == ("the-code",)
+        # The verifier's S256 challenge and the state are the ones in the
+        # authorize URL this flow handed out.
+        from urllib.parse import parse_qs, urlparse
+
+        from the_one.llm.anthropic_oauth import derive_challenge
+
+        params = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+        assert derive_challenge(kwargs["verifier"]) == params["code_challenge"]
+        assert kwargs["state"] == params["state"]
+
+    async def test_code_hash_state_form_accepted(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        start = await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        from urllib.parse import parse_qs, urlparse
+
+        state = parse_qs(urlparse(start.json()["authorize_url"]).query)["state"][0]
+
+        exchange = AsyncMock(return_value=_plan_token_set())
+        with patch("the_one.llm.anthropic_oauth.exchange_code", exchange):
+            resp = await plan_env.client.post(
+                f"/api/providers/{provider_id}/oauth/code",
+                json={"code": f"the-code#{state}"},
+            )
+        assert resp.status_code == 200
+        assert exchange.call_args.args == ("the-code",)
+
+    async def test_code_state_mismatch_400_no_exchange(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+
+        exchange = AsyncMock(return_value=_plan_token_set())
+        with patch("the_one.llm.anthropic_oauth.exchange_code", exchange):
+            resp = await plan_env.client.post(
+                f"/api/providers/{provider_id}/oauth/code",
+                json={"code": "the-code#wrong-state"},
+            )
+        assert resp.status_code == 400
+        exchange.assert_not_called()
+        assert await _read_stored_secrets(plan_env, provider_id) == {}
+
+    async def test_repeated_start_invalidates_older_window(self, plan_env) -> None:
+        """A second /start replaces the pending state; a code pasted from
+        the FIRST window (carrying its state) is rejected with guidance."""
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        first = await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        from urllib.parse import parse_qs, urlparse
+
+        first_state = parse_qs(urlparse(first.json()["authorize_url"]).query)["state"][0]
+        await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+
+        exchange = AsyncMock(return_value=_plan_token_set())
+        with patch("the_one.llm.anthropic_oauth.exchange_code", exchange):
+            resp = await plan_env.client.post(
+                f"/api/providers/{provider_id}/oauth/code",
+                json={"code": f"old-code#{first_state}"},
+            )
+        assert resp.status_code == 400
+        assert "most recently opened" in resp.json()["detail"]
+        exchange.assert_not_called()
+
+    async def test_invalid_code_surfaces_actionable_400(self, plan_env) -> None:
+        from the_one.llm.anthropic_oauth import OAuthExchangeError
+
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+
+        exchange = AsyncMock(
+            side_effect=OAuthExchangeError(
+                "OAuth code exchange failed: token endpoint returned HTTP 400.",
+                status_code=400,
+                body='{"error": "invalid_grant"}',
+            )
+        )
+        with patch("the_one.llm.anthropic_oauth.exchange_code", exchange):
+            resp = await plan_env.client.post(
+                f"/api/providers/{provider_id}/oauth/code", json={"code": "expired-code"}
+            )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "restart the sign-in flow" in detail
+
+    async def test_empty_code_422(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        resp = await plan_env.client.post(
+            f"/api/providers/{provider_id}/oauth/code", json={"code": "   "}
+        )
+        assert resp.status_code == 422
+
+    async def test_provider_deleted_between_start_and_code_404(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        delete = await plan_env.client.delete(f"/api/providers/{provider_id}")
+        assert delete.status_code == 200
+
+        resp = await plan_env.client.post(
+            f"/api/providers/{provider_id}/oauth/code", json={"code": "abc"}
+        )
+        assert resp.status_code == 404
+
+
+class TestPlanSecretsRotation:
+    async def test_rotation_preserves_plan_tokens(self, plan_env) -> None:
+        """llm_providers.secrets is the fourth rotation surface: stored plan
+        tokens must decrypt under the post-rotation key. (If rotation missed
+        the surface, the tolerant decrypt would read {} and oauth_active
+        would flip false — and the raw-DB assertion would fail outright.)"""
+        provider_id = await _signed_in_plan_provider(plan_env)
+        stored_before = await _read_stored_secrets(plan_env, provider_id)
+        assert stored_before["access_token"] == "sk-ant-oat01-planaccess"
+
+        resp = await plan_env.client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+
+        # install_key() mutated the shared encryptor to the new key, so this
+        # decrypts the raw column under the POST-rotation key.
+        stored_after = await _read_stored_secrets(plan_env, provider_id)
+        assert stored_after == stored_before
+
+        get_resp = await plan_env.client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["oauth_active"] is True
+
+    async def test_rotation_normalizes_plaintext_residue_row(self, plan_env) -> None:
+        """A migration-residue row (plaintext '{}') survives rotation via the
+        tolerant decrypt and is normalized to ciphertext for {}."""
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        # Simulate v33-migrated residue: plaintext '{}' in the raw column.
+        await plan_env.conn.execute(
+            "UPDATE llm_providers SET secrets = '{}' WHERE id = ?", (provider_id,)
+        )
+        await plan_env.conn.commit()
+
+        resp = await plan_env.client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+
+        async with plan_env.conn.execute(
+            "SELECT secrets FROM llm_providers WHERE id = ?", (provider_id,)
+        ) as cur:
+            raw = (await cur.fetchone())["secrets"]
+        assert raw != "{}"
+        assert plan_env.encryptor.decrypt(raw) == "{}"
+
+        get_resp = await plan_env.client.get(f"/api/providers/{provider_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["oauth_active"] is False
+
+
+# ── anthropic-plan /test, /models, reset + eviction (M19 F01 L02) ────────
+
+
+def _plan_repo(env):
+    """Real repository over the plan_env conn/encryptor — the same rows the
+    API handlers see."""
+    from the_one.db.repositories import LLMProviderRepository
+
+    return LLMProviderRepository(env.conn, env.encryptor)
+
+
+@pytest.fixture
+def plan_source_env(plan_env, monkeypatch):
+    """plan_env + the credential source wired to the SAME test DB.
+
+    The source's lazy ``_provider_repo`` normally builds over the singleton
+    connection; point it at the fixture repo, and reset the process-wide
+    source registry around the test.
+    """
+    from the_one.llm import plan_credentials
+
+    repo = _plan_repo(plan_env)
+
+    async def _test_repo():
+        return repo
+
+    monkeypatch.setattr(plan_credentials, "_provider_repo", _test_repo)
+    plan_credentials._reset_for_tests()
+    yield plan_env
+    plan_credentials._reset_for_tests()
+
+
+def _fresh_plan_token_set():
+    import time as _time
+
+    return _plan_token_set(token_expires_at=int(_time.time()) + 3600)
+
+
+class TestPlanConnectionTest:
+    """POST /providers/{id}/test for anthropic-plan (DD-5 + /test contract)."""
+
+    async def test_success_uses_accessor_token(self, plan_source_env) -> None:
+        env = plan_source_env
+        provider_id = await _signed_in_plan_provider(env, token_set=_fresh_plan_token_set())
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await env.client.post(f"/api/providers/{provider_id}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert "plan" in resp.json()["detail"].lower()
+        # Bearer mode with the fresh accessor token + OAuth beta header.
+        _, kwargs = mock_mod.AsyncAnthropic.call_args
+        assert kwargs["auth_token"] == "sk-ant-oat01-planaccess"
+        assert kwargs["api_key"] is None
+        assert kwargs["default_headers"] == {"anthropic-beta": "oauth-2025-04-20"}
+
+    async def test_reauth_required_is_200_with_status(self, plan_source_env) -> None:
+        """Established /test contract: HTTP 200 + status field with the
+        distinct ``reauth_required`` value and an actionable detail — NOT a
+        4xx (deliberate alignment with the 200-on-provider-failure family)."""
+        env = plan_source_env
+        create = await env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]  # no tokens stored
+
+        mock_mod = _mock_anthropic_module()
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await env.client.post(f"/api/providers/{provider_id}/test")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "reauth_required"
+        assert "Administration" in body["detail"]
+        mock_mod.AsyncAnthropic.assert_not_called()
+
+    async def test_upstream_error_is_status_error(self, plan_source_env) -> None:
+        env = plan_source_env
+        provider_id = await _signed_in_plan_provider(env, token_set=_fresh_plan_token_set())
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            side_effect=mock_mod.AnthropicError("plan token rejected")
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await env.client.post(f"/api/providers/{provider_id}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "error"
+        assert "plan token rejected" in resp.json()["detail"]
+
+
+class TestPlanModelDiscovery:
+    """GET /providers/{id}/models for anthropic-plan (DD-5)."""
+
+    async def test_live_listing_with_accessor_token(self, plan_source_env) -> None:
+        env = plan_source_env
+        provider_id = await _signed_in_plan_provider(env, token_set=_fresh_plan_token_set())
+        model_a = SimpleNamespace(id="claude-sonnet-4-20250514", display_name="Claude Sonnet 4")
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            return_value=MagicMock(data=[model_a])
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await env.client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+        assert models == [
+            {
+                "id": "claude-sonnet-4-20250514",
+                "name": "Claude Sonnet 4",
+                # Context window resolved via provider name "anthropic".
+                "context_length": 200000,
+            }
+        ]
+        _, kwargs = mock_mod.AsyncAnthropic.call_args
+        assert kwargs["auth_token"] == "sk-ant-oat01-planaccess"
+
+    async def test_live_failure_falls_back_to_static_catalog(self, plan_source_env) -> None:
+        env = plan_source_env
+        provider_id = await _signed_in_plan_provider(env, token_set=_fresh_plan_token_set())
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            side_effect=mock_mod.AnthropicError("plan tokens can't list models")
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await env.client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+
+        from the_one.llm.model_catalog import models_for
+
+        catalog = models_for("anthropic")
+        assert catalog, "static anthropic catalog section must not be empty"
+        assert models == [
+            {"id": mid, "name": mid, "context_length": window}
+            for mid, window in sorted(catalog.items())
+        ]
+
+    async def test_reauth_required_also_serves_static_fallback(self, plan_source_env) -> None:
+        """The Studio picker always has options — even when the provider
+        needs re-auth, /models serves the catalog fallback (the re-auth
+        affordance lives on /test + oauth_active, not here)."""
+        env = plan_source_env
+        create = await env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]  # no tokens stored
+
+        mock_mod = _mock_anthropic_module()
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await env.client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 200
+        assert len(resp.json()) > 0
+        mock_mod.AsyncAnthropic.assert_not_called()
+
+
+class TestPlanOAuthReset:
+    """DELETE /providers/{id}/oauth — the Leg-3 reset control's backend."""
+
+    async def test_reset_clears_managed_keys_and_flips_oauth_active(self, plan_env) -> None:
+        provider_id = await _signed_in_plan_provider(plan_env)
+        assert (await _read_stored_secrets(plan_env, provider_id))["access_token"]
+
+        resp = await plan_env.client.delete(f"/api/providers/{provider_id}/oauth")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["oauth_active"] is False
+        assert "secrets" not in body
+        assert await _read_stored_secrets(plan_env, provider_id) == {}
+
+        get_resp = await plan_env.client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["oauth_active"] is False
+
+    async def test_reset_preserves_unmanaged_secret_keys(self, plan_env) -> None:
+        """The reset is surgical: only OAuth-managed keys are cleared."""
+        provider_id = await _signed_in_plan_provider(plan_env)
+        repo = _plan_repo(plan_env)
+        stored = await _read_stored_secrets(plan_env, provider_id)
+        stored["future_unmanaged_key"] = "survives"
+        await repo.update_secrets(provider_id, stored)
+
+        resp = await plan_env.client.delete(f"/api/providers/{provider_id}/oauth")
+        assert resp.status_code == 200
+        assert await _read_stored_secrets(plan_env, provider_id) == {
+            "future_unmanaged_key": "survives"
+        }
+
+    async def test_reset_evicts_pending_verifier(self, plan_env) -> None:
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+
+        resp = await plan_env.client.delete(f"/api/providers/{provider_id}/oauth")
+        assert resp.status_code == 200
+
+        code_resp = await plan_env.client.post(
+            f"/api/providers/{provider_id}/oauth/code", json={"code": "abc"}
+        )
+        assert code_resp.status_code == 409  # no pending flow anymore
+
+    async def test_reset_evicts_credential_source(self, plan_env) -> None:
+        from the_one.llm import plan_credentials
+
+        provider_id = await _signed_in_plan_provider(plan_env)
+        plan_credentials._reset_for_tests()
+        before = plan_credentials.get_credential_source(provider_id)
+        resp = await plan_env.client.delete(f"/api/providers/{provider_id}/oauth")
+        assert resp.status_code == 200
+        after = plan_credentials.get_credential_source(provider_id)
+        assert before is not after
+        plan_credentials._reset_for_tests()
+
+    async def test_reset_unknown_provider_404(self, plan_env) -> None:
+        resp = await plan_env.client.delete("/api/providers/nope/oauth")
+        assert resp.status_code == 404
+
+    async def test_reset_non_plan_type_409(self, plan_env) -> None:
+        create = await plan_env.client.post(
+            "/api/providers",
+            json={
+                "name": "Anthropic API",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+            },
+        )
+        provider_id = create.json()["id"]
+        resp = await plan_env.client.delete(f"/api/providers/{provider_id}/oauth")
+        assert resp.status_code == 409
+
+
+class TestPlanCredentialSourceEvictionWiring:
+    """DD-3 invalidation contract: PUT, DELETE, and a fresh /oauth/code
+    exchange each evict the cached credential source."""
+
+    async def test_put_evicts_source(self, plan_env) -> None:
+        from the_one.llm import plan_credentials
+
+        provider_id = await _signed_in_plan_provider(plan_env)
+        plan_credentials._reset_for_tests()
+        before = plan_credentials.get_credential_source(provider_id)
+        resp = await plan_env.client.put(
+            f"/api/providers/{provider_id}", json={"name": "Renamed Plan"}
+        )
+        assert resp.status_code == 200
+        assert plan_credentials.get_credential_source(provider_id) is not before
+        plan_credentials._reset_for_tests()
+
+    async def test_delete_evicts_source(self, plan_env) -> None:
+        from the_one.llm import plan_credentials
+
+        provider_id = await _signed_in_plan_provider(plan_env)
+        plan_credentials._reset_for_tests()
+        before = plan_credentials.get_credential_source(provider_id)
+        resp = await plan_env.client.delete(f"/api/providers/{provider_id}")
+        assert resp.status_code == 200
+        assert plan_credentials.get_credential_source(provider_id) is not before
+        plan_credentials._reset_for_tests()
+
+    async def test_fresh_sign_in_evicts_source(self, plan_env) -> None:
+        """A successful /oauth/code exchange over a cached source evicts it,
+        so the next consumer reads the just-persisted token set instead of
+        relying on re-read adoption."""
+        from the_one.llm import plan_credentials
+
+        create = await plan_env.client.post("/api/providers", json=_PLAN_PROVIDER_BODY)
+        provider_id = create.json()["id"]
+        plan_credentials._reset_for_tests()
+        before = plan_credentials.get_credential_source(provider_id)
+
+        await plan_env.client.post(f"/api/providers/{provider_id}/oauth/start")
+        exchange = AsyncMock(return_value=_plan_token_set())
+        with patch("the_one.llm.anthropic_oauth.exchange_code", exchange):
+            resp = await plan_env.client.post(
+                f"/api/providers/{provider_id}/oauth/code", json={"code": "consent-code"}
+            )
+        assert resp.status_code == 200
+        assert plan_credentials.get_credential_source(provider_id) is not before
+        plan_credentials._reset_for_tests()

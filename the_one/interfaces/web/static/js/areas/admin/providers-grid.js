@@ -18,7 +18,7 @@
   // The active tile (when an editor is open for that id) carries
   // aria-selected="true"; others carry aria-selected="false".
 
-  var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'mock', 'openrouter'];
+  var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'anthropic-plan', 'mock', 'openrouter'];
 
   function renderProvidersGrid(container, providers, callbacks) {
     callbacks = callbacks || {};

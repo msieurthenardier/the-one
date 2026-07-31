@@ -76,6 +76,15 @@
     html += '<div class="test-result" aria-live="polite"></div>';
     html += '</div>';
 
+    // ── Anthropic Account section (M19 F01 L03) ─────────────────────
+    // Rendered for ALL modes/types but hidden unless the selected type's
+    // TYPE_DEFAULTS carries showPlanSignIn (the anthropic-plan type) —
+    // same is-hidden toggle pattern as the base_url/api_key rows. The
+    // body is populated by wirePlanSignIn; nothing inside carries a
+    // data-field attribute (no-trap rule: the dirty snapshot selects
+    // [data-field], so the sign-in machinery stays out of it entirely).
+    html += renderPlanSignInShell(provider, callbacks);
+
     // ── Models section (edit only) ──────────────────────────────────
     if (!isCreate) {
       html += '<div class="editor-section">';
@@ -224,8 +233,9 @@
 
     // Reasoning effort (config.reasoning_effort) — F11-06. Rides the free-form
     // config dict (config.reasoning_effort), same pattern as num_ctx. Shown for
-    // reasoning-capable provider types (anthropic, openai, openrouter, ollama,
-    // openai-compatible — see TYPE_DEFAULTS.showReasoningEffort in admin.js).
+    // reasoning-capable provider types (anthropic, anthropic-plan, openai,
+    // openrouter, ollama, openai-compatible — see
+    // TYPE_DEFAULTS.showReasoningEffort in admin.js).
     // Optional: the empty "Provider default" option means omit the key
     // entirely (server-side _coerce_effort('') -> None), so an operator who
     // never touches this field gets prior behavior unchanged.
@@ -248,6 +258,362 @@
     html += '</div>';
 
     return html;
+  }
+
+  // ── Anthropic plan sign-in (M19 F01 L03) ──────────────────────────────
+  //
+  // OAuth sign-in UX for the anthropic-plan type (flight DD-1 / DD-7).
+  // State machine: signed-out → awaiting-code → connected, derived
+  // from provider.oauth_active plus a local awaitingUrl. There is NO
+  // persistent "revoked" state — the /test result's reauth_required status
+  // is the only revoked signal; the connected state's Re-authenticate
+  // control is the standing re-auth affordance.
+  //
+  // Create mode is auto-save-then-start (HAT fix, supersedes the original
+  // disabled-until-saved gate): the OAuth endpoints are
+  // /api/providers/{id}/… and need the row to exist, so a create-mode
+  // Sign-in click first runs the EXACT create path the Create button uses
+  // (inline validation included, via the shared performSave). The
+  // create→edit transition replaces the editor closure (orchestrator
+  // re-render), so the "now start OAuth" intent crosses instances through
+  // the module-scoped pendingAutoSignInId one-shot below: the re-mounted
+  // edit-mode wirePlanSignIn sees its provider id flagged and calls
+  // startFlow immediately.
+  //
+  // Nothing here polls and nothing carries data-field: state advances only
+  // on explicit user actions and endpoint responses, and the dirty
+  // machinery ([data-field] snapshot) never sees these inputs. After a
+  // successful /oauth/code the server has already persisted the tokens —
+  // the local provider reference is refreshed in place (Object.assign on
+  // the same object the orchestrator holds) WITHOUT touching the snapshot,
+  // so no unsaved-changes trap appears.
+
+  // One-shot handoff across the create→edit editor re-render: holds the id
+  // of a provider just created by a sign-in-initiated auto-save. Consumed
+  // (and cleared) by the next edit-mode wirePlanSignIn mount for that id.
+  var pendingAutoSignInId = null;
+
+  function renderPlanSignInShell(provider, callbacks) {
+    var isCreate = !provider;
+    var type = isCreate ? '' : provider.type;
+    var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(type)) || {};
+    var html = '';
+    html += '<div class="editor-section admin-pf-plan-signin' + (defaults.showPlanSignIn ? '' : ' is-hidden') + '">';
+    html += '<div class="section-title">Anthropic Account</div>';
+    html += '<div class="plan-signin-body"></div>';
+    html += '</div>';
+    return html;
+  }
+
+  function wirePlanSignIn(container, provider, requestCreateSave) {
+    var isEdit = !!provider;
+    var body = container.querySelector('.admin-pf-plan-signin .plan-signin-body');
+    if (!body) return;
+
+    // Local sub-state: non-null while the consent (URL + code paste) UI is
+    // shown. Cleared on success/reset; survives nothing (an editor reload
+    // mid-flow is fine — the backend keeps the pending verifier and a
+    // re-click of Sign in replaces it cleanly).
+    var awaitingUrl = null;
+
+    function isConnected() {
+      return !!(isEdit && provider && provider.oauth_active);
+    }
+
+    function errorEl() {
+      return body.querySelector('[data-testid="plan-signin-error"]');
+    }
+
+    function showError(msg) {
+      var el = errorEl();
+      if (!el) return;
+      el.textContent = msg;
+      el.removeAttribute('hidden');
+    }
+
+    function clearError() {
+      var el = errorEl();
+      if (!el) return;
+      el.textContent = '';
+      el.setAttribute('hidden', '');
+    }
+
+    function readErrorResponse(r, fallback) {
+      // Extract the endpoint's actionable detail; throw as Error either way.
+      return r.json().then(
+        function (e) { throw new Error(e.detail || fallback); },
+        function () { throw new Error(fallback); }
+      );
+    }
+
+    function openConsentPopup(url) {
+      // Mirrors the MCP server editor's consent-popup geometry. NOTE
+      // (documented expectation): when invoked after the /oauth/start
+      // fetch resolves, the user-gesture context is lost and popup
+      // blockers will often reject this — that degradation is EXPECTED
+      // and silent, because the copyable URL + the gesture-context "Open
+      // sign-in page" button are first-class paths.
+      var popupW = 600;
+      var popupH = 700;
+      var parentX = window.screenX !== undefined ? window.screenX : window.screenLeft;
+      var parentY = window.screenY !== undefined ? window.screenY : window.screenTop;
+      var parentW = window.outerWidth || window.innerWidth || screen.width;
+      var parentH = window.outerHeight || window.innerHeight || screen.height;
+      var features = (
+        'width=' + popupW + ',height=' + popupH +
+        ',left=' + Math.round(parentX + Math.max(0, (parentW - popupW) / 2)) +
+        ',top=' + Math.round(parentY + Math.max(0, (parentH - popupH) / 2))
+      );
+      try {
+        window.open(url, 'plan-oauth-consent', features);
+      } catch (e) { /* popup blocked — copyable URL is the visible path */ }
+    }
+
+    function startFlow(initiatingBtn) {
+      clearError();
+      if (initiatingBtn) initiatingBtn.disabled = true;
+      fetch('/api/providers/' + encodeURIComponent(provider.id) + '/oauth/start', { method: 'POST' })
+        .then(function (r) {
+          if (!r.ok) return readErrorResponse(r, 'Could not start sign-in.');
+          return r.json();
+        })
+        .then(function (data) {
+          awaitingUrl = data.authorize_url;
+          renderState();
+          // Attempt the popup AFTER the consent UI is on screen so a
+          // blocked popup leaves a complete fallback path visible.
+          openConsentPopup(awaitingUrl);
+        })
+        .catch(function (err) {
+          if (initiatingBtn) initiatingBtn.disabled = false;
+          showError(err.message || String(err));
+        });
+    }
+
+    function submitCode(codeInput, submitBtn) {
+      clearError();
+      var code = (codeInput.value || '').trim();
+      if (!code) {
+        showError('Paste the sign-in code first.');
+        return;
+      }
+      submitBtn.disabled = true;
+      fetch('/api/providers/' + encodeURIComponent(provider.id) + '/oauth/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code })
+      })
+        .then(function (r) {
+          if (!r.ok) return readErrorResponse(r, 'Sign-in code exchange failed.');
+          return r.json();
+        })
+        .then(function (updated) {
+          // Tokens are persisted server-side; refresh the local provider
+          // reference in place (same object the orchestrator holds) and
+          // DO NOT touch the form snapshot — no unsaved-changes trap.
+          Object.assign(provider, updated);
+          awaitingUrl = null;
+          renderState();
+          window.App.showFlash(container, 'Signed in to Anthropic');
+        })
+        .catch(function (err) {
+          // Inline (not a vanishing toast); the paste field stays usable.
+          submitBtn.disabled = false;
+          showError(err.message || String(err));
+        });
+    }
+
+    function doReset(btn, revertFn) {
+      fetch('/api/providers/' + encodeURIComponent(provider.id) + '/oauth', { method: 'DELETE' })
+        .then(function (r) {
+          if (!r.ok) return readErrorResponse(r, 'Reset failed.');
+          return r.json();
+        })
+        .then(function (updated) {
+          Object.assign(provider, updated);
+          awaitingUrl = null;
+          renderState();
+          window.App.showFlash(container, 'Connection reset');
+        })
+        .catch(function (err) {
+          revertFn();
+          showError(err.message || String(err));
+        });
+    }
+
+    function buildSignedOutBlock() {
+      var block = document.createElement('div');
+      block.className = 'plan-signin-start';
+      var desc = document.createElement('p');
+      desc.className = 'plan-signin-desc';
+      desc.textContent = 'Sign in with your Anthropic account to use your Claude plan. No API key is needed.';
+      block.appendChild(desc);
+      var row = document.createElement('div');
+      row.className = 'plan-signin-actions';
+      var signInBtn = document.createElement('button');
+      signInBtn.type = 'button';
+      signInBtn.className = 'btn-outlined-primary';
+      signInBtn.setAttribute('data-testid', 'plan-signin-btn');
+      signInBtn.textContent = 'Sign in with Anthropic';
+      row.appendChild(signInBtn);
+      if (!isEdit) {
+        // Auto-save-then-start (HAT fix): run the shared create path first
+        // (the row must exist for /oauth/start). Validation failure renders
+        // the editor's normal inline error and nothing is saved; save
+        // failure renders the existing save-error handling and the flow is
+        // NOT entered. On success the create→edit re-render consumes
+        // pendingAutoSignInId and starts the OAuth flow (see module note).
+        signInBtn.addEventListener('click', function () {
+          clearError();
+          if (requestCreateSave) {
+            requestCreateSave(function (created) {
+              pendingAutoSignInId = created.id;
+            });
+          }
+        });
+      } else {
+        signInBtn.addEventListener('click', function () { startFlow(signInBtn); });
+      }
+      block.appendChild(row);
+      return block;
+    }
+
+    function buildConnectedRow() {
+      var row = document.createElement('div');
+      row.className = 'plan-connected-row';
+      var led = document.createElement('span');
+      led.className = 'indicator-led indicator-led--success';
+      led.setAttribute('aria-hidden', 'true');
+      row.appendChild(led);
+      var label = document.createElement('span');
+      label.className = 'plan-connected-text';
+      label.setAttribute('data-testid', 'plan-connected-indicator');
+      label.textContent = 'Connected to Anthropic';
+      row.appendChild(label);
+      var reauthBtn = document.createElement('button');
+      reauthBtn.type = 'button';
+      reauthBtn.className = 'btn-outlined-primary';
+      reauthBtn.setAttribute('data-testid', 'plan-reauth-btn');
+      reauthBtn.textContent = 'Re-authenticate';
+      reauthBtn.addEventListener('click', function () { startFlow(reauthBtn); });
+      row.appendChild(reauthBtn);
+      var resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'btn-outlined-primary';
+      resetBtn.setAttribute('data-testid', 'plan-reset-btn');
+      resetBtn.innerHTML = '<span data-confirm-title>Reset connection</span>';
+      resetBtn.addEventListener('click', function () {
+        // Two-step inline confirm — the canonical destructive-confirm
+        // helper (MCP reset-connection precedent). Existing tokens are
+        // cleared locally only; no upstream revocation.
+        window.App.confirmDelete(resetBtn, doReset, { confirmLabel: 'Confirm Reset?' });
+      });
+      row.appendChild(resetBtn);
+      return row;
+    }
+
+    function buildConsentBlock(url) {
+      var block = document.createElement('div');
+      block.className = 'plan-signin-consent';
+      block.setAttribute('data-testid', 'plan-signin-consent');
+
+      var desc = document.createElement('p');
+      desc.className = 'plan-signin-desc';
+      desc.textContent = 'Approve access in the sign-in window — if none opened, open or copy the link below in any browser. Then paste the code shown after approval.';
+      block.appendChild(desc);
+
+      var urlRow = document.createElement('div');
+      urlRow.className = 'plan-signin-url-row';
+      var urlInput = document.createElement('input');
+      urlInput.className = 'field-input plan-signin-url';
+      urlInput.setAttribute('data-testid', 'plan-signin-url');
+      urlInput.readOnly = true;
+      urlInput.value = url;
+      urlInput.setAttribute('aria-label', 'Sign-in page URL');
+      urlRow.appendChild(urlInput);
+      var openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'btn-outlined-primary';
+      openBtn.setAttribute('data-testid', 'plan-signin-open-btn');
+      openBtn.textContent = 'Open sign-in page';
+      openBtn.addEventListener('click', function () {
+        // Direct user click — gesture context restored, so this popup is
+        // NOT subject to the post-fetch blocking noted in openConsentPopup.
+        openConsentPopup(url);
+      });
+      urlRow.appendChild(openBtn);
+      var copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'btn-outlined-primary';
+      copyBtn.setAttribute('data-testid', 'plan-signin-copy-btn');
+      copyBtn.textContent = 'Copy';
+      copyBtn.addEventListener('click', function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            window.App.showFlash(container, 'Sign-in link copied');
+          }, function () { fallbackCopy(); });
+        } else {
+          fallbackCopy();
+        }
+        function fallbackCopy() {
+          urlInput.select();
+          try { document.execCommand('copy'); } catch (e) { /* selection remains for manual copy */ }
+          window.App.showFlash(container, 'Sign-in link copied');
+        }
+      });
+      urlRow.appendChild(copyBtn);
+      block.appendChild(urlRow);
+
+      var codeRow = document.createElement('div');
+      codeRow.className = 'plan-code-row';
+      var codeInput = document.createElement('input');
+      codeInput.className = 'field-input plan-code-input';
+      codeInput.setAttribute('data-testid', 'plan-code-input');
+      codeInput.setAttribute('placeholder', 'Paste the code here');
+      codeInput.setAttribute('aria-label', 'Sign-in code');
+      codeRow.appendChild(codeInput);
+      var submitBtn = document.createElement('button');
+      submitBtn.type = 'button';
+      submitBtn.className = 'btn-filled-primary';
+      submitBtn.setAttribute('data-testid', 'plan-code-submit-btn');
+      submitBtn.textContent = 'Confirm code';
+      submitBtn.addEventListener('click', function () { submitCode(codeInput, submitBtn); });
+      codeRow.appendChild(submitBtn);
+      block.appendChild(codeRow);
+
+      return block;
+    }
+
+    function renderState() {
+      body.innerHTML = '';
+      if (isConnected()) body.appendChild(buildConnectedRow());
+      if (awaitingUrl) {
+        // Re-authenticate renders the consent flow OVER the connected
+        // state — existing tokens survive until the new exchange succeeds.
+        body.appendChild(buildConsentBlock(awaitingUrl));
+      } else if (!isConnected()) {
+        body.appendChild(buildSignedOutBlock());
+      }
+      var err = document.createElement('div');
+      err.className = 'plan-signin-error banner banner-error';
+      err.setAttribute('data-testid', 'plan-signin-error');
+      err.setAttribute('role', 'status');
+      err.setAttribute('aria-live', 'polite');
+      err.setAttribute('hidden', '');
+      body.appendChild(err);
+    }
+
+    renderState();
+
+    // Consume the create→edit auto-start handoff (HAT fix): this edit-mode
+    // mount is the re-render that immediately follows a sign-in-initiated
+    // create — start the OAuth flow now. One-shot: cleared before starting.
+    // A just-created provider is never connected, so the signed-out block
+    // (and its sign-in button) is on screen when this fires.
+    if (isEdit && provider && pendingAutoSignInId === provider.id) {
+      pendingAutoSignInId = null;
+      startFlow(body.querySelector('[data-testid="plan-signin-btn"]'));
+    }
   }
 
   function getFormSnapshot(container) {
@@ -321,6 +687,7 @@
     var numCtxRow = container.querySelector('.admin-pf-num-ctx');
     var thinkingEnabledRow = container.querySelector('.admin-pf-thinking-enabled');
     var reasoningEffortRow = container.querySelector('.admin-pf-reasoning-effort');
+    var planSignInSection = container.querySelector('.admin-pf-plan-signin');
     if (typeSelect) {
       typeSelect.addEventListener('change', function () {
         var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(typeSelect.value)) || {};
@@ -329,10 +696,18 @@
         if (numCtxRow) numCtxRow.classList.toggle('is-hidden', !defaults.showNumCtx);
         if (thinkingEnabledRow) thinkingEnabledRow.classList.toggle('is-hidden', !defaults.showThinkingEnabled);
         if (reasoningEffortRow) reasoningEffortRow.classList.toggle('is-hidden', !defaults.showReasoningEffort);
+        if (planSignInSection) planSignInSection.classList.toggle('is-hidden', !defaults.showPlanSignIn);
         baseUrlInput.value = defaults.base_url || '';
         checkDirty();
       });
     }
+
+    /* Anthropic plan sign-in section (M19 F01 L03) — mounted for every
+       editor instance; visibility is type-driven (above). Owns its own
+       OAuth fetches; deliberately outside the dirty machinery. performSave
+       (hoisted declaration below) is handed in so the create-mode sign-in
+       button can run the auto-save-then-start path (HAT fix). */
+    wirePlanSignIn(container, provider, performSave);
 
     /* Eye toggle. */
     var eyeBtn = container.querySelector('.api-key-eye');
@@ -385,61 +760,70 @@
     }
 
     /* Save: editor sub-module owns the fetch. Orchestrator's
-       onSaveSuccess callback handles state mutation + URL update. */
+       onSaveSuccess callback handles state mutation + URL update.
+       Factored into performSave (HAT fix) so the create-mode plan sign-in
+       button reuses the EXACT same path — validation, payload construction
+       (seed-before-overlay), error rendering. onCreateSuccess (optional)
+       fires only on a successful CREATE, and BEFORE onSaveSuccess so the
+       pendingAutoSignInId handoff is in place when the create→edit
+       re-render (a microtask behind onSaveSuccess) mounts the new editor. */
+    function performSave(onCreateSuccess) {
+      var errorEl = container.querySelector('.editor-error');
+      errorEl.textContent = '';
+      var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider);
+      if (!payload) return; // validation failed; collectFormData wrote error
+      var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
+      var method = isEdit ? 'PUT' : 'POST';
+      fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || (isEdit ? 'Save failed' : 'Create failed')); });
+          return r.json();
+        })
+        .then(function (updated) {
+          window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
+          if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
+          if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
+          // For create→edit transition the orchestrator re-renders the
+          // editor with the new provider — closure is replaced. The
+          // snapshot reset below only matters for the edit→edit case
+          // where the editor stays mounted.
+          if (isEdit) {
+            // Re-render the WHOLE display-only header text block (title +
+            // subtitle) from the freshly saved provider. On edit→edit the
+            // editor stays mounted and nothing else refreshes the header,
+            // so an edited Name / Base URL / Type would otherwise leave the
+            // H1 and the `type · base_url` subtitle stale. These nodes carry
+            // no data-field, so getFormSnapshot / dirty tracking are
+            // unaffected — textContent-only writes.
+            var titleEl = container.querySelector('.editor-title');
+            if (titleEl) titleEl.textContent = updated.name || '';
+            var subtitleEl = container.querySelector('.editor-subtitle');
+            if (subtitleEl) {
+              var subtitleParts = [updated.type];
+              if (updated.base_url) subtitleParts.push(updated.base_url);
+              subtitleEl.textContent = subtitleParts.join(' · ');
+            }
+            snapshot = getFormSnapshot(container);
+            dirty = false;
+            checkDirty();
+          }
+        })
+        .catch(function (err) {
+          // Surface the trace to DevTools so backend stacks (which
+          // would otherwise die with the next click as errorEl.textContent
+          // is overwritten) survive for debugging.
+          console.error('provider save failed', err);
+          errorEl.textContent = err.message || String(err);
+        });
+    }
+
     var saveBtn = container.querySelector('.save-btn');
     if (saveBtn) {
-      saveBtn.addEventListener('click', function () {
-        var errorEl = container.querySelector('.editor-error');
-        errorEl.textContent = '';
-        var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider);
-        if (!payload) return; // validation failed; collectFormData wrote error
-        var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
-        var method = isEdit ? 'PUT' : 'POST';
-        fetch(url, {
-          method: method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || (isEdit ? 'Save failed' : 'Create failed')); });
-            return r.json();
-          })
-          .then(function (updated) {
-            window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
-            if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
-            // For create→edit transition the orchestrator re-renders the
-            // editor with the new provider — closure is replaced. The
-            // snapshot reset below only matters for the edit→edit case
-            // where the editor stays mounted.
-            if (isEdit) {
-              // Re-render the WHOLE display-only header text block (title +
-              // subtitle) from the freshly saved provider. On edit→edit the
-              // editor stays mounted and nothing else refreshes the header,
-              // so an edited Name / Base URL / Type would otherwise leave the
-              // H1 and the `type · base_url` subtitle stale. These nodes carry
-              // no data-field, so getFormSnapshot / dirty tracking are
-              // unaffected — textContent-only writes.
-              var titleEl = container.querySelector('.editor-title');
-              if (titleEl) titleEl.textContent = updated.name || '';
-              var subtitleEl = container.querySelector('.editor-subtitle');
-              if (subtitleEl) {
-                var subtitleParts = [updated.type];
-                if (updated.base_url) subtitleParts.push(updated.base_url);
-                subtitleEl.textContent = subtitleParts.join(' · ');
-              }
-              snapshot = getFormSnapshot(container);
-              dirty = false;
-              checkDirty();
-            }
-          })
-          .catch(function (err) {
-            // Surface the trace to DevTools so backend stacks (which
-            // would otherwise die with the next click as errorEl.textContent
-            // is overwritten) survive for debugging.
-            console.error('provider save failed', err);
-            errorEl.textContent = err.message || String(err);
-          });
-      });
+      saveBtn.addEventListener('click', function () { performSave(); });
     }
 
     /* Test: only in edit mode. */
@@ -479,6 +863,18 @@
               if (modelsHost2 && window.App.admin.renderProviderModels) {
                 window.App.admin.renderProviderModels(modelsHost2, provider);
               }
+            } else if (result.status === 'reauth_required') {
+              // anthropic-plan only (M19 F01 L03): renewal is no longer
+              // possible (refresh token revoked/expired). EXPLICIT branch —
+              // must never fall into the generic else-fail below. This
+              // rendered message is the one revoked signal; the standing
+              // affordance is the connected state's Re-authenticate control.
+              span.className = 'test-result-warning';
+              span.setAttribute('data-testid', 'plan-test-reauth');
+              span.textContent = result.detail ||
+                'Re-authentication required — use Re-authenticate in the Anthropic Account section to sign in again.';
+              resultEl.replaceChildren(span);
+              window.App.showFlash(container, 'Re-authentication required', true);
             } else {
               span.className = 'test-result-fail';
               span.textContent = result.detail || 'Failed';

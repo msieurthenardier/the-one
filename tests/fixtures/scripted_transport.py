@@ -28,8 +28,8 @@ a guard against a stateless-handler regression that would silently re-serve turn
 Consumers import the absolute package form (matching ``--import-mode=importlib``)::
 
     from tests.fixtures.scripted_transport import (
-        CannedTurn, make_anthropic, make_openai, make_openrouter,
-        make_ollama, make_mock,
+        CannedTurn, make_anthropic, make_anthropic_plan, make_openai,
+        make_openrouter, make_ollama, make_mock,
     )
 
 Legs 03 (#122 guards) and 04 (#105 recovery row + live tier) reuse this harness,
@@ -206,7 +206,34 @@ def make_anthropic(
     from the_one.llm.anthropic_provider import AnthropicProvider
 
     prov = AnthropicProvider(model="claude-test", api_key="sk-test", config=config)
+    return _wire_anthropic(prov, turns, streaming=streaming)
 
+
+def make_anthropic_plan(
+    turns: list[CannedTurn], *, streaming: bool = False, config: dict | None = None
+) -> ScriptedProvider:
+    """Build an AnthropicPlanProvider serving ``turns`` (M19 F01 L02).
+
+    Constructed with a static ``access_token`` (the documented test/back-door
+    feed — explicit token wins over credential-source resolution, so
+    ``_before_request`` short-circuits and no registry/DB is touched) plus a
+    dummy ``provider_config_id``. Same recorder wiring as ``make_anthropic``
+    — the plan provider inherits the whole request path, only client
+    construction and the pre-request token hook differ.
+    """
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+    prov = AnthropicPlanProvider(
+        model="claude-test",
+        access_token="conformance-token",
+        provider_config_id="plan-conformance",
+        config=config,
+    )
+    return _wire_anthropic(prov, turns, streaming=streaming)
+
+
+def _wire_anthropic(prov: Any, turns: list[CannedTurn], *, streaming: bool) -> ScriptedProvider:
+    """Attach the create/stream recorder queue to an Anthropic-family provider."""
     if streaming:
 
         def _factory(t: CannedTurn) -> Callable[[], Any]:

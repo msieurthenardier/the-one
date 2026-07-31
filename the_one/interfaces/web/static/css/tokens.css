@@ -127,6 +127,10 @@
     --badge-openai-compatible: #d4a800;
     --badge-openai: #4a9eff;
     --badge-anthropic: #9b59b6;
+    /* anthropic-plan (M19 F01 L03) — Anthropic brand terracotta; visually
+       kin to but distinct from the purple API-key badge. Dark ink clears
+       body AA (5.76:1) in both themes. */
+    --badge-anthropic-plan: #cc785c;
     --badge-openrouter: #7c3aed;
     --badge-mock: #888888;
     --badge-unknown: #888888;
@@ -147,6 +151,7 @@
     --badge-ink-openai-compatible: #101114;
     --badge-ink-openai: #101114;
     --badge-ink-anthropic: #ffffff;
+    --badge-ink-anthropic-plan: #101114;
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;
@@ -258,6 +263,9 @@
     --badge-openai-compatible: #d4a800;
     --badge-openai: #4a9eff;
     --badge-anthropic: #9b59b6;
+    /* anthropic-plan — brand-stable terracotta, same hex as dark (see the
+       dark block's rationale comment). */
+    --badge-anthropic-plan: #cc785c;
     --badge-openrouter: #7c3aed;
     --badge-mock: #888888;
     --badge-unknown: #888888;
@@ -278,6 +286,7 @@
     --badge-ink-openai-compatible: #101114;
     --badge-ink-openai: #101114;
     --badge-ink-anthropic: #ffffff;
+    --badge-ink-anthropic-plan: #101114;
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;

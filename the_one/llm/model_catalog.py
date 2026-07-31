@@ -472,6 +472,24 @@ async def refresh_catalog_cache(url: str = _MODELS_DEV_URL) -> bool:
 # ── Catalog lookup ────────────────────────────────────────────────────────
 
 
+def models_for(provider: str) -> dict[str, int]:
+    """Return the full catalog section for *provider* as ``{bare_model_id: context_window}``.
+
+    M19 F01 L02 (DD-5): public enumeration accessor for the
+    ``anthropic-plan`` ``/models`` static fallback — the catalog's provider
+    sections were previously reachable only via the private
+    ``_get_catalog()``. Returns a fresh copy (callers may mutate freely);
+    an absent/malformed section or a failed catalog load yields ``{}``
+    (same fail-open posture as :func:`context_window_for`).
+    """
+    catalog = _get_catalog()
+    providers: dict[str, Any] = catalog.get("providers", {})
+    section = providers.get(provider)
+    if not isinstance(section, dict):
+        return {}
+    return {m: w for m, w in section.items() if isinstance(w, int)}
+
+
 def context_window_for(provider: str, model: str) -> int | None:
     """Return the context-window size for the given provider and bare model id.
 

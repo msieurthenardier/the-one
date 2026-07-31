@@ -3,7 +3,7 @@
 **Slug**: `save-preserves-config`
 **Status**: active
 **Created**: 2026-07-10
-**Last Run**: 2026-07-10-19-51-00 (pass, 4/4)
+**Last Run**: 2026-07-30-17-37-08 (pass, 4/4 — post-M19-F01 provider-editor.js re-run; see `save-preserves-config/runs/2026-07-30-17-37-08.md`)
 
 ## Intent
 

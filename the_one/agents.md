@@ -1096,7 +1096,7 @@ Six layers must coordinate. Missing any one causes either silent rejection (vali
 ### Checklist
 
 1. **Pydantic `Literal`** — `db/models.py` `LLMProviderConfig.type`. Add the new value to the `Literal[...]` tuple, or `model_validate` rejects.
-2. **`_PROVIDER_TYPE_MAP`** — `agent/factory.py`. Add `"<type>": "<registry-name>"`, or `AgentFactory.create()` raises `ValueError`.
+2. **`PROVIDER_TYPE_MAP`** — `llm/registry.py` (lifted from `agent/factory.py` in M19 F01 L02; consumed by the factory, `connectors/_inference.py`, and the provider API branches). Add `"<type>": "<registry-name>"`, or the module-load assert (keys must equal `PROVIDER_TYPES`) fails at import.
 3. **Registry `loaders`** — `llm/registry.py:_try_load_builtin`. Add the lazy-loader lambda, or `get_provider("<type>")` raises a misleading `ImportError("requires extra dependencies")`.
 4. **SQLite `CHECK` constraint** — `db/schema.py` (table definition AND migration). The `llm_providers.CHECK (type IN (...))` clause hard-codes allowed values. Adding a new type requires a schema migration (see v6 for the pattern: `PRAGMA foreign_keys=OFF` + table rebuild). Without this, `INSERT` fails with `IntegrityError`.
 5. **API gating / branches** — `interfaces/web/api.py`: type-specific gating in `create_provider`/`update_provider` (e.g. dev-mode gate for `mock`); branch in `test_provider`; branch in `list_provider_models`; inclusion/exclusion in `GET /api/providers/types`.

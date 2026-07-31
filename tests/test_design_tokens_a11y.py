@@ -640,6 +640,7 @@ _BADGE_INK_PAIRS = (
     ("openai-compatible", "badge_openai_compatible", "badge_ink_openai_compatible"),
     ("openai", "badge_openai", "badge_ink_openai"),
     ("anthropic", "badge_anthropic", "badge_ink_anthropic"),
+    ("anthropic-plan", "badge_anthropic_plan", "badge_ink_anthropic_plan"),
     ("openrouter", "badge_openrouter", "badge_ink_openrouter"),
     ("mock", "badge_mock", "badge_ink_mock"),
     ("unknown", "badge_unknown", "badge_ink_unknown"),

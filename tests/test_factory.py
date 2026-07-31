@@ -468,9 +468,103 @@ class TestListAgents:
 
 class TestProviderTypeMap:
     def test_openrouter_in_provider_type_map(self) -> None:
-        from the_one.agent.factory import _PROVIDER_TYPE_MAP
+        # M19 F01 L02: the map lives in the registry now; the factory
+        # consumes it from there.
+        from the_one.agent.factory import PROVIDER_TYPE_MAP
 
-        assert _PROVIDER_TYPE_MAP.get("openrouter") == "openrouter"
+        assert PROVIDER_TYPE_MAP.get("openrouter") == "openrouter"
+
+
+class TestPlanProviderConstruction:
+    """M19 F01 L02 (DD-3): the factory threads provider_config_id to the
+    anthropic-plan constructor — the provider self-resolves its credential
+    source; no static access token crosses the factory boundary."""
+
+    def _plan_config(self) -> LLMProviderConfig:
+        return LLMProviderConfig(
+            id="plan-prov",
+            name="Claude Plan",
+            type="anthropic-plan",
+            base_url="https://api.anthropic.com",
+        )
+
+    def _patches(self, get_provider_patch, provider_config: LLMProviderConfig):
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=provider_config)
+        mock_tool_repo = AsyncMock()
+        mock_tool_repo.list = AsyncMock(return_value=[])
+        return (
+            patch("the_one.agent.factory.get_provider", get_provider_patch),
+            patch("the_one.agent.factory.settings"),
+            patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
+            patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+            patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
+            patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        )
+
+    async def _create(self, store: InMemoryStore, get_provider_patch, provider_config=None):
+        cfg = AgentConfig(
+            name="plan-agent",
+            provider_config_id="plan-prov",
+            llm_model="claude-sonnet-4-6",
+        )
+        await store.save(cfg)
+        from contextlib import ExitStack
+
+        patches = self._patches(get_provider_patch, provider_config or self._plan_config())
+        with ExitStack() as stack:
+            active = [stack.enter_context(p) for p in patches]
+            mock_settings = active[1]
+            mock_settings.agents_dir = Path("/tmp/test-agents")
+            mock_settings.data_dir = Path("/tmp/test-data")
+            mock_settings.ensure_dirs = lambda: None
+            factory = AgentFactory(
+                store=store, tool_providers=[StubToolProvider()], mcp_provider=None
+            )
+            return await factory.create("plan-agent")
+
+    async def test_factory_passes_provider_config_id_no_static_token(
+        self, store: InMemoryStore
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        def _capturing_get_provider(name: str, **kwargs: Any) -> FakeLLM:
+            captured["name"] = name
+            captured["kwargs"] = kwargs
+            return FakeLLM(responses=[])
+
+        await self._create(store, _capturing_get_provider)
+        assert captured["name"] == "anthropic-plan"
+        assert captured["kwargs"]["provider_config_id"] == "plan-prov"
+        assert "access_token" not in captured["kwargs"]
+
+    async def test_factory_builds_real_plan_provider(self, store: InMemoryStore) -> None:
+        """Unpatched get_provider: a working AnthropicPlanProvider comes out,
+        keyed to the provider-config id (token resolution deferred to request
+        time via the credential source)."""
+        from the_one.llm import get_provider as real_get_provider
+        from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+        agent = await self._create(store, real_get_provider)
+        assert isinstance(agent.llm, AnthropicPlanProvider)
+        assert agent.llm.provider_config_id == "plan-prov"
+        assert agent.llm.model == "claude-sonnet-4-6"
+
+    async def test_factory_non_plan_type_gets_no_provider_config_id(
+        self, store: InMemoryStore
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        def _capturing_get_provider(name: str, **kwargs: Any) -> FakeLLM:
+            captured["kwargs"] = kwargs
+            return FakeLLM(responses=[])
+
+        await self._create(
+            store,
+            _capturing_get_provider,
+            provider_config=_make_provider_config(provider_id="plan-prov", ptype="anthropic"),
+        )
+        assert "provider_config_id" not in captured["kwargs"]
 
 
 # ---------------------------------------------------------------------------

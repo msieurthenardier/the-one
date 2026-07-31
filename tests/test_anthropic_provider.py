@@ -1272,3 +1272,220 @@ def test_str_content_projection_no_peer_channel_byte_identical(monkeypatch):
     out = prov._to_api_message(msg)
 
     assert out == {"role": "user", "content": "plain text"}
+
+
+# --------------------------------------------------------------------------
+# AnthropicPlanProvider skeleton (M19 F01 L01 — DD-4, Leg-1 half)
+# --------------------------------------------------------------------------
+
+
+def test_plan_provider_registry_construction_bearer_mode(monkeypatch):
+    """get_provider('anthropic-plan', ...) returns an AnthropicPlanProvider
+    whose client is in bearer mode (auth_token set, x-api-key path unused)
+    with the OAuth beta header, and which stored provider_config_id."""
+    # Env must not be able to flip the client into x-api-key mode.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env-must-not-leak")
+
+    from the_one.llm import get_provider
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+    provider = get_provider(
+        "anthropic-plan",
+        model="claude-sonnet-4-6",
+        api_key=None,
+        config={"thinking_enabled": True},
+        provider_config_id="prov-123",
+        access_token="test-token",
+    )
+    assert isinstance(provider, AnthropicPlanProvider)
+    assert isinstance(provider, AnthropicProvider)  # inherits the full adapter
+    assert provider.name == "anthropic-plan"
+    assert provider.provider_config_id == "prov-123"
+    assert provider.client.auth_token == "test-token"
+    assert provider.client.api_key is None, "x-api-key path must be unused (env must not leak)"
+    assert provider.client.default_headers.get("anthropic-beta") == "oauth-2025-04-20"
+    # Parent config parsing still runs (skeleton overrides client build only).
+    assert provider._thinking_enabled_config is True
+
+
+def test_plan_provider_constructs_without_access_token(monkeypatch):
+    """No-token construction succeeds — client carries auth_token=None and
+    fails at request time (no raise requirement in Leg 1)."""
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+    provider = AnthropicPlanProvider(model="claude-sonnet-4-6")
+    assert provider.client.auth_token is None
+    assert provider.client.api_key is None
+    assert provider.provider_config_id is None
+
+
+def test_plan_provider_ignores_stored_api_key(monkeypatch):
+    """A config-stored api_key arg is deliberately ignored — plan providers
+    authenticate with the OAuth bearer token only."""
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+    provider = AnthropicPlanProvider(
+        model="claude-sonnet-4-6", api_key="sk-stored", access_token="tok"
+    )
+    assert provider.client.api_key is None
+    assert provider.client.auth_token == "tok"
+
+
+# --------------------------------------------------------------------------
+# _before_request hook (M19 F01 L02 — DD-3/DD-4, Leg-2 half)
+# --------------------------------------------------------------------------
+
+
+class _FakeCredentialSource:
+    """Stand-in for ``plan_credentials.PlanCredentialSource``."""
+
+    def __init__(self, token: str | None = "tok-from-source", error: Exception | None = None):
+        self.token = token
+        self.error = error
+        self.calls = 0
+
+    async def get_access_token(self) -> str:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.token  # type: ignore[return-value]
+
+
+def _plan_provider(monkeypatch, **kwargs):
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    return AnthropicPlanProvider(model="claude-test", **kwargs)
+
+
+async def test_before_request_noop_on_api_key_provider(monkeypatch):
+    """The parent hook is a no-op returning None — API-key provider behavior
+    unchanged."""
+    prov = _provider_with_create(monkeypatch, _CreateRecorder())
+    assert await prov._before_request() is None
+
+
+async def test_complete_awaits_before_request_hook(monkeypatch):
+    """``complete()`` awaits the hook before touching the SDK client."""
+    rec = _CreateRecorder()
+    prov = _provider_with_create(monkeypatch, rec)
+    order: list[str] = []
+
+    async def _hook() -> None:
+        order.append("hook")
+        assert rec.calls == [], "hook must run before the SDK call"
+
+    monkeypatch.setattr(prov, "_before_request", _hook)
+    await prov.complete(_user_msg())
+    assert order == ["hook"]
+    assert len(rec.calls) == 1
+
+
+async def test_stream_awaits_hook_at_first_iteration(monkeypatch):
+    """``stream()`` is an async generator: creating it does NOT run the hook;
+    the hook (and any error it raises) surfaces at first iteration. Pinned so
+    nobody 'fixes' this into an eager coroutine."""
+    prov = _provider_with_create(monkeypatch, _CreateRecorder())
+    calls: list[str] = []
+
+    async def _hook() -> None:
+        calls.append("hook")
+        raise RuntimeError("hook error surfaces during iteration")
+
+    monkeypatch.setattr(prov, "_before_request", _hook)
+    gen = prov.stream(_user_msg())
+    assert calls == [], "generator creation must not run the hook"
+    with pytest.raises(RuntimeError, match="during iteration"):
+        await gen.__anext__()
+    assert calls == ["hook"]
+
+
+async def test_plan_static_token_short_circuits_source(monkeypatch):
+    """Explicit ``access_token`` kwarg wins: the registry is never consulted
+    (conformance/test back-door precedence)."""
+    prov = _plan_provider(monkeypatch, access_token="static-tok", provider_config_id="prov-1")
+
+    def _boom(_pid):
+        raise AssertionError("registry must not be consulted for static-token providers")
+
+    monkeypatch.setattr("the_one.llm.plan_credentials.get_credential_source", _boom)
+    await prov._before_request()
+    assert prov.client.auth_token == "static-tok"
+
+
+async def test_plan_before_request_applies_token_in_place(monkeypatch):
+    """The hook mutates ``client.auth_token`` on the SAME client instance —
+    no rebuild (DD-4 in-place decision)."""
+    prov = _plan_provider(monkeypatch, provider_config_id="prov-1")
+    client_before = prov.client
+    fake = _FakeCredentialSource(token="tok-fresh")
+    monkeypatch.setattr("the_one.llm.plan_credentials.get_credential_source", lambda _pid: fake)
+    await prov._before_request()
+    assert prov.client is client_before
+    assert prov.client.auth_token == "tok-fresh"
+    assert fake.calls == 1
+
+
+async def test_plan_auth_token_mutation_premise_pin(monkeypatch):
+    """SDK-premise pin (anthropic 0.96.0, verified at design review): the
+    bearer header is generated per-request from ``client.auth_token``
+    (``_bearer_auth`` property via ``_build_headers``) — nothing is cached at
+    construction, so in-place mutation takes effect WITHOUT rebuilding the
+    client. If an SDK upgrade caches auth at construction, this fails."""
+    prov = _plan_provider(monkeypatch, access_token="tok-A", provider_config_id="p1")
+    client = prov.client
+    assert client.auth_headers == {"Authorization": "Bearer tok-A"}
+    client.auth_token = "tok-B"
+    assert client.auth_headers == {"Authorization": "Bearer tok-B"}, (
+        "anthropic SDK no longer reads auth_token per-request — the in-place "
+        "mutation strategy in AnthropicPlanProvider._before_request is broken; "
+        "switch to rebuild-and-close (see M19 F01 DD-4)"
+    )
+    # And the header actually rides a built request, not just the property.
+    request = client._build_request(
+        __import__("anthropic")._models.FinalRequestOptions(method="post", url="/v1/messages")
+    )
+    assert request.headers["Authorization"] == "Bearer tok-B"
+
+
+async def test_plan_reauth_error_propagates_from_complete(monkeypatch):
+    """The typed re-auth error from the source surfaces out of ``complete()``
+    (not swallowed, not converted into a bare SDK auth error)."""
+    from the_one.llm.plan_credentials import ReauthRequiredError
+
+    prov = _plan_provider(monkeypatch, provider_config_id="prov-1")
+    fake = _FakeCredentialSource(error=ReauthRequiredError("prov-1"))
+    monkeypatch.setattr("the_one.llm.plan_credentials.get_credential_source", lambda _pid: fake)
+    with pytest.raises(ReauthRequiredError) as excinfo:
+        await prov.complete(_user_msg())
+    assert excinfo.value.provider_id == "prov-1"
+    assert "re-authentication" in str(excinfo.value)
+
+
+async def test_plan_reauth_error_surfaces_during_stream_iteration(monkeypatch):
+    from the_one.llm.plan_credentials import ReauthRequiredError
+
+    prov = _plan_provider(monkeypatch, provider_config_id="prov-1")
+    fake = _FakeCredentialSource(error=ReauthRequiredError("prov-1"))
+    monkeypatch.setattr("the_one.llm.plan_credentials.get_credential_source", lambda _pid: fake)
+    gen = prov.stream(_user_msg())  # creating the generator must not raise
+    with pytest.raises(ReauthRequiredError):
+        await gen.__anext__()
+
+
+async def test_plan_without_token_or_config_id_raises_reauth(monkeypatch):
+    """A plan provider with neither a static token nor a provider_config_id
+    fails actionably at ``_before_request`` time — never a bare SDK auth
+    error at the wire."""
+    from the_one.llm.plan_credentials import ReauthRequiredError
+
+    prov = _plan_provider(monkeypatch)
+    with pytest.raises(ReauthRequiredError) as excinfo:
+        await prov.complete(_user_msg())
+    assert "Administration" in str(excinfo.value)

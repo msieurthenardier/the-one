@@ -440,6 +440,75 @@ async def test_resolve_inference_provider_returns_none_when_both_paths_unconfigu
     assert provider is None
 
 
+def _plan_provider_config(provider_id: str = "plan-1") -> LLMProviderConfig:
+    """An anthropic-plan row WITH a stored token set (secrets fixture)."""
+    return LLMProviderConfig(
+        id=provider_id,
+        name="Claude Plan",
+        type="anthropic-plan",
+        base_url="https://api.anthropic.com",
+        secrets={
+            "access_token": "at-stored",
+            "refresh_token": "rt-stored",
+            "token_expires_at": 4102444800,
+        },
+    )
+
+
+async def test_resolve_inference_provider_constructs_anthropic_plan(monkeypatch) -> None:
+    """M19 F01 L02 AC (b): the connector path constructs a plan provider
+    keyed by provider-config id — no static token threaded."""
+    from the_one.llm.anthropic_plan_provider import AnthropicPlanProvider
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    repo = _StubProviderRepo({"plan-1": _plan_provider_config()})
+
+    provider = await _resolve_inference_provider(
+        repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="plan-1",
+        connector_inference_model="claude-sonnet-4-6",
+        fallback_provider_config_id=None,
+        fallback_llm_model=None,
+    )
+
+    assert isinstance(provider, AnthropicPlanProvider)
+    assert provider.provider_config_id == "plan-1"
+    assert provider.model == "claude-sonnet-4-6"
+
+
+async def test_resolve_inference_provider_reauth_surfaces_at_call_time(monkeypatch) -> None:
+    """Companion AC: a re-auth-required credential failure is NOT swallowed
+    into the constructor's ``return None`` path (the silent-failure risk
+    that motivated self-resolution) — construction succeeds; the typed
+    error surfaces when the provider is actually invoked."""
+    from the_one.llm.base import Message as LLMMessage
+    from the_one.llm.plan_credentials import ReauthRequiredError
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    repo = _StubProviderRepo({"plan-1": _plan_provider_config()})
+
+    class _FailingSource:
+        async def get_access_token(self) -> str:
+            raise ReauthRequiredError("plan-1")
+
+    monkeypatch.setattr(
+        "the_one.llm.plan_credentials.get_credential_source",
+        lambda _pid: _FailingSource(),
+    )
+
+    provider = await _resolve_inference_provider(
+        repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="plan-1",
+        connector_inference_model="claude-sonnet-4-6",
+        fallback_provider_config_id=None,
+        fallback_llm_model=None,
+    )
+
+    assert provider is not None, "construction must not be swallowed into None"
+    with pytest.raises(ReauthRequiredError):
+        await provider.complete([LLMMessage.user("hi")])
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # run_engagement_inference — output parsing branches
 # ─────────────────────────────────────────────────────────────────────────────

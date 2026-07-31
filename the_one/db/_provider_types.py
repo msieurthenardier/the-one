@@ -24,4 +24,5 @@ PROVIDER_TYPES: tuple[str, ...] = (
     "anthropic",
     "mock",
     "openrouter",
+    "anthropic-plan",
 )

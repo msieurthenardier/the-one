@@ -26,6 +26,7 @@
           '<span class="admin-provider-badge admin-provider-badge--openai-compatible">openai-compatible</span>' +
           '<span class="admin-provider-badge admin-provider-badge--openai">openai</span>' +
           '<span class="admin-provider-badge admin-provider-badge--anthropic">anthropic</span>' +
+          '<span class="admin-provider-badge admin-provider-badge--anthropic-plan">anthropic-plan</span>' +
           '<span class="admin-provider-badge admin-provider-badge--openrouter">openrouter</span>' +
           '<span class="admin-provider-badge admin-provider-badge--mock">mock</span>' +
           '<span class="admin-provider-badge admin-provider-badge--unknown">unknown</span>' +
