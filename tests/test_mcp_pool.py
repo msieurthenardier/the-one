@@ -402,6 +402,91 @@ async def test_evict_idempotent_on_missing_key():
 
 
 # ─────────────────────────────────────────────────────────────────
+# Dead-client recovery (0.5.0)
+#
+# A pooled client can lose its connection mid-life — the server terminates
+# the MCP session, or the transport breaks. ``MCPClient`` flips ``is_alive``
+# off; ``acquire`` must notice and rebuild rather than hand back the corpse.
+# The idle reaper cannot cover this: every failing ``call_tool`` calls
+# ``_touch_activity()`` first, so a retrying agent keeps the entry looking
+# fresh forever and only an operator's Reset connection ever cleared it.
+# ─────────────────────────────────────────────────────────────────
+
+
+async def test_acquire_rebuilds_entry_whose_client_died(patch_client):
+    """The fix for 'works for a bit, then errors until I reset the connection'."""
+    first = await acquire("agent-a", "src-1")
+    assert patch_client._instance_count == 1
+
+    # Simulate the server terminating the session under a warm pool entry.
+    first.is_alive = False
+
+    second = await acquire("agent-a", "src-1")
+
+    assert second is not first, "dead client was handed back instead of rebuilt"
+    assert second.is_alive is True
+    assert patch_client._instance_count == 2
+    # The dead entry was torn down, not merely dropped on the floor.
+    first.disconnect.assert_awaited_once()
+    # And the pool now holds exactly the replacement.
+    assert pool_mod._pool[("agent-a", "src-1")].client is second
+
+
+async def test_acquire_does_not_rebuild_a_healthy_warm_client(patch_client):
+    """Scope guard: the warm-reuse path must survive the recovery change."""
+    first = await acquire("agent-a", "src-1")
+    second = await acquire("agent-a", "src-1")
+
+    assert second is first
+    assert patch_client._instance_count == 1
+    first.disconnect.assert_not_awaited()
+
+
+async def test_acquire_returns_second_attempt_client_without_spinning(monkeypatch, patch_client):
+    """A client that dies again immediately must not loop forever.
+
+    Attempt 2 hands its client back unconditionally; ``call_tool`` will raise
+    and the NEXT acquire retries. Bounding it here is what stops a server that
+    dies inside the same tick from wedging the caller in an eviction loop.
+    """
+
+    class _AlwaysDeadClient(_MockClient):
+        async def _connect_impl(self):
+            self.is_alive = False
+
+    monkeypatch.setattr(pool_mod, "MCPClient", _AlwaysDeadClient)
+
+    client = await acquire("agent-a", "src-1")
+
+    assert client.is_alive is False
+    # Exactly one rebuild attempt — not an unbounded retry loop.
+    assert _AlwaysDeadClient._instance_count == 2
+
+
+async def test_evict_stale_no_ops_when_entry_was_already_replaced(patch_client):
+    """Identity guard: never evict a replacement installed by another caller.
+
+    Without it, two callers noticing the same dead client would evict each
+    other's fresh connections.
+    """
+    await acquire("agent-a", "src-1")
+    key = ("agent-a", "src-1")
+    original_entry = pool_mod._pool[key]
+
+    # Stand in for "another task already rebuilt this key".
+    replacement = pool_mod._RegistryEntry(
+        ttl_seconds=300,
+        evict_event=asyncio.Event(),
+        client_ready=asyncio.Event(),
+    )
+    pool_mod._pool[key] = replacement
+
+    await pool_mod._evict_stale(key, original_entry)
+
+    assert pool_mod._pool[key] is replacement, "the replacement was wrongly evicted"
+
+
+# ─────────────────────────────────────────────────────────────────
 # L4 — Reaper, drain, lifespan
 # ─────────────────────────────────────────────────────────────────
 

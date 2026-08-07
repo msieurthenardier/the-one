@@ -24,7 +24,7 @@ Internal symbols (underscore-prefixed; tests reach in for
   - ``_RegistryEntry``, ``_pool``, ``_lock``, ``_shutting_down``
   - ``_DEFAULT_TTL_SECONDS``, ``_REAPER_INTERVAL_SECONDS``
   - ``_resolve_ttl_seconds``, ``_load_source``, ``_entry_worker``,
-    ``_evict``, ``_clear_for_test``
+    ``_evict``, ``_evict_stale``, ``_teardown_entry``, ``_clear_for_test``
 
 Race-handling invariant (cycle-2 fix, flight §2):
   The lock-held branch checks ``entry is None`` (NOT ``entry.client is
@@ -261,6 +261,33 @@ async def _evict(key: tuple[str, str]) -> None:
         entry = _pool.pop(key, None)
     if entry is None:
         return
+    await _teardown_entry(key, entry)
+
+
+async def _evict_stale(key: tuple[str, str], entry: _RegistryEntry) -> None:
+    """Evict ``key`` ONLY if ``_pool[key]`` is still ``entry``.
+
+    The identity guard is what makes this safe to call from ``acquire`` after
+    the lock has been released: a concurrent acquire may already have noticed
+    the same dead client and installed a fresh entry, and evicting that one
+    would throw away a healthy connection (and livelock two callers into
+    evicting each other's replacements). Idempotent on both a missing key and
+    a replaced entry.
+    """
+    async with _lock:
+        if _pool.get(key) is not entry:
+            return
+        _pool.pop(key, None)
+    await _teardown_entry(key, entry)
+
+
+async def _teardown_entry(key: tuple[str, str], entry: _RegistryEntry) -> None:
+    """Signal the worker to tear down and await it. Caller has already popped.
+
+    ``await entry.worker`` is REQUIRED for ``shutdown_drain`` (L4) to honour
+    its 'all entries drained before return' contract. 10s timeout +
+    cancel-on-stuck per flight §2.
+    """
     assert entry.evict_event is not None
     assert entry.worker is not None  # set at acquire-time before insert
     entry.evict_event.set()
@@ -456,6 +483,14 @@ async def acquire(
     (using ``_pool.pop(key, None)``) and re-raises. The next acquire on
     the same key spawns a fresh worker.
 
+    Dead-client recovery: a pooled client that lost its connection mid-life
+    (``MCPClient._mark_dead`` — server terminated the MCP session, transport
+    broke) is evicted and rebuilt HERE rather than handed back. Without this
+    the pool would keep serving the dead client forever: the idle reaper
+    can't reclaim it because every failing ``call_tool`` calls
+    ``_touch_activity()`` first, so only an operator hitting Reset connection
+    (``_evict_all_for_source``) ever cleared it.
+
     F6 L2: ``source_override`` lets ``MCPToolProvider`` apply per-agent
     overrides BEFORE the pool reads the source. When provided, the worker
     uses the override instead of calling ``_load_source(source_id)``.
@@ -472,49 +507,68 @@ async def acquire(
     # caches for this (agent, source) entry's lifetime.
     source = source_override if source_override is not None else await _load_source(source_id)
 
-    async with _lock:
-        if _shutting_down:
-            raise RuntimeError("MCP pool is shutting down")
-        key = (agent_name, source_id)
-        entry = _pool.get(key)
-        if entry is None:
-            # First-acquirer-for-this-key path. Construct the entry,
-            # spawn the worker, insert. Entry is not visible to other
-            # callers until we release the lock.
-            entry = _RegistryEntry(
-                ttl_seconds=_resolve_ttl_seconds(),
-                evict_event=asyncio.Event(),
-                client_ready=asyncio.Event(),
-            )
-            entry.worker = asyncio.create_task(_entry_worker(source, entry))
-            _pool[key] = entry
-            # Ensure the reaper is running. Idempotent — the helper
-            # checks ``_reaper_task is None or done()`` before spawning.
-            # Called UNDER ``_lock`` to avoid a double-spawn race when
-            # two concurrent ``acquire``s for different keys insert at
-            # the same time.
-            await _ensure_reaper_running_locked()
-        # else: entry exists. Wait on client_ready outside the lock.
+    key = (agent_name, source_id)
 
-    # Lock released. Concurrent same-key acquires now share the entry.
-    assert entry.client_ready is not None
-    await entry.client_ready.wait()
-
-    if entry.failure is not None:
-        # Connect failed. Pop the entry idempotently — only if it's
-        # still THIS entry (a later acquire may have already replaced
-        # it with a fresh worker; leave that one alone).
+    # Two attempts. A warm entry whose client died under us (server dropped
+    # the MCP session, transport broke) is evicted and rebuilt once, so the
+    # caller transparently gets a live connection instead of a corpse. A
+    # freshly-built entry is alive by construction — ``connect()`` sets
+    # ``_is_alive`` and a failed connect surfaces through ``entry.failure``
+    # — so attempt 2 hands its client back unconditionally rather than
+    # spinning on a server that dies inside the same tick.
+    for attempt in (1, 2):
         async with _lock:
-            existing = _pool.get((agent_name, source_id))
-            if existing is entry:
-                _pool.pop((agent_name, source_id), None)
-        raise entry.failure
+            if _shutting_down:
+                raise RuntimeError("MCP pool is shutting down")
+            entry = _pool.get(key)
+            if entry is None:
+                # First-acquirer-for-this-key path. Construct the entry,
+                # spawn the worker, insert. Entry is not visible to other
+                # callers until we release the lock.
+                entry = _RegistryEntry(
+                    ttl_seconds=_resolve_ttl_seconds(),
+                    evict_event=asyncio.Event(),
+                    client_ready=asyncio.Event(),
+                )
+                entry.worker = asyncio.create_task(_entry_worker(source, entry))
+                _pool[key] = entry
+                # Ensure the reaper is running. Idempotent — the helper
+                # checks ``_reaper_task is None or done()`` before spawning.
+                # Called UNDER ``_lock`` to avoid a double-spawn race when
+                # two concurrent ``acquire``s for different keys insert at
+                # the same time.
+                await _ensure_reaper_running_locked()
+            # else: entry exists. Wait on client_ready outside the lock.
 
-    client = entry.client
-    # Invariant: client_ready set + no failure → client populated.
-    assert client is not None
-    client._touch_activity()
-    return client
+        # Lock released. Concurrent same-key acquires now share the entry.
+        assert entry.client_ready is not None
+        await entry.client_ready.wait()
+
+        if entry.failure is not None:
+            # Connect failed. Pop the entry idempotently — only if it's
+            # still THIS entry (a later acquire may have already replaced
+            # it with a fresh worker; leave that one alone).
+            async with _lock:
+                existing = _pool.get(key)
+                if existing is entry:
+                    _pool.pop(key, None)
+            raise entry.failure
+
+        client = entry.client
+        # Invariant: client_ready set + no failure → client populated.
+        assert client is not None
+
+        if client.is_alive or attempt == 2:
+            client._touch_activity()
+            return client
+
+        logger.info(
+            "MCP pool entry %r holds a dead client; evicting and reconnecting",
+            key,
+        )
+        await _evict_stale(key, entry)
+
+    raise AssertionError("unreachable: acquire loop always returns or raises")
 
 
 async def _clear_for_test() -> None:
