@@ -874,6 +874,57 @@ the added round trips substantially.
 
 ## Session Notes
 
+### Merged `origin/main` into the flight branch — 2026-08-07
+
+Four commits, merged cleanly with **zero file overlap** against the flight's
+changes:
+
+- `3326abd` — fix: stop MCP streamable-HTTP sessions dying 30s after they open
+- `57e2776` — version bump to 0.5.0
+- `a55babd` — CVE floors raised: `aiohttp>=3.14.3`, `cryptography>=50.0.0`
+- `d39e1ec` — merge of PR #167
+
+**The merge risk that mattered** was new tests written against the pre-auth
+world, which would 401 under the live gate. Checked explicitly: none of
+`tests/test_mcp_transport_timeouts.py`, `tests/test_mcp_client.py` or
+`tests/test_mcp_pool.py` construct a `TestClient` or `ASGITransport` against
+this app — they are all outbound-MCP tests. No migration needed.
+
+**A self-inflicted error worth recording**, because it would have silently
+invalidated any test result taken in that window: the first sync used a bare
+`uv sync`, which drops the `dev` optional-dependency group and removed `pytest`,
+`playwright`, `pytest-asyncio`, `pytest-timeout` and `ruff` from the venv. The
+correct invocation for this project is `uv sync --extra dev --extra all-llms`.
+Note that `--all-extras` does **not** work here: the `gui` extra pulls
+`pywebview[gtk]` → `pygobject` → `pycairo`, which needs system cairo headers and
+fails to build. `pywebview` is therefore genuinely absent from this venv, which
+matches the pre-merge state — the desktop tests mock it.
+
+Post-merge dependency state verified: `cryptography` 49.0.0 → **50.0.0**,
+`aiohttp` 3.14.1 → **3.14.3**. The `cryptography` major bump was treated as a
+real risk rather than a formality, since `the_one/encryption.py` builds Fernet
+on it.
+
+**Post-merge verification**: `make test-unit` **4252 passed / 10 skipped** (up
+14 from 4238 — exactly main's new MCP tests). `make test-browser` **587 passed /
+6 skipped / 0 failed**.
+
+**That single green browser run does not clear the regression recorded in
+Anomalies.** Runs 2 and 7 of this flight were also green and were followed by
+failures; one observation cannot establish stability for a lane whose whole
+problem is intermittency. Repeat runs are in progress; the verdict belongs with
+their outcome, not with this note.
+
+One hypothesis the merge raises, stated as such: `3326abd` fixes MCP
+streamable-HTTP sessions dying and reworks the connection pool, and
+`test_flow_studio_mcp_editor` was the single most frequent repeat offender
+across the failing runs, with `test_oauth_modal_flow` (MCP OAuth) close behind.
+It is plausible that main independently fixed a real contributor. But roughly
+half the observed failures were in areas untouched by MCP — admin navigation,
+agent tabs, dirty-confirm modals, the provider editor — so this can be at most a
+partial explanation, and attributing the whole regression to it would repeat
+exactly the over-confident pattern this flight has already fallen into twice.
+
 {Freeform notes.}
 
 ---
