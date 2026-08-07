@@ -786,6 +786,56 @@ pre-flight baseline.
 | C | loaded (concurrent subagents + suites) | 5 failed / 582 passed |
 | D | idle, same tree | **0 failed / 587 passed** |
 
+> ## ⛔ SUPERSEDED — the load hypothesis above is WRONG, and this flight is
+> ## responsible for the instability. Read this block before anything above it.
+>
+> Two later measurements demolished the load-sensitivity story:
+>
+> **1. An idle run failed.** Run 11, on a quiesced machine at the final tree,
+> returned **7 failed / 580 passed** — different tests again, all passing in
+> isolation. "Idle ⇒ green" rested on two data points and did not survive a
+> third.
+>
+> **2. The pre-flight baseline is CLEAN.** The decisive measurement, finally
+> taken: `git checkout 54d2d56` (this flight's planning commit — code identical
+> to pre-flight `main`, `the_one/api_credential.py` absent) and a full
+> `make test-browser` returned **586 passed, 6 skipped, 0 failed** in 13m31s, on
+> the same machine, same venv, same Playwright.
+>
+> **Conclusion: the browser lane was stable before this flight and is not stable
+> after it. The instability is attributable to this flight's changes.** Not to
+> machine load, and not to pre-existing flakiness. Every "load-sensitivity"
+> claim above is retained only as a record of a wrong turn — it should not be
+> cited as a finding.
+>
+> **Consequence for landing**: the flight's own Post-Flight verification
+> requires the browser lanes green, and mission criterion 9 requires the unit
+> *and browser* suites to pass with authentication enforced. That criterion is
+> **not met**. The flight does not land on this evidence.
+>
+> **Leading hypothesis, untested**: the gate performs a `path.stat()` plus a
+> credential resolution on *every* request, and under DD6 that includes every
+> static asset — a page load that pulls 20+ assets now does 20+ extra
+> filesystem checks and HMAC verifications. Added to that, Leg 4's fix performs
+> a handoff mint plus exchange per browser context. None of this is
+> individually large, but the browser suite's `expect()` assertions default to
+> an 8s timeout, and the failures are consistently timing-shaped: never
+> reproducible in a small isolated run, never the same test twice.
+>
+> **Candidate directions** (for the operator to choose between, not for the
+> Flight Director to pick unilaterally): memoize the session-cookie
+> verification so a valid cookie skips the stat-and-HMAC path; reconsider DD6's
+> gating of `/static` on cost grounds; perform the handoff once per app
+> instance rather than once per browser context; or raise the browser lane's
+> default expect timeout, which treats the symptom rather than the cause.
+>
+> **Methodological note worth carrying to the debrief**: this baseline
+> measurement costs 14 minutes and was available from the first moment the word
+> "flake" was used. It was deferred through *four* separate assessments, two of
+> which were stated to the operator with more confidence than the evidence
+> supported. When attribution is the question, measure the baseline first —
+> a cheap decisive experiment beats an accumulating narrative every time.
+
 **Full tally across the flight** — every full `make test-browser` run, in order.
 The correlation between machine load and failure count is the finding; note that
 the *identity* of the failing tests changes almost every time, and that no test
