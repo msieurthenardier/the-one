@@ -786,8 +786,52 @@ pre-flight baseline.
 | C | loaded (concurrent subagents + suites) | 5 failed / 582 passed |
 | D | idle, same tree | **0 failed / 587 passed** |
 
-> ## ⛔ SUPERSEDED — the load hypothesis above is WRONG, and this flight is
-> ## responsible for the instability. Read this block before anything above it.
+> # ✅ FINAL — READ THIS FIRST. Everything below it in this Anomalies section
+> # is a record of three successive wrong conclusions, kept deliberately.
+>
+> **The browser lane has PRE-EXISTING intermittency. This flight did not cause
+> it.** Measured properly at last: the pre-flight tree (`54d2d56`, no credential
+> code) was run **three** times with dependencies held identical to the merged
+> tree and the machine idle:
+>
+> | Tree | Deps | Runs | Failures per run |
+> |---|---|---|---|
+> | Baseline `54d2d56` | merged (crypto 50.0.0 / aiohttp 3.14.3) | 3 | **2, 2, 0** |
+> | Post-flight `c375819` | same | 3 | **0, 2, 0** |
+>
+> Like-for-like, the baseline is if anything *worse*. There is no detectable
+> regression attributable to this flight.
+>
+> **What went wrong in the reasoning, three times over:**
+>
+> 1. "It's a flake" — asserted from a single isolated re-run.
+> 2. "It's machine load" — asserted from two data points; killed when an idle
+>    run returned 7 failures.
+> 3. "The flight caused it" — asserted from **one** baseline run returning
+>    clean. With a post-flight green rate near 30%, a single clean baseline run
+>    was roughly a one-in-three coincidence. It was luck, and it was written
+>    into the flight log *and a commit message* as established fact.
+>
+> Each correction was itself stated with more confidence than its evidence
+> supported. The pattern is not "wrong hypothesis" — hypotheses are cheap — it
+> is **repeatedly treating n≈1 as sufficient to conclude on an intermittent
+> phenomenon.** For anything intermittent, a single observation cannot
+> distinguish signal from luck, in *either* direction; only repeated paired runs
+> can. That is the debrief lesson, and it cost roughly two hours of suite time
+> to learn the hard way.
+>
+> **Consequence for landing**: mission criterion 9 ("unit and browser suites
+> pass with authentication enforced") is **met to the standard the project
+> already held**. The flight achieves parity with baseline, and the post-flight
+> tree has produced clean 587/587 runs with the gate live. The residual
+> intermittency is pre-existing technical debt in the browser lane that predates
+> this mission and deserves its own work — it is **not** this flight's to fix
+> and **not** grounds to block it.
+>
+> ---
+>
+> ## ⛔ SUPERSEDED (wrong conclusion #3) — the load hypothesis below is wrong,
+> ## AND so is this block's claim that the flight caused the instability.
 >
 > Two later measurements demolished the load-sensitivity story:
 >
