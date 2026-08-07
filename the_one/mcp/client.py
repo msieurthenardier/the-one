@@ -54,6 +54,29 @@ _UNSUPPORTED_VERSION_RE = re.compile(r"Unsupported protocol version from the ser
 # in depth — F2 only mandates _PINNED_PROTOCOL_VERSION read-at-call-time).
 _DEFAULT = object()
 
+_SESSION_TERMINATED_MESSAGE = "Session terminated"
+"""The SDK's synthetic error message for "this session no longer exists".
+
+``mcp.client.streamable_http`` answers ANY 404 on a request-carrying POST by
+fabricating a JSON-RPC error with this exact message rather than surfacing a
+transport exception (``_send_session_terminated_error``). It means the server
+has forgotten our ``Mcp-Session-Id`` — a DEAD CONNECTION, not a tool that
+failed. Servers reach this state by their own session GC, a restart, or by
+treating a dropped SSE stream as a client disconnect.
+
+Matching on the message is the only signal available: the 404 is swallowed
+inside the SDK and the accompanying code (32600) is generic.
+``TestSessionTerminatedRecovery`` in ``tests/test_mcp_client.py`` pins the
+string against the SDK so a rename in a future SDK release fails loudly here
+rather than silently reverting the self-heal to the old
+wedge-until-manual-reset behaviour.
+"""
+
+
+def _is_session_terminated(exc: McpError) -> bool:
+    """True when ``exc`` is the SDK's synthetic session-is-gone error."""
+    return getattr(getattr(exc, "error", None), "message", None) == _SESSION_TERMINATED_MESSAGE
+
 
 @asynccontextmanager
 async def _transport_connect(
@@ -248,6 +271,18 @@ class MCPClient:
 
     def _touch_activity(self) -> None:
         self._last_activity = time.monotonic()
+
+    def _mark_dead(self) -> None:
+        """Flip ``_is_alive`` off after an unrecoverable transport failure.
+
+        The F4 pool reads ``is_alive`` on every ``acquire`` and evicts +
+        rebuilds an entry whose client has gone dead, so marking here is what
+        turns a permanently-wedged connection into one failed call followed by
+        a transparent reconnect. Purely a flag flip — teardown stays with
+        ``disconnect()``, which the pool's entry worker runs on the task that
+        ran ``connect()`` (anyio cross-task cancel-scope guard).
+        """
+        self._is_alive = False
 
     async def connect(self) -> None:
         """Run the MCP lifecycle handshake.
@@ -650,8 +685,11 @@ class MCPClient:
         except UrlElicitationRequiredError:
             raise
         except McpError as e:
+            if _is_session_terminated(e):
+                self._mark_dead()
             raise MCPConnectionError(f"MCP list_tools failed: {e}") from None
         except (httpx.HTTPError, anyio.ClosedResourceError) as e:
+            self._mark_dead()
             raise MCPConnectionError(
                 f"MCP transport error during list_tools: {type(e).__name__}: {e}"
             ) from None
@@ -688,7 +726,9 @@ class MCPClient:
         UrlElicitationRequiredError propagates unchanged (F3+ surfaces it).
 
         Raises:
-            MCPConnectionError: not connected, timeout, or transport error.
+            MCPConnectionError: not connected, timeout, transport error, or a
+                server-terminated session (``_is_alive`` is flipped off first so
+                the pool rebuilds the entry).
             MCPToolNotFoundError: if name isn't in the server's tool list.
             MCPArgumentError: if arguments fail JSON-Schema validation.
             MCPCallError: if the server returned isError=True or McpError.
@@ -789,8 +829,23 @@ class MCPClient:
         except UrlElicitationRequiredError:
             raise
         except McpError as e:
+            # "Session terminated" is the server telling us our session is gone
+            # (the SDK's synthetic answer to a 404) — a dead CONNECTION, not a
+            # tool that returned an error. Reporting it as MCPCallError left
+            # `_is_alive` True, so the pool kept handing back the same corpse and
+            # `_touch_activity()` on every retry kept the idle reaper from ever
+            # reclaiming it: the source stayed broken until an operator hit Reset
+            # connection. Mark dead and raise a connection error so the pool
+            # rebuilds the entry on the next acquire.
+            if _is_session_terminated(e):
+                self._mark_dead()
+                raise MCPConnectionError(
+                    f"MCP session terminated by server during call to {name!r}; "
+                    "the connection will be re-established on the next call."
+                ) from None
             raise MCPCallError(tool_name=name, server_message=str(e)) from None
         except (httpx.HTTPError, anyio.ClosedResourceError) as e:
+            self._mark_dead()
             raise MCPConnectionError(
                 f"MCP transport error during call_tool: {type(e).__name__}: {e}"
             ) from None

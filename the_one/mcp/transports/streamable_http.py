@@ -37,6 +37,33 @@ __all__ = [
 ]
 
 
+# Mirror of the SDK's ``create_mcp_http_client`` defaults (MCP_DEFAULT_TIMEOUT /
+# MCP_DEFAULT_SSE_READ_TIMEOUT in the private ``mcp.shared._httpx_utils``). Kept
+# as local constants rather than imported so we don't depend on a private module;
+# ``tests/test_mcp_transport_timeouts.py`` asserts they stay equal to the SDK's.
+_HTTP_TIMEOUT_SECONDS = 30.0
+"""Connect/write/pool timeout for ordinary request-response MCP traffic."""
+
+_SSE_READ_TIMEOUT_SECONDS = 300.0
+"""Read timeout — MUST stay far longer than ``_HTTP_TIMEOUT_SECONDS``.
+
+The streamable-HTTP client opens a standalone long-lived ``GET`` SSE stream
+(started the moment ``notifications/initialized`` is sent) that carries
+server-initiated messages. A server with nothing to push sends NOTHING on it,
+possibly for its whole lifetime — so ``read`` governs how long we tolerate
+silence on that stream, not how long a tool call may take (``call_tool`` has
+its own ``asyncio.timeout`` budget in ``MCPClient``).
+
+Setting a short flat timeout here is actively harmful: httpx raises
+``ReadTimeout`` on the idle GET stream and tears the connection down, and a
+server that reads GET-stream close as "client disconnected" then destroys the
+whole MCP session. Every subsequent POST gets 404, which the SDK surfaces as
+``Session terminated`` — an unrecoverable state until the pool entry is
+evicted. Goldfinch (``mcp-server.js``) does exactly this, which is how a flat
+30s timeout here broke every MCP session 30 seconds after it opened.
+"""
+
+
 # F5 L4: factory shape for the test seam — invoked with `headers` dict;
 # returns a pre-constructed `httpx.AsyncClient` (typically with `auth=`
 # attached at construction time). OAuth-enabled tests use this shape
@@ -213,11 +240,14 @@ def _build_production_httpx_kwargs(
     and instantiates OAuthClientProvider with
     handlers) is L6's scope. L6 builds the factory and the agent-layer
     wiring that calls it.
+
+    The timeout MUST keep ``read`` separate from the general timeout — see
+    ``_SSE_READ_TIMEOUT_SECONDS``.
     """
     return {
         "headers": headers,
         "follow_redirects": True,
-        "timeout": httpx.Timeout(30.0),
+        "timeout": httpx.Timeout(_HTTP_TIMEOUT_SECONDS, read=_SSE_READ_TIMEOUT_SECONDS),
         "auth": auth_provider,  # None when no provider is supplied
     }
 

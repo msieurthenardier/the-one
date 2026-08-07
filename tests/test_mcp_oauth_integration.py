@@ -57,7 +57,7 @@ class TestBuildProductionHttpxKwargs:
         assert kwargs["auth"] is None
         assert kwargs["headers"] == {"X-Foo": "bar"}
         assert kwargs["follow_redirects"] is True
-        assert kwargs["timeout"] == httpx.Timeout(30.0)
+        assert kwargs["timeout"] == httpx.Timeout(30.0, read=300.0)
 
     def test_with_auth_provider_returns_auth_stub(self) -> None:
         """A3: auth_provider=stub → kwargs['auth'] is stub (identity)."""
@@ -71,7 +71,7 @@ class TestBuildProductionHttpxKwargs:
         assert kwargs["auth"] is stub
         assert kwargs["headers"] == {}
         assert kwargs["follow_redirects"] is True
-        assert kwargs["timeout"] == httpx.Timeout(30.0)
+        assert kwargs["timeout"] == httpx.Timeout(30.0, read=300.0)
 
 
 # ---------------------------------------------------------------------------

@@ -1633,6 +1633,130 @@ class TestCallToolContentBlockRendering:
             await c.disconnect()
 
 
+class TestSessionTerminatedRecovery:
+    """A server-terminated MCP session is a DEAD CONNECTION, not a tool error.
+
+    ``mcp.client.streamable_http`` answers any 404 on a request-carrying POST
+    by fabricating a JSON-RPC error reading ``Session terminated`` rather than
+    raising a transport exception. Classifying that as ``MCPCallError`` left
+    ``is_alive`` True, so the F4 pool kept serving the dead client and the idle
+    reaper could never reclaim it (every failing ``call_tool`` calls
+    ``_touch_activity()`` first) — the source stayed broken until an operator
+    hit Reset connection. These tests lock the corrected classification.
+    """
+
+    async def test_sentinel_still_matches_what_the_sdk_emits(self) -> None:
+        """Drift tripwire: pin our sentinel to the SDK's synthetic message.
+
+        We match on the message text because it is the only signal available —
+        the 404 is swallowed inside the SDK and the accompanying code (32600)
+        is generic. If a future SDK renames the message, this fails loudly here
+        instead of silently reverting the self-heal.
+        """
+        from mcp.client.streamable_http import StreamableHTTPTransport
+
+        from the_one.mcp.client import _SESSION_TERMINATED_MESSAGE
+
+        captured: list[object] = []
+
+        class _StubWriter:
+            async def send(self, item):
+                captured.append(item)
+
+        transport = StreamableHTTPTransport("http://127.0.0.1:1/mcp")
+        await transport._send_session_terminated_error(_StubWriter(), 1)
+
+        assert len(captured) == 1
+        assert captured[0].message.root.error.message == _SESSION_TERMINATED_MESSAGE
+
+    async def test_call_tool_session_terminated_raises_connection_error(
+        self, patch_transport, mock_session
+    ) -> None:
+        """Not MCPCallError — the tool never ran; the session is gone."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
+        mock_session.call_tool = AsyncMock(
+            side_effect=McpError(ErrorData(code=32600, message="Session terminated"))
+        )
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPConnectionError, match="session terminated"):
+                await c.call_tool("t", {})
+        finally:
+            await c.disconnect()
+
+    async def test_call_tool_session_terminated_marks_client_dead(
+        self, patch_transport, mock_session
+    ) -> None:
+        """``is_alive`` flips off so the pool evicts and rebuilds the entry."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
+        mock_session.call_tool = AsyncMock(
+            side_effect=McpError(ErrorData(code=32600, message="Session terminated"))
+        )
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            assert c.is_alive is True
+            with pytest.raises(MCPConnectionError):
+                await c.call_tool("t", {})
+            assert c.is_alive is False
+        finally:
+            await c.disconnect()
+
+    async def test_ordinary_tool_error_still_raises_call_error_and_stays_alive(
+        self, patch_transport, mock_session
+    ) -> None:
+        """Guard the narrow scope: a real tool failure must NOT kill the client."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
+        mock_session.call_tool = AsyncMock(
+            side_effect=McpError(ErrorData(code=-32600, message="An object could not be cloned"))
+        )
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPCallError, match="could not be cloned"):
+                await c.call_tool("t", {})
+            assert c.is_alive is True
+        finally:
+            await c.disconnect()
+
+    async def test_call_tool_transport_error_marks_client_dead(
+        self, patch_transport, mock_session
+    ) -> None:
+        """A broken transport is equally unrecoverable — same self-heal path."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
+        mock_session.call_tool = AsyncMock(side_effect=httpx.HTTPError("boom"))
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPConnectionError):
+                await c.call_tool("t", {})
+            assert c.is_alive is False
+        finally:
+            await c.disconnect()
+
+    async def test_list_tools_session_terminated_marks_client_dead(
+        self, patch_transport, mock_session
+    ) -> None:
+        """The agent-build path (cache miss) self-heals the same way."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(
+            side_effect=McpError(ErrorData(code=32600, message="Session terminated"))
+        )
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPConnectionError, match="list_tools failed"):
+                await c.list_tools()
+            assert c.is_alive is False
+        finally:
+            await c.disconnect()
+
+
 class TestCallToolErrorTranslation:
     """L6b unit tests for SDK error -> F2 wrapper-class translation.
 
