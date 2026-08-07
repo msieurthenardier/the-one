@@ -11,8 +11,19 @@ Verify that an operator can configure per-connector inference LLM settings (Prov
 
 ## Preconditions
 
-- The-one is running host-native on `http://localhost:8484` and Studio loads at that URL (verified by an active probe: the operator opens the URL in a browser and sees the Studio render before invoking the test).
-- The operator has the chrome-devtools MCP browser session attached to that URL.
+- The-one is running host-native on a **non-default port with a scratch data directory**
+  (never the operator's default `:8484` instance) and Studio loads at that URL (verified
+  by an active probe: the operator opens the URL in a browser and sees the Studio render
+  before invoking the test). **Note**: this spec's Steps literally write
+  `http://localhost:8484` in several places — treat every such instance as a placeholder
+  for this instance's actual base URL, never as a literal instruction to target port 8484.
+- The operator has the chrome-devtools MCP browser session attached to that URL, reached
+  via CLAUDE.md's "Behavior-test credential convention" (a handoff-authenticated
+  navigation, not a bare `goto`).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Read the long-lived
+  credential from the instance's data directory per the convention above; attach it as
+  `Authorization: Bearer <credential>` to every `curl` call below, and mint a fresh
+  handoff for each browser navigation to the app root (a handoff is single-use).
 - The operator has **at least 2 configured LLM providers** in `/api/providers` (verified by an active probe: the operator opens Studio's Providers area and confirms 2+ providers are listed; or runs `curl -s http://localhost:8484/api/providers | jq 'length'` and confirms `>= 2`). The flight spec's L4 Prerequisites already require "at least one configured LLM provider"; this spec asks for two so the dropdown's option-set is more than just the empty placeholder, and the round-trip can verify a non-placeholder selection persists.
 - At least one connector account exists in Studio (any type — Discord, Stub, or other). The test does NOT require the connector to be paired or live — only that it has an editable Session section. If none exists, the operator creates a Stub connector named `Inference-Test Bot` before invoking the test (verified by an active probe: `curl -s http://localhost:8484/api/connectors | jq 'length'` returns `>= 1`).
 - The operator knows the target connector's name (passed in as a parameter at run time or selected during step 1).

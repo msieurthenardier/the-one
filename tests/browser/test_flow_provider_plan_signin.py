@@ -36,109 +36,26 @@ Network boundary (leg design-review resolved):
 from __future__ import annotations
 
 import json
-import os
 import re
-import signal
-import socket
 import sqlite3
-import subprocess
-import sys
 import time
-from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from cryptography.fernet import Fernet
 from playwright.sync_api import Page, expect
 
 PLAN_BASE_URL = "https://api.anthropic.com"
 
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0) -> None:
-    deadline = time.monotonic() + timeout
-    last_exc: Exception | None = None
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
-        try:
-            r = httpx.get(f"{base_url}/api/info", timeout=1.0)
-            if r.status_code == 200:
-                return
-        except httpx.HTTPError as exc:
-            last_exc = exc
-        time.sleep(0.1)
-    raise TimeoutError(f"App at {base_url} not ready within {timeout}s (last: {last_exc})")
-
-
-@pytest.fixture
-def app_with_data_dir(tmp_path: Path) -> Iterator[tuple[str, Path]]:
-    """Spawn a fresh app subprocess and yield ``(base_url, data_dir)``.
-
-    Mirrors the fixture in ``test_flow_chat_session_list_source_badge.py``:
-    the shared ``app_clean`` hides ``data_dir``; the seeded-token tests here
-    need the path to write encrypted secrets directly and to read the
-    subprocess's auto-generated ``encryption.key`` (generated at startup, so
-    seeding after startup is guaranteed the key exists).
-    """
-    port = _free_port()
-    data_dir = tmp_path / "the-one-data"
-    data_dir.mkdir()
-
-    env = os.environ.copy()
-    env["THE_ONE_DATA_DIR"] = str(data_dir)
-    env["THE_ONE_DEV_MODE"] = "true"
-
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "the_one.interfaces.web.app:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--log-level",
-            "warning",
-        ],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    base_url = f"http://127.0.0.1:{port}"
-
-    try:
-        _wait_for_ready(base_url, proc=proc, timeout=15.0)
-    except (TimeoutError, RuntimeError):
-        proc.terminate()
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout, stderr = proc.communicate()
-        raise RuntimeError(
-            f"App subprocess on port {port} did not become ready.\n"
-            f"--- stdout ---\n{stdout.decode(errors='replace')}\n"
-            f"--- stderr ---\n{stderr.decode(errors='replace')}"
-        )
-
-    try:
-        yield base_url, data_dir
-    finally:
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+# `app_with_data_dir` (Mission 20 / Flight 1 / Leg 3): formerly a local
+# fixture duplicated verbatim across 8 `test_flow_*.py` files, now
+# consolidated onto the shared `_spawn_app` path in `browser/conftest.py`
+# — pytest auto-discovers it from the directory conftest, no import needed.
+# (This file previously omitted `THE_ONE_REGISTER_STUB_CONNECTOR` from its
+# own copy; the shared fixture sets it unconditionally — harmless here,
+# this suite never registers a connector.)
 
 
 def _seed_plan_provider(base_url: str, name: str = "Claude Plan") -> str:
@@ -151,6 +68,7 @@ def _seed_plan_provider(base_url: str, name: str = "Claude Plan") -> str:
         f"{base_url}/api/providers",
         json={"name": name, "type": "anthropic-plan", "base_url": PLAN_BASE_URL},
         timeout=5.0,
+        headers=auth_headers_for(base_url),
     )
     assert r.status_code == 201, f"seed_plan_provider failed: {r.status_code} {r.text}"
     return r.json()["id"]
@@ -256,7 +174,9 @@ def test_plan_type_selectable_with_no_api_key_no_base_url_and_autosave_signin(
     expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible()
     expect(page.locator(".editor-subtitle")).to_contain_text(PLAN_BASE_URL)
     # …and the provider row now exists via the API.
-    providers = httpx.get(f"{app_clean}/api/providers", timeout=5.0).json()
+    providers = httpx.get(
+        f"{app_clean}/api/providers", timeout=5.0, headers=auth_headers_for(app_clean)
+    ).json()
     assert [(p["name"], p["type"]) for p in providers] == [("My Plan", "anthropic-plan")]
     # No error rendered (popup-blocked/aborted degrades silently).
     expect(page.locator('[data-testid="plan-signin-error"]')).to_be_hidden()
@@ -281,7 +201,12 @@ def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
     # No awaiting-code UI, still create mode, and NO provider created.
     expect(page.locator('[data-testid="plan-signin-consent"]')).to_have_count(0)
     expect(page.locator(".editor-title")).to_have_text("New Provider")
-    assert httpx.get(f"{app_clean}/api/providers", timeout=5.0).json() == []
+    assert (
+        httpx.get(
+            f"{app_clean}/api/providers", timeout=5.0, headers=auth_headers_for(app_clean)
+        ).json()
+        == []
+    )
 
 
 @pytest.mark.browser
@@ -357,7 +282,9 @@ def test_code_submit_success_shows_connected_state_without_dirty_trap(
     must never do. The success response shape is the real masked provider
     with ``oauth_active: true``."""
     provider_id = _seed_plan_provider(app_clean)
-    masked = httpx.get(f"{app_clean}/api/providers/{provider_id}", timeout=5.0).json()
+    masked = httpx.get(
+        f"{app_clean}/api/providers/{provider_id}", timeout=5.0, headers=auth_headers_for(app_clean)
+    ).json()
     assert masked["oauth_active"] is False
     masked["oauth_active"] = True
 
@@ -439,7 +366,9 @@ def test_seeded_tokens_render_connected_state_and_stubbed_reauth_message(
     provider_id = _seed_plan_provider(base_url)
     _seed_plan_tokens(data_dir, provider_id)
     # The API derives oauth_active from the seeded encrypted column.
-    masked = httpx.get(f"{base_url}/api/providers/{provider_id}", timeout=5.0).json()
+    masked = httpx.get(
+        f"{base_url}/api/providers/{provider_id}", timeout=5.0, headers=auth_headers_for(base_url)
+    ).json()
     assert masked["oauth_active"] is True
     assert "secrets" not in masked
 
@@ -491,7 +420,11 @@ def test_reauthenticate_runs_consent_flow_over_connected_state(
     # Connected state persists underneath — tokens not cleared by re-auth.
     expect(page.locator('[data-testid="plan-connected-indicator"]')).to_be_visible()
     assert (
-        httpx.get(f"{base_url}/api/providers/{provider_id}", timeout=5.0).json()["oauth_active"]
+        httpx.get(
+            f"{base_url}/api/providers/{provider_id}",
+            timeout=5.0,
+            headers=auth_headers_for(base_url),
+        ).json()["oauth_active"]
         is True
     )
 
@@ -522,7 +455,11 @@ def test_reset_returns_to_signin_state_and_survives_reload(
     expect(page.locator('[data-testid="plan-connected-indicator"]')).to_have_count(0)
     # Local disconnect persisted server-side.
     assert (
-        httpx.get(f"{base_url}/api/providers/{provider_id}", timeout=5.0).json()["oauth_active"]
+        httpx.get(
+            f"{base_url}/api/providers/{provider_id}",
+            timeout=5.0,
+            headers=auth_headers_for(base_url),
+        ).json()["oauth_active"]
         is False
     )
     # Respected after reload too.
@@ -548,6 +485,7 @@ def test_legacy_anthropic_provider_renders_no_plan_ui(app_clean: str, page: Page
             "api_key": "sk-ant-seedkey1234",
         },
         timeout=5.0,
+        headers=auth_headers_for(app_clean),
     )
     assert r.status_code == 201, r.text
     provider_id = r.json()["id"]

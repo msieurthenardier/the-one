@@ -30,12 +30,15 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
+    r = httpx.get(
+        f"{base_url}/api/connectors/{account_id}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 

@@ -11,7 +11,7 @@ import webbrowser
 import httpx
 import uvicorn
 
-from the_one import __version__
+from the_one.api_credential import get_credential
 from the_one.config import settings
 
 log = logging.getLogger(__name__)
@@ -196,9 +196,18 @@ def _splash_html() -> str:
 
 
 def _wait_until_serving(host: str, port: int, timeout: float = 15.0) -> None:
-    """Poll /api/info until the app actually serves (lifespan startup done)."""
+    """Poll /api/live until the app actually serves (lifespan startup done).
+
+    This is a pure readiness probe for the shell's OWN just-started server —
+    it asks only "did it come up," never "is this credentialed content
+    correct." `/api/live` is the unauthenticated liveness endpoint (DD5's
+    exemption exists precisely for probes like this one); using the
+    credentialed `/api/info` here would be pointless work; the credential is
+    for `_select_port`'s ownership question and the window-focus POST, not
+    this one.
+    """
     deadline = time.monotonic() + timeout
-    url = f"http://{host}:{port}/api/info"
+    url = f"http://{host}:{port}/api/live"
     while time.monotonic() < deadline:
         try:
             if httpx.get(url, timeout=1.0).status_code == 200:
@@ -225,8 +234,8 @@ def _select_port(host: str, port: int, retries: int = 3, delay: float = 0.3) -> 
 
     Returns (port_to_use, is_our_instance):
     - (port, False): port is free — start a new server on the configured port.
-    - (port, True): a the-one of OUR version is already answering on that port
-      (DD4 case b) — do NOT start a second server.
+    - (port, True): a the-one that shares OUR credential is already answering
+      on that port (DD4 case b, DD11) — do NOT start a second server.
     - (free_port, False): a foreign process holds the configured port (DD4 case c)
       — bind-0 a free port for this instance.
 
@@ -234,15 +243,32 @@ def _select_port(host: str, port: int, retries: int = 3, delay: float = 0.3) -> 
     false "free" on a TIME_WAIT port). Includes a startup-retry so a the-one
     that just bound but hasn't finished lifespan startup (/api/info not yet 200)
     isn't misclassified as foreign.
+
+    DD11: "ours" is credentialed. The prior version-only check (200 +
+    matching `__version__`) misclassified a *different* instance running the
+    same version against a *different* data directory as ours — version
+    alone says nothing about which data directory (and therefore which
+    credential) answered. Sending our own credential and treating a 200 as
+    success is what "ours" should always have meant: the server on the other
+    end validated the exact credential this process would also use, which
+    only happens when it reads the same credential file. A foreign server
+    that also 401s (wrong or absent credential) simply resolves to "not
+    ours" — already the safe answer for the fall-through below.
+
+    Edge case: no credential file exists yet (fresh machine, first launch).
+    `get_credential()` creates one on first use rather than raising, so a
+    missing-credential machine still gets a well-formed probe — and "cannot
+    be ours" falls out naturally (nothing on a fresh machine could share a
+    credential that didn't exist a moment ago).
     """
+    auth_headers = {"Authorization": f"Bearer {get_credential().encode()}"}
     for attempt in range(retries):
-        # (b) a the-one of OUR version already answering?
-        # json() raises JSONDecodeError (a ValueError subclass) on a non-JSON 200.
+        # (b) a the-one that shares OUR credential already answering?
         try:
-            r = httpx.get(f"http://{host}:{port}/api/info", timeout=1.0)
-            if r.status_code == 200 and r.json().get("version") == __version__:
+            r = httpx.get(f"http://{host}:{port}/api/info", headers=auth_headers, timeout=1.0)
+            if r.status_code == 200:
                 return port, True
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPError:
             pass
         # Is ANYTHING listening? connect-probe — no bind race.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -486,15 +512,35 @@ class DesktopSession:
         host, port = settings.host, settings.port
         sel_port, is_ours = _select_port(host, port)
         if is_ours:
-            # A the-one of our version already owns this port — raise its window
-            # and exit instead of opening a duplicate (DD4). Header-less loopback
-            # POST (no Origin header) clears the OriginAllowlistMiddleware.
+            # A the-one that shares our credential already owns this port —
+            # raise its window and exit instead of opening a duplicate (DD4).
+            # Header-less loopback POST (no Origin header) clears the
+            # OriginAllowlistMiddleware; the Authorization header carries the
+            # credential the gate now requires on every non-exempt path,
+            # including this one — easy to miss because this branch returns
+            # early without ever opening a window. A failed/rejected focus
+            # POST is tolerated (logged, not raised): the existing instance
+            # keeps running either way, and this process is about to exit.
             try:
-                httpx.post(f"http://{host}:{sel_port}/api/window/focus", timeout=2.0)
+                httpx.post(
+                    f"http://{host}:{sel_port}/api/window/focus",
+                    headers={"Authorization": f"Bearer {get_credential().encode()}"},
+                    timeout=2.0,
+                )
             except httpx.HTTPError:  # intentionally broad — covers ConnectError + TimeoutException
                 log.warning("focus POST to running instance failed; exiting anyway")
             return
-        url = f"http://{host}:{sel_port}/"
+        # Base URL only — deliberately WITHOUT a handoff credential yet (DD7,
+        # DD12). The token is single-use and short-lived, so it is minted
+        # separately, close to each navigation call site below (inside
+        # `_boot()` for the webview path, right before `webbrowser.open()`
+        # for the fallback path) — not here, before the long
+        # webview.start()/splash/`_wait_until_serving` sequence, which would
+        # burn TTL for no reason and could even let the token expire before
+        # the window ever navigates. `is_ours=True` already returned above
+        # without reaching this line, so nothing here ever mints for that
+        # branch.
+        base_url = f"http://{host}:{sel_port}/"
         server = None
         thread = None
         # is_ours=True already returned above; reaching here means is_ours=False —
@@ -612,6 +658,24 @@ class DesktopSession:
                         _wait_until_serving(host, sel_port)
 
                         # Step 3 — create the main window (native frame: frameless=False).
+                        # Mint the one-time browser-handoff credential HERE, right before
+                        # navigation, not earlier in the boot sequence (DD7, DD12): it is
+                        # single-use and short-lived, and the launcher shares a process
+                        # with the server, so the in-process mint (no IPC, no HTTP hop) is
+                        # the pinned call `mint_handoff_credential()` exists for — see
+                        # `the_one/interfaces/web/handoff_store.py`. Without this, the
+                        # window's first navigation carries no credential at all and
+                        # `CredentialGateMiddleware` refuses it with a 401 instead of
+                        # rendering the app. Lazy import: keeps the module importable
+                        # without the web app wired in (mirrors the other lazy imports in
+                        # this function).
+                        from the_one.interfaces.web.handoff_store import (
+                            HANDOFF_QUERY_PARAM,
+                            mint_handoff_credential,
+                        )
+
+                        handoff_token = mint_handoff_credential()
+                        url = f"{base_url}?{HANDOFF_QUERY_PARAM}={handoff_token}"
                         main_win = webview.create_window("GleepGlorp AI", url, **_create_kwargs)
 
                         # Step 4 — register the loaded→destroy handler BEFORE tray wiring
@@ -675,6 +739,16 @@ class DesktopSession:
                 # path, so it must remain explicitly on this branch — otherwise the
                 # browser would open before the server is ready).
                 _wait_until_serving(host, sel_port)
+                # Same handoff-minting treatment as the webview path above (DD7,
+                # DD12): mint right before navigation, not earlier. Lazy import
+                # for the same reason as the webview branch's import.
+                from the_one.interfaces.web.handoff_store import (
+                    HANDOFF_QUERY_PARAM,
+                    mint_handoff_credential,
+                )
+
+                handoff_token = mint_handoff_credential()
+                url = f"{base_url}?{HANDOFF_QUERY_PARAM}={handoff_token}"
                 webbrowser.open(url)
                 if server is not None:
                     # Main thread is free (no GUI loop) — install a SIGINT handler

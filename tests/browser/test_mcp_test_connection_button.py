@@ -23,11 +23,14 @@ import json
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
 
 def _seed_mcp_source(base_url: str, payload: dict) -> str:
-    r = httpx.post(f"{base_url}/api/mcp-sources", json=payload, timeout=5.0)
+    r = httpx.post(
+        f"{base_url}/api/mcp-sources", json=payload, timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code in (200, 201), f"seed failed: {r.status_code} {r.text}"
     return r.json()["id"]
 

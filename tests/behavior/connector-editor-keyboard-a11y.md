@@ -14,6 +14,10 @@ Verify the two accessibility behaviors from Mission-12 Flight 4 that **regress s
 - the-one running host-native and reachable on `http://localhost:8485` (the mission dev instance — **not** 8484); `THE_ONE_DEV_MODE=true`; the-one restarted after any JS/CSS changes so the served working tree is current.
 - **A connector with ≥3 routing rules exists on 8485.** The original "Discord Constellation" fixture (`58f1fe5a833f`) is **gone** — do not assume any named connector. Seed a fresh connector (`POST /api/connectors`) or use any existing one, and ensure it has **≥3 routing rules** configured under the editor's **Advanced tab → Routing section** (so reorder has room to move a middle rule both up and down and to exercise the first/last boundaries). If fewer than 3 exist, the run adds rules first (unsaved) and discards on exit (step 2 / step 10) so the persisted set is left unchanged; if a connector was seeded fresh for the run, delete it on teardown.
 - A browser MCP apparatus is available (chrome-devtools or goldfinch, per the mission's registered apparatus); not mid-edit on the connector; the operator can observe the editor in the browser session. Never touch 8484.
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  data directory and mint a handoff URL for the Step-1 navigation (single-use; re-mint
+  if navigating again).
 
 ## Observables Required
 

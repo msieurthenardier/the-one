@@ -29,18 +29,21 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import seed_connector, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
+    r = httpx.get(
+        f"{base_url}/api/connectors/{account_id}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
 
 def _list_accounts(base_url: str) -> list[dict]:
-    r = httpx.get(f"{base_url}/api/connectors", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors", timeout=5.0, headers=auth_headers_for(base_url))
     assert r.status_code == 200
     return r.json()
 
@@ -56,14 +59,21 @@ def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) ->
     dropdowns stay at the placeholder, blocking the persistence
     assertions.
     """
-    cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
+    cur = httpx.get(
+        f"{base_url}/api/agents/{agent_name}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
     ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
     cfg["connector_ids"] = ids
-    r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
+    r = httpx.put(
+        f"{base_url}/api/agents/{agent_name}",
+        json=cfg,
+        timeout=5.0,
+        headers=auth_headers_for(base_url),
+    )
     assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
 
 
@@ -703,7 +713,9 @@ def _add_peer_via_api(base_url: str, account_id: str, peer_id: str) -> None:
     back (REPLACE semantics). Uses the structured-tuple shape required
     by the post-v28 validator.
     """
-    cur = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
+    cur = httpx.get(
+        f"{base_url}/api/connectors/{account_id}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert cur.status_code == 200, f"GET connector failed: {cur.status_code} {cur.text}"
     account = cur.json()
     config = dict(account.get("config") or {})
@@ -717,7 +729,12 @@ def _add_peer_via_api(base_url: str, account_id: str, peer_id: str) -> None:
         allowlist["peers"] = list(allowlist["peers"]) + [{"id": peer_id}]
     config["allowlist"] = allowlist
     account["config"] = config
-    r = httpx.put(f"{base_url}/api/connectors/{account_id}", json=account, timeout=5.0)
+    r = httpx.put(
+        f"{base_url}/api/connectors/{account_id}",
+        json=account,
+        timeout=5.0,
+        headers=auth_headers_for(base_url),
+    )
     assert r.status_code == 200, f"PUT connector failed: {r.status_code} {r.text}"
 
 

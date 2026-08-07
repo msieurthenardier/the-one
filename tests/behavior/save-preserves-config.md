@@ -32,6 +32,11 @@ POSTing.
 - A **chrome-devtools** browser apparatus is attached to 8485 for the UI-editing steps. **Never
   touch 8484.**
 - An `http` apparatus (curl via Bash, or an equivalent MCP) for the API setup/verification steps.
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  data directory, mint a handoff URL for the Step-4 browser navigation (single-use;
+  re-mint if navigating again), and attach `Authorization: Bearer <credential>` to the
+  `curl` calls.
 
 ## Observables Required
 

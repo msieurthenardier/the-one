@@ -24,42 +24,14 @@ runs.
 
 from __future__ import annotations
 
-import os
-import signal
-import socket
-import subprocess
-import sys
-import time
 from collections.abc import Iterator
-from pathlib import Path
 
-import httpx
 import pytest
+from browser._credential_registry import unregister as _unregister_credential
+from browser.conftest import _spawn_app, _teardown_proc, credentialed_context
 from playwright.sync_api import Browser, Page
 
 # ── Module-scoped app subprocess + page ────────────────────────────────────
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0) -> None:
-    deadline = time.monotonic() + timeout
-    last_exc: Exception | None = None
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
-        try:
-            r = httpx.get(f"{base_url}/api/info", timeout=1.0)
-            if r.status_code == 200:
-                return
-        except httpx.HTTPError as exc:
-            last_exc = exc
-        time.sleep(0.1)
-    raise TimeoutError(f"App at {base_url} not ready within {timeout}s (last: {last_exc})")
 
 
 @pytest.fixture(scope="module")
@@ -68,60 +40,23 @@ def app_clean_module(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
 
     The function-scoped ``app_clean`` from conftest spawns per test, which
     would mean ~60+ subprocess spawns for the parametrized markdown corpus.
-    This module-scoped fixture mirrors the spawn logic so the entire
-    parametrized suite shares one app + one page (via ``page_with_app``).
+    This module-scoped fixture shares one app + one page (via
+    ``page_with_app``) for the entire parametrized suite.
+
+    Mission 20 / Flight 1 / Leg 3 (``harness-credential-plumbing``):
+    consolidated onto the shared ``_spawn_app`` (imported from
+    ``browser.conftest``) rather than duplicating the spawn-plus-
+    readiness-poll logic here — this fixture's own module scope is
+    preserved (the leg's explicit edge case): only the spawn mechanism
+    moved, not this decorator.
     """
-    port = _free_port()
-    data_dir: Path = tmp_path_factory.mktemp("the-one-data-md")
-
-    env = os.environ.copy()
-    env["THE_ONE_DATA_DIR"] = str(data_dir)
-    env["THE_ONE_DEV_MODE"] = "true"
-
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "the_one.interfaces.web.app:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--log-level",
-            "warning",
-        ],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    base_url = f"http://127.0.0.1:{port}"
-
-    try:
-        _wait_for_ready(base_url, proc=proc, timeout=15.0)
-    except (TimeoutError, RuntimeError):
-        proc.terminate()
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout, stderr = proc.communicate()
-        raise RuntimeError(
-            f"App subprocess on port {port} did not become ready.\n"
-            f"--- stdout ---\n{stdout.decode(errors='replace')}\n"
-            f"--- stderr ---\n{stderr.decode(errors='replace')}"
-        )
-
+    tmp_path = tmp_path_factory.mktemp("the-one-data-md")
+    base_url, proc, _credential, _data_dir = _spawn_app(tmp_path)
     try:
         yield base_url
     finally:
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        _unregister_credential(base_url)
+        _teardown_proc(proc)
 
 
 @pytest.fixture(scope="module")
@@ -132,10 +67,32 @@ def page_with_app(app_clean_module: str, browser: Browser) -> Iterator[Page]:
     the code-block copy-button e2e tests the success path (not the error
     fallback). Headless Chromium needs explicit permission to satisfy
     ``navigator.clipboard.writeText``.
+
+    Mission 20 / Flight 1 / Leg 3: this module defines its own page
+    fixture rather than consuming conftest's ``page`` (module scope vs.
+    function scope), so it attaches ``app_clean_module``'s credential to
+    the context directly — there is no ambiguity about which app this
+    page drives, unlike the generic ``page`` fixture.
+
+    Mission 20 / Flight 1 / Leg 4 review fix: previously only set the
+    ``Authorization`` header, not the handoff session cookie — this
+    happened to keep passing after the gate went live only because
+    ``App.markdown`` is exercised via in-page ``page.evaluate(...)`` calls
+    that never assert on chat state, so the default-area boot's bare
+    ``new WebSocket('/ws')`` (``static/js/areas/chat.js``) silently
+    closing with code 1008 for lack of a session cookie went unnoticed —
+    the WHATWG spec forbids attaching custom headers to a WebSocket
+    handshake, so the header alone was never going to authorize it (see
+    ``conftest.py``'s ``page`` fixture docstring). Passing for that reason
+    was incidental, not evidence the cookie is unneeded, so this is routed
+    through ``credentialed_context()`` (``conftest.py``) for the same
+    header + handoff-cookie treatment every other fixture gets, rather
+    than left as-is.
     """
-    context = browser.new_context(
+    context = credentialed_context(
+        browser,
+        app_clean_module,
         permissions=["clipboard-read", "clipboard-write"],
-        color_scheme="no-preference",
     )
     page = context.new_page()
     page.goto(app_clean_module)

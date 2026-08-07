@@ -11,8 +11,13 @@ Verify that the app shell's core navigation contract holds against the running i
 
 ## Preconditions
 
-- The **instance under test** is running and serving (probe: HTTP 200 on `/` immediately before the run). Default `http://127.0.0.1:8484`; the orchestrator states the actual base URL at run time and it applies to every step below (during M17 the mission dev instance runs at `http://127.0.0.1:8485` — the operator's packaged app owns 8484).
+- The **instance under test** is running and serving (probe: HTTP 200 on `/` immediately before the run). Default `http://127.0.0.1:8485` — a dedicated dev instance with a scratch data directory; the operator's packaged app owns `:8484` and must never be targeted (see CLAUDE.md's "Behavior-test credential convention" safety rule). The orchestrator states the actual base URL at run time and it applies to every step below.
 - A browser apparatus (goldfinch MCP) is attached and can open tabs to that origin.
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from the
+  instance's data directory and mint a handoff URL for the Step-1 navigation
+  (single-use; re-mint if navigating again, e.g. after the Step-7 cold reload if the
+  session cookie was lost).
 - Existing data is acceptable — every step accepts both populated and empty states explicitly; no seeding is performed by the test.
 - Run-tab environment: prefer an unoccluded/foregrounded window; if pixel capture wedges, the printToPDF fallback per the apparatus doctrine (`the_one/agents.md`) is sanctioned evidence.
 

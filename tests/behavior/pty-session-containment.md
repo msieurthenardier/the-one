@@ -25,7 +25,12 @@ end-to-end tool path is where a regression would actually bite.
 ## Preconditions
 
 - A `the-one` instance is running and reachable (operator confirms the URL / how
-  the Executor drives the agent's tools).
+  the Executor drives the agent's tools) — a dedicated dev instance, non-default port
+  with a scratch data directory, never the operator's default `:8484` instance.
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" for whichever apparatus reaches the agent's
+  tools (e.g. `Authorization: Bearer <credential>` for `POST /api/chat`, or a handoff URL
+  if driven through the browser).
 - The instance host has `bwrap` on `PATH` (probe: `bwrap --version` succeeds) and
   unprivileged user namespaces available (under Docker: `cap_add: SYS_ADMIN` +
   `security_opt: seccomp:unconfined`). **Probe at run time** — if `bwrap` is

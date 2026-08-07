@@ -16,6 +16,15 @@ Verify the six platform slash commands (`/whoami`, `/agents`, `/help`, `/talk_to
 - The dedicated Discord user is logged into the Discord web client in the chrome-devtools MCP browser session, with the test channel open (the channel whose guild is on `allowlist.guilds`).
 - The dedicated Discord user is on the connector's allowlist (peer + channel + guild axes), so all six commands are ACL-permitted for that user post-L1.
 - At least one ACL-permitted agent is attached to the connector account, and the operator knows that agent's name to supply as the `/talk_to` argument at run time (see step 5). Parameterize via the `agent` variant below, or instruct the operator to use a known-attached agent name when the run starts.
+- **Which instance**: the connector worker's live Discord bot connection is tied to
+  whichever the-one instance the operator's bot token is configured on — infrastructure
+  the operator controls, not something this run spins up fresh. If that is the operator's
+  persistent `:8484` instance, that is an explicit operator decision, never a default this
+  spec assumes; prefer a dedicated non-default-port instance where one exists.
+- **Credential**: this test's only apparatus is the Discord web client (per Observables
+  Required) — it does not itself navigate the-one's gated UI. If any step is adapted to
+  also inspect the-one directly, follow CLAUDE.md's "Behavior-test credential convention"
+  for that access.
 
 ## Observables Required
 

@@ -28,25 +28,30 @@ import re
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
 def _seed_mcp_source(base_url: str, payload: dict) -> str:
-    r = httpx.post(f"{base_url}/api/mcp-sources", json=payload, timeout=5.0)
+    r = httpx.post(
+        f"{base_url}/api/mcp-sources", json=payload, timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code in (200, 201), f"seed failed: {r.status_code} {r.text}"
     return r.json()["id"]
 
 
 def _get_source(base_url: str, sid: str) -> dict:
-    r = httpx.get(f"{base_url}/api/mcp-sources/{sid}", timeout=5.0)
+    r = httpx.get(
+        f"{base_url}/api/mcp-sources/{sid}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
 
 def _list_sources(base_url: str) -> list[dict]:
-    r = httpx.get(f"{base_url}/api/mcp-sources", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/mcp-sources", timeout=5.0, headers=auth_headers_for(base_url))
     assert r.status_code == 200
     return r.json()
 
@@ -1058,7 +1063,9 @@ def test_reset_button_reappears_after_post_oauth_refresh(app_clean: str, page: P
     # The initial mount fetches sources via the LIST endpoint
     # (/api/mcp-sources), not per-id, so the per-id stub only activates
     # for the post-test-connect refetch — exactly what we want.
-    real_source = httpx.get(f"{app_clean}/api/mcp-sources/{sid}", timeout=5.0).json()
+    real_source = httpx.get(
+        f"{app_clean}/api/mcp-sources/{sid}", timeout=5.0, headers=auth_headers_for(app_clean)
+    ).json()
     post_oauth_get = dict(real_source)
     post_oauth_get["oauth_active"] = True
 

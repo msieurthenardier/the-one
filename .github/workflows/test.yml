@@ -113,6 +113,8 @@ jobs:
             tests/test_execution_tools.py tests/test_execution_helpers.py \
             tests/test_execution_config.py \
             tests/test_encryption.py \
+            tests/test_api_credential.py \
+            tests/test_credential_gate.py tests/test_handoff_store.py \
             tests/test_sandbox_factory.py tests/test_sandbox_contract.py \
             tests/test_logging_config.py
 

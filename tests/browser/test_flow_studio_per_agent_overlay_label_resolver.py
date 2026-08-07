@@ -16,6 +16,7 @@ import json
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import (
     seed_connector,
     seed_mock_agent,
@@ -85,14 +86,21 @@ def _route_discoverable_network_error(page: Page, account_id: str) -> None:
 
 
 def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) -> None:
-    cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
+    cur = httpx.get(
+        f"{base_url}/api/agents/{agent_name}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
     ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
     cfg["connector_ids"] = ids
-    r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
+    r = httpx.put(
+        f"{base_url}/api/agents/{agent_name}",
+        json=cfg,
+        timeout=5.0,
+        headers=auth_headers_for(base_url),
+    )
     assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
 
 

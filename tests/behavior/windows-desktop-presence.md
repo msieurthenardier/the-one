@@ -40,6 +40,16 @@ or security test.
   (browser, `curl`, or the bundled `httpx`) to confirm the server is/ isn't serving.
 - The per-user data dir is known (platformdirs `user_data_dir("the-one")`) so the
   operator can read/edit `window-state.json` for the geometry + clamp rows.
+- **Credential**: this build is gated (Mission 20 Flight 1). The `api-credential` file
+  lives alongside `window-state.json` in that same per-user data dir — read it and attach
+  `Authorization: Bearer <credential>` to the `/api/info` GETs in steps 2, 5, and 8, per
+  CLAUDE.md's "Behavior-test credential convention". The app's **own window** (its
+  embedded webview) authenticates itself internally via the desktop launcher's in-process
+  handoff — that path needs nothing from the Executor/operator. **Safety note**: this spec
+  intentionally targets the installed app's default port 8484, unlike a Linux dev-instance
+  spec — it is testing the packaged installer's real default behavior on a **dedicated
+  Windows test host**, not the operator's own daily-driver machine; never run it against an
+  operator's personal Windows install.
 - Fresh-state option for the first-run-notice row: if a prior run already set the
   "close notice shown" flag, the operator can clear it (delete the flag file / key)
   to re-observe the one-time notice — otherwise that sub-assertion is skipped.

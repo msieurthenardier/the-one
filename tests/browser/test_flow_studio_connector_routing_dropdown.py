@@ -34,6 +34,7 @@ import json
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import (
     seed_connector,
     seed_mock_agent,
@@ -125,14 +126,21 @@ def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) ->
     agent so the routing section's agent dropdown has a selectable
     option once ``fetchAttachedAgents`` resolves.
     """
-    cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
+    cur = httpx.get(
+        f"{base_url}/api/agents/{agent_name}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
     ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
     cfg["connector_ids"] = ids
-    r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
+    r = httpx.put(
+        f"{base_url}/api/agents/{agent_name}",
+        json=cfg,
+        timeout=5.0,
+        headers=auth_headers_for(base_url),
+    )
     assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
 
 
@@ -179,7 +187,9 @@ def _seed_stub_with_agent(
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
+    r = httpx.get(
+        f"{base_url}/api/connectors/{account_id}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 

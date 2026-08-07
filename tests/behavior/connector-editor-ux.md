@@ -11,9 +11,15 @@ Validate the post-batch Discord connector editor UX — the visual/interaction c
 
 ## Preconditions
 
-- the-one running and reachable (Studio UI).
+- the-one running and reachable (Studio UI) on a **non-default port with a scratch data
+  directory** — never the operator's default `:8484` instance (see CLAUDE.md's
+  "Behavior-test credential convention" safety rule).
 - A Discord connector ("Discord Constellation", `58f1fe5a833f`) exists with **≥1 attached agent** (so it warms) and is currently **Connected** (warm gateway).
 - Chrome MCP available; not mid-edit on the connector.
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from the
+  instance's data directory and mint a handoff URL for the Step-1 navigation
+  (single-use; re-mint if navigating again).
 
 ## Observables Required
 

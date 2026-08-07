@@ -24,6 +24,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from starlette.testclient import TestClient
 
+from tests._credential_helpers import auth_headers
+
 # ``with TestClient(app)`` (endpoint tests below) drives the REAL lifespan to
 # shutdown, which latches ``_shutting_down = True`` in the PTY session
 # registry, MCP pool, and connector pool. Reset those process-globals after
@@ -89,7 +91,7 @@ def test_window_focus_endpoint_returns_focused_true_when_window_registered() -> 
     from the_one.interfaces.web.app import app
 
     with patch("the_one.interfaces.desktop.shell.focus_window", return_value=True):
-        with TestClient(app) as client:
+        with TestClient(app, headers=auth_headers()) as client:
             response = client.post("/api/window/focus")
 
     assert response.status_code == 200
@@ -101,7 +103,7 @@ def test_window_focus_endpoint_returns_focused_false_when_no_window() -> None:
     from the_one.interfaces.web.app import app
 
     with patch("the_one.interfaces.desktop.shell.focus_window", return_value=False):
-        with TestClient(app) as client:
+        with TestClient(app, headers=auth_headers()) as client:
             response = client.post("/api/window/focus")
 
     assert response.status_code == 200
@@ -117,7 +119,7 @@ def test_window_focus_endpoint_header_less_post_not_rejected() -> None:
     from the_one.interfaces.web.app import app
 
     with patch("the_one.interfaces.desktop.shell.focus_window", return_value=False):
-        with TestClient(app) as client:
+        with TestClient(app, headers=auth_headers()) as client:
             # Explicitly send no Origin header (TestClient default)
             response = client.post("/api/window/focus")
 

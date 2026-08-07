@@ -30,13 +30,16 @@ import json
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
 def _seed_mcp_source(base_url: str, payload: dict) -> str:
-    r = httpx.post(f"{base_url}/api/mcp-sources", json=payload, timeout=5.0)
+    r = httpx.post(
+        f"{base_url}/api/mcp-sources", json=payload, timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code in (200, 201), f"seed mcp-source failed: {r.status_code} {r.text}"
     return r.json()["id"]
 
@@ -44,13 +47,15 @@ def _seed_mcp_source(base_url: str, payload: dict) -> str:
 def _seed_agent(base_url: str, name: str, payload: dict) -> dict:
     payload = dict(payload)
     payload["name"] = name
-    r = httpx.post(f"{base_url}/api/agents", json=payload, timeout=5.0)
+    r = httpx.post(
+        f"{base_url}/api/agents", json=payload, timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code in (200, 201), f"seed agent failed: {r.status_code} {r.text}"
     return r.json()
 
 
 def _get_agent(base_url: str, name: str) -> dict:
-    r = httpx.get(f"{base_url}/api/agents/{name}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/agents/{name}", timeout=5.0, headers=auth_headers_for(base_url))
     assert r.status_code == 200, f"get agent failed: {r.status_code} {r.text}"
     return r.json()
 

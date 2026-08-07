@@ -15,6 +15,11 @@ Verify the chat *interaction* on the redesigned v3 chat surface end-to-end again
 - **The instance was launched with `THE_ONE_DEV_MODE=true`** — required for the `mock` provider type to be creatable (the API rejects mock-typed creates with HTTP 400 when dev mode is off, and the provider-type dropdown filters `mock` out). This is a decay-prone precondition (a plain relaunch drops it), so Step 1 actively probes it. **Relaunch note**: if the probe fails, stop and relaunch the instance with `THE_ONE_DEV_MODE=true` (the M17 8485 instance sets it in its `.env`; a fresh instance needs it exported), then re-probe.
 - A browser apparatus (goldfinch MCP) is attached and can open tabs to that origin. Per the apparatus doctrine (`the_one/agents.md`): if a viewport screenshot wedges (occluded/backgrounded window), the `printToPDF` fallback is sanctioned rendered-state evidence; the a11y tree is second-strongest evidence; a CDP page may be used for focus-state checks.
 - The mock provider + mock agent this test needs are **seeded by the test itself** (Step 2) via the real HTTP API — no pre-existing chat data is assumed. Seeded entities should be cleaned up after the run (or left on the disposable dev instance).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from the
+  instance's data directory, mint a handoff URL for the Step-3 browser navigation
+  (single-use; re-mint if navigating again), and attach `Authorization: Bearer
+  <credential>` to the Step-1/2 HTTP calls.
 
 ## Observables Required
 

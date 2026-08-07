@@ -22,28 +22,19 @@ bubbles do NOT (the JS gate skips the marker on user bubbles).
 Per user-global rule (no committed snapshot baselines), this test
 uses DOM-shape + computed-style assertions only.
 
-Fixtures (``app_with_data_dir``, ``_seed_session_with_messages``,
-``_free_port``, ``_wait_for_ready``) are duplicated from
-``tests/browser/test_flow_chat_visibility_distinction.py`` — they are
-module-scoped there (not in a conftest), so cross-import would be
-brittle. Future refactor can de-duplicate into a shared fixture module.
+``app_with_data_dir`` is the shared fixture in ``browser/conftest.py``
+(Mission 20 / Flight 1 / Leg 3 consolidated it out of this file's former
+local duplicate). ``_seed_session_with_messages`` remains local — its
+message-shape is specific to this test's fixture data.
 """
 
 from __future__ import annotations
 
-import os
 import re
-import signal
-import socket
 import sqlite3
-import subprocess
-import sys
-import time
 import uuid
-from collections.abc import Iterator
 from pathlib import Path
 
-import httpx
 import pytest
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
@@ -52,91 +43,10 @@ from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.db.codec import encode_messages
 from the_one.llm.base import Message
 
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0) -> None:
-    deadline = time.monotonic() + timeout
-    last_exc: Exception | None = None
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
-        try:
-            r = httpx.get(f"{base_url}/api/info", timeout=1.0)
-            if r.status_code == 200:
-                return
-        except httpx.HTTPError as exc:
-            last_exc = exc
-        time.sleep(0.1)
-    raise TimeoutError(f"App at {base_url} not ready within {timeout}s (last: {last_exc})")
-
-
-@pytest.fixture
-def app_with_data_dir(tmp_path: Path) -> Iterator[tuple[str, Path]]:
-    """Spawn a fresh app subprocess and yield ``(base_url, data_dir)``.
-
-    Mirrors the duplicate fixture in
-    ``test_flow_chat_visibility_distinction.py`` — the conftest
-    ``app_clean`` fixture hides ``data_dir`` inside its body, but this
-    test needs the path to seed a chat_sessions row directly via SQLite.
-    """
-    port = _free_port()
-    data_dir = tmp_path / "the-one-data"
-    data_dir.mkdir()
-
-    env = os.environ.copy()
-    env["THE_ONE_DATA_DIR"] = str(data_dir)
-    env["THE_ONE_DEV_MODE"] = "true"
-    env["THE_ONE_REGISTER_STUB_CONNECTOR"] = "1"
-
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "the_one.interfaces.web.app:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--log-level",
-            "warning",
-        ],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    base_url = f"http://127.0.0.1:{port}"
-
-    try:
-        _wait_for_ready(base_url, proc=proc, timeout=15.0)
-    except (TimeoutError, RuntimeError):
-        proc.terminate()
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout, stderr = proc.communicate()
-        raise RuntimeError(
-            f"App subprocess on port {port} did not become ready.\n"
-            f"--- stdout ---\n{stdout.decode(errors='replace')}\n"
-            f"--- stderr ---\n{stderr.decode(errors='replace')}"
-        )
-
-    try:
-        yield base_url, data_dir
-    finally:
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+# `app_with_data_dir` (Mission 20 / Flight 1 / Leg 3): formerly a local
+# fixture duplicated verbatim across 8 `test_flow_*.py` files, now
+# consolidated onto the shared `_spawn_app` path in `browser/conftest.py`
+# — pytest auto-discovers it from the directory conftest, no import needed.
 
 
 def _seed_session_with_messages(

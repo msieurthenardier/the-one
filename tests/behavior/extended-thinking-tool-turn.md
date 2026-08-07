@@ -19,8 +19,14 @@ is the acceptance gate for Mission 16's extended-thinking criterion.
 
 ## Preconditions
 
-- The app is running and reachable (dev instance on `:8485` or installed app on `:8484`).
+- The app is running and reachable on a **dedicated dev instance, non-default port**
+  (e.g. `:8485`) with a scratch data directory — never the operator's default `:8484`
+  instance (see CLAUDE.md's "Behavior-test credential convention" safety rule).
 - An **Anthropic API key** is stored in the credential store.
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from the
+  instance's data directory and mint a handoff URL for the Step-1 navigation
+  (single-use; re-mint if navigating again).
 - An agent exists (or is created during setup) that: uses the **Anthropic** provider, targets
   an **adaptive-thinking-capable** Claude model (**Sonnet 4.6 or newer**), has the **Extended
   thinking** toggle **ON** (the provider-editor checkbox — enablement is adaptive-only, no token

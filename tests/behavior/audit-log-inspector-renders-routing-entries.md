@@ -11,8 +11,21 @@ Verify that the Chat UI per-session "Routing audit" panel renders entries from `
 
 ## Preconditions
 
-- The-one is running host-native on `http://localhost:8484` and the Chat UI loads at that URL (verified by an active probe: the operator opens the URL in a browser and sees Chat render OR the welcome screen).
-- The operator has the chrome-devtools MCP browser session attached to that URL.
+- The-one is running host-native on a **non-default port with a scratch data directory**
+  (never the operator's default `:8484` instance) and the Chat UI loads at that URL
+  (verified by an active probe: the operator opens the URL in a browser and sees Chat
+  render OR the welcome screen). **Note**: this spec's Preconditions and Steps literally
+  write `http://localhost:8484` in several example commands — treat every such instance
+  as a placeholder for this instance's actual base URL, never as a literal instruction to
+  target port 8484.
+- The operator has the chrome-devtools MCP browser session attached to that URL, reached
+  via CLAUDE.md's "Behavior-test credential convention" (a handoff-authenticated
+  navigation, not a bare `goto`).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Read the long-lived
+  credential from the instance's data directory per the convention above; attach it as
+  `Authorization: Bearer <credential>` to every `curl` call below (including the seed and
+  step-6 examples), and mint a fresh handoff for each browser navigation to the app root
+  (a handoff is single-use).
 - The build under test includes F13 L1+L2+L3+L4+L5 commits (verified by running `git grep -nE 'routing-audit|routingAudit' the_one/interfaces/web/static/js/areas/` directly in the repo — returns at least 6 hits AND `git grep -n 'session_metadata' the_one/interfaces/web/api.py` returns the detail-endpoint composition site).
 - A test chat session exists with **multi-disposition routing entries** seeded in `session_metadata["routing"]`. The seed should include at least 4 entries — one each for the four canonical dispositions:
   - `stepped` — the engaged path (`{"ts": "...", "agent": "<name>", "rule_index": 0, "scope": "channel", "match": null, "reason": "matched", "disposition": "stepped"}`)

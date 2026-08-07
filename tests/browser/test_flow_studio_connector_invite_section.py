@@ -28,6 +28,7 @@ import json
 from collections.abc import Iterator
 
 import pytest
+from browser.conftest import credentialed_context
 from browser.seeders import seed_connector
 from playwright.sync_api import Browser, Page, expect
 
@@ -35,18 +36,27 @@ _DISCORD_PERMISSIONS_CONSTANT = "2147552256"
 
 
 @pytest.fixture
-def clipboard_page(browser: Browser) -> Iterator[Page]:
+def clipboard_page(app_clean: str, browser: Browser) -> Iterator[Page]:
     """Function-scoped Playwright page with clipboard permissions granted.
 
     Headless Chromium denies ``navigator.clipboard.readText`` /
     ``writeText`` by default; the default ``page`` fixture in
-    ``conftest.py:214`` does not grant them. This fixture mirrors the
-    precedent at ``tests/browser/test_markdown.py:127-151`` — a new
-    context with ``permissions=["clipboard-read", "clipboard-write"]``
-    so the Copy-button e2e exercises the success path.
+    ``conftest.py`` does not grant them, so this fixture builds its own
+    context via ``permissions=["clipboard-read", "clipboard-write"]``.
+
+    Mission 20 / Flight 1 / Leg 4 review fix: this used to call
+    ``browser.new_context(...)`` directly, bypassing the credential
+    treatment ``conftest.py``'s shared ``page`` fixture gives every other
+    test — no ``Authorization`` header, no handoff session cookie — so once
+    the gate went live the studio content behind ``app_clean`` never
+    loaded (``connector-test-connection-btn`` was never found). Routed
+    through ``credentialed_context()`` (``conftest.py``) so this gets the
+    same header + handoff-cookie treatment as ``page``, plus its own
+    clipboard permissions layered on top via ``**context_kwargs``.
     """
-    context = browser.new_context(
-        color_scheme="no-preference",
+    context = credentialed_context(
+        browser,
+        app_clean,
         permissions=["clipboard-read", "clipboard-write"],
     )
     page = context.new_page()

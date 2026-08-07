@@ -47,6 +47,7 @@ import urllib.parse
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_tool_config
 from playwright.sync_api import Page, expect
 
@@ -323,7 +324,11 @@ def test_studio_override_save_round_trips_via_api(app_with_agent: SeededApp, pag
     # API round-trip confirms the override persisted as expected.
     agent_name = app_with_agent.agent_name
     assert agent_name is not None
-    r = httpx.get(f"{app_with_agent.base_url}/api/agents/{agent_name}", timeout=5.0)
+    r = httpx.get(
+        f"{app_with_agent.base_url}/api/agents/{agent_name}",
+        timeout=5.0,
+        headers=auth_headers_for(app_with_agent.base_url),
+    )
     assert r.status_code == 200, f"GET agent failed: {r.status_code} {r.text}"
     body = r.json()
     overrides = body.get("tool_overrides") or {}

@@ -23,11 +23,12 @@ import json
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
 
 def _list_accounts(base_url: str) -> list[dict]:
-    r = httpx.get(f"{base_url}/api/connectors", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors", timeout=5.0, headers=auth_headers_for(base_url))
     assert r.status_code == 200
     return r.json()
 

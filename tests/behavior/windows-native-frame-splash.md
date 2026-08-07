@@ -26,6 +26,21 @@ host-native pytest; this test covers the end-to-end native + visual result.
 - A way to read the **Windows taskbar / process** (visual + `tasklist`) and the data-dir
   crash log (`%LOCALAPPDATA%\the-one\logs\the-one-app.log`) for any failure.
 - Operator-relayed observation (or screenshots) — this is an operator-driven Witnessed run.
+- **Credential**: this build is gated (Mission 20 Flight 1). The `api-credential` file
+  lives in the per-user data dir (platformdirs `user_data_dir("the-one")`, next to the
+  crash log's parent) — read it and attach `Authorization: Bearer <credential>` to the
+  `/api/info` GETs in steps 7 and 8, per CLAUDE.md's "Behavior-test credential
+  convention". The app's own window (steps 1-6, 10) authenticates itself internally via
+  the desktop launcher's in-process handoff — nothing needed from the operator there.
+  **Safety note**: this spec intentionally targets the installed app's default port
+  8484 — it tests the packaged installer's real default behavior on a **dedicated
+  Windows test host**, never the operator's own daily-driver machine.
+- **Known gap (flagged, not fixed here)**: Step 9 opens `http://localhost:8484/` in a
+  **separate plain browser**, distinct from the app's own authenticated webview and with
+  no prior handoff of its own — under the credential gate this browser has no session
+  cookie and the page will be refused rather than "render normally" as the Expected
+  Result currently states. Per this leg's scope (Preconditions-only, no step-table
+  edits), this is not fixed here; see the flight log.
 
 ## Observables Required
 

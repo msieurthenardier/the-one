@@ -35,6 +35,11 @@ Witnessed paradigm fits.
   must be set relative to the model in use: a 1M-window model at warn=5% needs ~50k context
   tokens to cross warn. A single bounded ~256 KB tool result ≈ ~64k tokens, enough for warn.
 - web_search engine left at the **DuckDuckGo** default for the search step (no key needed).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" to reach it — read the long-lived credential from
+  the instance's data directory, then mint a handoff URL (`POST /api/session/handoff`)
+  before the Step-1 browser navigation. A handoff credential is single-use; a fresh
+  navigation to the app root needs a fresh mint.
 
 ## Observables Required
 - browser (admin Tools form: engine `<select>`, per-engine field rows shown/hidden, password

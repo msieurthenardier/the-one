@@ -111,19 +111,45 @@ reset-db: ## Wipe the host data dir + restart (DESTRUCTIVE — requires CONFIRM=
 
 .PHONY: verify-serving
 verify-serving: ## Sanity-check that the host-native app serves the current source AND owns its port
-	@echo "Waiting for http://localhost:$(THE_ONE_PORT)/api/info to come up (max 30s) ..."
-	@for i in $$(seq 1 30); do \
-		if curl -fsS http://localhost:$(THE_ONE_PORT)/api/info >/dev/null 2>&1; then \
+	@# Credential setup (Mission 20 Flight 1 Leg 5, DD6/DD11): the gate now
+	@# requires an Authorization header on /api/info AND on every one of the
+	@# 18 static-asset paths below. The credential MUST NOT be passed as a
+	@# curl `-H "Authorization: Bearer ..."` ARGUMENT: on Linux, /proc/<pid>/
+	@# cmdline is world-readable, so a bare `-H` would publish the credential
+	@# to every local account for the lifetime of each of the 19 curl
+	@# processes this target spawns — defeating, inside the verification
+	@# target itself, the exact protection this mission adds. Instead we
+	@# write a curl `--config` file (one `header = "..."` line) with an
+	@# explicit 0600 mode: curl reads the header from that file's fd, so the
+	@# credential never appears in argv/cmdline at all. (The alternative the
+	@# leg spec allows — an exported shell variable referenced inside a `-H`
+	@# string — is only owner-readable via /proc/<pid>/environ, not
+	@# world-readable like cmdline; --config is strictly safer still since it
+	@# never touches process environ or argv, so we use it.) Read-only lookup
+	@# (not get_credential()'s create-on-first-use) so a missing credential
+	@# fails fast with a clear message instead of an opaque 401 loop.
+	@echo "Resolving local API credential ..."
+	@if ! cred=$$($(PY) -c "import sys; from the_one.api_credential import lookup_credential; c = lookup_credential(); sys.exit(1) if c is None else print(c.encode())" 2>/dev/null); then \
+		echo "  ✗ no local API credential found — run '$(PY) -m the_one.main rotate-api-credential' (or 'the-one rotate-api-credential') first, then retry"; \
+		exit 1; \
+	fi; \
+	cfgfile=$$(mktemp); \
+	trap 'rm -f "$$cfgfile"' EXIT; \
+	chmod 600 "$$cfgfile"; \
+	printf 'header = "Authorization: Bearer %s"\n' "$$cred" > "$$cfgfile"; \
+	echo "Waiting for http://localhost:$(THE_ONE_PORT)/api/info to come up (max 30s) ..."; \
+	for i in $$(seq 1 30); do \
+		if curl -fsS --config "$$cfgfile" http://localhost:$(THE_ONE_PORT)/api/info >/dev/null 2>&1; then \
 			echo "  ✓ /api/info OK (after $${i}s)"; break; \
 		fi; \
 		if [ "$$i" = "30" ]; then \
 			echo "  ✗ /api/info did not respond within 30s — check 'make logs'"; exit 1; \
 		fi; \
 		sleep 1; \
-	done
-	@echo "Verifying admin sub-modules served ..."
-	@for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js admin/design-language-page.js admin/design-language/tokens-section.js admin/design-language/typography-section.js admin/design-language/buttons-section.js admin/design-language/fields-section.js admin/design-language/surfaces-section.js admin/design-language/status-section.js admin/design-language/tabs-section.js admin/design-language/modal-section.js layout/section-nav.js; do \
-		code=$$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$(THE_ONE_PORT)/static/js/areas/$$f); \
+	done; \
+	echo "Verifying admin sub-modules served ..."; \
+	for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js admin/design-language-page.js admin/design-language/tokens-section.js admin/design-language/typography-section.js admin/design-language/buttons-section.js admin/design-language/fields-section.js admin/design-language/surfaces-section.js admin/design-language/status-section.js admin/design-language/tabs-section.js admin/design-language/modal-section.js layout/section-nav.js; do \
+		code=$$(curl -s --config "$$cfgfile" -o /dev/null -w "%{http_code}" http://localhost:$(THE_ONE_PORT)/static/js/areas/$$f); \
 		if [ "$$code" = "200" ]; then echo "  ✓ $$f served (200)"; \
 		else echo "  ✗ $$f returned $$code — not serving; check 'make logs' / 'make restart'" && exit 1; fi; \
 	done

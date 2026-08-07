@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
+from tests._credential_helpers import auth_headers
 from the_one import __version__
 from the_one.interfaces.web.app import STATIC_DIR, app
 
@@ -32,7 +33,7 @@ pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
 def test_index_appends_version_to_static_asset_refs() -> None:
     """Every /static JS/CSS ref carries ?v={__version__}; none stay bare."""
-    with TestClient(app) as client:
+    with TestClient(app, headers=auth_headers()) as client:
         response = client.get("/")
 
     assert response.status_code == 200
@@ -66,7 +67,7 @@ def test_index_disk_file_unchanged() -> None:
 
 def test_index_sends_no_store_cache_control() -> None:
     """GET / sends Cache-Control: no-store so the HTML is always fresh."""
-    with TestClient(app) as client:
+    with TestClient(app, headers=auth_headers()) as client:
         response = client.get("/")
 
     assert response.status_code == 200
@@ -75,7 +76,7 @@ def test_index_sends_no_store_cache_control() -> None:
 
 def test_versioned_static_url_resolves() -> None:
     """The static mount ignores ?v= — a versioned asset URL returns 200."""
-    with TestClient(app) as client:
+    with TestClient(app, headers=auth_headers()) as client:
         response = client.get(f"/static/js/areas/chat.js?v={__version__}")
 
     assert response.status_code == 200
