@@ -1,6 +1,6 @@
 # Mission: Local API Authentication
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 

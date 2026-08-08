@@ -1,6 +1,6 @@
 # Flight: Authenticated Local API End-to-End
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Local API Authentication](../../mission.md)
 
 ## Contributing to Criteria

@@ -193,8 +193,13 @@ leg estimate depends on them.
 
 ## Action Items
 
-- [x] Collapse the three duplicate `auth_headers` implementations into one → **squawk 0001**
-- [x] Micro-benchmark the gate's per-request cost; replace the docstring assertion with a measured number → **squawk 0002**
+> **Checkbox semantics**: a ticked box means the work is *done*. Filing a squawk
+> or opening an issue relocates work to another queue; it does not close it.
+> Recorded because the first draft of this list ticked two items that were only
+> filed, and a debrief reader consequently read the debt as resolved.
+
+- [ ] Collapse the three duplicate `auth_headers` implementations into one → filed as **squawk 0001** (`open` — filed, not fixed)
+- [ ] Micro-benchmark the gate's per-request cost; replace the docstring assertion with a measured number → filed as **squawk 0002** (`open` — filed, not fixed)
 - [ ] Run `/behavior-test local-api-auth-session-lifecycle` against a dev instance
 - [ ] Execute the AIAT lane, `make verify-serving` and CI packaged-smoke; close or re-open criterion 4
 - [ ] Consolidate the 28 local `client` fixtures — needs design, belongs to a flight
