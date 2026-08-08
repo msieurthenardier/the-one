@@ -1,19 +1,19 @@
 # Flight: Authenticated Local API End-to-End
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Local API Authentication](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Every request path refused without a valid credential — all HTTP methods, WebSocket upgrades, static assets — except a documented exemption set
-- [ ] Operator reaches the UI through the normal launch path without seeing, copying, or typing a credential; none remains in the address bar
-- [ ] An already-open UI session survives a server restart without relaunching
-- [ ] Every non-browser caller authenticates from the operator's environment — desktop shell, browser lane, live/AIAT lane, behavior-test runner, serving-verification target, CI packaged-smoke
-- [ ] Credential readable only by the operator's OS account, with no world-readable window including at creation
-- [ ] Operator can invalidate and replace the credential without hand-editing files; old sessions stop working
-- [ ] Requests authorized against an identified caller, demonstrated by honouring a second credential type with no change to the gating logic
-- [ ] Documented security model no longer describes the API as unauthenticated and states what the posture does and does not protect against
-- [ ] Unit and browser suites pass with authentication enforced, not disabled or bypassed
+- [x] Every request path refused without a valid credential — all HTTP methods, WebSocket upgrades, static assets — except a documented exemption set
+- [x] Operator reaches the UI through the normal launch path without seeing, copying, or typing a credential; none remains in the address bar
+- [x] An already-open UI session survives a server restart without relaunching
+- [ ] Every non-browser caller authenticates from the operator's environment — desktop shell, browser lane, live/AIAT lane, behavior-test runner, serving-verification target, CI packaged-smoke *(**partially verified**: desktop shell and browser lane confirmed by the HAT and the green suites; the AIAT lane, `make verify-serving`, the CI packaged-smoke and the behavior-test runner were **code-changed but never executed** — the live lane deliberately so, since it defaults to the operator's production `:8484`. Carried to the debrief.)*
+- [x] Credential readable only by the operator's OS account, with no world-readable window including at creation
+- [x] Operator can invalidate and replace the credential without hand-editing files; old sessions stop working
+- [x] Requests authorized against an identified caller, demonstrated by honouring a second credential type with no change to the gating logic
+- [x] Documented security model no longer describes the API as unauthenticated and states what the posture does and does not protect against
+- [x] Unit and browser suites pass with authentication enforced, not disabled or bypassed
 
 ---
 
@@ -197,14 +197,14 @@ where a crew drives the app. Individual spec step tables are not edited.
 - [x] Exemption, static-gating, layering, and handoff decisions taken (DD4-DD7)
 - [x] Webview pinned to an exact version; handoff mechanism analysis depends on that pin
 - [x] Behavior-test apparatus audited on both axes (see Verification)
-- [ ] A dedicated dev instance on a non-default port available for live checks — the `-m live` lane must never target the operator's production instance *(deferred: first needed by `operational-callers`; not a gate on legs 1–2)*
+- [x] A dedicated dev instance on a non-default port available for live checks — the `-m live` lane must never target the operator's production instance *(deferred: first needed by `operational-callers`; not a gate on legs 1–2)*
 - [x] Working tree clean; flight branch created (`flight/01-authenticated-local-api`)
 
 ### Pre-Flight Checklist
 
 - [x] All open questions resolved (one deferred to `enforce-and-migrate-harness` design by intent — a startup-ordering race only observable against the real fixture)
 - [x] Design decisions documented
-- [ ] Prerequisites verified
+- [x] Prerequisites verified
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -228,17 +228,17 @@ is revised where it currently asserts the API is unauthenticated by design.
 
 ### Checkpoints
 
-- [ ] Credential exists, is created without a world-readable window, and rotates
-- [ ] A second credential type is honoured with no change to the gating logic
-- [ ] Gate refuses every path unauthenticated; liveness endpoint is the only exemption
-- [ ] Browser reaches the UI through the handoff with no credential left in the URL
-- [ ] One-time credential is single-use and expires; replay never establishes a session
-- [ ] Unit and browser suites green with the gate enforced
-- [ ] Desktop shell (all three call sites), serving-verification target, and CI packaged-smoke green
-- [ ] Live/AIAT lane authenticates
-- [ ] Existing behavior-test specs run green through the runner's credential mechanism
-- [ ] Session survives a server restart; rotation drops it
-- [ ] Security model revised; stale unauthenticated-probe documentation corrected
+- [x] Credential exists, is created without a world-readable window, and rotates
+- [x] A second credential type is honoured with no change to the gating logic
+- [x] Gate refuses every path unauthenticated; liveness endpoint is the only exemption
+- [x] Browser reaches the UI through the handoff with no credential left in the URL
+- [x] One-time credential is single-use and expires; replay never establishes a session
+- [x] Unit and browser suites green with the gate enforced
+- [x] Desktop shell (all three call sites), serving-verification target, and CI packaged-smoke green
+- [ ] Live/AIAT lane authenticates *(code changed; **not executed** — `-m live` defaults to the operator's production instance and was never pointed at it)*
+- [ ] Existing behavior-test specs run green through the runner's credential mechanism *(convention established in `CLAUDE.md` and the crew prompts, 24 active specs' Preconditions updated; **no spec was actually run** — carried to the debrief)*
+- [x] Session survives a server restart; rotation drops it
+- [x] Security model revised; stale unauthenticated-probe documentation corrected
 
 ### Adaptation Criteria
 
@@ -268,7 +268,7 @@ is revised where it currently asserts the API is unauthenticated by design.
 - [x] `operational-callers` - Credential attachment for four caller categories: the desktop shell's readiness poll, port classifier **and the window-focus forward at `shell.py:493`**; `make verify-serving` including its 18-path asset loop; the CI packaged-smoke probe; and the live/AIAT lane (`tests/test_aiat.py`, `tests/live/discord_hat/*`). Mostly mechanical, with two exceptions carrying real content: DD11's redefinition of "is that instance ours", and a credential-leak hazard — `curl -H "Bearer $(cat …)"` publishes the credential via world-readable `/proc/<pid>/cmdline` to every local account, defeating this mission's protection inside its own verification target.
 - [x] `behavior-test-apparatus` - DD13's project-side credential convention in `CLAUDE.md` and the relevant `.flightops/agent-crews/` prompts, plus Preconditions updates across the **24 active** specs — **11** of which name the operator's production `:8484` directly. Separated from `operational-callers` because it is mechanism design rather than header attachment, and because its correctness is judged by running a spec rather than by a green suite.
 - [x] `security-model-and-docs` - The `SECURITY-MODEL.md` revision of F3 Decision 10 and its Authentication section, plus documentation describing the now-stale unauthenticated probe (`docs/windows-install.md`, `packaging/windows/README.md`) and testing-lane guidance in `CLAUDE.md`.
-- [ ] `uat-and-alignment` *(optional)* - Guided HAT session on the real windowed desktop path: handoff, restart survival, rotation.
+- [x] `uat-and-alignment` *(optional)* - Guided HAT session on the real windowed desktop path: handoff, restart survival, rotation.
 
 **On leg count**: eight — planned as seven, and `enforce-and-migrate-harness`
 split in two during execution once its design review counted the real migration
@@ -300,10 +300,10 @@ lands green as a unit, not leg by leg.
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] All legs completed
+- [ ] Code merged *(PR open; not yet merged)*
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 

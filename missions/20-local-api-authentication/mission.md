@@ -180,7 +180,7 @@ Tracked as issue #165.
 > planned and created one at a time as work progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] Flight 1: Authenticated local API end-to-end — credential generation and
+- [x] Flight 1: Authenticated local API end-to-end — credential generation and
       storage, the caller-identity gate covering every method plus WebSocket
       upgrades, browser session handoff, migration of the desktop shell and all
       test lanes, command-line rotation, and the security-model revision.

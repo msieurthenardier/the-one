@@ -477,6 +477,68 @@ code reference added (`the_one/api_credential.py`, `middleware.py`'s
 list) was re-read from the current tree during this pass, not carried over
 from the leg artifact's own citations.
 
+### Leg 08 `fix-review-issues` — HAT-surfaced UX defect: credential-gate 401 message misread as a provider-key error
+
+**HAT finding**: during the human acceptance test, the operator rotated their
+long-lived local-API credential — correctly revoking their live browser
+session — then went to configure an LLM provider and saw
+`"Missing or invalid credential"` on screen. Read in the provider-setup
+context, that phrase is indistinguishable from a bad Anthropic/OpenAI/OpenRouter
+API key. The operator tried a second provider before identifying the real
+cause (a revoked local-API session), losing a full cycle to a message that was
+technically accurate but contextually misleading.
+
+**Fix**: the credential gate's 401 body
+(`the_one/interfaces/web/middleware.py::CredentialGateMiddleware._send_401`,
+was line 478) changed from `{"detail":"Missing or invalid credential"}` to
+`{"detail":"Local API credential missing or invalid"}`. The "Local API"
+qualifier is the disambiguator — it can no longer be read as a provider-key
+complaint. Deliberately left as a neutral noun phrase with no remedy
+instruction, since the same 401 serves two caller shapes with opposite
+remedies: a browser with a stale/absent session cookie (remedy: reopen the
+app) versus a non-browser caller with a missing/bad `Authorization: Bearer`
+header — curl, `make verify-serving`, CI smoke, the AIAT lane (remedy: fix the
+header). Baking in either remedy would be wrong for the other caller.
+
+The identical string also appeared in `the_one/interfaces/web/app.py`'s
+`_require_long_lived_caller` dependency (two raise sites, used by
+`POST /api/session/handoff`) and was updated to match, so the two 401 sources
+in the codebase stay in sync.
+
+**WebSocket refusal path checked, not assumed**: `_handle_websocket` closes
+with `{"type": "websocket.close", "code": 1008}` (policy violation, missing/
+invalid credential) or code `1011` (misconfiguration) — no `reason` string
+and no response body on either path, confirmed by reading both call sites
+(`middleware.py`, the `_handle_websocket` method). Nothing to change there.
+
+**Grep for the old string across the repo**: two non-code hits found and left
+alone after inspection, both prose rather than a literal quote of the JSON
+body — `SECURITY-MODEL.md`'s "a request with a missing or invalid credential
+is refused" sentence sits inside the credential-gate section, already
+unambiguous from surrounding context; `flight.md`'s DD4 entry ("Missing or
+invalid credential → 401 before origin logic runs") is a historical
+design-decision record describing gate behavior, not the wire-format string.
+Neither is UI-facing and neither risks the provider-key misread the HAT
+surfaced. No test in the repo asserts on the literal old string (grepped for
+`"detail"` and `Missing or invalid` across `tests/`) — the two existing
+websocket tests assert only on the numeric close code, and
+`test_credential_gate.py` never inspects the 401 body text — so no test
+changes were needed.
+
+**Other operator-visible refusal strings in the gate, sanity-checked for the
+same defect and left unchanged**: `_send_500`'s `{"detail":"Server
+misconfiguration"}` doesn't mention "credential" at all, so it carries no
+provider-key ambiguity. `OriginAllowlistMiddleware._send_403`'s
+`{"detail":"Origin not allowed"}` is about the request's `Origin` header, not
+a credential of any kind — also not ambiguous with a provider key.
+
+**Verification**: `tests/test_credential_gate.py` — 53 passed, 0 failed. Full
+`make test-unit` — 4252 passed / 10 skipped / 676 deselected, matching the
+post-merge baseline recorded in Session Notes above exactly — no regressions
+from this change. `make test-browser` was not run — the grep confirmed no
+browser test asserts on this string, and the task scope was a one-string
+message change with no gate-logic, status-code, or channel-handling change.
+
 ## Decisions
 
 ### LD1 — Three presentation channels; the query parameter carries only the one-time credential

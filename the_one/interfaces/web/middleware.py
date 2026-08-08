@@ -475,7 +475,19 @@ class CredentialGateMiddleware:
 
     @staticmethod
     async def _send_401(send: Send) -> None:
-        body = b'{"detail":"Missing or invalid credential"}'
+        # Explicitly scoped to "Local API" — a HAT surfaced this as
+        # genuinely ambiguous: the same 401 serves a browser (stale/absent
+        # session cookie; remedy is "reopen the app") and a non-browser
+        # caller (curl, `make verify-serving`, CI smoke, the AIAT lane;
+        # remedy is "fix the Authorization header") — no single remedy
+        # phrase fits both, so the message stays a neutral noun phrase and
+        # leaves the remedy to the caller. Unqualified "credential" reads
+        # as a provider API key (Anthropic/OpenAI/OpenRouter) in the
+        # provider-setup UI; the operator rotated *this* credential,
+        # correctly lost their session, and then spent a cycle re-checking
+        # a provider key that was never the problem. "Local API" is the
+        # disambiguator — do not drop it.
+        body = b'{"detail":"Local API credential missing or invalid"}'
         await send(
             {
                 "type": "http.response.start",

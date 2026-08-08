@@ -2040,10 +2040,10 @@ async def _require_long_lived_caller(request: Request) -> IdentifiedCaller:
     header = request.headers.get("authorization", "")
     prefix = "Bearer "
     if not header.startswith(prefix):
-        raise HTTPException(status_code=401, detail="Missing or invalid credential")
+        raise HTTPException(status_code=401, detail="Local API credential missing or invalid")
     caller = resolve_caller(header[len(prefix) :])
     if caller is None:
-        raise HTTPException(status_code=401, detail="Missing or invalid credential")
+        raise HTTPException(status_code=401, detail="Local API credential missing or invalid")
     return caller
 
 
