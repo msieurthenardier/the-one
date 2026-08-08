@@ -193,8 +193,8 @@ leg estimate depends on them.
 
 ## Action Items
 
-- [ ] Collapse the three duplicate `auth_headers` implementations into one *(squawk candidate)*
-- [ ] Micro-benchmark the gate's per-request cost; replace the docstring assertion with a measured number *(squawk candidate)*
+- [x] Collapse the three duplicate `auth_headers` implementations into one → **squawk 0001**
+- [x] Micro-benchmark the gate's per-request cost; replace the docstring assertion with a measured number → **squawk 0002**
 - [ ] Run `/behavior-test local-api-auth-session-lifecycle` against a dev instance
 - [ ] Execute the AIAT lane, `make verify-serving` and CI packaged-smoke; close or re-open criterion 4
 - [ ] Consolidate the 28 local `client` fixtures — needs design, belongs to a flight
