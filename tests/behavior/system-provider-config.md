@@ -46,6 +46,11 @@ the editor surfaces.
   `evaluate`/focus is supplementary. **Never touch 8484.**
 - Not mid-edit on any provider. Record the operator's theme preference before Step 2 and
   restore it on teardown (theme is per-origin `localStorage`, shared across tabs).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  data directory, mint a handoff URL for the Step-2 browser navigation (single-use;
+  re-mint if navigating again), and attach `Authorization: Bearer <credential>` to the
+  `curl` calls.
 
 ## Observables Required
 

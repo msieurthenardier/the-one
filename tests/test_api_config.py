@@ -23,6 +23,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._credential_helpers import auth_headers
 from the_one.config import Settings
 from the_one.interfaces.web import api as api_module
 from the_one.interfaces.web.api import router
@@ -36,7 +37,9 @@ async def client() -> Iterator[AsyncClient]:
     test_app = FastAPI()
     test_app.include_router(router)
     transport = ASGITransport(app=test_app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=auth_headers()
+    ) as c:
         yield c
 
 

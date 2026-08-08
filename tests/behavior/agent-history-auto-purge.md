@@ -24,15 +24,23 @@ service driven through real HTTP, and that the dev-mode trigger fires one true s
 
 ## Preconditions
 
-- A host-native instance is running on `http://localhost:8484` (`make restart` after `the_one/`
-  changes), started in **dev mode** (`settings.dev_mode` true) with the purge-sweep test
-  seam enabled (`THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1`, the env gate from Leg 3).
+- A host-native instance is running on a **non-default port with a scratch data
+  directory** — e.g. `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch
+  make up` (`make restart` after `the_one/` changes, against that same instance) — never
+  the operator's default `:8484` instance. Started in **dev mode** (`settings.dev_mode`
+  true) with the purge-sweep test seam enabled (`THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1`, the
+  env gate from Leg 3).
 - At least two agents exist (the `mock` provider suffices): a **target** agent with a
   known retention window (default 30 days is fine) and a **bystander** agent that must be
   left untouched. Operator-checkable via `GET /api/agents`.
 - `curl` available for seeding sessions and reading observations.
 - No assumptions about pre-existing sessions for the two agents — the test seeds its own
   and asserts on counts relative to what it seeds (it reads the baseline count first).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from the
+  instance's data directory and attach `Authorization: Bearer <credential>` to every
+  `curl` call in the Steps below (they use relative paths against this instance's base
+  URL).
 
 ## Observables Required
 

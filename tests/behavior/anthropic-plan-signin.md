@@ -11,9 +11,16 @@ Verify that an operator can create an Anthropic individual-plan provider in Admi
 
 ## Preconditions
 
-- the-one dev instance is running and the web UI loads in a browser (operator confirms the Administration area renders).
+- the-one dev instance is running on a **non-default port with a scratch data
+  directory** and the web UI loads in a browser (operator confirms the Administration
+  area renders) — never the operator's default `:8484` instance (see CLAUDE.md's
+  "Behavior-test credential convention" safety rule).
 - The operator has a Claude Pro/Max account and can sign in to it in a browser (active probe: operator confirms they can reach claude.ai logged in, immediately before the run).
 - No existing `anthropic-plan` provider named "Plan Test" exists (delete leftovers from prior runs).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Reach it per CLAUDE.md's
+  "Behavior-test credential convention" — a handoff-authenticated navigation for the
+  browser session (single-use; re-mint per navigation) and `Authorization: Bearer
+  <credential>` for the step-5 `curl` call.
 
 ## Observables Required
 

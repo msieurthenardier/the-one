@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page
 
 
@@ -24,6 +25,6 @@ def test_app_clean_responds_to_api_info(app_clean: str) -> None:
     the wait-for-ready loop works end-to-end and the subprocess is fully booted
     (lifespan handler completed: init_db, migrate_json_to_sqlite, AgentFactory).
     """
-    r = httpx.get(f"{app_clean}/api/info", timeout=2.0)
+    r = httpx.get(f"{app_clean}/api/info", timeout=2.0, headers=auth_headers_for(app_clean))
     assert r.status_code == 200
     assert "version" in r.json()

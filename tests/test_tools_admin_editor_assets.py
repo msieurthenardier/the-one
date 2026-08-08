@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from httpx import ASGITransport, AsyncClient
 
 import the_one.interfaces.web.app as web_app
+from tests._credential_helpers import auth_headers
 from the_one.db.schema import ensure_schema
 from the_one.interfaces.web.api import router
 
@@ -31,7 +32,9 @@ async def client(tmp_path):
         test_app.include_router(router)
         test_app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
         transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=auth_headers()
+        ) as c:
             yield c
     await conn.close()
 

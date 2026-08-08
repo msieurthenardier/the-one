@@ -351,12 +351,15 @@ async def _api_client():
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
 
+    from tests._credential_helpers import auth_headers
     from the_one.interfaces.web.api import router
 
     app = FastAPI()
     app.include_router(router)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=auth_headers()
+    ) as client:
         yield client
 
 

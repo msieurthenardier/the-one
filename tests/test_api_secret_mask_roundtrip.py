@@ -25,6 +25,7 @@ from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._credential_helpers import auth_headers
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
@@ -62,7 +63,9 @@ async def client_and_key(tmp_path):
         test_app.include_router(router)
 
         transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=auth_headers()
+        ) as c:
             yield c, test_key, db_path
 
     await conn.close()

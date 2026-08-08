@@ -25,6 +25,7 @@ from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._credential_helpers import auth_headers
 from the_one.agent.config import AgentConfig
 from the_one.db.models import ChatSession
 from the_one.db.repositories import (
@@ -179,7 +180,9 @@ async def client(tmp_path: Path):
         test_app = FastAPI()
         test_app.include_router(router)
         transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=auth_headers()
+        ) as c:
             yield c
 
     await conn.close()

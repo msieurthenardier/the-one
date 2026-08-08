@@ -19,13 +19,22 @@ value is refused at the surface they interact with.
 
 ## Preconditions
 
-- the-one is running host-native on `http://localhost:8484`, on the Flight-1 branch
-  (`make restart` after the Flight-1 edits — `the one serve` has no `--reload`, so a restart
-  picks up source edits). Verified by an active probe: the operator opens the URL and sees Studio
-  render.
+- the-one is running host-native on a **non-default port with a scratch data directory**
+  (never the operator's default `:8484` instance), on the Flight-1 branch (`make restart`
+  after the Flight-1 edits, against that same instance — `the one serve` has no
+  `--reload`, so a restart picks up source edits). Verified by an active probe: the
+  operator opens the URL and sees Studio render. **Note**: this spec's Steps literally
+  write `http://localhost:8484` — treat that as a placeholder for this instance's actual
+  base URL, never as a literal instruction to target port 8484.
 - At least one agent exists (the dev `mock` provider suffices). The test uses whichever agent
   the operator points it at; the agent's name is supplied at run time.
-- Operator has the Chrome MCP browser session attached to that URL.
+- Operator has the Chrome MCP browser session attached to that URL, reached via
+  CLAUDE.md's "Behavior-test credential convention" (a handoff-authenticated navigation,
+  not a bare `goto`).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Read the long-lived
+  credential from the instance's data directory per the convention above; attach it as
+  `Authorization: Bearer <credential>` for the Step-6 `curl` call, and mint a fresh
+  handoff for each browser navigation to the app root (a handoff is single-use).
 
 ## Observables Required
 

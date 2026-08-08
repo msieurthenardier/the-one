@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import (
     seed_connector,
     seed_mock_agent,
@@ -37,13 +38,20 @@ from playwright.sync_api import Page, expect
 
 
 def _get_agent(base_url: str, agent_name: str) -> dict:
-    r = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
+    r = httpx.get(
+        f"{base_url}/api/agents/{agent_name}", timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
 
 def _put_agent(base_url: str, agent_name: str, cfg: dict) -> None:
-    r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
+    r = httpx.put(
+        f"{base_url}/api/agents/{agent_name}",
+        json=cfg,
+        timeout=5.0,
+        headers=auth_headers_for(base_url),
+    )
     assert r.status_code == 200, f"put agent failed: {r.status_code} {r.text}"
 
 

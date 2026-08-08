@@ -30,11 +30,12 @@ def _free_port() -> int:
 
 
 async def _trivial_asgi(scope, receive, send) -> None:
-    """A bare ASGI app that returns HTTP 200 at /api/info (and 404 elsewhere)."""
+    """A bare ASGI app that returns HTTP 200 at /api/live (and /api/info, for
+    completeness) and 404 elsewhere."""
     if scope["type"] != "http":
         return
     path = scope.get("path", "")
-    if path == "/api/info":
+    if path in ("/api/live", "/api/info"):
         body = b'{"version":"0","base_prompt":""}'
         status = 200
     else:
@@ -145,28 +146,42 @@ def test_select_port_case_a_free_port() -> None:
     assert is_ours is False
 
 
-def test_select_port_case_b_our_instance() -> None:
-    """_select_port returns (configured_port, True) when our the-one answers /api/info."""
+def test_select_port_case_b_our_instance_sends_credential() -> None:
+    """_select_port returns (configured_port, True) when /api/info accepts OUR credential (DD11).
+
+    "Ours" is credentialed, not version-based: a 200 response means the
+    server on the other end validated the same credential this process
+    would present, which only happens when it reads the same credential
+    file. The probe must carry an `Authorization: Bearer <credential>`
+    header built from `get_credential()`.
+    """
     import httpx
 
-    from the_one import __version__
+    from the_one.api_credential import get_credential
     from the_one.interfaces.desktop.shell import _select_port
 
     port = _free_port()
 
     fake_response = MagicMock()
     fake_response.status_code = 200
-    fake_response.json.return_value = {"version": __version__, "base_prompt": ""}
 
-    with patch.object(httpx, "get", return_value=fake_response):
+    with patch.object(httpx, "get", return_value=fake_response) as mock_get:
         result_port, is_ours = _select_port("127.0.0.1", port, retries=1, delay=0.0)
 
     assert result_port == port
     assert is_ours is True
 
+    # The probe carried our credential as a Bearer token.
+    expected_header = f"Bearer {get_credential().encode()}"
+    mock_get.assert_called_once()
+    call_headers = mock_get.call_args.kwargs.get("headers", {})
+    assert call_headers.get("Authorization") == expected_header
 
-def test_select_port_case_c_foreign_process() -> None:
-    """_select_port returns a bind-0 free port with False when a foreign process holds the port."""
+
+def test_select_port_case_c_foreign_process_rejects_our_credential() -> None:
+    """_select_port returns a bind-0 free port with False when a foreign process
+    holds the port and 401s our credential (DD11 — a foreign server that also
+    401s simply resolves to "not ours," the safe answer)."""
     import httpx
 
     from the_one.interfaces.desktop.shell import _select_port
@@ -179,10 +194,10 @@ def test_select_port_case_c_foreign_process() -> None:
     occupied_port = occupied_sock.getsockname()[1]
 
     try:
-        # Patch httpx to return a non-the-one response (foreign process)
+        # Patch httpx to return a 401 — a foreign server that doesn't share
+        # our credential (whether or not it happens to run the same version).
         fake_response = MagicMock()
-        fake_response.status_code = 200
-        fake_response.json.return_value = {"version": "9999.0.0", "base_prompt": ""}
+        fake_response.status_code = 401
 
         with patch.object(httpx, "get", return_value=fake_response):
             result_port, is_ours = _select_port("127.0.0.1", occupied_port, retries=1, delay=0.0)
@@ -192,6 +207,77 @@ def test_select_port_case_c_foreign_process() -> None:
     # Should have picked a different free port
     assert result_port != occupied_port
     assert is_ours is False
+
+
+def test_select_port_case_c_foreign_http_server_404_not_ours() -> None:
+    """A foreign HTTP server with no /api/info route at all (404, not even a
+    the-one instance) is correctly treated as not ours — any non-200 falls
+    through to the foreign/occupied path, regardless of the reason.
+
+    Note on the leg spec's related edge case ("a foreign server that returns
+    200 on /api/info — without the right credential it is not ours. Already
+    the safe answer, but assert it."): that scenario is not independently
+    mockable here, because under DD11 a 200 response IS this function's
+    definition of "ours" — the two are the same claim, not two claims to
+    cross-check. The real guarantee lives one layer down, at the protocol
+    level: every /api/info route in this codebase is wrapped by
+    `CredentialGateMiddleware` (Leg 4, live), so a 200 can only happen when
+    the server validated the exact `Authorization` header this probe sent —
+    see `test_select_port_case_b_our_instance_sends_credential`, which
+    asserts that header is actually transmitted. A foreign process that
+    happens to answer 200 on this exact path regardless of auth (rather than
+    401/404/refusing) is outside this local-only single-user threat model
+    (see SECURITY-MODEL.md).
+    """
+    import httpx
+
+    from the_one.interfaces.desktop.shell import _select_port
+
+    occupied_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    occupied_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    occupied_sock.bind(("127.0.0.1", 0))
+    occupied_sock.listen(1)
+    occupied_port = occupied_sock.getsockname()[1]
+
+    try:
+        fake_response = MagicMock()
+        fake_response.status_code = 404  # foreign HTTP server, no /api/info route at all
+
+        with patch.object(httpx, "get", return_value=fake_response):
+            result_port, is_ours = _select_port("127.0.0.1", occupied_port, retries=1, delay=0.0)
+    finally:
+        occupied_sock.close()
+
+    assert result_port != occupied_port
+    assert is_ours is False
+
+
+def test_select_port_missing_credential_file_does_not_crash(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_select_port must not crash when no credential file exists yet (fresh
+    machine, first launch). `get_credential()` creates one on first use, so
+    the probe still runs — a missing credential simply means "cannot be
+    ours" falls out naturally (nothing free-standing already exists to
+    match)."""
+    import httpx
+
+    from the_one.config import settings
+    from the_one.interfaces.desktop.shell import _select_port
+
+    # Point settings.data_dir at an empty tmp dir — no credential file inside.
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    assert not (tmp_path / "api-credential").exists()
+
+    port = _free_port()  # nothing listening — port is free
+
+    with patch.object(httpx, "get", side_effect=httpx.ConnectError("refused")):
+        result_port, is_ours = _select_port("127.0.0.1", port, retries=1, delay=0.0)
+
+    assert result_port == port
+    assert is_ours is False
+    # get_credential() created the file as a side effect of the probe.
+    assert (tmp_path / "api-credential").exists()
 
 
 # ── _webview_available ────────────────────────────────────────────────────────
@@ -357,6 +443,19 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     assert main_call.args[0] == "GleepGlorp AI"
     assert main_call.kwargs.get("frameless") is False
 
+    # The URL passed to create_window must carry a one-time handoff credential
+    # (DD7/DD12) — without it, CredentialGateMiddleware refuses the window's
+    # first navigation with a 401 instead of rendering the app. This is the
+    # specific gap the flight-end review caught: nothing previously asserted
+    # anything about the URL's content.
+    from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM
+
+    main_url = main_call.args[1]
+    assert main_url.startswith(f"http://{launcher_module.settings.host}:8484/")
+    assert f"?{HANDOFF_QUERY_PARAM}=" in main_url
+    token = main_url.split(f"{HANDOFF_QUERY_PARAM}=", 1)[1]
+    assert len(token) == 64 and all(c in "0123456789abcdef" for c in token)
+
     # _graceful_shutdown was called exactly once
     mock_shutdown.assert_called_once()
 
@@ -457,6 +556,16 @@ def test_boot_happy_path_main_window_kwargs_and_loaded_handler(
     assert main_call.args[0] == "GleepGlorp AI"
     assert main_call.kwargs.get("frameless") is False
     assert main_call.kwargs.get("resizable") is True
+
+    # The window URL carries a freshly minted one-time handoff credential
+    # (DD7/DD12) — the launcher's first navigation must present it or
+    # CredentialGateMiddleware refuses with 401 instead of rendering the app.
+    from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM
+
+    main_url = main_call.args[1]
+    assert f"?{HANDOFF_QUERY_PARAM}=" in main_url
+    token = main_url.split(f"{HANDOFF_QUERY_PARAM}=", 1)[1]
+    assert len(token) == 64 and all(c in "0123456789abcdef" for c in token)
 
     # loaded handler registered on main window to destroy the splash.
     assert len(loaded_event._handlers) == 1, (
@@ -577,18 +686,22 @@ def test_boot_error_path_destroys_both_when_main_window_created(
 def test_run_case_b_posts_focus_and_returns_without_window(
     webview_mock: MagicMock,
 ) -> None:
-    """run() case (b): is_ours=True → POSTs /api/window/focus and returns; no window created."""
+    """run() case (b): is_ours=True → POSTs /api/window/focus with our credential
+    and returns; no window created."""
     import httpx
 
     import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.api_credential import get_credential
     from the_one.config import settings
+    from the_one.interfaces.web import handoff_store
 
     expected_url = f"http://{settings.host}:{settings.port}/api/window/focus"
 
     with patch.object(launcher_module, "_select_port", return_value=(settings.port, True)):
         with patch.object(httpx, "post") as mock_post:
             with patch("uvicorn.Server") as mock_server_cls:
-                launcher_module.run_desktop()
+                with patch.object(handoff_store, "mint_handoff_credential") as mock_mint:
+                    launcher_module.run_desktop()
 
     # No uvicorn.Server should have been constructed (returned before server start)
     mock_server_cls.assert_not_called()
@@ -596,26 +709,39 @@ def test_run_case_b_posts_focus_and_returns_without_window(
     # No window created — returned before create_window
     webview_mock.create_window.assert_not_called()
 
-    # httpx.post called with the focus URL; no Origin header (header-less loopback)
+    # This branch returns before the launcher ever builds a navigable URL —
+    # it must NOT mint a handoff credential (the token would simply expire
+    # unused, and the existing instance's own server never sees it).
+    mock_mint.assert_not_called()
+
+    # httpx.post called with the focus URL and our credential; no Origin header
+    # (header-less loopback clears the OriginAllowlistMiddleware).
     mock_post.assert_called_once()
     call_args = mock_post.call_args
     assert call_args.args[0] == expected_url
-    # Verify no Origin header was passed (default: no headers kwarg, or empty headers)
     headers = call_args.kwargs.get("headers", {})
     assert "origin" not in {k.lower() for k in headers}
+    assert headers.get("Authorization") == f"Bearer {get_credential().encode()}"
 
 
 def test_run_fallback_calls_webbrowser_open_and_joins(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """run() with no WebView backend: webbrowser.open called; SIGINT handler installed; joined."""
+    """run() with no WebView backend: webbrowser.open called; SIGINT handler installed; joined.
+
+    The URL passed to webbrowser.open() must carry a one-time handoff
+    credential (DD7/DD12) — this is the no-pywebview fallback path, and
+    without the token here too, CredentialGateMiddleware refuses the
+    browser's first navigation with a 401 instead of rendering the app.
+    """
     import signal as signal_mod
     import webbrowser as webbrowser_mod
 
     import the_one.interfaces.desktop.shell as launcher_module
     from the_one.config import settings
+    from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM
 
-    expected_url = f"http://{settings.host}:{settings.port}/"
+    expected_base_url = f"http://{settings.host}:{settings.port}/"
 
     mock_thread = MagicMock()
     mock_server = MagicMock()
@@ -633,8 +759,17 @@ def test_run_fallback_calls_webbrowser_open_and_joins(
                                         mock_thread.join.return_value = None
                                         launcher_module.run_desktop()
 
-    # webbrowser.open called with the local URL
-    mock_open.assert_called_once_with(expected_url)
+    # webbrowser.open called once, with the base URL plus a handoff token —
+    # not the bare base URL that shipped with the defect.
+    mock_open.assert_called_once()
+    opened_url = mock_open.call_args.args[0]
+    assert opened_url != expected_base_url, (
+        "webbrowser.open() must not be called with a bare URL lacking a handoff credential"
+    )
+    assert opened_url.startswith(expected_base_url)
+    assert f"?{HANDOFF_QUERY_PARAM}=" in opened_url
+    token = opened_url.split(f"{HANDOFF_QUERY_PARAM}=", 1)[1]
+    assert len(token) == 64 and all(c in "0123456789abcdef" for c in token)
 
     # signal.signal was called to install SIGINT handler
     mock_signal.assert_called_once()
@@ -647,26 +782,35 @@ def test_run_fallback_calls_webbrowser_open_and_joins(
 def test_run_case_b_is_ours_posts_focus_and_returns_no_browser(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """run() case (b): is_ours=True → POSTs focus and returns; no browser, no server."""
+    """run() case (b): is_ours=True → POSTs credentialed focus and returns; no browser/server."""
     import webbrowser as webbrowser_mod
 
     import httpx
 
     import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.api_credential import get_credential
     from the_one.config import settings
+    from the_one.interfaces.web import handoff_store
 
     with patch.object(launcher_module, "_select_port", return_value=(settings.port, True)):
         with patch.object(httpx, "post") as mock_post:
             with patch("uvicorn.Server") as mock_server_cls:
                 with patch.object(webbrowser_mod, "open") as mock_open:
-                    launcher_module.run_desktop()
+                    with patch.object(handoff_store, "mint_handoff_credential") as mock_mint:
+                        launcher_module.run_desktop()
 
     # No server constructed, no browser opened
     mock_server_cls.assert_not_called()
     mock_open.assert_not_called()
 
-    # Focus POST was issued
+    # is_ours=True must not mint — this process never opens a window or
+    # browser tab, so a minted token here would just expire unused.
+    mock_mint.assert_not_called()
+
+    # Focus POST was issued, carrying our credential.
     mock_post.assert_called_once()
+    headers = mock_post.call_args.kwargs.get("headers", {})
+    assert headers.get("Authorization") == f"Bearer {get_credential().encode()}"
 
 
 def test_run_raises_system_exit_when_webview_missing(

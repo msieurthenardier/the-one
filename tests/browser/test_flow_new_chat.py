@@ -18,6 +18,7 @@ import re
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
 
@@ -304,7 +305,9 @@ def test_thinking_indicator_appears_and_clears(app_clean: str, page: Page) -> No
         "base_url": "",
         "config": {"delay_ms": 800},
     }
-    r = httpx.post(f"{app_clean}/api/providers", json=payload, timeout=5.0)
+    r = httpx.post(
+        f"{app_clean}/api/providers", json=payload, timeout=5.0, headers=auth_headers_for(app_clean)
+    )
     assert r.status_code == 201
     provider_id = r.json()["id"]
     seed_mock_agent(app_clean, provider_id, name="thinker")

@@ -43,7 +43,7 @@ import uuid
 
 import pytest
 
-from .config import skip_if_unconfigured
+from .config import auth_headers, skip_if_unconfigured
 from .driver import (
     BotDriver,
     post_and_wait_new_routing,
@@ -260,7 +260,7 @@ async def _get_connector_routing(base_url: str, connector_id: str) -> dict | Non
     import httpx
 
     path = f"/api/connectors/{connector_id}"
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         resp = await http.get(path)
         resp.raise_for_status()
         body = resp.json()

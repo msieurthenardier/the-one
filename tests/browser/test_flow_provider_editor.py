@@ -12,6 +12,7 @@ import re
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -31,7 +32,9 @@ def _seed_anthropic_provider(
         "api_key": "sk-ant-seedkey1234",
         "config": {"thinking_enabled": thinking_enabled},
     }
-    r = httpx.post(f"{base_url}/api/providers", json=payload, timeout=5.0)
+    r = httpx.post(
+        f"{base_url}/api/providers", json=payload, timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code == 201, f"seed_anthropic_provider failed: {r.status_code} {r.text}"
     return r.json()["id"]
 
@@ -52,7 +55,9 @@ def _seed_openai_compatible_provider(
         "base_url": provider_base_url,
         "api_key": "sk-compat-seedkey1234",
     }
-    r = httpx.post(f"{base_url}/api/providers", json=payload, timeout=5.0)
+    r = httpx.post(
+        f"{base_url}/api/providers", json=payload, timeout=5.0, headers=auth_headers_for(base_url)
+    )
     assert r.status_code == 201, f"seed_openai_compatible_provider failed: {r.status_code} {r.text}"
     return r.json()["id"]
 

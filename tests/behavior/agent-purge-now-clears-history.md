@@ -18,11 +18,21 @@ is observable through the surfaces an operator uses.
 
 ## Preconditions
 
-- the-one is running host-native on `http://localhost:8484`, on the Flight-2 branch
-  (`make restart` after the F2 edits — a restart picks up source edits). Verified by an active probe.
+- the-one is running host-native on a **non-default port with a scratch data directory**
+  (never the operator's default `:8484` instance), on the Flight-2 branch (`make restart`
+  after the F2 edits, against that same instance — a restart picks up source edits).
+  Verified by an active probe. **Note**: this spec's Steps literally write
+  `http://localhost:8484` — treat that as a placeholder for this instance's actual base
+  URL (stated at run time), never as a literal instruction to target port 8484.
 - Two agents exist (the dev `mock` provider suffices): a **target** agent to purge and a
   **bystander** agent that must remain untouched. Their names are supplied at run time.
-- Operator has the Chrome MCP browser session attached to that URL.
+- Operator has the Chrome MCP browser session attached to that URL, reached via
+  CLAUDE.md's "Behavior-test credential convention" (a handoff-authenticated navigation
+  establishing a session cookie, not a bare `goto`).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Read the long-lived
+  credential from the instance's data directory per the convention above; attach it as
+  `Authorization: Bearer <credential>` for the `curl` steps, and mint a fresh handoff for
+  each browser navigation to the app root (a handoff is single-use).
 - (Per the flight's Pre-Flight prerequisites) the run executes in a session with SendMessage
   continuation for the live Executor + Validator; otherwise `/behavior-test` degrades to
   re-spawn-per-step.

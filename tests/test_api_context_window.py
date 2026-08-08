@@ -18,6 +18,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from tests._credential_helpers import auth_headers
 from the_one.agent.factory import (
     AgentNotFoundError,
     ProviderNotConfiguredError,
@@ -58,7 +59,9 @@ async def client():
     test_app = FastAPI()
     test_app.include_router(router)
     transport = ASGITransport(app=test_app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=auth_headers()
+    ) as c:
         yield c
 
 

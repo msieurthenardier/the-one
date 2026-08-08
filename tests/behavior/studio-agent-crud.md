@@ -37,6 +37,11 @@ theme-coupled render regression in the editor surfaces.
 - A browser apparatus is attached to 8485 (goldfinch MCP preferred — printToPDF for pixel
   evidence, a11y-tree for rendered-state judgment; CDP for focus). Never touch 8484.
 - Not mid-edit on any agent; the operator can observe the Studio UI in the browser session.
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  data directory, mint a handoff URL for the Step-2 browser navigation (single-use;
+  re-mint if navigating again), and attach `Authorization: Bearer <credential>` to the
+  `curl` calls in steps 1 and 11.
 
 ## Observables Required
 

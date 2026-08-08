@@ -54,6 +54,12 @@ issue rather than a system bug; the spec notes this where relevant.
   bubblewrap. Probe before judging — else an unsandboxed agent false-passes.
 - `docker exec the-one` is available for container-side observations in
   `[mixed-frame]` steps.
+- **Non-default port, scratch data directory** — never the operator's default `:8484`
+  instance (see CLAUDE.md's "Behavior-test credential convention" safety rule).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from the
+  instance's data directory and attach `Authorization: Bearer <credential>` to every
+  `POST /api/chat` call in the Steps below.
 
 ## Observables Required
 

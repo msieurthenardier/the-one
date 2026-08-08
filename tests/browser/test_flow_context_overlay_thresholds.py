@@ -27,6 +27,8 @@ import re
 from pathlib import Path
 
 import pytest
+from browser._credential_registry import auth_headers_for
+from browser._credential_registry import unregister as _unregister_credential
 from browser.conftest import _spawn_app, _teardown_proc
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
@@ -132,7 +134,7 @@ def test_overlay_custom_warn_threshold_moves_transition(tmp_path: Path, page: Pa
     """With ``THE_ONE_CONTEXT_WARN_PCT=50``, 55% colors+announces warn —
     proving the transition point is config-driven, not the hardcoded 70.
     """
-    base_url, proc = _spawn_app(
+    base_url, proc, _credential, _data_dir = _spawn_app(
         tmp_path,
         extra_env={"THE_ONE_CONTEXT_WARN_PCT": "50", "THE_ONE_CONTEXT_CRIT_PCT": "90"},
     )
@@ -140,7 +142,9 @@ def test_overlay_custom_warn_threshold_moves_transition(tmp_path: Path, page: Pa
         # Sanity: the threshold reached the client via /api/config.
         import httpx
 
-        cfg = httpx.get(f"{base_url}/api/config", timeout=5.0).json()
+        cfg = httpx.get(
+            f"{base_url}/api/config", timeout=5.0, headers=auth_headers_for(base_url)
+        ).json()
         assert cfg["context_warn_pct"] == 50, cfg
 
         _enter_session(page, base_url)
@@ -160,4 +164,5 @@ def test_overlay_custom_warn_threshold_moves_transition(tmp_path: Path, page: Pa
         label = overlay.get_attribute("aria-label") or ""
         assert "approaching limit" not in label and "nearly full" not in label, label
     finally:
+        _unregister_credential(base_url)
         _teardown_proc(proc)

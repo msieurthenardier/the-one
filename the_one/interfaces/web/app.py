@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -42,6 +42,7 @@ from the_one.agent.factory import (
 from the_one.agent.factory import (
     set_factory as _set_module_factory,
 )
+from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.config import settings
 from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.connectors._pool import shutdown_drain as _connector_pool_shutdown_drain
@@ -66,7 +67,13 @@ from the_one.db.repositories import (
 )
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
-from the_one.interfaces.web.middleware import OriginAllowlistMiddleware, build_default_allowlist
+from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM, mint_handoff_credential
+from the_one.interfaces.web.middleware import (
+    LIVENESS_PATH,
+    CredentialGateMiddleware,
+    OriginAllowlistMiddleware,
+    build_default_allowlist,
+)
 from the_one.llm.base import ContentBlock, ImageContent, Message, Role, TextContent, content_to_text
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
 from the_one.sessions import (
@@ -358,6 +365,16 @@ app.add_middleware(
     OriginAllowlistMiddleware,
     allowlist=build_default_allowlist(settings.host, settings.port),
 )
+# Mission 20 / Flight 1 / Leg 4 (`enforce-gate`) — DD4: the credential gate
+# must be registered AFTER OriginAllowlistMiddleware so it wraps it.
+# Starlette's `add_middleware` inserts at index 0, so the last-added
+# middleware is outermost and runs first. That ordering gives
+# 401-before-origin (an unauthenticated request is refused before the
+# origin check ever runs) and 403 for a valid-credential-wrong-origin
+# request (it reaches the inner Origin middleware and is rejected there).
+# See `the_one/interfaces/web/middleware.py::CredentialGateMiddleware` for
+# the full layering rationale.
+app.add_middleware(CredentialGateMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(api_router)
 
@@ -1985,6 +2002,76 @@ async def index() -> HTMLResponse:
 @app.get("/api/info")
 async def info() -> dict[str, Any]:
     return {"version": __version__, "base_prompt": BASE_PROMPT}
+
+
+@app.get(LIVENESS_PATH)
+async def liveness() -> dict[str, str]:
+    """Minimal unauthenticated liveness probe — Mission 20 / Flight 1 / Leg 2
+    (DD5). The credential gate's sole exemption once
+    `enforce-and-migrate-harness` registers it; additive and unauthenticated
+    here regardless, since nothing about this endpoint enforces anything.
+
+    Returns liveness and nothing else — no version, no prompt, no build
+    info, no data directory. It is reachable by any local process by
+    design (that is the whole point: bootstrap callers that only need "is
+    it up" before they can hold a credential), so anything in this body is
+    public to every local process. `/api/info` above stays credentialed
+    for exactly this reason (DD5: it returns `base_prompt`).
+    """
+    return {"status": "ok"}
+
+
+async def _require_long_lived_caller(request: Request) -> IdentifiedCaller:
+    """FastAPI dependency requiring the long-lived credential via
+    ``Authorization: Bearer`` — new ground in this codebase (leg
+    Implementation Guidance #8): no existing `Depends()`-based header-auth
+    pattern exists to match; `Authorization` is otherwise read manually.
+
+    Resolves through `resolve_caller`, the same single entry point the gate
+    middleware uses — no separate parsing logic to drift out of sync. This
+    is deliberately NOT a check against the gate middleware (which is not
+    registered on this app until `enforce-and-migrate-harness`) and NOT a
+    check against the session cookie or a handoff credential: `resolve_caller`
+    only walks long-lived-credential sources, and a handoff token is a
+    structurally different value that never resolves here — so a handoff
+    credential cannot be used to mint another one (LD2's closing
+    constraint), with no special-casing required to enforce it.
+    """
+    header = request.headers.get("authorization", "")
+    prefix = "Bearer "
+    if not header.startswith(prefix):
+        raise HTTPException(status_code=401, detail="Local API credential missing or invalid")
+    caller = resolve_caller(header[len(prefix) :])
+    if caller is None:
+        raise HTTPException(status_code=401, detail="Local API credential missing or invalid")
+    return caller
+
+
+@app.post("/api/session/handoff")
+async def mint_session_handoff(
+    request: Request,
+    caller: IdentifiedCaller = Depends(_require_long_lived_caller),
+) -> dict[str, str]:
+    """Mint a one-time browser-handoff credential and return a usable
+    handoff URL — Mission 20 / Flight 1 / Leg 2 (LD2).
+
+    Authenticated in-route via `_require_long_lived_caller` above, NOT via
+    the gate middleware (not registered on this app yet — an unauthenticated
+    mint endpoint must not exist even transiently on this branch). Serves
+    callers that hold the long-lived credential but run outside this
+    server's process and so cannot call `mint_handoff_credential()`
+    in-process the way the desktop launcher does (see
+    `the_one/interfaces/web/handoff_store.py`) — the browser-test harness
+    and the behavior-test runner, per the leg's Reconnaissance Findings.
+
+    Does not weaken the posture: *caller* already holds the long-lived
+    credential; this converts it into a strictly weaker, single-use,
+    short-lived one.
+    """
+    del caller  # authentication only — the minted token is not scoped to caller
+    token = mint_handoff_credential()
+    base_url = str(request.base_url).rstrip("/")
+    return {"url": f"{base_url}/?{HANDOFF_QUERY_PARAM}={token}"}
 
 
 @app.post("/api/window/focus")

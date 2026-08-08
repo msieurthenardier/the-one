@@ -19,8 +19,27 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from the_one.api_credential import get_credential
+
 # Default the-one HTTP base URL — mirrors tests/test_aiat.py's convention.
 _DEFAULT_BASE_URL = "http://localhost:8484"
+
+
+def auth_headers() -> dict[str, str]:
+    """``Authorization`` header dict carrying the long-lived local-API
+    credential (Mission 20 Flight 1 Leg 5 — the gate is live).
+
+    Uses ``get_credential()`` (ambient ``settings.data_dir`` /
+    ``THE_ONE_DATA_DIR``, create-on-first-use), mirroring
+    ``tests/_credential_helpers.py::auth_headers`` for the unit suite. The
+    HAT runs on the same machine as the instance it targets (a local-API
+    credential has no meaning across machines), so whatever data directory
+    this process's ``settings.data_dir`` currently resolves to — pointed at
+    the target instance's data directory via ``THE_ONE_DATA_DIR`` when the
+    HAT targets anything other than the default local data dir — is the
+    correct credential source.
+    """
+    return {"Authorization": f"Bearer {get_credential().encode()}"}
 
 
 @dataclass(frozen=True)

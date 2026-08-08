@@ -177,6 +177,8 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 
 **The test suite runs host-native — no Docker.** (Mission 15 Flight 01 retired the `docker exec` test flow.) Canonical command for non-interactive runs: `make test` (or `make test-unit` / `make test-bwrap` / `make test-browser`), which routes through `scripts/run-tests.sh` and uses the repo `.venv` when present (else `python3`). For ad-hoc single-file/single-test runs, `python -m pytest tests/...` against the project venv is fine.
 
+**The local-API credential gate is live (Mission 20 Flight 1) — a stray 401 in a new test or a manual `curl` almost always means a missing credential, not a real regression.** Every route except `GET /api/live` requires an identified caller (see `SECURITY-MODEL.md` "Authentication"). `make test` / `make test-unit` / `make test-browser` need nothing extra — the existing fixtures already attach a credential: unit-test client fixtures via `tests/_credential_helpers.py::auth_headers()`, browser fixtures/seeders via `tests/browser/_credential_registry.py::auth_headers_for()`. Where this bites is a *new* ad-hoc `httpx`/`TestClient` call added to a test body, or a bare `curl`/browser hit against a `make up` instance — either will get a 401 with no credential attached. Read the credential from `<data_dir>/api-credential` (verbatim, single line) or mint a fresh one with `the-one rotate-api-credential`.
+
 **Browser tests MUST go through `scripts/run-tests.sh` (i.e. `make test-browser`), never bare `python -m pytest -m browser`.** Browser tests spawn a per-test uvicorn subprocess plus a Playwright node driver + Chromium. Bare `python -m pytest` does NOT group-kill that subtree on interruption — the uvicorn/Chromium children orphan (re-parent to init) and peg a CPU core indefinitely, and the leaked load then starves *other* tests into timeout-failures that look like flakiness. `run-tests.sh` puts pytest in its own process group and SIGKILLs the whole group on exit or at `TEST_TIMEOUT` (default 1200s), so nothing orphans. Set a tighter `TEST_TIMEOUT` for small slices. For FULL `make test-browser` runs set `TEST_TIMEOUT=3600` — the default 1200s is tighter than the ~12.5min suite runtime plus load overhead and will kill a healthy run. (Inside CI this matters less — Concourse task containers are ephemeral and torn down after each build, so `ci/tasks/*.yml` call `python -m pytest` directly with `--timeout`. The GitHub Actions `test.yml` is now a `workflow_dispatch`-only break-glass fallback — see `ci/README.md`.)
 
 **Always pair pytest with `-x`** for autonomous runs unless you specifically want to see full failure surface — pytest-asyncio's per-test loop teardown can hang if a test leaves orphaned state on a torn-down loop, and `-x` exits on first failure before that hang surfaces. Without `-x`, a single broken test can wedge the suite indefinitely.
@@ -240,6 +242,109 @@ Lanes are hand-rolled basename globs over `tests/browser/` — no new deps, no p
 1. **Teardown-dispatch bit** — `UnixPtySession._wrapped` is set at `start()` time from `spec.command == "bwrap"`; mocking the backend after `start()` does not change the teardown path. Observe teardown behavior via the test's observable outputs, not backend state.
 2. **PTY-echo sentinel** — the PTY echoes the sent command before executing it. Use the `"con"+"nected"` string-concat trick to keep assertion targets out of the echoed source. Assert on the post-echo output, not the full response.
 3. **`@requires_bwrap` workspace under `$HOME`** — bwrap mounts a fresh `tmpfs` at `/tmp`, making `/tmp`-rooted workspaces invisible inside the sandbox. Always use `home_workspace()` from `tests/_sandbox_fixtures.py`; never use `tmp_path` or `/tmp` for bwrap test workspaces.
+
+## Behavior-test credential convention
+
+Every document request is gated by the long-lived local-API credential
+(`the_one/api_credential.py`; see "Security posture" above and
+[SECURITY-MODEL.md](SECURITY-MODEL.md)). A **behavior-test Executor**
+(`/behavior-test`, driven from `tests/behavior/*.md`) is an
+**out-of-process** caller — it authenticates the same way any external
+tool would, not the way the desktop launcher does in-process. This
+section is the standing, project-side instruction for that; per Mission
+20 / Flight 1's DD13, no individual spec's Action/Expected-Result step
+table should encode credential mechanics — a spec's Preconditions may
+reference this section by name instead.
+
+### SAFETY RULE — never target the operator's production instance
+
+**Never point a behavior test at port 8484 with the operator's default
+data directory.** That is the real, running app — the default `make up`
+instance — and driving it mutates the operator's actual chat sessions,
+providers, and credential file, then reports *its* state instead of the
+branch's under test. (This mirrors the existing AIAT rule above for
+`-m live` — the same production instance, the same hazard.)
+
+Always drive a **dedicated dev instance** instead — a non-default port
+AND a scratch data directory, together, every time:
+
+```bash
+THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch make up
+```
+
+Port alone is not enough — an instance on 8485 that still points at the
+operator's default `~/.the-one` data directory shares the same credential
+file, database, and sessions as production. A spec's Preconditions must
+name (or require an operator-provided) port and data directory; never
+default to `:8484` or the default data directory.
+
+### 1. Reading the long-lived credential
+
+The credential lives at `<data_dir>/api-credential` — a single line, the
+opaque literal token `loc_<identifier>.<secret>`. Read the file's content
+verbatim (trim surrounding whitespace) and use it as-is as the bearer
+token — there is nothing to parse:
+
+```bash
+cat /tmp/the-one-behavior-test-scratch/api-credential
+```
+
+If the file does not exist, the instance has never reached
+`get_credential()`'s create-on-first-use path — start the instance first
+(it creates the file on first launch) or run
+`THE_ONE_DATA_DIR=<dir> the-one rotate-api-credential` against it directly.
+
+### 2. Obtaining access — two apparatus shapes
+
+Do not assume browser. A spec's apparatus is either browser-driving or
+shell-only, and the mechanics differ:
+
+**Browser-driving Executor**: mint a one-time handoff credential via the
+authenticated mint endpoint, then navigate to the URL it returns:
+
+```
+POST http://127.0.0.1:8485/api/session/handoff
+Authorization: Bearer <credential from step 1>
+
+→ {"url": "http://127.0.0.1:8485/?handoff=<one-time-token>"}
+```
+
+Navigate the browser to that `url`. The server sets a session cookie on
+the redirect and strips the `handoff` query param from the address bar —
+the browser is then authenticated for the rest of the session (reload,
+further same-context navigation) with nothing more to resupply. This is
+the exact exchange `tests/browser/conftest.py`'s
+`_establish_session_cookie` performs (mint via `context.request.post`,
+then `context.request.get(handoff_url)`) — treat it as the reference
+implementation of "known to work" for this mechanism.
+
+Do **not** call `mint_handoff_credential()` in
+`the_one/interfaces/web/handoff_store.py` — that is the **in-process**
+mint the desktop launcher uses because it shares a process (and memory)
+with the server. An Executor is a separate process and cannot reach it;
+it must go through the `POST /api/session/handoff` endpoint above, which
+exists specifically for out-of-process callers that hold the long-lived
+credential.
+
+**Shell-only Executor** (no browser involved): skip the handoff exchange
+entirely. Attach `Authorization: Bearer <credential from step 1>` directly
+to every request.
+
+### 3. The handoff credential is single-use and short-lived
+
+Each minted handoff token is consumed on its first successful navigation
+and cannot be replayed — a second use is refused as unauthenticated. It
+also expires a few minutes after minting. Reloading the *same*
+page/context does not need a new mint (the session cookie already covers
+it) — but a spec whose steps open a **second** browser context, a fresh
+tab, or otherwise navigate to the app root a second time from an
+unauthenticated state needs a **second mint**, one per such navigation.
+
+### 4. `/api/live` needs no credential
+
+`GET /api/live` is the one unauthenticated route (a liveness probe,
+status only). A spec's "confirm the instance is up" precondition can hit
+it directly with no credential at all.
 
 ## Flight Operations
 

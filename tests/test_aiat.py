@@ -19,6 +19,8 @@ import uuid
 import httpx
 import pytest
 
+from tests._credential_helpers import auth_headers
+
 TIMEOUT = 120  # some tool calls are slow
 
 
@@ -50,6 +52,7 @@ def chat(base_url: str, session_id: str, message: str) -> dict:
         f"{base_url}/api/chat",
         json={"message": message, "source": "aiat", "session_id": session_id},
         timeout=TIMEOUT,
+        headers=auth_headers(),
     )
     r.raise_for_status()
     return r.json()
@@ -61,7 +64,7 @@ def reset(base_url: str, session_id: str) -> None:
         f"{base_url}/api/chat/reset",
         json={"session_id": session_id},
         timeout=10,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **auth_headers()},
     )
     time.sleep(0.5)
 
@@ -101,7 +104,7 @@ def has_tool_result(resp: dict, substring: str | None = None) -> bool:
 @pytest.mark.live
 def test_health(base_url: str) -> None:
     """Service is up and responding."""
-    r = httpx.get(f"{base_url}/api/info", timeout=10)
+    r = httpx.get(f"{base_url}/api/info", timeout=10, headers=auth_headers())
     r.raise_for_status()
     data = r.json()
     assert "version" in data, f"missing version in {data}"

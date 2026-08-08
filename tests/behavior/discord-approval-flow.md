@@ -11,10 +11,13 @@ Validate the F17 DM/approval cluster (Legs **D** dm-allowlist-simplify, **E** ap
 
 ## Preconditions
 
-- the-one running; the "Discord Constellation" connector **connected/warm** with the Sonos agent attached.
+- the-one running; the "Discord Constellation" connector **connected/warm** with the Sonos agent attached. **Which instance**: a warm Discord gateway session is tied to whichever the-one instance the operator's bot token is configured on — this is infrastructure the operator controls, not something this run spins up fresh. If that happens to be the operator's persistent `:8484` instance, that is an explicit operator decision made with full awareness (this spec mutates real Discord state regardless), never a default this spec assumes. Prefer a dedicated non-default-port instance with its own bot/connector configuration where one exists.
 - The connector's Direct Messages policy = **"Only these people"** (`dm_admission=admin-approved`), and **Chuck R is NOT currently in the Direct Messages list** (so he is an unknown sender). *(Operator removes him first if present.)*
-- Chrome MCP available, driving BOTH: (a) the the-one Studio/Chat UI (`http://localhost:8484`), and (b) a Discord **web client logged in as Chuck R** (operator keeps that session live).
+- Chrome MCP available, driving BOTH: (a) the the-one Studio/Chat UI (base URL per the operator's stated instance above — this spec's Steps literally write `http://localhost:8484`; treat that as a placeholder for the actual instance, not a literal instruction), and (b) a Discord **web client logged in as Chuck R** (operator keeps that session live).
 - Chuck R can reach the bot's DM (has DM'd it before / shares a server).
+- **Credential**: the the-one instance is gated (Mission 20 Flight 1). Reach it per
+  CLAUDE.md's "Behavior-test credential convention" — a handoff-authenticated navigation
+  for the browser session (single-use; re-mint per navigation).
 
 ## Observables Required
 

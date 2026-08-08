@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from browser._credential_registry import auth_headers_for
 from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
@@ -38,6 +39,7 @@ def _seed_discord_with_app_id(
             "secrets": {"BOT_TOKEN": "fake-token"},
         },
         timeout=5.0,
+        headers=auth_headers_for(base_url),
     )
     assert r.status_code == 201, f"seed discord failed: {r.status_code} {r.text}"
     return r.json()["id"]

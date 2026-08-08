@@ -11,26 +11,128 @@ security posture below are deliberate design choices, not gaps to fix.
 - **Trust boundary**: the operator is trusted. Tool inputs from agents are
   constrained by per-tool config (resolver-narrowed) but are NOT treated as
   hostile.
-- **F3 Decision 10**: "operator-trusted setup, NOT malicious filesystem
-  actor." This decision is inherited by F4 / F5 / F6 and is the canonical
-  citation for any future "should we add auth/sandboxing/...?" question.
+- **F3 Decision 10 — REVISED by Mission 20** (`missions/20-local-api-
+  authentication/`, GitHub issue #165): originally "operator-trusted setup,
+  NOT malicious filesystem actor," used to justify a fully unauthenticated
+  local API. Mission 20 reconsidered that: on a loopback API with no
+  credential at all, "trust the operator" collapsed in practice into "trust
+  every local process, no matter who or what started it" — any other OS
+  account, any lower-privilege process, or any page open in the operator's
+  own browser could reach the API with nothing presented. The
+  filesystem-actor premise itself is unchanged and is still inherited by F4
+  / F5 / F6 (the operator still owns the local environment; the tool
+  denylists are defense-in-depth against agent mistakes, not an attacker
+  already on the machine — see "What This Model Excludes" below) — what
+  changed is that the premise no longer, by itself, justifies an
+  unauthenticated API. **What replaced it**: the credential gate under
+  "Authentication" below. This is now the canonical citation for "should we
+  add auth to the local API?" (already done — see Authentication); for
+  other "should we add auth/sandboxing/...?" questions, the calibration
+  above — narrow what "operator-trusted" is asked to cover, don't discard
+  the premise — is the citable precedent.
 
 ## Authentication
 
-- **No auth on HTTP/WebSocket routes by design.** Every endpoint, including
-  state-mutating routes (`POST /api/encryption/rotate`,
-  `PUT /api/agents/{name}`, etc.), is unauthenticated. Adding auth would
-  violate the single-user posture documented above.
-- The **Origin-allowlist middleware** (M06 F1 L5) enforces same-origin
-  requests on state-mutating methods (POST/PUT/PATCH/DELETE) and on
-  WebSocket upgrade handshakes, closing the drive-by-LAN attack surface
-  without adding auth. Implementation:
-  `the_one/interfaces/web/middleware.py::OriginAllowlistMiddleware`. Allowed
+Mission 20 (`missions/20-local-api-authentication/`) closed the gap recorded
+above under F3 Decision 10: every HTTP request, `/static/*` asset, and
+WebSocket upgrade now requires an identified caller, enforced by
+`CredentialGateMiddleware` (`the_one/interfaces/web/middleware.py`) sitting
+in front of the whole application.
+
+**What this now protects against**: other local OS accounts reading or
+driving the API; lower-privilege processes on the same machine; and
+browser-vectored access — a hostile page open in the operator's browser can
+no longer reach the loopback API at all, including via a plain `GET`, which
+the Origin-allowlist layer below never gated on its own.
+
+**What this does not protect against**: a process running *as the operator*
+can read the credential file (`<data_dir>/api-credential`, mode `0600`) and
+therefore has exactly the same access the operator has. This is not a
+deficiency to caveat away — it is the boundary this mission deliberately
+chose. The credential file rests on the same trust boundary as every other
+operator secret this project stores (the encryption key, provider API keys):
+OS file permissions, not a second factor. A future flight adding real
+multi-user isolation would need to revisit this (see "Future Work" below).
+
+- **Exactly one exemption**: `GET /api/live`, a minimal liveness probe that
+  returns `{"status": "ok"}` and nothing else — no version, no build info, no
+  prompt text. `/api/info` was considered and rejected as the exemption
+  instead: it returns `base_prompt` (the agent's full system prompt), and
+  exempting it would have published that to every local process regardless
+  of credential. `/api/info` is therefore credentialed like every other
+  route; only the liveness probe is reachable with nothing presented, which
+  is what lets a pure "did the server come up yet" readiness wait — the
+  desktop launcher's own just-started-server poll
+  (`the_one/interfaces/desktop/shell.py::_wait_until_serving`) and the
+  browser-test harness's equivalent (`tests/browser/conftest.py`) — succeed
+  before either process holds or needs a credential. Callers asking a
+  *different* question ("is that other instance out there mine?") still use
+  the credentialed `/api/info`, deliberately: the desktop launcher's
+  `_select_port` port classifier, `make verify-serving`, and CI
+  packaged-smoke all send the credential and treat the response as proof of
+  ownership, not just liveness.
+- **Two credentials, two lifetimes — do not conflate them:**
+  - A **long-lived, persisted credential** (`the_one/api_credential.py`),
+    stored at `<data_dir>/api-credential` (mode `0600`, written with no
+    world-readable window between creation and the permission landing).
+    Presented as `Authorization: Bearer loc_<identifier>.<secret>` by every
+    non-browser caller — CLI tooling, tests, `curl`, MCP-style automation.
+    Created on first use; replaced via `the-one rotate-api-credential`.
+  - A **single-use, short-lived browser-handoff credential**
+    (`the_one/interfaces/web/handoff_store.py`), minted either in-process
+    (the desktop launcher, which shares a process with the server) or via
+    `POST /api/session/handoff` for a caller that already holds the
+    long-lived credential but runs in a separate process (the browser-test
+    harness, a behavior-test Executor). It travels only as a query
+    parameter on a `GET /` document request — never anywhere else, and the
+    long-lived credential is never accepted from a query parameter — because
+    a URL is the one channel that reliably leaks (shell history, server
+    logs, browser history, referrers), so only a value that is worthless
+    after one use may travel there. It is consumed on its first successful
+    use, expires a few minutes after minting if unused, and can never be
+    replayed.
+  - Consuming a handoff credential sets an `HttpOnly` session cookie
+    (`the_one_session`) and redirects back to `/`; the cookie authenticates
+    the browser from then on. The cookie is **stateless** — there is no
+    session store. Its value is `<nonce>.<HMAC-SHA256(key=current
+    long-lived secret, msg=nonce)>`, verified on every request by
+    recomputing the HMAC against whatever the long-lived credential
+    currently is. That is why a session survives a server restart (a fresh
+    process reads the same file and recomputes the same HMAC) and why
+    **rotating the long-lived credential drops every outstanding session at
+    once** — rotation *is* the revocation mechanism; there is deliberately
+    no separate revoke-a-session endpoint.
+  - The cookie is `SameSite=Strict`, **not** the `Lax` default — this is
+    load-bearing, not a style choice. `SameSite=Lax` still attaches a
+    cookie to a cross-site *top-level navigation* using a safe method (an
+    ordinary link click is enough). The Origin-allowlist layer below
+    deliberately never gates `GET` — so `Lax` would leave exactly the gap
+    this mission exists to close: a hostile page could top-level-navigate
+    the operator's browser to a loopback `GET` path, arrive carrying a
+    valid session cookie, and no origin check would run either. `Strict`
+    closes that path entirely. Do not "simplify" this back to `Lax` without
+    re-deriving this paragraph first.
+- **Layering: the credential gate is outermost, the Origin allowlist is
+  inside it.** A request with a missing or invalid credential is refused
+  with **401** before the Origin-allowlist logic ever runs. A request that
+  presents a *valid* credential from a disallowed origin reaches the
+  Origin-allowlist layer and is refused there with **403**. The two checks
+  are independent and run in series, not alternatives to each other.
+- **The Origin-allowlist middleware is a layer beneath the credential gate,
+  not an alternative to it.** (M06 F1 L5;
+  `the_one/interfaces/web/middleware.py::OriginAllowlistMiddleware`.) It
+  enforces same-origin requests on state-mutating methods
+  (POST/PUT/PATCH/DELETE) and on WebSocket upgrade handshakes. Allowed
   origins default to `scheme://host:port` derived from
   `settings.host`/`settings.port`; operators behind a reverse proxy extend
   via `THE_ONE_ORIGIN_ALLOWLIST` (`.env.example` carries a commented
   example). `GET` requests and missing-`Origin` callers (curl,
-  server-to-server) pass through.
+  server-to-server) pass through this layer by design — that used to be a
+  known, accepted gap; it is now exactly the gap the credential gate above
+  closes for every route except the one exemption. `/api/live` is the only
+  request that can reach this layer without the credential gate having
+  already checked it, and it returns nothing sensitive by construction, so
+  passing through unauthenticated here costs nothing.
 - Provider URL validation (M06 F1 L5) refuses non-`https://` `base_url`
   values for non-localhost hosts at all three create/update/test endpoints
   (HTTP 422). `mock` and `ollama` provider types are skipped.
@@ -253,8 +355,9 @@ with the unsandboxed Windows posture.
   project data dir) is created with mode `0o600`. See
   [CLAUDE.md](CLAUDE.md) line 74 for the `Encryptor` integration with
   `LLMProviderRepository`. Key rotation is exposed via
-  `POST /api/encryption/rotate` (gated by the Origin-allowlist
-  middleware).
+  `POST /api/encryption/rotate` — like every route, it requires the
+  credential gate's identified caller (see "Authentication" above) and,
+  behind that, the Origin-allowlist middleware.
 - **MCP source, connector, and built-in tool-config secrets**: same
   Fernet field-segregated `config`+`secrets` encryption-at-rest as the
   provider keys. Built-in tool secrets (schema v32 `tool_configs.secrets`)
@@ -305,9 +408,14 @@ above before implementation:
   lands. Suggested resolution: apply an `_is_safe_provider_url`-shaped
   validator to `MCPSource.config.url` at create / update time, with
   the same `localhost` exemption and the same `https` floor.
-- **Multi-user form factor**: would require auth + per-user tool
-  isolation + per-user encryption keys — a substantial change that
-  inverts F3 Decision 10
+- **Multi-user form factor**: Mission 20 added per-request authentication
+  for the single-user case (see "Authentication" above), but every
+  authenticated caller today is indistinguishable from "the operator" —
+  there is one shared long-lived credential, not one per user. A genuine
+  multi-user form factor still needs what auth alone didn't provide:
+  per-user identity (multiple long-lived credentials, not one), per-user
+  tool isolation, and per-user encryption keys. Substantial, but narrower
+  than before this mission landed.
 - **CORS / OPTIONS preflight**: `OriginAllowlistMiddleware` does not
   gate `OPTIONS` requests (see code comment above `GATED_METHODS` in
   `the_one/interfaces/web/middleware.py`). The project has no CORS

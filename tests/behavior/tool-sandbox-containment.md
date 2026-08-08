@@ -39,6 +39,12 @@ the agent narrating an error.
   materialized on the host before the run — `--ro-bind-try` silently skips absent
   paths, so a missing denylist dir false-passes the protection check.
 - Host process-table read (`pgrep`/`ps`) available for the PTY teardown checkpoint.
+- **Non-default port, scratch data directory** — never the operator's default `:8484`
+  instance (see CLAUDE.md's "Behavior-test credential convention" safety rule).
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from the
+  instance's data directory and attach `Authorization: Bearer <credential>` to every
+  `POST /api/chat` call in the Steps below.
 
 ## Observables Required
 

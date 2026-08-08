@@ -30,7 +30,7 @@ from urllib.parse import quote
 import discord
 import httpx
 
-from .config import HatConfig
+from .config import HatConfig, auth_headers
 
 # Per-client login/ready bound. discord.py's gateway handshake is normally
 # a few seconds; 30s tolerates a slow CI network without hanging forever.
@@ -198,7 +198,7 @@ async def wait_for_session(
         params["thread_id"] = thread_id
 
     deadline = asyncio.get_event_loop().time() + timeout
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         session_id: str | None = None
         last_detail: dict | None = None
         while asyncio.get_event_loop().time() < deadline:
@@ -297,7 +297,7 @@ async def set_agent_connector_acl(
     :func:`restore_agent_connector_acls`.
     """
     path = f"/api/agents/{quote(agent_name)}"
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         resp = await http.get(path)
         resp.raise_for_status()
         body = resp.json()
@@ -323,7 +323,7 @@ async def restore_agent_connector_acls(
     legitimate prior, not "no-op".
     """
     path = f"/api/agents/{quote(agent_name)}"
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         resp = await http.get(path)
         resp.raise_for_status()
         body = resp.json()
@@ -362,7 +362,7 @@ async def set_connector_routing(
     restore it exactly via :func:`restore_connector_routing`.
     """
     path = f"/api/connectors/{connector_id}"
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         resp = await http.get(path)
         resp.raise_for_status()
         body = resp.json()
@@ -387,7 +387,7 @@ async def restore_connector_routing(
     ``{"config": config}`` WITHOUT a ``secrets`` key (token preserved).
     """
     path = f"/api/connectors/{connector_id}"
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         resp = await http.get(path)
         resp.raise_for_status()
         body = resp.json()
@@ -430,7 +430,7 @@ async def set_connector_allowlist(
     restore it exactly via :func:`restore_connector_allowlist`.
     """
     path = f"/api/connectors/{connector_id}"
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         resp = await http.get(path)
         resp.raise_for_status()
         body = resp.json()
@@ -455,7 +455,7 @@ async def restore_connector_allowlist(
     ``{"config": config}`` WITHOUT a ``secrets`` key (token preserved).
     """
     path = f"/api/connectors/{connector_id}"
-    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, headers=auth_headers()) as http:
         resp = await http.get(path)
         resp.raise_for_status()
         body = resp.json()

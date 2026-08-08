@@ -37,6 +37,11 @@ adapted here into re-runnable spec form.
   truth to check the reply against). Do not use an abstract/ambiguous image — the Validator needs
   an unambiguous pass/fail bar for "grounded".
 - A **chrome-devtools** browser apparatus is attached to 8485. **Never touch 8484.**
+- **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
+  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  data directory, mint a handoff URL for the Step-1 browser navigation (single-use;
+  re-mint before Step 7's reload if the session cookie is no longer valid), and attach
+  `Authorization: Bearer <credential>` to the precondition probe's `curl` call.
 
 ## Observables Required
 

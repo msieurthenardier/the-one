@@ -58,7 +58,7 @@ A one-dir bundle (DD1 — **not** one-file) containing **two exes**:
 
 ```
 dist/the-one/
-  the-one.exe        # CLI (console=True): chat|serve|app|version|doctor  — no shortcut
+  the-one.exe        # CLI (console=True): chat|serve|app|version|doctor|rotate-api-credential  — no shortcut
   the-one-app.exe    # windowed launcher (console=False): always runs `app` — Start-menu shortcut
   ...                # collected binaries, the_one/interfaces/web/static/**, deps
 ```
@@ -79,7 +79,7 @@ dist/the-one/
 Windows installer: it installs `dist/the-one/` under
 `Program Files\GleepGlorp AI\`, creates a Start-menu shortcut (and an optional
 Desktop shortcut) launching the **windowed** app (`the-one.exe app`), and ships
-the CLI in the same multi-call exe (`the-one.exe chat|serve|doctor|version` run
+the CLI in the same multi-call exe (`the-one.exe chat|serve|doctor|version|rotate-api-credential` run
 from the install dir). The uninstaller is the Inno default — a clean uninstall
 removes `{app}` and both shortcuts.
 
@@ -199,9 +199,17 @@ What it proves (against `dist/the-one/the-one.exe`, not the checkout):
 - **(a) frozen `doctor`** exits 0 and prints both `child spawn: OK` and
   `RESULT: PASS` — `clean_subprocess_env` + PATH augmentation + the
   `resolve_python` interpreter gate all work on the packaged binary.
-- **(b) frozen `serve`** answers `http://127.0.0.1:8484/api/info` with HTTP 200
-  and `version == the_one.__version__`, polled with an `httpx` probe (the same
-  library the product polls with — no Git-Bash-`curl` assumption).
+- **(b) frozen `serve`** answers a **credentialed** `http://127.0.0.1:8484/api/info`
+  with HTTP 200 and `version == the_one.__version__`, polled with an `httpx`
+  probe (the same library the product polls with — no Git-Bash-`curl`
+  assumption). The local-API credential gate is live (Mission 20 Flight 1);
+  `/api/info` returns `base_prompt` and is therefore never the unauthenticated
+  exemption (that's `/api/live` — see `SECURITY-MODEL.md` "Authentication"),
+  so the probe reads the long-lived credential via `get_credential()` and
+  sends `Authorization: Bearer <credential>`. This works unmodified because
+  the runner process and the frozen `serve` process share the same
+  default `%LOCALAPPDATA%\the-one` data directory — whichever of the two
+  creates the credential file first, the other reads it back.
 - **(c) single-instance input**: the Flight-4 `_select_port` probe (run from
   source) sees the frozen instance as ours, confirming a second `app` launch
   would start no second server.
