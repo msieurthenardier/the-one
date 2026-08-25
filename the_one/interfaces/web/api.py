@@ -11,7 +11,7 @@ import re
 import secrets
 import time
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import httpx
@@ -42,9 +42,22 @@ from the_one.db.repositories import (
     PendingApprovalRepository,
     SQLiteAgentStore,
     ToolConfigRepository,
+    _decrypt_overrides_column,
+    _encrypt_overrides_column,
 )
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
+from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+from the_one.self_configuration import manage as self_configuration_manage
+
+if TYPE_CHECKING:
+    # `AgentConfig` is intentionally NOT imported at module load time —
+    # every handler that needs it does a function-local import to avoid
+    # a load-time cycle (see the lazy-import precedent throughout the
+    # Agents section below). This TYPE_CHECKING-only import exists
+    # purely so `_agent_response`'s parameter annotation resolves for
+    # static analysis; it has zero runtime effect (never executes).
+    from the_one.agent.config import AgentConfig
 
 router = APIRouter(prefix="/api")
 
@@ -65,7 +78,155 @@ new endpoints log through it directly.
 
 async def _agent_store() -> SQLiteAgentStore:
     conn = await get_connection()
-    return SQLiteAgentStore(conn)
+    # M21 F01 L01: pass the encryptor explicitly (rather than relying on
+    # the constructor's default) so the api-module `get_encryptor` patch
+    # test fixtures already install governs it — mirrors `_mcp_repo()` /
+    # `_tool_config_repo()` above.
+    return SQLiteAgentStore(conn, get_encryptor(settings.data_dir))
+
+
+def _agent_response(cfg: AgentConfig) -> dict[str, Any]:
+    """Render an ``AgentConfig`` into the masked HTTP response shape.
+
+    Mirrors ``_mcp_source_response`` (below, in the MCP-sources section):
+    ``model_dump()`` populates ``data["mcp_overrides"][<source>]`` with
+    the decrypted plaintext credential values for the three
+    ``MCP_OVERRIDE_CREDENTIAL_KEYS`` (``env``, ``headers``,
+    ``bearer_token``); we OVERWRITE those specific keys with their masked
+    form before returning. Any future refactor that removes the overwrite
+    would leak plaintext via the API.
+
+    INVARIANT: every other key — ``tool_overrides`` (no credential exists
+    on any built-in tool Config today) and the non-credential
+    ``mcp_overrides`` keys (``enabled_tools`` / ``disabled_tools``) — is
+    returned byte-identical to what is stored. Only the marker-derived
+    credential keys are masked.
+
+    ``ALL agent-config HTTP responses MUST route through this helper —
+    a bare ``cfg.model_dump()`` return leaks plaintext credential
+    overrides. The regression net is an assertion on response *text*
+    (mirrors ``test_list_returns_masked_secrets``).
+    """
+    data = cfg.model_dump()
+    overrides = data.get("mcp_overrides")
+    if overrides:
+        for source_entry in overrides.values():
+            if not isinstance(source_entry, dict):
+                continue
+            for key in MCP_OVERRIDE_CREDENTIAL_KEYS:
+                if key not in source_entry or not source_entry[key]:
+                    continue
+                value = source_entry[key]
+                if isinstance(value, str):
+                    source_entry[key] = _mask_secret_value(value)
+                elif isinstance(value, dict):
+                    source_entry[key] = {k: _mask_secret_value(v) for k, v in value.items()}
+                else:
+                    source_entry[key] = _MASK_PREFIX
+    return data
+
+
+def _merge_preserved_mcp_credentials(
+    incoming: dict[str, Any] | None,
+    stored: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Resolve an incoming ``mcp_overrides`` PUT payload against the
+    stored row, per ``(source_name, credential_key)`` — AC5 / Design
+    Decision DD5 / Decision D4.
+
+    Studio never round-trips a credential (it rebuilds ``mcp_overrides``
+    from the DOM, which renders no credential fields), so preserve
+    CANNOT key off a sentinel the client sends — it must resolve against
+    ``stored`` directly:
+
+    - key omitted from the incoming source entry (or the whole source
+      entry / whole payload omitted or ``None``) → keep the stored value.
+    - key present and ``_looks_masked`` (a client round-tripping a masked
+      GET response) → keep the stored value.
+    - key present as an explicit ``None`` → clear it.
+    - key present with any other value → overwrite.
+    - masked value for a key with nothing stored → drop (never persist
+      the mask string).
+
+    For the two dict-valued credential keys (``headers``, ``env``), the
+    same four rules apply per INNER key — an operator changing one
+    header must not silently wipe the others (Edge Case: "partially
+    masked dict").
+
+    Non-credential keys (``enabled_tools`` / ``disabled_tools``) and
+    entries whose incoming value is not a dict are left untouched — the
+    caller's ``AgentConfig.model_validate`` still validates the merged
+    result, so a malformed entry 422s exactly as it does today.
+
+    Returns ``None`` (not ``{}``) when the merged result is empty, so the
+    ``None``/``{}`` fidelity the round-trip tests pin is preserved when
+    nothing was ultimately stored for any source.
+    """
+    incoming = incoming or {}
+    stored = stored or {}
+    merged: dict[str, Any] = {}
+    all_sources = set(incoming) | set(stored)
+    for source_name in all_sources:
+        incoming_entry = incoming.get(source_name)
+        stored_entry = stored.get(source_name) or {}
+        if source_name not in incoming:
+            # Source entirely omitted from the payload → keep stored as-is.
+            if stored_entry:
+                merged[source_name] = dict(stored_entry)
+            continue
+        if not isinstance(incoming_entry, dict):
+            # Not a dict (e.g. explicit null for the whole source, or a
+            # malformed value) — leave alone. `None` here also degrades
+            # to "nothing incoming for this source", which correctly
+            # preserves the stored non-credential keys via the branch
+            # below only when incoming_entry is None; anything else is
+            # validation's problem, not ours.
+            if incoming_entry is None:
+                if stored_entry:
+                    merged[source_name] = dict(stored_entry)
+                continue
+            merged[source_name] = incoming_entry
+            continue
+        resolved_entry = dict(incoming_entry)
+        for key in MCP_OVERRIDE_CREDENTIAL_KEYS:
+            stored_value = stored_entry.get(key)
+            if key not in incoming_entry:
+                # Omitted (Studio's shape) → preserve stored.
+                if stored_value is not None:
+                    resolved_entry[key] = stored_value
+                continue
+            incoming_value = incoming_entry[key]
+            if incoming_value is None:
+                # Explicit null → clear.
+                resolved_entry.pop(key, None)
+                continue
+            if isinstance(incoming_value, dict):
+                # headers/env: per-inner-key resolution. `stored_value`
+                # may be absent/non-dict (nothing stored for this key
+                # yet) — treat as {} so a masked inner value with
+                # nothing to resolve against is dropped, not persisted
+                # literally.
+                stored_inner = stored_value if isinstance(stored_value, dict) else {}
+                resolved_inner: dict[str, Any] = {}
+                for inner_key, inner_value in incoming_value.items():
+                    if _looks_masked(inner_value):
+                        if inner_key in stored_inner:
+                            resolved_inner[inner_key] = stored_inner[inner_key]
+                        # else: masked with nothing stored → drop.
+                    else:
+                        resolved_inner[inner_key] = inner_value
+                resolved_entry[key] = resolved_inner
+            elif _looks_masked(incoming_value):
+                if stored_value is not None:
+                    resolved_entry[key] = stored_value
+                else:
+                    # Masked, nothing stored → drop.
+                    resolved_entry.pop(key, None)
+            else:
+                resolved_entry[key] = incoming_value
+        if resolved_entry:
+            merged[source_name] = resolved_entry
+    return merged or None
 
 
 async def _kb_repo() -> KnowledgeBaseRepository:
@@ -443,7 +604,7 @@ async def list_agents() -> list[dict[str, Any]]:
     agents = []
     for name in names:
         cfg = await store.load(name)
-        agents.append(cfg.model_dump())
+        agents.append(_agent_response(cfg))
     return agents
 
 
@@ -454,7 +615,7 @@ async def get_agent(name: str) -> dict[str, Any]:
         cfg = await store.load(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
-    return cfg.model_dump()
+    return _agent_response(cfg)
 
 
 @router.get("/agents/{name}/context-window")
@@ -527,35 +688,107 @@ async def get_agent_context_window(name: str) -> dict[str, int]:
 
 @router.post("/agents", status_code=201)
 async def create_agent(request: Request) -> dict[str, Any]:
+    """Create a new agent.
+
+    No stored row exists yet, so there is nothing to preserve — but a
+    client sending a masked ``mcp_overrides`` credential value (e.g.
+    round-tripping a GET response into a POST body) must not have that
+    literal mask string persisted as the "secret". ``_merge_preserved_mcp_credentials``
+    with ``stored=None`` drops any mask-shaped credential value while
+    leaving real values and non-credential keys untouched.
+    """
     from the_one.agent.config import AgentConfig
 
     data = await request.json()
+    incoming_overrides = data.get("mcp_overrides")
+    if incoming_overrides is None or isinstance(incoming_overrides, dict):
+        # No stored row to preserve against (`stored=None`) — this drops
+        # any mask-shaped credential value rather than persisting the
+        # literal mask string; real values and non-credential keys pass
+        # through unchanged.
+        data["mcp_overrides"] = _merge_preserved_mcp_credentials(incoming_overrides, None)
+    # else: not a dict and not null (e.g. a list) — leave alone;
+    # AgentConfig validation below 422s it as today.
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors())
+    # M21 F01 L02 (LD1 ownership guard + Edge Case credential-override
+    # guard): run on the VALIDATED config, after the mcp_overrides merge
+    # above — an agent can never attach another agent's self-configuration
+    # surface row, and an override targeting a surface row can never carry
+    # a credential key.
+    mcp_repo = await _mcp_repo()
+    guard_error = await self_configuration_manage.reject_foreign_surface_attachments(
+        cfg, mcp_repo=mcp_repo
+    )
+    if guard_error is not None:
+        raise HTTPException(status_code=422, detail=guard_error)
+    override_error = await self_configuration_manage.reject_surface_credential_overrides(
+        cfg, mcp_repo=mcp_repo
+    )
+    if override_error is not None:
+        raise HTTPException(status_code=422, detail=override_error)
     store = await _agent_store()
     await store.save(cfg)
-    return cfg.model_dump()
+    return _agent_response(cfg)
 
 
 @router.put("/agents/{name}")
 async def update_agent(name: str, request: Request) -> dict[str, Any]:
+    """Update an existing agent.
+
+    Server-side credential preserve (AC5 / DD5 / Decision D4): Studio
+    rebuilds ``mcp_overrides`` from the DOM and renders no credential
+    fields at all, so any credential set via the API would otherwise be
+    silently wiped by the next Studio save. ``_merge_preserved_mcp_credentials``
+    resolves the incoming payload against ``existing.mcp_overrides`` per
+    ``(source, credential key)`` before validation — omitted/masked keys
+    keep the stored value, explicit ``null`` clears, anything else
+    overwrites. Incoming ``mcp_overrides: null`` degrades to "nothing
+    incoming", which preserves every stored source (the same rule that
+    applies to a single omitted key, generalized to the whole field).
+    """
     from the_one.agent.config import AgentConfig
 
     store = await _agent_store()
     try:
-        await store.load(name)
+        existing = await store.load(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     data = await request.json()
     data["name"] = name  # Ensure name matches path
+    incoming_overrides = data.get("mcp_overrides")
+    if incoming_overrides is None or isinstance(incoming_overrides, dict):
+        # `data.get(...)` cannot distinguish "key omitted" from "key
+        # explicitly null" — both decode to `None`, and AC5 treats them
+        # identically (both preserve every stored source), so that
+        # collapse is intentional, not a gap.
+        data["mcp_overrides"] = _merge_preserved_mcp_credentials(
+            incoming_overrides, existing.mcp_overrides
+        )
+    # else: not a dict and not null (e.g. a list) — leave alone;
+    # AgentConfig validation below 422s it as today.
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors())
+    # M21 F01 L02: ownership + credential-override guards, on the validated
+    # config, after the preserve-on-PUT merge above (see create_agent for
+    # the shared rationale).
+    mcp_repo = await _mcp_repo()
+    guard_error = await self_configuration_manage.reject_foreign_surface_attachments(
+        cfg, mcp_repo=mcp_repo
+    )
+    if guard_error is not None:
+        raise HTTPException(status_code=422, detail=guard_error)
+    override_error = await self_configuration_manage.reject_surface_credential_overrides(
+        cfg, mcp_repo=mcp_repo
+    )
+    if override_error is not None:
+        raise HTTPException(status_code=422, detail=override_error)
     await store.save(cfg)
-    return cfg.model_dump()
+    return _agent_response(cfg)
 
 
 @router.delete("/agents/{name}")
@@ -565,6 +798,11 @@ async def delete_agent(name: str) -> dict[str, str]:
         await store.delete(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    # M21 F01 L02 (AC11): cascade — remove the agent's surface row (if any)
+    # and unregister its credential. No-op if the agent never enabled the
+    # surface.
+    mcp_repo = await _mcp_repo()
+    await self_configuration_manage.cascade_delete(name, mcp_repo=mcp_repo)
     return {"status": "ok"}
 
 
@@ -624,7 +862,7 @@ async def detach_agent_from_connector(
     # still depend on it).
     await release_agent_on_account(agent_name, account_id)
 
-    return cfg.model_dump()
+    return _agent_response(cfg)
 
 
 @router.post("/agents/{name}/rename")
@@ -674,8 +912,66 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     except ValueError:
         raise HTTPException(status_code=409, detail=f"Agent already exists: {new_name}")
+    # M21 F01 L02 (AC11): cascade the rename onto the agent's surface row
+    # (if any) — updates its ownership marker and derived name. The row's
+    # id (and therefore the credential registry, keyed on source id) is
+    # unaffected.
+    mcp_repo = await _mcp_repo()
+    await self_configuration_manage.cascade_rename(name, new_name, mcp_repo=mcp_repo)
     cfg = await store.load(new_name)
-    return cfg.model_dump()
+    return _agent_response(cfg)
+
+
+# ── Self-configuration surface (M21 F01 L02) ───────────────────────────────
+
+
+@router.get("/agents/{name}/self-configuration")
+async def get_agent_self_configuration(name: str) -> dict[str, Any]:
+    """AC1: ``{"enabled": false}`` for an agent with no surface row (the
+    default for every existing and newly-created agent); ``{"enabled":
+    true, "source_id": ...}`` once enabled. 404 for an unknown agent name.
+    """
+    store = await _agent_store()
+    try:
+        await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    mcp_repo = await _mcp_repo()
+    return await self_configuration_manage.status(name, agent_store=store, mcp_repo=mcp_repo)
+
+
+@router.post("/agents/{name}/self-configuration")
+async def enable_agent_self_configuration(name: str) -> dict[str, Any]:
+    """AC2: mint (or reuse) a per-agent credential, create/update the
+    ``streamable-http`` surface row, attach it to the agent, and register
+    the credential. Idempotent — a second POST returns the same row with no
+    second credential minted. The minted credential is NEVER returned here
+    (it lives only in the row's encrypted ``secrets``, masked in every
+    response like any other MCP source secret).
+    """
+    store = await _agent_store()
+    mcp_repo = await _mcp_repo()
+    try:
+        await self_configuration_manage.enable(name, agent_store=store, mcp_repo=mcp_repo)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    return await self_configuration_manage.status(name, agent_store=store, mcp_repo=mcp_repo)
+
+
+@router.delete("/agents/{name}/self-configuration")
+async def disable_agent_self_configuration(name: str) -> dict[str, str]:
+    """Full disable (mirrors DELETE on a marked ``/mcp-sources/{id}`` row):
+    evicts the pool, detaches the row from the agent, deletes it, and
+    unregisters the credential. Idempotent no-op when already disabled.
+    """
+    store = await _agent_store()
+    try:
+        await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    mcp_repo = await _mcp_repo()
+    await self_configuration_manage.disable(name, agent_store=store, mcp_repo=mcp_repo)
+    return {"status": "ok"}
 
 
 # ── Knowledge Bases ───────────────────────────────────────────────────────
@@ -1218,9 +1514,19 @@ def _validate_connector_config(account: Connector) -> None:
 
 
 @router.get("/mcp-sources")
-async def list_mcp_sources() -> list[dict[str, Any]]:
+async def list_mcp_sources(include_agent_surfaces: str | None = None) -> list[dict[str, Any]]:
+    """DD3: per-agent self-configuration surface rows are hidden from the
+    admin MCP Sources listing by default — the operator manages them from
+    the owning agent's own tabs, not this screen. The agent editor's fetch
+    passes ``?include_agent_surfaces=1`` so its MCPs tab (and the
+    self-configuration tab) can still see them. The filter is a
+    request-level switch, not a repository change (DD3's constraint: both
+    screens call this same endpoint today).
+    """
     repo = await _mcp_repo()
     sources = await repo.list()
+    if include_agent_surfaces != "1":
+        sources = [s for s in sources if not self_configuration_manage.is_surface_row(s)]
     return [_mcp_source_response(s) for s in sources]
 
 
@@ -1262,10 +1568,37 @@ async def create_mcp_source(request: Request) -> dict[str, Any]:
         # — ``model_validator`` paths populate ``ctx['error']`` with raw
         # exceptions that aren't JSON-serializable.
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    _reject_reserved_surface_name(source)
     _validate_mcp_source_config(source)
     repo = await _mcp_repo()
     await repo.create(source)
     return _mcp_source_response(source)
+
+
+def _reject_reserved_surface_name(source: MCPSource) -> None:
+    """LD7 / AC8b: the literal name ``self_configuration_manage.
+    SURFACE_ROW_NAME`` ("self-configuration") is reserved for the platform-
+    managed self-configuration surface row — override application is keyed
+    by source *name* (``_tool_provider.py``, mirrored in ``mcps-tab.js``),
+    so a same-named ordinary source on the same agent would collide with
+    it. Surface rows themselves are created only by ``manage.enable`` (not
+    through this endpoint), so any request reaching here whose *name*
+    equals the constant is, by definition, an attempt to create/rename an
+    ordinary source into the reserved name — refused with 409, mirroring
+    the existing "cannot edit a marked row" guard.
+    """
+    if (
+        source.name == self_configuration_manage.SURFACE_ROW_NAME
+        and not self_configuration_manage.is_surface_row(source)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{source.name!r} is reserved for the self-configuration surface; "
+                "enable it from the owning agent's Self-configuration tab instead "
+                "of creating or renaming an MCP source to this name."
+            ),
+        )
 
 
 @router.put("/mcp-sources/{source_id}")
@@ -1277,6 +1610,19 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         existing = await repo.get(source_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    # DD3 / AC10: a marked (self-configuration) row is not an ordinary MCP
+    # source — its name is derived from the owning agent's name (only
+    # `rename_agent` changes it) and its URL/secrets are platform-managed.
+    # Blocked outright rather than special-cased field-by-field.
+    if self_configuration_manage.is_surface_row(existing):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"MCP source {source_id!r} is a self-configuration surface row; "
+                "manage it from the owning agent's Self-configuration tab."
+            ),
+        )
 
     # Per-key __MASKED__ handling inside the secrets dict — a sentinel
     # value preserves the corresponding existing stored value;
@@ -1341,6 +1687,10 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         updated = existing.model_copy(update=data)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    # AC8b: `existing` is guaranteed non-surface at this point (a marked
+    # row was already refused above), so this only fires when the PUT
+    # would rename an ORDINARY source into the reserved constant name.
+    _reject_reserved_surface_name(updated)
     _validate_mcp_source_config(updated)
     await repo.update(updated)
     return _mcp_source_response(updated)
@@ -1384,6 +1734,28 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
         source = await repo.get(source_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    # DD3 / AC10: DELETE on a marked (self-configuration) row performs the
+    # FULL disable (detach from the owner's mcp_source_ids, unregister the
+    # credential, evict the pool) rather than the ordinary lazy-install
+    # cache-cleanup path below, which knows nothing about the ownership
+    # marker or the credential registry.
+    if self_configuration_manage.is_surface_row(source):
+        agent_name = self_configuration_manage.owner_of(source)
+        if agent_name is not None:
+            agent_store = await _agent_store()
+            await self_configuration_manage.disable(
+                agent_name, agent_store=agent_store, mcp_repo=repo
+            )
+        else:
+            # Malformed marker (no agent name) — fall back to a bare
+            # evict + delete so the row doesn't become permanently stuck.
+            from the_one.mcp._pool import _evict_all_for_source
+
+            await _evict_all_for_source(source_id)
+            with contextlib.suppress(KeyError):
+                await repo.delete(source_id)
+        return {"status": "ok"}
 
     cfg = source.config or {}
     command = cfg.get("command", "") if isinstance(cfg.get("command", ""), str) else ""
@@ -4714,19 +5086,24 @@ async def rotate_encryption_key() -> dict[str, str]:
 
     Re-encrypts every LLM provider row's ``api_key`` AND ``secrets`` blob
     (M19 F01: the anthropic-plan OAuth token set), every MCP source row's
-    ``secrets`` blob, AND every connector account row's ``secrets`` blob
-    using a freshly generated key in memory and commits the DB transaction
-    *before* the new key file replaces the old one via temp-file +
-    ``os.replace``. All four surfaces commit atomically — a partial
-    rotation that handled only a subset would leave the others encrypted
-    under a key that no longer exists on disk. If the DB commit fails, the
-    on-disk key file is left byte-identical to its pre-rotation contents so
-    existing ciphertext on all four surfaces remains decryptable.
+    ``secrets`` blob, every connector account row's ``secrets`` blob, AND
+    every agent row's ``tool_overrides`` / ``mcp_overrides`` columns (M21
+    F01 L01 / flight-log Decision D1) using a freshly generated key in
+    memory and commits the DB transaction *before* the new key file
+    replaces the old one via temp-file + ``os.replace``. ALL FIVE surfaces
+    commit atomically — a partial rotation that handled only a subset
+    would leave the others encrypted under a key that no longer exists on
+    disk. If the DB commit fails, the on-disk key file is left
+    byte-identical to its pre-rotation contents so existing ciphertext on
+    all five surfaces remains decryptable.
 
     Migration-residue MCP, connector, and provider-secrets rows (plaintext
     ``'{}'`` carried over from the column default) are tolerated via
     InvalidToken-swallowing decrypt; they are normalized to proper
-    ciphertext for ``{}`` as a side-effect.
+    ciphertext for ``{}`` as a side-effect. The agents columns use the
+    store's own ``_decrypt_overrides_column`` instead (legacy plaintext
+    there is real operator data, not a ``'{}'`` default — see that
+    helper's docstring); ``NULL`` columns stay ``NULL``.
     """
     encryptor = get_encryptor(settings.data_dir)
     if encryptor.key_path is None:
@@ -4809,6 +5186,23 @@ async def rotate_encryption_key() -> dict[str, str]:
                 conn_secrets_dict = {}
         decrypted_connectors.append((row["id"], conn_secrets_dict))
 
+    async with conn.execute("SELECT name, tool_overrides, mcp_overrides FROM agents") as cur:
+        agent_rows = await cur.fetchall()
+
+    # Fifth surface (M21 F01 L01 / flight-log Decision D1): agents.tool_overrides
+    # / agents.mcp_overrides. Decode via the store's own tolerant helper
+    # (NOT the MCP/connector/provider inline pattern above) — legacy
+    # plaintext here is real operator data (e.g. {"shell": {"timeout": 30}}),
+    # not a '{}' migration-residue default, so InvalidToken must fall
+    # through to the plaintext value rather than {} (see
+    # _decrypt_overrides_column's docstring). `None` (NULL column) stays
+    # `None` — never written back as an encrypted "null".
+    decrypted_agents: list[tuple[str, dict[str, Any] | None, dict[str, Any] | None]] = []
+    for row in agent_rows:
+        tool_overrides = _decrypt_overrides_column(encryptor, row["tool_overrides"])
+        mcp_overrides = _decrypt_overrides_column(encryptor, row["mcp_overrides"])
+        decrypted_agents.append((row["name"], tool_overrides, mcp_overrides))
+
     # 2. Generate a new key + Encryptor in memory only (no disk writes yet).
     new_key = Fernet.generate_key()
     new_encryptor = Encryptor(new_key)
@@ -4827,15 +5221,24 @@ async def rotate_encryption_key() -> dict[str, str]:
         (aid, new_encryptor.encrypt(json.dumps(secrets_dict)))
         for aid, secrets_dict in decrypted_connectors
     ]
+    reencrypted_agents = [
+        (
+            name,
+            _encrypt_overrides_column(new_encryptor, tool_overrides),
+            _encrypt_overrides_column(new_encryptor, mcp_overrides),
+        )
+        for name, tool_overrides, mcp_overrides in decrypted_agents
+    ]
 
     # 4. Write all rows in a single transaction and commit. If anything in
     #    this block raises, roll the transaction back so the connection
     #    cache does not surface uncommitted ciphertext encrypted with the
     #    new (not-yet-on-disk) key. The key file is untouched at this
     #    point, so re-raising leaves the system fully recoverable. The
-    #    single commit() covers ALL FOUR surfaces (llm_providers.api_key,
-    #    llm_providers.secrets, mcp_sources.secrets, connectors.secrets) —
-    #    a failure in any UPDATE loop rolls back all of them atomically.
+    #    single commit() covers ALL FIVE surfaces (llm_providers.api_key,
+    #    llm_providers.secrets, mcp_sources.secrets, connectors.secrets,
+    #    agents.tool_overrides / agents.mcp_overrides) — a failure in any
+    #    UPDATE loop rolls back all of them atomically.
     try:
         for pid, ct in reencrypted:
             await conn.execute(
@@ -4856,6 +5259,11 @@ async def rotate_encryption_key() -> dict[str, str]:
             await conn.execute(
                 "UPDATE connectors SET secrets = ? WHERE id = ?",
                 (ct, aid),
+            )
+        for agent_name, tool_ct, mcp_ct in reencrypted_agents:
+            await conn.execute(
+                "UPDATE agents SET tool_overrides = ?, mcp_overrides = ? WHERE name = ?",
+                (tool_ct, mcp_ct, agent_name),
             )
         await conn.commit()
     except Exception:

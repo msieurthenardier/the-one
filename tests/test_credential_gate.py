@@ -55,6 +55,7 @@ from the_one.interfaces.web.middleware import (
     CredentialGateMiddleware,
     OriginAllowlistMiddleware,
 )
+from the_one.self_configuration.constants import CONFINED_SOURCE_PATHS, MOUNT_PATH
 
 
 @pytest.fixture(autouse=True)
@@ -126,6 +127,10 @@ def _make_app(
     @app.delete("/api/things/{thing_id}")
     async def delete_thing(thing_id: str) -> dict[str, str]:
         return {"deleted": thing_id}
+
+    @app.api_route(MOUNT_PATH + "/{rest:path}", methods=["GET", "POST"])
+    async def surface_stub(rest: str) -> dict[str, str]:
+        return {"mounted": rest}
 
     @app.websocket("/ws")
     async def ws_route(ws: WebSocket) -> None:
@@ -665,6 +670,140 @@ class _InMemorySource:
         if not hmac.compare_digest(parsed.secret, self._owned.secret):
             return None
         return IdentifiedCaller(identifier=self._owned.identifier, source=self.name)
+
+
+class _ConfinedTestSource:
+    """Stand-in for `SelfConfigurationCredentialSource` — resolves any
+    credential matching `owned` to `source="self-configuration"`, the one
+    name present in `CONFINED_SOURCE_PATHS`. Mirrors `_InMemorySource`
+    above; kept separate because it always reports the confined source
+    name regardless of what the caller constructs it with."""
+
+    name = "self-configuration"
+
+    def __init__(self, owned: LocalApiCredential) -> None:
+        self._owned = owned
+
+    def resolve(self, presented: str) -> IdentifiedCaller | None:
+        parsed = LocalApiCredential.parse(presented)
+        if parsed is None:
+            return None
+        if parsed.identifier != self._owned.identifier:
+            return None
+        if not hmac.compare_digest(parsed.secret, self._owned.secret):
+            return None
+        return IdentifiedCaller(identifier=self._owned.identifier, source=self.name)
+
+
+class TestConfinedSourceScoping:
+    """AC5 (LD2 / Decision D5): a caller from a CONFINED source is admitted
+    ONLY under its mapped path prefix; `file` and `session` callers are
+    unaffected everywhere — the matrix this class locks."""
+
+    def test_confined_map_has_exactly_the_self_configuration_entry(self) -> None:
+        assert CONFINED_SOURCE_PATHS == {"self-configuration": MOUNT_PATH}
+
+    def test_confined_caller_admitted_under_its_mount_path(self, tmp_path: Path) -> None:
+        confined_cred = LocalApiCredential.generate()
+        register_source(_ConfinedTestSource(confined_cred))
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.get(f"{MOUNT_PATH}/tools", headers=_bearer(confined_cred))
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize(
+        "path,method",
+        [
+            ("/api/agents", "GET"),
+            ("/api/info", "GET"),
+            ("/", "GET"),
+            ("/static/app.js", "GET"),
+            ("/api/mutate", "POST"),
+        ],
+    )
+    def test_confined_caller_refused_403_outside_mount_path(
+        self, tmp_path: Path, path: str, method: str
+    ) -> None:
+        confined_cred = LocalApiCredential.generate()
+        register_source(_ConfinedTestSource(confined_cred))
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.request(method, path, headers=_bearer(confined_cred))
+        assert resp.status_code == 403
+
+    def test_confined_caller_websocket_upgrade_refused(self, tmp_path: Path) -> None:
+        confined_cred = LocalApiCredential.generate()
+        register_source(_ConfinedTestSource(confined_cred))
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            with pytest.raises(WebSocketDisconnect):
+                with client.websocket_connect("/ws", headers=_bearer(confined_cred)):
+                    pass
+        assert app.state.ws_accepted == []
+
+    def test_confined_caller_refused_403_on_sibling_prefix_path(self, tmp_path: Path) -> None:
+        """Flight-end review fix: a sibling route that merely shares the
+        mount path as a STRING PREFIX (e.g. `/mcp/self-configuration-admin`)
+        must NOT be treated as "under" the mount path — the confinement
+        check must match a route boundary (`path == prefix` or
+        `path.startswith(prefix + "/")`), not a bare `str.startswith`."""
+        confined_cred = LocalApiCredential.generate()
+        register_source(_ConfinedTestSource(confined_cred))
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.get(f"{MOUNT_PATH}-admin/x", headers=_bearer(confined_cred))
+        assert resp.status_code == 403
+
+    def test_confined_caller_admitted_on_bare_mount_path(self, tmp_path: Path) -> None:
+        """The bare mount path with no trailing slash and nothing after it
+        must still be admitted (not 403'd by the gate) — a 404 from
+        downstream routing (no route registered for the bare path in this
+        test app) is a separate, acceptable outcome."""
+        confined_cred = LocalApiCredential.generate()
+        register_source(_ConfinedTestSource(confined_cred))
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.get(MOUNT_PATH, headers=_bearer(confined_cred))
+        assert resp.status_code != 403
+
+    def test_confined_caller_admitted_on_mount_path_with_trailing_slash(
+        self, tmp_path: Path
+    ) -> None:
+        confined_cred = LocalApiCredential.generate()
+        register_source(_ConfinedTestSource(confined_cred))
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.get(f"{MOUNT_PATH}/", headers=_bearer(confined_cred))
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/api/info", "/", "/static/app.js", f"{MOUNT_PATH}/tools"],
+    )
+    def test_file_credential_unaffected_on_every_path(self, tmp_path: Path, path: str) -> None:
+        """The AC5 matrix's load-bearing negative control: a check phrased
+        as "source is not file" would 403 the session cookie everywhere —
+        this and the next test assert `file`/`session` pass through
+        unaffected on every path, including the confined mount path."""
+        cred = get_credential()
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.get(path, headers=_bearer(cred))
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/api/info", "/", "/static/app.js", f"{MOUNT_PATH}/tools"],
+    )
+    def test_session_cookie_unaffected_on_every_path(self, tmp_path: Path, path: str) -> None:
+        get_credential()
+        store = HandoffStore()
+        token = store.mint()
+        app = _make_app(tmp_path, handoff_store=store)
+        with TestClient(app) as client:
+            client.get("/", params={HANDOFF_QUERY_PARAM: token})
+            resp = client.get(path)
+        assert resp.status_code == 200
 
 
 class TestSeam:

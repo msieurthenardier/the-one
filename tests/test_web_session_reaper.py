@@ -459,3 +459,116 @@ async def test_ttl_env_var_invalid_falls_back_to_default(
     monkeypatch.setenv("THE_ONE_WEB_SESSION_IDLE_TTL_SECONDS", "not-a-number")
     ttl = app_mod._get_web_session_idle_ttl()
     assert ttl == 1800, f"Expected default 1800; got {ttl}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# (j) Flight-end review finding #1: reopening a CACHED session (not evicted,
+# still sitting in `_sessions`) rebuilds `session.agent` from the current
+# stored config on every WS join outside an active turn. This is the
+# property `next_session` propagation (and mission criterion 4 / Flight 2)
+# depend on — pinned here against the same real AgentFactory +
+# SQLiteAgentStore harness as (e) above, rather than the mocked-factory
+# fixtures in test_session_lifecycle.py / test_app_pending_approval_merge.py
+# (those swap in a fixed FakeLLM Agent that ignores stored config content,
+# so they cannot exercise "an edited stored system_prompt takes effect").
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def test_cached_session_rebuilds_agent_from_edited_stored_config(
+    _isolated_data_dir: Path,
+) -> None:
+    """Editing an agent's stored ``system_prompt`` after a session is
+    created (and cached, uncached — no eviction involved) must be picked
+    up by the NEXT ``_get_or_restore_session`` call: the returned
+    session's ``agent.system_prompt`` and ``agent.messages[0]`` reflect
+    the new prompt, not the one baked in at session-creation time. The
+    non-system message history must survive the rebuild unchanged.
+    """
+    import the_one.interfaces.web.app as app_mod
+    from the_one.agent.config import AgentConfig
+    from the_one.agent.factory import AgentFactory
+    from the_one.config import settings
+    from the_one.db import init_db
+    from the_one.db.connection import get_connection
+    from the_one.db.migration import migrate_json_to_sqlite
+    from the_one.db.models import LLMProviderConfig
+    from the_one.db.repositories import LLMProviderRepository, SQLiteAgentStore
+    from the_one.encryption import get_encryptor
+    from the_one.llm.base import Message
+
+    await init_db()
+    conn = await get_connection()
+    store = SQLiteAgentStore(conn)
+    await migrate_json_to_sqlite(store)
+
+    encryptor = get_encryptor(settings.data_dir)
+    provider_repo = LLMProviderRepository(conn, encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(
+            id="mock-restore-rebuild",
+            name="Mock Restore Rebuild",
+            type="mock",
+            base_url="",
+            config={"response": {"content": "ok"}},
+        )
+    )
+    original_prompt = "ORIGINAL_MARKER_PROMPT_be2f"
+    await store.save(
+        AgentConfig(
+            name="default",
+            provider_config_id="mock-restore-rebuild",
+            llm_model="mock-default",
+            system_prompt=original_prompt,
+        )
+    )
+
+    factory = AgentFactory(store=store)
+    app_mod._state["factory"] = factory
+
+    # Create a chat session — this both caches it in `_sessions` and
+    # persists a row via `_create_session`'s own DB write.
+    session = await app_mod._create_session(session_id="edited-config-01")
+    assert session.id in app_mod._sessions
+    assert original_prompt in session.agent.system_prompt
+    assert original_prompt in session.agent.messages[0].content
+
+    # Simulate a conversation, then persist it (mirrors a real turn's
+    # `_save_session_to_db` call at turn-settle).
+    session.agent.messages.append(Message.user("hello there"))
+    session.agent.messages.append(Message.assistant("hi, how can I help?"))
+    await app_mod._save_session_to_db(session)
+
+    # Simulate a Studio/next_session edit to the agent's stored config —
+    # NOT going through `_create_session` or `_restore_session`, just the
+    # store directly, as Studio's PUT /api/agents/{name} does.
+    edited_prompt = "EDITED_MARKER_PROMPT_9a41"
+    stored_config = await store.load("default")
+    stored_config.system_prompt = edited_prompt
+    await store.save(stored_config)
+
+    # The session is still cached (never evicted, never removed) — the
+    # in-memory `_sessions[sid].agent` still carries the OLD composed
+    # system prompt at this point.
+    assert session.id in app_mod._sessions
+
+    # Reopen: a WS `join` outside an active turn calls
+    # `_get_or_restore_session`, which always delegates to
+    # `_restore_session` (no short-circuit) per that function's docstring.
+    restored = await app_mod._get_or_restore_session(session.id)
+
+    assert restored.status == "ok"
+    assert restored.session is not None
+    # Identity is preserved (in-place update) — same Session object.
+    assert restored.session is session
+
+    rebuilt_agent = restored.session.agent
+    # The rebuilt agent reflects the NEW stored prompt, not the old one.
+    assert edited_prompt in rebuilt_agent.system_prompt
+    assert original_prompt not in rebuilt_agent.system_prompt
+    assert edited_prompt in rebuilt_agent.messages[0].content
+    assert original_prompt not in rebuilt_agent.messages[0].content
+
+    # Non-system message history (the user/assistant turn saved above)
+    # is preserved across the rebuild.
+    non_system_contents = [m.content for m in rebuilt_agent.messages[1:]]
+    assert non_system_contents == ["hello there", "hi, how can I help?"]

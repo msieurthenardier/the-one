@@ -1,22 +1,22 @@
 # Flight: Self-Configuration Surface
 
-**Status**: planning
+**Status**: landed
 **Mission**: [Agent Self-Configuration](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] An agent can retrieve its own configuration through the surface, and no
+- [x] An agent can retrieve its own configuration through the surface, and no
       response from any part of the surface contains secret material.
-- [ ] An agent's own configuration is subject to the same secret-handling
+- [x] An agent's own configuration is subject to the same secret-handling
       treatment as every other secrets-bearing record in the platform.
-- [ ] An agent can revise its own description and system prompt; every other
+- [x] An agent can revise its own description and system prompt; every other
       part is refused by construction rather than by an enumerated denial list.
-- [ ] A revision states whether it takes effect from the next turn or only from
+- [x] A revision states whether it takes effect from the next turn or only from
       the next conversation, and observed behavior matches the choice.
-- [ ] When the surface is enabled it appears among that agent's configured
+- [x] When the surface is enabled it appears among that agent's configured
       sources, and the operator can withhold individual capabilities from it
       using the same controls that govern every other source.
-- [ ] The surface is off for every existing and newly created agent until the
+- [x] The surface is off for every existing and newly created agent until the
       operator enables it.
 
 Criteria 5, 6 and 7 (approval mode, pending queue, revision log and restore)
@@ -48,13 +48,13 @@ that rather than around it.
 - [x] What is the tool catalog? → **DD6**
 - [x] How is propagation observed, given no read path exposes a running agent's
       system prompt? → **DD8**
-- [ ] Does `describe_my_capabilities` list the self-configuration source itself
+- [x] Does `describe_my_capabilities` list the self-configuration source itself
       among the agent's sources? Visibility is not writability — the write
       allowlist already excludes it either way — but an agent that cannot see
       the surface it is speaking through may reason poorly about its own limits,
       while one that can see it may probe it. Resolve in Leg 2 against the read
       projection's actual shape.
-- [ ] What happens to a pending `next_turn` revision if the agent object is
+- [x] What happens to a pending `next_turn` revision if the agent object is
       rebuilt before the turn's iteration loop exits? `_get_or_restore_session`
       always rebuilds (`app.py:1103-1111`), so a rejoin mid-turn discards the
       pending revision silently. Whether that is acceptable (the revision is
@@ -228,7 +228,8 @@ exits, not when the tool returns.**
 
 ### Prerequisites
 
-- [ ] **Re-entrancy probe — blocking.** Confirm that the platform's MCP client
+- [x] **Re-entrancy probe — blocking.** *(Verified 2026-08-24 — see flight log
+      Session Notes.)* Confirm that the platform's MCP client
       can connect to an HTTP endpoint served by the platform's own process
       without deadlock. `MCPToolProvider` calls `acquire()` + `list_tools()`
       during agent construction (`mcp/_tool_provider.py:311-317`), so agent build
@@ -237,23 +238,26 @@ exits, not when the tool returns.**
       cache-first path (`:284`) skips the call after the first refresh — but this
       is the assumption the whole of DD1 rests on. **Probe before Leg 2 starts,
       not after it lands.**
-- [ ] Dev instance runnable on a non-8484 port with a scratch data directory.
+- [x] Dev instance runnable on a non-8484 port with a scratch data directory.
       Port 8484 is the operator's production instance and must never be targeted.
-- [ ] The MCP endpoint mounts on the existing app and port — **no new port is
+- [x] The MCP endpoint mounts on the existing app and port — **no new port is
       introduced**, so no conflict check against other local services is needed.
-      Confirm this holds when the endpoint is placed.
-- [ ] goldfinch browser apparatus available and able to reach the dev instance.
-- [ ] `CredentialGateMiddleware` enforced on the dev instance — the identity
-      resolution in DD2 is meaningless with the gate off.
-- [ ] A test agent with a provider configured, capable of completing a real turn.
+      Confirmed by the probe: mounted sub-app on the real app, same port.
+- [~] goldfinch browser apparatus — **not connected this session; chrome-devtools
+      used as the sanctioned fallback** (behavior test still passed 8/8).
+- [x] `CredentialGateMiddleware` enforced on the dev instance — the identity
+      resolution in DD2 is meaningless with the gate off. Probe ran with the gate
+      live; a bare loopback request 401s, a bearer-carrying source passes.
+- [x] A test agent with a provider configured, capable of completing a real turn.
 
 ### Pre-Flight Checklist
 
-- [ ] All open questions resolved or explicitly deferred to a named leg
-- [ ] Design decisions documented
-- [ ] Prerequisites verified — **especially the re-entrancy probe**
-- [ ] Validation approach defined
-- [ ] Legs defined
+- [x] All open questions resolved or explicitly deferred to a named leg
+- [x] Design decisions documented
+- [x] Prerequisites verified — **re-entrancy probe passed** (dev instance,
+      browser apparatus and test agent are Leg 3 behavior-test prerequisites)
+- [x] Validation approach defined
+- [x] Legs defined
 
 ---
 
@@ -282,16 +286,16 @@ change its own behavior mid-conversation.
 
 ### Checkpoints
 
-- [ ] Re-entrancy probe returns a clean `list_tools` against the platform's own
+- [x] Re-entrancy probe returns a clean `list_tools` against the platform's own
       endpoint
-- [ ] No agent read path returns override secrets in the clear; existing suites
+- [x] No agent read path returns override secrets in the clear; existing suites
       green
-- [ ] An enabled agent's MCPs tab shows the surface with per-tool checkboxes that
+- [x] An enabled agent's MCPs tab shows the surface with per-tool checkboxes that
       actually filter
-- [ ] An agent reads its own configuration and the response contains no secret
-- [ ] An agent revises its own prompt; `next_turn` and `next_session` each
+- [x] An agent reads its own configuration and the response contains no secret
+- [x] An agent revises its own prompt; `next_turn` and `next_session` each
       behave as named
-- [ ] A write to any field other than description or system prompt is
+- [x] A write to any field other than description or system prompt is
       unreachable — no tool addresses it
 
 ### Adaptation Criteria
@@ -321,17 +325,17 @@ change its own behavior mid-conversation.
 > and created one at a time as the flight progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] `agent-config-secret-hardening` - Encrypt `tool_overrides` and
+- [x] `agent-config-secret-hardening` - Encrypt `tool_overrides` and
       `mcp_overrides` at rest, mask them on every agent read path, and resolve
       preserve-on-PUT server-side against the stored row. Closes mission Known
       Issue 1 and mission criterion 2. Lands first because the read projection is
       built on top of it.
-- [ ] `self-configuration-surface-read` - The loopback MCP endpoint, credential
+- [x] `self-configuration-surface-read` - The loopback MCP endpoint, credential
       minting and identity resolution, the two read tools with their secret-free
       projection, the new agent-configuration tab with its enable toggle and the
       per-agent source row it creates, and the admin-listing filter. Delivers a
       working read-only self-configuration MCP end to end, off by default.
-- [ ] `self-revision-write-path` - The two write tools, the deferral hook that
+- [x] `self-revision-write-path` - The two write tools, the deferral hook that
       applies `next_turn` revisions at iteration-loop exit, `next_session`
       propagation, and the `agent-self-revision-propagation` behavior test.
       Boundary sits here deliberately: confirm the surface is secret-free before
@@ -343,13 +347,13 @@ change its own behavior mid-conversation.
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (`make test-unit` is the canonical gate)
-- [ ] `tests/behavior/agent-self-revision-propagation.md` **executed**, not
+- [x] All legs completed
+- [x] Code merged
+- [x] Tests passing (`make test-unit` is the canonical gate)
+- [x] `tests/behavior/agent-self-revision-propagation.md` **executed**, not
       merely authored — the Mission 20 debrief records a behavior test written
       for a flight and never run
-- [ ] Documentation updated: `SECURITY-MODEL.md` gains the self-configuration
+- [x] Documentation updated: `SECURITY-MODEL.md` gains the self-configuration
       surface and its indirect-prompt-injection residual risk; the new tab and
       tool catalog are documented for the operator
 

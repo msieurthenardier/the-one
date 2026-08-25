@@ -850,6 +850,78 @@ def test_run_raises_system_exit_when_webview_missing(
                                     launcher_mod.run_desktop()
 
 
+# ── settings.port write-back (M21 F01 L02 Edge Case) ──────────────────────
+
+
+def test_run_writes_settings_port_from_select_port_fallback_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_select_port`'s fallback branch (Case C — configured port occupied
+    by a foreign process) resolves a DIFFERENT port than `settings.port`.
+    The self-configuration surface builds its loopback URL from
+    `settings.port` (`self_configuration.manage.surface_url`); leaving it
+    stale would strand every surface row's URL. `run()` must write the
+    resolved port back onto `settings.port` immediately after
+    `_select_port` resolves, on the branch that will actually serve.
+    """
+    import signal as signal_mod
+    import webbrowser as webbrowser_mod
+
+    import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.config import settings
+
+    configured_port = settings.port
+    # Ensures teardown restores `settings.port` to its pre-test value even
+    # though the code under test mutates it directly (not via monkeypatch)
+    # — monkeypatch.setattr snapshots the CURRENT value at call time and
+    # restores exactly that at teardown, regardless of later direct writes.
+    monkeypatch.setattr(settings, "port", configured_port)
+    resolved_port = _free_port()
+    assert resolved_port != configured_port
+
+    mock_thread = MagicMock()
+    mock_server = MagicMock()
+
+    with patch.object(launcher_module, "_select_port", return_value=(resolved_port, False)):
+        with patch.object(launcher_module, "_webview_available", return_value=False):
+            with patch.object(launcher_module, "_graceful_shutdown"):
+                with patch.object(launcher_module, "_wait_until_serving"):
+                    with patch("the_one.interfaces.web.app.app", MagicMock()):
+                        with patch("uvicorn.Server", return_value=mock_server):
+                            with patch("threading.Thread", return_value=mock_thread):
+                                with patch.object(webbrowser_mod, "open"):
+                                    with patch.object(signal_mod, "signal"):
+                                        mock_thread.join.return_value = None
+                                        launcher_module.run_desktop()
+
+    assert settings.port == resolved_port
+
+
+def test_run_case_b_is_ours_does_not_write_settings_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `is_ours=True` branch returns before ever serving a lifespan —
+    it must NOT write `settings.port`, since this process attaches to (at
+    most) an existing window rather than starting its own server."""
+    import httpx
+
+    import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.config import settings
+
+    original_port = settings.port
+    monkeypatch.setattr(settings, "port", original_port)
+    foreign_resolved_port = _free_port()
+    assert foreign_resolved_port != original_port
+
+    with patch.object(launcher_module, "_select_port", return_value=(foreign_resolved_port, True)):
+        with patch.object(httpx, "post"):
+            with patch("uvicorn.Server") as mock_server_cls:
+                launcher_module.run_desktop()
+
+    mock_server_cls.assert_not_called()
+    assert settings.port == original_port
+
+
 # ── _splash_html ──────────────────────────────────────────────────────────────
 
 

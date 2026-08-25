@@ -47,11 +47,14 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # A CSS ref is versioned too.
     assert f'href="/static/css/base.css?v={__version__}"' in body
 
-    # All 61 /static js/css refs are versioned and none are double-suffixed.
+    # All 62 /static js/css refs are versioned and none are double-suffixed.
+    # (M21 F01 L02 added the sixth Studio tab's
+    # studio/self-configuration-tab.js script tag, bumping the count from
+    # 61.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 61
+    assert len(refs) == 62
     for ref in refs:
         assert f"?v={__version__}" in ref
         assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix

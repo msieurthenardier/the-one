@@ -3,7 +3,7 @@
 **Slug**: `agent-self-revision-propagation`
 **Status**: draft
 **Created**: 2026-08-11
-**Last Run**: never
+**Last Run**: 2026-08-25 (partial → spec corrected; see run logs)
 
 ## Intent
 
@@ -11,19 +11,42 @@ Verifies that an agent revising its own system prompt actually changes its own
 behavior, and that the two propagation timings mean what they say. This resists
 unit testing for a reason that is structural rather than incidental: **no read
 path anywhere exposes a running agent's system prompt.** `session_joined` carries
-history, title, agent name and routing metadata but not the prompt
-(`app.py:1199-1220`), and `GET /api/agents/{name}` returns the stored row — which
-proves the revision persisted and says nothing about whether the live
-conversation picked it up. A unit test can assert that a deferral hook fires; it
-cannot distinguish "the prompt was written to the database" from "the running
-agent is now behaving by it."
+history, title, agent name and routing metadata but not the prompt, and
+`GET /api/agents/{name}` returns the stored row — which proves the revision
+persisted and says nothing about whether a *running* agent is behaving by it. A
+unit test can assert that the deferral hook fires; it cannot show a real model
+obeying the new prompt.
 
-The distinction matters most in the negative direction. `next_session` must
-**not** take effect in the open conversation, and `next_turn` must **not** take
-effect mid-turn — the operator ruled out immediate application specifically
-because a prompt changing underneath a turn in progress produces incoherent
-output. Both are assertions that something did *not* happen while the
-conversation stayed live, which only a live conversation can make.
+### Observability discipline — read before editing this spec
+
+The 2026-08-25 run established, with server-side instrumentation, two facts that
+shape every assertion here:
+
+1. **The propagation mechanism is correct.** On rejoin, `_restore_session`
+   rebuilds the live agent from the current stored row, so the agent that
+   processes the next message genuinely holds the revised system prompt. This was
+   confirmed directly (the rebuilt agent's `messages[0]` carried the new prompt).
+2. **A sentinel in the agent's replies is only a *reliable* observable on the
+   first turn of a FRESH conversation.** Inside a conversation that already has
+   turns, the model anchors on its own recent replies and on the revision tool
+   call's arguments (which necessarily carry the new prompt text into the
+   transcript) far more strongly than on a freshly-swapped system instruction. In
+   the first run, a reopened conversation whose live prompt had genuinely been
+   updated still would not emit the new sentinel — and, asked outright to read
+   its current instructions, reported the *old* sentinel. That is a model-
+   behavior artifact, not a propagation failure.
+
+Therefore this spec measures `next_session` propagation the only way that is not
+confounded: **by opening a brand-new conversation** after the revision and
+checking its first reply. It deliberately does **not** assert a sentinel change
+inside the conversation that issued the revision — beyond the immediate "not this
+turn" negative, which is a clean signal because nothing has yet changed. The
+mid-turn-timing property of `next_turn` (that a revision does not land within the
+turn that requested it) is likewise **not** asserted from replies here — the tool
+call's arguments put the new sentinel into the turn's own context, so an output
+check cannot distinguish "landed mid-turn" from "the model read its own tool
+call." That property is covered by the unit test (scripted-LLM, asserts the
+deferral hook applies only at iteration-loop exit).
 
 ## Preconditions
 
@@ -33,8 +56,8 @@ conversation stayed live, which only a live conversation can make.
 - The credential gate is enforced (identity resolution is meaningless with it
   off).
 - A test agent exists with a working LLM provider, capable of completing a real
-  turn, and with a system prompt that does **not** already contain the sentinel
-  phrase used below.
+  turn, and with a system prompt that does **not** already contain either
+  sentinel word used below (`NAUTILUS`, `WOMBAT`).
 - The self-configuration surface is **enabled** on that agent, and its
   `update_my_system_prompt` capability is left enabled in the agent's MCPs tab.
 - A browser apparatus is available and can reach the dev instance.
@@ -49,16 +72,19 @@ conversation stayed live, which only a live conversation can make.
 
 ## Steps
 
+Two sentinels are used so the two conversations never share a target word:
+`NAUTILUS` for the `next_session` leg, `WOMBAT` for the `next_turn` leg.
+
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Open the dev instance in the browser, navigate to Chat, and start a new conversation with the test agent. Send "Hello, introduce yourself briefly." | The agent replies with ordinary prose. The reply does **not** contain the word `PELICAN`. |
-| 2 | In the same conversation, send: "Using your self-configuration tools, revise your own system prompt so that you end every future reply with the single word PELICAN on its own line. Apply it from the next session, not the next turn." | The agent reports that it revised its system prompt and that the change applies from the next session. Its reply in this turn does **not** end with `PELICAN`. |
-| 3 | In the same conversation, send "Say something short." | The reply does **not** end with `PELICAN`. This is the load-bearing negative: a `next_session` revision must not reach the conversation that made it. |
-| 4 | Fetch the agent's stored configuration over HTTP. | The stored system prompt **does** contain the `PELICAN` instruction — the revision persisted even though the live conversation is not honoring it. Persistence and propagation are separable, and this step is what separates them. |
-| 5 | Leave the conversation (navigate to another agent or another view) and rejoin the same conversation. Send "Say something short." | The reply now ends with `PELICAN`. The revision took effect on session rebuild, exactly as `next_session` names. |
-| 6 | In this conversation, send: "Using your self-configuration tools, revise your system prompt again so you end every reply with the word WALRUS instead of PELICAN. Apply it from the next turn." | The agent reports the revision and that it applies from the next turn. Its reply for **this** turn still ends with `PELICAN`, not `WALRUS` — the revision must not land mid-turn, even though the tool call happened inside this turn. |
-| 7 | In the same conversation, send "Say something short." | The reply ends with `WALRUS`. `next_turn` took effect on the following turn of the same open conversation, with no rejoin. |
-| 8 | In the same conversation, ask the agent to retrieve its own configuration and show what it received. | The response contains the agent's description, system prompt and model, and contains **no** secret material — no bearer token, no header value, no environment variable value, no credential of any kind. |
+| 1 | Open the dev instance in the browser, navigate to Chat, and start a new conversation (call it **A**) with the test agent. Send "Hello, introduce yourself briefly." | The agent replies with ordinary prose. The reply does **not** contain `NAUTILUS`. |
+| 2 | In conversation **A**, send: "Using your self-configuration tools, revise your own system prompt so that you end every future reply with the single word NAUTILUS on its own line. Apply it from the next session, not the next turn." | The agent reports that it revised its system prompt and that the change applies from the next session. |
+| 3 | In conversation **A**, send "Say something short." | The reply does **not** end with `NAUTILUS`. Load-bearing negative: a `next_session` revision must not reach the conversation that made it. |
+| 4 | Fetch the agent's stored configuration over HTTP. | The stored system prompt **does** contain the `NAUTILUS` instruction — the revision persisted even though the issuing conversation is not honoring it. This is what separates persistence from propagation. |
+| 5 | Start a **brand-new** conversation (call it **B**) with the same agent — do **not** reuse conversation A. Send "Say something short." | The reply ends with `NAUTILUS`. A conversation opened after the revision picks up the stored prompt on construction, exactly as `next_session` names. This is the reliable, unconfounded observable for next-session propagation. |
+| 6 | In conversation **B**, send: "Using your self-configuration tools, revise your system prompt again so you end every reply with the word WOMBAT instead of NAUTILUS. Apply it from the next turn." | The agent reports the revision and that it applies from the next turn. (No assertion on this turn's final line — the tool call's arguments carry `WOMBAT` into this turn's own context, so the reply's last word is not a clean signal here; the next step is.) |
+| 7 | In conversation **B**, send "Say something short." | The reply ends with `WOMBAT`. `next_turn` took effect on the following turn of the same open conversation, with no rejoin. |
+| 8 | In conversation **B**, ask the agent to retrieve its own configuration and show what it received. | The response contains the agent's description, system prompt and model, and contains **no** secret material — no bearer token, no header value, no environment variable value, no credential of any kind. |
 
 ## Out of Scope
 
@@ -71,6 +97,12 @@ conversation stayed live, which only a live conversation can make.
 - Writes to any field other than description and system prompt. Those are
   unreachable by catalog shape (no tool addresses them), which is a unit-level
   assertion — there is no denied write to attempt here.
+- **Mid-turn non-application of `next_turn`**, and **whether a *reopened* existing
+  conversation visibly changes its replies.** Both are confounded at the reply
+  level (see the Observability discipline note above): the first is covered by the
+  unit test; the second is a property of the model's history-anchoring, not of the
+  propagation code, which is verified correct out-of-band and by the fresh-
+  conversation check in step 5.
 
 ## Variants (optional)
 

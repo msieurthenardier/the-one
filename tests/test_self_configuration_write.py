@@ -1,0 +1,605 @@
+"""Tests for the self-revision write path (M21 F01 L03) — AC1-AC7.
+
+Covers the two write tools (``update_my_description`` /
+``update_my_system_prompt``), the ``pending`` deferral registry, the two
+``app.py`` turn-settle hook sites, and LD7's fixed prefixed tool names /
+``_slugify`` parity. AC8/AC8b (reconcile, reserved name) live in
+``tests/test_self_configuration_api.py`` and ``tests/test_self_configuration_
+surface.py`` — LD7 touches those files' existing fixtures directly. AC9 (the
+behavior test) is run separately by the Flight Director, not here.
+
+Identity resolution (``_calling_agent``) is Leg 2's own well-tested seam;
+these tests patch it to a fixed agent name so the write-path logic itself
+(persist-then-defer, bounds, the settle hook) is isolated from the gate/
+credential machinery.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import AsyncIterator
+from typing import Any
+from unittest.mock import AsyncMock
+
+import aiosqlite
+import pytest
+from cryptography.fernet import Fernet
+
+from the_one.agent.config import AgentConfig
+from the_one.agent.core import Agent
+from the_one.db.repositories import SQLiteAgentStore
+from the_one.db.schema import ensure_schema
+from the_one.encryption import Encryptor
+from the_one.interfaces.web import app as web_app
+from the_one.interfaces.web.app import Session, _process_and_broadcast, _resume_paused_session
+from the_one.llm.base import LLMProvider, Message, StreamChunk, ToolCall, ToolResult
+from the_one.mcp._tool import _TOOL_NAME_MAX_LEN, _normalize_source_name
+from the_one.self_configuration import manage, pending, surface
+from the_one.tools.base import Tool, ToolRegistry
+
+
+@pytest.fixture(autouse=True)
+def _clear_pending():
+    pending.clear_for_test()
+    yield
+    pending.clear_for_test()
+
+
+@pytest.fixture
+async def db(tmp_path):
+    conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await ensure_schema(conn)
+    test_key = Fernet.generate_key()
+    encryptor = Encryptor(test_key, key_path=tmp_path / "test.key")
+    yield conn, encryptor
+    await conn.close()
+
+
+@pytest.fixture
+def wired(db, monkeypatch):
+    """Point surface.py's module-level connection/encryptor resolution at
+    the isolated test DB. ``_calling_agent`` is patched per-test (its
+    return value varies by test)."""
+    conn, encryptor = db
+    monkeypatch.setattr(surface, "get_connection", AsyncMock(return_value=conn))
+    monkeypatch.setattr(surface, "get_encryptor", lambda *_a, **_kw: encryptor)
+    return conn, encryptor
+
+
+def _as_agent(monkeypatch, agent_name: str) -> None:
+    monkeypatch.setattr(surface, "_calling_agent", AsyncMock(return_value=agent_name))
+
+
+async def _seed_agent(store: SQLiteAgentStore, **overrides: Any) -> AgentConfig:
+    cfg = AgentConfig(name=overrides.pop("name", "write-agent"), **overrides)
+    await store.save(cfg)
+    return cfg
+
+
+# ── AC1 — catalog shape is the allowlist ─────────────────────────────────
+
+
+class TestAC1CatalogShape:
+    def test_exactly_four_tools(self) -> None:
+        names = {t["name"] for t in surface.list_surface_tools()}
+        assert names == {
+            "get_my_configuration",
+            "describe_my_capabilities",
+            "update_my_description",
+            "update_my_system_prompt",
+        }
+
+    def test_write_tools_take_only_text_and_apply(self) -> None:
+        tools = {t["name"]: t for t in surface.list_surface_tools()}
+        for name in ("update_my_description", "update_my_system_prompt"):
+            schema = tools[name]["input_schema"]
+            props = set(schema.get("properties", {}))
+            assert props == {"text", "apply"}, f"{name} schema properties: {props}"
+            assert set(schema.get("required", [])) == {"text", "apply"}
+
+    def test_no_tool_schema_names_an_agentconfig_field(self) -> None:
+        """The write allowlist is the catalog's SHAPE — no tool takes a
+        field name, so a future AgentConfig field is unwritable by
+        construction. ``text``/``apply`` (the only write-tool params)
+        happen to name nothing in AgentConfig, which is exactly the point:
+        this assertion pins that they never will by accident."""
+        field_names = set(AgentConfig.model_fields)
+        for tool in surface.list_surface_tools():
+            props = set((tool["input_schema"] or {}).get("properties", {}))
+            overlap = props & field_names
+            assert not overlap, f"{tool['name']} schema exposes field-shaped params: {overlap}"
+
+
+# ── AC2 / AC7 — persistence and input bounds ─────────────────────────────
+
+
+class TestAC2PersistExactField:
+    async def test_system_prompt_revision_touches_only_that_field(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store,
+            name="a1",
+            description="orig description",
+            system_prompt="orig prompt",
+            mcp_source_ids=["src-1"],
+            enabled_tools=["shell"],
+        )
+        before_updated_at = await _row_updated_at(conn, "a1")
+
+        _as_agent(monkeypatch, "a1")
+        result = await surface.update_my_system_prompt(
+            ctx=None, text="new prompt", apply="next_session"
+        )
+
+        assert result["applied_to_store"] is True
+        assert result["effective"] == "next_session"
+        assert result["field"] == "system_prompt"
+        assert result["length"] == len("new prompt")
+
+        after = await store.load("a1")
+        assert after.system_prompt == "new prompt"
+        assert after.description == "orig description"
+        assert after.mcp_source_ids == ["src-1"]
+        assert after.enabled_tools == ["shell"]
+        after_updated_at = await _row_updated_at(conn, "a1")
+        assert after_updated_at != before_updated_at
+
+    async def test_description_revision_touches_only_that_field(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="a2", description="orig", system_prompt="prompt stays")
+
+        _as_agent(monkeypatch, "a2")
+        await surface.update_my_description(ctx=None, text="new desc", apply="next_session")
+
+        after = await store.load("a2")
+        assert after.description == "new desc"
+        assert after.system_prompt == "prompt stays"
+
+
+class TestAC7InputBounds:
+    @pytest.mark.parametrize(
+        "text,apply",
+        [
+            ("", "next_turn"),
+            (None, "next_turn"),
+            (123, "next_turn"),
+            ("ok text", "sometime"),
+            ("ok text", ""),
+            ("ok text", None),
+        ],
+    )
+    async def test_rejected_inputs_raise_value_error(self, wired, monkeypatch, text, apply) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="a3", system_prompt="unchanged")
+        _as_agent(monkeypatch, "a3")
+
+        with pytest.raises(ValueError):
+            await surface.update_my_system_prompt(ctx=None, text=text, apply=apply)
+
+        after = await store.load("a3")
+        assert after.system_prompt == "unchanged"
+
+    async def test_oversized_text_rejected(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="a4", system_prompt="unchanged")
+        _as_agent(monkeypatch, "a4")
+
+        huge = "x" * (64 * 1024 + 1)
+        with pytest.raises(ValueError):
+            await surface.update_my_system_prompt(ctx=None, text=huge, apply="next_turn")
+
+        after = await store.load("a4")
+        assert after.system_prompt == "unchanged"
+
+    async def test_exactly_64kib_is_accepted(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="a5", system_prompt="unchanged")
+        _as_agent(monkeypatch, "a5")
+
+        exactly = "x" * (64 * 1024)
+        result = await surface.update_my_system_prompt(ctx=None, text=exactly, apply="next_session")
+        assert result["applied_to_store"] is True
+
+    async def test_rejected_call_never_records_pending(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="a6", system_prompt="unchanged")
+        _as_agent(monkeypatch, "a6")
+
+        with pytest.raises(ValueError):
+            await surface.update_my_system_prompt(ctx=None, text="", apply="next_turn")
+
+        fake_agent = _FakeLiveAgent("unchanged")
+        assert pending.apply_pending_revision("a6", fake_agent) is False
+
+
+async def _row_updated_at(conn: aiosqlite.Connection, name: str) -> str:
+    async with conn.execute("SELECT updated_at FROM agents WHERE name = ?", (name,)) as cur:
+        row = await cur.fetchone()
+    return row["updated_at"]
+
+
+class _FakeLiveAgent:
+    """Minimal stand-in for ``Agent`` — just enough surface for
+    ``pending.apply_pending_revision`` (``system_prompt`` + ``messages``)."""
+
+    def __init__(self, system_prompt: str) -> None:
+        self.system_prompt = system_prompt
+        self.messages: list[Message] = [Message.system(system_prompt)]
+
+
+# ── AC5 — next_session leaves the open agent alone ───────────────────────
+
+
+class TestAC5NextSessionDoesNotDefer:
+    async def test_next_session_does_not_record_pending(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="a7", system_prompt="orig")
+        _as_agent(monkeypatch, "a7")
+
+        await surface.update_my_system_prompt(ctx=None, text="new", apply="next_session")
+
+        fake_agent = _FakeLiveAgent("orig")
+        # No pending entry was ever recorded for next_session — apply is a no-op.
+        assert pending.apply_pending_revision("a7", fake_agent) is False
+        assert fake_agent.system_prompt == "orig"
+
+        # But a rebuilt agent (a fresh load) sees the new value — the store
+        # is the source of truth for next_session.
+        reloaded = await store.load("a7")
+        assert reloaded.system_prompt == "new"
+
+
+# ── AC6 — description revisions never touch messages ─────────────────────
+
+
+class TestAC6DescriptionNeverTouchesMessages:
+    async def test_next_turn_description_revision_leaves_messages_untouched(
+        self, wired, monkeypatch
+    ) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="a8", description="orig", system_prompt="prompt")
+        _as_agent(monkeypatch, "a8")
+
+        await surface.update_my_description(ctx=None, text="new desc", apply="next_turn")
+
+        fake_agent = _FakeLiveAgent("prompt")
+        original_messages = list(fake_agent.messages)
+        applied = pending.apply_pending_revision("a8", fake_agent)
+
+        assert applied is True
+        assert fake_agent.messages == original_messages
+        assert fake_agent.system_prompt == "prompt"
+
+        after = await store.load("a8")
+        assert after.description == "new desc"
+
+
+# ── AC3 — next_turn does not land mid-turn ────────────────────────────────
+
+
+class ScriptedLLM(LLMProvider):
+    """Fake provider replaying a scripted sequence of assistant Messages,
+    recording every request's ``messages`` (mirrors
+    ``tests/test_agent_redundant_backstop.py::ScriptedLLM``)."""
+
+    name = "scripted"
+
+    def __init__(self, responses: list[Message]) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+
+    async def supports_tools(self) -> bool:
+        return True
+
+    async def complete(  # pragma: no cover - loop uses stream()
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 16384,
+    ) -> Message:
+        raise NotImplementedError
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 16384,
+    ) -> AsyncIterator[StreamChunk]:
+        self.calls.append({"messages": list(messages), "tools": tools})
+        msg = self.responses.pop(0)
+        yield StreamChunk(
+            content=msg.content, is_final=True, tool_calls=msg.tool_calls, message=msg
+        )
+
+
+class _RevisingTool(Tool):
+    """Stands in for the real ``update_my_system_prompt`` MCP tool inside
+    the agent loop: mutates the store (via the real write-path helper) and
+    records the pending next_turn deferral — exactly what the production
+    tool does, minus the loopback HTTP hop and identity resolution (both
+    already exercised elsewhere)."""
+
+    def __init__(self, agent_name: str) -> None:
+        self.name = "update_my_system_prompt"
+        self.description = "Revise this agent's own system prompt."
+        self.parameters: dict[str, Any] = {
+            "type": "object",
+            "properties": {"text": {"type": "string"}, "apply": {"type": "string"}},
+            "required": ["text", "apply"],
+        }
+        self._agent_name = agent_name
+
+    async def execute(self, **kwargs: Any) -> str:
+        result = await surface._apply_revision(
+            self._agent_name, "system_prompt", kwargs["text"], kwargs["apply"]
+        )
+        return f"revised: {result}"
+
+
+class _SearchStub(Tool):
+    def __init__(self) -> None:
+        self.name = "search_tools"
+        self.description = "Search every tool available to you."
+        self.parameters = {"type": "object", "properties": {"query": {}}, "required": []}
+
+    async def execute(self, **kwargs: Any) -> str:  # pragma: no cover
+        return ""
+
+
+class TestAC3MidTurnNonApplication:
+    async def test_second_request_in_same_turn_still_carries_old_prompt(
+        self, wired, monkeypatch
+    ) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="turn-agent", system_prompt="OLD PROMPT")
+
+        reg = ToolRegistry()
+        reg.register(_RevisingTool("turn-agent"))
+        reg.register(_SearchStub())
+
+        tool_call = ToolCall(
+            id="tc_1",
+            name="update_my_system_prompt",
+            arguments={"text": "NEW PROMPT", "apply": "next_turn"},
+        )
+        first_response = Message.assistant("", tool_calls=[tool_call])
+        second_response = Message.assistant("all done, no more tools")
+
+        llm = ScriptedLLM([first_response, second_response])
+        agent = Agent(llm=llm, tools=reg, system_prompt="OLD PROMPT")
+
+        messages_before_turn = list(agent.messages)
+        _ = [m async for m in agent.step("please revise yourself")]
+
+        # Two LLM requests happened: the first (pre-tool-call) and the
+        # second (post-tool-dispatch, same turn). BOTH must have carried
+        # the OLD system message — the tool call landed between them, but
+        # next_turn defers to loop exit, not the next iteration.
+        assert len(llm.calls) == 2
+        for call in llm.calls:
+            assert call["messages"][0].content == "OLD PROMPT"
+
+        # The live agent object itself is untouched mid-turn.
+        assert agent.system_prompt == "OLD PROMPT"
+        assert agent.messages[0].content == "OLD PROMPT"
+
+        # The revision WAS persisted to the store immediately (LD2).
+        stored = await store.load("turn-agent")
+        assert stored.system_prompt == "NEW PROMPT"
+
+        # History grew (user msg, assistant+tool_call, tool result,
+        # assistant) — untouched by the deferral.
+        assert len(agent.messages) > len(messages_before_turn)
+
+        # Now settle the turn (what app.py's non-paused settle does) —
+        # the deferred revision applies, and the NEXT request would carry
+        # the new prompt, with history intact (no wipe).
+        history_len_before_settle = len(agent.messages)
+        applied = pending.apply_pending_revision("turn-agent", agent)
+        assert applied is True
+        assert agent.system_prompt == "NEW PROMPT"
+        assert agent.messages[0].content == "NEW PROMPT"
+        assert len(agent.messages) == history_len_before_settle  # no wipe
+
+        # A subsequent step's first request now carries the new prompt.
+        llm.responses.append(Message.assistant("ack"))
+        _ = [m async for m in agent.step("thanks")]
+        assert llm.calls[-1]["messages"][0].content == "NEW PROMPT"
+
+
+# ── AC4 — the hook runs at the non-paused settle only, once ──────────────
+
+
+class _StubAgent:
+    """Minimal ``Agent`` stand-in for driving ``_process_and_broadcast`` /
+    ``_resume_paused_session`` directly (mirrors
+    ``tests/test_app_websocket_pause_resume.py::StubAgent``)."""
+
+    def __init__(
+        self,
+        step_messages: list[Message] | None = None,
+        resume_messages: list[Message] | None = None,
+        deferred_tool_calls: list[ToolCall] | None = None,
+        system_prompt: str = "original",
+    ) -> None:
+        self._step_messages = step_messages or []
+        self._resume_messages = resume_messages or []
+        self._deferred_tool_calls = deferred_tool_calls
+        self.system_prompt = system_prompt
+        self.messages: list[Message] = [Message.system(system_prompt)]
+
+        class _LLMShim:
+            max_context_tokens = 128_000
+
+        self.llm = _LLMShim()
+
+    async def step(self, user_input, on_chunk=None, on_usage=None):  # noqa: ARG002
+        for m in self._step_messages:
+            yield m
+
+    async def resume_after_auth(self):
+        if self._deferred_tool_calls is None:
+            return
+        self._deferred_tool_calls = None
+        for m in self._resume_messages:
+            yield m
+
+    def reset(self) -> None:  # pragma: no cover
+        self.messages = []
+
+
+def _pause_message() -> Message:
+    return Message.tool(
+        ToolResult(
+            tool_call_id="tc_pause",
+            content="auth required",
+            metadata={
+                "is_auth_required": True,
+                "source_id": "src1",
+                "resource_metadata_url": "https://x/.well-known/oauth-protected-resource",
+                "tool_call_id": "tc_pause",
+            },
+        )
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stub_broadcast_and_persist(monkeypatch):
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_send_to_session", AsyncMock(return_value=None))
+
+
+class TestAC4HookRunsAtNonPausedSettleOnly:
+    async def test_non_paused_turn_applies_the_revision(self) -> None:
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        session = Session(id="cs-1", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+
+        await _process_and_broadcast(session, "hi")
+
+        assert agent.system_prompt == "NEW"
+        assert agent.messages[0].content == "NEW"
+
+    async def test_paused_turn_does_not_apply(self) -> None:
+        agent = _StubAgent(
+            step_messages=[
+                Message.assistant("", tool_calls=[ToolCall(id="tc_pause", name="x", arguments={})]),
+                _pause_message(),
+            ],
+            system_prompt="OLD",
+        )
+        session = Session(id="cs-2", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+
+        await _process_and_broadcast(session, "hi")
+
+        assert agent.system_prompt == "OLD"
+        assert agent.messages[0].content == "OLD"
+        # The entry is still pending — a later non-paused settle will apply it.
+        assert pending.apply_pending_revision("default", agent) is True
+        assert agent.system_prompt == "NEW"
+
+    async def test_resume_that_settles_applies_the_revision(self) -> None:
+        agent = _StubAgent(
+            deferred_tool_calls=[ToolCall(id="tc_pause", name="x", arguments={})],
+            resume_messages=[Message.assistant("resumed and done")],
+            system_prompt="OLD",
+        )
+        session = Session(id="cs-3", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+
+        await _resume_paused_session(session)
+
+        assert agent.system_prompt == "NEW"
+        assert agent.messages[0].content == "NEW"
+
+    async def test_resume_that_re_pauses_does_not_apply(self) -> None:
+        agent = _StubAgent(
+            deferred_tool_calls=[ToolCall(id="tc_pause2", name="x", arguments={})],
+            resume_messages=[_pause_message()],
+            system_prompt="OLD",
+        )
+        session = Session(id="cs-4", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+
+        await _resume_paused_session(session)
+
+        assert agent.system_prompt == "OLD"
+        assert agent.messages[0].content == "OLD"
+
+    async def test_entry_consumed_second_settle_is_a_no_op(self) -> None:
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        session = Session(id="cs-5", agent=agent, created="2026-08-24T00:00:00+00:00")
+        pending.record("default", system_prompt="NEW")
+
+        await _process_and_broadcast(session, "hi")
+        assert agent.system_prompt == "NEW"
+
+        # A second, unrelated non-paused turn must NOT re-apply (no entry left).
+        agent._step_messages = [Message.assistant("again")]
+        await _process_and_broadcast(session, "hi again")
+        assert agent.system_prompt == "NEW"
+        assert agent.messages[0].content == "NEW"
+
+    async def test_default_agent_none_normalizes_like_a_named_agent(self) -> None:
+        """Session.agent_name is None for the default agent; the settle
+        sites must normalize via `or "default"` — a skip-on-None guard
+        would silently degrade next_turn to next_session for single-agent
+        installs (LD1)."""
+        agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
+        session = Session(id="cs-6", agent=agent, created="2026-08-24T00:00:00+00:00")
+        assert session.agent_name is None
+        pending.record("default", system_prompt="NEW")
+
+        await _process_and_broadcast(session, "hi")
+
+        assert agent.system_prompt == "NEW"
+
+
+# ── LD7 — fixed prefixed tool names and JS/Python slug parity ────────────
+
+
+class TestLD7FixedToolNames:
+    def test_four_prefixed_names_at_most_64_chars(self) -> None:
+        prefixed = _normalize_source_name(manage.SURFACE_ROW_NAME)
+        for tool_name in (
+            "get_my_configuration",
+            "describe_my_capabilities",
+            "update_my_description",
+            "update_my_system_prompt",
+        ):
+            full = f"mcp__{prefixed}__{tool_name}"
+            assert len(full) <= _TOOL_NAME_MAX_LEN, full
+
+    def test_slugify_agrees_with_normalize_source_name_for_the_constant(self) -> None:
+        """The JS ``_slugify`` (used only for a tooltip label in
+        `mcps-tab.js`) must agree with the backend's
+        `_normalize_source_name` for the reserved constant, or the tooltip
+        shows a prefixed tool name that does not match the one the agent
+        actually sees."""
+        js_result = _slugify_py(manage.SURFACE_ROW_NAME)
+        py_result = _normalize_source_name(manage.SURFACE_ROW_NAME)
+        assert js_result == py_result
+
+
+def _slugify_py(name: str) -> str:
+    """Python port of `mcps-tab.js`'s `_slugify`, kept in lockstep by this
+    test — see `mcps-tab.js:_slugify`."""
+    s = name.lower()
+    s = re.sub(r"[^a-z0-9_-]+", "_", s)
+    s = re.sub(r"^_|_$", "", s)
+    return s

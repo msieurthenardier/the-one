@@ -93,9 +93,30 @@
     listContainer.className = 'mcp-sources-list';
     listContainer.setAttribute('data-testid', 'mcp-sources-list');
 
-    for (var i = 0; i < allSources.length; i++) {
+    // M21 F01 L02 (DD3): the editor's fetch includes every agent's
+    // self-configuration surface row (`?include_agent_surfaces=1`), but
+    // this tab must show an agent ONLY its own — never another agent's.
+    // Create-mode (agent === null) shows none.
+    var visibleSources = [];
+    for (var vi = 0; vi < allSources.length; vi++) {
+      var candidate = allSources[vi];
+      var marker = candidate.config && candidate.config.self_configuration;
+      if (marker && typeof marker === 'object') {
+        if (!agent || marker.agent !== agent.name) continue;
+      }
+      visibleSources.push(candidate);
+    }
+
+    if (visibleSources.length === 0) {
+      _renderEmptyState(panel);
+      return;
+    }
+
+    for (var i = 0; i < visibleSources.length; i++) {
       (function (source) {
         var isAttached = attachedIds[source.id] === true;
+        var isSelfConfigurationRow = !!(source.config && source.config.self_configuration &&
+          typeof source.config.self_configuration === 'object');
 
         // Each MCP source = a tile echoing .entity-tile (quiet surface +
         // hairline border). The tile composes: row1 (toggle + name + protocol badge +
@@ -122,6 +143,18 @@
         checkbox.setAttribute('data-mcp-source-id', source.id);
         checkbox.setAttribute('data-testid', 'mcp-source-toggle-' + source.id);
         checkbox.checked = isAttached;
+        if (isSelfConfigurationRow) {
+          // M21 F01 L02: the surface's OWN attach toggle is locked
+          // checked+disabled — it is managed exclusively from the
+          // Self-configuration tab, never from here. A disabled checked
+          // checkbox still matches `:checked` in the DOM, so
+          // collectFormData's `[data-mcp-source-toggle]:checked` scan
+          // keeps the id in `mcp_source_ids` on save; the per-tool
+          // checkboxes below stay fully editable (the operator's
+          // per-capability control).
+          checkbox.checked = true;
+          checkbox.disabled = true;
+        }
         toggleLabel.appendChild(checkbox);
 
         var visualSwitch = document.createElement('span');
@@ -134,6 +167,14 @@
         nameSpan.className = 'mcp-source-tile-name';
         nameSpan.textContent = source.name;
         row1.appendChild(nameSpan);
+
+        if (isSelfConfigurationRow) {
+          var hint = document.createElement('span');
+          hint.className = 'mcp-source-tile-self-configuration-hint';
+          hint.setAttribute('data-testid', 'mcp-source-self-configuration-hint-' + source.id);
+          hint.textContent = 'managed on the Self-configuration tab';
+          row1.appendChild(hint);
+        }
 
         // Enabled-count chicklet (matches the built-in Tools tab category
         // chicklet shape) — shows live `X / Y enabled`. Hidden until the
@@ -368,7 +409,7 @@
         }
 
         listContainer.appendChild(tile);
-      })(allSources[i]);
+      })(visibleSources[i]);
     }
 
     panel.appendChild(listContainer);
@@ -573,7 +614,15 @@
   }
 
   function _slugify(name) {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    // LD7 (M21 F01 L03): keep hyphens/underscores through the substitution
+    // (they are also allowed by the backend's `mcp/_tool.py:
+    // _normalize_source_name`) so the tooltip-only prefixed name this
+    // builds agrees with the ACTUAL tool name the agent sees for a name
+    // like the self-configuration surface's constant row name
+    // ("self-configuration") — previously this collapsed the hyphen to an
+    // underscore while the backend preserved it, showing a tooltip that
+    // did not match reality.
+    return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_|_$/g, '');
   }
 
   window.App.studio.renderMcpsTab = renderMcpsTab;

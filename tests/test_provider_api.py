@@ -1172,6 +1172,279 @@ class TestEncryptionRotation:
         mcp_get = await client.get(f"/api/mcp-sources/{sid}")
         assert mcp_get.json()["secrets"]["K"] == "***...cret"
 
+    # ── M21 F01 L01: agents.tool_overrides / agents.mcp_overrides join
+    # the rotation transaction as the fifth surface (flight-log Decision D1).
+
+    async def test_rotate_agent_overrides(self, client: AsyncClient, tmp_path: Path) -> None:
+        """After rotation, an agent's tool_overrides/mcp_overrides still
+        decrypt under the new key and NOT the old key."""
+        import json as _json
+
+        from cryptography.fernet import InvalidToken
+
+        create_resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "rotate-agent",
+                "tool_overrides": {"shell": {"timeout": 30}},
+                "mcp_overrides": {"github": {"bearer_token": "rotationtestbearer"}},
+            },
+        )
+        assert create_resp.status_code == 201
+
+        key_before = (tmp_path / "test.key").read_bytes()
+
+        rot_resp = await client.post("/api/encryption/rotate")
+        assert rot_resp.status_code == 200
+        assert rot_resp.json() == {"status": "ok"}
+
+        key_after = (tmp_path / "test.key").read_bytes()
+        assert key_after != key_before
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT tool_overrides, mcp_overrides FROM agents WHERE name = ?",
+                ("rotate-agent",),
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        assert row is not None
+
+        # Old key can no longer decrypt (re-encrypted under the new key).
+        with pytest.raises(InvalidToken):
+            Fernet(key_before).decrypt(row["tool_overrides"].encode())
+        with pytest.raises(InvalidToken):
+            Fernet(key_before).decrypt(row["mcp_overrides"].encode())
+
+        # New key decrypts to the original values.
+        assert _json.loads(Fernet(key_after).decrypt(row["tool_overrides"].encode())) == {
+            "shell": {"timeout": 30}
+        }
+        assert _json.loads(Fernet(key_after).decrypt(row["mcp_overrides"].encode())) == {
+            "github": {"bearer_token": "rotationtestbearer"}
+        }
+
+        # GET-after-rotate proves the cached encryptor decrypts under the
+        # new key end-to-end (mirrors test_rotate_mcp_source_secrets).
+        get_resp = await client.get("/api/agents/rotate-agent")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["mcp_overrides"]["github"]["bearer_token"] == "***...arer"
+
+    async def test_rotate_normalizes_legacy_plaintext_agent_row(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """A legacy row whose columns hold plaintext JSON (pre-leg data,
+        NOT the migration-residue '{}' default) rotates without crashing
+        and is normalized to proper ciphertext — mirrors
+        test_rotate_with_migration_residue_mcp_row, but agents legacy
+        plaintext is real operator data, not an empty-default residue."""
+        import json as _json
+
+        seed_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        seed_conn.row_factory = aiosqlite.Row
+        try:
+            await seed_conn.execute(
+                "INSERT INTO agents (name, tool_overrides, mcp_overrides) VALUES (?, ?, ?)",
+                (
+                    "legacy-plaintext-agent",
+                    _json.dumps({"shell": {"timeout": 45}}),
+                    _json.dumps({"github": {"bearer_token": "legacyplaintexttoken"}}),
+                ),
+            )
+            await seed_conn.commit()
+        finally:
+            await seed_conn.close()
+
+        # Pre-rotation: the API's tolerant decode reads the legacy
+        # plaintext intact.
+        pre_get = await client.get("/api/agents/legacy-plaintext-agent")
+        assert pre_get.status_code == 200
+        assert pre_get.json()["tool_overrides"] == {"shell": {"timeout": 45}}
+
+        rot_resp = await client.post("/api/encryption/rotate")
+        assert rot_resp.status_code == 200
+        assert rot_resp.json() == {"status": "ok"}
+
+        post_get = await client.get("/api/agents/legacy-plaintext-agent")
+        assert post_get.status_code == 200
+        assert post_get.json()["tool_overrides"] == {"shell": {"timeout": 45}}
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT tool_overrides FROM agents WHERE name = ?",
+                ("legacy-plaintext-agent",),
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        assert row is not None
+        with pytest.raises(_json.JSONDecodeError):
+            _json.loads(row["tool_overrides"])  # normalized to ciphertext
+        new_key = (tmp_path / "test.key").read_bytes()
+        assert _json.loads(Fernet(new_key).decrypt(row["tool_overrides"].encode())) == {
+            "shell": {"timeout": 45}
+        }
+
+    async def test_rotate_agent_with_null_columns_stays_null(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """An agent whose override columns are both NULL rotates without
+        writing an encrypted "null" — the columns stay SQL NULL."""
+        create_resp = await client.post("/api/agents", json={"name": "null-columns-agent"})
+        assert create_resp.status_code == 201
+
+        rot_resp = await client.post("/api/encryption/rotate")
+        assert rot_resp.status_code == 200
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT tool_overrides, mcp_overrides FROM agents WHERE name = ?",
+                ("null-columns-agent",),
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        assert row is not None
+        assert row["tool_overrides"] is None
+        assert row["mcp_overrides"] is None
+
+    async def test_rotate_preserves_agent_overrides_on_db_failure(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """A DB commit failure during rotation leaves the agents columns
+        byte-identical, alongside the other four surfaces — the
+        commit-patch shape (mirrors test_rotate_preserves_mcp_secrets_on_db_failure)."""
+        create_resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "fail-agent",
+                "mcp_overrides": {"github": {"bearer_token": "preserveagenttoken"}},
+            },
+        )
+        assert create_resp.status_code == 201
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT mcp_overrides FROM agents WHERE name = ?", ("fail-agent",)
+            ) as cur:
+                ct_before = (await cur.fetchone())["mcp_overrides"]
+        finally:
+            await direct_conn.close()
+
+        with (
+            patch(
+                "aiosqlite.Connection.commit",
+                side_effect=RuntimeError("simulated DB failure"),
+            ),
+            pytest.raises(RuntimeError, match="simulated DB failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        # (i) Key file byte-identical to its pre-rotation contents.
+        assert key_path.read_bytes() == key_before
+
+        # (ii) Cached encryptor still decrypts (proves install_key NOT called).
+        get_resp = await client.get("/api/agents/fail-agent")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["mcp_overrides"]["github"]["bearer_token"] == "***...oken"
+
+        # (iii) On-disk ciphertext byte-identical.
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT mcp_overrides FROM agents WHERE name = ?", ("fail-agent",)
+            ) as cur:
+                assert (await cur.fetchone())["mcp_overrides"] == ct_before
+        finally:
+            await direct_conn.close()
+
+    async def test_rotate_agents_update_failure_rolls_back_other_surfaces(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """Placement test: a failure injected specifically into the
+        `UPDATE agents` statement rolls back an MCP source's ciphertext
+        and the on-disk key file — proving the agents UPDATE loop sits
+        INSIDE the same `try:` block as the other four surfaces (a
+        commit-patch test alone cannot prove ordering/placement, only
+        that a failure somewhere rolls everything back)."""
+        mcp_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "PlacementMCP",
+                "type": "stdio",
+                "config": {"command": "x"},
+                "secrets": {"K": "placementtestmcpsecret"},
+            },
+        )
+        assert mcp_resp.status_code in (200, 201)
+        sid = mcp_resp.json()["id"]
+
+        agent_resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "placement-agent",
+                "mcp_overrides": {"github": {"bearer_token": "placementagenttoken"}},
+            },
+        )
+        assert agent_resp.status_code == 201
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                mcp_ct_before = (await cur.fetchone())["secrets"]
+        finally:
+            await direct_conn.close()
+
+        real_execute = aiosqlite.Connection.execute
+
+        def _raising_execute(self, sql, *args, **kwargs):
+            if isinstance(sql, str) and sql.strip().startswith("UPDATE agents"):
+                raise RuntimeError("simulated agents UPDATE failure")
+            return real_execute(self, sql, *args, **kwargs)
+
+        with (
+            patch("aiosqlite.Connection.execute", _raising_execute),
+            pytest.raises(RuntimeError, match="simulated agents UPDATE failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        # Key file untouched — the failure happened before commit.
+        assert key_path.read_bytes() == key_before
+
+        # The MCP source's ciphertext is untouched (rollback covered it too).
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                assert (await cur.fetchone())["secrets"] == mcp_ct_before
+        finally:
+            await direct_conn.close()
+
+        # Cached encryptor still decrypts the MCP source (install_key NOT called).
+        mcp_get = await client.get(f"/api/mcp-sources/{sid}")
+        assert mcp_get.json()["secrets"]["K"] == "***...cret"
+
 
 # ── Provider helper ────────────────────────────────────────────────────
 

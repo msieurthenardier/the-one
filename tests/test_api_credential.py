@@ -98,6 +98,36 @@ class TestCredentialShape:
         assert "visible-id" in s
         assert "super-secret-value" not in s
 
+    # M21 F01 L02 (LD2): `parse`/`encode` gained a `prefix` keyword so the
+    # self-configuration surface can mint `agt`-prefixed credentials
+    # through the same shape without a parallel class.
+
+    def test_encode_with_custom_prefix_round_trips_with_matching_parse(self) -> None:
+        cred = LocalApiCredential.generate()
+        token = cred.encode(prefix="agt")
+        assert token.startswith("agt_")
+        parsed = LocalApiCredential.parse(token, prefix="agt")
+        assert parsed is not None
+        assert parsed.identifier == cred.identifier
+        assert parsed.secret == cred.secret
+
+    def test_default_prefix_parse_rejects_custom_prefix_token(self) -> None:
+        """A `FileCredentialSource` (which always parses with the default
+        prefix) must reject an `agt_`-prefixed token on prefix mismatch and
+        fall through — never accidentally accept it as a `loc` credential."""
+        cred = LocalApiCredential.generate()
+        token = cred.encode(prefix="agt")
+        assert LocalApiCredential.parse(token) is None
+
+    def test_custom_prefix_parse_rejects_default_prefix_token(self) -> None:
+        cred = LocalApiCredential.generate()
+        token = cred.encode()
+        assert LocalApiCredential.parse(token, prefix="agt") is None
+
+    def test_encode_default_prefix_unchanged(self) -> None:
+        cred = LocalApiCredential.generate()
+        assert cred.encode() == cred.encode(prefix=api_credential.CREDENTIAL_PREFIX)
+
 
 # ---------------------------------------------------------------------------
 # Identified caller / lookup seam (DD8)

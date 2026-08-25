@@ -91,3 +91,27 @@ class StreamableHttpMCPOverride(BaseModel):
     # F8 L1: see StdioMCPOverride for rationale.
     enabled_tools: list[str] | None = None
     disabled_tools: list[str] | None = None
+
+
+# M21 F01 L01: marker-derived set of `mcp_overrides` inner-dict keys that
+# carry credential material. Computed by scanning both override schemas'
+# `model_fields[name].metadata` for the `Substitute` marker object (the
+# same `m is Substitute` identity check `the_one/tools/resolver.py` and
+# `interfaces/web/api.py:_enrich_schema_with_markers` both use) — NOT
+# hand-listed. `enabled_tools` / `disabled_tools` carry no marker and are
+# correctly excluded: they are not secrets, and Studio's MCPs tab
+# round-trips them in the clear.
+#
+# `interfaces/web/api.py:_agent_response` masks exactly these keys inside
+# each `mcp_overrides[<source>]` entry; `tool_overrides` values are never
+# masked (no `Substitute`-marked field exists on any built-in tool Config
+# today — see the leg's Context section for the `WebConfig.default_user_agent`
+# citation). A future `Substitute` credential added to either override
+# schema is masked automatically, with no `api.py` edit required — that is
+# the point of deriving this set rather than typing it out.
+MCP_OVERRIDE_CREDENTIAL_KEYS: frozenset[str] = frozenset(
+    name
+    for schema_cls in (StdioMCPOverride, StreamableHttpMCPOverride)
+    for name, field_info in schema_cls.model_fields.items()
+    if any(m is Substitute for m in field_info.metadata)
+)

@@ -65,14 +65,73 @@ def _decrypt_secrets_blob(encryptor: Encryptor, ciphertext: str | None) -> dict[
     return json.loads(plaintext)  # JSONDecodeError propagates
 
 
+def _encrypt_overrides_column(encryptor: Encryptor, value: dict[str, Any] | None) -> str | None:
+    """Serialize + Fernet-encrypt an ``agents.tool_overrides`` /
+    ``agents.mcp_overrides`` column value.
+
+    ``None`` passes through as ``None`` (stored as SQL NULL) — the
+    None/``{}`` distinction the round-trip tests pin is preserved: an
+    explicit ``{}`` IS encrypted (not treated as "empty, store NULL").
+    """
+    if value is None:
+        return None
+    return encryptor.encrypt(json.dumps(value))
+
+
+def _decrypt_overrides_column(encryptor: Encryptor, raw: str | None) -> dict[str, Any] | None:
+    """Decode an ``agents.tool_overrides`` / ``agents.mcp_overrides``
+    column value, tolerating legacy plaintext.
+
+    Deliberately NOT :func:`_decrypt_secrets_blob`: that helper treats
+    ``InvalidToken`` as "empty secrets" (`{}`) — correct for a column
+    whose default is the plaintext string ``'{}'``, but destructive here.
+    Pre-leg rows carry REAL operator data in plaintext JSON (e.g.
+    ``{"shell": {"timeout": 30}}``) with no encrypted default to fall
+    back to; returning ``{}`` on ``InvalidToken`` would silently discard
+    it. Instead, ``InvalidToken`` falls through to ``json.loads(raw)`` —
+    the plaintext IS the value. The caller (``save()``) re-encrypts on
+    the next write, so legacy rows migrate lazily rather than being
+    erased.
+
+    ``None`` / empty string → ``None`` (mirrors the pre-leg truthiness
+    decode: NULL and empty string both mean "not set").
+
+    ``JSONDecodeError`` is NOT swallowed in either branch — real
+    corruption (ciphertext that decrypts to non-JSON, or plaintext that
+    isn't valid JSON) must surface, not be silently masked.
+    """
+    if not raw:
+        return None
+    try:
+        plaintext = encryptor.decrypt(raw)
+    except InvalidToken:
+        # Legacy plaintext (pre-leg row, or a row not yet rewritten by a
+        # save() since this leg landed). NOT migration-residue-as-empty:
+        # this is real operator data. json.loads below propagates
+        # JSONDecodeError for genuine corruption.
+        return json.loads(raw)
+    return json.loads(plaintext)
+
+
 # ── Agent repository ──────────────────────────────────────────────────────
 
 
 class SQLiteAgentStore:
     """Async agent config store backed by SQLite."""
 
-    def __init__(self, conn: aiosqlite.Connection) -> None:
+    def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor | None = None) -> None:
         self.conn = conn
+        if encryptor is None:
+            # Local imports: `config.py` and `encryption.py` import
+            # nothing from `the_one`, so no cycle — matches the
+            # `_tool_provider.py:242` precedent for a defaulted,
+            # settings-resolved encryptor.
+            from the_one.config import settings
+            from the_one.encryption import get_encryptor
+
+            encryptor = get_encryptor(settings.data_dir)
+        self.encryptor = encryptor  # Reference, NOT copy. install_key() post-rotation
+        # must propagate to this store. Mirrors MCPSourceRepository:405-407.
 
     async def list_agents(self) -> list[str]:
         async with self.conn.execute("SELECT name FROM agents ORDER BY name") as cur:
@@ -168,8 +227,8 @@ class SQLiteAgentStore:
                 config.max_iterations,
                 json.dumps(config.kb_ids),
                 json.dumps(config.mcp_source_ids),
-                json.dumps(config.tool_overrides) if config.tool_overrides is not None else None,
-                json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
+                _encrypt_overrides_column(self.encryptor, config.tool_overrides),
+                _encrypt_overrides_column(self.encryptor, config.mcp_overrides),
                 json.dumps(config.connector_ids),
                 json.dumps(config.connector_acls) if config.connector_acls is not None else None,
                 (
@@ -234,8 +293,7 @@ class SQLiteAgentStore:
         )
         await self.conn.commit()
 
-    @staticmethod
-    def _row_to_config(row: aiosqlite.Row) -> AgentConfig:
+    def _row_to_config(self, row: aiosqlite.Row) -> AgentConfig:
         enabled = json.loads(row["enabled_tools"]) if row["enabled_tools"] else None
         return AgentConfig(
             name=row["name"],
@@ -252,8 +310,12 @@ class SQLiteAgentStore:
             # string both deserialize to None. Missing-column safety
             # comes from the v8 migration having run, not from this
             # expression — `aiosqlite.Row[<missing>]` raises IndexError.
-            tool_overrides=(json.loads(row["tool_overrides"]) if row["tool_overrides"] else None),
-            mcp_overrides=(json.loads(row["mcp_overrides"]) if row["mcp_overrides"] else None),
+            # M21 F01 L01: both columns are now Fernet ciphertext at rest;
+            # `_decrypt_overrides_column` tolerates legacy plaintext rows
+            # (see its docstring for why `_decrypt_secrets_blob` is not
+            # reused here).
+            tool_overrides=_decrypt_overrides_column(self.encryptor, row["tool_overrides"]),
+            mcp_overrides=_decrypt_overrides_column(self.encryptor, row["mcp_overrides"]),
             # `or "[]"` defends against both NULL (pre-v17 rows persisted
             # before the M10 F4 L5 migration added the column) AND the
             # empty-string edge case. The v17 migration is the gate that

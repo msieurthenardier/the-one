@@ -211,12 +211,17 @@ caught — but it cannot see where the attribute is emitted.
 | `save-mcp-source-btn` | studio | |
 | `save-provider-btn` | admin | |
 | `save-tool-btn` | admin | |
+| `self-configuration-error` | studio | Self-configuration tab (M21 F01 L02) |
+| `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
+| `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
+| `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02) |
 | `studio-knowledge-stub` | studio | |
 | `tab-access-and-routing` | studio | |
 | `tab-connectors` | studio | |
 | `tab-general` | studio | |
 | `tab-knowledge` | studio | |
 | `tab-mcps` | studio | |
+| `tab-self-configuration` | studio | sixth agent-editor tab (M21 F01 L02) |
 | `tab-tools` | studio | |
 | `test-connection-btn` | admin | |
 | `test-provider-btn` | studio | |
@@ -271,6 +276,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-source-details-body-` | studio | |
 | `mcp-source-expand-` | studio | |
 | `mcp-source-row-` | studio | |
+| `mcp-source-self-configuration-hint-` | studio | locked attach-toggle hint on the owning agent's own surface row (M21 F01 L02) |
 | `mcp-source-subtitle-` | studio | |
 | `mcp-source-toggle-` | studio | |
 | `mcp-tool-toggle-` | studio | |

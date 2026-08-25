@@ -88,24 +88,37 @@ class LocalApiCredential:
         )
 
     @classmethod
-    def parse(cls, token: str) -> LocalApiCredential | None:
+    def parse(cls, token: str, *, prefix: str = CREDENTIAL_PREFIX) -> LocalApiCredential | None:
         """Parse an opaque credential string.
 
         Returns ``None`` (never raises) on anything that doesn't match the
         shape — a malformed *presented* credential is just a failed lookup,
         not an exceptional condition.
+
+        ``prefix`` (M21 F01 L02): the type-distinguishing prefix to require —
+        defaults to ``CREDENTIAL_PREFIX`` ("loc") so every existing call site
+        is unaffected. `the_one.self_configuration.credentials` passes
+        ``AGENT_CREDENTIAL_PREFIX`` ("agt") so an ``agt_``-prefixed token
+        parses for the per-agent source while ``FileCredentialSource``
+        (which always calls with the default) correctly rejects it on
+        prefix mismatch and falls through.
         """
-        prefix = f"{CREDENTIAL_PREFIX}_"
-        if not token.startswith(prefix):
+        full_prefix = f"{prefix}_"
+        if not token.startswith(full_prefix):
             return None
-        identifier, sep, secret = token[len(prefix) :].partition(_SEPARATOR)
+        identifier, sep, secret = token[len(full_prefix) :].partition(_SEPARATOR)
         if not sep or not identifier or not secret:
             return None
         return cls(identifier=identifier, secret=secret)
 
-    def encode(self) -> str:
-        """Return the opaque on-the-wire / on-disk string form."""
-        return f"{CREDENTIAL_PREFIX}_{self.identifier}{_SEPARATOR}{self.secret}"
+    def encode(self, *, prefix: str = CREDENTIAL_PREFIX) -> str:
+        """Return the opaque on-the-wire / on-disk string form.
+
+        ``prefix`` (M21 F01 L02): defaults to ``CREDENTIAL_PREFIX`` so every
+        existing call site is unaffected; the self-configuration surface's
+        credential source encodes with ``AGENT_CREDENTIAL_PREFIX`` instead.
+        """
+        return f"{prefix}_{self.identifier}{_SEPARATOR}{self.secret}"
 
     def __repr__(self) -> str:
         return f"LocalApiCredential(identifier={self.identifier!r}, secret=<redacted>)"

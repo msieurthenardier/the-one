@@ -47,7 +47,8 @@
     knowledge: 'agent-tab-panel-knowledge',
     mcps: 'agent-tab-panel-mcps',
     connectors: 'agent-tab-panel-connectors',
-    tools: 'agent-tab-panel-tools'
+    tools: 'agent-tab-panel-tools',
+    'self-configuration': 'agent-tab-panel-self-configuration'
   };
 
   function renderAgentEditor(container, agent, providers, callbacks) {
@@ -110,6 +111,12 @@
     html += '<button type="button" role="tab" class="tab" id="agent-tab-tools" ' +
       'aria-controls="' + PANEL_IDS.tools + '" data-tab-id="tools" ' +
       'data-testid="tab-tools" aria-selected="false" tabindex="-1">Built-in Tools</button>';
+    // M21 F01 L02 — sixth tab: enable/disable the loopback self-
+    // configuration MCP surface for this agent. Off by default; see
+    // studio/self-configuration-tab.js.
+    html += '<button type="button" role="tab" class="tab" id="agent-tab-self-configuration" ' +
+      'aria-controls="' + PANEL_IDS['self-configuration'] + '" data-tab-id="self-configuration" ' +
+      'data-testid="tab-self-configuration" aria-selected="false" tabindex="-1">Self-configuration</button>';
     html += '</div>';
 
     // === Tab panels ================================================
@@ -124,6 +131,8 @@
       '" data-tab-id="connectors" aria-labelledby="agent-tab-connectors" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.tools +
       '" data-tab-id="tools" aria-labelledby="agent-tab-tools" hidden></div>';
+    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS['self-configuration'] +
+      '" data-tab-id="self-configuration" aria-labelledby="agent-tab-self-configuration" hidden></div>';
     html += '</div>';
 
     container.innerHTML = html;
@@ -150,6 +159,7 @@
     var mcpsPanel = container.querySelector('#' + PANEL_IDS.mcps);
     var connectorsPanel = container.querySelector('#' + PANEL_IDS.connectors);
     var toolsPanel = container.querySelector('#' + PANEL_IDS.tools);
+    var selfConfigurationPanel = container.querySelector('#' + PANEL_IDS['self-configuration']);
 
     window.App.studio.renderGeneralTab(generalPanel, agent, providers, {
       onTestProvider: callbacks.onTestProvider,
@@ -182,6 +192,14 @@
       disabledTools: callbacks.disabledTools,
       operatorConfigs: callbacks.operatorConfigs,
       fetchToolSchema: callbacks.fetchToolSchema
+    });
+    // M21 F01 L02 — Self-configuration tab: enable/disable control + status
+    // line. `agent` is null in create-mode; the tab renders a "save first"
+    // notice in that case (mirrors the Danger Zone's isCreate guard).
+    window.App.studio.renderSelfConfigurationTab(selfConfigurationPanel, agent, {
+      fetchStatus: callbacks.fetchSelfConfigurationStatus,
+      onEnable: callbacks.onEnableSelfConfiguration,
+      onDisable: callbacks.onDisableSelfConfiguration
     });
 
     // Initialize the App.tabs helper. The initial activation happens here

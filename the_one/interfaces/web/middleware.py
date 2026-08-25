@@ -39,6 +39,7 @@ from the_one.interfaces.web.handoff_store import (
     HandoffStore,
     get_default_handoff_store,
 )
+from the_one.self_configuration.constants import CONFINED_SOURCE_PATHS
 
 # ASGI types — keep loose to avoid pulling starlette types into a hot path.
 Scope = dict
@@ -358,6 +359,27 @@ class CredentialGateMiddleware:
             # already produced (possibly None -> 401 below).
 
         if caller is not None:
+            # LD2 / Decision D5: a caller from a CONFINED source (currently
+            # only "self-configuration") is admitted ONLY to paths under its
+            # mapped prefix — every other path gets 403. `file` and the
+            # cookie channel's `session` are absent from the map and reach
+            # this point unaffected, exactly as before this leg.
+            #
+            # Flight-end review fix: match the mount path as a ROUTE
+            # BOUNDARY, not a bare string prefix. A plain
+            # ``path.startswith(confined_prefix)`` would also admit a
+            # sibling route that merely shares the string prefix (e.g.
+            # ``/mcp/self-configuration-admin``), which is not actually
+            # under the mounted surface. Only ``path == confined_prefix``
+            # (bare mount path, no trailing slash) or
+            # ``path.startswith(confined_prefix + "/")`` (anything under
+            # it) count as "under its mapped prefix."
+            confined_prefix = CONFINED_SOURCE_PATHS.get(caller.source)
+            if confined_prefix is not None and not (
+                path == confined_prefix or path.startswith(confined_prefix + "/")
+            ):
+                await self._send_403(send)
+                return
             scope[CALLER_SCOPE_KEY] = caller
             await self.app(scope, receive, send)
             return
@@ -389,6 +411,13 @@ class CredentialGateMiddleware:
             # module's top docstring and `OriginAllowlistMiddleware`'s
             # identical constraint). Code 1008 mirrors the Origin
             # middleware's choice for "policy violation."
+            await send({"type": "websocket.close", "code": 1008})
+            return
+
+        # LD2 / Decision D5: a caller from a CONFINED source is refused
+        # outright for EVERY WebSocket upgrade — there is no WS endpoint
+        # under the surface's HTTP-only mount prefix to admit it to.
+        if caller.source in CONFINED_SOURCE_PATHS:
             await send({"type": "websocket.close", "code": 1008})
             return
 
@@ -492,6 +521,25 @@ class CredentialGateMiddleware:
             {
                 "type": "http.response.start",
                 "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    @staticmethod
+    async def _send_403(send: Send) -> None:
+        # LD2 / Decision D5: a confined-source caller (e.g. an agent's
+        # per-agent `agt` credential) presenting a path outside its mapped
+        # prefix. Distinct from `_send_401` — the credential IS valid, it
+        # is simply not admitted here.
+        body = b'{"detail":"Credential not permitted on this path"}'
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 403,
                 "headers": [
                     (b"content-type", b"application/json"),
                     (b"content-length", str(len(body)).encode("ascii")),

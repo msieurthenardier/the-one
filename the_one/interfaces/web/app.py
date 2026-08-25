@@ -62,6 +62,7 @@ from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.repositories import (
     ChatSessionRepository,
     LLMProviderRepository,
+    MCPSourceRepository,
     PendingApprovalRepository,
     SQLiteAgentStore,
 )
@@ -76,6 +77,11 @@ from the_one.interfaces.web.middleware import (
 )
 from the_one.llm.base import ContentBlock, ImageContent, Message, Role, TextContent, content_to_text
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
+from the_one.self_configuration import manage as _self_configuration_manage
+from the_one.self_configuration import pending as _self_configuration_pending
+from the_one.self_configuration import surface as _self_configuration_surface
+from the_one.self_configuration.constants import MOUNT_PATH as _SELF_CONFIGURATION_MOUNT_PATH
+from the_one.self_configuration.credentials import register_credential_source_once
 from the_one.sessions import (
     add_subscriber,
     is_session_processing,
@@ -120,6 +126,40 @@ def _cache_busted_index_html() -> str:
 
 # ── Lifespan ──────────────────────────────────────────────────────────────
 
+# M21 F01 L02: guards `session_manager.run()` to at most once per process —
+# see `_self_configuration_session_scope` docstring below.
+_self_configuration_session_manager_started = False
+
+
+@asynccontextmanager
+async def _self_configuration_session_scope() -> AsyncIterator[None]:
+    """Wrap `session_manager.run()` around the caller's body EXACTLY ONCE
+    per process (LD4 / probe constraint 1: the SDK's
+    `StreamableHTTPSessionManager.run()` raises `RuntimeError` if called a
+    second time on the same instance — "can only be called once per
+    instance").
+
+    A real server process enters `lifespan` exactly once, so this guard is
+    a no-op there. It matters for the test suite: hundreds of existing
+    tests instantiate `TestClient(app)` against the same process-wide
+    `app` singleton, each cycling `lifespan` start/stop — without this
+    guard, the SECOND such cycle in a pytest process would raise and break
+    every test that runs after the first. Later cycles skip the wrap (no
+    self-configuration serving on that cycle); a test that specifically
+    needs the surface actually serving spins up its own fresh OS process
+    (`tests/test_self_configuration_surface.py`, mirroring the existing
+    browser-test/AIAT convention of a per-test uvicorn subprocess) rather
+    than reusing this in-process singleton after other tests have already
+    cycled it.
+    """
+    global _self_configuration_session_manager_started
+    if _self_configuration_session_manager_started:
+        yield
+        return
+    _self_configuration_session_manager_started = True
+    async with _self_configuration_surface.mcp.session_manager.run():
+        yield
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -127,233 +167,271 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from the_one.logging_config import configure_logging
 
     configure_logging()
-    logger.info("the-one starting; log_level=%s", settings.log_level)
-    # M14 F4 L7: prune orphaned box scratch dirs before any sessions start.
-    # Every child of data_dir/"boxes"/ is an orphan from a prior ungraceful exit
-    # (SIGKILL/OOM) — this process has no live boxed sessions yet. Single-process
-    # assumption applies; concurrent web+CLI sharing the same data_dir is unsupported.
-    from the_one.tools.execution import prune_box_scratch
+    # M21 F01 L02 / LD4 / probe constraint 1: the mounted self-configuration
+    # sub-app's lifespan never runs on its own — wrap its session_manager
+    # around the WHOLE existing lifespan body (startup through shutdown).
+    # `session_manager` is created lazily by `streamable_http_app()`, called
+    # at module load when the sub-app is mounted below (before this function
+    # ever runs); `.run()` is once-per-instance, so this `async with` must
+    # wrap the entire body, not just the yield point. See
+    # `_self_configuration_session_scope` for the test-suite-driven guard.
+    async with _self_configuration_session_scope():
+        logger.info("the-one starting; log_level=%s", settings.log_level)
+        # M14 F4 L7: prune orphaned box scratch dirs before any sessions start.
+        # Every child of data_dir/"boxes"/ is an orphan from a prior ungraceful exit
+        # (SIGKILL/OOM) — this process has no live boxed sessions yet. Single-process
+        # assumption applies; concurrent web+CLI sharing the same data_dir is unsupported.
+        from the_one.tools.execution import prune_box_scratch
 
-    prune_box_scratch()
-    await init_db()
-    conn = await get_connection()
-    store = SQLiteAgentStore(conn)
-    await migrate_json_to_sqlite(store)
-    _state["factory"] = AgentFactory(store=store)
-    # M10 F8 L4: install the application factory into the module-level
-    # accessor at ``the_one.agent.factory`` so gateway-listener handlers
-    # (Discord's ``on_message`` in F8, Slack's event handler in F9, …)
-    # spawned inside ``plugin.connect`` can resolve it without changing
-    # the plugin contract. Teardown clears the slot below.
-    _set_module_factory(_state["factory"])
-    # F5 L2: start the OAuth pending-flow TTL sweep task. The
-    # ``_state`` (OAuth) module is reached via the public lifespan
-    # hooks ``start_periodic_sweep`` / ``stop_periodic_sweep`` — NOT
-    # imported directly — to avoid shadowing this module's existing
-    # ``_state: dict[str, Any]`` global at app.py:103.
-    from the_one.mcp.oauth import start_periodic_sweep
+        prune_box_scratch()
+        await init_db()
+        conn = await get_connection()
+        store = SQLiteAgentStore(conn)
+        await migrate_json_to_sqlite(store)
+        # M21 F01 L02: register the self-configuration credential source behind
+        # the Mission 20 gate seam, then reconcile every marked MCP-source row
+        # against the CURRENT settings.port (LD3) and load their credentials
+        # into the in-memory registry (LD2) — must run before any request can
+        # reach the mounted surface below. M21 F01 L03 (LD7): reconcile also
+        # refreshes `_cache.tools` unconditionally and renames any legacy-
+        # template row to the constant name, migrating its owner's
+        # `mcp_overrides` key along with it — needs `store` for that.
+        register_credential_source_once()
+        _self_configuration_mcp_repo = MCPSourceRepository(conn, get_encryptor(settings.data_dir))
+        await _self_configuration_manage.reconcile_on_startup(_self_configuration_mcp_repo, store)
+        _state["factory"] = AgentFactory(store=store)
+        # M10 F8 L4: install the application factory into the module-level
+        # accessor at ``the_one.agent.factory`` so gateway-listener handlers
+        # (Discord's ``on_message`` in F8, Slack's event handler in F9, …)
+        # spawned inside ``plugin.connect`` can resolve it without changing
+        # the plugin contract. Teardown clears the slot below.
+        _set_module_factory(_state["factory"])
+        # F5 L2: start the OAuth pending-flow TTL sweep task. The
+        # ``_state`` (OAuth) module is reached via the public lifespan
+        # hooks ``start_periodic_sweep`` / ``stop_periodic_sweep`` — NOT
+        # imported directly — to avoid shadowing this module's existing
+        # ``_state: dict[str, Any]`` global at app.py:103.
+        from the_one.mcp.oauth import start_periodic_sweep
 
-    start_periodic_sweep()
-    # F05 L01: start the web-session idle reaper just after the OAuth sweep.
-    global _web_session_reaper_task
-    _web_session_reaper_task = asyncio.create_task(_web_session_reap_loop())
-    # M13 F03 L3: start the daily chat-history purge loop just after the
-    # reaper start. Due-based catch-up on entry, then sleep+recheck.
-    global _chat_history_purge_task
-    _chat_history_purge_task = asyncio.create_task(_chat_history_purge_loop())
-    # M16 F05 L02: start the daily model-catalog refresh loop just after the
-    # purge-loop start. Due-based catch-up on entry, then sleep+recheck.
-    global _catalog_refresh_task
-    _catalog_refresh_task = asyncio.create_task(_model_catalog_refresh_loop())
-    # M10 F2 L6: dev-mode-gated test-seam — when
-    # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
-    # register the in-process StubPlugin as the 'stub' connector type so
-    # browser tests running against an `app_clean` subprocess can exercise
-    # the doctor-probe and create-and-test paths end-to-end. Production
-    # never sets this env var; the dev-mode gate matches the precedent set
-    # by the LLM mock provider and OpenRouter test-models seam. Mirrors
-    # the test-seam contract documented in `_stub.py` (production code
-    # MUST NOT import that module — but the test seam is the explicit
-    # opt-in path).
-    if settings.dev_mode and os.environ.get("THE_ONE_REGISTER_STUB_CONNECTOR") == "1":
-        from the_one.connectors._stub import StubPlugin
-        from the_one.connectors.registry import register_for_test
+        start_periodic_sweep()
+        # F05 L01: start the web-session idle reaper just after the OAuth sweep.
+        global _web_session_reaper_task
+        _web_session_reaper_task = asyncio.create_task(_web_session_reap_loop())
+        # M13 F03 L3: start the daily chat-history purge loop just after the
+        # reaper start. Due-based catch-up on entry, then sleep+recheck.
+        global _chat_history_purge_task
+        _chat_history_purge_task = asyncio.create_task(_chat_history_purge_loop())
+        # M16 F05 L02: start the daily model-catalog refresh loop just after the
+        # purge-loop start. Due-based catch-up on entry, then sleep+recheck.
+        global _catalog_refresh_task
+        _catalog_refresh_task = asyncio.create_task(_model_catalog_refresh_loop())
+        # M10 F2 L6: dev-mode-gated test-seam — when
+        # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
+        # register the in-process StubPlugin as the 'stub' connector type so
+        # browser tests running against an `app_clean` subprocess can exercise
+        # the doctor-probe and create-and-test paths end-to-end. Production
+        # never sets this env var; the dev-mode gate matches the precedent set
+        # by the LLM mock provider and OpenRouter test-models seam. Mirrors
+        # the test-seam contract documented in `_stub.py` (production code
+        # MUST NOT import that module — but the test seam is the explicit
+        # opt-in path).
+        if settings.dev_mode and os.environ.get("THE_ONE_REGISTER_STUB_CONNECTOR") == "1":
+            from the_one.connectors._stub import StubPlugin
+            from the_one.connectors.registry import register_for_test
 
-        register_for_test("stub", StubPlugin)
-        logger.info(
-            "Registered StubPlugin under 'stub' connector type via "
-            "THE_ONE_REGISTER_STUB_CONNECTOR test seam (dev_mode=true)"
-        )
+            register_for_test("stub", StubPlugin)
+            logger.info(
+                "Registered StubPlugin under 'stub' connector type via "
+                "THE_ONE_REGISTER_STUB_CONNECTOR test seam (dev_mode=true)"
+            )
 
-    # M10 F8 L11 HAT: warm-acquire each connector account at startup so
-    # the gateway listeners (e.g. Discord's on_message handler) spin up
-    # immediately. Without this, accounts stay offline until the first
-    # agent-initiated outbound triggers acquire — meaning inbound
-    # traffic is silently missed until then.
-    #
-    # M11 F2 L2 (formerly M10 F8 L11 Fix #6): Walk all connector accounts
-    # (not just those with attached agents) and acquire via the
-    # account-shared ``account_acquire`` primitive. The earlier "first
-    # alphabetical attached agent" probe is irrelevant once the pool
-    # routes connector callers through one entry per account — full-stop.
-    # We still skip accounts with no attached agents to avoid the
-    # cost of warming a gateway that no agent will route through;
-    # this is a policy choice, not a structural requirement.
-    # Errors are logged but do NOT prevent the-one from starting —
-    # a misbehaving connector must not take the rest of the system down.
-    try:
-        from the_one.connectors._pool import account_acquire
-        from the_one.db.repositories import ConnectorRepository
+        # M10 F8 L11 HAT: warm-acquire each connector account at startup so
+        # the gateway listeners (e.g. Discord's on_message handler) spin up
+        # immediately. Without this, accounts stay offline until the first
+        # agent-initiated outbound triggers acquire — meaning inbound
+        # traffic is silently missed until then.
+        #
+        # M11 F2 L2 (formerly M10 F8 L11 Fix #6): Walk all connector accounts
+        # (not just those with attached agents) and acquire via the
+        # account-shared ``account_acquire`` primitive. The earlier "first
+        # alphabetical attached agent" probe is irrelevant once the pool
+        # routes connector callers through one entry per account — full-stop.
+        # We still skip accounts with no attached agents to avoid the
+        # cost of warming a gateway that no agent will route through;
+        # this is a policy choice, not a structural requirement.
+        # Errors are logged but do NOT prevent the-one from starting —
+        # a misbehaving connector must not take the rest of the system down.
+        try:
+            from the_one.connectors._pool import account_acquire
+            from the_one.db.repositories import ConnectorRepository
 
-        connector_repo = ConnectorRepository(conn, get_encryptor(settings.data_dir))
-        accounts = await connector_repo.list()
-        for account in accounts:
-            try:
-                attached = await store.list_by_connector(account.id)
-                if not attached:
+            connector_repo = ConnectorRepository(conn, get_encryptor(settings.data_dir))
+            accounts = await connector_repo.list()
+            for account in accounts:
+                try:
+                    attached = await store.list_by_connector(account.id)
+                    if not attached:
+                        logger.info(
+                            "Connector account %r (type=%r) has no attached agents; "
+                            "skipping startup acquire",
+                            account.id,
+                            account.type,
+                        )
+                        continue
+                    await account_acquire(account.id)
                     logger.info(
-                        "Connector account %r (type=%r) has no attached agents; "
-                        "skipping startup acquire",
+                        "Warm-acquired connector account %r (type=%r) at startup "
+                        "(account-shared pool entry; %d attached agent(s))",
+                        account.id,
+                        account.type,
+                        len(attached),
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to warm-acquire connector account %r (type=%r) at startup; "
+                        "listener will spin up on first agent-initiated outbound instead",
                         account.id,
                         account.type,
                     )
-                    continue
-                await account_acquire(account.id)
-                logger.info(
-                    "Warm-acquired connector account %r (type=%r) at startup "
-                    "(account-shared pool entry; %d attached agent(s))",
-                    account.id,
-                    account.type,
-                    len(attached),
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to warm-acquire connector account %r (type=%r) at startup; "
-                    "listener will spin up on first agent-initiated outbound instead",
-                    account.id,
-                    account.type,
-                )
-    except Exception:
-        logger.exception(
-            "Connector-account warm-acquire pass at startup failed entirely; "
-            "individual accounts may stay offline until first outbound triggers acquire"
-        )
+        except Exception:
+            logger.exception(
+                "Connector-account warm-acquire pass at startup failed entirely; "
+                "individual accounts may stay offline until first outbound triggers acquire"
+            )
 
-    # M11 F13 L3 — Settings.inference_provider_config_id +
-    # Settings.inference_model were removed; per-connector inference
-    # configuration now lives on the connector.config row (added by the
-    # v26 migration; edited per-connector via the Studio connector
-    # editor at F13 L4). If the operator's environment still sets either
-    # legacy env var (e.g. carried over in a host shell profile or .env
-    # from the F7 L12 HAT), surface a one-time deprecation warning so the
-    # dead env var is visible without breaking startup.
-    _legacy_pid = os.environ.get("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID")
-    _legacy_model = os.environ.get("THE_ONE_INFERENCE_MODEL")
-    if _legacy_pid or _legacy_model:
-        logger.warning(
-            "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID and/or "
-            "THE_ONE_INFERENCE_MODEL is set in the environment, "
-            "but those env vars are no longer consulted (F13 L3 "
-            "removed Settings.inference_*). Per-connector "
-            "inference LLM configuration now lives on the "
-            "connector.config row; edit per-connector via the "
-            "Studio connector editor."
-        )
+        # M11 F13 L3 — Settings.inference_provider_config_id +
+        # Settings.inference_model were removed; per-connector inference
+        # configuration now lives on the connector.config row (added by the
+        # v26 migration; edited per-connector via the Studio connector
+        # editor at F13 L4). If the operator's environment still sets either
+        # legacy env var (e.g. carried over in a host shell profile or .env
+        # from the F7 L12 HAT), surface a one-time deprecation warning so the
+        # dead env var is visible without breaking startup.
+        _legacy_pid = os.environ.get("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID")
+        _legacy_model = os.environ.get("THE_ONE_INFERENCE_MODEL")
+        if _legacy_pid or _legacy_model:
+            logger.warning(
+                "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID and/or "
+                "THE_ONE_INFERENCE_MODEL is set in the environment, "
+                "but those env vars are no longer consulted (F13 L3 "
+                "removed Settings.inference_*). Per-connector "
+                "inference LLM configuration now lives on the "
+                "connector.config row; edit per-connector via the "
+                "Studio connector editor."
+            )
 
-    yield
-    # Drain the PTY session registry on shutdown — cancels the idle
-    # reaper task and closes any live sessions. Wrapped in
-    # ``try/except Exception`` (NOT ``BaseException``) so
-    # ``CancelledError`` propagates while a misbehaving session.close()
-    # only logs.
-    # Cancel any in-flight per-message processing tasks. Each task
-    # observes the cancel inside its `_spawn_message_processing` wrapper
-    # and exits cleanly; the shared session lock (from
-    # ``the_one.sessions``) is released by `async with` automatically.
-    for task in list(_inflight_tasks):
-        task.cancel()
-    if _inflight_tasks:
-        with contextlib.suppress(Exception):
-            await asyncio.gather(*list(_inflight_tasks), return_exceptions=True)
-    # F5 L3: drain in-flight resume tasks alongside the message-processing
-    # tasks. Resume tasks are spawned by the OAuth-callback route via
-    # ``asyncio.create_task(_resume_paused_session(...))``.
-    for task in list(_inflight_resume_tasks):
-        task.cancel()
-    if _inflight_resume_tasks:
-        with contextlib.suppress(Exception):
-            await asyncio.gather(*list(_inflight_resume_tasks), return_exceptions=True)
-    # F05 L01: drain the web-session idle reaper after in-flight task drains
-    # and before the PTY session registry drain. Cancels the reaper task and
-    # closes all remaining in-memory sessions.
-    try:
-        await _web_session_reaper_shutdown_drain()
-    except Exception:
-        logger.exception("web-session reaper shutdown failed")
-    # M13 F03 L3: drain the daily chat-history purge loop beside the
-    # web-session reaper drain. Cancels the task and suppresses CancelledError.
-    try:
-        await _chat_history_purge_shutdown_drain()
-    except Exception:
-        logger.exception("daily purge shutdown failed")
-    # M16 F05 L02: drain the daily model-catalog refresh loop beside the
-    # purge drain. Cancels the task and suppresses CancelledError.
-    try:
-        await _model_catalog_refresh_shutdown_drain()
-    except Exception:
-        logger.exception("model-catalog refresh shutdown failed")
-    try:
-        await _session_registry_shutdown_drain()
-    except Exception:
-        logger.exception("session registry shutdown failed")
-    # Drain the MCP source pool AFTER PTY drain (PTY may have shell-tool
-    # work that still needs MCP processes; let it complete first) and
-    # BEFORE DB close (drain may need source config from DB; precautionary
-    # — current design loads at register-time so this is forward-looking).
-    # See flight §12 for the lifespan-ordering contract; the drain-order
-    # spy test (#8) locks it against regression.
-    try:
-        await _mcp_pool_shutdown_drain()
-    except Exception:
-        logger.exception("MCP pool shutdown failed")
-    # M10 F1 L6: drain the connector pool AFTER MCP pool drain. Like MCP,
-    # connectors hold warm network connections; each subsystem's
-    # ``shutdown_drain`` bounds its drain time at ~10s via parallel
-    # gather, so sequential subsystem drains are fine. Connector pool
-    # drain runs BEFORE the OAuth sweep stop (parallel to MCP's
-    # ordering) and BEFORE DB close.
-    try:
-        await _connector_pool_shutdown_drain()
-    except Exception:
-        logger.exception("connector pool shutdown failed")
-    # M11 F17: drain in-flight save-warm background tasks after the
-    # connector pool is drained. Mirrors the _inflight_resume_tasks drain
-    # above. Save-warm tasks write to _connect_error_store and then
-    # exit; letting them finish (or cancelling them if they stall) avoids
-    # orphaned tasks at process shutdown.
-    from the_one.interfaces.web.api import _inflight_save_warm_tasks
+        yield
+        # Drain the PTY session registry on shutdown — cancels the idle
+        # reaper task and closes any live sessions. Wrapped in
+        # ``try/except Exception`` (NOT ``BaseException``) so
+        # ``CancelledError`` propagates while a misbehaving session.close()
+        # only logs.
+        # Cancel any in-flight per-message processing tasks. Each task
+        # observes the cancel inside its `_spawn_message_processing` wrapper
+        # and exits cleanly; the shared session lock (from
+        # ``the_one.sessions``) is released by `async with` automatically.
+        for task in list(_inflight_tasks):
+            task.cancel()
+        if _inflight_tasks:
+            with contextlib.suppress(Exception):
+                await asyncio.gather(*list(_inflight_tasks), return_exceptions=True)
+        # F5 L3: drain in-flight resume tasks alongside the message-processing
+        # tasks. Resume tasks are spawned by the OAuth-callback route via
+        # ``asyncio.create_task(_resume_paused_session(...))``.
+        for task in list(_inflight_resume_tasks):
+            task.cancel()
+        if _inflight_resume_tasks:
+            with contextlib.suppress(Exception):
+                await asyncio.gather(*list(_inflight_resume_tasks), return_exceptions=True)
+        # F05 L01: drain the web-session idle reaper after in-flight task drains
+        # and before the PTY session registry drain. Cancels the reaper task and
+        # closes all remaining in-memory sessions.
+        try:
+            await _web_session_reaper_shutdown_drain()
+        except Exception:
+            logger.exception("web-session reaper shutdown failed")
+        # M13 F03 L3: drain the daily chat-history purge loop beside the
+        # web-session reaper drain. Cancels the task and suppresses CancelledError.
+        try:
+            await _chat_history_purge_shutdown_drain()
+        except Exception:
+            logger.exception("daily purge shutdown failed")
+        # M16 F05 L02: drain the daily model-catalog refresh loop beside the
+        # purge drain. Cancels the task and suppresses CancelledError.
+        try:
+            await _model_catalog_refresh_shutdown_drain()
+        except Exception:
+            logger.exception("model-catalog refresh shutdown failed")
+        try:
+            await _session_registry_shutdown_drain()
+        except Exception:
+            logger.exception("session registry shutdown failed")
+        # Drain the MCP source pool AFTER PTY drain (PTY may have shell-tool
+        # work that still needs MCP processes; let it complete first) and
+        # BEFORE DB close (drain may need source config from DB; precautionary
+        # — current design loads at register-time so this is forward-looking).
+        # See flight §12 for the lifespan-ordering contract; the drain-order
+        # spy test (#8) locks it against regression.
+        # M21 F01 L02 / probe constraint 2: proactively evict every marked
+        # (self-configuration) row's pool entries BEFORE the general drain
+        # below closes the listener — the re-entrancy probe found that a
+        # loopback session torn down AFTER the listener closes logs a benign
+        # but noisy WARNING. Evicting here first, while the listener is still
+        # up, lets those sessions terminate cleanly.
+        try:
+            from the_one.mcp._pool import _evict_all_for_source
 
-    for task in list(_inflight_save_warm_tasks):
-        task.cancel()
-    if _inflight_save_warm_tasks:
-        with contextlib.suppress(Exception):
-            await asyncio.gather(*list(_inflight_save_warm_tasks), return_exceptions=True)
-    # F5 L2: stop the OAuth pending-flow TTL sweep task. Runs AFTER the
-    # MCP pool drain so any in-flight OAuth refreshes triggered by
-    # pool teardown can complete first.
-    from the_one.mcp.oauth import stop_periodic_sweep
+            _self_configuration_conn = await get_connection()
+            _self_configuration_repo = MCPSourceRepository(
+                _self_configuration_conn, get_encryptor(settings.data_dir)
+            )
+            for _row in await _self_configuration_repo.list():
+                if _self_configuration_manage.is_surface_row(_row):
+                    await _evict_all_for_source(_row.id)
+        except Exception:
+            logger.exception("self-configuration surface pool eviction failed")
+        try:
+            await _mcp_pool_shutdown_drain()
+        except Exception:
+            logger.exception("MCP pool shutdown failed")
+        # M10 F1 L6: drain the connector pool AFTER MCP pool drain. Like MCP,
+        # connectors hold warm network connections; each subsystem's
+        # ``shutdown_drain`` bounds its drain time at ~10s via parallel
+        # gather, so sequential subsystem drains are fine. Connector pool
+        # drain runs BEFORE the OAuth sweep stop (parallel to MCP's
+        # ordering) and BEFORE DB close.
+        try:
+            await _connector_pool_shutdown_drain()
+        except Exception:
+            logger.exception("connector pool shutdown failed")
+        # M11 F17: drain in-flight save-warm background tasks after the
+        # connector pool is drained. Mirrors the _inflight_resume_tasks drain
+        # above. Save-warm tasks write to _connect_error_store and then
+        # exit; letting them finish (or cancelling them if they stall) avoids
+        # orphaned tasks at process shutdown.
+        from the_one.interfaces.web.api import _inflight_save_warm_tasks
 
-    try:
-        await stop_periodic_sweep()
-    except Exception:
-        logger.exception("OAuth periodic sweep shutdown failed")
-    # M10 F8 L4: release the module-level factory reference so post-
-    # shutdown ``get_factory()`` reads return None. Defensive — not
-    # strictly required for correctness because the process is exiting,
-    # but symmetric with the startup ``set_factory`` call and keeps
-    # subsequent tests from observing a stale slot.
-    _set_module_factory(None)
-    await close_connection()
+        for task in list(_inflight_save_warm_tasks):
+            task.cancel()
+        if _inflight_save_warm_tasks:
+            with contextlib.suppress(Exception):
+                await asyncio.gather(*list(_inflight_save_warm_tasks), return_exceptions=True)
+        # F5 L2: stop the OAuth pending-flow TTL sweep task. Runs AFTER the
+        # MCP pool drain so any in-flight OAuth refreshes triggered by
+        # pool teardown can complete first.
+        from the_one.mcp.oauth import stop_periodic_sweep
+
+        try:
+            await stop_periodic_sweep()
+        except Exception:
+            logger.exception("OAuth periodic sweep shutdown failed")
+        # M10 F8 L4: release the module-level factory reference so post-
+        # shutdown ``get_factory()`` reads return None. Defensive — not
+        # strictly required for correctness because the process is exiting,
+        # but symmetric with the startup ``set_factory`` call and keeps
+        # subsequent tests from observing a stale slot.
+        _set_module_factory(None)
+        await close_connection()
 
 
 app = FastAPI(title="GleepGlorp AI", lifespan=lifespan)
@@ -377,6 +455,13 @@ app.add_middleware(
 app.add_middleware(CredentialGateMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(api_router)
+# M21 F01 L02 (DD1/LD4): the self-configuration MCP surface, mounted on the
+# existing app and port — no new port, no new listener. Mounted AFTER the
+# API router per leg Implementation Guidance #6. `streamable_http_app()`
+# must be called here (module load, not per-request) so `mcp.session_manager`
+# exists by the time `lifespan` above wraps `.run()` around its body — the
+# SDK creates the session manager lazily on first call to this method.
+app.mount(_SELF_CONFIGURATION_MOUNT_PATH, _self_configuration_surface.mcp.streamable_http_app())
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -1830,6 +1915,17 @@ async def _process_and_broadcast(
                 context_tokens=last_input,
             )
 
+        # M21 F01 L03 (LD1): apply any pending next_turn self-revision at
+        # THIS turn's exit — the only non-paused settle site in this
+        # function. `or "default"` is load-bearing: Session.agent_name is
+        # None for the default agent while the pending registry (and
+        # _calling_agent) key on the literal "default"; a skip-on-None
+        # guard would silently degrade next_turn to next_session for
+        # single-agent installs.
+        _self_configuration_pending.apply_pending_revision(
+            session.agent_name or "default", session.agent
+        )
+
         await _send_to_session(session, {"type": "done"})
     return result_messages
 
@@ -1896,6 +1992,13 @@ async def _resume_paused_session(session: Session) -> None:
                 re_paused = True
                 break
         if not re_paused:
+            # M21 F01 L03 (LD1): the resumed turn is genuinely settling now
+            # — apply any pending next_turn self-revision here too. NOT in
+            # the unconditional tail below `_save_session_to_db`, which
+            # also runs when the resume re-pauses (that is not a settle).
+            _self_configuration_pending.apply_pending_revision(
+                session.agent_name or "default", session.agent
+            )
             await _send_to_session(session, {"type": "done"})
     except Exception:
         logger.exception("Resume after auth failed for session %s", session.id)

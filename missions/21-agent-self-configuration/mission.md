@@ -235,7 +235,7 @@ mission-level constraints rather than implementation details.
 > planned and created one at a time as work progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] Flight 1: Self-configuration surface — how it presents as a source, the
+- [x] Flight 1: Self-configuration surface — how it presents as a source, the
       intent-shaped tool catalog, the secret-free read projection, the two-field
       write allowlist with its self-referential exclusion, the propagation
       choice, and the new agent-configuration tab with its enable toggle.
