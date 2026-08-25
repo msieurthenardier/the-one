@@ -159,7 +159,7 @@ App.registerArea({
           pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
           tab = 'mcps';
         }
-        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'connectors' || tab === 'tools') {
+        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'connectors' || tab === 'tools' || tab === 'self-configuration') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
@@ -1008,7 +1008,66 @@ App.registerArea({
 
     function fetchAgents() { return fetch('/api/agents').then(function (r) { return r.json(); }); }
     function fetchTools() { return fetch('/api/tools').then(function (r) { return r.json(); }); }
-    function fetchMcpSources() { return fetch('/api/mcp-sources').then(function (r) { return r.json(); }); }
+    // M21 F01 L02 (DD3): the editor's fetch — as opposed to the admin
+    // grid's `fetchMcpSources_` below — includes per-agent
+    // self-configuration surface rows so the agent editor's MCPs tab and
+    // Self-configuration tab can see them; the admin grid excludes them by
+    // default (no query param there).
+    function fetchMcpSources() {
+      return fetch('/api/mcp-sources?include_agent_surfaces=1').then(function (r) { return r.json(); });
+    }
+
+    // M21 F01 L02 — self-configuration status/enable/disable network calls.
+    function fetchSelfConfigurationStatus(name) {
+      return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration')
+        .then(function (r) {
+          if (!r.ok) throw new Error('fetchSelfConfigurationStatus: HTTP ' + r.status);
+          return r.json();
+        });
+    }
+
+    function _refreshAgentAfterSelfConfigurationChange(name) {
+      // Re-fetch both the MCP sources cache (the surface row was just
+      // created/destroyed server-side) AND the agent itself (its
+      // mcp_source_ids just changed server-side, outside the Save flow).
+      // doSelect() re-renders the editor while preserving the active tab,
+      // so the MCPs tab reflects the new/removed row without a reload.
+      return Promise.all([
+        refreshMcpSourcesCache(),
+        fetch('/api/agents/' + encodeURIComponent(name)).then(function (r) { return r.json(); })
+      ]).then(function (results) {
+        var updated = results[1];
+        for (var i = 0; i < self._agents.length; i++) {
+          if (self._agents[i].name === name) { self._agents[i] = updated; break; }
+        }
+        doSelect(updated);
+        return updated;
+      });
+    }
+
+    function enableSelfConfiguration(name) {
+      return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration', { method: 'POST' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('enable self-configuration: HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (result) {
+          return _refreshAgentAfterSelfConfigurationChange(name).then(function () { return result; });
+        });
+    }
+
+    function disableSelfConfiguration(name) {
+      return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration', { method: 'DELETE' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('disable self-configuration: HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function () {
+          return _refreshAgentAfterSelfConfigurationChange(name).then(function () {
+            return { enabled: false };
+          });
+        });
+    }
     function fetchConnectorsList() {
       // M10 F6 L5 — list of all connector accounts for the agent-editor
       // Connectors tab. Parallel to fetchMcpSources above; the REST path
@@ -1538,7 +1597,11 @@ App.registerArea({
         onSelectedMcpSourceChange: function (sourceId) {
           self._selectedMcpAgentSourceId = sourceId;
           writeUrl_();
-        }
+        },
+        // M21 F01 L02 — Self-configuration tab network calls.
+        fetchSelfConfigurationStatus: fetchSelfConfigurationStatus,
+        onEnableSelfConfiguration: enableSelfConfiguration,
+        onDisableSelfConfiguration: disableSelfConfiguration
       });
 
       // Wire field-level dirty tracking + provider-change side-effects.

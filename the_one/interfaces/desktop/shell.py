@@ -530,6 +530,18 @@ class DesktopSession:
             except httpx.HTTPError:  # intentionally broad — covers ConnectError + TimeoutException
                 log.warning("focus POST to running instance failed; exiting anyway")
             return
+        # M21 F01 L02: `_select_port`'s fallback branch (Case C — the
+        # configured port is occupied by a foreign process) resolves a
+        # DIFFERENT port than `settings.port`, but until this leg nothing
+        # ever wrote it back — the self-configuration surface builds its
+        # loopback URL from `settings.port` (`self_configuration.manage.
+        # surface_url`), so a stale value there would strand every surface
+        # row's URL at the configured-but-unbound port. `settings.port` is
+        # mutable and the real serving port is known here, before uvicorn
+        # is constructed — only on THIS branch, which is about to start its
+        # own lifespan (the `is_ours=True` branch above already returned
+        # without ever running one).
+        settings.port = sel_port
         # Base URL only — deliberately WITHOUT a handoff credential yet (DD7,
         # DD12). The token is single-use and short-lived, so it is minted
         # separately, close to each navigation call site below (inside

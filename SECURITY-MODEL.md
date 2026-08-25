@@ -137,6 +137,96 @@ multi-user isolation would need to revisit this (see "Future Work" below).
   values for non-localhost hosts at all three create/update/test endpoints
   (HTTP 422). `mock` and `ollama` provider types are skipped.
 
+### Self-configuration surface (M21 F01 L02)
+
+An agent may be given a loopback MCP source through which it can read its
+own configuration (`the_one/self_configuration/`). This is **off by
+default for every agent** — the operator opts an agent in from that
+agent's own Self-configuration tab in Studio.
+
+- **A second, distinct credential source.** The surface mints one
+  `agt`-prefixed credential per enabled agent (shape mirrors the long-lived
+  `loc`-prefixed operator credential above, but a different prefix so a
+  token's type is legible at a glance). It lives ONLY inside that agent's
+  surface row's encrypted `secrets["Authorization"]` — never on
+  `AgentConfig`, never returned by the enable endpoint, and masked like
+  every other MCP-source secret in every API response. Resolution goes
+  through an in-memory registry (`identifier → (source_id, secret)`),
+  rebuilt at process startup from every marked row and mutated in-process
+  by enable/disable — there is no per-request DB read on this path.
+- **Confined to its own mount path — this is the load-bearing property.**
+  `CredentialGateMiddleware` resolves an `agt` credential to an identified
+  caller exactly like any other registered source, but a caller whose
+  `source` appears in `the_one/self_configuration/constants.py:
+  CONFINED_SOURCE_PATHS` is admitted ONLY to HTTP requests under that
+  source's mapped path prefix (`/mcp/self-configuration`) — every other
+  path, and every WebSocket upgrade, is refused with 403. Without this, an
+  `agt` credential would be a full operator credential under a different
+  prefix: Mission 20's gate resolves any registered source to an
+  identified caller and admits it everywhere by default, and that
+  mission's debrief named exactly this hazard as the reason per-route
+  scope enforcement was deferred ("harmless today; live the moment a
+  second `CredentialSource` exists" — it has). `file` and the browser
+  session cookie's `session` source are absent from the map and are
+  admitted exactly as before this surface existed.
+- **The tool catalog IS the write allowlist, by construction.** The surface
+  exposes four tools: `get_my_configuration` and `describe_my_capabilities`
+  (read-only — neither builds an `Agent`, which would recurse into the
+  surface from inside the agent's own tool call, and neither returns a
+  source config, URL, header, or secret; `get_my_configuration`'s
+  projection is an explicit field list that never touches
+  `tool_overrides`, `mcp_overrides`, `provider_config_id`, `kb_ids`,
+  `mcp_source_ids`, or `connector_ids`), and `update_my_description` /
+  `update_my_system_prompt` (M21 F01 L03 — the write path). No tool takes
+  a field name; the allowlist is the catalog's shape, so a future
+  `AgentConfig` field is unwritable because nothing addresses it.
+- **The write path (M21 F01 L03): whole-value replacement, persist-first,
+  deferred-apply.** Each write tool takes only `text` and `apply` —
+  `apply` is `"next_turn"` (the running conversation adopts the revision
+  when its current turn ends — never mid-turn, since the agent loop
+  re-binds its request messages inside the same turn's iteration loop) or
+  `"next_session"` (the running conversation is untouched; the revision
+  is visible the next time the agent is rebuilt, e.g. a rejoin). Either
+  way the revision is written to the stored `AgentConfig` row
+  immediately, before any deferral — a `next_turn` entry in the
+  in-process pending registry (`the_one/self_configuration/pending.py`,
+  keyed by agent name) is therefore always redundant with what the store
+  already holds, not the source of truth. Input is bounded, not
+  content-policed: `text` must be a non-empty string of at most 64 KiB,
+  `apply` one of the two literals — anything else is refused with no
+  partial write. No approval gate, pending queue, or revision log exists
+  yet (Flight 2).
+- **Ownership is enforced server-side**, not merely by convention:
+  `create_agent`/`update_agent` reject (422) any `mcp_source_ids` entry
+  that is another agent's surface row, and reject (422) any
+  `mcp_overrides` entry targeting a surface row that carries a credential
+  key (`env`/`headers`/`bearer_token`) — an agent can never be handed a
+  foreign or attacker-supplied credential through the override path. The
+  admin MCP Sources screen hides these rows by default (`GET
+  /api/mcp-sources` — pass `?include_agent_surfaces=1` to include them,
+  which only the owning agent's own Studio tabs do); a direct `PUT` on a
+  marked row is refused with 409, and `DELETE` performs the full disable
+  rather than an ordinary row delete.
+- **Indirect prompt injection is the surface's live residual risk**,
+  recorded here rather than treated as closed. Any content an agent's
+  *other* tools feed into its context (web fetch, MCP servers, connector
+  messages) can now, as of M21 F01 L03, instruct the agent to call
+  `update_my_system_prompt` or `update_my_description` — nothing gates
+  the write tools beyond the existing per-source/per-tool checkboxes an
+  operator uses for every MCP tool. A prompt-injected agent that decides
+  to revise its own guardrails does so with the SAME confinement,
+  ownership, and input-bounds enforcement as a legitimate self-revision;
+  none of those mechanisms distinguish agent intent from injected intent
+  — they were never designed to. This is the mission's central,
+  explicitly named risk, and this leg does not mitigate it: no approval
+  gate, no pending-queue hold, and no revision log exist yet. Flight 2
+  owns closing this gap (approval mode, a pending queue, a revision log
+  and restore) before a write takes effect unattended. Until then, the
+  only mitigation is the same one that governs any other MCP tool: the
+  operator can withhold `update_my_description` / `update_my_system_prompt`
+  from a specific agent via the per-tool checkboxes on that agent's MCPs
+  tab, or disable the surface entirely from its Self-configuration tab.
+
 ## Network Bind
 
 - Default `host=127.0.0.1` (localhost only). Host-native (`the-one serve` /
@@ -370,6 +460,26 @@ with the unsandboxed Windows posture.
   preserve-on-masked semantics apply to MCP, connector, and tool-config
   secret fields. See [CLAUDE.md](CLAUDE.md)
   "`__MASKED__` sentinel for API key updates".
+- **Per-agent MCP override credentials**: `agents.tool_overrides` and
+  `agents.mcp_overrides` are both Fernet-encrypted at rest. Of the two,
+  only `mcp_overrides` carries credential material — the three
+  `Substitute`-marked inner keys `env`, `headers`, and `bearer_token` are
+  masked on every agent-config GET/POST/PUT response; `enabled_tools` /
+  `disabled_tools` and every `tool_overrides` value stay in the clear.
+  Preserve-on-PUT is resolved server-side against the stored row (Studio
+  renders no credential fields at all, so it cannot round-trip a
+  sentinel) — an omitted or masked credential key keeps the stored
+  value, an explicit `null` clears it, any other value overwrites. Join
+  in `POST /api/encryption/rotate`'s single rotation transaction as the
+  fifth surface. See `the_one/agents.md` "Agent override secrets
+  storage".
+- **Per-agent self-configuration credentials** (M21 F01 L02): each
+  enabled agent's `agt`-prefixed credential lives only inside its surface
+  row's `secrets["Authorization"]` — the same Fernet-encrypted,
+  API-masked `MCPSource.secrets` column every other MCP source uses, no
+  new storage surface. Never returned by the enable endpoint; never
+  written to `AgentConfig`. See "Authentication" → "Self-configuration
+  surface" above for the credential's scope.
 - `.env` is gitignored.
 - No secrets land in any committed file (e.g. `.env.example`, which carries
   placeholders only).

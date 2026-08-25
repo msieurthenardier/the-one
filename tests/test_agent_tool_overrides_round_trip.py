@@ -81,3 +81,75 @@ class TestAgentToolOverridesRoundTrip:
         assert resp.status_code == 200
         body = resp.json()
         assert body["tool_overrides"] == payload["tool_overrides"]
+
+    # ── M21 F01 L01: {}-vs-None fidelity through the encrypted columns ──
+
+    async def test_agent_put_with_empty_dict_tool_overrides_round_trips_as_empty_dict(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT agent with `tool_overrides={}` → GET returns `{}`, not
+        `None` — the encrypted column preserves the same None/`{}`
+        distinction the plaintext column had (AC1)."""
+        await client.post("/api/agents", json={"name": "test-empty-tool"})
+        resp = await client.put(
+            "/api/agents/test-empty-tool",
+            json={"name": "test-empty-tool", "tool_overrides": {}},
+        )
+        assert resp.status_code == 200
+        resp = await client.get("/api/agents/test-empty-tool")
+        assert resp.status_code == 200
+        assert resp.json()["tool_overrides"] == {}
+        assert resp.json()["tool_overrides"] is not None
+
+    async def test_agent_put_with_null_mcp_overrides_round_trips_as_none(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT agent with `mcp_overrides=null` (and nothing previously
+        stored) → GET returns `None`, not `{}` (AC1's None/`{}` fidelity,
+        mirrored for `mcp_overrides`)."""
+        await client.post("/api/agents", json={"name": "test-null-mcp"})
+        resp = await client.get("/api/agents/test-null-mcp")
+        assert resp.status_code == 200
+        assert resp.json()["mcp_overrides"] is None
+
+    async def test_agent_put_with_empty_dict_mcp_overrides_and_nothing_stored_is_none(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT agent with `mcp_overrides={}`, with no prior stored
+        overrides → GET returns `None`, not `{}`.
+
+        Unlike `tool_overrides` (never touched by the preserve-on-PUT
+        merge), `mcp_overrides` on `update_agent` always routes through
+        `_merge_preserved_mcp_credentials`, which folds an empty merge
+        result back to `None` (Implementation Guidance point 4) so the
+        None/`{}` fidelity round-trip tests are preserved when nothing
+        was ever stored. The store-layer fidelity for an INTENTIONAL
+        `{}` — bypassing the API merge — is pinned directly against
+        `SQLiteAgentStore` in
+        `tests/test_db_repositories.py::test_empty_dict_stored_encrypted_and_loads_as_empty_dict`.
+        """
+        await client.post("/api/agents", json={"name": "test-empty-mcp"})
+        resp = await client.put(
+            "/api/agents/test-empty-mcp",
+            json={"name": "test-empty-mcp", "mcp_overrides": {}},
+        )
+        assert resp.status_code == 200
+        resp = await client.get("/api/agents/test-empty-mcp")
+        assert resp.status_code == 200
+        assert resp.json()["mcp_overrides"] is None
+
+    async def test_agent_post_with_empty_dict_mcp_overrides_round_trips_as_none(
+        self, client: AsyncClient
+    ) -> None:
+        """POST agent with `mcp_overrides={}` (no stored row to merge
+        against, but `create_agent` also routes through the same merge
+        helper for its mask-drop behavior) → the empty merge result
+        folds to `None`, mirroring the PUT case above."""
+        resp = await client.post(
+            "/api/agents",
+            json={"name": "test-empty-mcp-post", "mcp_overrides": {}},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["mcp_overrides"] is None
+        resp = await client.get("/api/agents/test-empty-mcp-post")
+        assert resp.json()["mcp_overrides"] is None

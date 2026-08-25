@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from the_one.db.repositories import SQLiteAgentStore
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
@@ -254,6 +255,373 @@ class TestAgentAPI:
             json={"name": "bad-retention", "chat_history_retention_days": 400},
         )
         assert resp.status_code == 422
+
+    # ── M21 F01 L01: mcp_overrides credential masking + preserve-on-PUT ──
+
+    _SECRET_OVERRIDES = {
+        "github": {
+            "bearer_token": "bearer-realsecretvalue",
+            "headers": {"X-Auth": "header-realsecretvalue"},
+            "env": {"TOKEN": "env-realsecretvalue"},
+            "enabled_tools": ["read_issue"],
+            "disabled_tools": ["delete_repo"],
+        }
+    }
+
+    async def test_list_agents_masks_mcp_override_credentials(self, client: AsyncClient) -> None:
+        """AC3 — GET /api/agents masks bearer_token/headers/env; the raw
+        plaintext values do not appear anywhere in the response text."""
+        await client.post(
+            "/api/agents",
+            json={"name": "secret-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.get("/api/agents")
+        assert resp.status_code == 200
+        assert "bearer-realsecretvalue" not in resp.text
+        assert "header-realsecretvalue" not in resp.text
+        assert "env-realsecretvalue" not in resp.text
+        body = next(a for a in resp.json() if a["name"] == "secret-agent")
+        assert body["mcp_overrides"]["github"]["bearer_token"] == "***...alue"
+        assert body["mcp_overrides"]["github"]["headers"] == {"X-Auth": "***...alue"}
+        assert body["mcp_overrides"]["github"]["env"] == {"TOKEN": "***...alue"}
+
+    async def test_get_agent_masks_mcp_override_credentials(self, client: AsyncClient) -> None:
+        """AC3 — GET /api/agents/{name}."""
+        await client.post(
+            "/api/agents",
+            json={"name": "secret-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.get("/api/agents/secret-agent")
+        assert resp.status_code == 200
+        assert "bearer-realsecretvalue" not in resp.text
+        assert "header-realsecretvalue" not in resp.text
+        assert "env-realsecretvalue" not in resp.text
+
+    async def test_create_agent_masks_mcp_override_credentials(self, client: AsyncClient) -> None:
+        """AC3 — POST /api/agents echoes the response masked (the stored
+        value is still the plaintext the client sent — see AC3's
+        "POST echoing the payload" edge case)."""
+        resp = await client.post(
+            "/api/agents",
+            json={"name": "secret-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        assert resp.status_code == 201
+        assert "bearer-realsecretvalue" not in resp.text
+        assert "header-realsecretvalue" not in resp.text
+        assert "env-realsecretvalue" not in resp.text
+
+    async def test_update_agent_masks_mcp_override_credentials(self, client: AsyncClient) -> None:
+        """AC3 — PUT /api/agents/{name}."""
+        await client.post("/api/agents", json={"name": "secret-agent"})
+        resp = await client.put(
+            "/api/agents/secret-agent",
+            json={"name": "secret-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        assert resp.status_code == 200
+        assert "bearer-realsecretvalue" not in resp.text
+        assert "header-realsecretvalue" not in resp.text
+        assert "env-realsecretvalue" not in resp.text
+
+    async def test_rename_agent_masks_mcp_override_credentials(self, client: AsyncClient) -> None:
+        """AC3 — POST /api/agents/{name}/rename."""
+        await client.post(
+            "/api/agents",
+            json={"name": "secret-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.post(
+            "/api/agents/secret-agent/rename", json={"new_name": "secret-agent-renamed"}
+        )
+        assert resp.status_code == 200
+        assert "bearer-realsecretvalue" not in resp.text
+        assert "header-realsecretvalue" not in resp.text
+        assert "env-realsecretvalue" not in resp.text
+
+    async def test_detach_agent_from_connector_masks_mcp_override_credentials(
+        self, client: AsyncClient
+    ) -> None:
+        """AC3 — DELETE /api/agents/{agent_name}/connectors/{account_id}."""
+        await client.post(
+            "/api/agents",
+            json={
+                "name": "secret-agent",
+                "connector_ids": ["acct-a"],
+                "mcp_overrides": self._SECRET_OVERRIDES,
+            },
+        )
+        resp = await client.delete("/api/agents/secret-agent/connectors/acct-a")
+        assert resp.status_code == 200
+        assert "bearer-realsecretvalue" not in resp.text
+        assert "header-realsecretvalue" not in resp.text
+        assert "env-realsecretvalue" not in resp.text
+
+    async def test_mcp_override_non_secret_keys_stay_clear(self, client: AsyncClient) -> None:
+        """AC4 — enabled_tools/disabled_tools inside an mcp_overrides
+        source entry, and every tool_overrides value, are returned
+        unmasked and byte-identical to what was stored."""
+        payload = {
+            "name": "clear-fields-agent",
+            "tool_overrides": {"shell": {"timeout": 30}},
+            "mcp_overrides": self._SECRET_OVERRIDES,
+        }
+        resp = await client.post("/api/agents", json=payload)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["tool_overrides"] == {"shell": {"timeout": 30}}
+        assert body["mcp_overrides"]["github"]["enabled_tools"] == ["read_issue"]
+        assert body["mcp_overrides"]["github"]["disabled_tools"] == ["delete_repo"]
+
+        resp = await client.get("/api/agents/clear-fields-agent")
+        body = resp.json()
+        assert body["tool_overrides"] == {"shell": {"timeout": 30}}
+        assert body["mcp_overrides"]["github"]["enabled_tools"] == ["read_issue"]
+        assert body["mcp_overrides"]["github"]["disabled_tools"] == ["delete_repo"]
+
+    async def _load_via_store(self, client: AsyncClient, name: str):
+        """Load the stored (plaintext) config through a `SQLiteAgentStore`
+        built on the fixture's `conn` + `get_encryptor` patch target —
+        the AC5 verification pattern: preserve is verified by loading
+        through the store, NOT by re-GETting a masked view. Reaches into
+        the module-level patched objects the `client` fixture installed."""
+        from the_one.interfaces.web import api as api_module
+
+        conn = api_module.get_connection.return_value
+        encryptor = api_module.get_encryptor.return_value
+        store = SQLiteAgentStore(conn, encryptor)
+        return await store.load(name)
+
+    async def test_put_omitted_credential_key_preserves_stored_value(
+        self, client: AsyncClient
+    ) -> None:
+        """AC5 — omitting a credential key from the PUT payload's source
+        entry preserves the stored value for that key."""
+        await client.post(
+            "/api/agents",
+            json={"name": "preserve-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.put(
+            "/api/agents/preserve-agent",
+            json={
+                "name": "preserve-agent",
+                "mcp_overrides": {"github": {"enabled_tools": ["read_issue"]}},
+            },
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "preserve-agent")
+        assert loaded.mcp_overrides["github"]["bearer_token"] == "bearer-realsecretvalue"
+        assert loaded.mcp_overrides["github"]["headers"] == {"X-Auth": "header-realsecretvalue"}
+        assert loaded.mcp_overrides["github"]["env"] == {"TOKEN": "env-realsecretvalue"}
+
+    async def test_put_masked_credential_value_preserves_stored_value(
+        self, client: AsyncClient
+    ) -> None:
+        """AC5 — a client round-tripping a GET-masked value into a PUT
+        preserves the stored value (not the literal mask string)."""
+        await client.post(
+            "/api/agents",
+            json={"name": "preserve-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        get_resp = await client.get("/api/agents/preserve-agent")
+        masked_overrides = get_resp.json()["mcp_overrides"]
+        resp = await client.put(
+            "/api/agents/preserve-agent",
+            json={"name": "preserve-agent", "mcp_overrides": masked_overrides},
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "preserve-agent")
+        assert loaded.mcp_overrides["github"]["bearer_token"] == "bearer-realsecretvalue"
+        assert loaded.mcp_overrides["github"]["headers"] == {"X-Auth": "header-realsecretvalue"}
+        assert loaded.mcp_overrides["github"]["env"] == {"TOKEN": "env-realsecretvalue"}
+
+    async def test_put_explicit_null_credential_clears_stored_value(
+        self, client: AsyncClient
+    ) -> None:
+        """AC5 — an explicit `null` for a credential key clears it."""
+        await client.post(
+            "/api/agents",
+            json={"name": "clear-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.put(
+            "/api/agents/clear-agent",
+            json={
+                "name": "clear-agent",
+                "mcp_overrides": {
+                    "github": {
+                        "bearer_token": None,
+                        "enabled_tools": ["read_issue"],
+                    }
+                },
+            },
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "clear-agent")
+        assert "bearer_token" not in (loaded.mcp_overrides["github"])
+        # Other stored credentials, not mentioned in this PUT, are preserved.
+        assert loaded.mcp_overrides["github"]["headers"] == {"X-Auth": "header-realsecretvalue"}
+
+    async def test_put_new_credential_value_overwrites_stored_value(
+        self, client: AsyncClient
+    ) -> None:
+        """AC5 — a real (non-masked) incoming value overwrites the
+        stored value."""
+        await client.post(
+            "/api/agents",
+            json={"name": "overwrite-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.put(
+            "/api/agents/overwrite-agent",
+            json={
+                "name": "overwrite-agent",
+                "mcp_overrides": {"github": {"bearer_token": "brand-new-token-value"}},
+            },
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "overwrite-agent")
+        assert loaded.mcp_overrides["github"]["bearer_token"] == "brand-new-token-value"
+
+    async def test_put_partially_masked_headers_resolves_per_inner_key(
+        self, client: AsyncClient
+    ) -> None:
+        """Edge case — an incoming `headers` dict that is partially
+        masked (operator changed one header): masked inner values
+        resolve from stored, new ones overwrite, inner keys absent from
+        the payload are dropped."""
+        await client.post(
+            "/api/agents",
+            json={
+                "name": "partial-headers-agent",
+                "mcp_overrides": {
+                    "github": {
+                        "headers": {
+                            "X-Auth": "auth-realsecretvalue",
+                            "X-Other": "other-realsecretvalue",
+                        }
+                    }
+                },
+            },
+        )
+        resp = await client.put(
+            "/api/agents/partial-headers-agent",
+            json={
+                "name": "partial-headers-agent",
+                "mcp_overrides": {
+                    "github": {
+                        "headers": {
+                            "X-Auth": "***...alue",  # mask-shaped: preserve
+                            "X-New": "brand-new-header-value",  # real: set
+                            # X-Other omitted: dropped (payload is
+                            # authoritative for shape)
+                        }
+                    }
+                },
+            },
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "partial-headers-agent")
+        headers = loaded.mcp_overrides["github"]["headers"]
+        assert headers["X-Auth"] == "auth-realsecretvalue"
+        assert headers["X-New"] == "brand-new-header-value"
+        assert "X-Other" not in headers
+
+    async def test_put_masked_value_with_nothing_stored_is_dropped(
+        self, client: AsyncClient
+    ) -> None:
+        """Edge case — a masked value for a key with nothing stored is
+        dropped, never persisted as the literal mask string."""
+        await client.post("/api/agents", json={"name": "nothing-stored-agent"})
+        resp = await client.put(
+            "/api/agents/nothing-stored-agent",
+            json={
+                "name": "nothing-stored-agent",
+                "mcp_overrides": {"github": {"bearer_token": "***...abcd"}},
+            },
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "nothing-stored-agent")
+        overrides = loaded.mcp_overrides or {}
+        github_entry = overrides.get("github", {})
+        assert "bearer_token" not in github_entry
+        assert github_entry.get("bearer_token") != "***...abcd"
+
+    async def test_put_studio_shaped_payload_preserves_credentials(
+        self, client: AsyncClient
+    ) -> None:
+        """A Studio-shaped PUT (payload carries only `enabled_tools` /
+        `disabled_tools` — Studio renders no credential fields at all)
+        preserves every stored credential."""
+        await client.post(
+            "/api/agents",
+            json={"name": "studio-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.put(
+            "/api/agents/studio-agent",
+            json={
+                "name": "studio-agent",
+                "mcp_overrides": {"github": {"enabled_tools": ["read_issue", "list_issues"]}},
+            },
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "studio-agent")
+        assert loaded.mcp_overrides["github"]["bearer_token"] == "bearer-realsecretvalue"
+        assert loaded.mcp_overrides["github"]["headers"] == {"X-Auth": "header-realsecretvalue"}
+        assert loaded.mcp_overrides["github"]["env"] == {"TOKEN": "env-realsecretvalue"}
+        assert loaded.mcp_overrides["github"]["enabled_tools"] == ["read_issue", "list_issues"]
+
+    async def test_put_mcp_overrides_null_preserves_every_stored_source(
+        self, client: AsyncClient
+    ) -> None:
+        """A PUT with `mcp_overrides: null` cannot be distinguished from
+        an omitted key (`data.get()` collapses both to `None`) — AC5
+        treats them identically: every stored source is preserved."""
+        await client.post(
+            "/api/agents",
+            json={"name": "null-put-agent", "mcp_overrides": self._SECRET_OVERRIDES},
+        )
+        resp = await client.put(
+            "/api/agents/null-put-agent",
+            json={"name": "null-put-agent", "mcp_overrides": None},
+        )
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "null-put-agent")
+        assert loaded.mcp_overrides["github"]["bearer_token"] == "bearer-realsecretvalue"
+
+    async def test_post_masked_value_is_dropped_not_persisted(self, client: AsyncClient) -> None:
+        """create_agent: no stored row to preserve against, but a
+        masked-shaped credential value in a POST body is dropped rather
+        than persisted literally."""
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "post-masked-agent",
+                "mcp_overrides": {"github": {"bearer_token": "***...abcd"}},
+            },
+        )
+        assert resp.status_code == 201
+        loaded = await self._load_via_store(client, "post-masked-agent")
+        overrides = loaded.mcp_overrides or {}
+        github_entry = overrides.get("github", {})
+        assert github_entry.get("bearer_token") != "***...abcd"
+        assert "bearer_token" not in github_entry
+
+    async def test_detaching_a_connector_does_not_clear_orphaned_overrides(
+        self, client: AsyncClient
+    ) -> None:
+        """Edge case — stored credentials for a source the agent has
+        since detached are still preserved; clearing is an explicit
+        `null`, not a side-effect of detaching (unrelated to
+        connector_ids at all — mcp_overrides is keyed by MCP source
+        name, not connector account)."""
+        await client.post(
+            "/api/agents",
+            json={
+                "name": "detach-preserve-agent",
+                "connector_ids": ["acct-a"],
+                "mcp_overrides": self._SECRET_OVERRIDES,
+            },
+        )
+        resp = await client.delete("/api/agents/detach-preserve-agent/connectors/acct-a")
+        assert resp.status_code == 200
+        loaded = await self._load_via_store(client, "detach-preserve-agent")
+        assert loaded.mcp_overrides["github"]["bearer_token"] == "bearer-realsecretvalue"
 
 
 # ── Knowledge base endpoints ─────────────────────────────────────────────

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -37,8 +39,22 @@ async def conn(tmp_path):
 
 
 @pytest.fixture
-def agent_store(conn):
-    return SQLiteAgentStore(conn)
+def agent_store_encryptor(tmp_path):
+    # Function-scoped (default). Do NOT promote to module/session scope —
+    # would outlive the per-test `conn` fixture and create cross-test
+    # state leakage on the encryptor's in-memory key. Mirrors
+    # `mcp_repo_encryptor` / `connector_repo_encryptor` / `tool_config_repo_encryptor`.
+    from cryptography.fernet import Fernet
+
+    from the_one.encryption import Encryptor
+
+    key = Fernet.generate_key()
+    return Encryptor(key, key_path=tmp_path / "agent_store.key")
+
+
+@pytest.fixture
+def agent_store(conn, agent_store_encryptor):
+    return SQLiteAgentStore(conn, agent_store_encryptor)
 
 
 @pytest.fixture
@@ -224,6 +240,241 @@ class TestSQLiteAgentStore:
         await agent_store.save(cfg)
         loaded = await agent_store.load("no-mcp-overrides")
         assert loaded.mcp_overrides is None
+
+    # ── M21 F01 L01: encryption-at-rest for the override columns ────────
+
+    async def test_tool_overrides_and_mcp_overrides_stored_as_ciphertext(
+        self, agent_store: SQLiteAgentStore, agent_store_encryptor, conn
+    ) -> None:
+        """AC1 — after save(), the raw columns are NOT valid JSON and DO
+        decrypt under the store's encryptor to the original dicts."""
+        cfg = AgentConfig(
+            name="ciphertext-test",
+            tool_overrides={"shell": {"timeout": 30}},
+            mcp_overrides={"github": {"bearer_token": "tok-a"}},
+        )
+        await agent_store.save(cfg)
+
+        async with conn.execute(
+            "SELECT tool_overrides, mcp_overrides FROM agents WHERE name = ?",
+            ("ciphertext-test",),
+        ) as cur:
+            row = await cur.fetchone()
+
+        raw_tool = row["tool_overrides"]
+        raw_mcp = row["mcp_overrides"]
+        # Not valid JSON — proves it's ciphertext, not a plaintext blob.
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(raw_tool)
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(raw_mcp)
+        # Decrypts under the store's own encryptor to the original dicts.
+        assert json.loads(agent_store_encryptor.decrypt(raw_tool)) == {"shell": {"timeout": 30}}
+        assert json.loads(agent_store_encryptor.decrypt(raw_mcp)) == {
+            "github": {"bearer_token": "tok-a"}
+        }
+
+    async def test_none_stored_as_sql_null_not_encrypted(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """AC1 — `None` is stored as SQL NULL, not an encrypted `null`."""
+        cfg = AgentConfig(name="null-test")
+        await agent_store.save(cfg)
+        async with conn.execute(
+            "SELECT tool_overrides, mcp_overrides FROM agents WHERE name = ?",
+            ("null-test",),
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["tool_overrides"] is None
+        assert row["mcp_overrides"] is None
+
+    async def test_empty_dict_stored_encrypted_and_loads_as_empty_dict(
+        self, agent_store: SQLiteAgentStore, agent_store_encryptor, conn
+    ) -> None:
+        """AC1 — `{}` IS encrypted (not treated as "empty, store NULL"),
+        and decodes back to `{}`, preserving the None/`{}` distinction."""
+        cfg = AgentConfig(name="empty-dict-test", tool_overrides={}, mcp_overrides={})
+        await agent_store.save(cfg)
+
+        async with conn.execute(
+            "SELECT tool_overrides, mcp_overrides FROM agents WHERE name = ?",
+            ("empty-dict-test",),
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["tool_overrides"] is not None
+        assert json.loads(agent_store_encryptor.decrypt(row["tool_overrides"])) == {}
+        assert json.loads(agent_store_encryptor.decrypt(row["mcp_overrides"])) == {}
+
+        loaded = await agent_store.load("empty-dict-test")
+        assert loaded.tool_overrides == {}
+        assert loaded.mcp_overrides == {}
+
+    async def test_legacy_plaintext_row_loads_and_next_save_rewrites_ciphertext(
+        self, agent_store: SQLiteAgentStore, agent_store_encryptor, conn
+    ) -> None:
+        """AC2 — a row whose column holds plaintext JSON (pre-leg data)
+        loads with its values intact via the tolerant decode, and the
+        NEXT save() rewrites that column as ciphertext."""
+        from the_one.db.models import now_iso
+
+        now = now_iso()
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model, system_prompt,"
+            " disabled_tools, max_iterations, kb_ids, mcp_source_ids,"
+            " connector_ids, tool_overrides, mcp_overrides, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "legacy-agent",
+                "",
+                "mock-default",
+                "",
+                "[]",
+                20,
+                "[]",
+                "[]",
+                "[]",
+                json.dumps({"shell": {"timeout": 30}}),  # legacy plaintext
+                json.dumps({"github": {"bearer_token": "legacy-tok"}}),  # legacy plaintext
+                now,
+                now,
+            ),
+        )
+        await conn.commit()
+
+        loaded = await agent_store.load("legacy-agent")
+        assert loaded.tool_overrides == {"shell": {"timeout": 30}}
+        assert loaded.mcp_overrides == {"github": {"bearer_token": "legacy-tok"}}
+
+        # Next save() rewrites the columns as ciphertext.
+        await agent_store.save(loaded)
+        async with conn.execute(
+            "SELECT tool_overrides, mcp_overrides FROM agents WHERE name = ?",
+            ("legacy-agent",),
+        ) as cur:
+            row = await cur.fetchone()
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(row["tool_overrides"])
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(row["mcp_overrides"])
+        assert json.loads(agent_store_encryptor.decrypt(row["tool_overrides"])) == {
+            "shell": {"timeout": 30}
+        }
+
+    async def test_legacy_row_with_exactly_empty_json_object_loads_as_empty_dict(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """Edge case: a legacy row holding exactly `"{}"` loads as `{}`,
+        not `None`."""
+        from the_one.db.models import now_iso
+
+        now = now_iso()
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model, system_prompt,"
+            " disabled_tools, max_iterations, kb_ids, mcp_source_ids,"
+            " connector_ids, tool_overrides, mcp_overrides, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "legacy-empty",
+                "",
+                "mock-default",
+                "",
+                "[]",
+                20,
+                "[]",
+                "[]",
+                "[]",
+                "{}",
+                "{}",
+                now,
+                now,
+            ),
+        )
+        await conn.commit()
+
+        loaded = await agent_store.load("legacy-empty")
+        assert loaded.tool_overrides == {}
+        assert loaded.mcp_overrides == {}
+
+    async def test_legacy_row_with_non_json_plaintext_raises(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """Edge case: ciphertext-shaped-but-undecryptable text that is
+        ALSO not valid JSON raises — corruption is not masked, matching
+        `_decrypt_secrets_blob`'s stance on `_decrypt_secrets_blob`-
+        governed columns."""
+        from the_one.db.models import now_iso
+
+        now = now_iso()
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model, system_prompt,"
+            " disabled_tools, max_iterations, kb_ids, mcp_source_ids,"
+            " connector_ids, tool_overrides, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "corrupt-agent",
+                "",
+                "mock-default",
+                "",
+                "[]",
+                20,
+                "[]",
+                "[]",
+                "[]",
+                "not valid json at all",
+                now,
+                now,
+            ),
+        )
+        await conn.commit()
+
+        with pytest.raises(json.JSONDecodeError):
+            await agent_store.load("corrupt-agent")
+
+    async def test_empty_string_column_decodes_to_none(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """Edge case: an empty-string column decodes to `None` (matches
+        the pre-leg truthiness decode)."""
+        from the_one.db.models import now_iso
+
+        now = now_iso()
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model, system_prompt,"
+            " disabled_tools, max_iterations, kb_ids, mcp_source_ids,"
+            " connector_ids, tool_overrides, mcp_overrides, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "empty-string-agent",
+                "",
+                "mock-default",
+                "",
+                "[]",
+                20,
+                "[]",
+                "[]",
+                "[]",
+                "",
+                "",
+                now,
+                now,
+            ),
+        )
+        await conn.commit()
+
+        loaded = await agent_store.load("empty-string-agent")
+        assert loaded.tool_overrides is None
+        assert loaded.mcp_overrides is None
+
+    async def test_constructor_default_encryptor_still_works(self, conn) -> None:
+        """AC7 — `SQLiteAgentStore(conn)` with no encryptor argument still
+        works (resolves via `get_encryptor(settings.data_dir)`). The test
+        run isolates `THE_ONE_DATA_DIR` to a temp dir (conftest.py), so
+        this never touches the operator's real key file."""
+        store = SQLiteAgentStore(conn)
+        cfg = AgentConfig(name="default-encryptor-test", tool_overrides={"shell": {"timeout": 1}})
+        await store.save(cfg)
+        loaded = await store.load("default-encryptor-test")
+        assert loaded.tool_overrides == {"shell": {"timeout": 1}}
 
     async def test_save_round_trips_connector_ids(self, agent_store: SQLiteAgentStore) -> None:
         """Saving an agent with ``connector_ids`` set roundtrips

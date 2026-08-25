@@ -185,3 +185,25 @@ class TestModelsAreFrozen:
         m = StreamableHttpMCPOverride(headers={"X-Foo": "y"}, bearer_token="tok")
         with pytest.raises(ValidationError):
             m.bearer_token = "changed"  # type: ignore[misc]
+
+
+class TestMcpOverrideCredentialKeys:
+    """M21 F01 L01 — the marker-derived masked-key set (Decision D3 /
+    Correction C3). Locked to exactly the three ``Substitute``-marked
+    override-schema fields, computed from the markers rather than
+    hand-listed — a future schema addition changes THIS test, not
+    silently the masking behavior in ``api.py``.
+    """
+
+    def test_credential_keys_equals_marker_derived_set(self) -> None:
+        from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+
+        assert MCP_OVERRIDE_CREDENTIAL_KEYS == frozenset({"env", "headers", "bearer_token"})
+
+    def test_enabled_tools_and_disabled_tools_excluded(self) -> None:
+        """Non-credential fields carry no Substitute marker and must
+        NOT appear in the masked-key set."""
+        from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+
+        assert "enabled_tools" not in MCP_OVERRIDE_CREDENTIAL_KEYS
+        assert "disabled_tools" not in MCP_OVERRIDE_CREDENTIAL_KEYS

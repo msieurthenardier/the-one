@@ -65,12 +65,13 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
 
 
 @pytest.mark.browser
-def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -> None:
+def test_tablist_renders_with_six_tabs(app_with_agent: SeededApp, page: Page) -> None:
     """The agent editor renders a tablist with tabs and correct ARIA.
 
     The Connectors tab (M10 F6 L5, commit 93c4120) sits between MCPs and
-    Built-in Tools, so the tablist now renders 5 tabs in order:
-    General / Knowledge / MCPs / Connectors / Built-in Tools.
+    Built-in Tools; the Self-configuration tab (M21 F01 L02) sits last, so
+    the tablist now renders 6 tabs in order: General / Knowledge / MCPs /
+    Connectors / Built-in Tools / Self-configuration.
     """
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -80,7 +81,8 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
     expect(tablist).to_be_visible()
 
     tabs = page.locator('[role="tab"]')
-    expect(tabs).to_have_count(5)  # General + Knowledge + MCPs + Connectors + Built-in Tools
+    # General + Knowledge + MCPs + Connectors + Built-in Tools + Self-configuration
+    expect(tabs).to_have_count(6)
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
@@ -91,6 +93,9 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
         "aria-selected", "false"
     )
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "false")
+    expect(page.locator('[data-testid="tab-self-configuration"]')).to_have_attribute(
+        "aria-selected", "false"
+    )
 
 
 @pytest.mark.browser
@@ -173,7 +178,9 @@ def test_home_end_jump_to_first_last(app_with_agent: SeededApp, page: Page) -> N
     page.locator('[data-testid="tab-general"]').focus()
 
     page.keyboard.press("End")
-    assert page.evaluate("document.activeElement?.id") == "agent-tab-tools"
+    # M21 F01 L02: Self-configuration is now the LAST tab (after Built-in
+    # Tools), so End lands there.
+    assert page.evaluate("document.activeElement?.id") == "agent-tab-self-configuration"
 
     page.keyboard.press("Home")
     assert page.evaluate("document.activeElement?.id") == "agent-tab-general"
