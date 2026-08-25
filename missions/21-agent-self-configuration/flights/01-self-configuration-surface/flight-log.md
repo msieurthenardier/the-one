@@ -873,3 +873,34 @@ and settles the rotation semantics Mission 20 deferred.
   auth-scoped MCP endpoint). Complies with the methodology rule "never Opus for
   the Reviewer." Single review + commit at flight end per the deferred-review
   workflow.
+
+  **Flight-end review outcome: `[HANDOFF:confirmed]`, no blocking issues.** The
+  Reviewer independently ran ~440 tests, confirmed ruff clean, and validated the
+  security-critical paths (encryption/masking/rotation with the atomic-transaction
+  placement test; gate confinement in both directions; DD9 refusal via a real
+  client; `next_turn` mid-turn safety). Seven non-blocking findings; the
+  worthwhile ones were applied before commit:
+  - **[medium — security] Route-prefix bypass in the confinement check.**
+    `CredentialGateMiddleware` used a bare `path.startswith(MOUNT_PATH)`, which
+    would admit an `agt`-scoped caller to any sibling route sharing the string
+    prefix (e.g. `/mcp/self-configuration-admin`). Fixed to a route-boundary
+    check (`path == MOUNT_PATH or path.startswith(MOUNT_PATH + "/")`) with a
+    dedicated test. No such route exists today; hardened before it could.
+  - **[medium — coverage] `next_session` mechanism had no permanent test.** Added
+    `tests/test_web_session_reaper.py::test_cached_session_rebuilds_agent_from_edited_stored_config`
+    — a real `AgentFactory` + `SQLiteAgentStore` test proving a cached session's
+    agent is rebuilt from an edited stored prompt on rejoin (converting the A12
+    investigation into a durable, deterministic regression net independent of the
+    LLM-driven behavior test).
+  - **[low] `manage.status()` orphaned-row state untested** → added tests.
+  - **[low] Studio tab copy** not updated for the write tools → corrected the
+    consent surface. `__init__` docstring "two read tools" → four.
+  - **[non-blocking, forward] `next_session`-into-open-conversation closed on
+    narrative evidence only** — now backed by the regression test above.
+  - **[non-blocking, deferred] shutdown-drain WARNING** never verified against a
+    live pool connection at shutdown (see below); **two-agent isolation (AC9)**
+    ticked on enforcement + inspection, no dedicated simultaneous e2e test.
+  Documentation note (process, from the debrief): itemizing flight-end-review
+  findings in the flight log — as this entry now does — should be standard, the
+  same as leg-design-review findings; the first commit recorded only that the
+  review ran.

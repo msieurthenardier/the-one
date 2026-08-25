@@ -1,6 +1,6 @@
 # Flight: Self-Configuration Surface
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Agent Self-Configuration](../../mission.md)
 
 ## Contributing to Criteria
