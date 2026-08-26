@@ -36,7 +36,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-tile-tool-count` | studio | |
 | `approval-mode-error` | studio | Self-configuration tab approval-mode toggle (M21 F02 L02) |
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
-| `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02) |
+| `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `back-agent-btn` | studio | |
 | `back-connector-btn` | studio | |
 | `back-mcp-source-btn` | studio | |
@@ -208,9 +208,11 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-dismiss-btn` | studio | Self-configuration pending-revision card dismiss (M21 F02 L02) |
 | `revision-error` | studio | Self-configuration pending-revision card action error (M21 F02 L02) |
 | `revision-field` | studio | Self-configuration pending-revision card field label (M21 F02 L02) |
-| `revision-history` | studio | Self-configuration revision-history timeline container (M21 F02 L03) |
+| `revision-history` | studio | Self-configuration revision-history timeline container (M21 F02 L03); lives inside the collapsible `revision-history-details` as of the HAT UX pass (M21 F02 L04) |
+| `revision-history-details` | studio | Self-configuration chronological-log `<details class="advanced-collapsible">` wrapper (M21 F02 L04 HAT — collapses the full log; the restore-node list stays outside it, always visible) |
 | `revision-history-empty` | studio | Self-configuration revision-history empty notice (M21 F02 L03) |
 | `revision-history-entry` | studio | Self-configuration revision-history entry (M21 F02 L03) |
+| `revision-history-summary` | studio | Self-configuration chronological-log `<summary>`, text "History (N)" (M21 F02 L04 HAT) |
 | `revision-override-btn` | studio | Self-configuration staleness override/confirm (M21 F02 L02) |
 | `revision-proposed` | studio | Self-configuration pending-revision card proposed value (M21 F02 L02) |
 | `revision-restore-btn` | studio | Self-configuration revision-history restore control (M21 F02 L03) |
@@ -240,7 +242,7 @@ caught — but it cannot see where the attribute is emitted.
 | `self-configuration-error` | studio | Self-configuration tab (M21 F01 L02) |
 | `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
-| `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02) |
+| `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `studio-knowledge-stub` | studio | |
 | `tab-access-and-routing` | studio | |
 | `tab-connectors` | studio | |

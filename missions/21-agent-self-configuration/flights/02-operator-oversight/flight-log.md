@@ -586,3 +586,187 @@ for the flight-end commit step.
   regression — neither test asserted on this element's ARIA attributes, so no
   test changes were needed. Unit lane not re-run (attribute-only change).
   Left uncommitted per instruction.
+
+- **Final a11y refinement applied** (Developer, Sonnet): removed the redundant
+  `role="status"`/`aria-live` from `actionStatus` (focus-move alone carries the
+  summary); 8/8 browser tests green, node --check passes. Flight-end review loop
+  complete — all findings resolved.
+
+### Phase 2d/3 — commit, PR, flight landed
+
+- All three leg statuses → `completed`; legs checked off in flight.md.
+- Single deferred commit `417786d` (code + all artifacts). Branch pushed.
+- Draft PR **#172** opened (https://github.com/msieurthenardier/the-one/pull/172),
+  all three legs checked; optional HAT left unchecked.
+- Docs verified updated (SECURITY-MODEL.md, CLAUDE.md, agents.md) by the legs.
+- Flight status `in-flight` → `landed`; Flight 2 checked off in mission.md.
+- **Pre-commit gate:** full unit lane last verified green at 4447 passed / 10
+  skipped after the 6-finding fix pass; subsequent changes were attribute/comment
+  only (browser-verified 8/8), which cannot affect the Python unit lane.
+- **[COMPLETE:flight]** — Flight 2 landed. Debrief (→ completed) runs separately
+  via /flight-debrief.
+- **Carry-forward:** the two pulled-out Flight-1 verification-gap items
+  (shutdown-drain-under-load; two-agent-simultaneous isolation) remain to be
+  logged as squawks — to be done at flight debrief (Phase 6) or on request.
+
+### Leg 4 (uat-and-alignment) — HAT session
+
+- Optional HAT opted in by operator. Leg → in-flight.
+- Isolated env: scratch instance on **port 8485**, scratch data dir
+  `/tmp/the-one-hat/data` (NEVER 8484 / prod data dir). Seeded offline
+  (no provider needed — operator-oversight UX): `hat-agent` with current
+  description "Revised assistant", approval mode ON, surface enabled; queue of 2
+  (system_prompt clean base==current; description stale base!=current) + applied
+  history "Original assistant"→"Revised assistant" (original restorable).
+- Auth: background `serve` + `rotate-api-credential` created the credential;
+  authenticated browser via one-time `/api/session/handoff` URL (gate covers
+  GET too). Verified seeded state over bearer GETs before handing off.
+- Seed helper: scratchpad `hat_seed.py` (offline; used the app-order import to
+  dodge the squawk-0003 first-touch circular import). Guiding operator now.
+
+- **HAT functional pass (operator-driven, server-verified):** AC1 approval toggle,
+  AC2 queue+count, AC3 approve-clean (SPARROW persisted), AC4 staleness panel +
+  override (base re-captured to real current, not stale base), AC5 dismiss (not
+  applied, logged dismissed), AC6 history + restore-to-**original** (logged
+  applied/restore with restored_from provenance), AC8 keyboard/focus — all PASS.
+  AC7 (approval-off direct-apply) needs a live agent turn to trigger from the UI;
+  covered by Leg 2 unit tests, noted.
+- **AC9 UX pass:** operator screenshot → UX review agent produced a 12-item punch
+  list. Operator decisions: **accept bugs 1-5** (run-on field/source text; restore
+  rows lack visible field label; restore-value list fused with the chronological
+  log; raw ISO timestamps; redundant empty-state) + **enh 6** (before→after diff
+  highlighting), **8** (group restore nodes by field), **9** (side-by-side restore
+  rows), **10** (paginate/collapse long history + stronger section separation);
+  **plus** replace the enable/disable + approval on/off **buttons with slider/
+  switch toggles**; and **review the app design language** so all of it matches
+  existing conventions. Declined: 7 (button hierarchy), 11 (status badges), 12
+  (toast). Design-language recon spawned before implementing (also satisfies the
+  HAT multi-surface trigger — the switch/section styling touches shared CSS).
+
+### HAT UX fixes
+
+Implemented the operator-approved punch list from the AC9 UX pass above.
+Presentation-only — no backend/endpoint/behavior changes. Files touched:
+`self-configuration-tab.js`, `studio.css`, `docs/ui-testid-registry.md`, the
+three `test_studio_self_configuration_*.py` browser suites.
+
+- **Bug 1 (run-on field/source text):** inserted an explicit `" — "` text
+  node between the field-name span and the source/status/time span in each
+  history entry's head row (a literal text separator, not just a CSS gap, so
+  it reads correctly under copy/paste or a linearized screen-reader pass).
+- **Bug 2 (restore rows lack a visible field label):** folded into fix 8 —
+  each restore row now sits under a visible "Description" / "System prompt"
+  group heading (`.self-configuration-restore-group-label`) instead of
+  carrying the field name only in `aria-label`.
+- **Bug 3 (restore list fused with the chronological log):** two distinct
+  visible subheadings — "Restore to an earlier value"
+  (`.self-configuration-subheading`) above the restore-node list, and the
+  collapsible's own "History (N)" `<summary>` (fix 10) for the chronological
+  log — replacing the single shared "Revision history" heading.
+- **Bug 4 (raw ISO timestamps):** copied the relative-time idiom from
+  `chat/message-bubble.js` (`fmtTs`'s sibling pattern) as an inline
+  `formatTimeAgo(epochSeconds)` — no shared formatter exists app-wide. Each
+  meta line now reads e.g. "self-revised · applied · 3 hours ago"; the full
+  ISO string stays on `title=`.
+- **Bug 5 (redundant empty state):** `renderQueue` now hides the
+  `pending-count` line (`hidden = true`, tested) when the pending list is
+  empty, leaving only the dedicated `pending-queue-empty` notice.
+- **Enh 6 (before→after diff highlighting):** new small primitive,
+  `diffSegments` (common-prefix/common-suffix split, not a general LCS) +
+  `renderDiffedValues`, applied to both the queue card's base/proposed pair
+  and each history entry's before/after pair. `.diff-del`/`.diff-add`
+  (studio.css) style the changed run only; unchanged prefix/suffix stay
+  plain text for context. Tokens: `.diff-del` uses `--status-danger` +
+  `--status-danger-bg-soft` (both exist) with strikethrough; `.diff-add`
+  uses `--status-success` with underline only — there is no
+  `--status-success-bg-soft` token (only warning/danger have a `-bg-soft`
+  variant), so rather than fabricate one, add-highlighting relies on
+  color+underline (never color alone).
+- **Enh 8 (group restore nodes by field):** `RESTORE_FIELD_ORDER =
+  ['description', 'system_prompt']` drives two subgroups under the existing
+  per-(field,value) dedup — unchanged dedup logic, just grouped output. A
+  field with zero nodes contributes no subgroup.
+- **Enh 9 (side-by-side restore rows):** `.self-configuration-restore-node`
+  is a flex row (studio.css) — value takes the remaining width and wraps,
+  the Restore button (`.btn-outlined-primary.btn-sm`, per the operator's
+  explicit ask) pins right and never shrinks.
+- **Enh 10 (collapse long history):** the chronological log now renders
+  inside `<details class="advanced-collapsible" data-testid=
+  "revision-history-details">` (components.css primitive, zero JS) with a
+  `<summary data-testid="revision-history-summary">History (N)</summary>`.
+  Closed by default. The restore-node list stays outside it, always
+  visible, per the spec.
+- **Switches (operator's explicit addition):** both the enable/disable and
+  approval-mode buttons became `.tool-enable-switch` checkbox inputs
+  (admin.css, already dual-scoped `.area-admin, .area-studio` — no new
+  CSS needed for the switch itself), built the way
+  `design-language/surfaces-section.js`'s `toggleSwitch(on, ariaLabel)`
+  does. Testids (`self-configuration-toggle-btn`,
+  `approval-mode-toggle-btn`) stayed put, just moved from the retired
+  `<button>` onto the `<input>` — registry updated to note the move, no
+  rename. Immediate-post behavior preserved: `change` fires after the
+  browser has already flipped `.checked`, which the handler treats as the
+  new desired state (mirrors the old `onclick`); on failure it reverts
+  `.checked` and re-enables. The `:disabled` in-flight state during the
+  POST comes free from `.tool-enable-switch input:disabled` (admin.css).
+  Accessible name is a static `aria-label` (e.g. "Enable
+  self-configuration") rather than dynamic text, matching the
+  `tools-grid.js` switch convention — checked/unchecked state is conveyed
+  natively by the real `<input type="checkbox">`.
+- **Match design language:** every previously-unstyled
+  `self-configuration-*`/`revision-*`/`history-entry-*` class got either an
+  existing primitive or new token-built `.area-studio`-scoped CSS:
+  `.code-block` for all read-only value `<pre>` blocks (queue base/
+  proposed, staleness current/proposed, restore-node preview, history
+  before/after); `.revision-value-label` (caption + `--fg-muted` + mono)
+  for the small "Base"/"Proposed"/"Current" labels; `.banner.banner-warning`
+  for the staleness-panel drift advisory (previously a bare, unstyled `<p>`
+  despite `role="alert"`); `.indicator-led--success/--warning/--idle`
+  (mapped from `applied`/`pending`/`dismissed`+`superseded`) paired with the
+  status word already in the visible meta text, so the LED is
+  `aria-hidden` per the existing indicator-led a11y contract. `.editor-
+  section` + `.section-title` were already on-convention and untouched.
+- **Declined items not implemented:** 7 (button hierarchy re-weighting),
+  11 (status badges on section titles), 12 (toast styling) — left as-is
+  per operator decision.
+- **A11y preserved, unchanged:** all 5 `role="alert"` error/warning regions
+  (enable/disable error, approval error, card action error, staleness
+  warning, restore-node error); `historyList`'s `role="group"` (not a live
+  region); the cross-render `pendingAction` → `self-configuration-action-
+  status` focus-restoration bridge — verified still works with the switch
+  inputs (the `change` handler stashes `pendingAction` before calling the
+  API, same as the old `onclick`, so the next render's focus-move is
+  unaffected by the button→switch swap).
+- **No conflicts found** with any existing convention or prior a11y fix —
+  everything reused an existing primitive/token/testid pattern the recon
+  surfaced; nothing needed forcing.
+
+**Tests:** `node --check` passes on the JS. All three browser suites green
+after updating them for the new switch markup (`to_be_checked()`/
+`not_to_be_checked()` instead of button `to_have_text()`), the collapsible
+history (`revision-history-details`/`revision-history-summary`, opening it
+before asserting `revision-history` visibility), and an added assertion
+that `pending-count` hides at zero (fix 5):
+
+```
+tests/browser/test_studio_self_configuration_tab.py ...       [ 27%]
+tests/browser/test_studio_self_configuration_queue.py .....   [ 72%]
+tests/browser/test_studio_self_configuration_history.py ...   [100%]
+11 passed
+```
+
+Also re-ran the repo's CSS/token/testid-registry guards (`test_ui_guards.py`,
+`test_token_definitions.py`, `test_design_tokens_a11y.py`) — 162 passed —
+confirming the new `.area-studio`-scoped CSS has no hardcoded hex, no
+undefined `var()` refs, and the registry stays in sync with source. Python
+unit lane not run (out of scope — presentation-only change, per the task).
+
+[HANDOFF:review-needed]
+
+- **HAT UX pass — operator sign-off.** Restyle reviewed live on the scratch
+  instance and accepted ("all very good, pass"): slider switches, diff-highlighted
+  before/after, grouped+labelled restore rows, collapsible history, formatted
+  timestamps, fixed run-on text + empty state. Green: 11 browser tests + 162
+  token/guard tests. AC1-AC6, AC8, AC9 PASS; AC7 covered by unit tests. Leg 4 →
+  completed; checked off in flight.md. UX follow-up committed on the flight branch
+  (presentation-only; no backend change).

@@ -148,6 +148,10 @@ def test_dismiss_removes_row(app_with_data_dir: tuple[str, Path], page: Page) ->
     page.locator('[data-testid="revision-dismiss-btn"]').first.click()
 
     expect(page.locator('[data-testid="pending-queue-empty"]')).to_be_visible(timeout=8000)
+    # HAT fix #5: at zero pending, the redundant "0 revisions awaiting
+    # your approval." count line is hidden — only the single empty-state
+    # notice above is shown.
+    expect(page.locator('[data-testid="pending-count"]')).to_be_hidden()
     # Store NOT changed by dismiss.
     agent = httpx.get(
         f"{base_url}/api/agents/queue-dismiss-agent",
@@ -199,12 +203,19 @@ def test_approval_mode_toggle_persists(app_with_data_dir: tuple[str, Path], page
     _seed_agent(base_url, "queue-toggle-agent")
     _navigate_to_self_configuration_tab(page, base_url, "queue-toggle-agent")
 
+    # HAT UX pass (M21 F02 L04): the approval-mode control is now a
+    # `.tool-enable-switch` checkbox, not a button with "Turn on/off
+    # approval mode" text — assert the checked state and the status line
+    # text instead.
     toggle = page.locator('[data-testid="approval-mode-toggle-btn"]')
-    expect(toggle).to_have_text("Turn on approval mode", timeout=8000)
+    status = page.locator('[data-testid="approval-mode-status"]')
+    expect(toggle).not_to_be_checked(timeout=8000)
+    expect(status).to_contain_text("off", timeout=8000)
     toggle.click()
 
     # After re-render the toggle reflects the on state.
-    expect(toggle).to_have_text("Turn off approval mode", timeout=8000)
+    expect(toggle).to_be_checked(timeout=8000)
+    expect(status).to_contain_text("on", timeout=8000)
     # Server-side persistence.
     status = httpx.get(
         f"{base_url}/api/agents/queue-toggle-agent/self-configuration",

@@ -1,6 +1,6 @@
 # Flight: Operator Oversight
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Agent Self-Configuration](../../mission.md)
 
 ## Contributing to Criteria
@@ -402,7 +402,7 @@ Flight 1's `_apply_revision` persist path for both queued-apply and restore.
 - [x] `revision-restore` — operator-direct restore (logged with provenance) and
       the log-view UI with per-field restore. (Medium/high: touches the live
       persist path, additive over the Leg 1 table.)
-- [ ] `uat-and-alignment` *(optional)* — guided HAT: the operator drives
+- [x] `uat-and-alignment` *(optional)* — guided HAT: the operator drives
       approve/dismiss, the staleness re-confirm, restore, and the badge
       end-to-end, with fixes applied inline.
 

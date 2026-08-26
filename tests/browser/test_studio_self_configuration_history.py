@@ -15,6 +15,7 @@ Covers:
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -101,12 +102,44 @@ def test_history_renders_all_statuses(app_with_data_dir: tuple[str, Path], page:
     )
     _navigate_to_self_configuration_tab(page, base_url, "history-render-agent")
 
-    # History region present with one entry.
-    expect(page.locator('[data-testid="revision-history"]')).to_be_visible(timeout=8000)
+    # HAT UX pass (M21 F02 L04): the chronological log now lives inside a
+    # collapsible `<details>` (item 10) — closed by default, summary shows
+    # the count. Entries exist in the DOM (assertable via count) even while
+    # collapsed; open it to also assert visibility.
+    details = page.locator('[data-testid="revision-history-details"]')
+    expect(details).to_be_visible(timeout=8000)
+    summary = page.locator('[data-testid="revision-history-summary"]')
+    expect(summary).to_have_text("History (1)")
     entries = page.locator('[data-testid="revision-history-entry"]')
     expect(entries).to_have_count(1)
-    # Two distinct value-nodes (D0 via base, D1 via proposed) → two controls.
+    summary.click()
+    expect(page.locator('[data-testid="revision-history"]')).to_be_visible(timeout=8000)
+    expect(entries.first).to_be_visible()
+    # Two distinct value-nodes (D0 via base, D1 via proposed) → two controls,
+    # always visible (never collapsed) — grouped under a visible "Description"
+    # subheading (items 2 + 8: the group heading IS the restore rows' visible
+    # field label).
     expect(page.locator('[data-testid="revision-restore-btn"]')).to_have_count(2)
+    expect(page.locator('.self-configuration-restore-group-label')).to_have_text("Description")
+
+    # Item 3: the restore list and the chronological log each get their own
+    # visible subheading instead of sharing one.
+    expect(page.locator('.self-configuration-subheading')).to_have_text(
+        "Restore to an earlier value"
+    )
+
+    # Item 4: the history entry shows a formatted relative-time timestamp
+    # ("just now" / "N minutes ago" / …) instead of the raw stored
+    # timestamp, with the exact instant preserved as a `title=` tooltip.
+    meta_text = page.locator('.history-entry-meta-text').first
+    expect(meta_text).to_be_visible()
+    raw_text = meta_text.inner_text()
+    assert re.search(r"(just now|\d+ (minute|hour|day)s? ago)", raw_text), (
+        f"expected a relative-time formatted timestamp, got: {raw_text!r}"
+    )
+    title_attr = meta_text.get_attribute("title")
+    assert title_attr, "expected the exact timestamp preserved as a title= tooltip"
+    assert title_attr != raw_text, "title= should carry the raw timestamp, not the formatted text"
 
 
 @pytest.mark.browser

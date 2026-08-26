@@ -54,6 +54,25 @@
 // in collectFormData()/dirty-tracking — enable/disable and the approval-mode
 // toggle are immediate API calls (mirrors the Danger Zone's Delete/Purge
 // buttons), not form fields staged for the Save button.
+//
+// M21 F02 L04 HAT — operator UX review pass. Presentation-only; no
+// behavior/endpoint changes. Highlights:
+//   - Enable/disable and approval-mode are now `.tool-enable-switch` iOS
+//     switches (admin.css, dual-scoped .area-admin/.area-studio) instead of
+//     buttons — the testids stay on the underlying `<input>` so tests keep
+//     the same selectors.
+//   - Restore-node value + Restore button lay out side-by-side, grouped by
+//     field ("Description" / "System prompt" subheadings).
+//   - The chronological log lives in a `<details class="advanced-collapsible">`
+//     below a "Restore to an earlier value" subheading; the restore-node
+//     list itself (the actionable part) stays always visible.
+//   - Before/after values get a small prefix/suffix diff highlight
+//     (`diffSegments` below) instead of two bare full-text blocks — no
+//     shared diff util exists app-wide, so this is a small new primitive,
+//     intentionally simple (common-prefix/suffix, not a general LCS).
+//   - Timestamps render via a copy of chat/message-bubble.js's relative-time
+//     idiom (there is no shared formatter); the full ISO string stays on
+//     `title=`.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -76,6 +95,92 @@
   // several pending revisions isn't bounced to the top of the document
   // after every action.
   var pendingAction = null;
+
+  // ── HAT fix #4 — human-readable timestamps ──────────────────────────
+  // Copied from chat/message-bubble.js's relative-time idiom (no shared
+  // formatter exists app-wide; see the reuse note in the header comment).
+  // `rev.created_at` is an ISO 8601 string (backend `now_iso()`); this
+  // renders it as coarse relative time ("3 hours ago") and returns the
+  // original ISO string separately so the caller can keep it as a
+  // `title=` tooltip for the exact instant.
+  function formatTimeAgo(epochSeconds) {
+    if (typeof epochSeconds !== 'number' || !isFinite(epochSeconds)) return '';
+    var diffSec = Math.max(0, Math.floor(Date.now() / 1000 - epochSeconds));
+    if (diffSec < 60) return 'just now';
+    var diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return diffMin + ' minute' + (diffMin === 1 ? '' : 's') + ' ago';
+    var diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return diffHr + ' hour' + (diffHr === 1 ? '' : 's') + ' ago';
+    var diffDay = Math.floor(diffHr / 24);
+    return diffDay + ' day' + (diffDay === 1 ? '' : 's') + ' ago';
+  }
+
+  function formatRevisionTimestamp(isoStr) {
+    if (!isoStr) return { text: '', title: '' };
+    var d = new Date(isoStr);
+    if (isNaN(d.getTime())) return { text: String(isoStr), title: String(isoStr) };
+    return { text: formatTimeAgo(d.getTime() / 1000), title: isoStr };
+  }
+
+  // ── HAT fix #6 — before/after diff highlighting ─────────────────────
+  // No diff util exists app-wide. This is a deliberately small primitive:
+  // a common-prefix/common-suffix split (not a general LCS) that's enough
+  // to highlight the changed span(s) in the near-identical values this tab
+  // shows ("…SPARROW." -> "…FALCON."). Handles empty strings and identical
+  // values (mid segments come back empty, nothing gets wrapped).
+  function commonPrefixLen(a, b) {
+    var n = Math.min(a.length, b.length);
+    var i = 0;
+    while (i < n && a.charAt(i) === b.charAt(i)) i++;
+    return i;
+  }
+
+  function commonSuffixLen(a, b, maxLen) {
+    var i = 0;
+    while (i < maxLen && a.charAt(a.length - 1 - i) === b.charAt(b.length - 1 - i)) i++;
+    return i;
+  }
+
+  function diffSegments(oldStr, newStr) {
+    oldStr = oldStr == null ? '' : String(oldStr);
+    newStr = newStr == null ? '' : String(newStr);
+    if (oldStr === newStr) {
+      return { prefix: oldStr, oldMid: '', newMid: '', suffix: '' };
+    }
+    var prefixLen = commonPrefixLen(oldStr, newStr);
+    var maxSuffix = Math.min(oldStr.length - prefixLen, newStr.length - prefixLen);
+    var suffixLen = commonSuffixLen(oldStr, newStr, maxSuffix);
+    var prefix = oldStr.slice(0, prefixLen);
+    var suffix = suffixLen > 0 ? oldStr.slice(oldStr.length - suffixLen) : '';
+    var oldMid = oldStr.slice(prefixLen, oldStr.length - suffixLen);
+    var newMid = newStr.slice(prefixLen, newStr.length - suffixLen);
+    return { prefix: prefix, oldMid: oldMid, newMid: newMid, suffix: suffix };
+  }
+
+  // Renders `prefix + <span class="midClass">mid</span> + suffix` into an
+  // existing element (a `<pre>`), skipping empty pieces. `prefix`/`suffix`
+  // are shared verbatim text (never highlighted); `mid` is the changed run.
+  function applyDiffSpans(el, prefix, mid, suffix, midClass) {
+    el.textContent = '';
+    if (prefix) el.appendChild(document.createTextNode(prefix));
+    if (mid) {
+      var span = document.createElement('span');
+      span.className = midClass;
+      span.textContent = mid;
+      el.appendChild(span);
+    }
+    if (suffix) el.appendChild(document.createTextNode(suffix));
+  }
+
+  // Renders a before/after pair of `<pre>` elements with only the changed
+  // span highlighted (`.diff-del` on `beforeEl`, `.diff-add` on `afterEl`);
+  // the unchanged prefix/suffix render as plain text on both, so the full
+  // value stays readable for context.
+  function renderDiffedValues(beforeEl, afterEl, oldStr, newStr) {
+    var seg = diffSegments(oldStr, newStr);
+    applyDiffSpans(beforeEl, seg.prefix, seg.oldMid, seg.suffix, 'diff-del');
+    applyDiffSpans(afterEl, seg.prefix, seg.newMid, seg.suffix, 'diff-add');
+  }
 
   function renderSelfConfigurationTab(panel, agent, callbacks) {
     callbacks = callbacks || {};
@@ -131,13 +236,24 @@
     errorLine.hidden = true;
     section.appendChild(errorLine);
 
-    var toggleBtn = document.createElement('button');
-    toggleBtn.type = 'button';
-    toggleBtn.className = 'btn-outlined-primary self-configuration-toggle-btn';
-    toggleBtn.setAttribute('data-testid', 'self-configuration-toggle-btn');
-    toggleBtn.disabled = true;
-    toggleBtn.textContent = '…';
-    section.appendChild(toggleBtn);
+    // HAT: enable/disable is a 2-state immediate-post control — the
+    // reusable `.tool-enable-switch` iOS switch (admin.css, already
+    // dual-scoped .area-admin/.area-studio) fits better than a button.
+    // The testid stays on the actual `<input>` so existing test selectors
+    // keep resolving to the interactive control.
+    var toggleLabel = document.createElement('label');
+    toggleLabel.className = 'tool-enable-switch self-configuration-toggle-switch';
+    var toggleInput = document.createElement('input');
+    toggleInput.type = 'checkbox';
+    toggleInput.setAttribute('data-testid', 'self-configuration-toggle-btn');
+    toggleInput.setAttribute('aria-label', 'Enable self-configuration');
+    toggleInput.disabled = true;
+    toggleLabel.appendChild(toggleInput);
+    var toggleTrack = document.createElement('span');
+    toggleTrack.className = 'tool-enable-switch-track';
+    toggleTrack.setAttribute('aria-hidden', 'true');
+    toggleLabel.appendChild(toggleTrack);
+    section.appendChild(toggleLabel);
 
     panel.appendChild(section);
 
@@ -172,13 +288,21 @@
     approvalError.hidden = true;
     approvalSection.appendChild(approvalError);
 
-    var approvalBtn = document.createElement('button');
-    approvalBtn.type = 'button';
-    approvalBtn.className = 'btn-outlined-primary approval-mode-toggle-btn';
-    approvalBtn.setAttribute('data-testid', 'approval-mode-toggle-btn');
-    approvalBtn.disabled = true;
-    approvalBtn.textContent = '…';
-    approvalSection.appendChild(approvalBtn);
+    // HAT: same switch treatment as the enable/disable control above —
+    // 2-state, immediate-post.
+    var approvalLabel = document.createElement('label');
+    approvalLabel.className = 'tool-enable-switch self-configuration-toggle-switch';
+    var approvalInput = document.createElement('input');
+    approvalInput.type = 'checkbox';
+    approvalInput.setAttribute('data-testid', 'approval-mode-toggle-btn');
+    approvalInput.setAttribute('aria-label', 'Require approval for self-revisions');
+    approvalInput.disabled = true;
+    approvalLabel.appendChild(approvalInput);
+    var approvalTrack = document.createElement('span');
+    approvalTrack.className = 'tool-enable-switch-track';
+    approvalTrack.setAttribute('aria-hidden', 'true');
+    approvalLabel.appendChild(approvalTrack);
+    approvalSection.appendChild(approvalLabel);
 
     panel.appendChild(approvalSection);
 
@@ -217,18 +341,41 @@
 
     var historyDesc = document.createElement('p');
     historyDesc.className = 'self-configuration-description';
-    historyDesc.textContent = 'Every change to this agent’s description and system prompt, ' +
-      'newest first. Restore returns a field to any earlier value it held — it applies ' +
-      'immediately (your restore is never held for approval) and is recorded as a new entry.';
+    historyDesc.textContent = 'Every change to this agent’s description and system prompt. ' +
+      'Restore returns a field to any earlier value it held — it applies immediately (your ' +
+      'restore is never held for approval) and is recorded as a new entry.';
     historySection.appendChild(historyDesc);
 
-    // Restore controls: one per distinct value the fields have held.
+    // HAT fix #3: the restore-node list (below) and the chronological log
+    // (further below, in the collapsible) used to sit under one heading
+    // with no visible separation. Two distinct subheadings now — this one
+    // for the actionable restore list…
+    var restoreHeading = document.createElement('div');
+    restoreHeading.className = 'self-configuration-subheading';
+    restoreHeading.textContent = 'Restore to an earlier value';
+    historySection.appendChild(restoreHeading);
+
+    // Restore controls: one per distinct value the fields have held,
+    // grouped by field (HAT fix #8) — see renderHistory below.
     var restoreControls = document.createElement('div');
     restoreControls.className = 'self-configuration-restore-controls';
     restoreControls.setAttribute('data-testid', 'revision-restore-controls');
     restoreControls.setAttribute('role', 'group');
     restoreControls.setAttribute('aria-label', 'Restore an earlier value');
     historySection.appendChild(restoreControls);
+
+    // …and the collapsible "History (N)" `<summary>` below for the
+    // chronological log (HAT fix #10 — native `<details>`, zero-JS
+    // disclosure, components.css `.advanced-collapsible`). The restore
+    // list above stays always visible; only the full log collapses.
+    var historyDetails = document.createElement('details');
+    historyDetails.className = 'advanced-collapsible self-configuration-history-details';
+    historyDetails.setAttribute('data-testid', 'revision-history-details');
+
+    var historySummary = document.createElement('summary');
+    historySummary.setAttribute('data-testid', 'revision-history-summary');
+    historySummary.textContent = 'History';
+    historyDetails.appendChild(historySummary);
 
     // The full timeline (all statuses). This is a data view the user
     // browses, not an append-only log — it is entirely rebuilt on every
@@ -243,7 +390,9 @@
     historyList.setAttribute('role', 'group');
     historyList.setAttribute('aria-label', 'Revision history');
     historyList.textContent = 'Loading…';
-    historySection.appendChild(historyList);
+    historyDetails.appendChild(historyList);
+
+    historySection.appendChild(historyDetails);
 
     panel.appendChild(historySection);
 
@@ -262,18 +411,22 @@
       statusLine.textContent = enabled
         ? 'Self-configuration is enabled for this agent.'
         : 'Self-configuration is disabled for this agent.';
-      toggleBtn.textContent = enabled ? 'Disable' : 'Enable';
-      toggleBtn.disabled = false;
+      toggleInput.checked = enabled;
+      toggleInput.disabled = false;
       errorLine.hidden = true;
       errorLine.textContent = '';
-      toggleBtn.onclick = function () {
+      // `change` fires after the browser has already flipped `.checked` to
+      // the new (opposite of `enabled`) state — that IS the "flip on
+      // change" immediate-post behavior the switch preserves from the old
+      // button's onclick. On failure, revert to the pre-click state.
+      toggleInput.onchange = function () {
         var action = enabled ? callbacks.onDisable : callbacks.onEnable;
-        if (!action) return;
+        if (!action) { toggleInput.checked = enabled; return; }
         pendingAction = {
           agentName: agent.name,
           message: enabled ? 'Disabled self-configuration.' : 'Enabled self-configuration.'
         };
-        toggleBtn.disabled = true;
+        toggleInput.disabled = true;
         action(agent.name).then(function (result) {
           renderState(!!(result && result.enabled));
         }).catch(function (err) {
@@ -281,7 +434,8 @@
           errorLine.hidden = false;
           errorLine.textContent = 'Failed to ' + (enabled ? 'disable' : 'enable') +
             ' self-configuration: ' + (err && err.message ? err.message : String(err));
-          toggleBtn.disabled = false;
+          toggleInput.checked = enabled;
+          toggleInput.disabled = false;
         });
       };
     }
@@ -291,17 +445,17 @@
       approvalStatus.textContent = requiresApproval
         ? 'Approval mode is on — this agent’s self-revisions require your approval.'
         : 'Approval mode is off — this agent’s self-revisions take effect without approval.';
-      approvalBtn.textContent = requiresApproval ? 'Turn off approval mode' : 'Turn on approval mode';
-      approvalBtn.disabled = false;
+      approvalInput.checked = requiresApproval;
+      approvalInput.disabled = false;
       approvalError.hidden = true;
       approvalError.textContent = '';
-      approvalBtn.onclick = function () {
-        if (!callbacks.onSetApprovalMode) return;
+      approvalInput.onchange = function () {
+        if (!callbacks.onSetApprovalMode) { approvalInput.checked = requiresApproval; return; }
         pendingAction = {
           agentName: agent.name,
           message: requiresApproval ? 'Turned off approval mode.' : 'Turned on approval mode.'
         };
-        approvalBtn.disabled = true;
+        approvalInput.disabled = true;
         // On success studio.js re-renders the whole tab (the flag lives
         // outside the Save flow), so the fresh render reflects the new
         // value — no local state update needed here.
@@ -310,7 +464,8 @@
           approvalError.hidden = false;
           approvalError.textContent = 'Failed to change approval mode: ' +
             (err && err.message ? err.message : String(err));
-          approvalBtn.disabled = false;
+          approvalInput.checked = requiresApproval;
+          approvalInput.disabled = false;
         });
       };
     }
@@ -331,16 +486,18 @@
 
       // base → proposed shown on the clean path too (for a non-stale row
       // base_value == current, so "see what would change" is satisfied on
-      // the one-click path, not only the 409 path).
+      // the one-click path, not only the 409 path). HAT fix #6: only the
+      // changed span is highlighted (diff-del/diff-add) instead of two
+      // bare full-text blocks. HAT "match design language": `.code-block`
+      // is the app's read-only value-artifact primitive.
       var baseBlock = document.createElement('div');
       baseBlock.className = 'revision-base';
       var baseHdr = document.createElement('div');
       baseHdr.className = 'revision-value-label';
       baseHdr.textContent = 'Current';
       var baseVal = document.createElement('pre');
-      baseVal.className = 'revision-value';
+      baseVal.className = 'revision-value code-block';
       baseVal.setAttribute('data-testid', 'revision-base');
-      baseVal.textContent = revision.base_value;
       baseBlock.appendChild(baseHdr);
       baseBlock.appendChild(baseVal);
       card.appendChild(baseBlock);
@@ -351,12 +508,13 @@
       proposedHdr.className = 'revision-value-label';
       proposedHdr.textContent = 'Proposed';
       var proposedVal = document.createElement('pre');
-      proposedVal.className = 'revision-value';
+      proposedVal.className = 'revision-value code-block';
       proposedVal.setAttribute('data-testid', 'revision-proposed');
-      proposedVal.textContent = revision.proposed_value;
       proposedBlock.appendChild(proposedHdr);
       proposedBlock.appendChild(proposedVal);
       card.appendChild(proposedBlock);
+
+      renderDiffedValues(baseVal, proposedVal, revision.base_value, revision.proposed_value);
 
       var actionError = document.createElement('p');
       actionError.className = 'self-configuration-error';
@@ -419,8 +577,10 @@
         stalePanel.hidden = false;
         stalePanel.textContent = '';
 
+        // HAT "match design language": the drift advisory reuses
+        // `.banner-warning` (components.css) instead of an unstyled <p>.
         var warn = document.createElement('p');
-        warn.className = 'revision-stale-warning';
+        warn.className = 'revision-stale-warning banner banner-warning';
         warn.setAttribute('role', 'alert');
         warn.textContent = 'This value has changed since the agent proposed its revision. ' +
           'Approving will overwrite the current value below.';
@@ -430,7 +590,7 @@
         curHdr.className = 'revision-value-label';
         curHdr.textContent = 'Current value now';
         var curVal = document.createElement('pre');
-        curVal.className = 'revision-value';
+        curVal.className = 'revision-value code-block';
         curVal.setAttribute('data-testid', 'revision-current');
         curVal.textContent = detail.current_value;
         stalePanel.appendChild(curHdr);
@@ -440,7 +600,7 @@
         propHdr.className = 'revision-value-label';
         propHdr.textContent = 'Proposed value';
         var propVal = document.createElement('pre');
-        propVal.className = 'revision-value';
+        propVal.className = 'revision-value code-block';
         propVal.setAttribute('data-testid', 'revision-stale-proposed');
         propVal.textContent = detail.proposed_value;
         stalePanel.appendChild(propHdr);
@@ -516,10 +676,14 @@
     function renderQueue(revisions) {
       queueList.innerHTML = '';
       var pending = (revisions || []).filter(function (r) { return r.status === 'pending'; });
-      countLine.textContent = pending.length === 1
-        ? '1 revision awaiting your approval.'
-        : pending.length + ' revisions awaiting your approval.';
+      // HAT fix #5: at zero, show only ONE empty-state message (the
+      // dedicated `pending-queue-empty` notice below) — the count line
+      // used to ALSO say "0 revisions awaiting your approval.", which
+      // read as two conflicting/redundant messages stacked on top of
+      // each other.
       if (pending.length === 0) {
+        countLine.hidden = true;
+        countLine.textContent = '';
         var empty = document.createElement('p');
         empty.className = 'empty-state';
         empty.setAttribute('data-testid', 'pending-queue-empty');
@@ -527,6 +691,10 @@
         queueList.appendChild(empty);
         return;
       }
+      countLine.hidden = false;
+      countLine.textContent = pending.length === 1
+        ? '1 revision awaiting your approval.'
+        : pending.length + ' revisions awaiting your approval.';
       pending.forEach(function (rev) {
         queueList.appendChild(renderCard(rev));
       });
@@ -537,11 +705,95 @@
       return field === 'system_prompt' ? 'System prompt' : 'Description';
     }
 
+    // Maps a revision's `status` (applied/pending/dismissed/superseded —
+    // see db/models.py AgentRevision) to an `.indicator-led--*` variant.
+    function statusLedVariant(status) {
+      if (status === 'applied') return 'success';
+      if (status === 'pending') return 'warning';
+      return 'idle'; // dismissed, superseded
+    }
+
+    // Builds one restore-node row: value + Restore button laid out
+    // side-by-side (HAT fix #9 — `.self-configuration-restore-node` flex
+    // row in studio.css; short values sit inline with the button pinned
+    // right, long/multi-line values wrap). Extracted to a function since
+    // nodes now render grouped by field (HAT fix #8) instead of one flat
+    // list.
+    function renderRestoreNodeRow(node) {
+      var row = document.createElement('div');
+      row.className = 'self-configuration-restore-node';
+      row.setAttribute('data-testid', 'revision-restore-node');
+      row.setAttribute('data-field', node.field);
+      row.setAttribute('data-side', node.side);
+
+      var preview = document.createElement('pre');
+      preview.className = 'revision-value code-block restore-node-value';
+      preview.textContent = node.value;
+      row.appendChild(preview);
+
+      // A short snippet of this node's own value distinguishes it from
+      // every other Restore button for a screen-reader rotor (SC 2.4.6)
+      // — plain "Restore this description value" repeats verbatim across
+      // nodes. Nodes are already deduped per-field (see below), so the
+      // snippet is unique among a field's own nodes.
+      var nodeSnippet = node.value ? node.value : '(empty)';
+      if (nodeSnippet.length > 40) nodeSnippet = nodeSnippet.slice(0, 40) + '…';
+
+      var restoreBtn = document.createElement('button');
+      restoreBtn.type = 'button';
+      restoreBtn.className = 'btn-outlined-primary btn-sm revision-restore-btn';
+      restoreBtn.setAttribute('data-testid', 'revision-restore-btn');
+      restoreBtn.setAttribute('data-revision-id', node.revisionId);
+      restoreBtn.setAttribute('data-side', node.side);
+      // Labelled for assistive tech — names the field it restores and a
+      // snippet of the value, so it reads distinctly from sibling nodes.
+      restoreBtn.setAttribute('aria-label',
+        'Restore this ' + fieldName(node.field).toLowerCase() + ' value: “' + nodeSnippet + '”');
+      restoreBtn.textContent = 'Restore';
+      row.appendChild(restoreBtn);
+
+      var nodeError = document.createElement('p');
+      nodeError.className = 'self-configuration-error';
+      nodeError.setAttribute('data-testid', 'revision-restore-error');
+      nodeError.setAttribute('role', 'alert');
+      nodeError.hidden = true;
+      row.appendChild(nodeError);
+
+      restoreBtn.onclick = function () {
+        if (!callbacks.onRestoreRevision) return;
+        pendingAction = {
+          agentName: agent.name,
+          message: 'Restored ' + fieldName(node.field).toLowerCase() + ' to an earlier value.'
+        };
+        restoreBtn.disabled = true;
+        nodeError.hidden = true;
+        nodeError.textContent = '';
+        // On success studio.js re-renders the whole tab — the new restore
+        // row appears in the history; nothing to update in place.
+        callbacks.onRestoreRevision(agent.name, node.revisionId, node.side)
+          .catch(function (err) {
+            pendingAction = null;
+            nodeError.hidden = false;
+            nodeError.textContent = 'Restore failed: ' +
+              (err && err.message ? err.message : String(err));
+            restoreBtn.disabled = false;
+          });
+      };
+
+      return row;
+    }
+
+    // The two fields this tab manages (DD1 — see the header comment).
+    // Explicit order (not alphabetical-by-accident) drives the grouped
+    // restore list below.
+    var RESTORE_FIELD_ORDER = ['description', 'system_prompt'];
+
     function renderHistory(revisions) {
       revisions = revisions || [];
 
-      // ── the full timeline (newest-first, all statuses) ──
+      // ── the full chronological log (newest-first, all statuses) ──
       historyList.innerHTML = '';
+      historySummary.textContent = 'History (' + revisions.length + ')';
       if (revisions.length === 0) {
         var emptyHist = document.createElement('p');
         emptyHist.className = 'empty-state';
@@ -564,36 +816,61 @@
           fieldTag.className = 'history-entry-field';
           fieldTag.textContent = fieldName(rev.field);
           head.appendChild(fieldTag);
+          // HAT fix #1: the field-name span and the source/status/time
+          // span used to sit adjacent with no separator ("System
+          // prompt**self-revised**"). An explicit em-dash text node reads
+          // correctly even if the flex `gap` below is unavailable (e.g.
+          // copy/paste, a screen reader's linearized text).
+          head.appendChild(document.createTextNode(' — '));
+
           var meta = document.createElement('span');
           meta.className = 'history-entry-meta';
+          // HAT "match design language": a status LED, paired with the
+          // status word already in the visible text (so it's decorative
+          // — aria-hidden — per the indicator-led a11y contract in
+          // components.css).
+          var led = document.createElement('span');
+          led.className = 'indicator-led indicator-led--' + statusLedVariant(rev.status);
+          led.setAttribute('aria-hidden', 'true');
+          meta.appendChild(led);
+
+          var metaText = document.createElement('span');
+          metaText.className = 'history-entry-meta-text';
           // source + status + timestamp, human-readable and attributable.
+          // HAT fix #4: formatted relative time instead of the raw ISO
+          // string; the exact instant stays available via `title=`.
           var sourceLabel = rev.source === 'restore' ? 'restored' : 'self-revised';
-          meta.textContent = sourceLabel + ' · ' + rev.status + ' · ' + rev.created_at;
+          var ts = formatRevisionTimestamp(rev.created_at);
+          metaText.textContent = sourceLabel + ' · ' + rev.status +
+            (ts.text ? ' · ' + ts.text : '');
+          if (ts.title) metaText.title = ts.title;
+          meta.appendChild(metaText);
           head.appendChild(meta);
           entry.appendChild(head);
 
+          // HAT fix #6: only the changed span is highlighted instead of
+          // two bare full-text blocks.
           var change = document.createElement('div');
           change.className = 'history-entry-change';
           var beforeVal = document.createElement('pre');
-          beforeVal.className = 'revision-value history-entry-before';
-          beforeVal.textContent = rev.base_value;
+          beforeVal.className = 'revision-value code-block history-entry-before';
           var arrow = document.createElement('span');
           arrow.className = 'history-entry-arrow';
           arrow.setAttribute('aria-label', 'changed to');
           arrow.textContent = '→';
           var afterVal = document.createElement('pre');
-          afterVal.className = 'revision-value history-entry-after';
-          afterVal.textContent = rev.proposed_value;
+          afterVal.className = 'revision-value code-block history-entry-after';
           change.appendChild(beforeVal);
           change.appendChild(arrow);
           change.appendChild(afterVal);
           entry.appendChild(change);
+          renderDiffedValues(beforeVal, afterVal, rev.base_value, rev.proposed_value);
 
           historyList.appendChild(entry);
         });
       }
 
-      // ── restore controls: one per DISTINCT value-node ──
+      // ── restore controls: one per DISTINCT value-node, grouped by field ──
       // Dedup base_value + proposed_value across all `applied` rows, PER
       // FIELD. `description` and `system_prompt` are independent (DD1) and
       // both default to empty string, so a raw-value-only dedup key would
@@ -634,67 +911,27 @@
         return;
       }
 
-      nodes.forEach(function (node) {
-        var row = document.createElement('div');
-        row.className = 'self-configuration-restore-node';
-        row.setAttribute('data-testid', 'revision-restore-node');
-        row.setAttribute('data-field', node.field);
-        row.setAttribute('data-side', node.side);
+      // HAT fix #8: grouped by field ("Description" subgroup, then
+      // "System prompt") instead of interleaved chronologically — this
+      // also folds in HAT fix #2 (restore rows previously had no visible
+      // field label; the subheading now labels the whole group). A field
+      // with zero nodes contributes no subgroup (nothing to restore for
+      // it yet).
+      RESTORE_FIELD_ORDER.forEach(function (field) {
+        var fieldNodes = nodes.filter(function (n) { return n.field === field; });
+        if (fieldNodes.length === 0) return;
 
-        var preview = document.createElement('pre');
-        preview.className = 'revision-value restore-node-value';
-        preview.textContent = node.value;
-        row.appendChild(preview);
+        var groupHeading = document.createElement('div');
+        groupHeading.className = 'self-configuration-restore-group-label';
+        groupHeading.textContent = fieldName(field);
+        restoreControls.appendChild(groupHeading);
 
-        var nodeError = document.createElement('p');
-        nodeError.className = 'self-configuration-error';
-        nodeError.setAttribute('data-testid', 'revision-restore-error');
-        nodeError.setAttribute('role', 'alert');
-        nodeError.hidden = true;
-        row.appendChild(nodeError);
-
-        // A short snippet of this node's own value distinguishes it from
-        // every other Restore button for a screen-reader rotor (SC 2.4.6)
-        // — plain "Restore this description value" repeats verbatim across
-        // nodes. Nodes are already deduped per-field (see above), so the
-        // snippet is unique among a field's own nodes.
-        var nodeSnippet = node.value ? node.value : '(empty)';
-        if (nodeSnippet.length > 40) nodeSnippet = nodeSnippet.slice(0, 40) + '…';
-
-        var restoreBtn = document.createElement('button');
-        restoreBtn.type = 'button';
-        restoreBtn.className = 'btn-outlined-primary revision-restore-btn';
-        restoreBtn.setAttribute('data-testid', 'revision-restore-btn');
-        restoreBtn.setAttribute('data-revision-id', node.revisionId);
-        restoreBtn.setAttribute('data-side', node.side);
-        // Labelled for assistive tech — names the field it restores and a
-        // snippet of the value, so it reads distinctly from sibling nodes.
-        restoreBtn.setAttribute('aria-label',
-          'Restore this ' + fieldName(node.field).toLowerCase() + ' value: “' + nodeSnippet + '”');
-        restoreBtn.textContent = 'Restore';
-        restoreBtn.onclick = function () {
-          if (!callbacks.onRestoreRevision) return;
-          pendingAction = {
-            agentName: agent.name,
-            message: 'Restored ' + fieldName(node.field).toLowerCase() + ' to an earlier value.'
-          };
-          restoreBtn.disabled = true;
-          nodeError.hidden = true;
-          nodeError.textContent = '';
-          // On success studio.js re-renders the whole tab — the new restore
-          // row appears in the history; nothing to update in place.
-          callbacks.onRestoreRevision(agent.name, node.revisionId, node.side)
-            .catch(function (err) {
-              pendingAction = null;
-              nodeError.hidden = false;
-              nodeError.textContent = 'Restore failed: ' +
-                (err && err.message ? err.message : String(err));
-              restoreBtn.disabled = false;
-            });
-        };
-        row.appendChild(restoreBtn);
-
-        restoreControls.appendChild(row);
+        var group = document.createElement('div');
+        group.className = 'self-configuration-restore-group';
+        fieldNodes.forEach(function (node) {
+          group.appendChild(renderRestoreNodeRow(node));
+        });
+        restoreControls.appendChild(group);
       });
     }
 
