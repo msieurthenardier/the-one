@@ -123,6 +123,9 @@ class TestGetMyConfigurationSecretFree:
             "disabled_tools",
             "knowledge_bases",
         }
+        # M21 F02 L02 AC4 — the operator-owned approval-mode flag is NEVER
+        # exposed to the agent through the read projection.
+        assert "self_revision_requires_approval" not in result
         assert result["provider"] == {"name": "My Anthropic", "type": "anthropic"}
         assert result["knowledge_bases"] == ["My KB"]
 

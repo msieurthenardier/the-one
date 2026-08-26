@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 33
+CURRENT_VERSION = 35
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1958,3 +1958,71 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (33,))
         await conn.commit()
         version = 33
+
+    if version < 34:
+        # M21 F02 L01 — the `agent_revisions` revision log. One
+        # status-bearing table serves the applied-revision log (this leg),
+        # the pending-approval queue (Leg 2), and restore provenance
+        # (Leg 3): DD1. The full CHECK domain (all four `status` values,
+        # both `source` values) ships now so later legs add code, not
+        # migrations, against these values — this leg writes only
+        # `status='applied', source='self'`.
+        #
+        # Brand-new table, so CREATE TABLE IF NOT EXISTS (idempotent /
+        # partial-apply safe), then the index, then stamp the version with
+        # INSERT OR IGNORE last, mirroring the v31 app_metadata template.
+        # `agents` is created far earlier in-sequence, so the ON DELETE
+        # CASCADE FK to `agents(name)` resolves; the self-FK
+        # `restored_from -> agent_revisions(id)` resolves within the same
+        # CREATE. No PRAGMA toggle / table-rebuild ceremony — nothing is
+        # being rewritten.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_revisions ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,"
+            "    field TEXT NOT NULL CHECK (field IN ('description', 'system_prompt')),"
+            "    proposed_value TEXT NOT NULL,"
+            "    base_value TEXT NOT NULL,"
+            "    status TEXT NOT NULL"
+            "        CHECK (status IN ('applied', 'pending', 'dismissed', 'superseded')),"
+            "    source TEXT NOT NULL CHECK (source IN ('self', 'restore')),"
+            "    restored_from TEXT REFERENCES agent_revisions(id) ON DELETE SET NULL,"
+            "    created_at TEXT NOT NULL,"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_revisions_agent_status "
+            "ON agent_revisions (agent_name, status)"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (34,))
+        await conn.commit()
+        version = 34
+
+    if version < 35:
+        # M21 F02 L02 — per-agent approval mode. Add
+        # `self_revision_requires_approval INTEGER NOT NULL DEFAULT 0` to
+        # `agents`: the operator-owned flag that holds a self-revision in the
+        # `agent_revisions` queue as `pending` instead of applying it. The
+        # v30 chat_history_retention_days ADD COLUMN template verbatim:
+        # idempotent ADD COLUMN guarded by PRAGMA table_info (no-op on
+        # re-run / partial-apply), defensive skip when `agents` is missing
+        # (hand-built partial-schema fixtures), and the INSERT OR IGNORE INTO
+        # schema_version stamp LAST. The `NOT NULL DEFAULT 0` backfills every
+        # existing row to `0` (approval mode off), so the load path reads a
+        # plain non-null column with no absent/NULL case.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agents'"
+        ) as cursor:
+            agents_table_present = (await cursor.fetchone()) is not None
+        if agents_table_present:
+            async with conn.execute("PRAGMA table_info(agents)") as cursor:
+                agent_cols = {row[1] for row in await cursor.fetchall()}
+            if "self_revision_requires_approval" not in agent_cols:
+                await conn.execute(
+                    "ALTER TABLE agents ADD COLUMN "
+                    "self_revision_requires_approval INTEGER NOT NULL DEFAULT 0"
+                )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (35,))
+        await conn.commit()
+        version = 35

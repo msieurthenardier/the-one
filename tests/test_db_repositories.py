@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from the_one.agent.config import AgentConfig
 from the_one.db.models import ChatSession, Connector, KBItem, KnowledgeBase, MCPSource
 from the_one.db.repositories import (
+    AgentRevisionRepository,
     AppMetadataRepository,
     ChatSessionRepository,
     ConnectorRepository,
@@ -192,6 +193,48 @@ class TestSQLiteAgentStore:
         await agent_store.save(cfg)
         loaded = await agent_store.load("null-tools")
         assert loaded.enabled_tools is None
+
+    async def test_self_revision_requires_approval_defaults_false(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        # M21 F02 L02 AC2 — default False round-trips (v35 backfill = 0).
+        await agent_store.save(AgentConfig(name="default-approval"))
+        loaded = await agent_store.load("default-approval")
+        assert loaded.self_revision_requires_approval is False
+
+    async def test_self_revision_requires_approval_round_trip_true(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        # M21 F02 L02 AC2 — True round-trips through all four save edit sites
+        # + the plain _row_to_config read.
+        cfg = AgentConfig(name="approval-on", self_revision_requires_approval=True)
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("approval-on")
+        assert loaded.self_revision_requires_approval is True
+        # Flip back off via a full save (ON CONFLICT SET path).
+        await agent_store.save(
+            AgentConfig(name="approval-on", self_revision_requires_approval=False)
+        )
+        assert (await agent_store.load("approval-on")).self_revision_requires_approval is False
+
+    async def test_set_self_revision_requires_approval_targeted_update(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        # M21 F02 L02 — the targeted UPDATE toggles only the flag, leaving
+        # other fields untouched.
+        await agent_store.save(AgentConfig(name="toggle", description="keep me"))
+        await agent_store.set_self_revision_requires_approval("toggle", True)
+        loaded = await agent_store.load("toggle")
+        assert loaded.self_revision_requires_approval is True
+        assert loaded.description == "keep me"
+        await agent_store.set_self_revision_requires_approval("toggle", False)
+        assert (await agent_store.load("toggle")).self_revision_requires_approval is False
+
+    async def test_set_self_revision_requires_approval_missing_agent_raises(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        with pytest.raises(KeyError):
+            await agent_store.set_self_revision_requires_approval("ghost", True)
 
     async def test_tool_overrides_round_trip(self, agent_store: SQLiteAgentStore) -> None:
         """Saving an agent with `tool_overrides` set roundtrips through
@@ -3899,3 +3942,227 @@ class TestAppMetadataRepository:
         # only for an absent row, '' for a present-but-empty value.
         await app_metadata_repo.set("k", "")
         assert await app_metadata_repo.get("k") == ""
+
+
+# ── AgentRevisionRepository (M21 F02 L01 — AC3/AC4/AC8) ──────────────────
+
+
+@pytest.fixture
+def agent_revision_repo(conn) -> AgentRevisionRepository:
+    return AgentRevisionRepository(conn)
+
+
+async def _seed_agent_row(conn, name: str) -> None:
+    """Insert a bare agents row so the ON DELETE CASCADE FK resolves."""
+    await conn.execute("INSERT INTO agents (name) VALUES (?)", (name,))
+    await conn.commit()
+
+
+async def _append_applied(
+    repo: AgentRevisionRepository,
+    agent_name: str,
+    *,
+    field="description",
+    proposed="p",
+    base="b",
+    created_at="2026-08-24T00:00:00+00:00",
+):
+    return await repo.append(
+        agent_name=agent_name,
+        field=field,
+        proposed_value=proposed,
+        base_value=base,
+        source="self",
+        status="applied",
+        restored_from=None,
+        created_at=created_at,
+        resolved_at=created_at,
+    )
+
+
+class TestAgentRevisionRepository:
+    async def test_append_returns_row_and_get_roundtrips(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        row = await _append_applied(
+            agent_revision_repo, "a", field="system_prompt", proposed="new", base="old"
+        )
+        assert row.agent_name == "a"
+        assert row.field == "system_prompt"
+        assert row.proposed_value == "new"
+        assert row.base_value == "old"
+        assert row.status == "applied"
+        assert row.source == "self"
+        assert row.restored_from is None
+        assert row.resolved_at == row.created_at
+        assert len(row.id) == 32  # uuid4().hex
+
+        fetched = await agent_revision_repo.get(row.id)
+        assert fetched == row
+
+    async def test_get_missing_raises_keyerror(self, agent_revision_repo) -> None:
+        with pytest.raises(KeyError):
+            await agent_revision_repo.get("does-not-exist")
+
+    async def test_list_for_agent_newest_first(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        r1 = await _append_applied(agent_revision_repo, "a", created_at="2026-08-24T00:00:01+00:00")
+        r2 = await _append_applied(agent_revision_repo, "a", created_at="2026-08-24T00:00:02+00:00")
+        r3 = await _append_applied(agent_revision_repo, "a", created_at="2026-08-24T00:00:03+00:00")
+
+        rows = await agent_revision_repo.list_for_agent("a")
+        assert [r.id for r in rows] == [r3.id, r2.id, r1.id]
+
+    async def test_list_for_agent_same_timestamp_tiebreak_is_id_desc(
+        self, agent_revision_repo, conn
+    ) -> None:
+        await _seed_agent_row(conn, "a")
+        ts = "2026-08-24T00:00:00+00:00"
+        made = [await _append_applied(agent_revision_repo, "a", created_at=ts) for _ in range(4)]
+        rows = await agent_revision_repo.list_for_agent("a")
+        expected = sorted((r.id for r in made), reverse=True)
+        assert [r.id for r in rows] == expected
+
+    async def test_list_for_agent_scoped_to_agent(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        await _seed_agent_row(conn, "b")
+        await _append_applied(agent_revision_repo, "a")
+        await _append_applied(agent_revision_repo, "b")
+        assert len(await agent_revision_repo.list_for_agent("a")) == 1
+        assert len(await agent_revision_repo.list_for_agent("b")) == 1
+
+    async def test_fk_cascade_deletes_agent_revisions(self, agent_revision_repo, conn) -> None:
+        # AC8 — must run against a foreign_keys=ON connection or the cascade
+        # silently does not fire. Assert the pragma before relying on it.
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1, "cascade test needs PRAGMA foreign_keys=ON"
+
+        await _seed_agent_row(conn, "a")
+        await _append_applied(agent_revision_repo, "a")
+        await _append_applied(agent_revision_repo, "a")
+        assert len(await agent_revision_repo.list_for_agent("a")) == 2
+
+        await conn.execute("DELETE FROM agents WHERE name = ?", ("a",))
+        await conn.commit()
+
+        assert await agent_revision_repo.list_for_agent("a") == []
+
+
+# ── AgentRevisionRepository queue methods (M21 F02 L02 — AC5/AC6/AC9/AC10/AC12) ──
+
+
+class TestAgentRevisionQueueMethods:
+    async def test_count_pending_scoped_to_agent(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        await _seed_agent_row(conn, "b")
+        await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="p1", base_value="b1"
+        )
+        await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="system_prompt", proposed_value="p2", base_value="b2"
+        )
+        await agent_revision_repo.upsert_pending_revision(
+            agent_name="b", field="description", proposed_value="p3", base_value="b3"
+        )
+        assert await agent_revision_repo.count_pending("a") == 2
+        assert await agent_revision_repo.count_pending("b") == 1
+        assert await agent_revision_repo.count_pending("nobody") == 0
+
+    async def test_upsert_creates_then_dedups_same_field(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        rev1, created1 = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="first", base_value="base1"
+        )
+        assert created1 is True
+        assert rev1.status == "pending"
+        assert rev1.source == "self"
+        assert rev1.resolved_at is None
+
+        rev2, created2 = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="second", base_value="base2"
+        )
+        assert created2 is False
+        assert rev2.id == rev1.id  # same row updated in place
+        assert rev2.proposed_value == "second"
+        assert rev2.base_value == "base2"
+        assert await agent_revision_repo.count_pending("a") == 1
+
+    async def test_upsert_different_fields_separate_rows(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        r1, _ = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="d", base_value="b"
+        )
+        r2, _ = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="system_prompt", proposed_value="s", base_value="b"
+        )
+        assert r1.id != r2.id
+        assert await agent_revision_repo.count_pending("a") == 2
+
+    async def test_mark_applied_transitions_and_idempotent(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        rev, _ = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="p", base_value="b"
+        )
+        applied = await agent_revision_repo.mark_applied(rev.id)
+        assert applied.status == "applied"
+        assert applied.resolved_at is not None
+        # Idempotent on self-target.
+        again = await agent_revision_repo.mark_applied(rev.id)
+        assert again.status == "applied"
+
+    async def test_mark_dismissed_transitions(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        rev, _ = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="p", base_value="b"
+        )
+        dismissed = await agent_revision_repo.mark_dismissed(rev.id)
+        assert dismissed.status == "dismissed"
+        assert dismissed.resolved_at is not None
+
+    async def test_transition_illegal_raises_valueerror(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        rev, _ = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="p", base_value="b"
+        )
+        await agent_revision_repo.mark_applied(rev.id)
+        # applied → dismissed is illegal.
+        with pytest.raises(ValueError):
+            await agent_revision_repo.mark_dismissed(rev.id)
+
+    async def test_transition_missing_raises_keyerror(self, agent_revision_repo) -> None:
+        with pytest.raises(KeyError):
+            await agent_revision_repo.mark_applied("nope")
+
+    async def test_update_base_value(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        rev, _ = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="p", base_value="old"
+        )
+        updated = await agent_revision_repo.update_base_value(rev.id, "current")
+        assert updated.base_value == "current"
+        assert updated.status == "pending"  # unchanged
+
+    async def test_supersede_pending_bulk(self, agent_revision_repo, conn) -> None:
+        await _seed_agent_row(conn, "a")
+        await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="p", base_value="b"
+        )
+        await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="system_prompt", proposed_value="p", base_value="b"
+        )
+        n = await agent_revision_repo.supersede_pending("a")
+        assert n == 2
+        assert await agent_revision_repo.count_pending("a") == 0
+        rows = await agent_revision_repo.list_for_agent("a")
+        assert all(r.status == "superseded" and r.resolved_at is not None for r in rows)
+
+    async def test_supersede_leaves_terminal_rows_untouched(
+        self, agent_revision_repo, conn
+    ) -> None:
+        await _seed_agent_row(conn, "a")
+        rev, _ = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a", field="description", proposed_value="p", base_value="b"
+        )
+        await agent_revision_repo.mark_applied(rev.id)
+        n = await agent_revision_repo.supersede_pending("a")
+        assert n == 0
+        assert (await agent_revision_repo.get(rev.id)).status == "applied"

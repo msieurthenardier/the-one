@@ -682,6 +682,35 @@ class PendingApproval(BaseModel):
     """True when the original message was a direct message."""
 
 
+class AgentRevision(BaseModel):
+    """A row in the ``agent_revisions`` revision log (M21 F02).
+
+    One status-bearing table serves three consumers (DD1): the
+    applied-revision log (F02 L01 — this leg), the pending-approval queue
+    (L02), and restore provenance (L03). The full ``status`` / ``source``
+    domains ship in the schema from v34, but L01 writes only
+    ``status='applied', source='self'`` — a direct self-revision recorded
+    with its before-image (``base_value``) and after-image
+    (``proposed_value``). No encryptor: ``description`` / ``system_prompt``
+    are plaintext columns, so the log holds no secret material.
+
+    An ``applied`` row is resolved at creation, so ``resolved_at`` equals
+    ``created_at``. ``restored_from`` (a self-FK to the revision a restore
+    reinstated) is L03's; it is ``None`` here.
+    """
+
+    id: str
+    agent_name: str
+    field: Literal["description", "system_prompt"]
+    proposed_value: str
+    base_value: str
+    status: Literal["applied", "pending", "dismissed", "superseded"]
+    source: Literal["self", "restore"]
+    restored_from: str | None = None
+    created_at: str
+    resolved_at: str | None = None
+
+
 class ToolConfig(BaseModel):
     """A tool-level config row — operator-set defaults for a built-in tool.
 

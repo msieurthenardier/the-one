@@ -284,6 +284,16 @@ class AgentConfig(BaseModel):
     max_iterations: int = 20
     chat_history_retention_days: int = Field(default=30, ge=1, le=365)
 
+    # M21 F02 L02 — per-agent approval mode. When True, a self-revision the
+    # agent proposes through the self-configuration surface is held in the
+    # `agent_revisions` queue as `pending` (awaiting operator approve/dismiss)
+    # rather than applied immediately. Operator-owned: set by an immediate-post
+    # Studio control and NOT reachable by the agent — no write tool addresses
+    # it and the `get_my_configuration` projection omits it. Persisted in the
+    # v35 `agents.self_revision_requires_approval INTEGER NOT NULL DEFAULT 0`
+    # column (plain load, no absent/NULL case).
+    self_revision_requires_approval: bool = False
+
     @field_validator("connector_acls", mode="after")
     @classmethod
     def _validate_connector_acls(

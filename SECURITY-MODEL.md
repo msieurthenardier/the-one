@@ -194,8 +194,45 @@ agent's own Self-configuration tab in Studio.
   already holds, not the source of truth. Input is bounded, not
   content-policed: `text` must be a non-empty string of at most 64 KiB,
   `apply` one of the two literals — anything else is refused with no
-  partial write. No approval gate, pending queue, or revision log exists
-  yet (Flight 2).
+  partial write. As of Flight 2 the write path is backed by a revision log
+  (F02 L01) and an operator approval gate (F02 L02 — see the next bullet).
+- **Approval mode is the operator gate on the mission's central write-risk
+  (M21 F02 L02).** Each agent carries an operator-owned
+  `self_revision_requires_approval` flag (a v35 `agents` column, default
+  off; set only from the agent's Self-configuration tab, never reachable by
+  the agent — no write tool addresses it and the read projection omits it).
+  When it is **on**, a self-revision the agent proposes is NOT applied: it
+  is held in the `agent_revisions` queue as a `pending` row (one per
+  agent+field) and the tool returns a truthful, non-retry-inducing result
+  that does not claim the change took effect. The operator sees a per-agent
+  pending count and reviews each proposal (base→proposed) in the tab, then
+  **approves** or **dismisses** it. Approve is **fail-closed**: the pending
+  row records the field's value at capture (`base_value`); on approve the
+  endpoint compares it to the current stored value and, if the field has
+  drifted since the agent proposed, returns **409** with the current and
+  proposed values (and the stale base) and writes nothing — the operator
+  must explicitly override to overwrite the drifted value. An approved
+  revision propagates next-session (the proposing turn's `apply` is moot
+  and never replayed). Disabling the surface marks the agent's outstanding
+  pending rows `superseded`, so a revision proposed under a since-revoked
+  surface can never be approved afterward.
+- **Restore is operator-direct and has no agent-facing tool (M21 F02 L03).**
+  The operator can restore a description or system prompt to any earlier
+  value the field actually held via `POST
+  /api/agents/{name}/self-configuration/revisions/{id}/restore` (query
+  `side=proposed|base`). Restore applies **immediately regardless of
+  approval mode** — the operator is the approval authority, so a restore is
+  never routed through the queue (DD5) — and is logged as a new
+  `applied`/`restore` row with provenance (`restored_from`, and `base_value`
+  = the pre-restore current value), never a pointer rewind. Its target must
+  be an `applied` revision (a value the field genuinely took); a
+  non-applied target is refused with 409. Crucially there is **no restore
+  MCP tool** — the write allowlist (the tool catalog's shape) is unchanged,
+  so an agent cannot restore itself, prompt-injected or otherwise. Restore
+  is reachable only from the operator's Self-configuration tab, and holds
+  the mission's "by construction" boundary: the agent's reach over its own
+  configuration is exactly the four surface tools; rollback is
+  operator-only.
 - **Ownership is enforced server-side**, not merely by convention:
   `create_agent`/`update_agent` reject (422) any `mcp_source_ids` entry
   that is another agent's surface row, and reject (422) any
@@ -218,14 +255,19 @@ agent's own Self-configuration tab in Studio.
   ownership, and input-bounds enforcement as a legitimate self-revision;
   none of those mechanisms distinguish agent intent from injected intent
   — they were never designed to. This is the mission's central,
-  explicitly named risk, and this leg does not mitigate it: no approval
-  gate, no pending-queue hold, and no revision log exist yet. Flight 2
-  owns closing this gap (approval mode, a pending queue, a revision log
-  and restore) before a write takes effect unattended. Until then, the
-  only mitigation is the same one that governs any other MCP tool: the
-  operator can withhold `update_my_description` / `update_my_system_prompt`
-  from a specific agent via the per-tool checkboxes on that agent's MCPs
-  tab, or disable the surface entirely from its Self-configuration tab.
+  explicitly named risk. **As of M21 F02 L02, approval mode is the operator
+  gate that closes it when armed:** with approval mode **on** for an agent,
+  a prompt-injected write is held in the pending queue and cannot take
+  effect until the operator approves it — the fail-closed staleness check
+  further ensures an approval can never silently overwrite a value that
+  drifted since the agent proposed. With approval mode **off**, the residual
+  risk remains live and unmitigated by this gate; the standing mitigations
+  are then the same ones that govern any other MCP tool — the operator can
+  withhold `update_my_description` / `update_my_system_prompt` from a
+  specific agent via the per-tool checkboxes on that agent's MCPs tab, or
+  disable the surface entirely from its Self-configuration tab. Approval
+  mode is therefore the recommended posture for any agent whose context can
+  carry attacker-influenced content.
 
 ## Network Bind
 

@@ -34,6 +34,9 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-select` | chat | |
 | `agent-tile-mcp-tool-count` | studio | |
 | `agent-tile-tool-count` | studio | |
+| `approval-mode-error` | studio | Self-configuration tab approval-mode toggle (M21 F02 L02) |
+| `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
+| `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02) |
 | `back-agent-btn` | studio | |
 | `back-connector-btn` | studio | |
 | `back-mcp-source-btn` | studio | |
@@ -177,6 +180,9 @@ caught — but it cannot see where the attribute is emitted.
 | `pending-approval-dismiss` | chat | |
 | `pending-approval-item` | chat | |
 | `pending-approvals-section` | chat | |
+| `pending-count` | studio | Self-configuration tab per-agent pending-revision count (M21 F02 L02) |
+| `pending-queue` | studio | Self-configuration tab pending-revision queue container (M21 F02 L02) |
+| `pending-queue-empty` | studio | Self-configuration tab empty-queue notice (M21 F02 L02) |
 | `pending-queued` | chat | |
 | `pending-queued-cancel` | chat | |
 | `pending-queued-region` | chat | |
@@ -195,6 +201,25 @@ caught — but it cannot see where the attribute is emitted.
 | `provider-card` | admin | |
 | `purge-history-btn` | studio | |
 | `reset-mcp-connection-btn` | studio | |
+| `revision-approve-btn` | studio | Self-configuration pending-revision card approve (M21 F02 L02) |
+| `revision-base` | studio | Self-configuration pending-revision card current/base value (M21 F02 L02) |
+| `revision-card` | studio | Self-configuration pending-revision card (M21 F02 L02) |
+| `revision-current` | studio | Self-configuration staleness panel current value (M21 F02 L02) |
+| `revision-dismiss-btn` | studio | Self-configuration pending-revision card dismiss (M21 F02 L02) |
+| `revision-error` | studio | Self-configuration pending-revision card action error (M21 F02 L02) |
+| `revision-field` | studio | Self-configuration pending-revision card field label (M21 F02 L02) |
+| `revision-history` | studio | Self-configuration revision-history timeline container (M21 F02 L03) |
+| `revision-history-empty` | studio | Self-configuration revision-history empty notice (M21 F02 L03) |
+| `revision-history-entry` | studio | Self-configuration revision-history entry (M21 F02 L03) |
+| `revision-override-btn` | studio | Self-configuration staleness override/confirm (M21 F02 L02) |
+| `revision-proposed` | studio | Self-configuration pending-revision card proposed value (M21 F02 L02) |
+| `revision-restore-btn` | studio | Self-configuration revision-history restore control (M21 F02 L03) |
+| `revision-restore-controls` | studio | Self-configuration revision-history restore-controls group (M21 F02 L03) |
+| `revision-restore-empty` | studio | Self-configuration revision-history no-earlier-values notice (M21 F02 L03) |
+| `revision-restore-error` | studio | Self-configuration revision-history restore action error (M21 F02 L03) |
+| `revision-restore-node` | studio | Self-configuration revision-history distinct value-node row (M21 F02 L03) |
+| `revision-stale` | studio | Self-configuration staleness (409) panel (M21 F02 L02) |
+| `revision-stale-proposed` | studio | Self-configuration staleness panel proposed value (M21 F02 L02) |
 | `rotate-key-btn` | admin | |
 | `routing-audit-badge` | chat | |
 | `routing-audit-body` | chat | |
@@ -211,6 +236,7 @@ caught — but it cannot see where the attribute is emitted.
 | `save-mcp-source-btn` | studio | |
 | `save-provider-btn` | admin | |
 | `save-tool-btn` | admin | |
+| `self-configuration-action-status` | studio | Self-configuration tab post-action `aria-live` summary + focus target (flight-end a11y fix) |
 | `self-configuration-error` | studio | Self-configuration tab (M21 F01 L02) |
 | `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |

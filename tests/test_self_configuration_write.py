@@ -603,3 +603,226 @@ def _slugify_py(name: str) -> str:
     s = re.sub(r"[^a-z0-9_-]+", "_", s)
     s = re.sub(r"^_|_$", "", s)
     return s
+
+
+async def _list_revisions(conn: aiosqlite.Connection, agent_name: str) -> list[dict]:
+    async with conn.execute(
+        "SELECT * FROM agent_revisions WHERE agent_name = ? ORDER BY created_at, id",
+        (agent_name,),
+    ) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
+class TestRevisionLogWrite:
+    """M21 F02 L01 — AC5/AC6/AC7: the direct write path logs one ``applied``
+    revision row per successful self-revision, ordered strictly after save."""
+
+    async def test_description_revision_logs_one_applied_row(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="rlog1", description="old desc", system_prompt="sp")
+
+        _as_agent(monkeypatch, "rlog1")
+        await surface.update_my_description(ctx=None, text="new desc", apply="next_session")
+
+        rows = await _list_revisions(conn, "rlog1")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["field"] == "description"
+        assert r["status"] == "applied"
+        assert r["source"] == "self"
+        assert r["proposed_value"] == "new desc"
+        assert r["base_value"] == "old desc"  # value BEFORE the write
+        assert r["restored_from"] is None
+        assert r["resolved_at"] == r["created_at"]  # applied → resolved at creation
+
+    async def test_system_prompt_revision_logs_one_applied_row(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="rlog2", description="d", system_prompt="old prompt")
+
+        _as_agent(monkeypatch, "rlog2")
+        await surface.update_my_system_prompt(ctx=None, text="new prompt", apply="next_turn")
+
+        rows = await _list_revisions(conn, "rlog2")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["field"] == "system_prompt"
+        assert r["status"] == "applied"
+        assert r["source"] == "self"
+        assert r["proposed_value"] == "new prompt"
+        assert r["base_value"] == "old prompt"
+        assert r["resolved_at"] == r["created_at"]
+
+    async def test_two_fields_produce_independent_rows(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="rlog3", description="d0", system_prompt="s0")
+
+        _as_agent(monkeypatch, "rlog3")
+        await surface.update_my_description(ctx=None, text="d1", apply="next_session")
+        await surface.update_my_system_prompt(ctx=None, text="s1", apply="next_session")
+
+        rows = await _list_revisions(conn, "rlog3")
+        assert len(rows) == 2
+        by_field = {r["field"]: r for r in rows}
+        assert by_field["description"]["proposed_value"] == "d1"
+        assert by_field["description"]["base_value"] == "d0"
+        assert by_field["system_prompt"]["proposed_value"] == "s1"
+        assert by_field["system_prompt"]["base_value"] == "s0"
+
+    async def test_first_revision_of_default_empty_base_stores_empty_string(
+        self, wired, monkeypatch
+    ) -> None:
+        # base_value is NOT NULL; a field left at the '' default logs '' not NULL.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="rlog4")  # description defaults to ''
+
+        _as_agent(monkeypatch, "rlog4")
+        await surface.update_my_description(ctx=None, text="first", apply="next_session")
+
+        rows = await _list_revisions(conn, "rlog4")
+        assert len(rows) == 1
+        assert rows[0]["base_value"] == ""
+
+    async def test_save_failure_leaves_no_orphan_log_row(self, wired, monkeypatch) -> None:
+        # AC7 — the log write is ordered strictly after save; a save that
+        # raises must leave no revision row (never a logged-but-unpersisted
+        # revision).
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="rlog5", description="keep")
+
+        async def _boom(self, config):  # noqa: ANN001
+            raise RuntimeError("save failed")
+
+        monkeypatch.setattr(SQLiteAgentStore, "save", _boom)
+        _as_agent(monkeypatch, "rlog5")
+
+        with pytest.raises(RuntimeError, match="save failed"):
+            await surface.update_my_description(ctx=None, text="never", apply="next_session")
+
+        assert await _list_revisions(conn, "rlog5") == []
+
+
+class TestApprovalModeBranch:
+    """M21 F02 L02 — AC5/AC6/AC7: the approval-mode branch in _apply_revision.
+
+    ON  → enqueue a pending row, no save, no pending.record, truthful result.
+    OFF → exactly Leg 1's behavior (persist + log an applied row).
+    """
+
+    async def test_approval_on_enqueues_and_does_not_save(self, wired, monkeypatch) -> None:
+        # AC5 — the store and live agent are unchanged; a pending/self row is
+        # enqueued with base_value=current, proposed_value=text, resolved NULL.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store,
+            name="apm1",
+            description="orig desc",
+            self_revision_requires_approval=True,
+        )
+
+        # save must NOT be called under approval mode — fail hard if it is.
+        async def _boom(self, config):  # noqa: ANN001
+            raise AssertionError("save must not be called under approval mode")
+
+        monkeypatch.setattr(SQLiteAgentStore, "save", _boom)
+        # pending.record must NOT be called either.
+        record_calls = []
+        monkeypatch.setattr(pending, "record", lambda *a, **k: record_calls.append((a, k)))
+
+        _as_agent(monkeypatch, "apm1")
+        result = await surface.update_my_description(
+            ctx=None, text="proposed desc", apply="next_turn"
+        )
+
+        assert result["applied_to_store"] is False
+        assert result["effective"] == "pending_operator_approval"
+        assert result["field"] == "description"
+        assert result["length"] == len("proposed desc")
+        assert "approv" in result["message"].lower()
+        assert record_calls == []
+
+        rows = await _list_revisions(conn, "apm1")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["status"] == "pending"
+        assert r["source"] == "self"
+        assert r["field"] == "description"
+        assert r["proposed_value"] == "proposed desc"
+        assert r["base_value"] == "orig desc"  # current stored value at capture
+        assert r["resolved_at"] is None
+
+    async def test_stored_config_unchanged_under_approval_mode(self, wired, monkeypatch) -> None:
+        # AC5 — the actual stored config is not mutated (save patched off is
+        # one guard; here assert the round-trip value too, without patching).
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store,
+            name="apm2",
+            system_prompt="live prompt",
+            self_revision_requires_approval=True,
+        )
+        _as_agent(monkeypatch, "apm2")
+        await surface.update_my_system_prompt(ctx=None, text="proposed", apply="next_session")
+        after = await store.load("apm2")
+        assert after.system_prompt == "live prompt"  # unchanged
+
+    async def test_dedup_same_field_updates_in_place(self, wired, monkeypatch) -> None:
+        # AC6 — a second write to the same field refreshes the one pending row.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store,
+            name="apm3",
+            description="d0",
+            self_revision_requires_approval=True,
+        )
+        _as_agent(monkeypatch, "apm3")
+        await surface.update_my_description(ctx=None, text="first", apply="next_session")
+        await surface.update_my_description(ctx=None, text="second", apply="next_session")
+
+        rows = await _list_revisions(conn, "apm3")
+        assert len(rows) == 1
+        assert rows[0]["proposed_value"] == "second"
+
+    async def test_dedup_different_fields_keep_separate_rows(self, wired, monkeypatch) -> None:
+        # AC6 — different fields keep separate pending rows.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store,
+            name="apm4",
+            description="d0",
+            system_prompt="s0",
+            self_revision_requires_approval=True,
+        )
+        _as_agent(monkeypatch, "apm4")
+        await surface.update_my_description(ctx=None, text="d1", apply="next_session")
+        await surface.update_my_system_prompt(ctx=None, text="s1", apply="next_session")
+        rows = await _list_revisions(conn, "apm4")
+        assert {r["field"] for r in rows} == {"description", "system_prompt"}
+        assert len(rows) == 2
+
+    async def test_approval_off_is_leg1_behavior(self, wired, monkeypatch) -> None:
+        # AC7 — with approval mode OFF, persist + log an applied row (no regression).
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store,
+            name="apm5",
+            description="old",
+            self_revision_requires_approval=False,
+        )
+        _as_agent(monkeypatch, "apm5")
+        result = await surface.update_my_description(ctx=None, text="new", apply="next_session")
+        assert result["applied_to_store"] is True
+        assert result["effective"] == "next_session"
+        assert (await store.load("apm5")).description == "new"
+        rows = await _list_revisions(conn, "apm5")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "applied"
