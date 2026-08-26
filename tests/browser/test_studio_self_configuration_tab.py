@@ -42,8 +42,11 @@ def test_tab_renders_disabled_by_default(app_clean: str, page: Page) -> None:
 
     status = page.locator('[data-testid="self-configuration-status"]')
     expect(status).to_contain_text("disabled", timeout=8000)
+    # HAT UX pass (M21 F02 L04): the enable/disable control is now a
+    # `.tool-enable-switch` checkbox, not a button with "Enable"/"Disable"
+    # text — assert the checked state instead.
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
-    expect(toggle).to_have_text("Enable")
+    expect(toggle).not_to_be_checked()
 
 
 @pytest.mark.browser
@@ -52,12 +55,12 @@ def test_enable_shows_locked_row_on_mcps_tab(app_clean: str, page: Page) -> None
     _navigate_to_self_configuration_tab(page, app_clean, "self-config-enable-agent")
 
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
-    expect(toggle).to_have_text("Enable", timeout=8000)
+    expect(toggle).not_to_be_checked(timeout=8000)
     toggle.click()
 
     status = page.locator('[data-testid="self-configuration-status"]')
     expect(status).to_contain_text("enabled", timeout=8000)
-    expect(toggle).to_have_text("Disable")
+    expect(toggle).to_be_checked()
 
     # Confirm server-side: exactly one streamable-http surface row, attached.
     agent = httpx.get(
@@ -87,14 +90,14 @@ def test_disable_removes_row_from_mcps_tab(app_clean: str, page: Page) -> None:
     _navigate_to_self_configuration_tab(page, app_clean, "self-config-disable-agent")
 
     toggle = page.locator('[data-testid="self-configuration-toggle-btn"]')
-    expect(toggle).to_have_text("Enable", timeout=8000)
+    expect(toggle).not_to_be_checked(timeout=8000)
     toggle.click()
-    expect(toggle).to_have_text("Disable", timeout=8000)
+    expect(toggle).to_be_checked(timeout=8000)
 
     toggle.click()
     status = page.locator('[data-testid="self-configuration-status"]')
     expect(status).to_contain_text("disabled", timeout=8000)
-    expect(toggle).to_have_text("Enable")
+    expect(toggle).not_to_be_checked()
 
     page.locator('[data-testid="tab-mcps"]').click()
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(

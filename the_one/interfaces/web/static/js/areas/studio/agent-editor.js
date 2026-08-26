@@ -199,7 +199,15 @@
     window.App.studio.renderSelfConfigurationTab(selfConfigurationPanel, agent, {
       fetchStatus: callbacks.fetchSelfConfigurationStatus,
       onEnable: callbacks.onEnableSelfConfiguration,
-      onDisable: callbacks.onDisableSelfConfiguration
+      onDisable: callbacks.onDisableSelfConfiguration,
+      // M21 F02 L02 — approval-mode toggle + pending revision queue.
+      onSetApprovalMode: callbacks.onSetSelfConfigurationApprovalMode,
+      fetchRevisions: callbacks.fetchSelfConfigurationRevisions,
+      fetchPendingCount: callbacks.fetchSelfConfigurationPendingCount,
+      onApproveRevision: callbacks.onApproveSelfConfigurationRevision,
+      onDismissRevision: callbacks.onDismissSelfConfigurationRevision,
+      // M21 F02 L03 — revision-history restore control.
+      onRestoreRevision: callbacks.onRestoreSelfConfigurationRevision
     });
 
     // Initialize the App.tabs helper. The initial activation happens here

@@ -17,7 +17,11 @@ from typing import Any
 
 from the_one.agent.config import AgentConfig
 from the_one.db.models import MCPSource
-from the_one.db.repositories import MCPSourceRepository, SQLiteAgentStore
+from the_one.db.repositories import (
+    AgentRevisionRepository,
+    MCPSourceRepository,
+    SQLiteAgentStore,
+)
 from the_one.self_configuration.constants import CREDENTIAL_SECRET_KEY, MOUNT_PATH
 from the_one.self_configuration.credentials import (
     credential_from_header,
@@ -102,12 +106,27 @@ async def status(
         config = await agent_store.load(agent_name)
     except KeyError:
         return {"enabled": False}
+    # M21 F02 L02: surface the operator-owned approval-mode flag in EVERY
+    # branch that has a loaded config, so the Studio tab renders the toggle
+    # consistently regardless of surface state (the flag is independent of
+    # the surface row — it only *bites* once the agent can propose). The
+    # unknown-agent branch above has no config, so it omits it.
+    requires_approval = config.self_revision_requires_approval
     row = await find_surface_row(mcp_repo, agent_name)
     if row is None:
-        return {"enabled": False}
+        return {"enabled": False, "requires_approval": requires_approval}
     if row.id in config.mcp_source_ids:
-        return {"enabled": True, "source_id": row.id}
-    return {"enabled": False, "orphaned_row": True, "source_id": row.id}
+        return {
+            "enabled": True,
+            "source_id": row.id,
+            "requires_approval": requires_approval,
+        }
+    return {
+        "enabled": False,
+        "orphaned_row": True,
+        "source_id": row.id,
+        "requires_approval": requires_approval,
+    }
 
 
 def _fresh_cache(tools: list[dict[str, Any]]) -> dict[str, Any]:
@@ -203,12 +222,22 @@ async def disable(
     *,
     agent_store: SQLiteAgentStore,
     mcp_repo: MCPSourceRepository,
+    revisions_repo: "AgentRevisionRepository | None" = None,
 ) -> bool:
     """Full disable (AC10's DELETE-on-a-marked-row semantic): evict pool
     entries, drop the id from ``mcp_source_ids``, delete the row, unregister
     the credential. Returns ``True`` if a row was disabled, ``False`` if
-    there was nothing to do (idempotent no-op — e.g. double-disable)."""
+    there was nothing to do (idempotent no-op — e.g. double-disable).
+
+    M21 F02 L02 DD8: if ``revisions_repo`` is supplied, mark every
+    outstanding ``pending`` revision for this agent ``superseded`` — a
+    revision proposed under a since-revoked surface must not be approvable
+    afterward. This runs ABOVE the ``row is None`` early-return so a disable
+    always clears the queue, even when the surface row is already gone."""
     from the_one.mcp._pool import _evict_all_for_source
+
+    if revisions_repo is not None:
+        await revisions_repo.supersede_pending(agent_name)
 
     row = await find_surface_row(mcp_repo, agent_name)
     if row is None:

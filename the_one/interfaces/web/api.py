@@ -11,7 +11,7 @@ import re
 import secrets
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -33,6 +33,7 @@ from the_one.db.models import (
     now_iso,
 )
 from the_one.db.repositories import (
+    AgentRevisionRepository,
     ChatSessionRepository,
     ConnectorRepository,
     KBItemRepository,
@@ -259,6 +260,13 @@ async def _chat_repo() -> ChatSessionRepository:
 async def _pending_approval_repo() -> PendingApprovalRepository:
     conn = await get_connection()
     return PendingApprovalRepository(conn)
+
+
+async def _agent_revisions_repo() -> AgentRevisionRepository:
+    # M21 F02 L02: no encryptor — the revision log holds plaintext
+    # description/system_prompt values (mirrors PendingApprovalRepository).
+    conn = await get_connection()
+    return AgentRevisionRepository(conn)
 
 
 # ── Tool config helpers (F6 L1) ───────────────────────────────────────────
@@ -769,6 +777,14 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
         )
     # else: not a dict and not null (e.g. a list) — leave alone;
     # AgentConfig validation below 422s it as today.
+    # M21 F02 L02 DD2 (HIGH): approval mode is operator-owned and set by a
+    # dedicated immediate-post control, NOT by the Studio agent-save form —
+    # which rebuilds its payload from the DOM and never sends this field. If
+    # the PUT omits it we must preserve the stored value, or every unrelated
+    # Save silently resets approval mode to False. Mirrors the mcp_overrides
+    # preserve just above.
+    if "self_revision_requires_approval" not in data:
+        data["self_revision_requires_approval"] = existing.self_revision_requires_approval
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
@@ -970,8 +986,237 @@ async def disable_agent_self_configuration(name: str) -> dict[str, str]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     mcp_repo = await _mcp_repo()
-    await self_configuration_manage.disable(name, agent_store=store, mcp_repo=mcp_repo)
+    # M21 F02 L02 DD8: thread the revision repo so disable marks every
+    # outstanding pending revision superseded (a revision proposed under a
+    # since-revoked surface must not be approvable afterward).
+    revisions_repo = await _agent_revisions_repo()
+    await self_configuration_manage.disable(
+        name, agent_store=store, mcp_repo=mcp_repo, revisions_repo=revisions_repo
+    )
     return {"status": "ok"}
+
+
+# ── Self-configuration approval mode + revision queue (M21 F02 L02) ────────
+
+
+class _ApprovalModeBody(BaseModel):
+    requires_approval: bool
+
+
+async def _load_agent_or_404(name: str) -> tuple[SQLiteAgentStore, "AgentConfig"]:
+    store = await _agent_store()
+    try:
+        config = await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    return store, config
+
+
+@router.put("/agents/{name}/self-configuration/approval-mode")
+async def set_agent_approval_mode(name: str, body: _ApprovalModeBody) -> dict[str, Any]:
+    """AC8/AC13 — set the per-agent approval-mode flag via a TARGETED UPDATE.
+
+    The immediate-post toggle touches ONLY this operator-owned scalar, so a
+    targeted ``UPDATE agents SET self_revision_requires_approval=?`` dodges
+    the whole-row last-writer-wins window a full ``save`` would open (safe
+    here, unlike the DD4 approve path which must re-load to avoid clobbering
+    the revision target). Settable regardless of whether the surface is
+    currently enabled — the flag is independent of the surface row; it only
+    *bites* once the agent can propose, so pre-setting is harmless.
+    """
+    store = await _agent_store()
+    try:
+        await store.set_self_revision_requires_approval(name, body.requires_approval)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    return {"requires_approval": body.requires_approval}
+
+
+@router.get("/agents/{name}/self-configuration/revisions")
+async def list_agent_revisions(name: str) -> list[dict[str, Any]]:
+    """AC8 — an agent's revisions newest-first (full non-secret rows).
+
+    ``base_value`` / ``proposed_value`` are the plaintext description /
+    system_prompt values, safe to return — the operator needs the
+    before/after to decide. Name-scoped query + the cross-ID 404 guard on
+    the action endpoints enforce DD6's "never another agent's data".
+    """
+    await _load_agent_or_404(name)
+    revisions_repo = await _agent_revisions_repo()
+    rows = await revisions_repo.list_for_agent(name)
+    return [r.model_dump() for r in rows]
+
+
+@router.get("/agents/{name}/self-configuration/revisions/pending-count")
+async def get_agent_pending_revision_count(name: str) -> dict[str, int]:
+    """AC8 — the count of ``pending`` revisions scoped to this agent."""
+    await _load_agent_or_404(name)
+    revisions_repo = await _agent_revisions_repo()
+    return {"count": await revisions_repo.count_pending(name)}
+
+
+@router.post("/agents/{name}/self-configuration/revisions/{revision_id}/dismiss")
+async def dismiss_agent_revision(name: str, revision_id: str) -> dict[str, Any]:
+    """AC9 — transition a ``pending`` revision to ``dismissed``.
+
+    Idempotent on an already-dismissed row; 409 on applied/superseded; 404
+    on unknown id or a cross-ID mismatch (revision belongs to another agent).
+    """
+    await _load_agent_or_404(name)
+    revisions_repo = await _agent_revisions_repo()
+    try:
+        revision = await revisions_repo.get(revision_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Revision not found: {revision_id}")
+    if revision.agent_name != name:
+        # Cross-ID guard: a revision id whose agent_name != path {name} is a
+        # 404 (never leak that the id exists under another agent).
+        raise HTTPException(status_code=404, detail=f"Revision not found: {revision_id}")
+    try:
+        updated = await revisions_repo.mark_dismissed(revision_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return updated.model_dump()
+
+
+@router.post("/agents/{name}/self-configuration/revisions/{revision_id}/approve")
+async def approve_agent_revision(
+    name: str, revision_id: str, override: bool = False
+) -> dict[str, Any]:
+    """AC10/AC11 — DD4 fail-closed approve.
+
+    Cross-ID/unknown → 404. Idempotent no-op if already ``applied``; 409 on
+    dismissed/superseded. On a pending row, compare ``base_value`` (the
+    field's value the agent saw at capture) to the CURRENT stored value:
+
+    - unchanged → apply (load → ``model_copy({field: proposed})`` → save),
+      transition to ``applied`` (persist path, propagates next-session).
+    - drifted and no ``override`` → **409** returning the current value, the
+      proposed value, and the stale base, WITHOUT touching the store or row.
+    - drifted with ``override=true`` → re-capture ``base_value`` to the
+      current value, then apply and transition.
+    """
+    store, config = await _load_agent_or_404(name)
+    revisions_repo = await _agent_revisions_repo()
+    try:
+        revision = await revisions_repo.get(revision_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Revision not found: {revision_id}")
+    if revision.agent_name != name:
+        raise HTTPException(status_code=404, detail=f"Revision not found: {revision_id}")
+
+    if revision.status == "applied":
+        # Idempotent no-op on an already-applied row.
+        return revision.model_dump()
+    if revision.status != "pending":
+        # dismissed / superseded — cannot approve.
+        raise HTTPException(
+            status_code=409,
+            detail=f"Revision {revision_id} is {revision.status}; cannot approve",
+        )
+
+    current = getattr(config, revision.field)
+    if current != revision.base_value and not override:
+        # DD4 staleness: the field drifted since the agent proposed. Fail
+        # closed — return current + proposed (+ stale base) so the operator
+        # sees what re-approving would overwrite; touch nothing.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "stale",
+                "current_value": current,
+                "proposed_value": revision.proposed_value,
+                "base_value": revision.base_value,
+            },
+        )
+
+    # NOTE: the override branch is intentionally NOT transactional —
+    # update_base_value → save → mark_applied are three separate commits. A
+    # save failure after update_base_value leaves a pending row whose
+    # base_value was rewritten to the current value (still re-approvable).
+    # Operator-scale-acceptable; do NOT reorder so mark_applied precedes save.
+    if override and current != revision.base_value:
+        await revisions_repo.update_base_value(revision_id, current)
+
+    updated_config = config.model_copy(update={revision.field: revision.proposed_value})
+    await store.save(updated_config)
+    updated = await revisions_repo.mark_applied(revision_id)
+    return updated.model_dump()
+
+
+@router.post("/agents/{name}/self-configuration/revisions/{revision_id}/restore")
+async def restore_agent_revision(
+    name: str,
+    revision_id: str,
+    side: Literal["proposed", "base"] = "proposed",
+) -> dict[str, Any]:
+    """M21 F02 L03 — operator-direct restore of an earlier field value.
+
+    Restores ``description`` / ``system_prompt`` to a value it actually held.
+    Applies IMMEDIATELY regardless of approval mode (DD5): the operator is the
+    approval authority, so routing their restore through the queue would be
+    incoherent — ``self_revision_requires_approval`` is never consulted here.
+
+    The target must be an ``applied`` revision (LD1): only ``applied`` rows
+    represent values the field genuinely took. A ``pending`` row was never
+    applied, a ``dismissed`` row was declined, a ``superseded`` row was
+    orphaned — reinstating any would resurrect a value the field never held.
+    A non-applied target is refused with 409.
+
+    ``side`` selects the value node to reinstate (LD2): ``proposed`` (default)
+    reinstates the target row's after-image; ``base`` reinstates its
+    before-image — the only way to reach the ORIGINAL pre-first-revision value
+    (never a ``proposed_value``, only the earliest row's ``base_value``) and
+    any out-of-band operator-set value (a mid-timeline ``base_value`` left by a
+    direct ``PUT /agents/{name}`` edit). ``side`` is a ``Literal``, so FastAPI
+    auto-422s an invalid value rather than silently restoring the wrong side.
+
+    Restore is a NEW append-only row (never a pointer rewind): ``source=
+    'restore'``, ``status='applied'``, ``restored_from`` = the reinstated
+    revision's id, ``base_value`` = the field's pre-restore current value,
+    ``proposed_value`` = the reinstated value. It is not deduplicated against
+    the current value — restoring to the current value still logs an honest
+    record that the operator restored at time T (AC7).
+
+    Cross-ID/unknown id → 404 (mirroring dismiss/approve; never leak that an
+    id exists under another agent).
+    """
+    store, config = await _load_agent_or_404(name)
+    revisions_repo = await _agent_revisions_repo()
+    try:
+        revision = await revisions_repo.get(revision_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Revision not found: {revision_id}")
+    if revision.agent_name != name:
+        raise HTTPException(status_code=404, detail=f"Revision not found: {revision_id}")
+
+    if revision.status != "applied":
+        # LD1 — only an applied revision names a value the field actually held.
+        raise HTTPException(
+            status_code=409,
+            detail=f"Revision {revision_id} is {revision.status}; "
+            "only an applied revision can be restored",
+        )
+
+    # LD2 — reinstate the chosen value node.
+    reinstated = revision.proposed_value if side == "proposed" else revision.base_value
+    base_value = getattr(config, revision.field)  # pre-restore current value
+
+    await store.save(config.model_copy(update={revision.field: reinstated}))
+
+    ts = now_iso()
+    restored = await revisions_repo.append(
+        agent_name=name,
+        field=revision.field,
+        proposed_value=reinstated,
+        base_value=base_value,
+        source="restore",
+        status="applied",
+        restored_from=revision_id,
+        created_at=ts,
+        resolved_at=ts,
+    )
+    return restored.model_dump()
 
 
 # ── Knowledge Bases ───────────────────────────────────────────────────────
@@ -1744,8 +1989,16 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
         agent_name = self_configuration_manage.owner_of(source)
         if agent_name is not None:
             agent_store = await _agent_store()
+            # M21 F02 L02 DD8: deleting the surface row directly is also a
+            # surface-disable — supersede the agent's outstanding pending
+            # revisions here too (same concern as the DELETE
+            # /self-configuration endpoint).
+            revisions_repo = await _agent_revisions_repo()
             await self_configuration_manage.disable(
-                agent_name, agent_store=agent_store, mcp_repo=repo
+                agent_name,
+                agent_store=agent_store,
+                mcp_repo=repo,
+                revisions_repo=revisions_repo,
             )
         else:
             # Malformed marker (no agent name) — fall back to a bare

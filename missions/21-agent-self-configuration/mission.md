@@ -243,7 +243,7 @@ mission-level constraints rather than implementation details.
       leg that brings agent-configuration secret handling into line with the
       rest of the platform** (see Known Issues) — the read projection is built
       on top of that, not around it.
-- [ ] Flight 2: Operator oversight — the revision log, approval mode with its
+- [x] Flight 2: Operator oversight — the revision log, approval mode with its
       pending queue and count badge, and restore. Follows the pending/approve/
       dismiss pattern the connector peer-approval flow already establishes.
 - [ ] Flight 3: External client access — the locally-bound surface for clients

@@ -22,6 +22,7 @@ from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
 from the_one.api_credential import resolve_caller
+from the_one.db.models import now_iso
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
@@ -90,7 +91,7 @@ class TestOffByDefault:
         await _create_agent(client, "fresh-agent")
         resp = await client.get("/api/agents/fresh-agent/self-configuration")
         assert resp.status_code == 200
-        assert resp.json() == {"enabled": False}
+        assert resp.json() == {"enabled": False, "requires_approval": False}
 
     async def test_fresh_agent_has_no_mcp_source_ids(self, client: AsyncClient) -> None:
         agent = await _create_agent(client, "fresh-agent-2")
@@ -203,6 +204,7 @@ class TestOrphanedRow:
             "enabled": False,
             "orphaned_row": True,
             "source_id": source_id,
+            "requires_approval": False,
         }
 
     async def test_next_enable_after_orphan_reuses_the_row_not_a_duplicate(
@@ -223,7 +225,11 @@ class TestOrphanedRow:
         assert status["orphaned_row"] is True
 
         re_enabled = (await client.post("/api/agents/reuse-agent/self-configuration")).json()
-        assert re_enabled == {"enabled": True, "source_id": source_id}
+        assert re_enabled == {
+            "enabled": True,
+            "source_id": source_id,
+            "requires_approval": False,
+        }
 
         agent_after = (await client.get("/api/agents/reuse-agent")).json()
         assert agent_after["mcp_source_ids"] == [source_id]
@@ -299,7 +305,7 @@ class TestIdentityAndRefusal:
         assert first.status_code == 200
         assert second.status_code == 200
         status = (await client.get("/api/agents/double-disable-agent/self-configuration")).json()
-        assert status == {"enabled": False}
+        assert status == {"enabled": False, "requires_approval": False}
 
 
 # ── AC9 — read scope is the agent itself (ownership guard) ──────────────
@@ -679,3 +685,412 @@ class TestLifecycleCascades:
         assert after_cfg.mcp_overrides[legacy_name] == {
             "disabled_tools": ["describe_my_capabilities"]
         }
+
+
+# ── M21 F02 L02 — approval mode + revision queue endpoints ────────────────
+
+
+async def _revisions_repo_for(client: AsyncClient):
+    """Build an AgentRevisionRepository against the same patched test conn
+    the `client` fixture installed (patch still active in-scope)."""
+    from the_one.db.repositories import AgentRevisionRepository
+    from the_one.interfaces.web import api as api_module
+
+    conn = await api_module.get_connection()
+    return AgentRevisionRepository(conn)
+
+
+async def _seed_pending(client, agent, field, proposed, base):
+    repo = await _revisions_repo_for(client)
+    rev, _ = await repo.upsert_pending_revision(
+        agent_name=agent, field=field, proposed_value=proposed, base_value=base
+    )
+    return rev
+
+
+class TestApprovalModeEndpoint:
+    async def test_put_approval_mode_persists(self, client: AsyncClient) -> None:
+        # AC8/AC13 — PUT toggles the flag; status reflects it.
+        await _create_agent(client, "am1")
+        resp = await client.put(
+            "/api/agents/am1/self-configuration/approval-mode",
+            json={"requires_approval": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"requires_approval": True}
+        status = (await client.get("/api/agents/am1/self-configuration")).json()
+        assert status["requires_approval"] is True
+
+        # Flip back off.
+        resp = await client.put(
+            "/api/agents/am1/self-configuration/approval-mode",
+            json={"requires_approval": False},
+        )
+        assert resp.json() == {"requires_approval": False}
+
+    async def test_put_approval_mode_unknown_agent_404(self, client: AsyncClient) -> None:
+        resp = await client.put(
+            "/api/agents/ghost/self-configuration/approval-mode",
+            json={"requires_approval": True},
+        )
+        assert resp.status_code == 404
+
+    async def test_unrelated_agent_save_preserves_approval_mode(self, client: AsyncClient) -> None:
+        # AC3 (DD2 HIGH) — a PUT /api/agents/{name} that omits the field must
+        # not reset approval mode.
+        await _create_agent(client, "am2")
+        await client.put(
+            "/api/agents/am2/self-configuration/approval-mode",
+            json={"requires_approval": True},
+        )
+        # An unrelated Studio-style save (payload omits the flag).
+        resp = await client.put(
+            "/api/agents/am2", json={"name": "am2", "description": "edited desc"}
+        )
+        assert resp.status_code == 200
+        status = (await client.get("/api/agents/am2/self-configuration")).json()
+        assert status["requires_approval"] is True
+
+
+class TestRevisionQueueEndpoints:
+    async def test_pending_count_scoped(self, client: AsyncClient) -> None:
+        # AC8 — count scoped to the agent.
+        await _create_agent(client, "rq1")
+        await _create_agent(client, "rq2")
+        await _seed_pending(client, "rq1", "description", "p1", "b1")
+        await _seed_pending(client, "rq1", "system_prompt", "p2", "b2")
+        await _seed_pending(client, "rq2", "description", "p3", "b3")
+        assert (
+            await client.get("/api/agents/rq1/self-configuration/revisions/pending-count")
+        ).json() == {"count": 2}
+        assert (
+            await client.get("/api/agents/rq2/self-configuration/revisions/pending-count")
+        ).json() == {"count": 1}
+
+    async def test_list_revisions_returns_full_rows(self, client: AsyncClient) -> None:
+        # AC8 — full non-secret rows with base/proposed visible.
+        await _create_agent(client, "rq3")
+        await _seed_pending(client, "rq3", "description", "proposed", "base")
+        rows = (await client.get("/api/agents/rq3/self-configuration/revisions")).json()
+        assert len(rows) == 1
+        assert rows[0]["base_value"] == "base"
+        assert rows[0]["proposed_value"] == "proposed"
+        assert rows[0]["status"] == "pending"
+
+    async def test_list_and_count_unknown_agent_404(self, client: AsyncClient) -> None:
+        assert (
+            await client.get("/api/agents/ghost/self-configuration/revisions")
+        ).status_code == 404
+        assert (
+            await client.get("/api/agents/ghost/self-configuration/revisions/pending-count")
+        ).status_code == 404
+
+
+class TestDismissEndpoint:
+    async def test_dismiss_transitions_and_idempotent(self, client: AsyncClient) -> None:
+        # AC9
+        await _create_agent(client, "dm1")
+        rev = await _seed_pending(client, "dm1", "description", "p", "b")
+        resp = await client.post(f"/api/agents/dm1/self-configuration/revisions/{rev.id}/dismiss")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "dismissed"
+        # Idempotent.
+        resp2 = await client.post(f"/api/agents/dm1/self-configuration/revisions/{rev.id}/dismiss")
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "dismissed"
+
+    async def test_dismiss_unknown_id_404(self, client: AsyncClient) -> None:
+        await _create_agent(client, "dm2")
+        resp = await client.post("/api/agents/dm2/self-configuration/revisions/nope/dismiss")
+        assert resp.status_code == 404
+
+    async def test_dismiss_cross_id_404(self, client: AsyncClient) -> None:
+        # AC9 — a revision id whose agent_name != path {name} is a 404.
+        await _create_agent(client, "dm3")
+        await _create_agent(client, "dm4")
+        rev = await _seed_pending(client, "dm4", "description", "p", "b")
+        resp = await client.post(f"/api/agents/dm3/self-configuration/revisions/{rev.id}/dismiss")
+        assert resp.status_code == 404
+
+    async def test_dismiss_applied_row_409(self, client: AsyncClient) -> None:
+        await _create_agent(client, "dm5")
+        rev = await _seed_pending(client, "dm5", "description", "p", "b")
+        repo = await _revisions_repo_for(client)
+        await repo.mark_applied(rev.id)
+        resp = await client.post(f"/api/agents/dm5/self-configuration/revisions/{rev.id}/dismiss")
+        assert resp.status_code == 409
+
+
+class TestApproveEndpoint:
+    async def test_clean_approve_applies_and_transitions(self, client: AsyncClient) -> None:
+        # AC10 — base_value == current stored value → apply.
+        await _create_agent(client, "ap1")
+        # current description is "test agent" (from _create_agent).
+        rev = await _seed_pending(client, "ap1", "description", "approved desc", "test agent")
+        resp = await client.post(f"/api/agents/ap1/self-configuration/revisions/{rev.id}/approve")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "applied"
+        assert resp.json()["resolved_at"] is not None
+        # The change reached the stored config (persist path).
+        agent = (await client.get("/api/agents/ap1")).json()
+        assert agent["description"] == "approved desc"
+
+    async def test_approve_idempotent_on_applied(self, client: AsyncClient) -> None:
+        # AC10 — idempotent no-op on already-applied.
+        await _create_agent(client, "ap2")
+        rev = await _seed_pending(client, "ap2", "description", "x", "test agent")
+        await client.post(f"/api/agents/ap2/self-configuration/revisions/{rev.id}/approve")
+        resp = await client.post(f"/api/agents/ap2/self-configuration/revisions/{rev.id}/approve")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "applied"
+
+    async def test_approve_dismissed_409(self, client: AsyncClient) -> None:
+        await _create_agent(client, "ap3")
+        rev = await _seed_pending(client, "ap3", "description", "x", "test agent")
+        repo = await _revisions_repo_for(client)
+        await repo.mark_dismissed(rev.id)
+        resp = await client.post(f"/api/agents/ap3/self-configuration/revisions/{rev.id}/approve")
+        assert resp.status_code == 409
+
+    async def test_approve_cross_id_and_unknown_404(self, client: AsyncClient) -> None:
+        await _create_agent(client, "ap4")
+        await _create_agent(client, "ap4b")
+        rev = await _seed_pending(client, "ap4b", "description", "x", "test agent")
+        assert (
+            await client.post(f"/api/agents/ap4/self-configuration/revisions/{rev.id}/approve")
+        ).status_code == 404
+        assert (
+            await client.post("/api/agents/ap4/self-configuration/revisions/nope/approve")
+        ).status_code == 404
+
+    async def test_stale_approve_409_with_both_values(self, client: AsyncClient) -> None:
+        # AC11 — base_value != current stored value → 409, store untouched.
+        await _create_agent(client, "ap5")
+        # Seed with a stale base that differs from the current "test agent".
+        rev = await _seed_pending(client, "ap5", "description", "proposed", "STALE BASE")
+        resp = await client.post(f"/api/agents/ap5/self-configuration/revisions/{rev.id}/approve")
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["current_value"] == "test agent"
+        assert detail["proposed_value"] == "proposed"
+        assert detail["base_value"] == "STALE BASE"
+        # Store untouched; row still pending.
+        agent = (await client.get("/api/agents/ap5")).json()
+        assert agent["description"] == "test agent"
+        repo = await _revisions_repo_for(client)
+        assert (await repo.get(rev.id)).status == "pending"
+
+    async def test_override_reapproves_stale(self, client: AsyncClient) -> None:
+        # AC11 — override re-captures base_value and applies.
+        await _create_agent(client, "ap6")
+        rev = await _seed_pending(client, "ap6", "description", "forced", "STALE BASE")
+        resp = await client.post(
+            f"/api/agents/ap6/self-configuration/revisions/{rev.id}/approve",
+            params={"override": "true"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "applied"
+        assert resp.json()["base_value"] == "test agent"  # re-captured to current
+        agent = (await client.get("/api/agents/ap6")).json()
+        assert agent["description"] == "forced"
+
+
+class TestDisableSupersedes:
+    async def test_disable_supersedes_pending_and_blocks_approve(self, client: AsyncClient) -> None:
+        # AC12 (DD8) — disable marks pending rows superseded even when there
+        # is no surface row; a follow-up approve is 409.
+        await _create_agent(client, "sup1")
+        rev = await _seed_pending(client, "sup1", "description", "p", "test agent")
+        # No surface enabled — disable still clears the queue.
+        resp = await client.delete("/api/agents/sup1/self-configuration")
+        assert resp.status_code == 200
+        repo = await _revisions_repo_for(client)
+        assert (await repo.get(rev.id)).status == "superseded"
+        # Approve now 409.
+        resp = await client.post(f"/api/agents/sup1/self-configuration/revisions/{rev.id}/approve")
+        assert resp.status_code == 409
+
+
+async def _seed_applied(client, agent, field, proposed, base):
+    """Seed an ``applied``/``self`` revision row directly (a value the field
+    genuinely held) — the restore target shape. Does NOT mutate the agent
+    config; callers set the config's current value via PUT as needed."""
+    repo = await _revisions_repo_for(client)
+    return await repo.append(
+        agent_name=agent,
+        field=field,
+        proposed_value=proposed,
+        base_value=base,
+        source="self",
+        status="applied",
+        created_at=now_iso(),
+        resolved_at=now_iso(),
+    )
+
+
+class TestRestoreEndpoint:
+    async def test_restore_proposed_applies_and_logs_provenance(self, client: AsyncClient) -> None:
+        # AC1 — default side=proposed: set field to the target's proposed_value,
+        # append a new applied/restore row with base_value = pre-restore current.
+        await _create_agent(client, "rs1")
+        await client.put("/api/agents/rs1", json={"name": "rs1", "description": "CURRENT"})
+        rev = await _seed_applied(client, "rs1", "description", "REINSTATED", "OLDER")
+        resp = await client.post(f"/api/agents/rs1/self-configuration/revisions/{rev.id}/restore")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["source"] == "restore"
+        assert body["status"] == "applied"
+        assert body["field"] == "description"
+        assert body["proposed_value"] == "REINSTATED"
+        assert body["base_value"] == "CURRENT"  # pre-restore current value
+        assert body["restored_from"] == rev.id
+        assert body["resolved_at"] == body["created_at"]
+        # Store now holds the reinstated value.
+        agent = (await client.get("/api/agents/rs1")).json()
+        assert agent["description"] == "REINSTATED"
+
+    async def test_restore_base_reaches_original(self, client: AsyncClient) -> None:
+        # AC1b (LD2) — side=base on the earliest applied revision of a field
+        # returns it to its ORIGINAL pre-first-revision value. Agent created
+        # with description D0, approval OFF so the D0->D1 self-revision is an
+        # applied row; the config now holds D1. Restore side=base → D0.
+        await _create_agent(client, "rs1b")
+        await client.put("/api/agents/rs1b", json={"name": "rs1b", "description": "D0"})
+        rev = await _seed_applied(client, "rs1b", "description", "D1", "D0")
+        await client.put("/api/agents/rs1b", json={"name": "rs1b", "description": "D1"})
+        resp = await client.post(
+            f"/api/agents/rs1b/self-configuration/revisions/{rev.id}/restore",
+            params={"side": "base"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["proposed_value"] == "D0"  # reinstated = the before-image
+        assert body["base_value"] == "D1"  # pre-restore current
+        assert body["restored_from"] == rev.id
+        # restored_from resolves to an existing revision.
+        repo = await _revisions_repo_for(client)
+        assert (await repo.get(body["restored_from"])).id == rev.id
+        agent = (await client.get("/api/agents/rs1b")).json()
+        assert agent["description"] == "D0"
+
+    async def test_restore_applies_under_approval_mode_on(self, client: AsyncClient) -> None:
+        # AC2 (DD5) — approval mode ON does not enqueue a restore; it applies.
+        await _create_agent(client, "rs2")
+        await client.put(
+            "/api/agents/rs2/self-configuration/approval-mode",
+            json={"requires_approval": True},
+        )
+        await client.put("/api/agents/rs2", json={"name": "rs2", "description": "NOW"})
+        rev = await _seed_applied(client, "rs2", "description", "BACK", "prev")
+        resp = await client.post(f"/api/agents/rs2/self-configuration/revisions/{rev.id}/restore")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "applied"
+        agent = (await client.get("/api/agents/rs2")).json()
+        assert agent["description"] == "BACK"
+        # No pending row was created.
+        count = (
+            await client.get("/api/agents/rs2/self-configuration/revisions/pending-count")
+        ).json()
+        assert count == {"count": 0}
+
+    @pytest.mark.parametrize("bad_status", ["pending", "dismissed", "superseded"])
+    async def test_restore_non_applied_target_409_untouched(
+        self, client: AsyncClient, bad_status: str
+    ) -> None:
+        # AC4 — a non-applied target is refused 409; store + log untouched.
+        agent = f"rs4-{bad_status}"
+        await _create_agent(client, agent)
+        await client.put("/api/agents/" + agent, json={"name": agent, "description": "KEEP"})
+        rev = await _seed_pending(client, agent, "description", "proposed", "base")
+        repo = await _revisions_repo_for(client)
+        if bad_status == "dismissed":
+            await repo.mark_dismissed(rev.id)
+        elif bad_status == "superseded":
+            await repo.supersede_pending(agent)
+        # (pending: leave as-is.)
+        rows_before = await repo.list_for_agent(agent)
+        resp = await client.post(
+            f"/api/agents/{agent}/self-configuration/revisions/{rev.id}/restore"
+        )
+        assert resp.status_code == 409, resp.text
+        # Store untouched.
+        cfg = (await client.get("/api/agents/" + agent)).json()
+        assert cfg["description"] == "KEEP"
+        # Log untouched (no new restore row appended).
+        rows_after = await repo.list_for_agent(agent)
+        assert len(rows_after) == len(rows_before)
+
+    async def test_restore_cross_id_and_unknown_404(self, client: AsyncClient) -> None:
+        # AC5 — cross-ID (revision under agent B via agent A's path) → 404;
+        # unknown id → 404.
+        await _create_agent(client, "rs5a")
+        await _create_agent(client, "rs5b")
+        rev = await _seed_applied(client, "rs5b", "description", "x", "y")
+        assert (
+            await client.post(f"/api/agents/rs5a/self-configuration/revisions/{rev.id}/restore")
+        ).status_code == 404
+        assert (
+            await client.post("/api/agents/rs5a/self-configuration/revisions/nope/restore")
+        ).status_code == 404
+
+    async def test_restore_bad_side_422(self, client: AsyncClient) -> None:
+        # side is a Literal — an invalid value is auto-422'd by FastAPI.
+        await _create_agent(client, "rs5c")
+        rev = await _seed_applied(client, "rs5c", "description", "x", "y")
+        resp = await client.post(
+            f"/api/agents/rs5c/self-configuration/revisions/{rev.id}/restore",
+            params={"side": "sideways"},
+        )
+        assert resp.status_code == 422
+
+    async def test_restore_fields_are_independent(self, client: AsyncClient) -> None:
+        # AC6 — restoring a description revision changes only description and
+        # logs field='description'; the system prompt is untouched; vice versa.
+        await _create_agent(client, "rs6")
+        await client.put(
+            "/api/agents/rs6",
+            json={
+                "name": "rs6",
+                "description": "DESC_NOW",
+                "system_prompt": "PROMPT_NOW",
+            },
+        )
+        desc_rev = await _seed_applied(client, "rs6", "description", "DESC_BACK", "old_desc")
+        prompt_rev = await _seed_applied(
+            client, "rs6", "system_prompt", "PROMPT_BACK", "old_prompt"
+        )
+        # Restore description only.
+        resp = await client.post(
+            f"/api/agents/rs6/self-configuration/revisions/{desc_rev.id}/restore"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["field"] == "description"
+        agent = (await client.get("/api/agents/rs6")).json()
+        assert agent["description"] == "DESC_BACK"
+        assert agent["system_prompt"] == "PROMPT_NOW"  # untouched
+        # Restore system prompt only.
+        resp = await client.post(
+            f"/api/agents/rs6/self-configuration/revisions/{prompt_rev.id}/restore"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["field"] == "system_prompt"
+        agent = (await client.get("/api/agents/rs6")).json()
+        assert agent["system_prompt"] == "PROMPT_BACK"
+        assert agent["description"] == "DESC_BACK"  # still the restored desc
+
+    async def test_restore_to_current_still_logs(self, client: AsyncClient) -> None:
+        # AC7 — restoring to a value equal to the current one still logs a
+        # restore/applied row (not silently skipped). base==proposed is fine.
+        await _create_agent(client, "rs7")
+        await client.put("/api/agents/rs7", json={"name": "rs7", "description": "SAME"})
+        rev = await _seed_applied(client, "rs7", "description", "SAME", "older")
+        repo = await _revisions_repo_for(client)
+        before = len(await repo.list_for_agent("rs7"))
+        resp = await client.post(f"/api/agents/rs7/self-configuration/revisions/{rev.id}/restore")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["source"] == "restore"
+        assert body["base_value"] == "SAME"
+        assert body["proposed_value"] == "SAME"
+        after = len(await repo.list_for_agent("rs7"))
+        assert after == before + 1

@@ -27,7 +27,9 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from the_one.config import settings
 from the_one.db.connection import get_connection
+from the_one.db.models import now_iso
 from the_one.db.repositories import (
+    AgentRevisionRepository,
     ConnectorRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
@@ -181,8 +183,65 @@ async def _apply_revision(agent_name: str, field: str, text: str, apply: str) ->
     encryptor = get_encryptor(settings.data_dir)
     agent_store = SQLiteAgentStore(conn, encryptor)
     config = await agent_store.load(agent_name)
+    base_value = getattr(config, field)
+
+    # M21 F02 L02 DD3: approval mode. When the operator has set approval
+    # mode ON for this agent, the proposed revision is NOT applied — it is
+    # enqueued as a ``pending`` row (dedup one per agent+field) for the
+    # operator to approve or dismiss. We deliberately do NOT ``save`` and do
+    # NOT ``pending.record``: the store and the live conversation are left
+    # untouched, and an approved revision propagates next-session only (the
+    # proposing turn's ``apply`` is moot and not replayed). The result is
+    # truthful and non-retry-inducing — it does not claim the change took
+    # effect, so the agent does not loop trying to re-apply it.
+    if config.self_revision_requires_approval:
+        revisions = AgentRevisionRepository(conn)
+        await revisions.upsert_pending_revision(
+            agent_name=agent_name,
+            field=field,
+            proposed_value=text,
+            base_value=base_value,
+        )
+        return {
+            "applied_to_store": False,
+            "effective": "pending_operator_approval",
+            "field": field,
+            "length": len(text),
+            "message": (
+                "This change has been submitted to the operator for approval "
+                "and is not yet in effect. If approved, it will take effect the "
+                "next time this conversation is opened. No further action is "
+                "needed from you."
+            ),
+        }
+
     updated = config.model_copy(update={field: text})
     await agent_store.save(updated)
+
+    # Revision log (M21 F02 L01): record this direct self-revision as one
+    # ``applied`` row with its before-image (``base_value``) and after-image
+    # (``proposed_value``). Ordered strictly AFTER ``save`` so a revision is
+    # never logged unless it persisted (a logged-but-unpersisted change is
+    # the worse failure — it would claim a change that never took effect).
+    # ``SQLiteAgentStore.save`` self-commits, so save and append are not one
+    # transaction; the residual crash-window between them (revision persisted
+    # to ``agents`` without a log row) is accepted at operator-scale /
+    # single-writer, per the leg's Edge Cases. One ``now_iso()`` value fills
+    # both ``created_at`` and ``resolved_at`` — an applied row is resolved at
+    # creation, so the two timestamps are byte-identical.
+    ts = now_iso()
+    revisions = AgentRevisionRepository(conn)
+    await revisions.append(
+        agent_name=agent_name,
+        field=field,
+        proposed_value=text,
+        base_value=base_value,
+        source="self",
+        status="applied",
+        restored_from=None,
+        created_at=ts,
+        resolved_at=ts,
+    )
 
     if apply == "next_turn":
         pending.record(agent_name, **{field: text})

@@ -1068,6 +1068,95 @@ App.registerArea({
           });
         });
     }
+
+    // M21 F02 L02 — approval-mode toggle + revision-queue network calls.
+    function setSelfConfigurationApprovalMode(name, requiresApproval) {
+      return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration/approval-mode', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requires_approval: !!requiresApproval })
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('set approval mode: HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (result) {
+          // The flag lives outside the Save flow; re-render so the tab
+          // (and its status fetch) reflect the new value.
+          return _refreshAgentAfterSelfConfigurationChange(name).then(function () { return result; });
+        });
+    }
+
+    function fetchSelfConfigurationRevisions(name) {
+      return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration/revisions')
+        .then(function (r) {
+          if (!r.ok) throw new Error('fetch revisions: HTTP ' + r.status);
+          return r.json();
+        });
+    }
+
+    function fetchSelfConfigurationPendingCount(name) {
+      return fetch('/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/revisions/pending-count')
+        .then(function (r) {
+          if (!r.ok) throw new Error('fetch pending-count: HTTP ' + r.status);
+          return r.json();
+        });
+    }
+
+    function approveSelfConfigurationRevision(name, id, override) {
+      var url = '/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/revisions/' + encodeURIComponent(id) + '/approve' +
+        (override ? '?override=true' : '');
+      return fetch(url, { method: 'POST' }).then(function (r) {
+        if (r.status === 409) {
+          return r.json().then(function (body) {
+            var detail = body && body.detail;
+            if (detail && detail.error === 'stale') {
+              // DD4 staleness — surface both values so the tab can render
+              // the current-vs-proposed override affordance (not a throw).
+              return { stale: true, detail: detail };
+            }
+            throw new Error('approve revision: HTTP 409');
+          });
+        }
+        if (!r.ok) throw new Error('approve revision: HTTP ' + r.status);
+        return r.json().then(function (rev) {
+          return _refreshAgentAfterSelfConfigurationChange(name).then(function () {
+            return { applied: true, revision: rev };
+          });
+        });
+      });
+    }
+
+    function dismissSelfConfigurationRevision(name, id) {
+      var url = '/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/revisions/' + encodeURIComponent(id) + '/dismiss';
+      return fetch(url, { method: 'POST' }).then(function (r) {
+        if (!r.ok) throw new Error('dismiss revision: HTTP ' + r.status);
+        return r.json().then(function (rev) {
+          return _refreshAgentAfterSelfConfigurationChange(name).then(function () { return rev; });
+        });
+      });
+    }
+
+    // M21 F02 L03 — operator-direct restore. `side` selects the value node
+    // (proposed = the target row's after-image; base = its before-image, the
+    // only way to reach the original pre-first-revision value). Applies
+    // immediately regardless of approval mode; on success re-render the tab
+    // so the fresh revision list shows the new restore row.
+    function restoreSelfConfigurationRevision(name, id, side) {
+      var url = '/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/revisions/' + encodeURIComponent(id) + '/restore' +
+        '?side=' + encodeURIComponent(side || 'proposed');
+      return fetch(url, { method: 'POST' }).then(function (r) {
+        if (!r.ok) throw new Error('restore revision: HTTP ' + r.status);
+        return r.json().then(function (rev) {
+          return _refreshAgentAfterSelfConfigurationChange(name).then(function () { return rev; });
+        });
+      });
+    }
+
     function fetchConnectorsList() {
       // M10 F6 L5 — list of all connector accounts for the agent-editor
       // Connectors tab. Parallel to fetchMcpSources above; the REST path
@@ -1601,7 +1690,15 @@ App.registerArea({
         // M21 F01 L02 — Self-configuration tab network calls.
         fetchSelfConfigurationStatus: fetchSelfConfigurationStatus,
         onEnableSelfConfiguration: enableSelfConfiguration,
-        onDisableSelfConfiguration: disableSelfConfiguration
+        onDisableSelfConfiguration: disableSelfConfiguration,
+        // M21 F02 L02 — approval-mode toggle + revision queue.
+        onSetSelfConfigurationApprovalMode: setSelfConfigurationApprovalMode,
+        fetchSelfConfigurationRevisions: fetchSelfConfigurationRevisions,
+        fetchSelfConfigurationPendingCount: fetchSelfConfigurationPendingCount,
+        onApproveSelfConfigurationRevision: approveSelfConfigurationRevision,
+        onDismissSelfConfigurationRevision: dismissSelfConfigurationRevision,
+        // M21 F02 L03 — revision history restore.
+        onRestoreSelfConfigurationRevision: restoreSelfConfigurationRevision
       });
 
       // Wire field-level dirty tracking + provider-change side-effects.

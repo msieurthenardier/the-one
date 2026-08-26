@@ -11,6 +11,7 @@ from cryptography.fernet import InvalidToken
 
 from the_one.agent.config import AgentConfig
 from the_one.db.models import (
+    AgentRevision,
     ChatSession,
     Connector,
     KBItem,
@@ -196,8 +197,9 @@ class SQLiteAgentStore:
                 kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
                 connector_ids, connector_acls,
                 connector_always_listen, chat_history_retention_days,
+                self_revision_requires_approval,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -214,6 +216,7 @@ class SQLiteAgentStore:
                 connector_acls=excluded.connector_acls,
                 connector_always_listen=excluded.connector_always_listen,
                 chat_history_retention_days=excluded.chat_history_retention_days,
+                self_revision_requires_approval=excluded.self_revision_requires_approval,
                 updated_at=excluded.updated_at
             """,
             (
@@ -237,9 +240,28 @@ class SQLiteAgentStore:
                     else None
                 ),
                 config.chat_history_retention_days,
+                int(config.self_revision_requires_approval),
                 now,
                 now,
             ),
+        )
+        await self.conn.commit()
+
+    async def set_self_revision_requires_approval(self, name: str, value: bool) -> None:
+        """Targeted UPDATE of the operator-owned approval-mode flag (M21 F02 L02).
+
+        The immediate-post toggle touches ONLY this operator-owned scalar,
+        so a targeted ``UPDATE`` dodges the whole-row last-writer-wins
+        window a full ``save`` would open — safe here (unlike the DD4
+        approve path, which must re-load to avoid clobbering the revision
+        target). Raises ``KeyError`` if no agent exists at ``name`` (mirrors
+        :meth:`delete` / :meth:`get`).
+        """
+        if not await self.exists(name):
+            raise KeyError(f"Agent config not found: {name}")
+        await self.conn.execute(
+            "UPDATE agents SET self_revision_requires_approval = ?, updated_at = ? WHERE name = ?",
+            (int(value), now_iso(), name),
         )
         await self.conn.commit()
 
@@ -339,6 +361,12 @@ class SQLiteAgentStore:
                 else None
             ),
             chat_history_retention_days=row["chat_history_retention_days"],
+            # M21 F02 L02: per-agent approval mode. Plain read mirroring
+            # `chat_history_retention_days` above — the v35 migration adds the
+            # column `NOT NULL DEFAULT 0` and backfills every row, so no
+            # absent/NULL case survives at load (an inline missing-column
+            # access on `aiosqlite.Row` would raise IndexError anyway).
+            self_revision_requires_approval=bool(row["self_revision_requires_approval"]),
         )
 
 
@@ -883,6 +911,237 @@ class PendingApprovalRepository:
             channel_id=row["channel_id"] if "channel_id" in keys else None,
             thread_id=row["thread_id"] if "thread_id" in keys else None,
             is_dm=bool(is_dm_raw) if is_dm_raw is not None else None,
+        )
+
+
+# ── Agent revision repository ────────────────────────────────────────────
+
+
+class AgentRevisionRepository:
+    """Async access to the ``agent_revisions`` revision log (M21 F02 L01).
+
+    No encryptor (mirrors :class:`PendingApprovalRepository`): the logged
+    ``base_value`` / ``proposed_value`` are the plaintext ``description`` /
+    ``system_prompt`` values, which cross no encryption boundary, so the
+    log holds no secret material.
+
+    L01 is log-facing only: ``append`` / ``get`` / ``list_for_agent``. The
+    queue-state transitions and ``count_pending`` belong to Leg 2's state
+    machine; restore provenance (``source='restore'``, ``restored_from``)
+    is Leg 3. Callers here pass ``status='applied', source='self',
+    restored_from=None, resolved_at=created_at`` (an applied row is
+    resolved at creation).
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def append(
+        self,
+        *,
+        agent_name: str,
+        field: str,
+        proposed_value: str,
+        base_value: str,
+        source: str,
+        status: str,
+        created_at: str,
+        resolved_at: str | None,
+        restored_from: str | None = None,
+    ) -> AgentRevision:
+        """Insert one revision row and return it.
+
+        Mints ``id`` as ``uuid.uuid4().hex`` (the repository owns the
+        INSERT; the caller supplies ``created_at`` / ``resolved_at``
+        explicitly, so the id is not a model ``default_factory``) —
+        mirroring ``PendingApprovalRepository.upsert_pending``.
+        """
+        revision_id = uuid.uuid4().hex
+        await self.conn.execute(
+            "INSERT INTO agent_revisions "
+            "(id, agent_name, field, proposed_value, base_value, "
+            " status, source, restored_from, created_at, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                revision_id,
+                agent_name,
+                field,
+                proposed_value,
+                base_value,
+                status,
+                source,
+                restored_from,
+                created_at,
+                resolved_at,
+            ),
+        )
+        await self.conn.commit()
+        return await self.get(revision_id)
+
+    async def get(self, revision_id: str) -> AgentRevision:
+        async with self.conn.execute(
+            "SELECT * FROM agent_revisions WHERE id = ?", (revision_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Agent revision not found: {revision_id}")
+        return self._row_to_model(row)
+
+    async def list_for_agent(self, agent_name: str) -> list[AgentRevision]:
+        """Return an agent's revisions newest-first.
+
+        ``ORDER BY created_at DESC, id DESC`` — the ``id DESC`` tiebreak on
+        same-microsecond rows is a uuid-hex order (arbitrary-but-stable,
+        not insertion order), acceptable at operator-scale.
+        """
+        async with self.conn.execute(
+            "SELECT * FROM agent_revisions WHERE agent_name = ? ORDER BY created_at DESC, id DESC",
+            (agent_name,),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    # ── Leg 2 (M21 F02 L02) — pending-queue state machine ─────────────
+
+    async def count_pending(self, agent_name: str) -> int:
+        """Return the count of ``status='pending'`` rows for one agent.
+
+        Scoped to ``agent_name`` (unlike the connector
+        ``PendingApprovalRepository.count_pending`` which is global) —
+        approval mode and its queue are per-agent.
+        """
+        async with self.conn.execute(
+            "SELECT COUNT(*) FROM agent_revisions WHERE agent_name = ? AND status = 'pending'",
+            (agent_name,),
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+    async def upsert_pending_revision(
+        self,
+        *,
+        agent_name: str,
+        field: str,
+        proposed_value: str,
+        base_value: str,
+    ) -> tuple[AgentRevision, bool]:
+        """Upsert a pending revision keyed by ``(agent_name, field, pending)``.
+
+        Dedup contract (DD3): one ``pending`` row per ``(agent_name,
+        field)``. If a pending row already exists for that pair, UPDATE
+        ``proposed_value`` / ``base_value`` / ``created_at`` in place and
+        return ``(updated_row, False)``. Otherwise ``append`` a fresh
+        ``status='pending', source='self', resolved_at=None`` row and
+        return ``(new_row, True)`` — mirroring
+        ``PendingApprovalRepository.upsert_pending``'s ``created`` flag.
+
+        A re-propose refreshes ``base_value`` to the latest captured
+        value, so the DD4 staleness window resets to the newest proposal
+        (leg Edge Cases).
+        """
+        async with self.conn.execute(
+            "SELECT id FROM agent_revisions "
+            "WHERE agent_name = ? AND field = ? AND status = 'pending' "
+            "LIMIT 1",
+            (agent_name, field),
+        ) as cur:
+            existing = await cur.fetchone()
+        ts = now_iso()
+        if existing is None:
+            return (
+                await self.append(
+                    agent_name=agent_name,
+                    field=field,
+                    proposed_value=proposed_value,
+                    base_value=base_value,
+                    source="self",
+                    status="pending",
+                    created_at=ts,
+                    resolved_at=None,
+                ),
+                True,
+            )
+        revision_id = existing["id"]
+        await self.conn.execute(
+            "UPDATE agent_revisions "
+            "SET proposed_value = ?, base_value = ?, created_at = ? "
+            "WHERE id = ?",
+            (proposed_value, base_value, ts, revision_id),
+        )
+        await self.conn.commit()
+        return await self.get(revision_id), False
+
+    async def mark_applied(self, revision_id: str) -> AgentRevision:
+        return await self._transition(revision_id, "applied")
+
+    async def mark_dismissed(self, revision_id: str) -> AgentRevision:
+        return await self._transition(revision_id, "dismissed")
+
+    async def _transition(
+        self, revision_id: str, target: Literal["applied", "dismissed"]
+    ) -> AgentRevision:
+        """Transition a ``pending`` row to a terminal state.
+
+        Copies ``PendingApprovalRepository._transition`` semantics:
+        idempotent when already at ``target``; ``ValueError`` on any
+        non-``pending`` non-``target`` state (the API layer maps this to
+        409); a single UPDATE stamping ``status`` + ``resolved_at``.
+        """
+        current = await self.get(revision_id)  # raises KeyError
+        if current.status == target:
+            return current  # idempotent on self-target
+        if current.status != "pending":
+            raise ValueError(
+                f"Agent revision {revision_id} is {current.status}; cannot transition to {target}"
+            )
+        await self.conn.execute(
+            "UPDATE agent_revisions SET status = ?, resolved_at = ? WHERE id = ?",
+            (target, now_iso(), revision_id),
+        )
+        await self.conn.commit()
+        return await self.get(revision_id)
+
+    async def update_base_value(self, revision_id: str, base_value: str) -> AgentRevision:
+        """Re-capture ``base_value`` to a new value (DD4 approve override).
+
+        Used only on the override path when the operator elects to
+        overwrite a drifted field — the endpoint re-captures ``base_value``
+        to the current stored value before applying, so the applied row
+        records the base it actually overwrote.
+        """
+        await self.conn.execute(
+            "UPDATE agent_revisions SET base_value = ? WHERE id = ?",
+            (base_value, revision_id),
+        )
+        await self.conn.commit()
+        return await self.get(revision_id)
+
+    async def supersede_pending(self, agent_name: str) -> int:
+        """Mark every outstanding ``pending`` row for an agent ``superseded`` (DD8).
+
+        Called when the self-configuration surface is disabled — a
+        revision proposed under a since-revoked surface must not be
+        approvable afterward. Returns the number of rows superseded.
+        """
+        cur = await self.conn.execute(
+            "UPDATE agent_revisions SET status = 'superseded', resolved_at = ? "
+            "WHERE agent_name = ? AND status = 'pending'",
+            (now_iso(), agent_name),
+        )
+        await self.conn.commit()
+        return cur.rowcount
+
+    def _row_to_model(self, row: aiosqlite.Row) -> AgentRevision:
+        return AgentRevision(
+            id=row["id"],
+            agent_name=row["agent_name"],
+            field=row["field"],
+            proposed_value=row["proposed_value"],
+            base_value=row["base_value"],
+            status=row["status"],
+            source=row["source"],
+            restored_from=row["restored_from"],
+            created_at=row["created_at"],
+            resolved_at=row["resolved_at"],
         )
 
 

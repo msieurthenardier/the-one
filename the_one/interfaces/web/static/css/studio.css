@@ -1671,4 +1671,235 @@
     .connector-config-table {
     margin-bottom: 0;
   }
+
+  /* === Self-configuration tab (M21 F02 L04 HAT UX fixes) ===================
+     The tab's `self-configuration-*` / `revision-*` / `history-entry-*`
+     classes previously had ZERO CSS anywhere (they rendered unstyled). This
+     block styles them from tokens; see self-configuration-tab.js for the
+     DOM structure and the per-fix comments there. */
+
+  /* Enable + Approval-mode switches: `.tool-enable-switch` (admin.css) is
+     already dual-scoped .area-admin/.area-studio and `position: relative`
+     by default (F7 Rec #3(a)) — no override needed for the switch itself,
+     just a little breathing room now that the row no longer reads as a
+     button. */
+  .area-studio .self-configuration-toggle-switch { margin-top: 4px; }
+
+  .area-studio .self-configuration-description {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    line-height: var(--line-height-normal);
+    margin: 4px 0 12px;
+  }
+  .area-studio .self-configuration-status {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin-bottom: 8px;
+  }
+  .area-studio .self-configuration-error {
+    font-size: var(--font-size-body-sm);
+    color: var(--status-danger);
+    margin: 4px 0 8px;
+  }
+  .area-studio .self-configuration-error[hidden] { display: none; }
+  /* Cross-render action-announcement + focus target (see the `pendingAction`
+     comment in self-configuration-tab.js). Reserves a line so the layout
+     doesn't jump when a message appears after an action. */
+  .area-studio .self-configuration-action-status {
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+    min-height: 1em;
+    margin: 0 0 4px;
+    padding: 0 20px;
+  }
+  .area-studio .self-configuration-action-status:empty { min-height: 0; }
+  .area-studio .self-configuration-action-status:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .area-studio .self-configuration-pending-count {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin-bottom: 8px;
+  }
+  .area-studio .self-configuration-pending-count[hidden] { display: none; }
+
+  /* Small caption-style label above a read-only value block ("Current" /
+     "Proposed" / "Base" / "Proposed" on a queue card, "Current value now"
+     on the staleness panel). */
+  .area-studio .revision-value-label {
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+    font-family: var(--font-family-mono);
+    margin-bottom: 2px;
+  }
+
+  /* Section/group subheadings — mirrors the mono-uppercase idiom used
+     elsewhere in studio (e.g. .mcp-tool-section-label, kv-table headers).
+     Used for "Restore to an earlier value" (HAT fix #3) and, smaller, for
+     the per-field restore subgroups (HAT fix #8). */
+  .area-studio .self-configuration-subheading {
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-tertiary, var(--fg-muted));
+    margin: 16px 0 8px;
+  }
+  .area-studio .self-configuration-restore-controls > .self-configuration-subheading:first-child {
+    margin-top: 4px;
+  }
+  .area-studio .self-configuration-restore-group-label {
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg-secondary);
+    margin: 12px 0 6px;
+  }
+  .area-studio .self-configuration-restore-group-label:first-child { margin-top: 0; }
+
+  /* Pending-revision queue card ------------------------------------------ */
+  .area-studio .self-configuration-revision-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 12px;
+  }
+  .area-studio .revision-field {
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .area-studio .revision-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+  /* Staleness (409) drift panel — the advisory text reuses `.banner-warning`
+     (components.css); this rule just separates the panel from the clean
+     base/proposed blocks above it inside the same card. */
+  .area-studio .revision-stale {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+  }
+  .area-studio .revision-stale[hidden] { display: none; }
+  .area-studio .revision-stale-warning { margin: 0; }
+
+  /* Revision-history entries (chronological log) -------------------------- */
+  .area-studio .self-configuration-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .area-studio .self-configuration-history-entry {
+    padding: 10px 12px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  /* HAT fix #1: field name + source/status/time now read as one sentence
+     ("System prompt — self-revised · dismissed · 3 hours ago") via an
+     explicit dash text node (self-configuration-tab.js) — this flex row
+     just adds visual breathing room around it. */
+  .area-studio .history-entry-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .area-studio .history-entry-field {
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .area-studio .history-entry-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .area-studio .history-entry-meta-text {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+  .area-studio .history-entry-change {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .area-studio .history-entry-change pre { flex: 1; min-width: 160px; margin: 0; }
+  .area-studio .history-entry-arrow {
+    color: var(--fg-muted);
+    padding-top: 10px;
+    flex-shrink: 0;
+  }
+
+  /* Collapsible chronological log (HAT fix #10 — native <details
+     class="advanced-collapsible">, components.css supplies the summary +
+     border-top chrome). The restore-node list above it stays outside this
+     element and is always visible. */
+  .area-studio .self-configuration-history-details { margin-top: 12px; }
+  .area-studio .self-configuration-history-details .self-configuration-history-list {
+    margin-top: 10px;
+  }
+
+  /* Restore-node rows: value + Restore button side-by-side (HAT fix #9) —
+     the button pins to the right and never shrinks; the value takes the
+     remaining width and wraps for long/multi-line text. Grouped per field
+     (HAT fix #8) via `.self-configuration-restore-group`. */
+  .area-studio .self-configuration-restore-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .area-studio .self-configuration-restore-node {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    flex-wrap: wrap;
+  }
+  .area-studio .self-configuration-restore-node .restore-node-value {
+    flex: 1;
+    min-width: 160px;
+    margin: 0;
+  }
+  .area-studio .self-configuration-restore-node .revision-restore-btn {
+    flex-shrink: 0;
+  }
+  .area-studio .self-configuration-restore-node .self-configuration-error {
+    flex-basis: 100%;
+    margin: 0;
+  }
+
+  /* Before/after diff highlighting (HAT fix #6) — a small prefix/suffix
+     diff computed in JS (`diffSegments` in self-configuration-tab.js); no
+     shared diff util exists app-wide. Neither variant relies on color
+     alone: `.diff-del` adds strikethrough, `.diff-add` adds underline.
+     Note: there is no `--status-success-bg-soft` token (only warning/danger
+     have a `-bg-soft` variant) — rather than fabricate one, `.diff-add`
+     uses color + underline instead of a filled background. */
+  .area-studio .diff-del {
+    color: var(--status-danger);
+    background: var(--status-danger-bg-soft);
+    text-decoration: line-through;
+    border-radius: 2px;
+    padding: 0 2px;
+  }
+  .area-studio .diff-add {
+    color: var(--status-success);
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    border-radius: 2px;
+    padding: 0 2px;
+  }
 }
