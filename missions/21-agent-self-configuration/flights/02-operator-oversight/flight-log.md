@@ -770,3 +770,21 @@ unit lane not run (out of scope — presentation-only change, per the task).
   token/guard tests. AC1-AC6, AC8, AC9 PASS; AC7 covered by unit tests. Leg 4 →
   completed; checked off in flight.md. UX follow-up committed on the flight branch
   (presentation-only; no backend change).
+
+- **HAT teardown:** scratch instance stopped (pid on 8485 killed), scratch data
+  dir `/tmp/the-one-hat` removed. Prod (8484) never targeted. Leg 4 complete.
+  Follow-up commit f0debd8 pushed to PR #172.
+
+### Flight debrief (/flight-debrief) — flight completed
+
+- Developer + Architect debrief interviews run (human interview skipped — log
+  comprehensive, FD drove every decision). Both aligned: DD1/DD3/DD6/DD7/DD8 held
+  clean; DD2 (preserve-on-PUT) and DD5 (restore value-set) were completeness gaps
+  that design-review-before-code caught — the flight's strongest process signal.
+- Metrics: unit lane **4447 passed, 10 skipped** (+66 in-lane vs Flight 1's 4381;
+  +195 vs Mission-20 baseline). Wall-clock ~8:05 vs ~6:10 not read as regression
+  (measurement confound + heavier full-app httpx endpoint suites).
+- Debrief committed. Phase 6 squawks logged: **0005** (shutdown-drain-under-load
+  verification), **0006** (two-agent isolation verification) — the two Flight-1
+  carry-overs, finally filed — and **0007** (`--status-success-bg-soft` token for
+  the diff-add asymmetry). Flight status landed → **completed**.
