@@ -73,7 +73,15 @@ def _seed_applied_revision(
                 " id, agent_name, field, proposed_value, base_value,"
                 " status, source, restored_from, created_at, resolved_at"
                 ") VALUES (?, ?, ?, ?, ?, 'applied', 'self', NULL, ?, ?)",
-                (revision_id, agent_name, field, proposed_value, base_value, created_at, created_at),
+                (
+                    revision_id,
+                    agent_name,
+                    field,
+                    proposed_value,
+                    base_value,
+                    created_at,
+                    created_at,
+                ),
             )
         conn.commit()
     finally:
@@ -120,18 +128,18 @@ def test_history_renders_all_statuses(app_with_data_dir: tuple[str, Path], page:
     # subheading (items 2 + 8: the group heading IS the restore rows' visible
     # field label).
     expect(page.locator('[data-testid="revision-restore-btn"]')).to_have_count(2)
-    expect(page.locator('.self-configuration-restore-group-label')).to_have_text("Description")
+    expect(page.locator(".self-configuration-restore-group-label")).to_have_text("Description")
 
     # Item 3: the restore list and the chronological log each get their own
     # visible subheading instead of sharing one.
-    expect(page.locator('.self-configuration-subheading')).to_have_text(
+    expect(page.locator(".self-configuration-subheading")).to_have_text(
         "Restore to an earlier value"
     )
 
     # Item 4: the history entry shows a formatted relative-time timestamp
     # ("just now" / "N minutes ago" / …) instead of the raw stored
     # timestamp, with the exact instant preserved as a `title=` tooltip.
-    meta_text = page.locator('.history-entry-meta-text').first
+    meta_text = page.locator(".history-entry-meta-text").first
     expect(meta_text).to_be_visible()
     raw_text = meta_text.inner_text()
     assert re.search(r"(just now|\d+ (minute|hour|day)s? ago)", raw_text), (
