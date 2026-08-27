@@ -41,13 +41,14 @@ from the_one.agent.factory import AgentFactory
 from the_one.config import settings
 from the_one.db import init_db
 from the_one.db.connection import close_connection, get_connection
-from the_one.db.models import LLMProviderConfig
+from the_one.db.models import LLMProviderConfig, MCPSource
 from the_one.db.repositories import LLMProviderRepository, MCPSourceRepository, SQLiteAgentStore
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.middleware import CredentialGateMiddleware
 from the_one.mcp._tool_provider import MCPToolProvider
 from the_one.self_configuration import credentials as sc_credentials
+from the_one.self_configuration import external_credentials as sc_external
 from the_one.self_configuration import manage as sc_manage
 
 
@@ -79,6 +80,7 @@ async def running_surface(isolated_db, monkeypatch):
     """
     sc_credentials.clear_for_test()
     sc_credentials.reset_registration_for_test()
+    sc_external.clear_for_test()
 
     from the_one.self_configuration import surface as surface_mod
 
@@ -94,10 +96,15 @@ async def running_surface(isolated_db, monkeypatch):
         conn = await get_connection()
         async with surface_mod.mcp.session_manager.run():
             sc_credentials.register_credential_source_once()
+            sc_external.register_credential_source_once()
             encryptor = get_encryptor(settings.data_dir)
             mcp_repo = MCPSourceRepository(conn, encryptor)
             agent_store = SQLiteAgentStore(conn, encryptor)
             await sc_manage.reconcile_on_startup(mcp_repo, agent_store)
+            from the_one.db.repositories import AgentExternalCredentialRepository
+
+            ext_repo = AgentExternalCredentialRepository(conn, encryptor)
+            sc_external.load_from_rows(await ext_repo.load_all())
             yield
         await close_connection()
 
@@ -123,6 +130,7 @@ async def running_surface(isolated_db, monkeypatch):
         await asyncio.wait_for(task, timeout=10.0)
         sc_credentials.clear_for_test()
         sc_credentials.reset_registration_for_test()
+        sc_external.clear_for_test()
         # `importlib.reload` mutates the module object IN PLACE (same
         # identity) — `the_one.interfaces.web.app`'s own
         # `_self_configuration_surface` name binding is that SAME object,
@@ -324,4 +332,129 @@ class TestAC4DD9InToolRefusal:
 
         async with MCPClient(source=row, auth_provider=None) as mcp_client:
             with pytest.raises(MCPCallError, match="disabled"):
+                await mcp_client.call_tool("get_my_configuration", {})
+
+
+# ── M21 F03 L01: external-client credential over an out-of-process client ─
+
+
+def _ext_source(base_url: str, token: str) -> MCPSource:
+    """Build a synthetic in-memory ``MCPSource`` that presents an ``ext_``
+    bearer at the surface URL (presentation-path note / review Issue #2 —
+    an external credential is a standalone bearer with NO surface row, so
+    the test constructs the row explicitly). ``auth_provider=None`` on the
+    ``MCPClient`` keeps the SDK from attempting DCR; the Authorization
+    header is flat-merged from ``secrets`` by ``build_request_headers``."""
+    return MCPSource(
+        id="ext-synthetic",
+        name="ext-synthetic",
+        type="streamable-http",
+        config={"url": f"{base_url}/mcp/self-configuration/"},
+        secrets={"Authorization": f"Bearer {token}"},
+    )
+
+
+async def _mint_ext(client: "httpx.AsyncClient", agent: str, label: str = "ext") -> str:
+    resp = await client.post(
+        f"/api/agents/{agent}/self-configuration/external-credentials",
+        json={"label": label},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["token"]
+
+
+class TestAC6ExternalClientReadsConfig:
+    async def test_ext_credential_reads_own_config_secret_free(self, running_surface: str) -> None:
+        base_url = running_surface
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            await _seed_agent_with_provider("a-ext6")
+            await client.post("/api/agents/a-ext6/self-configuration")
+            token = await _mint_ext(client, "a-ext6")
+
+        from the_one.mcp.client import MCPClient
+
+        async with MCPClient(source=_ext_source(base_url, token), auth_provider=None) as mcp_client:
+            result = await mcp_client.call_tool("get_my_configuration", {})
+
+        payload = result.structured or {}
+        assert payload.get("name") == "a-ext6"
+        # Secret-free, approval-mode-free projection (unchanged from the agt path).
+        blob = (result.text or "") + repr(payload)
+        assert "requires_approval" not in blob
+        assert "self_revision" not in blob
+        assert "api_key" not in blob
+        assert "secret" not in blob.lower()
+
+
+class TestAC8CrossAgentIsolation:
+    async def test_ext_credential_resolves_only_to_its_own_agent(
+        self, running_surface: str
+    ) -> None:
+        base_url = running_surface
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            await _seed_agent_with_provider("a-ext8a")
+            await _seed_agent_with_provider("a-ext8b")
+            await client.post("/api/agents/a-ext8a/self-configuration")
+            await client.post("/api/agents/a-ext8b/self-configuration")
+            token_a = await _mint_ext(client, "a-ext8a")
+            token_b = await _mint_ext(client, "a-ext8b")
+
+        from the_one.mcp.client import MCPClient
+
+        async with MCPClient(source=_ext_source(base_url, token_a), auth_provider=None) as ca:
+            res_a = await ca.call_tool("get_my_configuration", {})
+        async with MCPClient(source=_ext_source(base_url, token_b), auth_provider=None) as cb:
+            res_b = await cb.call_tool("get_my_configuration", {})
+
+        assert (res_a.structured or {}).get("name") == "a-ext8a"
+        assert (res_b.structured or {}).get("name") == "a-ext8b"
+
+
+class TestAC9ExternalDiesWithSurface:
+    async def test_orphaned_surface_refuses_ext_tool_call(self, running_surface: str) -> None:
+        """DD9: an orphaned (detached, not deleted) surface still resolves
+        the ext token at the gate, but `_calling_agent` refuses the tool
+        call — the same refusal the agent's own path gives, no more
+        privileged."""
+        base_url = running_surface
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            await _seed_agent_with_provider("a-ext9")
+            await client.post("/api/agents/a-ext9/self-configuration")
+            token = await _mint_ext(client, "a-ext9")
+            # Detach via PUT without deleting the row → orphaned.
+            put = await client.put(
+                "/api/agents/a-ext9", json={"name": "a-ext9", "mcp_source_ids": []}
+            )
+            assert put.status_code == 200, put.text
+
+        from the_one.mcp.client import MCPClient
+        from the_one.mcp.errors import MCPCallError
+
+        async with MCPClient(source=_ext_source(base_url, token), auth_provider=None) as mcp_client:
+            with pytest.raises(MCPCallError, match="disabled"):
+                await mcp_client.call_tool("get_my_configuration", {})
+
+    async def test_disabled_surface_401s_ext_token(self, running_surface: str) -> None:
+        """Disabling the surface cascade-revokes the ext credential (FK) and
+        evicts the registry, so the token no longer authenticates — the gate
+        401s and the client cannot even establish the session."""
+        base_url = running_surface
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            await _seed_agent_with_provider("a-ext9b")
+            await client.post("/api/agents/a-ext9b/self-configuration")
+            token = await _mint_ext(client, "a-ext9b")
+            # Full disable → cascade + registry eviction.
+            await client.delete("/api/agents/a-ext9b/self-configuration")
+
+        from the_one.mcp.client import MCPClient
+        from the_one.mcp.errors import MCPAuthRequired, MCPConnectionError
+
+        # An unresolvable bearer is a 401 at the gate; the SDK cannot open a
+        # session. A transport-layer 401 translates to MCPAuthRequired; a
+        # non-401 collapse translates to MCPConnectionError. Either way the
+        # call never succeeds — the credential died with the surface.
+        with pytest.raises((MCPAuthRequired, MCPConnectionError)):
+            async with MCPClient(
+                source=_ext_source(base_url, token), auth_provider=None
+            ) as mcp_client:
                 await mcp_client.call_tool("get_my_configuration", {})

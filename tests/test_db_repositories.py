@@ -4166,3 +4166,220 @@ class TestAgentRevisionQueueMethods:
         n = await agent_revision_repo.supersede_pending("a")
         assert n == 0
         assert (await agent_revision_repo.get(rev.id)).status == "applied"
+
+
+# ── AgentExternalCredentialRepository (M21 F03 L01) ───────────────────────
+
+
+@pytest.fixture
+def ext_cred_repo(conn, mcp_repo_encryptor):
+    from the_one.db.repositories import AgentExternalCredentialRepository
+
+    return AgentExternalCredentialRepository(conn, mcp_repo_encryptor)
+
+
+async def _seed_surface_row(mcp_repo, source_id: str) -> None:
+    """Create a parent mcp_sources row so the external-credential FK
+    resolves."""
+    await mcp_repo.create(
+        MCPSource(
+            id=source_id,
+            name="self-configuration",
+            type="streamable-http",
+            config={"self_configuration": {"agent": "a"}},
+            secrets={},
+        )
+    )
+
+
+class TestAgentExternalCredentialRepository:
+    async def test_create_then_get_is_secret_free(self, ext_cred_repo, mcp_repo) -> None:
+        await _seed_surface_row(mcp_repo, "src-1")
+        await ext_cred_repo.create(
+            source_id="src-1", label="my tool", identifier="id-1", secret="topsecret"
+        )
+        got = await ext_cred_repo.get("id-1")
+        assert got is not None
+        assert got["identifier"] == "id-1"
+        assert got["source_id"] == "src-1"
+        assert got["label"] == "my tool"
+        assert "secret" not in got  # secret-free projection (DD2)
+
+    async def test_get_missing_returns_none(self, ext_cred_repo) -> None:
+        assert await ext_cred_repo.get("nope") is None
+
+    async def test_secret_encrypted_at_rest(self, ext_cred_repo, mcp_repo, conn) -> None:
+        """AC2: the raw stored `secret` column never equals the plaintext;
+        `load_all` decrypts it back to the original."""
+        await _seed_surface_row(mcp_repo, "src-1")
+        plaintext = "a-known-literal-secret-value"
+        await ext_cred_repo.create(
+            source_id="src-1", label="l", identifier="id-1", secret=plaintext
+        )
+
+        async with conn.execute(
+            "SELECT secret FROM agent_external_credentials WHERE identifier = 'id-1'"
+        ) as cur:
+            stored = (await cur.fetchone())["secret"]
+        assert stored != plaintext, "secret stored in the clear"
+        assert plaintext not in stored
+
+        loaded = await ext_cred_repo.load_all()
+        assert loaded == [("id-1", "src-1", plaintext)]
+
+    async def test_list_for_source_is_secret_free(self, ext_cred_repo, mcp_repo) -> None:
+        """AC4: list projection carries identifier/label/created_at, never
+        the secret."""
+        await _seed_surface_row(mcp_repo, "src-1")
+        await ext_cred_repo.create(
+            source_id="src-1", label="one", identifier="id-1", secret="s3cr3t-literal"
+        )
+        rows = await ext_cred_repo.list_for_source("src-1")
+        assert len(rows) == 1
+        assert set(rows[0]) == {"identifier", "label", "created_at"}
+        assert "s3cr3t-literal" not in json.dumps(rows)
+
+    async def test_list_for_source_scoped_to_that_source(self, ext_cred_repo, mcp_repo) -> None:
+        await _seed_surface_row(mcp_repo, "src-1")
+        await _seed_surface_row(mcp_repo, "src-2")
+        await ext_cred_repo.create(source_id="src-1", label="a", identifier="id-a", secret="x")
+        await ext_cred_repo.create(source_id="src-2", label="b", identifier="id-b", secret="y")
+        ids = {r["identifier"] for r in await ext_cred_repo.list_for_source("src-1")}
+        assert ids == {"id-a"}
+
+    async def test_delete_returns_bool_and_is_idempotent(self, ext_cred_repo, mcp_repo) -> None:
+        await _seed_surface_row(mcp_repo, "src-1")
+        await ext_cred_repo.create(source_id="src-1", label="l", identifier="id-1", secret="x")
+        assert await ext_cred_repo.delete("id-1") is True
+        assert await ext_cred_repo.delete("id-1") is False
+        assert await ext_cred_repo.get("id-1") is None
+
+
+# ── SQLiteAgentStore.compare_and_set_field (M21 F03 L02 — AC5/AC6/DD5) ────
+
+
+class TestCompareAndSetField:
+    """The field-scoped compare-and-swap that closes the direct-write clobber."""
+
+    async def test_cas_hit_writes_only_that_field_and_returns_true(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        await agent_store.save(AgentConfig(name="a", description="d0", system_prompt="s0"))
+        ok = await agent_store.compare_and_set_field("a", "description", "d0", "d1")
+        assert ok is True
+        after = await agent_store.load("a")
+        assert after.description == "d1"
+        assert after.system_prompt == "s0"  # the other field is untouched
+
+    async def test_cas_miss_on_drift_returns_false_and_writes_nothing(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        await agent_store.save(AgentConfig(name="a", description="current"))
+        # base_value no longer matches the stored value → no row updated.
+        ok = await agent_store.compare_and_set_field("a", "description", "stale-base", "mine")
+        assert ok is False
+        assert (await agent_store.load("a")).description == "current"  # untouched
+
+    async def test_cas_does_not_clobber_concurrent_other_field_write(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        # AC5 — capture base_value for description, let a concurrent whole-row
+        # writer change the OTHER field (system_prompt), then run the CAS on
+        # description; the concurrent change to system_prompt must survive
+        # (the CAS writes only the one column).
+        await agent_store.save(AgentConfig(name="a", description="d0", system_prompt="s0"))
+        base_value = (await agent_store.load("a")).description  # 'd0'
+
+        # Concurrent whole-row write to the OTHER field between capture and CAS.
+        concurrent = (await agent_store.load("a")).model_copy(
+            update={"system_prompt": "s1-concurrent"}
+        )
+        await agent_store.save(concurrent)
+
+        ok = await agent_store.compare_and_set_field("a", "description", base_value, "d1")
+        assert ok is True
+        after = await agent_store.load("a")
+        assert after.description == "d1"  # the CAS applied
+        assert after.system_prompt == "s1-concurrent"  # concurrent change NOT clobbered
+
+    async def test_cas_rejects_field_not_in_whitelist(self, agent_store: SQLiteAgentStore) -> None:
+        # The column name is interpolated; a non-whitelisted field must never
+        # reach the SQL (defense in depth alongside the tool-boundary Literal).
+        # A ValueError (not an assert) enforces this so the guard survives
+        # ``python -O``.
+        await agent_store.save(AgentConfig(name="a"))
+        with pytest.raises(ValueError):
+            await agent_store.compare_and_set_field("a", "llm_model", "x", "y")
+
+
+# ── AgentRevision provenance touch-points (M21 F03 L02 — AC7/DD3) ─────────
+
+
+class TestAgentRevisionProvenance:
+    async def test_row_to_model_roundtrips_external_row(self, agent_revision_repo, conn) -> None:
+        # AC7 — an external row round-trips through _row_to_model into an
+        # AgentRevision without error (the widened Literal admits 'external').
+        await _seed_agent_row(conn, "a")
+        row = await agent_revision_repo.append(
+            agent_name="a",
+            field="description",
+            proposed_value="p",
+            base_value="b",
+            source="external",
+            source_principal="ext_abc",
+            status="applied",
+            restored_from=None,
+            created_at="2026-08-27T00:00:00+00:00",
+            resolved_at="2026-08-27T00:00:00+00:00",
+        )
+        assert row.source == "external"
+        assert row.source_principal == "ext_abc"
+        fetched = await agent_revision_repo.get(row.id)
+        assert fetched == row
+        # list_for_agent returns it with provenance intact.
+        listed = await agent_revision_repo.list_for_agent("a")
+        assert listed[0].source == "external"
+        assert listed[0].source_principal == "ext_abc"
+
+    async def test_append_defaults_source_principal_to_null(
+        self, agent_revision_repo, conn
+    ) -> None:
+        await _seed_agent_row(conn, "a")
+        row = await _append_applied(agent_revision_repo, "a")
+        assert row.source == "self"
+        assert row.source_principal is None
+
+    async def test_repropose_by_different_principal_updates_provenance(
+        self, agent_revision_repo, conn
+    ) -> None:
+        # AC7 — a re-propose of the same (agent, field) pending row by a
+        # DIFFERENT principal updates source/source_principal on the deduped
+        # row (the UPDATE branch of upsert_pending_revision, not just insert).
+        await _seed_agent_row(conn, "a")
+        first, created1 = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a",
+            field="description",
+            proposed_value="p1",
+            base_value="b1",
+            source="self",
+            source_principal=None,
+        )
+        assert created1 is True
+        assert first.source == "self"
+        assert first.source_principal is None
+
+        second, created2 = await agent_revision_repo.upsert_pending_revision(
+            agent_name="a",
+            field="description",
+            proposed_value="p2",
+            base_value="b2",
+            source="external",
+            source_principal="ext_new",
+        )
+        assert created2 is False  # deduped onto the same row
+        assert second.id == first.id
+        assert second.source == "external"
+        assert second.source_principal == "ext_new"
+        assert second.proposed_value == "p2"
+        # Still exactly one pending row for the pair.
+        assert await agent_revision_repo.count_pending("a") == 1

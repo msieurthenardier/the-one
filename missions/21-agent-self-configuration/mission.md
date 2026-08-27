@@ -1,6 +1,6 @@
 # Mission: Agent Self-Configuration
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -65,32 +65,32 @@ mission-level constraints rather than implementation details.
 
 ## Success Criteria
 
-- [ ] An agent can retrieve its own configuration through the surface, and no
+- [x] An agent can retrieve its own configuration through the surface, and no
       response from any part of the surface contains secret material — including
       when the agent asks about records its configuration references.
-- [ ] An agent's own configuration is subject to the same secret-handling
+- [x] An agent's own configuration is subject to the same secret-handling
       treatment as every other secrets-bearing record in the platform: no read
       path anywhere returns its secret material in the clear, including the read
       paths that predate this mission.
-- [ ] An agent can revise its own description and system prompt. Every other
+- [x] An agent can revise its own description and system prompt. Every other
       part of its configuration is refused, including the settings that govern
       this surface itself, and the refusal is by construction rather than by an
       enumerated denial list.
-- [ ] A revision states whether it takes effect from the next turn of the
+- [x] A revision states whether it takes effect from the next turn of the
       current conversation or only from the next conversation, and the agent's
       observed behavior matches the choice made.
-- [ ] The operator sets, per agent, whether self-revisions apply directly or
+- [x] The operator sets, per agent, whether self-revisions apply directly or
       wait for approval — and an agent cannot change that setting for itself.
-- [ ] Where approval is required, a revision has no effect until the operator
+- [x] Where approval is required, a revision has no effect until the operator
       accepts it, and the operator can see what would change before deciding.
-- [ ] Every revision is recorded with what changed and when, and the operator can
+- [x] Every revision is recorded with what changed and when, and the operator can
       restore any earlier description or system prompt.
-- [ ] When the surface is enabled for an agent it appears among that agent's
+- [x] When the surface is enabled for an agent it appears among that agent's
       configured sources, and the operator can withhold individual capabilities
       from it using the same controls that govern every other source.
-- [ ] The surface is off for every existing agent and every newly created agent
+- [x] The surface is off for every existing agent and every newly created agent
       until the operator enables it.
-- [ ] An external client can be granted access scoped to a single agent; that
+- [x] An external client can be granted access scoped to a single agent; that
       access can be withdrawn and reissued without restarting the platform, and a
       withdrawn credential stops working immediately.
 
@@ -210,7 +210,7 @@ mission-level constraints rather than implementation details.
 
 ## Known Issues
 
-- [ ] **An agent's configuration row can hold plaintext secrets, and the existing
+- [x] **An agent's configuration row can hold plaintext secrets, and the existing
       agent-read endpoints return them unmasked.** The per-agent override fields
       are stored as unencrypted JSON columns, and the substitutable keys written
       into them include bearer tokens, headers, and environment values. Unlike
@@ -228,6 +228,25 @@ mission-level constraints rather than implementation details.
       in CI, and the `local-api-auth-session-lifecycle` behavior test were
       code-changed but never executed. Flight 3 builds directly on that
       credential substrate. Not a blocker for Flights 1 and 2.
+- [ ] **Whole-row last-writer-wins persistence with four write consumers, guarded
+      for one.** `SQLiteAgentStore.save` is a whole-row upsert with no version/etag
+      guard. The mission accreted three non-composing point mechanisms around it —
+      Flight 2's non-atomic approve-path base-value compare and its targeted
+      approval-flag UPDATE, and Flight 3's atomic field-scoped compare-and-swap — of
+      which only the direct-write path (agent + external) is CAS-guarded; the operator
+      **approve**, **restore**, and **Studio edit** paths remain whole-row writers. A
+      Studio edit racing an external direct write on the *other* field can clobber it.
+      **Correct and accepted at single-operator + loopback-only scale** (a single human
+      won't do both at once), and there is no red test pinning the loss. Logged here as
+      a tracked known issue at the operator's request (Mission 21 debrief). **Named
+      trigger — the first of {a real second human operator; any multi-principal /
+      non-loopback posture; multiple simultaneous external tuning clients on one agent}
+      forces, in the same future mission: (1) a row-version/etag on `save`; (2) routing
+      all four write consumers through it; (3) making pending-dedup a schema invariant
+      `(agent_name, field) WHERE status='pending'`; (4) re-auditing the indirect-prompt-
+      injection residual for a non-operator principal on the write path.** Cross-ref:
+      `SECURITY-MODEL.md` "Future Work → Multi-user form factor". Discovered across
+      Flights 2–3; see the Mission 21 debrief.
 
 ## Flights
 
@@ -246,7 +265,7 @@ mission-level constraints rather than implementation details.
 - [x] Flight 2: Operator oversight — the revision log, approval mode with its
       pending queue and count badge, and restore. Follows the pending/approve/
       dismiss pattern the connector peer-approval flow already establishes.
-- [ ] Flight 3: External client access — the locally-bound surface for clients
+- [x] Flight 3: External client access — the locally-bound surface for clients
       outside the platform, and credentials scoped to a single agent with mint,
       revoke, and rotate. Isolates the credential store, which is a further
       secrets-bearing table and the trigger the mission 19 debrief named for

@@ -1157,6 +1157,53 @@ App.registerArea({
       });
     }
 
+    // M21 F03 L03 — external-client credential grant/list/revoke/rotate
+    // network calls (over Leg 1's endpoints). Deliberately NOT routed
+    // through `_refreshAgentAfterSelfConfigurationChange`: mint/rotate
+    // return the full `ext_<id>.<secret>` token exactly once, and a whole-
+    // editor re-render would tear down the copy-once reveal before the
+    // operator can copy it. The Self-configuration tab re-fetches the list
+    // locally instead; the reveal persists until dismiss or the next full
+    // tab render.
+    function mintExternalCredential(name, label) {
+      return fetch('/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/external-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: label })
+      }).then(function (r) {
+        if (!r.ok) throw new Error('mint external credential: HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    function fetchExternalCredentials(name) {
+      return fetch('/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/external-credentials').then(function (r) {
+        if (!r.ok) throw new Error('fetch external credentials: HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    function revokeExternalCredential(name, identifier) {
+      return fetch('/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/external-credentials/' + encodeURIComponent(identifier), {
+        method: 'DELETE'
+      }).then(function (r) {
+        if (!r.ok) throw new Error('revoke external credential: HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    function rotateExternalCredential(name, identifier) {
+      return fetch('/api/agents/' + encodeURIComponent(name) +
+        '/self-configuration/external-credentials/' + encodeURIComponent(identifier) +
+        '/rotate', { method: 'POST' }).then(function (r) {
+        if (!r.ok) throw new Error('rotate external credential: HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
     function fetchConnectorsList() {
       // M10 F6 L5 — list of all connector accounts for the agent-editor
       // Connectors tab. Parallel to fetchMcpSources above; the REST path
@@ -1698,7 +1745,12 @@ App.registerArea({
         onApproveSelfConfigurationRevision: approveSelfConfigurationRevision,
         onDismissSelfConfigurationRevision: dismissSelfConfigurationRevision,
         // M21 F02 L03 — revision history restore.
-        onRestoreSelfConfigurationRevision: restoreSelfConfigurationRevision
+        onRestoreSelfConfigurationRevision: restoreSelfConfigurationRevision,
+        // M21 F03 L03 — external-client credential grant/list/revoke/rotate.
+        onMintExternalCredential: mintExternalCredential,
+        fetchExternalCredentials: fetchExternalCredentials,
+        onRevokeExternalCredential: revokeExternalCredential,
+        onRotateExternalCredential: rotateExternalCredential
       });
 
       // Wire field-level dirty tracking + provider-change side-effects.

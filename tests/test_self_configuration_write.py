@@ -27,7 +27,7 @@ from cryptography.fernet import Fernet
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
-from the_one.db.repositories import SQLiteAgentStore
+from the_one.db.repositories import AgentRevisionRepository, SQLiteAgentStore
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
@@ -70,6 +70,24 @@ def wired(db, monkeypatch):
 
 def _as_agent(monkeypatch, agent_name: str) -> None:
     monkeypatch.setattr(surface, "_calling_agent", AsyncMock(return_value=agent_name))
+    # M21 F03 L02: the two write tools resolve provenance via
+    # ``_calling_principal`` (not ``_calling_agent``); patch it to the agent's
+    # own (``self``) write so these self-path tests exercise the write logic
+    # unchanged. The external-provenance tests patch it themselves.
+    monkeypatch.setattr(
+        surface, "_calling_principal", AsyncMock(return_value=(agent_name, "self", None))
+    )
+
+
+def _as_external(monkeypatch, agent_name: str, identifier: str) -> None:
+    """M21 F03 L02: patch ``_calling_principal`` to an EXTERNAL write — the
+    agent it is scoped to, ``source='external'``, and the credential
+    identifier as ``source_principal``."""
+    monkeypatch.setattr(
+        surface,
+        "_calling_principal",
+        AsyncMock(return_value=(agent_name, "external", identifier)),
+    )
 
 
 async def _seed_agent(store: SQLiteAgentStore, **overrides: Any) -> AgentConfig:
@@ -686,21 +704,24 @@ class TestRevisionLogWrite:
         assert len(rows) == 1
         assert rows[0]["base_value"] == ""
 
-    async def test_save_failure_leaves_no_orphan_log_row(self, wired, monkeypatch) -> None:
-        # AC7 — the log write is ordered strictly after save; a save that
-        # raises must leave no revision row (never a logged-but-unpersisted
-        # revision).
+    async def test_persist_failure_leaves_no_orphan_log_row(self, wired, monkeypatch) -> None:
+        # AC7 (M21 F03 L02 retarget): the log write is ordered strictly after
+        # the field-scoped CAS; a persist that raises must leave no revision
+        # row (never a logged-but-unpersisted revision). The direct path no
+        # longer calls ``save`` — it calls ``compare_and_set_field`` — so the
+        # monkeypatch targets the CAS, preserving the saved-before-logged
+        # assertion this test pins.
         conn, encryptor = wired
         store = SQLiteAgentStore(conn, encryptor)
         await _seed_agent(store, name="rlog5", description="keep")
 
-        async def _boom(self, config):  # noqa: ANN001
-            raise RuntimeError("save failed")
+        async def _boom(self, name, field, base_value, new_value):  # noqa: ANN001
+            raise RuntimeError("persist failed")
 
-        monkeypatch.setattr(SQLiteAgentStore, "save", _boom)
+        monkeypatch.setattr(SQLiteAgentStore, "compare_and_set_field", _boom)
         _as_agent(monkeypatch, "rlog5")
 
-        with pytest.raises(RuntimeError, match="save failed"):
+        with pytest.raises(RuntimeError, match="persist failed"):
             await surface.update_my_description(ctx=None, text="never", apply="next_session")
 
         assert await _list_revisions(conn, "rlog5") == []
@@ -826,3 +847,179 @@ class TestApprovalModeBranch:
         rows = await _list_revisions(conn, "apm5")
         assert len(rows) == 1
         assert rows[0]["status"] == "applied"
+
+
+class TestExternalProvenanceAndCAS:
+    """M21 F03 L02 — external-write provenance (DD3), approval honoring (DD4),
+    and the field-scoped CAS + stale tool result (DD5).
+
+    Drives the two write tools with an EXTERNAL principal (``_calling_principal``
+    patched via ``_as_external``) and the agent's own principal (``_as_agent``),
+    across both approval modes.
+    """
+
+    async def test_external_direct_write_logs_external_with_principal(
+        self, wired, monkeypatch
+    ) -> None:
+        # AC3 — approval OFF: an external write applies directly and logs one
+        # row with source='external', source_principal=<ext identifier>.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="ext1", description="old")
+
+        _as_external(monkeypatch, "ext1", "ext_abc123")
+        result = await surface.update_my_description(ctx=None, text="new", apply="next_session")
+        assert result["applied_to_store"] is True
+        assert (await store.load("ext1")).description == "new"
+
+        rows = await _list_revisions(conn, "ext1")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "applied"
+        assert rows[0]["source"] == "external"
+        assert rows[0]["source_principal"] == "ext_abc123"
+
+    async def test_agent_own_direct_write_logs_self_null_principal(
+        self, wired, monkeypatch
+    ) -> None:
+        # AC3 — the agent's own write in the same conditions logs source='self',
+        # source_principal IS NULL.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="self1", description="old")
+
+        _as_agent(monkeypatch, "self1")
+        await surface.update_my_description(ctx=None, text="new", apply="next_session")
+
+        rows = await _list_revisions(conn, "self1")
+        assert len(rows) == 1
+        assert rows[0]["source"] == "self"
+        assert rows[0]["source_principal"] is None
+
+    async def test_external_write_honors_approval_flag_enqueues_external(
+        self, wired, monkeypatch
+    ) -> None:
+        # AC4 — approval ON: an external write does NOT persist; it enqueues a
+        # pending row carrying source='external'/source_principal=<id>.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store, name="ext2", description="orig", self_revision_requires_approval=True
+        )
+
+        _as_external(monkeypatch, "ext2", "ext_xyz")
+        result = await surface.update_my_description(ctx=None, text="proposed", apply="next_turn")
+        assert result["applied_to_store"] is False
+        assert result["effective"] == "pending_operator_approval"
+        # The store is untouched — the write did not persist.
+        assert (await store.load("ext2")).description == "orig"
+
+        rows = await _list_revisions(conn, "ext2")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "pending"
+        assert rows[0]["source"] == "external"
+        assert rows[0]["source_principal"] == "ext_xyz"
+
+    async def test_approve_preserves_external_provenance(self, wired, monkeypatch) -> None:
+        # AC4 — the operator approve (mark_applied) applies the pending external
+        # row and it REMAINS source='external' (the transition flips only
+        # status/resolved_at, never source/source_principal).
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store, name="ext3", description="orig", self_revision_requires_approval=True
+        )
+
+        _as_external(monkeypatch, "ext3", "ext_p")
+        await surface.update_my_description(ctx=None, text="proposed", apply="next_session")
+
+        revisions = AgentRevisionRepository(conn)
+        pending_rows = await revisions.list_for_agent("ext3")
+        assert len(pending_rows) == 1
+        applied = await revisions.mark_applied(pending_rows[0].id)
+        assert applied.status == "applied"
+        assert applied.source == "external"
+        assert applied.source_principal == "ext_p"
+
+    async def test_stale_direct_write_fails_closed_with_truthful_result(
+        self, wired, monkeypatch
+    ) -> None:
+        # AC6 — a genuine drift between base-capture and the CAS: the field
+        # changes under the writer, so the CAS misses, nothing is written, no
+        # revision row is logged, the store shows the CONCURRENT value, and the
+        # result is truthful stale (non-retry-inducing).
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="stale1", description="v0")
+
+        # Interleave a concurrent write to the SAME field after _apply_revision
+        # captured base_value='v0' but before its CAS runs.
+        real_cas = SQLiteAgentStore.compare_and_set_field
+
+        async def _drift_then_cas(self, name, field, base_value, new_value):  # noqa: ANN001
+            await self.conn.execute(
+                "UPDATE agents SET description = 'concurrent' WHERE name = ?", (name,)
+            )
+            await self.conn.commit()
+            return await real_cas(self, name, field, base_value, new_value)
+
+        monkeypatch.setattr(SQLiteAgentStore, "compare_and_set_field", _drift_then_cas)
+
+        _as_external(monkeypatch, "stale1", "ext_s")
+        result = await surface.update_my_description(ctx=None, text="mine", apply="next_session")
+
+        assert result["applied_to_store"] is False
+        assert result["effective"] == "stale"
+        assert result["field"] == "description"
+        assert result["current_value"] == "concurrent"
+        assert result["proposed_value"] == "mine"
+        assert "message" in result
+        # Store shows the concurrent value — our write applied nothing.
+        assert (await store.load("stale1")).description == "concurrent"
+        # No revision row was logged (saved-before-logged: a stale write logs
+        # nothing).
+        assert await _list_revisions(conn, "stale1") == []
+
+    async def test_stale_result_identical_for_agent_own_call(self, wired, monkeypatch) -> None:
+        # AC6 — the stale result is returned identically to the agent's own
+        # in-turn call, not just the external client.
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(store, name="stale2", system_prompt="s0")
+
+        real_cas = SQLiteAgentStore.compare_and_set_field
+
+        async def _drift_then_cas(self, name, field, base_value, new_value):  # noqa: ANN001
+            await self.conn.execute(
+                "UPDATE agents SET system_prompt = 'drifted' WHERE name = ?", (name,)
+            )
+            await self.conn.commit()
+            return await real_cas(self, name, field, base_value, new_value)
+
+        monkeypatch.setattr(SQLiteAgentStore, "compare_and_set_field", _drift_then_cas)
+
+        _as_agent(monkeypatch, "stale2")
+        result = await surface.update_my_system_prompt(ctx=None, text="mine", apply="next_turn")
+
+        assert result["applied_to_store"] is False
+        assert result["effective"] == "stale"
+        assert result["current_value"] == "drifted"
+        # A stale write leaves no in-memory deferral either (the stale result
+        # is returned before any pending.record).
+        assert "stale2" not in pending._pending
+
+
+class TestProjectionOmitsApprovalMode:
+    """M21 F03 L02 (AC8/DD6) — the get_my_configuration projection carries no
+    approval-mode field, so no principal (external or agent) can read it
+    through the surface, let alone change it."""
+
+    async def test_projection_has_no_approval_mode_key(self, wired, monkeypatch) -> None:
+        conn, encryptor = wired
+        store = SQLiteAgentStore(conn, encryptor)
+        await _seed_agent(
+            store, name="proj1", description="d", self_revision_requires_approval=True
+        )
+        _as_agent(monkeypatch, "proj1")
+        projection = await surface.get_my_configuration(ctx=None)
+        assert "self_revision_requires_approval" not in projection
+        assert not any("approval" in k.lower() for k in projection)

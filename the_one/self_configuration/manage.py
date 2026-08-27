@@ -22,6 +22,7 @@ from the_one.db.repositories import (
     MCPSourceRepository,
     SQLiteAgentStore,
 )
+from the_one.self_configuration import external_credentials
 from the_one.self_configuration.constants import CREDENTIAL_SECRET_KEY, MOUNT_PATH
 from the_one.self_configuration.credentials import (
     credential_from_header,
@@ -261,6 +262,12 @@ async def disable(
         pass
 
     unregister(row.id)
+    # M21 F03 L01 (DD9): deleting the surface row cascade-revokes every
+    # external credential scoped to it (FK ON DELETE CASCADE removed the
+    # store rows); evict their in-memory registry entries too, mirroring the
+    # `agt` `unregister(row.id)` above — so an `ext_` token dies with the
+    # surface on the next request, no restart.
+    external_credentials.unregister(row.id)
     return True
 
 
@@ -408,6 +415,10 @@ async def cascade_delete(
     except KeyError:
         pass
     unregister(row.id)
+    # M21 F03 L01 (DD9): agent-delete cascade-revokes its external
+    # credentials (FK ON DELETE CASCADE removed the store rows); evict the
+    # in-memory registry entries too, mirroring the `agt` `unregister` above.
+    external_credentials.unregister(row.id)
 
 
 async def reject_foreign_surface_attachments(

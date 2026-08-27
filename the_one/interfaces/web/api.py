@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from the_one import __version__
+from the_one.api_credential import LocalApiCredential
 from the_one.config import settings
 from the_one.db.connection import get_connection
 from the_one.db.models import (
@@ -33,6 +34,7 @@ from the_one.db.models import (
     now_iso,
 )
 from the_one.db.repositories import (
+    AgentExternalCredentialRepository,
     AgentRevisionRepository,
     ChatSessionRepository,
     ConnectorRepository,
@@ -49,7 +51,9 @@ from the_one.db.repositories import (
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
+from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
 
 if TYPE_CHECKING:
     # `AgentConfig` is intentionally NOT imported at module load time —
@@ -267,6 +271,13 @@ async def _agent_revisions_repo() -> AgentRevisionRepository:
     # description/system_prompt values (mirrors PendingApprovalRepository).
     conn = await get_connection()
     return AgentRevisionRepository(conn)
+
+
+async def _agent_external_credentials_repo() -> AgentExternalCredentialRepository:
+    # M21 F03 L01: encryptor-bearing — the external-credential secret is
+    # Fernet-encrypted at rest (DD2), mirrors `_mcp_repo()`.
+    conn = await get_connection()
+    return AgentExternalCredentialRepository(conn, get_encryptor(settings.data_dir))
 
 
 # ── Tool config helpers (F6 L1) ───────────────────────────────────────────
@@ -994,6 +1005,150 @@ async def disable_agent_self_configuration(name: str) -> dict[str, str]:
         name, agent_store=store, mcp_repo=mcp_repo, revisions_repo=revisions_repo
     )
     return {"status": "ok"}
+
+
+# ── External-client credentials (M21 F03 L01) ──────────────────────────────
+
+
+class _ExternalCredentialMintBody(BaseModel):
+    label: str
+
+
+async def _enabled_surface_id_or_409(name: str) -> str:
+    """Return the agent's ATTACHED surface row id, or raise. 404 when the
+    agent is unknown; 409 when the surface is not enabled — which, per
+    review Issue #1, covers BOTH *no surface row* AND an ORPHANED
+    (detached-but-present) row. Gate on ``status()['enabled']``, NOT on
+    ``find_surface_row is not None`` — a dormant credential must never be
+    minted against a detached surface that would silently start working on
+    re-attach."""
+    store = await _agent_store()
+    try:
+        await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    mcp_repo = await _mcp_repo()
+    st = await self_configuration_manage.status(name, agent_store=store, mcp_repo=mcp_repo)
+    if not st.get("enabled"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "self-configuration is not enabled for this agent; "
+                "enable it before minting an external credential"
+            ),
+        )
+    return st["source_id"]
+
+
+@router.post("/agents/{name}/self-configuration/external-credentials")
+async def mint_external_credential(name: str, body: _ExternalCredentialMintBody) -> dict[str, Any]:
+    """DD1/DD2/DD7: mint a distinct external-client credential scoped to
+    this agent's surface. Returns ``{identifier, label, token, url}`` — the
+    ``ext_<id>.<secret>`` token exactly ONCE (no read path returns it
+    again). 404 for an unknown agent, 409 when the surface is not enabled
+    (no-row or orphaned)."""
+    source_id = await _enabled_surface_id_or_409(name)
+    repo = await _agent_external_credentials_repo()
+    credential = LocalApiCredential.generate()
+    await repo.create(
+        source_id=source_id,
+        label=body.label,
+        identifier=credential.identifier,
+        secret=credential.secret,
+    )
+    self_configuration_external.register(source_id, credential)
+    return {
+        "identifier": credential.identifier,
+        "label": body.label,
+        "token": credential.encode(prefix=EXTERNAL_CREDENTIAL_PREFIX),
+        "url": self_configuration_manage.surface_url(),
+    }
+
+
+@router.get("/agents/{name}/self-configuration/external-credentials")
+async def list_external_credentials(name: str) -> list[dict[str, Any]]:
+    """DD2: secret-free projection of this agent's external credentials
+    (``{identifier, label, created_at}``). Empty when the surface has been
+    disabled (the FK cascade removed the rows); non-empty for an orphaned
+    (detached-but-present) surface, whose rows are still live. 404 for an
+    unknown agent."""
+    store = await _agent_store()
+    try:
+        await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    mcp_repo = await _mcp_repo()
+    row = await self_configuration_manage.find_surface_row(mcp_repo, name)
+    if row is None:
+        return []
+    repo = await _agent_external_credentials_repo()
+    return await repo.list_for_source(row.id)
+
+
+async def _external_credential_of_agent_or_404(name: str, identifier: str) -> dict[str, Any]:
+    """Resolve *identifier* and enforce the cross-ID guard: its ``source_id``
+    must equal *name*'s surface row id, else 404 (never a cross-agent
+    mutation). Uses ``find_surface_row`` (regardless of attached) so an
+    orphaned surface's credentials remain revocable."""
+    store = await _agent_store()
+    try:
+        await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    mcp_repo = await _mcp_repo()
+    row = await self_configuration_manage.find_surface_row(mcp_repo, name)
+    repo = await _agent_external_credentials_repo()
+    cred = await repo.get(identifier)
+    if cred is None or row is None or cred["source_id"] != row.id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"External credential {identifier!r} not found for agent {name!r}",
+        )
+    return cred
+
+
+@router.delete("/agents/{name}/self-configuration/external-credentials/{identifier}")
+async def revoke_external_credential(name: str, identifier: str) -> dict[str, str]:
+    """DD7: hard-revoke one external credential — DELETE the row and evict
+    its registry entry, so the next request bearing that token is 401 with
+    no restart. 404 when *identifier* is not a credential of *name*'s
+    surface (cross-ID guard). Never touches the agent's own ``agt``
+    credential or another external credential."""
+    await _external_credential_of_agent_or_404(name, identifier)
+    repo = await _agent_external_credentials_repo()
+    await repo.delete(identifier)
+    self_configuration_external.unregister_identifier(identifier)
+    return {"status": "ok"}
+
+
+@router.post("/agents/{name}/self-configuration/external-credentials/{identifier}/rotate")
+async def rotate_external_credential(name: str, identifier: str) -> dict[str, Any]:
+    """DD7: revoke the old credential and mint a fresh one for the same
+    label/agent, returning the new ``{identifier, label, token, url}`` once.
+    The old token stops working immediately (401). 404 when *identifier* is
+    not a credential of *name*'s surface; 409 when the surface is not
+    enabled (rotate reissues a live credential, so it gates on enabled just
+    as mint does)."""
+    cred = await _external_credential_of_agent_or_404(name, identifier)
+    source_id = await _enabled_surface_id_or_409(name)
+    label = cred["label"]
+    repo = await _agent_external_credentials_repo()
+    await repo.delete(identifier)
+    self_configuration_external.unregister_identifier(identifier)
+    new_credential = LocalApiCredential.generate()
+    await repo.create(
+        source_id=source_id,
+        label=label,
+        identifier=new_credential.identifier,
+        secret=new_credential.secret,
+    )
+    self_configuration_external.register(source_id, new_credential)
+    return {
+        "identifier": new_credential.identifier,
+        "label": label,
+        "token": new_credential.encode(prefix=EXTERNAL_CREDENTIAL_PREFIX),
+        "url": self_configuration_manage.surface_url(),
+    }
 
 
 # ── Self-configuration approval mode + revision queue (M21 F02 L02) ────────
@@ -2003,6 +2158,14 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
         else:
             # Malformed marker (no agent name) — fall back to a bare
             # evict + delete so the row doesn't become permanently stuck.
+            # M21 F03 L01 (Edge Case): this bare path skips
+            # `manage.disable`'s external-registry eviction. Harmless today
+            # — minting an external credential requires a non-`None` owner
+            # (`_enabled_surface_id_or_409` → `status()` → `owner_of`), so no
+            # external credential can exist for an owner-less row, and the FK
+            # cascade cleans the store rows regardless. If mint's gate ever
+            # changes to admit an owner-less surface, add
+            # `external_credentials.unregister(source_id)` here.
             from the_one.mcp._pool import _evict_all_for_source
 
             await _evict_all_for_source(source_id)

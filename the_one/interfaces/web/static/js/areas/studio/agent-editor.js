@@ -207,7 +207,12 @@
       onApproveRevision: callbacks.onApproveSelfConfigurationRevision,
       onDismissRevision: callbacks.onDismissSelfConfigurationRevision,
       // M21 F02 L03 — revision-history restore control.
-      onRestoreRevision: callbacks.onRestoreSelfConfigurationRevision
+      onRestoreRevision: callbacks.onRestoreSelfConfigurationRevision,
+      // M21 F03 L03 — external-client credential grant/list/revoke/rotate.
+      onMintExternalCredential: callbacks.onMintExternalCredential,
+      fetchExternalCredentials: callbacks.fetchExternalCredentials,
+      onRevokeExternalCredential: callbacks.onRevokeExternalCredential,
+      onRotateExternalCredential: callbacks.onRotateExternalCredential
     });
 
     // Initialize the App.tabs helper. The initial activation happens here

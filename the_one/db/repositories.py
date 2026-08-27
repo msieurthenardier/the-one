@@ -265,6 +265,40 @@ class SQLiteAgentStore:
         )
         await self.conn.commit()
 
+    async def compare_and_set_field(
+        self, name: str, field: str, base_value: str, new_value: str
+    ) -> bool:
+        """Field-scoped compare-and-swap (M21 F03 L02, DD5).
+
+        Atomically write ``new_value`` into ``{field}`` for agent ``name``
+        ONLY if the field still holds ``base_value``. Returns ``True`` iff
+        exactly one row was updated (the base matched); ``False`` on a
+        drift (the field changed under the writer) — the direct-write path
+        turns a ``False`` into a truthful, non-retry-inducing ``stale``
+        tool result.
+
+        This closes the whole-row last-writer-wins clobber on the direct
+        path: the single guarded ``UPDATE`` writes only the one column, so
+        a concurrent write to the OTHER field is never clobbered, and the
+        compare-and-write is one atomic statement (unlike Flight 2's
+        approve-path non-atomic compare-then-save).
+
+        ``field`` is interpolated into the SQL, so it is checked against a
+        strict whitelist (defense in depth — the Literal at the tool
+        boundary is the first guard; never interpolate an unvalidated
+        field). A ``raise`` (not ``assert``) enforces the whitelist so the
+        security-relevant guard survives ``python -O``.
+        """
+        if field not in {"description", "system_prompt"}:
+            raise ValueError(f"illegal field: {field!r}")
+        async with self.conn.execute(
+            f"UPDATE agents SET {field} = ?, updated_at = ? WHERE name = ? AND {field} = ?",
+            (new_value, now_iso(), name, base_value),
+        ) as cur:
+            rowcount = cur.rowcount
+        await self.conn.commit()
+        return rowcount == 1
+
     async def delete(self, name: str) -> None:
         if not await self.exists(name):
             raise KeyError(f"Agent config not found: {name}")
@@ -948,6 +982,7 @@ class AgentRevisionRepository:
         created_at: str,
         resolved_at: str | None,
         restored_from: str | None = None,
+        source_principal: str | None = None,
     ) -> AgentRevision:
         """Insert one revision row and return it.
 
@@ -955,13 +990,17 @@ class AgentRevisionRepository:
         INSERT; the caller supplies ``created_at`` / ``resolved_at``
         explicitly, so the id is not a model ``default_factory``) —
         mirroring ``PendingApprovalRepository.upsert_pending``.
+
+        M21 F03 L02 (DD3): ``source_principal`` records the external
+        credential identifier for ``source='external'`` rows (NULL for
+        ``self`` / ``restore``).
         """
         revision_id = uuid.uuid4().hex
         await self.conn.execute(
             "INSERT INTO agent_revisions "
             "(id, agent_name, field, proposed_value, base_value, "
-            " status, source, restored_from, created_at, resolved_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " status, source, source_principal, restored_from, created_at, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 revision_id,
                 agent_name,
@@ -970,6 +1009,7 @@ class AgentRevisionRepository:
                 base_value,
                 status,
                 source,
+                source_principal,
                 restored_from,
                 created_at,
                 resolved_at,
@@ -1023,6 +1063,8 @@ class AgentRevisionRepository:
         field: str,
         proposed_value: str,
         base_value: str,
+        source: str = "self",
+        source_principal: str | None = None,
     ) -> tuple[AgentRevision, bool]:
         """Upsert a pending revision keyed by ``(agent_name, field, pending)``.
 
@@ -1030,13 +1072,16 @@ class AgentRevisionRepository:
         field)``. If a pending row already exists for that pair, UPDATE
         ``proposed_value`` / ``base_value`` / ``created_at`` in place and
         return ``(updated_row, False)``. Otherwise ``append`` a fresh
-        ``status='pending', source='self', resolved_at=None`` row and
-        return ``(new_row, True)`` — mirroring
+        ``status='pending', resolved_at=None`` row and return
+        ``(new_row, True)`` — mirroring
         ``PendingApprovalRepository.upsert_pending``'s ``created`` flag.
 
         A re-propose refreshes ``base_value`` to the latest captured
         value, so the DD4 staleness window resets to the newest proposal
-        (leg Edge Cases).
+        (leg Edge Cases). M21 F03 L02 (DD3): ``source`` /
+        ``source_principal`` are refreshed on the in-place UPDATE too, so a
+        re-propose by a DIFFERENT principal records the LATEST proposer on
+        the deduped row (leg AC7 / Edge Cases).
         """
         async with self.conn.execute(
             "SELECT id FROM agent_revisions "
@@ -1053,7 +1098,8 @@ class AgentRevisionRepository:
                     field=field,
                     proposed_value=proposed_value,
                     base_value=base_value,
-                    source="self",
+                    source=source,
+                    source_principal=source_principal,
                     status="pending",
                     created_at=ts,
                     resolved_at=None,
@@ -1063,9 +1109,10 @@ class AgentRevisionRepository:
         revision_id = existing["id"]
         await self.conn.execute(
             "UPDATE agent_revisions "
-            "SET proposed_value = ?, base_value = ?, created_at = ? "
+            "SET proposed_value = ?, base_value = ?, created_at = ?, "
+            "    source = ?, source_principal = ? "
             "WHERE id = ?",
-            (proposed_value, base_value, ts, revision_id),
+            (proposed_value, base_value, ts, source, source_principal, revision_id),
         )
         await self.conn.commit()
         return await self.get(revision_id), False
@@ -1139,6 +1186,7 @@ class AgentRevisionRepository:
             base_value=row["base_value"],
             status=row["status"],
             source=row["source"],
+            source_principal=row["source_principal"],
             restored_from=row["restored_from"],
             created_at=row["created_at"],
             resolved_at=row["resolved_at"],
@@ -1790,3 +1838,115 @@ class LLMProviderRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+
+# ── Agent external-credential repository (M21 F03 L01) ────────────────────
+
+
+class AgentExternalCredentialRepository:
+    """Async CRUD for ``agent_external_credentials`` — the external-client
+    credential store (M21 F03 L01, DD1/DD2/DD8).
+
+    Each row is one operator-minted grant: a distinct ``ext_`` principal
+    scoped to exactly one agent's surface row (``source_id`` FK to
+    ``mcp_sources(id) ON DELETE CASCADE`` — surface-disable / agent-delete
+    cascade-revoke the grant). Holds an encryptor (mirrors
+    :class:`MCPSourceRepository`) because the credential ``secret`` is
+    Fernet-encrypted at rest (DD2): only the ``secret`` *component* of the
+    ``ext_<identifier>.<secret>`` token is stored, so
+    :meth:`load_all` can hand the resolver the plaintext secret it
+    ``hmac.compare_digest``-compares — mirroring how
+    ``the_one.self_configuration.credentials``'s registry keeps
+    ``(source_id, secret)``.
+
+    Secret-free by construction on every read but :meth:`load_all` (the
+    startup-reconcile path, which needs the plaintext to rebuild the
+    registry): :meth:`list_for_source` and :meth:`get` never SELECT the
+    ``secret`` column, so no read path can serialize it (DD2's structural
+    projection — build the dict, never the row).
+    """
+
+    def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor) -> None:
+        self.conn = conn
+        self.encryptor = encryptor  # Reference, NOT copy. install_key() post-rotation
+        # must propagate to live repository instances (mirrors MCPSourceRepository).
+
+    async def create(self, *, source_id: str, label: str, identifier: str, secret: str) -> None:
+        """Insert one external-credential row. ``secret`` is the plaintext
+        secret component of the ``ext_<identifier>.<secret>`` token; it is
+        Fernet-encrypted here and never stored in the clear (DD2)."""
+        await self.conn.execute(
+            "INSERT INTO agent_external_credentials "
+            "(identifier, source_id, secret, label, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                identifier,
+                source_id,
+                self.encryptor.encrypt(secret),
+                label,
+                now_iso(),
+            ),
+        )
+        await self.conn.commit()
+
+    async def list_for_source(self, source_id: str) -> list[dict[str, Any]]:
+        """Return a secret-free projection of every credential scoped to
+        *source_id*, newest-first. Never SELECTs the ``secret`` column
+        (DD2's structural projection)."""
+        async with self.conn.execute(
+            "SELECT identifier, label, created_at FROM agent_external_credentials "
+            "WHERE source_id = ? ORDER BY created_at DESC, identifier DESC",
+            (source_id,),
+        ) as cur:
+            return [
+                {
+                    "identifier": row["identifier"],
+                    "label": row["label"],
+                    "created_at": row["created_at"],
+                }
+                for row in await cur.fetchall()
+            ]
+
+    async def get(self, identifier: str) -> dict[str, Any] | None:
+        """Return ``{identifier, source_id, label, created_at}`` for
+        *identifier*, or ``None`` if absent. Secret-free — the cross-ID
+        guard on revoke/rotate needs only ``source_id``."""
+        async with self.conn.execute(
+            "SELECT identifier, source_id, label, created_at "
+            "FROM agent_external_credentials WHERE identifier = ?",
+            (identifier,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "identifier": row["identifier"],
+            "source_id": row["source_id"],
+            "label": row["label"],
+            "created_at": row["created_at"],
+        }
+
+    async def delete(self, identifier: str) -> bool:
+        """Hard-delete the row for *identifier*. Returns ``True`` if a row
+        was removed, ``False`` if there was nothing to delete (idempotent
+        no-op — mirrors the cascade path, which also hard-deletes)."""
+        cur = await self.conn.execute(
+            "DELETE FROM agent_external_credentials WHERE identifier = ?",
+            (identifier,),
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def load_all(self) -> list[tuple[str, str, str]]:
+        """Return ``(identifier, source_id, secret)`` for every row, with
+        the ``secret`` decrypted — the startup-reconcile input that rebuilds
+        the in-memory external registry (DD8). This is the ONLY read path
+        that touches the secret column, and it never leaves the process."""
+        async with self.conn.execute(
+            "SELECT identifier, source_id, secret FROM agent_external_credentials"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [
+            (row["identifier"], row["source_id"], self.encryptor.decrypt(row["secret"]))
+            for row in rows
+        ]
