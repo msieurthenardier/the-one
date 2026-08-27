@@ -1,6 +1,6 @@
 # Flight: External Client Access
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Agent Self-Configuration](../../mission.md)
 
 ## Contributing to Criteria
