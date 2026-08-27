@@ -390,7 +390,7 @@ threading) — an intentional, stated overlap, not a boundary slip.
       tokens). **Lower-risk** (additive UI over settled endpoints, single surface) —
       the flight-end Reviewer covers it; no separate leg-design review unless the
       copy-once-secret handling turns out to need one.
-- [ ] `uat-and-alignment` *(optional)* — guided HAT: the operator grants a
+- [x] `uat-and-alignment` *(optional)* — guided HAT: the operator grants a
       credential (via the Studio panel) to a loopback MCP client, the client reads
       and writes, the operator sees the revision logged as `external` with the
       principal's identity (queued or applied per the flag), then revokes and watches

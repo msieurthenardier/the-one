@@ -558,3 +558,60 @@ not conveyed because an `aria-label` overrides the swapped visible text (WCAG 4.
 
 **Dispatching one Developer** for the 3 a11y fixes + the CAS `assert`→`ValueError`
 hardening + the deferred doc pass, then the flight-end commit.
+
+### Fix pass + flight-end commit (2026-08-27)
+
+Fix Developer applied the 3 a11y improvements (Revoke armed-state announced via the
+section's role=status line — chosen over clearing the per-row aria-label so
+disambiguation is preserved; `aria-describedby` from Copy + token input to the
+"shown once" warning; error-path focus moved to `grantInput` before the list rebuild),
+hardened the CAS whitelist guard (`assert` → `raise ValueError`, test updated), and did
+the deferred doc pass (`SECURITY-MODEL.md` + `agents.md` external-credential sections).
+Verified: browser test 8/8, `TestCompareAndSetField` 4/4, ruff clean, `node --check` ok,
+no path leaks.
+
+Flight-end commit: legs → `completed` (ACs checked), flight → `landed`, Flight 3 checked
+off in mission.md. Final ruff clean, no home-path leaks in any changed/new source file.
+Committed **a7daab2** `flight/3: external client access to the self-configuration surface`
+(29 files, +5007/-60) with the `Mission: 21` trailer; pushed; **draft PR #174** opened
+with the leg checklist. `[COMPLETE:flight]` pending the optional HAT (Leg 4).
+
+### HAT (Leg 4) — external-access acceptance, all 8 ACs passed (2026-08-27)
+
+Guided interactive HAT on an isolated scratch instance (port 8485, `/tmp/the-one-hat/data`
+— never 8484 / the operator's real data dir). Seeded `hat-agent` with the surface
+enabled; operator drove the Studio **External access** panel, FD drove a loopback MCP
+client (synthetic `MCPSource` + `ext_` bearer against `/mcp/self-configuration/`) and
+confirmed server-side.
+
+- **AC1 grant + copy-once reveal** ✅ — `ext_` token revealed once with URL + "shown once"
+  warning; grant listed secret-free.
+- **AC2 external read** ✅ — `get_my_configuration` returned the projection with **no
+  secret and no approval-mode field**.
+- **AC3 external write, approval off** ✅ — applied directly; revision logged
+  `source=external, source_principal=49c1ed26febe8f5c` (the credential identifier).
+- **AC4 approval on** ✅ — external write held as `pending` (source=external), operator
+  approved, applied, **provenance preserved** through approval (source stayed `external`).
+- **AC5 governance** ✅ — the `ext_` credential is **403 on every operator route**
+  (approval-mode PUT, revisions, external-credential management, agent GET) while
+  reaching its confined mount (200 ping).
+- **AC6 revoke** ✅ — revoked token refused **immediately (401)**, server still up (no
+  restart).
+- **AC7 rotate** ✅ — pre-rotate token dead (401), rotated token live, **new identifier**
+  (`e1e87a89…` ≠ `6bfd9dd6…` → revoke-old+mint-new), no restart.
+- **AC8 look-and-feel** ✅ — operator: "looks great"; single-click Rotate (no confirm)
+  accepted as-is; **no inline fixes requested → no code changed during the HAT**.
+
+Teardown: scratch server killed (8485 → connection-refused), scratch data dir removed.
+Leg `completed`, checked off. No follow-up code commit needed (HAT surfaced no fixes).
+UX note for a future flight (non-blocking): the revision-history UI does not visibly
+label a revision's `source` (self vs external); the provenance is correct in the data
+and API but not surfaced in the history rows — a candidate polish item, not a defect.
+
+### Flight complete — [COMPLETE:flight] (2026-08-27)
+
+All 4 legs (3 autonomous + HAT) `completed`; flight `landed`; Flight 3 checked off in
+mission.md. Both flight-end reviews confirmed; unit 4507/10-skip green (independently
+corroborated); studio browser lane 8/8; HAT 8/8. Committed a7daab2, PR #174. Marking PR
+ready for review. `/flight-debrief` is the next step (transitions the flight to
+`completed`).
