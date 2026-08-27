@@ -39,8 +39,8 @@ from the_one.db.repositories import (
 )
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
-from the_one.self_configuration import manage, pending
-from the_one.self_configuration.constants import MOUNT_PATH
+from the_one.self_configuration import external_credentials, manage, pending
+from the_one.self_configuration.constants import EXTERNAL_SOURCE_NAME, MOUNT_PATH
 from the_one.self_configuration.credentials import source_id_for
 from the_one.self_configuration.projection import (
     build_describe_my_capabilities,
@@ -61,15 +61,18 @@ _MAX_TEXT_BYTES = 64 * 1024
 _APPLY_VALUES = frozenset({"next_turn", "next_session"})
 
 
-async def _calling_agent(ctx: Context) -> str:
-    """Resolve the calling agent's name from the gate-stamped caller, and
-    enforce DD9: refuse when the surface has since been disabled for the
-    resolved agent.
+async def _resolve_caller_and_agent(ctx: Context) -> tuple[Any, str]:
+    """Resolve the gate-stamped caller AND the agent it is scoped to,
+    running the DD9 surface-enabled refusal tail EXACTLY ONCE.
+
+    Returns ``(caller, agent_name)``. ``_calling_agent`` (the read tools)
+    and ``_calling_principal`` (the write tools) both derive from this — the
+    DD9 tail lives here and is not duplicated. This is the FIRST production
+    reader of ``CALLER_SCOPE_KEY`` (the leg's Inputs note that no production
+    code consulted it before this).
 
     Raises a plain ``PermissionError`` with a one-line message on any
-    failure — never a stack trace (see module docstring). This is the
-    FIRST production reader of ``CALLER_SCOPE_KEY`` (the leg's Inputs note
-    that no production code consulted it before this).
+    failure — never a stack trace (see module docstring).
     """
     request = ctx.request_context.request
     if request is None:
@@ -78,7 +81,17 @@ async def _calling_agent(ctx: Context) -> str:
     if caller is None:
         raise PermissionError("self-configuration: no identified caller on this request")
 
-    source_id = source_id_for(caller.identifier)
+    # M21 F03 L01 (DD1/DD9): route an EXTERNAL caller through the external
+    # registry; every other caller (the agent's own `agt` credential) through
+    # the per-agent registry. Both resolve identifier -> surface `source_id`;
+    # the shared owner-resolution + surface-enabled refusal tail below is what
+    # gives the external principal the DD9 gate for free — an `ext_`
+    # credential is refused the moment its surface is disabled/detached,
+    # exactly as the agent's own path is, and never more privileged.
+    if caller.source == EXTERNAL_SOURCE_NAME:
+        source_id = external_credentials.source_id_for(caller.identifier)
+    else:
+        source_id = source_id_for(caller.identifier)
     if source_id is None:
         raise PermissionError("self-configuration: credential is not registered")
 
@@ -103,7 +116,34 @@ async def _calling_agent(ctx: Context) -> str:
     if row.id not in config.mcp_source_ids:
         raise PermissionError("self-configuration: surface is disabled for this caller")
 
+    return caller, agent_name
+
+
+async def _calling_agent(ctx: Context) -> str:
+    """Resolve the calling agent's name (the two READ tools).
+
+    Thin wrapper over :func:`_resolve_caller_and_agent` — the reads need
+    only the agent name, not the caller's provenance.
+    """
+    _caller, agent_name = await _resolve_caller_and_agent(ctx)
     return agent_name
+
+
+async def _calling_principal(ctx: Context) -> tuple[str, str, str | None]:
+    """Resolve ``(agent_name, source, source_principal)`` for the two WRITE
+    tools (M21 F03 L02, DD3).
+
+    ``source`` is ``"external"`` iff the gate stamped an EXTERNAL caller,
+    else ``"self"``; ``source_principal`` is the external credential's
+    identifier for an external write, else ``None`` (safe to log by Mission
+    20's id/secret split — the identifier, never the secret). Derives from
+    the same :func:`_resolve_caller_and_agent` as the reads, so the DD9 tail
+    runs once.
+    """
+    caller, agent_name = await _resolve_caller_and_agent(ctx)
+    if caller.source == EXTERNAL_SOURCE_NAME:
+        return agent_name, "external", caller.identifier
+    return agent_name, "self", None
 
 
 @mcp.tool()
@@ -174,11 +214,26 @@ _EFFECTIVE_EXPLANATION = {
 }
 
 
-async def _apply_revision(agent_name: str, field: str, text: str, apply: str) -> dict[str, Any]:
-    """LD2: persist first via ``store.load -> model_copy -> store.save``,
-    then (only for ``next_turn``) record the in-memory deferral. Returns
-    LD4's truthful, non-retry-inducing result shape — it never claims the
-    running conversation has already changed."""
+async def _apply_revision(
+    agent_name: str,
+    field: str,
+    text: str,
+    apply: str,
+    source: str = "self",
+    source_principal: str | None = None,
+) -> dict[str, Any]:
+    """LD2: persist first (via the field-scoped CAS), then (only for
+    ``next_turn``) record the in-memory deferral. Returns LD4's truthful,
+    non-retry-inducing result shape — it never claims the running
+    conversation has already changed.
+
+    M21 F03 L02: ``source`` / ``source_principal`` tag the revision with who
+    wrote it (``self`` for the agent's own write, ``external`` +
+    the credential identifier for an external client's write). The persist
+    branch uses ``compare_and_set_field`` (DD5): a field-scoped
+    compare-and-swap that closes the whole-row last-writer-wins clobber and
+    fails closed with a ``stale`` tool result when the field drifted under
+    the writer."""
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     agent_store = SQLiteAgentStore(conn, encryptor)
@@ -201,6 +256,8 @@ async def _apply_revision(agent_name: str, field: str, text: str, apply: str) ->
             field=field,
             proposed_value=text,
             base_value=base_value,
+            source=source,
+            source_principal=source_principal,
         )
         return {
             "applied_to_store": False,
@@ -215,20 +272,46 @@ async def _apply_revision(agent_name: str, field: str, text: str, apply: str) ->
             ),
         }
 
-    updated = config.model_copy(update={field: text})
-    await agent_store.save(updated)
+    # M21 F03 L02 DD5: field-scoped compare-and-swap in place of the
+    # whole-row ``model_copy`` + ``save``. Only the one revised column is
+    # written, guarded on the field still holding ``base_value`` — so a
+    # concurrent write to the OTHER field is never clobbered, and a drift on
+    # THIS field between the ``load`` above and the write is caught. On a
+    # miss the write applies nothing and returns a truthful, non-retry-
+    # inducing ``stale`` result mirroring the pending branch's shape (before
+    # any ``pending.record``, so a stale write leaves no in-memory deferral
+    # either — leg Edge Cases). HTTP 409 stays exclusive to the operator
+    # approve endpoint (an HTTP request); this is a FastMCP tool result.
+    applied = await agent_store.compare_and_set_field(agent_name, field, base_value, text)
+    if not applied:
+        current_value = getattr(await agent_store.load(agent_name), field)
+        return {
+            "applied_to_store": False,
+            "effective": "stale",
+            "field": field,
+            "current_value": current_value,
+            "proposed_value": text,
+            "message": (
+                "This change was NOT applied: the field changed since you read "
+                "it, so writing now would overwrite that newer value. Nothing was "
+                "written. No further action is needed from you — re-read the "
+                "current value before proposing again if you still intend to."
+            ),
+        }
 
-    # Revision log (M21 F02 L01): record this direct self-revision as one
+    # Revision log (M21 F02 L01): record this direct revision as one
     # ``applied`` row with its before-image (``base_value``) and after-image
-    # (``proposed_value``). Ordered strictly AFTER ``save`` so a revision is
-    # never logged unless it persisted (a logged-but-unpersisted change is
-    # the worse failure — it would claim a change that never took effect).
-    # ``SQLiteAgentStore.save`` self-commits, so save and append are not one
-    # transaction; the residual crash-window between them (revision persisted
-    # to ``agents`` without a log row) is accepted at operator-scale /
-    # single-writer, per the leg's Edge Cases. One ``now_iso()`` value fills
-    # both ``created_at`` and ``resolved_at`` — an applied row is resolved at
-    # creation, so the two timestamps are byte-identical.
+    # (``proposed_value``), tagged with its provenance (``source`` /
+    # ``source_principal``). Ordered strictly AFTER the CAS confirms one row
+    # changed, so a revision is never logged unless it persisted (a
+    # logged-but-unpersisted change is the worse failure — it would claim a
+    # change that never took effect). The CAS self-commits, so the write and
+    # append are not one transaction; the residual crash-window between them
+    # (revision persisted to ``agents`` without a log row) is accepted at
+    # operator-scale / single-writer, per the leg's Edge Cases. One
+    # ``now_iso()`` value fills both ``created_at`` and ``resolved_at`` — an
+    # applied row is resolved at creation, so the two timestamps are
+    # byte-identical.
     ts = now_iso()
     revisions = AgentRevisionRepository(conn)
     await revisions.append(
@@ -236,7 +319,8 @@ async def _apply_revision(agent_name: str, field: str, text: str, apply: str) ->
         field=field,
         proposed_value=text,
         base_value=base_value,
-        source="self",
+        source=source,
+        source_principal=source_principal,
         status="applied",
         restored_from=None,
         created_at=ts,
@@ -263,9 +347,11 @@ async def update_my_description(ctx: Context, text: str, apply: str) -> dict[str
     conversation is opened); a description revision never touches the live
     conversation either way, so both modes are store-only in effect.
     """
-    agent_name = await _calling_agent(ctx)
+    agent_name, source, source_principal = await _calling_principal(ctx)
     _validate_write_input(text, apply)
-    return await _apply_revision(agent_name, "description", text, apply)
+    return await _apply_revision(
+        agent_name, "description", text, apply, source=source, source_principal=source_principal
+    )
 
 
 @mcp.tool()
@@ -276,9 +362,11 @@ async def update_my_system_prompt(ctx: Context, text: str, apply: str) -> dict[s
     leaves this open conversation untouched and applies only when the
     conversation is next opened.
     """
-    agent_name = await _calling_agent(ctx)
+    agent_name, source, source_principal = await _calling_principal(ctx)
     _validate_write_input(text, apply)
-    return await _apply_revision(agent_name, "system_prompt", text, apply)
+    return await _apply_revision(
+        agent_name, "system_prompt", text, apply, source=source, source_principal=source_principal
+    )
 
 
 def list_surface_tools() -> list[dict[str, Any]]:

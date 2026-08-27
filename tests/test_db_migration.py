@@ -5643,7 +5643,11 @@ class TestSchemaV34:
     """
 
     async def test_v34_fresh_db_has_agent_revisions_table(self, tmp_path) -> None:
-        """Fresh DB → ensure_schema → agent_revisions exists with the AC1 shape."""
+        """Fresh DB → ensure_schema → agent_revisions exists with the AC1 shape.
+
+        M21 F03 L02 (AC9): v37 rebuilds this table to add ``source_principal``
+        (nullable TEXT), so the head-DB column set gains it.
+        """
         db_path = tmp_path / "v34-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -5669,6 +5673,7 @@ class TestSchemaV34:
             "base_value": ("TEXT", 1, 0),
             "status": ("TEXT", 1, 0),
             "source": ("TEXT", 1, 0),
+            "source_principal": ("TEXT", 0, 0),  # M21 F03 L02 (v37): nullable
             "restored_from": ("TEXT", 0, 0),
             "created_at": ("TEXT", 1, 0),
             "resolved_at": ("TEXT", 0, 0),
@@ -5868,7 +5873,11 @@ class TestSchemaV35:
             # is a no-op on re-run, which the idempotency test already covers.
             await conn.close()
             return
-        await conn.execute("DELETE FROM schema_version WHERE version = 35")
+        # Rewind every stamp >= 35 (later legs add versions on top — e.g. the
+        # v36 external-credential table; the head must go back past 35 for the
+        # v35 block's `if version < 35` to fire). Mirrors the v34 test's
+        # `>= 34` rewind.
+        await conn.execute("DELETE FROM schema_version WHERE version >= 35")
         await conn.commit()
 
         await ensure_schema(conn)
@@ -5882,5 +5891,386 @@ class TestSchemaV35:
             assert (await cur.fetchone())[0] == 0
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+
+assert CURRENT_VERSION >= 36, (
+    f"CURRENT_VERSION must be >= 36 for TestSchemaV36 tests (got {CURRENT_VERSION})"
+)
+
+
+class TestSchemaV36:
+    """Tests for the v36 migration: the ``agent_external_credentials`` store.
+
+    M21 F03 L01 (AC1) — a brand-new secrets-bearing table whose FK to
+    ``mcp_sources(id) ON DELETE CASCADE`` auto-revokes external credentials
+    when the surface row is deleted. Following the v34 new-table template.
+    """
+
+    async def test_v36_fresh_db_has_table_with_ac1_shape(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → agent_external_credentials exists with
+        the AC1 column shape."""
+        db_path = tmp_path / "v36-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='agent_external_credentials'"
+        ) as cur:
+            assert (await cur.fetchone()) is not None, "v36 migration missing table"
+
+        async with conn.execute("PRAGMA table_info(agent_external_credentials)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+
+        expected = {
+            # TEXT PRIMARY KEY reports notnull=0 (PK implies uniqueness, not
+            # NOT NULL, for a non-INTEGER PK — same as agent_revisions.id).
+            "identifier": ("TEXT", 0, 1),  # (type, notnull, pk)
+            "source_id": ("TEXT", 1, 0),
+            "secret": ("TEXT", 1, 0),
+            "label": ("TEXT", 1, 0),
+            "created_at": ("TEXT", 1, 0),
+        }
+        assert set(cols) == set(expected), cols
+        for name, (typ, notnull, pk) in expected.items():
+            assert cols[name]["type"] == typ, (name, cols[name]["type"])
+            assert cols[name]["notnull"] == notnull, (name, cols[name]["notnull"])
+            assert cols[name]["pk"] == pk, (name, cols[name]["pk"])
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v36_fk_to_mcp_sources_cascades_on_delete(self, tmp_path) -> None:
+        """AC1/AC9: deleting the parent mcp_sources row cascade-deletes every
+        external credential scoped to it. Asserts ``PRAGMA foreign_keys == 1``
+        on the connection under test FIRST — without it the cascade silently
+        does not fire and this test would false-pass."""
+        db_path = tmp_path / "v36-cascade.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Pin: the cascade only fires with foreign_keys enforcement ON.
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1, "foreign_keys must be ON or AC9 false-passes"
+
+        # A parent surface row + two external credentials scoped to it.
+        await conn.execute(
+            "INSERT INTO mcp_sources (id, name, type, config, secrets, created_at, updated_at) "
+            "VALUES ('src-1', 'self-configuration', 'streamable-http', '{}', '{}', 't', 't')"
+        )
+        for ident in ("ext-a", "ext-b"):
+            await conn.execute(
+                "INSERT INTO agent_external_credentials "
+                "(identifier, source_id, secret, label, created_at) "
+                "VALUES (?, 'src-1', 'enc', 'lbl', 't')",
+                (ident,),
+            )
+        await conn.commit()
+
+        async with conn.execute("SELECT COUNT(*) FROM agent_external_credentials") as cur:
+            assert (await cur.fetchone())[0] == 2
+
+        # Delete the surface row → FK cascade removes both credentials.
+        await conn.execute("DELETE FROM mcp_sources WHERE id = 'src-1'")
+        await conn.commit()
+
+        async with conn.execute("SELECT COUNT(*) FROM agent_external_credentials") as cur:
+            assert (await cur.fetchone())[0] == 0, "cascade did not fire"
+
+        await conn.close()
+
+    async def test_v36_index_on_source_id_exists(self, tmp_path) -> None:
+        db_path = tmp_path / "v36-index.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        async with conn.execute("PRAGMA index_list(agent_external_credentials)") as cur:
+            names = {r["name"] for r in await cur.fetchall()}
+        assert "idx_agent_external_credentials_source" in names, names
+
+        async with conn.execute("PRAGMA index_info(idx_agent_external_credentials_source)") as cur:
+            indexed = [r["name"] for r in await cur.fetchall()]
+        assert indexed == ["source_id"], indexed
+
+        await conn.close()
+
+    async def test_v36_idempotent_on_rerun(self, tmp_path) -> None:
+        db_path = tmp_path / "v36-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(36) == 1, f"v36 row should appear exactly once: {versions}"
+
+        await conn.close()
+
+    async def test_v36_upgrade_from_v35_creates_table(self, tmp_path) -> None:
+        """A v35-shaped DB (table dropped, stamp rewound) re-migrates cleanly."""
+        db_path = tmp_path / "v36-upgrade.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute("DROP TABLE agent_external_credentials")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 36")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='agent_external_credentials'"
+        ) as cur:
+            assert (await cur.fetchone()) is not None
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+
+assert CURRENT_VERSION >= 37, (
+    f"CURRENT_VERSION must be >= 37 for TestSchemaV37 tests (got {CURRENT_VERSION})"
+)
+
+
+# The pre-v37 (v34) ``agent_revisions`` shape: ``source CHECK`` admits only
+# ('self','restore') and there is NO ``source_principal`` column. Used to
+# construct a genuine ``source_principal``-less table so the v37 rebuild
+# ceremony actually FIRES (mirroring TestSchemaV34's DROP-based rewind, NOT
+# TestSchemaV35's stamp-only rewind which would leave the column present and
+# short-circuit the guard).
+_V34_AGENT_REVISIONS_SHAPE = (
+    "CREATE TABLE agent_revisions ("
+    "    id TEXT PRIMARY KEY,"
+    "    agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,"
+    "    field TEXT NOT NULL CHECK (field IN ('description', 'system_prompt')),"
+    "    proposed_value TEXT NOT NULL,"
+    "    base_value TEXT NOT NULL,"
+    "    status TEXT NOT NULL"
+    "        CHECK (status IN ('applied', 'pending', 'dismissed', 'superseded')),"
+    "    source TEXT NOT NULL CHECK (source IN ('self', 'restore')),"
+    "    restored_from TEXT REFERENCES agent_revisions(id) ON DELETE SET NULL,"
+    "    created_at TEXT NOT NULL,"
+    "    resolved_at TEXT"
+    ")"
+)
+
+
+async def _rewind_to_v36_agent_revisions(conn) -> None:
+    """DROP the head ``agent_revisions`` and recreate it at the v34
+    (``source_principal``-less) shape, then stamp version 36 so the v37
+    block's ``if version < 37`` fires against a genuine pre-rebuild table.
+
+    Seeds an agent so the FK resolves for later inserts.
+    """
+    await conn.execute("DROP TABLE agent_revisions")
+    await conn.execute(_V34_AGENT_REVISIONS_SHAPE)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_revisions_agent_status "
+        "ON agent_revisions (agent_name, status)"
+    )
+    await conn.execute("INSERT OR IGNORE INTO agents (name) VALUES ('a')")
+    await conn.execute("DELETE FROM schema_version WHERE version >= 37")
+    await conn.commit()
+
+
+class TestSchemaV37:
+    """Tests for the v37 migration: the ``agent_revisions`` source-CHECK
+    rebuild + ``source_principal`` column (M21 F03 L02, DD3).
+
+    A table-rebuild ceremony (SQLite cannot ``ALTER … ADD CHECK``) that
+    widens ``source`` to admit ``'external'`` and adds a nullable
+    ``source_principal TEXT``, preserving every row and the ``restored_from``
+    self-FK. The v23 rebuild is the precedent.
+    """
+
+    async def test_v37_rebuild_widens_check_and_adds_column(self, tmp_path) -> None:
+        """AC1: after the rebuild, ``source='external'`` and a value in
+        ``source_principal`` are ACCEPTED, a bogus source is REJECTED, and
+        ``source_principal`` accepts NULL for self/restore. ``PRAGMA
+        foreign_keys == 1`` after the envelope."""
+        db_path = tmp_path / "v37-shape.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Genuine pre-rebuild (v36) table so the ceremony actually runs.
+        await _rewind_to_v36_agent_revisions(conn)
+        # Seed a preserved row at the OLD shape (no source_principal).
+        await conn.execute(
+            "INSERT INTO agent_revisions "
+            "(id, agent_name, field, proposed_value, base_value, status, source, created_at) "
+            "VALUES ('old1', 'a', 'description', 'p', 'b', 'applied', 'self', 't')"
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        # The envelope restored FK enforcement to ON.
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1, "v37 envelope must restore foreign_keys ON"
+
+        # source_principal column exists and is nullable TEXT.
+        async with conn.execute("PRAGMA table_info(agent_revisions)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "source_principal" in cols
+        assert cols["source_principal"]["type"] == "TEXT"
+        assert cols["source_principal"]["notnull"] == 0
+
+        # The preserved row is intact with source_principal NULL.
+        async with conn.execute(
+            "SELECT source, source_principal FROM agent_revisions WHERE id = 'old1'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["source"] == "self"
+        assert row["source_principal"] is None
+
+        base = (
+            "INSERT INTO agent_revisions "
+            "(id, agent_name, field, proposed_value, base_value, status, source, "
+            " source_principal, created_at) "
+            "VALUES (?, 'a', 'description', 'p', 'b', 'applied', ?, ?, 't')"
+        )
+        # external + a principal identifier is ACCEPTED.
+        await conn.execute(base, ("ext1", "external", "ext_abc123"))
+        # self/restore with NULL source_principal still ACCEPTED.
+        await conn.execute(base, ("self1", "self", None))
+        await conn.execute(base, ("rest1", "restore", None))
+        await conn.commit()
+        # A bogus source is REJECTED by the widened-but-still-bounded CHECK.
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(base, ("bad1", "not_a_source", None))
+
+        await conn.close()
+
+    async def test_v37_restored_from_chain_preserved(self, tmp_path) -> None:
+        """AC2: a seeded ``restored_from`` chain (a restore row pointing at an
+        earlier revision) survives the rebuild — the self-FK is intact and the
+        pointed-at row is unchanged."""
+        db_path = tmp_path / "v37-chain.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await _rewind_to_v36_agent_revisions(conn)
+        # An original applied revision, then a restore row pointing at it.
+        await conn.execute(
+            "INSERT INTO agent_revisions "
+            "(id, agent_name, field, proposed_value, base_value, status, source, created_at) "
+            "VALUES ('orig', 'a', 'description', 'orig-value', 'b', 'applied', 'self', 't1')"
+        )
+        await conn.execute(
+            "INSERT INTO agent_revisions "
+            "(id, agent_name, field, proposed_value, base_value, status, source, "
+            " restored_from, created_at) "
+            "VALUES ('restore1', 'a', 'description', 'orig-value', 'b2', 'applied', "
+            " 'restore', 'orig', 't2')"
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        # FK enforcement is ON after the rebuild.
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1
+
+        # The restore row still points at the original, which is unchanged.
+        async with conn.execute(
+            "SELECT restored_from FROM agent_revisions WHERE id = 'restore1'"
+        ) as cur:
+            assert (await cur.fetchone())["restored_from"] == "orig"
+        async with conn.execute(
+            "SELECT proposed_value, source FROM agent_revisions WHERE id = 'orig'"
+        ) as cur:
+            orig = await cur.fetchone()
+        assert orig["proposed_value"] == "orig-value"
+        assert orig["source"] == "self"
+
+        # The self-FK is enforced (ON DELETE SET NULL): deleting the pointed-at
+        # row nulls the reference rather than erroring, proving the FK is live.
+        await conn.execute("DELETE FROM agent_revisions WHERE id = 'orig'")
+        await conn.commit()
+        async with conn.execute(
+            "SELECT restored_from FROM agent_revisions WHERE id = 'restore1'"
+        ) as cur:
+            assert (await cur.fetchone())["restored_from"] is None
+
+        await conn.close()
+
+    async def test_v37_idempotent_on_stamp_rewind(self, tmp_path) -> None:
+        """AC1: a stamp-only rewind (schema_version >= 37 deleted, column left
+        present) short-circuits the rebuild via the ``source_principal``-
+        presence guard — re-running ensure_schema is a clean no-op that leaves
+        the column present and the version re-stamped exactly once."""
+        db_path = tmp_path / "v37-rewind.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Seed a row so a spurious rebuild would be observable as data churn.
+        await conn.execute("INSERT INTO agents (name) VALUES ('a')")
+        await conn.execute(
+            "INSERT INTO agent_revisions "
+            "(id, agent_name, field, proposed_value, base_value, status, source, "
+            " source_principal, created_at) "
+            "VALUES ('keep', 'a', 'description', 'p', 'b', 'applied', 'external', 'ext_x', 't')"
+        )
+        # Stamp-only rewind: the column stays present, so the guard must skip.
+        await conn.execute("DELETE FROM schema_version WHERE version >= 37")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute("PRAGMA table_info(agent_revisions)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "source_principal" in cols
+        async with conn.execute(
+            "SELECT source, source_principal FROM agent_revisions WHERE id = 'keep'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["source"] == "external"
+        assert row["source_principal"] == "ext_x"
+        async with conn.execute("SELECT version FROM schema_version WHERE version = 37") as cur:
+            assert len(await cur.fetchall()) == 1
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1
+
+        await conn.close()
+
+    async def test_v37_idempotent_on_double_ensure(self, tmp_path) -> None:
+        """ensure_schema twice on a fresh DB: v37 stamped exactly once."""
+        db_path = tmp_path / "v37-double.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(37) == 1, f"v37 row should appear exactly once: {versions}"
 
         await conn.close()

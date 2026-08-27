@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 35
+CURRENT_VERSION = 37
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2026,3 +2026,117 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (35,))
         await conn.commit()
         version = 35
+
+    if version < 36:
+        # M21 F03 L01 — the `agent_external_credentials` store (DD1/DD2/DD8).
+        # One row per external-client grant: a distinct `ext_` principal
+        # scoped to exactly one agent's surface, its secret Fernet-encrypted
+        # at rest (DD2, secret-free projection built at the endpoint layer).
+        #
+        # The FK keys on the surface ROW, not `agent_name`: `source_id
+        # REFERENCES mcp_sources(id) ON DELETE CASCADE` (leg design
+        # refinement of DD2/DD9). Surface-disable and agent-delete both
+        # delete the surface row, so the FK cascade auto-revokes every
+        # external credential for that agent — an external principal never
+        # outlives the operator closing the surface. Agent rename keeps the
+        # row id stable, so `source_id`-keyed credentials survive a rename
+        # with no work. Hard-revoke by row DELETE (no `revoked_at`); audit
+        # of "which external principal tuned this agent" lives in the
+        # revision log's `source_principal` (Leg 2), not here.
+        #
+        # Brand-new table, so CREATE TABLE IF NOT EXISTS (idempotent /
+        # partial-apply safe), then the index on `source_id` (the cascade
+        # and the per-surface list both scan by it), then stamp the version
+        # with INSERT OR IGNORE last, mirroring the v34 template.
+        # `mcp_sources` is created far earlier in-sequence (v10), so the FK
+        # resolves. No PRAGMA toggle / table-rebuild ceremony — nothing is
+        # being rewritten.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_external_credentials ("
+            "    identifier TEXT PRIMARY KEY,"
+            "    source_id TEXT NOT NULL REFERENCES mcp_sources(id) ON DELETE CASCADE,"
+            "    secret TEXT NOT NULL,"
+            "    label TEXT NOT NULL,"
+            "    created_at TEXT NOT NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_external_credentials_source "
+            "ON agent_external_credentials (source_id)"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (36,))
+        await conn.commit()
+        version = 36
+
+    if version < 37:
+        # M21 F03 L02 (DD3) — widen the `agent_revisions.source` CHECK domain
+        # to admit `'external'` and add a nullable `source_principal TEXT`
+        # column recording the external credential's identifier (NULL for
+        # `self`/`restore`). SQLite cannot `ALTER … ADD CHECK`, so widening the
+        # CHECK requires the table-rebuild ceremony — the v23 rebuild
+        # (`if version < 23:`) is the precedent: `foreign_keys=OFF` envelope,
+        # CREATE-new / INSERT-SELECT / DROP / RENAME, index recreate, version
+        # stamp `INSERT OR IGNORE` LAST.
+        #
+        # The self-FK `restored_from` is the subtlety (flight DD3): it is
+        # declared against the NEW table and `ALTER … RENAME TO` rewrites the
+        # reference (modern `legacy_alter_table` OFF). The INSERT-SELECT names
+        # all 10 existing columns EXPLICITLY on both sides (never positional) —
+        # `source_principal` is absent from the SELECT and defaults to NULL for
+        # every preserved row. Running under `foreign_keys=OFF` tolerates the
+        # out-of-order self-referential rows during INSERT.
+        #
+        # Idempotency: guarded on `source_principal` column ABSENCE via PRAGMA
+        # table_info. A schema-version rewind that leaves the column present
+        # (stamp-only rewind) short-circuits the rebuild — the block only
+        # stamps the version. This mirrors the ADD COLUMN guards elsewhere.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_revisions'"
+        ) as cursor:
+            agent_revisions_present = (await cursor.fetchone()) is not None
+        needs_rebuild = False
+        if agent_revisions_present:
+            async with conn.execute("PRAGMA table_info(agent_revisions)") as cursor:
+                revision_cols = {row[1] for row in await cursor.fetchall()}
+            needs_rebuild = "source_principal" not in revision_cols
+        if needs_rebuild:
+            # ``executescript`` (like the v23 precedent) issues a COMMIT before
+            # running, so ``PRAGMA foreign_keys=OFF`` takes effect (a PRAGMA
+            # cannot change FK enforcement inside an open transaction). The
+            # matching ``PRAGMA foreign_keys=ON`` after the script re-enables
+            # enforcement (also outside a transaction). ``INSERT INTO … SELECT``
+            # names all 10 existing columns explicitly on both sides;
+            # ``source_principal`` is absent and defaults to NULL for every
+            # preserved row. ``executescript`` is transactional in SQLite —
+            # either the whole rebuild lands or none of it does.
+            await conn.executescript(
+                "PRAGMA foreign_keys=OFF;\n"
+                "CREATE TABLE agent_revisions_new ("
+                "    id TEXT PRIMARY KEY,"
+                "    agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,"
+                "    field TEXT NOT NULL CHECK (field IN ('description', 'system_prompt')),"
+                "    proposed_value TEXT NOT NULL,"
+                "    base_value TEXT NOT NULL,"
+                "    status TEXT NOT NULL"
+                "        CHECK (status IN ('applied', 'pending', 'dismissed', 'superseded')),"
+                "    source TEXT NOT NULL CHECK (source IN ('self', 'restore', 'external')),"
+                "    source_principal TEXT,"
+                "    restored_from TEXT REFERENCES agent_revisions_new(id) ON DELETE SET NULL,"
+                "    created_at TEXT NOT NULL,"
+                "    resolved_at TEXT"
+                ");\n"
+                "INSERT INTO agent_revisions_new "
+                "(id, agent_name, field, proposed_value, base_value, "
+                " status, source, restored_from, created_at, resolved_at) "
+                "SELECT id, agent_name, field, proposed_value, base_value, "
+                " status, source, restored_from, created_at, resolved_at "
+                "FROM agent_revisions;\n"
+                "DROP TABLE agent_revisions;\n"
+                "ALTER TABLE agent_revisions_new RENAME TO agent_revisions;\n"
+                "CREATE INDEX IF NOT EXISTS idx_agent_revisions_agent_status "
+                "ON agent_revisions (agent_name, status);\n"
+            )
+            await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (37,))
+        await conn.commit()
+        version = 37

@@ -269,6 +269,79 @@ agent's own Self-configuration tab in Studio.
   mode is therefore the recommended posture for any agent whose context can
   carry attacker-influenced content.
 
+### External-client access to the self-configuration surface (M21 F03)
+
+Everything above concerns the agent's OWN `agt`-prefixed principal reaching
+its surface over the loopback. Mission 21 Flight 3 adds a **second principal
+on the same surface**: an external client (a script, a CI job, a separate
+service) that the operator explicitly grants access to tune one agent. This
+is **off until the operator grants it** — grants are minted from the agent's
+own Self-configuration tab and only while the surface is enabled — and it
+reuses the surface's existing confinement, tool catalog, and input/ownership
+bounds wholesale, differing only in credential lifecycle and write
+provenance.
+
+- **A distinct, per-grant `ext`-prefixed credential.** Each grant mints its
+  own `ext_<id>.<secret>` credential — a different prefix from both the
+  `loc` operator credential and the `agt` self-configuration credential, so a
+  token's type is legible at a glance and every other registered credential
+  source rejects it on prefix mismatch. It resolves to exactly one agent's
+  surface row but is a SEPARATE identity from that agent's `agt` credential,
+  so it can be revoked or rotated on its own. An agent can hold many external
+  grants at once, each independently revocable — unlike the single `agt`
+  credential per agent.
+- **A secrets-bearing store, Fernet-encrypted at rest.** The `agt` credential
+  lives inside its surface row's encrypted `secrets["Authorization"]`;
+  external credentials get their own table, `agent_external_credentials`
+  (schema v36), whose `secret` column is Fernet-encrypted with the same key
+  as every other secret surface. The operator-facing list projection is
+  **secret-free** (`{identifier, label, created_at}` only — the public
+  `ext_` identifier, never the token), and the `ext_<id>.<secret>` token is
+  returned **exactly once**, at mint (and again only on rotate); no read path
+  returns it again. Resolution goes through an in-memory
+  `identifier → (source_id, secret)` registry rebuilt at startup and mutated
+  live on mint/revoke/rotate — the same no-per-request-DB-read shape the
+  `agt` path uses.
+- **The SAME confinement, via a second confined `CredentialSource`.** The
+  external source (`self-configuration-external`) shares the
+  `/mcp/self-configuration` mount and is a second entry in
+  `CONFINED_SOURCE_PATHS` pointing at that same prefix, so it inherits Flight
+  1's confinement UNCHANGED — no new enforcement code. A caller bearing an
+  `ext` credential is admitted ONLY to requests under `/mcp/self-configuration`
+  and refused (403) everywhere else, and every WebSocket upgrade from it is
+  refused outright. **Governance invariant:** an external principal reaches
+  ONLY the four confined MCP tools (`get_my_configuration`,
+  `describe_my_capabilities`, `update_my_description`,
+  `update_my_system_prompt`); the operator control plane — every `/api/...`
+  route and admin surface — answers it with **403**, exactly as it does the
+  agent's own `agt` credential.
+- **Per-principal revoke and rotate**, in contrast to the operator
+  credential's rotate-everything. Revoke hard-deletes one grant's row and
+  evicts its registry entry, so the next request bearing that token is 401
+  with no restart; rotate revokes the old credential and mints a fresh one
+  for the same label/agent, returning the new token once and invalidating the
+  old immediately. A cross-ID guard ensures a grant can only be revoked or
+  rotated through its OWN agent's route, and neither operation ever touches
+  the agent's `agt` credential or a sibling external grant.
+- **FK-cascade auto-revoke on surface-disable / agent-delete (DD9).** The
+  credential rows FK on the surface ROW (`source_id REFERENCES
+  mcp_sources(id) ON DELETE CASCADE`), not on the agent name. Disabling the
+  surface or deleting the agent deletes that row, so the FK cascade
+  auto-revokes every external grant for that agent — an external principal
+  can never outlive the operator closing the surface. (An agent rename keeps
+  the row id stable, so grants survive a rename untouched.)
+- **External writes are provenance-tagged and honor the approval gate.** A
+  write from an external principal is recorded in the F02 revision log with
+  `source='external'` and `source_principal` = the `ext_` identifier (the
+  agent's own writes are `source='self'`, `source_principal` NULL), so the
+  log answers "which external principal tuned this agent." External writes
+  pass through the SAME per-agent `self_revision_requires_approval` gate as
+  self-writes: with approval mode on, an external client's proposal is held
+  in the pending queue and cannot take effect until the operator approves it
+  — the residual prompt-injection risk and its approval-mode mitigation
+  described above apply identically whether the write originates from the
+  agent itself or from an external client.
+
 ## Network Bind
 
 - Default `host=127.0.0.1` (localhost only). Host-native (`the-one serve` /
@@ -522,6 +595,16 @@ with the unsandboxed Windows posture.
   new storage surface. Never returned by the enable endpoint; never
   written to `AgentConfig`. See "Authentication" → "Self-configuration
   surface" above for the credential's scope.
+- **Per-grant external-client credentials** (M21 F03 L01): each operator
+  grant mints a distinct `ext`-prefixed credential in its own table,
+  `agent_external_credentials`, whose `secret` column is Fernet-encrypted at
+  rest like every other secret surface. The operator-facing projection is
+  secret-free (`{identifier, label, created_at}`); the token is returned once
+  at mint (and on rotate) and by no read path after. The rows FK-cascade on
+  the surface row, so surface-disable and agent-delete auto-revoke every
+  grant. See "Authentication" → "External-client access to the
+  self-configuration surface" above for the credential's scope and the
+  governance invariant.
 - `.env` is gitignored.
 - No secrets land in any committed file (e.g. `.env.example`, which carries
   placeholders only).

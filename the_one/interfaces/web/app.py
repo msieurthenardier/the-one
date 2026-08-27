@@ -60,6 +60,7 @@ from the_one.db.connection import get_connection
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.repositories import (
+    AgentExternalCredentialRepository,
     ChatSessionRepository,
     LLMProviderRepository,
     MCPSourceRepository,
@@ -77,6 +78,7 @@ from the_one.interfaces.web.middleware import (
 )
 from the_one.llm.base import ContentBlock, ImageContent, Message, Role, TextContent, content_to_text
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
+from the_one.self_configuration import external_credentials as _self_configuration_external
 from the_one.self_configuration import manage as _self_configuration_manage
 from the_one.self_configuration import pending as _self_configuration_pending
 from the_one.self_configuration import surface as _self_configuration_surface
@@ -199,6 +201,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         register_credential_source_once()
         _self_configuration_mcp_repo = MCPSourceRepository(conn, get_encryptor(settings.data_dir))
         await _self_configuration_manage.reconcile_on_startup(_self_configuration_mcp_repo, store)
+        # M21 F03 L01 (DD1/DD8): register the EXTERNAL credential source on the
+        # same gate seam and rebuild its in-memory registry from the store —
+        # a persisted `ext_` credential must resolve again after a restart
+        # (DD8), and the source must re-register idempotently across the
+        # `api_credential._sources` swaps test fixtures perform (DD1). Must
+        # run before any request can reach the mounted surface below.
+        _self_configuration_external.register_credential_source_once()
+        _self_configuration_ext_repo = AgentExternalCredentialRepository(
+            conn, get_encryptor(settings.data_dir)
+        )
+        _self_configuration_external.load_from_rows(
+            await _self_configuration_ext_repo.load_all()
+        )
         _state["factory"] = AgentFactory(store=store)
         # M10 F8 L4: install the application factory into the module-level
         # accessor at ``the_one.agent.factory`` so gateway-listener handlers

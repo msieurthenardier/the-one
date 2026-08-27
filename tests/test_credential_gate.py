@@ -700,8 +700,13 @@ class TestConfinedSourceScoping:
     ONLY under its mapped path prefix; `file` and `session` callers are
     unaffected everywhere — the matrix this class locks."""
 
-    def test_confined_map_has_exactly_the_self_configuration_entry(self) -> None:
-        assert CONFINED_SOURCE_PATHS == {"self-configuration": MOUNT_PATH}
+    def test_confined_map_has_the_self_configuration_entries(self) -> None:
+        # M21 F03 L01 (DD1): the external source shares the SAME mount path,
+        # inheriting Flight 1's confinement unchanged.
+        assert CONFINED_SOURCE_PATHS == {
+            "self-configuration": MOUNT_PATH,
+            "self-configuration-external": MOUNT_PATH,
+        }
 
     def test_confined_caller_admitted_under_its_mount_path(self, tmp_path: Path) -> None:
         confined_cred = LocalApiCredential.generate()
@@ -740,6 +745,86 @@ class TestConfinedSourceScoping:
                 with client.websocket_connect("/ws", headers=_bearer(confined_cred)):
                     pass
         assert app.state.ws_accepted == []
+
+    def test_external_confined_caller_admitted_under_mount_and_refused_elsewhere(
+        self, tmp_path: Path
+    ) -> None:
+        """M21 F03 L01 (AC7): the external source ("self-configuration-external")
+        inherits the SAME confinement — admitted under the mount path, 403
+        off-mount, WS refused — driven purely by its CONFINED_SOURCE_PATHS
+        entry, no new enforcement code."""
+        confined_cred = LocalApiCredential.generate()
+
+        class _ExternalConfinedSource:
+            name = "self-configuration-external"
+
+            def resolve(self, presented: str) -> IdentifiedCaller | None:
+                parsed = LocalApiCredential.parse(presented, prefix="ext")
+                if parsed is None or parsed.identifier != confined_cred.identifier:
+                    return None
+                if not hmac.compare_digest(parsed.secret, confined_cred.secret):
+                    return None
+                return IdentifiedCaller(identifier=confined_cred.identifier, source=self.name)
+
+        register_source(_ExternalConfinedSource())
+        token = confined_cred.encode(prefix="ext")
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            admitted = client.get(
+                f"{MOUNT_PATH}/tools", headers={"Authorization": f"Bearer {token}"}
+            )
+            assert admitted.status_code == 200
+            off_mount = client.get("/api/agents", headers={"Authorization": f"Bearer {token}"})
+            assert off_mount.status_code == 403
+            with pytest.raises(WebSocketDisconnect):
+                with client.websocket_connect("/ws", headers={"Authorization": f"Bearer {token}"}):
+                    pass
+        assert app.state.ws_accepted == []
+
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            # M21 F03 L02 (AC8/DD6) — the operator control plane. Every one is
+            # an off-mount `/api/…` path, so a confined external caller is 403
+            # BEFORE routing, by construction. This pins the governance
+            # invariant so a future change cannot erode it.
+            ("PUT", "/api/agents/a/self-configuration/approval-mode"),
+            ("POST", "/api/agents/a/self-configuration/revisions/rev1/approve"),
+            ("POST", "/api/agents/a/self-configuration/revisions/rev1/dismiss"),
+            ("POST", "/api/agents/a/self-configuration/revisions/rev1/restore"),
+            # The Leg-1 external-credential management endpoints (operator-only).
+            ("POST", "/api/agents/a/self-configuration/external-credentials"),
+            ("GET", "/api/agents/a/self-configuration/external-credentials"),
+            ("DELETE", "/api/agents/a/self-configuration/external-credentials/ext_1"),
+            ("POST", "/api/agents/a/self-configuration/external-credentials/ext_1/rotate"),
+        ],
+    )
+    def test_external_caller_403_on_operator_control_plane(
+        self, tmp_path: Path, method: str, path: str
+    ) -> None:
+        """AC8 — an `ext_` credential is refused (403) on every operator
+        control-plane route: approval-mode, the revision transitions, and the
+        external-credential management endpoints. All are off the confined
+        mount, so the gate refuses before routing — no new enforcement code."""
+        confined_cred = LocalApiCredential.generate()
+
+        class _ExternalConfinedSource:
+            name = "self-configuration-external"
+
+            def resolve(self, presented: str) -> IdentifiedCaller | None:
+                parsed = LocalApiCredential.parse(presented, prefix="ext")
+                if parsed is None or parsed.identifier != confined_cred.identifier:
+                    return None
+                if not hmac.compare_digest(parsed.secret, confined_cred.secret):
+                    return None
+                return IdentifiedCaller(identifier=confined_cred.identifier, source=self.name)
+
+        register_source(_ExternalConfinedSource())
+        token = confined_cred.encode(prefix="ext")
+        app = _make_app(tmp_path)
+        with TestClient(app) as client:
+            resp = client.request(method, path, headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 403, (method, path, resp.status_code)
 
     def test_confined_caller_refused_403_on_sibling_prefix_path(self, tmp_path: Path) -> None:
         """Flight-end review fix: a sibling route that merely shares the

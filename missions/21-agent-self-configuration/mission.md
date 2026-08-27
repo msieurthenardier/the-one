@@ -246,7 +246,7 @@ mission-level constraints rather than implementation details.
 - [x] Flight 2: Operator oversight — the revision log, approval mode with its
       pending queue and count badge, and restore. Follows the pending/approve/
       dismiss pattern the connector peer-approval flow already establishes.
-- [ ] Flight 3: External client access — the locally-bound surface for clients
+- [x] Flight 3: External client access — the locally-bound surface for clients
       outside the platform, and credentials scoped to a single agent with mint,
       revoke, and rotate. Isolates the credential store, which is a further
       secrets-bearing table and the trigger the mission 19 debrief named for

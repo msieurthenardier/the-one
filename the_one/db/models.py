@@ -705,7 +705,12 @@ class AgentRevision(BaseModel):
     proposed_value: str
     base_value: str
     status: Literal["applied", "pending", "dismissed", "superseded"]
-    source: Literal["self", "restore"]
+    source: Literal["self", "restore", "external"]
+    # M21 F03 L02 (DD3): the external credential identifier for ``external``
+    # rows, ``None`` for ``self`` / ``restore``. Safe to store and log by
+    # Mission 20's id/secret split — this is the credential IDENTIFIER, never
+    # the secret.
+    source_principal: str | None = None
     restored_from: str | None = None
     created_at: str
     resolved_at: str | None = None

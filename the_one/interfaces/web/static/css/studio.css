@@ -1902,4 +1902,93 @@
     border-radius: 2px;
     padding: 0 2px;
   }
+
+  /* === M21 F03 L03 — External access section ===
+     Grant / list / revoke / rotate external-client credentials. Reuses the
+     tab's `.editor-section` / `.section-title` / `.self-configuration-*`
+     vocabulary; only the layout rows below are new. Theme-aware by using
+     tokens throughout (no hard-coded colors). */
+  .area-studio .self-configuration-external-grant {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 4px 0 8px;
+  }
+  .area-studio .self-configuration-external-grant-label-text {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .self-configuration-external-grant .field-input {
+    flex: 1;
+    min-width: 160px;
+  }
+  .area-studio .self-configuration-external-grant-btn { flex-shrink: 0; }
+  .area-studio .self-configuration-external-grant-hint[hidden] { display: none; }
+
+  /* Copy-once secret reveal — a warning banner holding the one-time token,
+     a copy affordance, the surface URL, and a dismiss control. */
+  .area-studio .self-configuration-external-token-reveal {
+    margin: 8px 0 12px;
+  }
+  .area-studio .self-configuration-external-token-reveal[hidden] { display: none; }
+  .area-studio .self-configuration-external-token-warning {
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    margin: 0 0 8px;
+  }
+  .area-studio .self-configuration-external-token-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .area-studio .self-configuration-external-token-value {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-body-sm);
+  }
+  .area-studio .self-configuration-external-token-url {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    margin: 0 0 8px;
+    word-break: break-all;
+  }
+  .area-studio .self-configuration-external-token-url-label { color: var(--fg-muted); }
+
+  /* Active-grants list — one row per credential (label + meta on the left,
+     rotate/revoke actions on the right). */
+  .area-studio .self-configuration-external-list { margin-top: 8px; }
+  .area-studio .self-configuration-external-credential-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .self-configuration-external-credential-row:last-child { border-bottom: none; }
+  .area-studio .self-configuration-external-credential-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .area-studio .self-configuration-external-credential-label {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg);
+    word-break: break-word;
+  }
+  .area-studio .self-configuration-external-credential-meta {
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  .area-studio .self-configuration-external-credential-id { font-family: var(--font-family-mono); }
+  .area-studio .self-configuration-external-credential-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
 }

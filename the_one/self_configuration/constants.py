@@ -30,8 +30,30 @@ SOURCE_NAME = "self-configuration"
 # are admitted exactly as before this leg — the map is opt-in per source,
 # never a blanket "anything not `file`" rule (that wording would 403 the
 # session cookie; see flight log Decision D5).
+# The credential-source *name* registered by
+# ``the_one.self_configuration.external_credentials.ExternalAgentCredentialSource``
+# — matches ``IdentifiedCaller.source`` for a resolved ``ext`` credential
+# (M21 F03 L01, DD1). A DISTINCT principal from the agent's own ``agt``
+# credential: one external grant per row, independently revocable, scoped
+# to exactly one agent's surface.
+EXTERNAL_SOURCE_NAME = "self-configuration-external"
+
+# LD2 / Decision D5 (flight log): maps a confined credential-source *name* to
+# the HTTP path prefix it may reach. ``CredentialGateMiddleware`` looks the
+# caller's ``source`` up here after resolution; when present, every request
+# whose path does not start with the mapped prefix is refused with 403, and
+# every WebSocket upgrade from that source is refused outright. Sources
+# absent from this map (``"file"``, and the cookie channel's ``"session"``)
+# are admitted exactly as before this leg — the map is opt-in per source,
+# never a blanket "anything not `file`" rule (that wording would 403 the
+# session cookie; see flight log Decision D5).
+#
+# M21 F03 L01 (DD1): the external source points at the SAME mount path, so
+# it inherits Flight 1's confinement (403 off-mount, WS refused) unchanged —
+# no new enforcement code, only a second entry here.
 CONFINED_SOURCE_PATHS: dict[str, str] = {
     SOURCE_NAME: MOUNT_PATH,
+    EXTERNAL_SOURCE_NAME: MOUNT_PATH,
 }
 
 # The credential prefix minted for per-agent self-configuration credentials
@@ -41,6 +63,14 @@ CONFINED_SOURCE_PATHS: dict[str, str] = {
 # prefix) rejects an ``agt_`` token on prefix mismatch, falling through to
 # the registered ``SelfConfigurationCredentialSource``.
 AGENT_CREDENTIAL_PREFIX = "agt"
+
+# The credential prefix minted for EXTERNAL-client self-configuration
+# credentials (M21 F03 L01, DD1). Distinct from both ``CREDENTIAL_PREFIX``
+# ("loc") and ``AGENT_CREDENTIAL_PREFIX`` ("agt") so a presented token's
+# type is legible at a glance and the other registered sources reject an
+# ``ext_`` token on prefix mismatch, falling through to
+# ``ExternalAgentCredentialSource``.
+EXTERNAL_CREDENTIAL_PREFIX = "ext"
 
 # The header key the minted credential lives under inside a surface row's
 # encrypted ``secrets`` (DD2) — the same flat kv-table the streamable-http
