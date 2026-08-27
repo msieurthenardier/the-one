@@ -211,9 +211,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _self_configuration_ext_repo = AgentExternalCredentialRepository(
             conn, get_encryptor(settings.data_dir)
         )
-        _self_configuration_external.load_from_rows(
-            await _self_configuration_ext_repo.load_all()
-        )
+        _self_configuration_external.load_from_rows(await _self_configuration_ext_repo.load_all())
         _state["factory"] = AgentFactory(store=store)
         # M10 F8 L4: install the application factory into the module-level
         # accessor at ``the_one.agent.factory`` so gateway-listener handlers

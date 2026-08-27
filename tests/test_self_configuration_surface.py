@@ -364,9 +364,7 @@ async def _mint_ext(client: "httpx.AsyncClient", agent: str, label: str = "ext")
 
 
 class TestAC6ExternalClientReadsConfig:
-    async def test_ext_credential_reads_own_config_secret_free(
-        self, running_surface: str
-    ) -> None:
+    async def test_ext_credential_reads_own_config_secret_free(self, running_surface: str) -> None:
         base_url = running_surface
         async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
             await _seed_agent_with_provider("a-ext6")

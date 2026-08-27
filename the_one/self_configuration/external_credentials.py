@@ -135,8 +135,6 @@ def register_credential_source_once() -> None:
     """
     from the_one import api_credential
 
-    if any(
-        isinstance(source, ExternalAgentCredentialSource) for source in api_credential._sources
-    ):
+    if any(isinstance(source, ExternalAgentCredentialSource) for source in api_credential._sources):
         return
     api_credential.register_source(ExternalAgentCredentialSource())
