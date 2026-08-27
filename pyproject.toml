@@ -1,6 +1,6 @@
 [project]
 name = "the-one"
-version = "0.7.0"
+version = "0.7.1"
 description = "A personal agentic system — LLM-agnostic, tool-rich, monolithic."
 requires-python = ">=3.11"
 dependencies = [
@@ -89,8 +89,8 @@ dependencies = [
 # behaviour in openai 2.16. Earlier versions accept the empty string and
 # silently fall back to OPENAI_API_KEY, defeating the no-leak guard.
 openai = ["openai>=2.16"]
-anthropic = ["anthropic>=0.40"]
-all-llms = ["openai>=2.16", "anthropic>=0.40"]
+anthropic = ["anthropic>=0.40,<0.97"]
+all-llms = ["openai>=2.16", "anthropic>=0.40,<0.97"]
 gui = [
     "pywebview[gtk]>=5,<6; sys_platform == 'linux'",
     "pywebview>=5,<6; sys_platform != 'linux'",

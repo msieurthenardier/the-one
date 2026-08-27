@@ -41,6 +41,21 @@ logger = logging.getLogger(__name__)
 # we can map it to the tool's name in the post-drop ``kwargs["tools"]`` list.
 _TOOLS_INDEX_RE = re.compile(r"tools\.(\d+)\.")
 
+# Squawk 0009: a drifted/out-of-range anthropic SDK can drop a sampling kwarg
+# (e.g. ``temperature``) from ``messages.create``/``messages.stream``, raising a
+# ``TypeError: ... got an unexpected keyword argument '<name>'`` at call time
+# (before any 400 / any stream delta). This pulls the offending parameter name so
+# the provider can strip it and retry once, degrading gracefully rather than
+# crashing the first chat turn on a frozen build that shipped an untested SDK.
+_UNEXPECTED_KWARG_RE = re.compile(r"unexpected keyword argument '([^']+)'")
+
+
+def _unexpected_kwarg_name(exc: TypeError) -> str | None:
+    """Extract the parameter name from an ``unexpected keyword argument '<name>'``
+    ``TypeError`` message, or ``None`` when the message doesn't match that shape."""
+    m = _UNEXPECTED_KWARG_RE.search(str(exc))
+    return m.group(1) if m else None
+
 
 def _name_offending_tool(
     exc: anthropic.BadRequestError,
@@ -331,6 +346,23 @@ class AnthropicProvider(LLMProvider):
             else:
                 named = _name_offending_tool(exc, kwargs.get("tools"))
                 raise (named or exc) from exc
+        except TypeError as exc:
+            # Squawk 0009: SDK signature drift — the installed anthropic dropped a
+            # kwarg we always send (e.g. `temperature`). Strip the named param and
+            # retry once, but only when it's actually a key we sent (so an unrelated
+            # TypeError re-raises unchanged). A retry that still TypeErrors propagates.
+            name = _unexpected_kwarg_name(exc)
+            if name is not None and name in kwargs:
+                logger.warning(
+                    "anthropic: installed SDK rejected %r as an unexpected keyword "
+                    "argument; retrying without it — the bundled anthropic version "
+                    "may be out of range (expected <0.97)",
+                    name,
+                )
+                kwargs.pop(name, None)
+                response = await self.client.messages.create(**kwargs)
+            else:
+                raise
 
         content = ""
         tool_calls = []
@@ -406,6 +438,23 @@ class AnthropicProvider(LLMProvider):
             else:
                 named = _name_offending_tool(exc, kwargs.get("tools"))
                 raise (named or exc) from exc
+        except TypeError as exc:
+            # Squawk 0009: mirror complete()'s SDK-signature-drift net. Gated by
+            # not-yielded_any, exactly like the temperature-retry above, since a
+            # signature TypeError is raised at submission — before any delta.
+            name = _unexpected_kwarg_name(exc)
+            if not yielded_any and name is not None and name in kwargs:
+                logger.warning(
+                    "anthropic: installed SDK rejected %r as an unexpected keyword "
+                    "argument; retrying without it — the bundled anthropic version "
+                    "may be out of range (expected <0.97)",
+                    name,
+                )
+                kwargs.pop(name, None)
+                async for chunk in self._stream_inner(kwargs):
+                    yield chunk
+            else:
+                raise
 
     async def _stream_inner(self, kwargs: dict[str, Any]) -> AsyncIterator[StreamChunk]:
         # F7 L04 / M12 F6 L1: shared byte-emitter for mid-stream usage
