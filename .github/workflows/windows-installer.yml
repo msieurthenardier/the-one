@@ -40,8 +40,18 @@ jobs:
       # The [gui] extra is REQUIRED — without pywebview→pythonnet the spec's collect_*
       # import-fails at build time.
       - name: Install GUI freeze deps + PyInstaller
+        # Squawk 0009: install the LOCKED closure, not a fresh resolve. The frozen
+        # app must ship the exact tested/pinned dependency set from uv.lock — a
+        # `pip install -e ".[gui,all-llms]"` re-resolves the ranges at build time
+        # and can bundle an untested SDK (e.g. an anthropic newer than the locked
+        # 0.96.0 whose messages.stream() dropped `temperature`, crashing the first
+        # chat turn). Export the same closure the pr-lint workflow audits
+        # (pr-lint.yml:61), install it, then install the project itself --no-deps.
         run: |
-          pip install -e ".[gui,all-llms]"
+          pip install uv
+          uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
+          pip install -r release-requirements.txt
+          pip install -e . --no-deps
           pip install pyinstaller
       # Build the frozen one-dir from the checked-in spec. `test -f` fails fast if the
       # bundle exe name drifts; any PyInstaller error (incl. a missing pywinpty

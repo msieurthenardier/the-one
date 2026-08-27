@@ -1489,3 +1489,73 @@ async def test_plan_without_token_or_config_id_raises_reauth(monkeypatch):
     with pytest.raises(ReauthRequiredError) as excinfo:
         await prov.complete(_user_msg())
     assert "Administration" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------
+# Squawk 0009: SDK signature-drift net (TypeError: unexpected keyword argument)
+# --------------------------------------------------------------------------
+
+
+async def test_complete_typeerror_strips_kwarg_and_retries(monkeypatch):
+    """A TypeError naming a kwarg we sent (temperature) triggers a single retry
+    with that kwarg stripped; complete() returns the message without raising."""
+    type_err = TypeError("AsyncMessages.stream() got an unexpected keyword argument 'temperature'")
+    rec = _CreateRecorder(side_effects=[type_err], default_response=_StubResponse())
+    prov = _provider_with_create(monkeypatch, rec)
+
+    msg = await prov.complete(_user_msg())
+
+    assert msg is not None
+    assert len(rec.calls) == 2
+    assert "temperature" in rec.calls[0]  # first attempt sent it
+    assert "temperature" not in rec.calls[1]  # stripped before retry
+
+
+async def test_complete_typeerror_unrelated_reraised(monkeypatch):
+    """A TypeError whose named kwarg is NOT in kwargs is re-raised unchanged
+    (no retry)."""
+    type_err = TypeError("got an unexpected keyword argument 'bogus'")
+    rec = _CreateRecorder(side_effects=[type_err])
+    prov = _provider_with_create(monkeypatch, rec)
+
+    with pytest.raises(TypeError) as ei:
+        await prov.complete(_user_msg())
+
+    assert ei.value is type_err
+    assert len(rec.calls) == 1  # no retry
+
+
+async def test_stream_typeerror_strips_kwarg_and_retries(monkeypatch):
+    """A submission-time TypeError naming temperature in stream() triggers the
+    retry (temperature popped); the retried stream yields chunks without raising."""
+    type_err = TypeError("AsyncMessages.stream() got an unexpected keyword argument 'temperature'")
+    final = _StubResponse(content=[_StubContentBlock("text", text="ok")], usage=None)
+    rec = _StreamRecorder(
+        [
+            lambda: _StreamCM([], None, raise_on_enter=type_err),
+            lambda: _StreamCM(["ok"], final),
+        ]
+    )
+    prov = _provider_with_stream(monkeypatch, rec)
+
+    chunks = [c async for c in prov.stream(_user_msg())]
+
+    assert any("ok" in c.content for c in chunks if not c.is_final)
+    assert len(rec.calls) == 2
+    assert "temperature" in rec.calls[0]
+    assert "temperature" not in rec.calls[1]
+
+
+async def test_stream_typeerror_unrelated_reraised(monkeypatch):
+    """A submission-time TypeError whose named kwarg is NOT in kwargs is re-raised
+    unchanged from stream() (no retry)."""
+    type_err = TypeError("got an unexpected keyword argument 'bogus'")
+    rec = _StreamRecorder([lambda: _StreamCM([], None, raise_on_enter=type_err)])
+    prov = _provider_with_stream(monkeypatch, rec)
+
+    with pytest.raises(TypeError) as ei:
+        async for _ in prov.stream(_user_msg()):
+            pass
+
+    assert ei.value is type_err
+    assert len(rec.calls) == 1  # no retry
