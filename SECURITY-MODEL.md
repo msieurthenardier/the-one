@@ -651,6 +651,18 @@ above before implementation:
   per-user identity (multiple long-lived credentials, not one), per-user
   tool isolation, and per-user encryption keys. Substantial, but narrower
   than before this mission landed.
+  - **Concurrency consequence (M21 debrief).** Relaxing *either* loopback
+    *or* single-user also expires the agent-write concurrency posture that
+    depends on it: `SQLiteAgentStore.save` is a whole-row last-writer-wins
+    upsert with four write consumers (Studio edit, approve, restore, and the
+    field-scoped-CAS-guarded direct write), and only the direct write is
+    guarded. A multi-user or non-loopback form factor MUST, in the same work:
+    (1) put a row-version/etag on `save`; (2) route all four consumers through
+    it; (3) make the self-revision pending-dedup a schema invariant
+    (`agent_revisions (agent_name, field) WHERE status='pending'`); and
+    (4) re-audit the indirect-prompt-injection residual (see the self-
+    configuration surface notes above) for a non-operator principal on the
+    write path. Tracked as a Known Issue in Mission 21's mission artifact.
 - **CORS / OPTIONS preflight**: `OriginAllowlistMiddleware` does not
   gate `OPTIONS` requests (see code comment above `GATED_METHODS` in
   `the_one/interfaces/web/middleware.py`). The project has no CORS
