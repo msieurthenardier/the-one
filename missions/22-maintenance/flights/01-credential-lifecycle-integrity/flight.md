@@ -1,6 +1,6 @@
 # Flight: Credential lifecycle integrity and observability
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Post-Mission-21 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
