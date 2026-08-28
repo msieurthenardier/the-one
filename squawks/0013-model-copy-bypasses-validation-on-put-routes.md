@@ -1,10 +1,10 @@
 # Squawk 0013: `model_copy(update=raw_json)` on four PUT routes bypasses pydantic validation and can permanently 500 the read path
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-08-27
-**Completed**: —
+**Completed**: 2026-08-27
 
 ## Report
 
@@ -42,13 +42,53 @@ untouched.
   → full constructor, uncaught.
 
 ## Corrective Action
-*(written at completion)*
+
+Applied the `update_connector` round-trip pattern (`existing.model_dump() → merge
+data → Model.model_validate(...)`, `ValidationError` mapped to
+`HTTPException(422, detail=e.errors(include_context=False))`) at all four sites in
+`the_one/interfaces/web/api.py`:
+
+- `update_knowledge_base` (~:1409) — merge happens after `data["id"] = kb_id` is set,
+  same as before; no other pre-merge key handling in this route.
+- `update_mcp_source` (~:2005) — the merge now runs *after* the existing per-key
+  `__MASKED__` secrets resolution, the OAuth-managed-keys preservation block, and the
+  `_cache` config normalisation (unchanged ordering); the dead
+  `try/except ValidationError` that used to wrap the bare `model_copy(update=data)`
+  was removed and replaced with the real try/except around the round-trip, so the
+  `except ValidationError` clause is now reachable. `_reject_reserved_surface_name`
+  and `_validate_mcp_source_config` still run afterward, in the same order.
+- `update_chat_session` (~:4487) — same pattern, no pre-merge key handling in this
+  route.
+- `update_provider` (~:4839) — merge happens after the mock/dev_mode gate, the
+  masked-`api_key` resolution, and the OAuth-managed-secrets resolution (unchanged
+  ordering); the `_is_safe_provider_url` check on `updated.base_url` still runs
+  *after* the round-trip, preserving the "resolved base_url, post-merge" sequencing
+  the existing comment calls out (comment wording updated to reference the new
+  round-trip instead of `model_copy`).
+
+All four models (`KnowledgeBase`, `MCPSource`, `ChatSession`, `LLMProviderConfig`)
+have only plain JSON-serializable fields (`str`, `str | None`, `dict`, `Literal[str]`)
+with no `datetime` objects, aliases, or computed fields — confirmed no
+`model_dump()`/`model_validate()` round-trip pitfalls beyond what `update_connector`
+already handles. No site required a model change or design decision; nothing was
+escalated or reverted.
 
 ## Verification
-*(written at completion)*
+
+Added one test per route (malformed PUT → 422 + row unchanged, valid PUT → success):
+
+- `tests/test_db_api.py::TestKnowledgeBaseAPI::test_update_with_wrong_type_rejected`
+- `tests/test_db_api.py::TestMCPSourceAPI::test_update_with_invalid_type_rejected`
+- `tests/test_db_api.py::TestChatSessionAPI::test_update_with_wrong_type_rejected`
+- `tests/test_provider_api.py::...::test_update_with_invalid_type_rejected`
+
+`PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_db_api.py
+tests/test_provider_api.py -x --timeout 60` → 307 passed.
+
+`make lint` → all checks passed. `make format-check` → 441 files already formatted
+(no `make format` needed).
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Reviewer agent (independent, diff-scoped batch review of turnaround 2026-08-27)
+**Verdict**: confirmed
+**Commit**: `squawk/turnaround-2026-08-27` — PR pending (sha recorded on close)

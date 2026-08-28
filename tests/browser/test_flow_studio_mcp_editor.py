@@ -829,6 +829,97 @@ def test_last_updated_renders_relative_time_format(app_clean: str, page: Page) -
     assert "minute" in text or "minutes" in text, text
 
 
+# ── Squawk 0010: server_info websiteUrl / icon src scheme allow-list ──────
+
+
+@pytest.mark.browser
+def test_server_info_website_and_icon_reject_unsafe_schemes(app_clean: str, page: Page) -> None:
+    """serverInfo.websiteUrl and icons[0].src come straight from the MCP
+    server's initialize() response — an untrusted third party. A hostile
+    javascript: websiteUrl must never become a live href, and a non-http
+    icon src must never become a live <img src>: the <img> is dropped
+    entirely, and the website row falls back to inert text so the operator
+    can still see what the server claimed without it being clickable.
+    """
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "hostile-server-info-source",
+            "type": "streamable-http",
+            "config": {
+                "url": "https://example.com/mcp",
+                "_cache": {
+                    "server_info": {
+                        "name": "hostile",
+                        "title": "Hostile Server",
+                        "websiteUrl": "javascript:alert(document.cookie)",
+                        "icons": [{"src": "javascript:alert(1)", "mimeType": "image/png"}],
+                    },
+                    "capabilities": {"tools": {}},
+                },
+            },
+            "secrets": {},
+        },
+    )
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    section = page.locator('[data-testid="mcp-server-info-section"]')
+    expect(section).to_be_visible()
+
+    # Icon: hostile src never reaches an <img> element — dropped entirely,
+    # not rendered with a neutered/placeholder src.
+    expect(section.locator("img.mcp-server-icon")).to_have_count(0)
+
+    # websiteUrl: no <a> element carries the hostile scheme; the raw string
+    # still renders as inert text.
+    website = section.locator(".mcp-server-website")
+    expect(website).to_be_visible()
+    expect(website.locator("a")).to_have_count(0)
+    expect(website).to_contain_text("javascript:alert(document.cookie)")
+
+
+@pytest.mark.browser
+def test_server_info_website_and_icon_allow_https(app_clean: str, page: Page) -> None:
+    """The allow-list isn't a blanket drop — a benign https: websiteUrl and
+    icon src still render as a live link/image."""
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "benign-server-info-source",
+            "type": "streamable-http",
+            "config": {
+                "url": "https://example.com/mcp",
+                "_cache": {
+                    "server_info": {
+                        "name": "benign",
+                        "title": "Benign Server",
+                        "websiteUrl": "https://example.com/about",
+                        "icons": [{"src": "https://example.com/icon.png", "mimeType": "image/png"}],
+                    },
+                    "capabilities": {"tools": {}},
+                },
+            },
+            "secrets": {},
+        },
+    )
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    section = page.locator('[data-testid="mcp-server-info-section"]')
+    expect(section).to_be_visible()
+
+    icon = section.locator("img.mcp-server-icon")
+    expect(icon).to_have_count(1)
+    expect(icon).to_have_attribute("src", "https://example.com/icon.png")
+
+    link = section.locator(".mcp-server-website a")
+    expect(link).to_have_count(1)
+    expect(link).to_have_attribute("href", "https://example.com/about")
+
+
 @pytest.mark.browser
 def test_reset_button_hidden_for_stdio_source(app_clean: str, page: Page) -> None:
     """stdio sources never show the Reset connection button (no OAuth concept)."""

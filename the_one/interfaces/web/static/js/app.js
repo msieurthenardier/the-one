@@ -261,6 +261,31 @@
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // Fail-closed URL-scheme allow-list for values that land in a live `href`/
+  // `src` attribute and originate from an untrusted third party (e.g. an MCP
+  // server's `initialize()` response — `serverInfo.websiteUrl`, `icons[].src`).
+  // Mirrors the anchoring/obfuscation-defeat shape of markdown.js's
+  // `safeHref()` (M17 F4 L1 hardening decision) but is narrower: only
+  // `http:`/`https:` are allowed (no `mailto:`/`tel:`/relative/fragment —
+  // those markdown affordances don't apply to a server-supplied website link
+  // or icon). Returns the URL unchanged when it passes, or `null` when it
+  // doesn't — callers must drop the attribute/element entirely, never fall
+  // back to a placeholder href that still renders as a live link.
+  function safeUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+    // Protocol-relative URLs (`//host/...`) inherit the page's scheme and
+    // resolve OFF-SITE; reject before the scheme check so they don't need a
+    // separate carve-out. Leading-whitespace variants are already rejected
+    // below by the anchored match, but checked here too for clarity/parity
+    // with safeHref's ordering.
+    if (/^\s*\/\//.test(url)) return null;
+    // Anchored `^` with no leading `\s` — any leading junk (whitespace, tab,
+    // newline, control chars) defeats the match, same fail-closed posture as
+    // safeHref. Case-insensitive so `JavaScript:`/`HTTP:` obfuscation can't
+    // sneak past either side.
+    return /^https?:/i.test(url) ? url : null;
+  }
+
   function formatBytes(bytes) {
     if (!bytes || bytes <= 0) return '0 B';
     var units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -323,6 +348,7 @@
     },
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
+    safeUrl: safeUrl,
     formatBytes: formatBytes,
     showFlash: showFlash,
   });

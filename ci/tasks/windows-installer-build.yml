@@ -27,7 +27,19 @@ run:
       Set-Location repo
       Write-Host "=== [2/6] pip install deps + pyinstaller ==="
       & $py -m pip install --upgrade pip --quiet
-      & $py -m pip install -e ".[gui,all-llms]" --quiet
+      # Squawk 0009 / Squawk 0015: install the LOCKED closure, not a fresh resolve —
+      # the frozen app must ship the exact tested/pinned dependency set from uv.lock.
+      # A `pip install -e ".[gui,all-llms]"` re-resolves the ranges at build time and
+      # can bundle an untested SDK. Export the same closure the pr-lint workflow
+      # audits (pr-lint.yml:61) and the GitHub release path installs
+      # (windows-installer.yml), install it, then install the project itself
+      # --no-deps. Squawk 0009 fixed the GitHub path only; squawk 0015 ports the
+      # same sequence here so the every-push Concourse gate verifies the closure it
+      # actually ships.
+      & $py -m pip install uv --quiet
+      & $py -m uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
+      & $py -m pip install -r release-requirements.txt --quiet
+      & $py -m pip install -e . --no-deps --quiet
       & $py -m pip install pyinstaller --quiet
       Write-Host "=== [3/6] freeze (pyinstaller one-dir) ==="
       & $py -m PyInstaller --noconfirm packaging/windows/the-one.spec

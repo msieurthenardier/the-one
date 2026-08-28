@@ -1,10 +1,10 @@
 # Squawk 0017: Broken `workspace/test_agent.py` is git-tracked, root-owned, and `workspace/` is not ignored
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-08-27
-**Completed**: —
+**Completed**: 2026-08-27
 
 ## Report
 
@@ -31,14 +31,44 @@ clone); `chown` the on-disk copy back to the operator user.
   includes `"workspace"` (why it doesn't collect)
 
 ## Corrective Action
-*(written at completion)*
+
+- `git rm workspace/test_agent.py` failed on the unlink (`Permission denied`) —
+  `workspace/` itself is `root:root 0755` on disk, not just the file inside it, so
+  the operator-owned parent assumption in the fix note didn't hold. Fell back to
+  `git rm --cached workspace/test_agent.py`, which untracked the file from the
+  index. The on-disk copy (`workspace/test_agent.py`, still `root:root`, 158 bytes)
+  remains and needs an operator `sudo rm workspace/test_agent.py` (or `chown` the
+  directory back to the operator user first) — not done here, per the no-sudo
+  constraint.
+- Added `workspace/` to `.gitignore`, grouped with the other runtime/data-directory
+  ignores (`.memory/`, `.flightops/`) with a comment citing this squawk.
+- Confirmed nothing assumes `workspace/` pre-exists: grepped `the_one/`, `tests/`,
+  `scripts/`, `ci/`, `Makefile` for `workspace` — every hit is either unrelated
+  ("workspace" as a generic term for sandbox/host scratch space, Slack "workspaces",
+  a `workspace` function parameter in `tests/_sandbox_fixtures.py` naming a pytest
+  `tmp_path`-derived fixture dir, or a JSON config key in `tests/test_db_api.py`) or
+  is the `pyproject.toml` exclude patterns themselves. No code path does
+  `open("workspace/...")`/`os.listdir("workspace")` etc. against the literal
+  project-root directory, so no fix was needed there — no scope escalation.
+- Confirmed `pyproject.toml:142` `norecursedirs = ["workspace", ...]` and
+  `[tool.ruff] extend-exclude = ["workspace"]` (line 148) are still present — left
+  as-is (belt and braces alongside the new `.gitignore` rule).
+- `workspace/` contains nothing else besides `test_agent.py` (`find workspace` →
+  just the directory and that one file).
 
 ## Verification
-*(written at completion — `git ls-files workspace` empty; `git check-ignore workspace/x`
-matches; suite still green)*
+
+- `git ls-files workspace` → empty (file successfully untracked).
+- `git check-ignore -v workspace/anything` → `.gitignore:25:workspace/	workspace/anything`
+  (new rule matches).
+- `git status --short workspace` → `D  workspace/test_agent.py` (deletion staged,
+  as expected; not committed).
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_config.py -x --timeout 60`
+  → 37 passed.
+- `make lint` → All checks passed!
+- `make format-check` → 443 files already formatted.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: Reviewer agent (independent, diff-scoped batch review of turnaround 2026-08-27)
+**Verdict**: confirmed
+**Commit**: `squawk/turnaround-2026-08-27` — PR pending (sha recorded on close)

@@ -306,6 +306,7 @@
   function renderServerInfoSection(cache) {
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
+    var safeUrl = window.App.safeUrl;
     if (!cache) return '';
 
     var info = cache.server_info || {};
@@ -333,12 +334,20 @@
     html += '<div class="section-title">Server</div>';
 
     // Identity row — icon (if any) + title + version + protocol version badge.
+    // Squawk 0010: icons[0].src is MCP-server-supplied (initialize() response
+    // from a third party) and is fetched by the operator's browser outside
+    // the app's SSRF-guarded transport — route through the fail-closed
+    // http(s)-only allow-list and drop the element entirely on rejection
+    // (never emit a rejected scheme into a live src).
+    var safeIconSrc = (icons.length > 0 && icons[0] && icons[0].src)
+      ? safeUrl(icons[0].src)
+      : null;
     html += '<div class="mcp-server-identity">';
-    if (icons.length > 0 && icons[0] && icons[0].src) {
+    if (safeIconSrc) {
       // F2 Leg 2 (A.6): icon is decorative — the server title is rendered
       // alongside (L343-344). Always emit alt="" so SR doesn't announce
       // the icon MIME type as text content.
-      html += '<img class="mcp-server-icon" src="' + escapeAttr(icons[0].src) + '"' +
+      html += '<img class="mcp-server-icon" src="' + escapeAttr(safeIconSrc) + '"' +
         ' alt=""' +
         ' loading="lazy" decoding="async">';
     }
@@ -356,11 +365,21 @@
       html += '<div class="mcp-server-version-line">' + versionLineParts.join(' · ') + '</div>';
     }
     if (websiteUrl) {
-      html += '<div class="mcp-server-website">' +
-        '<a href="' + escapeAttr(websiteUrl) + '" target="_blank" rel="noopener noreferrer">' +
-          escapeHtml(websiteUrl) +
-        '</a>' +
-      '</div>';
+      // Squawk 0010: same MCP-server-supplied / fail-closed treatment as the
+      // icon above, applied to the clickable link. On rejection, render the
+      // raw string as inert text (still escaped) rather than dropping the
+      // whole row — the operator can still see what the server claimed, it
+      // just isn't a live href in the app's own origin.
+      var safeWebsiteHref = safeUrl(websiteUrl);
+      if (safeWebsiteHref) {
+        html += '<div class="mcp-server-website">' +
+          '<a href="' + escapeAttr(safeWebsiteHref) + '" target="_blank" rel="noopener noreferrer">' +
+            escapeHtml(websiteUrl) +
+          '</a>' +
+        '</div>';
+      } else {
+        html += '<div class="mcp-server-website">' + escapeHtml(websiteUrl) + '</div>';
+      }
     }
     html += '</div>'; // mcp-server-identity-text
     html += '</div>'; // mcp-server-identity

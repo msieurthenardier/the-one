@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from cryptography.fernet import InvalidToken
 
-from the_one.encryption import Encryptor, _encryptor_cache, get_encryptor
+from the_one.encryption import Encryptor, _encryptor_cache, _write_key_atomic, get_encryptor
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +37,20 @@ class TestGetEncryptor:
         key_path = tmp_path / "encryption.key"
         mode = stat.S_IMODE(os.stat(key_path).st_mode)
         assert mode == 0o600
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
+    def test_write_key_atomic_no_temp_file_left_behind(self, tmp_path: Path) -> None:
+        """Squawk 0011: the O_CREAT|O_EXCL temp-file + os.replace pattern leaves
+        no `.tmp.*` sibling behind and lands the canonical file at 0o600."""
+        key_path = tmp_path / "encryption.key"
+        _write_key_atomic(key_path, b"some-key-bytes")
+        assert key_path.read_bytes() == b"some-key-bytes"
+        assert stat.S_IMODE(os.stat(key_path).st_mode) == 0o600
+        leftovers = [p for p in tmp_path.iterdir() if p.name != "encryption.key"]
+        assert leftovers == []
 
     def test_reuses_existing_key_file(self, tmp_path: Path) -> None:
         enc1 = get_encryptor(tmp_path)
@@ -128,6 +142,17 @@ class TestEncryptOptional:
 
 class TestKeyRotation:
     """Tests for Encryptor.rotate_key."""
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
+    def test_rotated_key_file_permissions(self, tmp_path: Path) -> None:
+        """Squawk 0011: rotate_key's atomic write also lands at 0o600."""
+        enc = get_encryptor(tmp_path)
+        enc.rotate_key(lambda old, new: None)
+        key_path = tmp_path / "encryption.key"
+        assert stat.S_IMODE(os.stat(key_path).st_mode) == 0o600
 
     def test_rotation_generates_different_key(self, tmp_path: Path) -> None:
         enc = get_encryptor(tmp_path)

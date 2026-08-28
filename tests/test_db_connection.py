@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from unittest.mock import patch
 
 import pytest
@@ -52,6 +54,83 @@ class TestConnectionManager:
         async with conn.execute("PRAGMA foreign_keys") as cur:
             row = await cur.fetchone()
             assert row[0] == 1
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
+    async def test_db_file_permissions(self, db_path) -> None:
+        """Squawk 0011 / GH #169: a freshly-created DB lands at 0o600, not
+        the process umask (0o644 observed pre-fix)."""
+        from the_one.db.connection import get_connection
+
+        await get_connection()
+        assert stat.S_IMODE(os.stat(db_path).st_mode) == 0o600
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
+    async def test_new_wal_shm_sidecars_inherit_0600(self, db_path) -> None:
+        """SQLite creates -wal/-shm by copying the main DB file's mode bits
+        (not the process umask), so once the DB itself is 0o600 the sidecars
+        a real write creates come out 0o600 too — no separate handling needed
+        for the fresh-install path."""
+        from the_one.db.connection import get_connection
+
+        conn = await get_connection()
+        # Sidecars are created lazily on first write, not by PRAGMA alone.
+        await conn.execute("CREATE TABLE IF NOT EXISTS _squawk_0011_probe (a)")
+        await conn.commit()
+
+        wal_path = db_path.with_name(db_path.name + "-wal")
+        shm_path = db_path.with_name(db_path.name + "-shm")
+        assert wal_path.exists()
+        assert shm_path.exists()
+        assert stat.S_IMODE(os.stat(wal_path).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(shm_path).st_mode) == 0o600
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
+    async def test_tightens_existing_0644_wal_shm_sidecars(self, db_path) -> None:
+        """Squawk 0011 / GH #169: leftover 0o644 -wal/-shm sidecars from a
+        pre-fix install are reconciled to 0o600 by `get_connection()`'s
+        post-PRAGMA reconcile pass."""
+        from the_one.db.connection import get_connection
+
+        db_path.touch()
+        os.chmod(db_path, 0o644)
+        wal_path = db_path.with_name(db_path.name + "-wal")
+        shm_path = db_path.with_name(db_path.name + "-shm")
+        wal_path.touch()
+        shm_path.touch()
+        os.chmod(wal_path, 0o644)
+        os.chmod(shm_path, 0o644)
+
+        await get_connection()
+
+        assert stat.S_IMODE(os.stat(wal_path).st_mode) == 0o600
+        assert stat.S_IMODE(os.stat(shm_path).st_mode) == 0o600
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
+    async def test_tightens_existing_0644_db_file(self, db_path) -> None:
+        """Squawk 0011 / GH #169: a pre-fix install's world-readable (0o644)
+        DB file is tightened to 0o600 on open, not just left alone because
+        it already exists."""
+        from the_one.db.connection import get_connection
+
+        db_path.touch()
+        os.chmod(db_path, 0o644)
+        assert stat.S_IMODE(os.stat(db_path).st_mode) == 0o644
+
+        await get_connection()
+
+        assert stat.S_IMODE(os.stat(db_path).st_mode) == 0o600
 
     async def test_close_connection(self, db_path) -> None:
         import the_one.db.connection as conn_mod

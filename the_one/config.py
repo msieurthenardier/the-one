@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -123,9 +124,18 @@ class Settings(BaseSettings):
         fall back to copy-then-remove; all other OSErrors are logged at WARNING
         and skipped — ``ensure_dirs()`` must never raise (it runs at DB-connection
         and agent-creation time).
+
+        The data directory itself (never its parents) is created — and, on every
+        call, tightened — to mode ``0o700``. ``mkdir(..., mode=...)`` only applies
+        the mode when the directory is newly created (and is still subject to
+        umask), so the unconditional ``os.chmod`` afterward is what closes GH #169
+        for installs whose data dir was already created world-readable (``0o755``)
+        by a pre-fix version. On Windows ``os.chmod`` is a no-op against ACLs —
+        see ``SECURITY-MODEL.md`` "Secrets".
         """
         self._maybe_migrate_legacy()
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.data_dir, 0o700)
 
     def _maybe_migrate_legacy(self) -> None:
         """Attempt to rename the legacy ~/.the-one into self.data_dir.

@@ -3,10 +3,34 @@
 from __future__ import annotations
 
 import os
+import secrets
 from collections.abc import Callable
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+
+
+def _write_key_atomic(path: Path, key: bytes) -> None:
+    """Write *key* to *path* with no world-readable window, atomically.
+
+    Mirrors `the_one/api_credential.py:_write_new_credential_atomic`: open a
+    uniquely-named sibling temp file with `O_EXCL` and mode `0o600` in a
+    single `os.open` call, write, fsync, close, then `os.replace` onto the
+    canonical path.
+
+    Do **not** "simplify" this to `path.write_bytes(...)` followed by
+    `os.chmod(...)` — that sequence has a brief window where the file is
+    world-readable before the chmod lands (squawk 0011 / GH #169).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp.{secrets.token_hex(4)}")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(fd, key)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(str(tmp_path), str(path))
 
 
 class Encryptor:
@@ -74,8 +98,7 @@ class Encryptor:
         reencrypt(self, new_encryptor)
 
         # Callback succeeded — persist the new key and update self.
-        self._key_path.write_bytes(new_key)
-        os.chmod(self._key_path, 0o600)
+        _write_key_atomic(self._key_path, new_key)
         self._fernet = Fernet(new_key)
         self._key = new_key
 
@@ -100,8 +123,7 @@ def get_encryptor(data_dir: Path) -> Encryptor:
         key = key_path.read_bytes()
     else:
         key = Fernet.generate_key()
-        key_path.write_bytes(key)
-        os.chmod(key_path, 0o600)
+        _write_key_atomic(key_path, key)
 
     enc = Encryptor(key, key_path=key_path)
     _encryptor_cache[cache_key] = enc

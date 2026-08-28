@@ -1414,7 +1414,18 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
         existing = await repo.get(kb_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
-    updated = existing.model_copy(update=data)
+
+    # ``model_copy(update=...)`` does NOT re-run field validators in
+    # Pydantic v2, so a malformed PUT would silently bypass validation
+    # and corrupt the stored row. Round-trip through ``model_dump() |
+    # data → model_validate(...)`` so the validator fires on the merged
+    # payload. Mirrors ``update_connector`` (M10 F2 L6). Squawk 0013.
+    try:
+        merged = existing.model_dump()
+        merged.update(data)
+        updated = KnowledgeBase.model_validate(merged)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     await repo.update(updated)
     return updated.model_dump()
 
@@ -2083,8 +2094,16 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
             incoming_config["_cache"] = existing_cache
         data["config"] = incoming_config
 
+    # ``model_copy(update=...)`` does NOT re-run field validators in
+    # Pydantic v2, so a malformed PUT (e.g. an unknown ``type`` literal)
+    # would silently bypass validation and corrupt the stored row.
+    # Round-trip through ``model_dump() | data → model_validate(...)``
+    # so the validator fires on the merged payload. Mirrors
+    # ``update_connector`` (M10 F2 L6). Squawk 0013.
     try:
-        updated = existing.model_copy(update=data)
+        merged = existing.model_dump()
+        merged.update(data)
+        updated = MCPSource.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     # AC8b: `existing` is guaranteed non-surface at this point (a marked
@@ -4492,7 +4511,18 @@ async def update_chat_session(session_id: str, request: Request) -> dict[str, An
         existing = await repo.get(session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Chat session not found: {session_id}")
-    updated = existing.model_copy(update=data)
+
+    # ``model_copy(update=...)`` does NOT re-run field validators in
+    # Pydantic v2, so a malformed PUT would silently bypass validation
+    # and corrupt the stored row. Round-trip through ``model_dump() |
+    # data → model_validate(...)`` so the validator fires on the merged
+    # payload. Mirrors ``update_connector`` (M10 F2 L6). Squawk 0013.
+    try:
+        merged = existing.model_dump()
+        merged.update(data)
+        updated = ChatSession.model_validate(merged)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     await repo.update(updated)
     return _session_summary(updated)
 
@@ -4873,12 +4903,22 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
             del resolved_secrets[key]
     data["secrets"] = resolved_secrets
 
-    updated = existing.model_copy(update=data)
-    # URL safety check on the RESOLVED base_url — i.e. after
-    # ``model_copy(update=data)`` has merged any ``__MASKED__``-preserved
-    # fields. This blocks the regression where a request that does not
-    # touch ``base_url`` would otherwise let an unsafe stored value
-    # survive an update.
+    # ``model_copy(update=...)`` does NOT re-run field validators in
+    # Pydantic v2, so a malformed PUT would silently bypass validation
+    # and corrupt the stored row. Round-trip through ``model_dump() |
+    # data → model_validate(...)`` so the validator fires on the merged
+    # payload. Mirrors ``update_connector`` (M10 F2 L6). Squawk 0013.
+    try:
+        merged = existing.model_dump()
+        merged.update(data)
+        updated = LLMProviderConfig.model_validate(merged)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    # URL safety check on the RESOLVED base_url — i.e. after the
+    # model_dump()|data round-trip above has merged any
+    # ``__MASKED__``-preserved fields. This blocks the regression where a
+    # request that does not touch ``base_url`` would otherwise let an
+    # unsafe stored value survive an update.
     if updated.type not in _URL_VALIDATION_SKIPPED_TYPES:
         ok, msg = _is_safe_provider_url(updated.base_url)
         if not ok:
