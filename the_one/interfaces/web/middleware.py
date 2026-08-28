@@ -199,6 +199,14 @@ def build_default_allowlist(host: str, port: int) -> list[str]:
 # route is registered GET-only (`@router.get("/oauth/callback")`), so a
 # POST/PUT/etc. to this path 405s at routing rather than reaching the
 # handler.
+# Squawk 0021: any future addition to this set must clear the four-part
+# inertness checklist documented under "Bar for any future exemption" in
+# SECURITY-MODEL.md's "Authentication" section — (a) no DB read/write;
+# (b) mints no credential, sets no cookie; (c) any accepted token is
+# single-use, consumed on first use; (d) the route is registered GET-only.
+# Document all four here for the new path, and pin (d) with the
+# route-methods test in tests/test_credential_gate.py
+# (test_exempt_paths_are_get_only_on_the_real_app).
 LIVENESS_PATH = "/api/live"
 OAUTH_CALLBACK_PATH = "/api/oauth/callback"
 EXEMPT_PATHS = frozenset({LIVENESS_PATH, OAUTH_CALLBACK_PATH})

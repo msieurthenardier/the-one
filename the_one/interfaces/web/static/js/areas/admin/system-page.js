@@ -87,14 +87,27 @@
             if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Rotation failed'); });
             return r.json();
           })
-          .then(function () {
+          .then(function (data) {
             btn.disabled = false;
             // Helper's revertFn restores the original "Rotate Encryption Key"
             // text + removes the .confirm-delete class.
             revertFn();
-            flashEl.textContent = 'Encryption key rotated successfully.';
-            flashEl.className = 'admin-system-flash success';
-            setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 3000);
+            if (data && data.key_file === 'staged') {
+              // DB + in-memory key rotated, but the on-disk key file could
+              // not be promoted (`.next` sidecar reconciles at next start).
+              // Warn and leave the flash up — an operator must not mistake
+              // this for the ordinary success path.
+              flashEl.textContent =
+                'Encryption key rotated, but the key file could not be updated on disk — ' +
+                'the new key is staged and will be applied at next start. Check the server log.';
+              flashEl.className = 'admin-system-flash warning';
+            } else {
+              // "promoted" and any other/missing key_file value are treated
+              // as success (backward-compatible with older server builds).
+              flashEl.textContent = 'Encryption key rotated successfully.';
+              flashEl.className = 'admin-system-flash success';
+              setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 3000);
+            }
           })
           .catch(function (err) {
             btn.disabled = false;

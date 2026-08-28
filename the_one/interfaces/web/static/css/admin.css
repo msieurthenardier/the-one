@@ -35,6 +35,9 @@
   .area-admin .admin-system-flash { margin-top: 12px; font-size: var(--font-size-body-sm); min-height: 20px; }
   .area-admin .admin-system-flash.success { color: var(--status-success); font-weight: var(--font-weight-semibold); }
   .area-admin .admin-system-flash.error { color: var(--status-danger); }
+  /* Staged (not promoted) rotation result — degraded-but-succeeded, distinct
+     from both the ordinary success flash and a hard failure. */
+  .area-admin .admin-system-flash.warning { color: var(--status-warning); font-weight: var(--font-weight-semibold); }
   /* Base prompt block — composes the canonical .code-block primitive
      defined in components.css. Adds admin-specific max-height bound. */
   .area-admin .admin-base-prompt {

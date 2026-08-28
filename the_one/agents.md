@@ -1257,7 +1257,7 @@ A failure in any of the seven UPDATE loops calls `conn.rollback()`, discards the
 
 **Startup reconcile.** `the_one/db/key_reconcile.py:reconcile_pending_key(conn, encryptor)` runs in both entrypoints (`app.py:lifespan`, `cli.py:_run_cli`) between `get_connection()` and the first encryptor-backed repository construction — repositories hold the encryptor by reference, and the reconcile mutates it in place, so this ordering is what makes that by-reference propagation sufficient. It samples ciphertext across all seven corpora (`sample_ciphertexts`) and either promotes the pending key (at least one sample decrypts under it, or nothing is decidable) or discards it (no sample decrypts under it but at least one decrypts under the canonical key) via `the_one.encryption.resolve_pending_key`.
 
-**CLI-window trade-off.** A CLI process already running during a crashed rotation keeps encrypting new rows under the canonical key until it restarts — the reconcile only runs at process start. Negligible for a single-operator app; documented rather than engineered around.
+**CLI-window trade-off.** A CLI process already running during a crashed rotation keeps encrypting new rows under the canonical key until it restarts — the reconcile only runs at process start. Negligible for a single-operator app; documented rather than engineered around. If the reconcile then promotes the pending key while some sampled ciphertext still decrypts only under the canonical key, `resolve_pending_key` names this loss explicitly in its WARNING log line (`the_one/encryption.py`), pointing back at this paragraph.
 
 ### Outbound contract
 

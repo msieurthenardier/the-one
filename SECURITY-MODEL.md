@@ -85,6 +85,15 @@ multi-user isolation would need to revisit this (see "Future Work" below).
   writes no DB row, and consumes `state` on first use, so a caller cannot
   do anything with this route beyond resolving a pending flow whose `state`
   they already hold.
+
+  **Bar for any future exemption**: both routes above were held to a
+  four-part inertness checklist first — (a) no database read or write;
+  (b) mints no credential and sets no cookie; (c) any accepted token is
+  single-use and consumed on first use, so a replay is refused; (d) the
+  route is registered GET-only, so any other method 405s at routing. A
+  proposed exemption must document all four in the `EXEMPT_PATHS`
+  comment block (`the_one/interfaces/web/middleware.py`) and be pinned
+  by the route-methods test in `tests/test_credential_gate.py`.
 - **Two credentials, two lifetimes — do not conflate them:**
   - A **long-lived, persisted credential** (`the_one/api_credential.py`),
     stored at `<data_dir>/api-credential` (mode `0600`, written with no
