@@ -83,7 +83,10 @@ multi-user isolation would need to revisit this (see "Future Work" below).
     (the desktop launcher, which shares a process with the server) or via
     `POST /api/session/handoff` for a caller that already holds the
     long-lived credential but runs in a separate process (the browser-test
-    harness, a behavior-test Executor). It travels only as a query
+    harness, a behavior-test Executor) — that route's dependency checks the
+    resolved caller's source is explicitly `file`, not just that some
+    caller resolved, since Mission 21 added other resolvable sources. It
+    travels only as a query
     parameter on a `GET /` document request — never anywhere else, and the
     long-lived credential is never accepted from a query parameter — because
     a URL is the one channel that reliably leaks (shell history, server
@@ -563,6 +566,13 @@ with the unsandboxed Windows posture.
   `POST /api/encryption/rotate` — like every route, it requires the
   credential gate's identified caller (see "Authentication" above) and,
   behind that, the Origin-allowlist middleware.
+- **SQLite database and data directory** (squawk 0011 / GH #169): the data
+  directory is created and tightened to mode `0o700`; `<data_dir>/the-one.db`
+  and its `-wal`/`-shm` sidecars (when present) are created and tightened to
+  mode `0o600` before first write, with no world-readable window. On Windows,
+  `os.chmod` is a no-op against ACLs — protection there comes from
+  `%LOCALAPPDATA%` user-profile ACL inheritance, the same posture the
+  `api-credential` and `encryption.key` files above already rely on.
 - **MCP source, connector, and built-in tool-config secrets**: same
   Fernet field-segregated `config`+`secrets` encryption-at-rest as the
   provider keys. Built-in tool secrets (schema v32 `tool_configs.secrets`)

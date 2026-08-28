@@ -203,6 +203,30 @@ class TestProviderAPI:
         )
         assert resp.status_code == 404
 
+    async def test_update_with_invalid_type_rejected(self, client: AsyncClient) -> None:
+        """Squawk 0013: an unknown ``type`` literal must 422, not silently
+        bypass validation via ``model_copy(update=...)`` and corrupt the row."""
+        create_resp = await client.post(
+            "/api/providers",
+            json={"name": "Before", "type": "ollama", "base_url": "http://localhost:11434/v1"},
+        )
+        provider_id = create_resp.json()["id"]
+
+        resp = await client.put(
+            f"/api/providers/{provider_id}",
+            json={
+                "name": "After",
+                "type": "not-a-real-provider-type",
+                "base_url": "http://localhost:11434/v1",
+            },
+        )
+        assert resp.status_code == 422
+
+        # The stored row must be unchanged — not a half-applied merge.
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["name"] == "Before"
+        assert get_resp.json()["type"] == "ollama"
+
     async def test_update_preserves_masked_key(self, client: AsyncClient) -> None:
         """PUT with the __MASKED__ sentinel should preserve the original stored key."""
         create_resp = await client.post(

@@ -654,6 +654,24 @@ class TestKnowledgeBaseAPI:
         resp = await client.get(f"/api/knowledge-bases/{kb_id}")
         assert resp.status_code == 404
 
+    async def test_update_with_wrong_type_rejected(self, client: AsyncClient) -> None:
+        """Squawk 0013: a malformed field (wrong type) must 422, not silently
+        bypass validation via ``model_copy(update=...)`` and corrupt the row."""
+        resp = await client.post("/api/knowledge-bases", json={"name": "My KB"})
+        kb_id = resp.json()["id"]
+
+        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": 12345})
+        assert resp.status_code == 422
+
+        # The stored row must be unchanged — not a half-applied merge.
+        get_resp = await client.get(f"/api/knowledge-bases/{kb_id}")
+        assert get_resp.json()["name"] == "My KB"
+
+        # A valid PUT still succeeds.
+        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "Updated KB"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Updated KB"
+
     async def test_kb_items(self, client: AsyncClient) -> None:
         # Create KB
         resp = await client.post("/api/knowledge-bases", json={"name": "KB"})
@@ -705,6 +723,30 @@ class TestMCPSourceAPI:
         # Delete
         resp = await client.delete(f"/api/mcp-sources/{source_id}")
         assert resp.status_code == 200
+
+    async def test_update_with_invalid_type_rejected(self, client: AsyncClient) -> None:
+        """Squawk 0013: an unknown ``type`` literal must 422, not silently
+        bypass validation via ``model_copy(update=...)`` and corrupt the row."""
+        resp = await client.post(
+            "/api/mcp-sources",
+            json={"name": "Test MCP", "type": "stdio", "config": {"command": "python"}},
+        )
+        source_id = resp.json()["id"]
+
+        resp = await client.put(
+            f"/api/mcp-sources/{source_id}",
+            json={"name": "Test MCP", "type": "bogus-transport"},
+        )
+        assert resp.status_code == 422
+
+        # The stored row must be unchanged — not a half-applied merge.
+        get_resp = await client.get(f"/api/mcp-sources/{source_id}")
+        assert get_resp.json()["type"] == "stdio"
+
+        # A valid PUT still succeeds.
+        resp = await client.put(f"/api/mcp-sources/{source_id}", json={"name": "Renamed"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Renamed"
 
     async def test_list_returns_masked_secrets(self, client: AsyncClient) -> None:
         """GET /api/mcp-sources masks secret values per-key."""
@@ -3147,6 +3189,30 @@ class TestChatSessionAPI:
         # Delete
         resp = await client.delete(f"/api/chat/sessions/{session_id}")
         assert resp.status_code == 200
+
+    async def test_update_with_wrong_type_rejected(self, client: AsyncClient) -> None:
+        """Squawk 0013: a malformed field (wrong type) must 422, not silently
+        bypass validation via ``model_copy(update=...)`` and corrupt the row."""
+        await client.post("/api/agents", json={"name": "agent-squawk-0013"})
+        resp = await client.post(
+            "/api/chat/sessions",
+            json={"agent_name": "agent-squawk-0013", "title": "Test Chat"},
+        )
+        session_id = resp.json()["id"]
+
+        resp = await client.put(
+            f"/api/chat/sessions/{session_id}", json={"title": {"nested": True}}
+        )
+        assert resp.status_code == 422
+
+        # The stored row must be unchanged — not a half-applied merge.
+        get_resp = await client.get(f"/api/chat/sessions/{session_id}")
+        assert get_resp.json()["title"] == "Test Chat"
+
+        # A valid PUT still succeeds.
+        resp = await client.put(f"/api/chat/sessions/{session_id}", json={"title": "Updated"})
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "Updated"
 
     async def test_list_by_agent(self, client: AsyncClient) -> None:
         await client.post("/api/agents", json={"name": "a1"})

@@ -976,6 +976,32 @@ class TestMintEndpointOnRealApp:
             )
         assert second.status_code == 401
 
+    def test_mint_endpoint_refuses_a_resolved_caller_whose_source_is_not_file(
+        self, tmp_path: Path
+    ) -> None:
+        """Squawk 0012: `_require_long_lived_caller` must refuse a caller
+        that `resolve_caller` identifies from a source other than `file`,
+        even one the confinement middleware doesn't confine (unlike
+        `self-configuration`/`self-configuration-external`, which never
+        reach the dependency at all — `TestConfinedSourceScoping` above).
+        This is the property that used to rest solely on confinement; it
+        now holds by construction. The `file` credential must still
+        succeed unaffected.
+        """
+        from the_one.interfaces.web.app import app as real_app
+
+        other_cred = LocalApiCredential.generate()
+        register_source(_InMemorySource(other_cred))
+
+        with TestClient(real_app) as client:
+            other_resp = client.post("/api/session/handoff", headers=_bearer(other_cred))
+        assert other_resp.status_code == 401
+
+        file_cred = get_credential()
+        with TestClient(real_app) as client:
+            file_resp = client.post("/api/session/handoff", headers=_bearer(file_cred))
+        assert file_resp.status_code == 200
+
     def test_cookie_only_websocket_upgrade_succeeds_on_real_app(self, tmp_path: Path) -> None:
         """Mission 20 / Flight 1 / Leg 4 (`enforce-gate`) Pre-Flip Harness
         Fix — regression test: a session cookie ALONE (no `Authorization`

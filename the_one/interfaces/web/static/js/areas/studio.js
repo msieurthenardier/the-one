@@ -1401,6 +1401,33 @@ App.registerArea({
         });
     }
 
+    // Squawk 0014 — loadAll() rejects (network blip, non-JSON error body)
+    // with no rejection handler at either call site, so the Studio area
+    // silently stays blank / stops refreshing. Shared renderer for both
+    // call sites below. `nonDestructive: true` (the _refresh path) must
+    // not clear already-rendered content, so it uses the existing
+    // App.showFlash overlay (admin.js:534 uses the same pattern for a
+    // top-level list-fetch failure) instead of touching sectionContentEl.
+    // The init path has nothing worth preserving yet, so it appends a
+    // persistent `.admin-loading` line — the same class studio.js already
+    // uses for section-level fetch failures (fetchMcpSources_/
+    // fetchConnectors_ below), already styled for `.area-studio` in
+    // studio.css. Built via createElement/textContent (not innerHTML) per
+    // tests/test_ui_guards.py's dynamic-sink freeze.
+    function showLoadAllError(err, opts) {
+      var reason = (err && err.message) ? err.message : 'unknown error';
+      var msg = 'Unable to load Studio data — ' + reason + '.';
+      if (opts && opts.nonDestructive) {
+        App.showFlash(content, msg, true);
+        return;
+      }
+      var bannerEl = document.createElement('div');
+      bannerEl.className = 'admin-loading studio-loadall-error';
+      bannerEl.setAttribute('role', 'alert');
+      bannerEl.textContent = msg;
+      sectionContentEl.appendChild(bannerEl);
+    }
+
     // ── Agents tile grid rendering (F5 leg 02) ──────────────────────────
 
     // F9 L3 (A-L3-3) — Aggregate built-in + MCP tool counts for the tile
@@ -2885,6 +2912,8 @@ App.registerArea({
           else if (self._agents.length > 0) selectAgent(self._agents[0]);
           else renderEmptyEditor();
         }
+      }).catch(function (err) {
+        showLoadAllError(err, { nonDestructive: true });
       });
       // Also refresh the MCP-sources section if active (e.g. another tab
       // mutated the inventory while studio was deactivated).
@@ -2934,6 +2963,8 @@ App.registerArea({
         renderEmptyEditor();
         updateContentVisibility();
       }
+    }).catch(function (err) {
+      showLoadAllError(err);
     });
   },
 

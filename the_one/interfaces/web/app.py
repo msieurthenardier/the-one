@@ -2147,11 +2147,19 @@ async def _require_long_lived_caller(request: Request) -> IdentifiedCaller:
     middleware uses — no separate parsing logic to drift out of sync. This
     is deliberately NOT a check against the gate middleware (which is not
     registered on this app until `enforce-and-migrate-harness`) and NOT a
-    check against the session cookie or a handoff credential: `resolve_caller`
-    only walks long-lived-credential sources, and a handoff token is a
-    structurally different value that never resolves here — so a handoff
-    credential cannot be used to mint another one (LD2's closing
+    check against the session cookie or a handoff credential: a handoff
+    token is a structurally different value that never resolves here — so a
+    handoff credential cannot be used to mint another one (LD2's closing
     constraint), with no special-casing required to enforce it.
+
+    As of Mission 21, `resolve_caller` also walks the `agt_`/`ext_`
+    self-configuration sources, not just the `file` one — so a resolved
+    caller alone no longer implies "holds the long-lived credential." The
+    confinement middleware (`CredentialGateMiddleware`'s
+    `CONFINED_SOURCE_PATHS` check, `middleware.py:377-382`) is the first
+    line of defense keeping those sources off this route; the explicit
+    `source == "file"` check below is the second, so the property holds by
+    construction rather than resting solely on that external control.
     """
     header = request.headers.get("authorization", "")
     prefix = "Bearer "
@@ -2159,6 +2167,8 @@ async def _require_long_lived_caller(request: Request) -> IdentifiedCaller:
         raise HTTPException(status_code=401, detail="Local API credential missing or invalid")
     caller = resolve_caller(header[len(prefix) :])
     if caller is None:
+        raise HTTPException(status_code=401, detail="Local API credential missing or invalid")
+    if caller.source != "file":
         raise HTTPException(status_code=401, detail="Local API credential missing or invalid")
     return caller
 

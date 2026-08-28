@@ -20,6 +20,10 @@ tests/live/discord_hat/.env.hat
 .memory/
 .flightops/
 
+# Agents' runtime scratch directory (squawk 0017) — created on demand,
+# never a source of committed content.
+workspace/
+
 # Visual snapshot baselines and diagnostics — local regression artifacts only.
 # Each developer regenerates locally with `pytest --snapshot-update`; not shared via git.
 tests/browser/__snapshots__/

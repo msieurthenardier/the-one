@@ -298,7 +298,13 @@ class TestFileCreation:
     def test_creation_uses_o_excl_and_never_chmods(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Structural proof of 'no world-readable window': the creation path
         opens with O_EXCL and a 0o600 mode argument in a single os.open call,
-        and never calls os.chmod on the credential path."""
+        and never calls os.chmod on the credential path itself.
+
+        `get_credential()` also calls `settings.ensure_dirs()`, which (as of
+        squawk 0011 / GH #169) chmods the *data directory* to 0o700 — that's
+        a deliberate, separate at-rest-permissions fix and not part of what
+        this test is proving, so it's excluded from the "never chmods"
+        assertion below rather than asserting zero chmod calls process-wide."""
         open_calls: list[tuple[str, int, int]] = []
         chmod_calls: list[str] = []
 
@@ -325,7 +331,7 @@ class TestFileCreation:
         assert flags & os.O_WRONLY
         assert mode == 0o600
         assert str(credential_path()) not in chmod_calls
-        assert chmod_calls == []
+        assert chmod_calls == [str(settings.data_dir)]
 
     def test_creation_never_writes_canonical_path_directly(
         self, monkeypatch: pytest.MonkeyPatch

@@ -24,6 +24,8 @@ captured function reference.
 
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -112,6 +114,42 @@ def test_default_resolution_matches_patched_factory(patched_default):
     s = _make_fresh_settings()
     assert s.data_dir == target
     assert "data_dir" not in s.model_fields_set
+
+
+# ---------------------------------------------------------------------------
+# Test 1b — Squawk 0011 / GH #169: data dir is created (and tightened) 0o700
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only: Windows does not model 0o700 directory permissions",
+)
+def test_ensure_dirs_creates_data_dir_0700(patched_default):
+    """A freshly-created data dir lands at mode 0o700, not the process umask."""
+    target = patched_default
+    s = _make_fresh_settings()
+    s.ensure_dirs()
+    assert stat.S_IMODE(os.stat(target).st_mode) == 0o700
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX-only: Windows does not model 0o700 directory permissions",
+)
+def test_ensure_dirs_tightens_existing_0755_data_dir(patched_default):
+    """Squawk 0011 / GH #169: a pre-fix install's world-readable (0o755) data
+    dir is tightened to 0o700 on the next ensure_dirs() call, not just left
+    alone because it already exists."""
+    target = patched_default
+    target.mkdir(parents=True, mode=0o755)
+    os.chmod(target, 0o755)  # mkdir's mode is subject to umask — force it.
+    assert stat.S_IMODE(os.stat(target).st_mode) == 0o755
+
+    s = _make_fresh_settings()
+    s.ensure_dirs()
+
+    assert stat.S_IMODE(os.stat(target).st_mode) == 0o700
 
 
 # ---------------------------------------------------------------------------
