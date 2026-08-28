@@ -3,7 +3,7 @@
 **Flight**: [Credential lifecycle integrity and observability](flight.md)
 
 ## Summary
-In flight — started 2026-08-28 on branch `flight/01-credential-lifecycle-integrity`. Leg 1 (`rotation-handoff-safety`) landed; Leg 2 (`ext-credential-trace`) landed; Leg 3 (`oauth-callback-reachability`) landed.
+Landed 2026-08-28. Started the same day on branch `flight/01-credential-lifecycle-integrity`; three autonomous legs completed (`rotation-handoff-safety`, `ext-credential-trace`, `oauth-callback-reachability`), flight-wide review confirmed on the first pass, committed as `b856ed0` — PR #179 (ready for review). Optional `uat-and-alignment` not run. Full suite at landing: 4571 passed / 10 skipped / 0 failed; browser cross-site test passed.
 
 ---
 
