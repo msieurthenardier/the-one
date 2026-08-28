@@ -76,4 +76,4 @@ that the ordinary `file` bearer still gets 200 in the same test.
 ## Sign-Off
 **Reviewer**: Reviewer agent (independent, diff-scoped batch review of turnaround 2026-08-27)
 **Verdict**: confirmed
-**Commit**: `squawk/turnaround-2026-08-27` — PR pending (sha recorded on close)
+**Commit**: `5cf3cac` on `squawk/turnaround-2026-08-27` — PR #178
