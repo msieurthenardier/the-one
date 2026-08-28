@@ -1463,7 +1463,7 @@ class TestConnectorAPI:
         # Trigger rotation.
         rot = await client.post("/api/encryption/rotate")
         assert rot.status_code == 200
-        assert rot.json() == {"status": "ok"}
+        assert rot.json() == {"status": "ok", "key_file": "promoted"}
 
         # Eviction fired: the original warm entry is gone.
         assert key not in pool_mod._pool, (

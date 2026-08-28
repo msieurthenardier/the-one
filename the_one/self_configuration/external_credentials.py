@@ -59,15 +59,17 @@ def register(source_id: str, credential: LocalApiCredential) -> None:
     _ext_registry[credential.identifier] = (source_id, credential.secret)
 
 
-def unregister(source_id: str) -> None:
+def unregister(source_id: str) -> list[str]:
     """Remove every registry entry whose ``source_id`` matches. Idempotent
     on no-match. This is the SURFACE-TEARDOWN eviction (disable /
     cascade_delete) — the FK cascade has already removed the store rows for
     the surface; this drops the in-memory entries. Mirrors
-    ``credentials.unregister``."""
+    ``credentials.unregister``. Returns the evicted identifiers so
+    surface-teardown callers can log them (empty list on no-match)."""
     stale = [identifier for identifier, (sid, _) in _ext_registry.items() if sid == source_id]
     for identifier in stale:
         del _ext_registry[identifier]
+    return stale
 
 
 def unregister_identifier(identifier: str) -> None:

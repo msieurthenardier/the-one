@@ -1,6 +1,6 @@
 # Mission: Post-Mission-21 Maintenance
 
-**Status**: planning
+**Status**: active
 **Depends on**: none (clears debt surfaced after Mission 21; touches `interfaces/web/api.py`, `interfaces/web/middleware.py`, `encryption.py`, `db/repositories.py`, and possibly `db/schema.py`)
 
 ## Outcome
@@ -82,7 +82,7 @@ tombstone; gate exemption vs. `postMessage` for the OAuth callback.
 
 ## Known Issues
 
-N/A — this mission clears known issues rather than surfacing new ones.
+- [ ] Two encrypted columns were added after the rotation invariant was written and never joined the rotation transaction — `tool_configs.secrets` (M16 F08 L03) and `agent_external_credentials.secret` (M21 F03). Fixed in Flight 1 Leg 1 (flight-log Decision D1); the debrief should propose a structural guard so the next encrypted column cannot miss it.
 
 ## Flights
 
@@ -91,7 +91,7 @@ N/A — this mission clears known issues rather than surfacing new ones.
 > lifecycle) and test apparatus; S5 rides along because it starts with a live
 > verification that may collapse it to a one-line exemption.
 
-- [ ] Flight 1: **Credential lifecycle integrity and observability** — safe
+- [x] Flight 1: **Credential lifecycle integrity and observability** — safe
       `rotate_encryption_key` DB↔key-file handoff with logging and a fault-injection
       test (B8-rotate); durable `ext_` mint/revoke trace + tombstone decision
       (B8-ext-credential-trace); OAuth callback reachability through the gate with

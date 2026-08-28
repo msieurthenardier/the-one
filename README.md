@@ -122,7 +122,7 @@ Once the app is up, configure each provider in **System → LLM Providers** — 
 
 **Connectors** (`the_one/connectors/`) — Bi-directional communication connector framework (M10). Plugin contract + per-(agent, connector) lifecycle pool + encrypted-credentials persistence. Flight 2 ships the operator-visible admin surface (`/api/connectors` REST + Agent Studio editor); real platform plugins (Discord, …) land in subsequent flights.
 
-**Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connectors, chat sessions, and a Knowledge Base index live here. API keys, MCP secrets, and connector secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts all three corpora.
+**Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connectors, chat sessions, and a Knowledge Base index live here. API keys, MCP secrets, and connector secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts every encrypted corpus (seven columns).
 
 ## Security
 

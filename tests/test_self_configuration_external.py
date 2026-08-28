@@ -21,6 +21,7 @@ so the AC9 cascade actually fires).
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 import aiosqlite
@@ -31,7 +32,7 @@ from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
 from the_one import api_credential
-from the_one.api_credential import resolve_caller
+from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     MCPSourceRepository,
@@ -40,8 +41,10 @@ from the_one.db.repositories import (
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
+from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
 from the_one.self_configuration import credentials as sc_credentials
 from the_one.self_configuration import external_credentials as sc_external
+from the_one.self_configuration import manage as sc_manage
 
 
 @pytest.fixture(autouse=True)
@@ -383,3 +386,202 @@ class TestSeamRegistrationIdempotent:
             for s in api_credential._sources
         )
         assert count == 1
+
+
+# ── Flight 01 Leg 2 (B8-ext-credential-trace) — operator-readable trace ──
+#
+# AC1-AC3, AC7: route-layer mint/revoke/rotate log lines and principal
+# rendering. AC4: `unregister` return value. AC5-AC6: cascade log lines at
+# both surface-teardown call sites, reached through all three entrypoints.
+# Q2 (flight.md Design Decisions): log lines only, no `revoked_at`
+# tombstone — every issuance and every disappearance leaves an
+# operator-readable INFO line, never the secret.
+
+
+def _api_records(caplog):
+    return [
+        r
+        for r in caplog.records
+        if r.name == "the_one.interfaces.web.api"
+        and r.getMessage().startswith("external-credential:")
+    ]
+
+
+def _manage_records(caplog):
+    return [
+        r
+        for r in caplog.records
+        if r.name == "the_one.self_configuration.manage"
+        and r.getMessage().startswith("external-credential:")
+    ]
+
+
+class TestLifecycleTrace:
+    async def test_mint_logs_agent_identifier_label_principal_no_secret(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        with caplog.at_level(logging.INFO, logger="the_one.interfaces.web.api"):
+            minted = (await _mint(env.client, "a", "external-client-1")).json()
+        records = _api_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert "a" in message
+        assert minted["identifier"] in message
+        assert "external-client-1" in message
+        secret = minted["token"].split(".", 1)[1]
+        assert secret not in caplog.text
+
+    async def test_revoke_logs_agent_identifier_label_principal(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        minted = (await _mint(env.client, "a", "to-revoke")).json()
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="the_one.interfaces.web.api"):
+            resp = await env.client.delete(
+                f"/api/agents/a/self-configuration/external-credentials/{minted['identifier']}"
+            )
+        assert resp.status_code == 200, resp.text
+        records = _api_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert "a" in message
+        assert minted["identifier"] in message
+        assert "to-revoke" in message
+
+    async def test_revoke_unknown_identifier_emits_no_log_line(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        with caplog.at_level(logging.INFO, logger="the_one.interfaces.web.api"):
+            resp = await env.client.delete(
+                "/api/agents/a/self-configuration/external-credentials/does-not-exist"
+            )
+        assert resp.status_code == 404
+        assert _api_records(caplog) == []
+
+    async def test_rotate_logs_old_new_identifier_label_principal_no_secrets(
+        self, env, caplog
+    ) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        minted = (await _mint(env.client, "a", "rot")).json()
+        old_identifier = minted["identifier"]
+        old_secret = minted["token"].split(".", 1)[1]
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="the_one.interfaces.web.api"):
+            resp = await env.client.post(
+                f"/api/agents/a/self-configuration/external-credentials/{old_identifier}/rotate"
+            )
+        assert resp.status_code == 200, resp.text
+        new = resp.json()
+        records = _api_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert old_identifier in message
+        assert new["identifier"] in message
+        assert "rot" in message
+        assert "a" in message
+        new_secret = new["token"].split(".", 1)[1]
+        assert old_secret not in caplog.text
+        assert new_secret not in caplog.text
+
+    async def test_unregister_returns_evicted_identifiers(self, env) -> None:
+        """AC4: `unregister(source_id)` returns the list of identifiers it
+        evicted (empty list on no-match)."""
+        await _create_agent(env.client, "a")
+        source_id = await _enable(env.client, "a")
+        minted = (await _mint(env.client, "a")).json()
+        evicted = sc_external.unregister(source_id)
+        assert evicted == [minted["identifier"]]
+        # Idempotent no-op the second time.
+        assert sc_external.unregister(source_id) == []
+        assert sc_external.unregister("does-not-exist") == []
+
+    async def test_disable_via_self_configuration_route_logs_cascade(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        minted = (await _mint(env.client, "a", "cascaded")).json()
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="the_one.self_configuration.manage"):
+            resp = await env.client.delete("/api/agents/a/self-configuration")
+        assert resp.status_code == 200, resp.text
+        records = _manage_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert "a" in message
+        assert minted["identifier"] in message
+        assert "1" in message  # count
+
+    async def test_disable_with_no_credentials_logs_nothing(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        with caplog.at_level(logging.INFO, logger="the_one.self_configuration.manage"):
+            resp = await env.client.delete("/api/agents/a/self-configuration")
+        assert resp.status_code == 200, resp.text
+        assert _manage_records(caplog) == []
+
+    async def test_direct_mcp_source_delete_of_surface_row_logs_cascade(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        minted = (await _mint(env.client, "a", "cascaded")).json()
+        row = await sc_manage.find_surface_row(env.mcp_repo(), "a")
+        assert row is not None
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="the_one.self_configuration.manage"):
+            resp = await env.client.delete(f"/api/mcp-sources/{row.id}")
+        assert resp.status_code == 200, resp.text
+        records = _manage_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert minted["identifier"] in message
+
+    async def test_agent_delete_cascade_logs_removed_with_agent(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        minted = (await _mint(env.client, "a", "cascaded")).json()
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="the_one.self_configuration.manage"):
+            resp = await env.client.delete("/api/agents/a")
+        assert resp.status_code in (200, 204), resp.text
+        records = _manage_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert minted["identifier"] in message
+        assert "removed with the agent" in message
+
+    async def test_principal_rendered_when_caller_present(self, env, caplog) -> None:
+        """AC7: wrap the throwaway app in a two-line pure-ASGI shim that
+        stamps `scope[CALLER_SCOPE_KEY]` and asserts `source:identifier`
+        appears in the mint record; the other tests (no shim) accept `-`."""
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+
+        test_app = FastAPI()
+        test_app.include_router(router)
+
+        async def shim(scope, receive, send):
+            if scope["type"] == "http":
+                scope[CALLER_SCOPE_KEY] = IdentifiedCaller(identifier="loc_test", source="file")
+            await test_app(scope, receive, send)
+
+        transport = ASGITransport(app=shim)
+        async with AsyncClient(
+            transport=transport, base_url="http://test", headers=auth_headers()
+        ) as shimmed_client:
+            with caplog.at_level(logging.INFO, logger="the_one.interfaces.web.api"):
+                resp = await shimmed_client.post(
+                    "/api/agents/a/self-configuration/external-credentials",
+                    json={"label": "shimmed"},
+                )
+        assert resp.status_code == 200, resp.text
+        records = _api_records(caplog)
+        assert len(records) == 1
+        assert "file:loc_test" in records[0].getMessage()
+
+    async def test_principal_is_dash_when_caller_absent(self, env, caplog) -> None:
+        await _create_agent(env.client, "a")
+        await _enable(env.client, "a")
+        with caplog.at_level(logging.INFO, logger="the_one.interfaces.web.api"):
+            await _mint(env.client, "a", "no-principal")
+        records = _api_records(caplog)
+        assert len(records) == 1
+        assert records[0].getMessage().endswith("by -")

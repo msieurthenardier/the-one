@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
@@ -13,11 +14,14 @@ from the_one.agent.factory import AgentFactory
 from the_one.config import settings
 from the_one.db import close_connection, init_db
 from the_one.db.connection import get_connection
+from the_one.db.key_reconcile import reconcile_pending_key
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.repositories import SQLiteAgentStore
+from the_one.encryption import get_encryptor
 from the_one.llm.base import Role
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 async def _run_cli() -> None:
@@ -28,6 +32,12 @@ async def _run_cli() -> None:
 
     prune_box_scratch()
     conn = await get_connection()
+    # Reconcile a leftover rotation sidecar before any encryptor-backed
+    # repository is constructed — mirrors the web lifespan's ordering
+    # (flight Design Decision Q1 / `the_one.db.key_reconcile`).
+    _reconcile_outcome = await reconcile_pending_key(conn, get_encryptor(settings.data_dir))
+    if _reconcile_outcome != "absent":
+        logger.info("encryption key sidecar reconciled at startup: %s", _reconcile_outcome)
     store = SQLiteAgentStore(conn)
     await migrate_json_to_sqlite(store)
 

@@ -175,15 +175,33 @@ def build_default_allowlist(host: str, port: int) -> list[str]:
 # ---------------------------------------------------------------------------
 
 # The exemption set (DD5) — data, not an `if` chain, per leg Implementation
-# Guidance #6, so "exactly one exemption" has something to enumerate. Method-
-# agnostic: exempted by path only, any method — mirroring the Origin
+# Guidance #6, so the exemption count has something to enumerate (now two —
+# see below). Method-agnostic: exempted by path only, any method — mirroring the Origin
 # middleware's stance that gating OPTIONS without CORS headers would break a
 # future preflight (its `GATED_METHODS` comment), and because the liveness
 # endpoint (see `the_one/interfaces/web/app.py`) is registered GET-only and
 # returns nothing sensitive by construction, so there is nothing a POST/PUT/
 # etc. to this same path could expose even if routing ever grew one.
+#
+# Mission 22 / Flight 01 / Leg 03 (`oauth-callback-reachability`, flight
+# Design Decision Q3) adds a second member: the external-IdP OAuth callback
+# (`GET /api/oauth/callback`). The IdP's redirect back to this path is a
+# cross-site top-level navigation, on which the `SameSite=Strict` session
+# cookie (`_build_set_cookie_header` above) is withheld by spec — so without
+# this exemption the gate 401s the redirect before the handler ever runs
+# and the pending OAuth flow times out. The route needs no session: its own
+# single-use, SDK-generated, unguessable `state` token IS the credential —
+# the handler 401s on a missing/unknown `state` (`api.py:oauth_callback`),
+# mints no credential, sets no cookie, reads/writes no DB row, and consumes
+# `state` on first use (`the_one/mcp/oauth/_state.py:resolve` pops the
+# entry), so a replay reaches "Unknown or expired state", not a second
+# success. Same method-agnostic-by-path reasoning as liveness above: the
+# route is registered GET-only (`@router.get("/oauth/callback")`), so a
+# POST/PUT/etc. to this path 405s at routing rather than reaching the
+# handler.
 LIVENESS_PATH = "/api/live"
-EXEMPT_PATHS = frozenset({LIVENESS_PATH})
+OAUTH_CALLBACK_PATH = "/api/oauth/callback"
+EXEMPT_PATHS = frozenset({LIVENESS_PATH, OAUTH_CALLBACK_PATH})
 
 # The `HttpOnly` session cookie's name (LD1's second channel).
 SESSION_COOKIE_NAME = "the_one_session"
@@ -249,8 +267,10 @@ def _build_set_cookie_header(value: str) -> bytes:
 
 class CredentialGateMiddleware:
     """Enforce an identified caller (DD8) on every HTTP request, WebSocket
-    upgrade, and `/static` path (DD6) — with exactly one unauthenticated
-    exemption (`EXEMPT_PATHS`, DD5) and the one-time browser-handoff
+    upgrade, and `/static` path (DD6) — with exactly two unauthenticated
+    exemptions (`EXEMPT_PATHS`, DD5; liveness and the OAuth callback, the
+    latter added by Mission 22 / Flight 01 / Leg 03 per Q3 — see the
+    rationale comment above `EXEMPT_PATHS`) and the one-time browser-handoff
     exchange (DD7, DD12).
 
     Construction:

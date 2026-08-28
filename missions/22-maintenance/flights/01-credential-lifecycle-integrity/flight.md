@@ -1,12 +1,12 @@
 # Flight: Credential lifecycle integrity and observability
 
-**Status**: planning
+**Status**: landed
 **Mission**: [Post-Mission-21 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] `rotate_encryption_key` DB↔key-file handoff has a recovery path, logs, and a fault-injection test (B8-rotate)
-- [ ] `ext_` mint/revoke leaves a durable trace; tombstone decision recorded (B8-ext-credential-trace)
-- [ ] OAuth callback verified through the gate; mechanism chosen; middleware-inclusive test (S5 + S5b)
+- [x] `rotate_encryption_key` DB↔key-file handoff has a recovery path, logs, and a fault-injection test (B8-rotate)
+- [x] `ext_` mint/revoke leaves a durable trace; tombstone decision recorded (B8-ext-credential-trace)
+- [x] OAuth callback verified through the gate; mechanism chosen; middleware-inclusive test (S5 + S5b)
 
 ---
 
@@ -24,7 +24,7 @@ These are why the findings are a flight rather than squawks. Each has the
 Architect's recommended default; confirm or override at flight start, then move
 the answer to Design Decisions.
 
-- [ ] **Q1 — Rotation handoff ordering.** Today `rotate_encryption_key` commits all
+- [x] **Q1 — Rotation handoff ordering.** → *Resolved 2026-08-28: (a) two-phase sidecar — see Design Decisions.* Today `rotate_encryption_key` commits all
       five re-encrypted corpora, *then* writes the key file, *then* installs the key
       in memory, with the last two steps unguarded. Options: (a) two-phase — write
       the new key to a `.new` sidecar *before* the DB commit, promote it after, and
@@ -34,13 +34,13 @@ the answer to Design Decisions.
       both keys; (c) keep the order and on key-file failure attempt a best-effort
       re-encrypt back to the old key. **Recommended: (a)** — it is the only option
       where every crash point leaves a recoverable state without a retry loop.
-- [ ] **Q2 — `ext_` revocation record.** Log line only, or add a `revoked_at`
+- [x] **Q2 — `ext_` revocation record.** → *Resolved 2026-08-28: log lines including cascade points; no tombstone — see Design Decisions.* Log line only, or add a `revoked_at`
       tombstone to `agent_external_credentials` (migration v38, `delete()` becomes
       an update, `load_all` and the startup reconcile filter on it)? **Recommended:
       log line in this flight; tombstone only if the operator wants a durable
       revocation record before the next `ext_` client is issued.** Record the
       decision either way.
-- [ ] **Q3 — OAuth callback mechanism.** If live verification confirms the
+- [x] **Q3 — OAuth callback mechanism.** → *Resolved 2026-08-28: (A) exempt the state-guarded callback path — see Design Decisions.* If live verification confirms the
       `SameSite=Strict` cookie is withheld on the IdP's cross-site redirect: exempt
       `GET /api/oauth/callback` from the gate (it is guarded by a single-use,
       unguessable `state` and performs no privileged action beyond resolving the
@@ -50,18 +50,66 @@ the answer to Design Decisions.
       nothing and to be idempotent on replay.
 
 ### Design Decisions
-*(populated from the Open Questions at flight start)*
+
+**Q1 — Rotation handoff: two-phase sidecar**: `rotate_encryption_key` writes the
+new key to `encryption.key.next` (atomic, `0o600`, via `_write_key_atomic`) *before*
+the DB commit, commits, then promotes `.next → encryption.key` with `os.replace`
+and `install_key`. A startup reconcile in the app lifespan (before any request)
+handles a leftover `.next`: probe the first encrypted row — decrypts under `.next`
+→ promote it; otherwise → delete it; no encrypted rows → promote. While `.next`
+exists, `get_encryptor` loads both keys (`MultiFernet([next, current])`) so reads
+never fail before the reconcile runs.
+- Rationale: the only option where every crash point — including a hard kill
+  between commit and promote — leaves a state the app repairs itself on next start.
+  (b) reverse-re-encrypt and (c) surface-to-operator both depend on the fault being
+  transient and noticed.
+- Trade-off: one new startup step and a two-key read mode; a CLI process started
+  during the crash window would encrypt new rows under the canonical key while
+  `.next` is pending — negligible for a single-operator app, documented in the leg.
+
+**Q2 — `ext_` trace: log lines, including cascade points; no tombstone**:
+`logger.info` at mint / revoke / rotate (`api.py` routes) with agent name, credential
+identifier, and label — never the secret — and at the two cascade points where
+credential rows disappear without an explicit revoke (self-configuration surface
+disable, agent delete), so every disappearance is logged. Route layer owns the
+lines (one layer, consistently). No `revoked_at` column.
+- Rationale: `agent_external_credentials.source_id` is `ON DELETE CASCADE`, so a
+  tombstone would record operator revokes but not cascades — a half-record unless
+  the FK also changed. A queryable audit trail is an events table, which is its own
+  initiative alongside the Advisory logging sweep. The log-line format chosen here
+  becomes the convention that sweep inherits.
+- Trade-off: durable only as long as the host log file is retained; nothing
+  queryable in the DB.
+
+**Q3 — OAuth callback: exempt `GET /api/oauth/callback` from the credential gate**:
+add the path to `EXEMPT_PATHS` (`middleware.py`), making it the second exemption
+beside `GET /api/live`. The single-use, unguessable `state` is the credential: the
+handler already 401s on a missing/unknown state, mints nothing, and a replay reaches
+the "Login expired" branch. `SECURITY-MODEL.md`'s "exactly one exemption" line is
+updated to two, with this reasoning. The session cookie stays `SameSite=Strict`.
+- Rationale: the IdP → app redirect is a cross-site navigation, on which a `Strict`
+  cookie is withheld by spec — so today the callback 401s before `_state.resolve`
+  runs and the flow times out. Relaxing the cookie to `Lax` reopens the M20 decision
+  (`middleware.py:~232`); a `postMessage` relay still needs the callback exempt and
+  adds a route, JS, and failure modes for no security gain.
+- Trade-off: one more unauthenticated route; its only mutation is resolving a
+  pending flow the caller cannot name without `state`.
+- Verification without a real IdP: `localhost` and `127.0.0.1` are different sites —
+  a browser-lane test signs in on `http://localhost:<port>`, then navigates the popup
+  to `http://127.0.0.1:<port>/api/oauth/callback?code=…&state=…`; the browser
+  withholds the `Strict` cookie exactly as after an IdP redirect. A live IdP run is
+  a bonus, not a prerequisite.
 
 ### Prerequisites
-- [ ] Squawk 0011 (`encryption.py` atomic key-file write) landed — Leg 1 builds on the `O_CREAT|O_EXCL` write it introduces
-- [ ] Squawk 0012 (`_require_long_lived_caller` explicit source check) landed — so Leg 3's gate-exemption change is reviewed against an auth path that holds by construction
+- [x] Squawk 0011 (`encryption.py` atomic key-file write) landed — PR #178, merged 2026-08-28 — Leg 1 builds on the `O_CREAT|O_EXCL` write it introduces
+- [x] Squawk 0012 (`_require_long_lived_caller` explicit source check) landed — PR #178, merged 2026-08-28 — so Leg 3's gate-exemption change is reviewed against an auth path that holds by construction
 
 ### Pre-Flight Checklist
-- [ ] All open questions resolved (Q1–Q3)
-- [ ] Design decisions documented
-- [ ] Prerequisites verified
-- [ ] Validation approach defined (fault-injection test for Leg 1; log-capture test for Leg 2; middleware-inclusive cross-site test for Leg 3)
-- [ ] Legs defined (during `/agentic-workflow`)
+- [x] All open questions resolved (Q1–Q3) — 2026-08-28
+- [x] Design decisions documented
+- [x] Prerequisites verified
+- [x] Validation approach defined (fault-injection test + `.next` reconcile tests for Leg 1; log-capture test incl. cascade points for Leg 2; middleware-inclusive unit test + `localhost`→`127.0.0.1` cross-site browser test for Leg 3)
+- [x] Legs defined (during `/agentic-workflow`)
 
 ---
 
@@ -118,20 +166,23 @@ gate therefore 401s before `_state.resolve()` runs and the pending flow times ou
 Fails closed (no bypass), but the external-IdP OAuth flow is plausibly broken
 end-to-end and nothing would notice: `tests/test_oauth_callback_route.py` omits the
 middleware entirely. Three of four security review passes found this independently.
-Step 1 — verify live (a real IdP on one MCP source, or a browser-lane test doing a
-genuine cross-site navigation); if the flow completes, record why (e.g. the popup
-retains the cookie) and reduce the leg to the test. Step 2 — apply Q3. If exempting:
-add the path to `EXEMPT_PATHS` only after confirming the handler mints nothing,
-resolves a single-use `state`, and is idempotent on replay; update
-`SECURITY-MODEL.md`'s "exactly one exemption" line. Step 3 — a middleware-inclusive
-test that drives the callback without the session cookie.
+Step 1 — write the failing test first: a browser-lane test that signs in on
+`http://localhost:<port>` and navigates the popup to
+`http://127.0.0.1:<port>/api/oauth/callback?code=…&state=…` (cross-site, so the
+`Strict` cookie is withheld) and asserts the flow resolves; plus a middleware-
+inclusive unit test driving the callback with no cookie. Both should fail today
+(401). Step 2 — add `GET /api/oauth/callback` to `EXEMPT_PATHS` (Q3 decision),
+re-confirming in the diff that the handler mints nothing, resolves a single-use
+`state`, and is replay-safe; update `SECURITY-MODEL.md`'s "exactly one exemption"
+line. Step 3 — tests green; a live IdP run if one is configured, recorded in the
+flight log either way.
 
 ### Checkpoints
-- [ ] Key-file fault after commit → credentials still decryptable, failure logged (test)
-- [ ] Mint + revoke of an `ext_` credential → log lines with agent / id / label / principal (test)
-- [ ] Tombstone decision recorded in Design Decisions (and migration v38 + tests, if chosen)
-- [ ] OAuth callback verified live; mechanism implemented; middleware-inclusive test green
-- [ ] `SECURITY-MODEL.md` updated for any new gate exemption
+- [x] Key-file fault after commit → credentials still decryptable, failure logged (test)
+- [x] Mint + revoke of an `ext_` credential → log lines with agent / id / label / principal (test)
+- [x] Tombstone decision recorded in Design Decisions (and migration v38 + tests, if chosen)
+- [x] OAuth callback verified live; mechanism implemented; middleware-inclusive test green
+- [x] `SECURITY-MODEL.md` updated for any new gate exemption
 
 ### Adaptation Criteria
 
@@ -150,20 +201,20 @@ log lines; log field naming; whether the Leg 1 fault-injection test monkeypatche
 > **Note:** Planned one at a time during `/agentic-workflow`. One finding maps to
 > one leg.
 
-- [ ] `rotation-handoff-safety` - two-phase key-file handoff, logging, fault-injection test (B8-rotate)
-- [ ] `ext-credential-trace` - mint/revoke/rotate logging + tombstone decision (B8-ext-credential-trace)
-- [ ] `oauth-callback-reachability` - live verification, gate mechanism, middleware-inclusive test (S5/S5b)
-- [ ] `uat-and-alignment` *(optional)* - rotate a key and mint/revoke an `ext_` credential on the real app; walk an OAuth sign-in if an IdP is configured
+- [x] `rotation-handoff-safety` - two-phase key-file handoff, logging, fault-injection test (B8-rotate)
+- [x] `ext-credential-trace` - mint/revoke/rotate logging + tombstone decision (B8-ext-credential-trace)
+- [x] `oauth-callback-reachability` - live verification, gate mechanism, middleware-inclusive test (S5/S5b) — *no external IdP configured; the cross-site browser test is the live verification*
+- [ ] `uat-and-alignment` *(optional, not run — offered to the operator after landing)* - rotate a key and mint/revoke an `ext_` credential on the real app; walk an OAuth sign-in if an IdP is configured
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (`make test-unit`; browser lane for Leg 3 if used)
-- [ ] Documentation updated (`SECURITY-MODEL.md` exemption line; `agents.md` if the encryptor gains sidecar semantics)
+- [x] Tests passing (`make test-unit`; browser lane for Leg 3 if used)
+- [x] Documentation updated (`SECURITY-MODEL.md` exemption line; `agents.md` if the encryptor gains sidecar semantics)
 
 ### Verification
 A key rotation with an injected key-file fault leaves every credential decryptable
