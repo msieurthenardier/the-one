@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -598,7 +599,7 @@ class TestEncryptionRotation:
         # Rotate
         resp = await client.post("/api/encryption/rotate")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "ok", "key_file": "promoted"}
 
         # Verify the key is still accessible (masked correctly)
         resp = await client.get(f"/api/providers/{provider_id}")
@@ -609,7 +610,7 @@ class TestEncryptionRotation:
         """Rotation with no providers should succeed as a no-op."""
         resp = await client.post("/api/encryption/rotate")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "ok", "key_file": "promoted"}
 
     async def test_rotate_multiple_providers(self, client: AsyncClient) -> None:
         """Rotation should re-encrypt all provider API keys."""
@@ -676,6 +677,11 @@ class TestEncryptionRotation:
         # (i) Key file byte-identical to its pre-rotation contents.
         assert key_path.read_bytes() == key_before
 
+        # (i-b) The staged sidecar is discarded on rollback (AC2).
+        from the_one.encryption import next_key_path
+
+        assert not next_key_path(key_path).exists()
+
         # (ii) Masked tail still works (exercises the cached encryptor's
         # decrypt path — would fail if the cached _fernet was mutated).
         get_resp = await client.get(f"/api/providers/{provider_id}")
@@ -714,7 +720,7 @@ class TestEncryptionRotation:
 
         resp = await client.post("/api/encryption/rotate")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "ok", "key_file": "promoted"}
 
         # GET-after-rotate proves the cached encryptor decrypts under the new key
         get_resp = await client.get(f"/api/mcp-sources/{sid}")
@@ -747,7 +753,7 @@ class TestEncryptionRotation:
 
         rot_resp = await client.post("/api/encryption/rotate")
         assert rot_resp.status_code == 200
-        assert rot_resp.json() == {"status": "ok"}
+        assert rot_resp.json() == {"status": "ok", "key_file": "promoted"}
 
         # Both surfaces still decrypt under the new key
         prov_get = await client.get(f"/api/providers/{pid}")
@@ -805,6 +811,11 @@ class TestEncryptionRotation:
 
         # (i) Key file byte-identical to its pre-rotation contents
         assert key_path.read_bytes() == key_before
+
+        # (i-b) The staged sidecar is discarded on rollback (AC2).
+        from the_one.encryption import next_key_path
+
+        assert not next_key_path(key_path).exists()
 
         # (ii) Cached encryptor still decrypts (proves install_key NOT called)
         get_resp = await client.get(f"/api/mcp-sources/{sid}")
@@ -866,7 +877,7 @@ class TestEncryptionRotation:
 
         resp = await client.post("/api/encryption/rotate")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "ok", "key_file": "promoted"}
 
         # The key file has been replaced; read the new key and verify the
         # stored ciphertext decrypts under it (proves the row was re-
@@ -985,6 +996,11 @@ class TestEncryptionRotation:
         # (i) Key file byte-identical to its pre-rotation contents
         assert (tmp_path / "test.key").read_bytes() == key_before
 
+        # (i-b) The staged sidecar is discarded on rollback (AC2).
+        from the_one.encryption import next_key_path
+
+        assert not next_key_path(tmp_path / "test.key").exists()
+
         # (ii) Cached encryptor still decrypts (proves install_key NOT called).
         # We exercise the LLM + MCP surfaces via the API; for connector
         # accounts (no REST route yet) we open a fresh connection and
@@ -1083,7 +1099,7 @@ class TestEncryptionRotation:
         # Rotate — must NOT crash on the residue row
         rot_resp = await client.post("/api/encryption/rotate")
         assert rot_resp.status_code == 200
-        assert rot_resp.json() == {"status": "ok"}
+        assert rot_resp.json() == {"status": "ok", "key_file": "promoted"}
 
         # Post-rotation: residue row reads as empty secrets, AND the on-disk
         # column is no longer the literal '{}' — it's proper Fernet
@@ -1173,6 +1189,11 @@ class TestEncryptionRotation:
         # (i) Key file untouched
         assert key_path.read_bytes() == key_before
 
+        # (i-b) The staged sidecar is discarded on rollback (AC2).
+        from the_one.encryption import next_key_path
+
+        assert not next_key_path(key_path).exists()
+
         # (ii) BOTH on-disk ciphertexts byte-identical to pre-rotation
         direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
         direct_conn.row_factory = aiosqlite.Row
@@ -1220,7 +1241,7 @@ class TestEncryptionRotation:
 
         rot_resp = await client.post("/api/encryption/rotate")
         assert rot_resp.status_code == 200
-        assert rot_resp.json() == {"status": "ok"}
+        assert rot_resp.json() == {"status": "ok", "key_file": "promoted"}
 
         key_after = (tmp_path / "test.key").read_bytes()
         assert key_after != key_before
@@ -1290,7 +1311,7 @@ class TestEncryptionRotation:
 
         rot_resp = await client.post("/api/encryption/rotate")
         assert rot_resp.status_code == 200
-        assert rot_resp.json() == {"status": "ok"}
+        assert rot_resp.json() == {"status": "ok", "key_file": "promoted"}
 
         post_get = await client.get("/api/agents/legacy-plaintext-agent")
         assert post_get.status_code == 200
@@ -1378,6 +1399,11 @@ class TestEncryptionRotation:
 
         # (i) Key file byte-identical to its pre-rotation contents.
         assert key_path.read_bytes() == key_before
+
+        # (i-b) The staged sidecar is discarded on rollback (AC2).
+        from the_one.encryption import next_key_path
+
+        assert not next_key_path(key_path).exists()
 
         # (ii) Cached encryptor still decrypts (proves install_key NOT called).
         get_resp = await client.get("/api/agents/fail-agent")
@@ -1468,6 +1494,398 @@ class TestEncryptionRotation:
         # Cached encryptor still decrypts the MCP source (install_key NOT called).
         mcp_get = await client.get(f"/api/mcp-sources/{sid}")
         assert mcp_get.json()["secrets"]["K"] == "***...cret"
+
+    # ── Leg 1 (M22 F01): two-phase sidecar handoff, seven corpora ──────
+
+    async def test_rotate_staging_failure_returns_500(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """AC1: if staging the `.next` sidecar raises, the route returns
+        500, the DB is unchanged, the canonical key file is byte-identical,
+        and no `.next` or `.tmp.*` file remains."""
+        from the_one.encryption import next_key_path
+
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "StageFailTest",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-stagefailure1234",
+            },
+        )
+        assert create_resp.status_code in (200, 201)
+        provider_id = create_resp.json()["id"]
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+
+        with patch(
+            "the_one.encryption._write_key_atomic",
+            side_effect=OSError("simulated disk full"),
+        ):
+            resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 500
+
+        # DB unchanged, canonical key file unchanged, no sidecar / temp files.
+        assert key_path.read_bytes() == key_before
+        assert not next_key_path(key_path).exists()
+        leftovers = [p for p in tmp_path.iterdir() if p.name not in ("test.key", "test.db")]
+        assert leftovers == [], f"unexpected leftover files: {leftovers}"
+
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["api_key"] == "***...1234"
+
+    async def test_rotate_promote_failure_stays_staged_and_reconciles(
+        self, client: AsyncClient, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """AC4: with `os.replace` failing only for the promotion (dst ==
+        key_path), the route still returns 200 with
+        `{"status": "ok", "key_file": "staged"}`, the provider's key
+        remains retrievable (masked), the canonical key file still holds
+        the OLD key, `.next` holds the NEW key, and an ERROR-level log
+        names the reached state. The startup reconcile then promotes it."""
+        import logging
+
+        from the_one.db.key_reconcile import reconcile_pending_key
+        from the_one.encryption import Encryptor, next_key_path
+
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "PromoteFailTest",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-promotefailure5678",
+            },
+        )
+        assert create_resp.status_code in (200, 201)
+        provider_id = create_resp.json()["id"]
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+        next_path = next_key_path(key_path)
+
+        real_replace = os.replace
+
+        def fake_replace(src, dst, *args, **kwargs):
+            if Path(dst) == key_path:
+                raise OSError("simulated ENOSPC on promote")
+            return real_replace(src, dst, *args, **kwargs)
+
+        with caplog.at_level(logging.ERROR, logger="the_one.interfaces.web.api"):
+            with patch("the_one.encryption.os.replace", fake_replace):
+                resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "key_file": "staged"}
+
+        # Canonical key file still holds the OLD key; `.next` holds the NEW key.
+        assert key_path.read_bytes() == key_before
+        assert next_path.exists()
+        new_key = next_path.read_bytes()
+        assert new_key != key_before
+
+        # ERROR log names the reached state.
+        assert any(
+            record.levelno == logging.ERROR and "promot" in record.getMessage().lower()
+            for record in caplog.records
+        )
+
+        # The provider's key remains retrievable (masked) — the DB already
+        # committed under the new key, and the cached encryptor's
+        # install_key ran, so reads succeed even though promotion failed.
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["api_key"] == "***...5678"
+
+        # The startup reconcile promotes the leftover sidecar on next start.
+        fresh_encryptor = Encryptor(key_before, key_path=key_path, pending_key=new_key)
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            outcome = await reconcile_pending_key(direct_conn, fresh_encryptor)
+        finally:
+            await direct_conn.close()
+        assert outcome == "promoted"
+        assert key_path.read_bytes() == new_key
+        assert not next_path.exists()
+
+    async def test_rotate_happy_path_logs_info_with_fingerprint(
+        self, client: AsyncClient, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """AC5: the happy path logs one INFO line with per-corpus row
+        counts and a key fingerprint — never key bytes — and leaves no
+        `.next` sidecar behind."""
+        import hashlib
+        import logging
+
+        from the_one.encryption import next_key_path
+
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "LogFingerprintTest",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-logfingerprint0001",
+            },
+        )
+        assert create_resp.status_code in (200, 201)
+
+        key_path = tmp_path / "test.key"
+
+        with caplog.at_level(logging.INFO, logger="the_one.interfaces.web.api"):
+            resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "key_file": "promoted"}
+
+        new_key = key_path.read_bytes()
+        fingerprint = hashlib.sha256(new_key).hexdigest()[:8]
+
+        info_records = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.INFO and "encryption key rotated" in r.getMessage()
+        ]
+        assert len(info_records) == 1
+        message = info_records[0].getMessage()
+        assert fingerprint in message
+        assert "key_file=promoted" in message
+        # Never log key bytes.
+        assert new_key.decode() not in message
+
+        assert not next_key_path(key_path).exists()
+
+    async def test_rotate_tool_config_secret(self, client: AsyncClient, tmp_path: Path) -> None:
+        """AC9: tool_configs.secrets rotates inside the same transaction —
+        still readable via ToolConfigRepository after rotation."""
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import Encryptor
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+        seed_encryptor = Encryptor(key_before, key_path=key_path)
+
+        seed_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        seed_conn.row_factory = aiosqlite.Row
+        try:
+            tool_repo = ToolConfigRepository(seed_conn, seed_encryptor)
+            await tool_repo.upsert(
+                "web_search",
+                {"engine": "brave"},
+                secrets={"BRAVE_API_KEY": "toolconfigsecretvalue"},
+            )
+        finally:
+            await seed_conn.close()
+
+        resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "key_file": "promoted"}
+
+        key_after = key_path.read_bytes()
+        assert key_after != key_before
+
+        verify_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        verify_conn.row_factory = aiosqlite.Row
+        try:
+            verify_repo = ToolConfigRepository(verify_conn, Encryptor(key_after, key_path=key_path))
+            row = await verify_repo.get("web_search")
+        finally:
+            await verify_conn.close()
+        assert row.secrets == {"BRAVE_API_KEY": "toolconfigsecretvalue"}
+
+    async def test_rotate_external_credential_secret(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """AC9: agent_external_credentials.secret rotates inside the same
+        transaction — load_all() still returns the plaintext secret
+        component after rotation."""
+        from the_one.db.repositories import AgentExternalCredentialRepository
+        from the_one.encryption import Encryptor
+
+        mcp_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "ExtCredParent",
+                "type": "stdio",
+                "config": {"command": "x"},
+            },
+        )
+        assert mcp_resp.status_code in (200, 201)
+        source_id = mcp_resp.json()["id"]
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+        seed_encryptor = Encryptor(key_before, key_path=key_path)
+
+        seed_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        seed_conn.row_factory = aiosqlite.Row
+        try:
+            ext_repo = AgentExternalCredentialRepository(seed_conn, seed_encryptor)
+            await ext_repo.create(
+                source_id=source_id,
+                label="test-credential",
+                identifier="ext_testidentifier",
+                secret="extcredentialsecretvalue",
+            )
+        finally:
+            await seed_conn.close()
+
+        resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "key_file": "promoted"}
+
+        key_after = key_path.read_bytes()
+        assert key_after != key_before
+
+        verify_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        verify_conn.row_factory = aiosqlite.Row
+        try:
+            verify_repo = AgentExternalCredentialRepository(
+                verify_conn, Encryptor(key_after, key_path=key_path)
+            )
+            rows = await verify_repo.load_all()
+        finally:
+            await verify_conn.close()
+        assert ("ext_testidentifier", source_id, "extcredentialsecretvalue") in rows
+
+    async def test_rotate_tool_configs_update_failure_rolls_back(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """AC9 rollback: a failure injected into the `UPDATE tool_configs`
+        statement rolls back the whole transaction, following the
+        `test_rotate_agents_update_failure_rolls_back_other_surfaces`
+        template."""
+        from the_one.db.repositories import ToolConfigRepository
+        from the_one.encryption import Encryptor, next_key_path
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+        seed_encryptor = Encryptor(key_before, key_path=key_path)
+
+        seed_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        seed_conn.row_factory = aiosqlite.Row
+        try:
+            tool_repo = ToolConfigRepository(seed_conn, seed_encryptor)
+            await tool_repo.upsert(
+                "web_search",
+                {"engine": "brave"},
+                secrets={"BRAVE_API_KEY": "rollbacktoolsecret"},
+            )
+        finally:
+            await seed_conn.close()
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM tool_configs WHERE name = ?", ("web_search",)
+            ) as cur:
+                ct_before = (await cur.fetchone())["secrets"]
+        finally:
+            await direct_conn.close()
+
+        real_execute = aiosqlite.Connection.execute
+
+        def _raising_execute(self, sql, *args, **kwargs):
+            if isinstance(sql, str) and sql.strip().startswith("UPDATE tool_configs"):
+                raise RuntimeError("simulated tool_configs UPDATE failure")
+            return real_execute(self, sql, *args, **kwargs)
+
+        with (
+            patch("aiosqlite.Connection.execute", _raising_execute),
+            pytest.raises(RuntimeError, match="simulated tool_configs UPDATE failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        assert key_path.read_bytes() == key_before
+        assert not next_key_path(key_path).exists()
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM tool_configs WHERE name = ?", ("web_search",)
+            ) as cur:
+                assert (await cur.fetchone())["secrets"] == ct_before
+        finally:
+            await direct_conn.close()
+
+    async def test_rotate_external_credentials_update_failure_rolls_back(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """AC9 rollback: a failure injected into the
+        `UPDATE agent_external_credentials` statement rolls back the
+        whole transaction."""
+        from the_one.db.repositories import AgentExternalCredentialRepository
+        from the_one.encryption import Encryptor, next_key_path
+
+        mcp_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "ExtCredRollbackParent",
+                "type": "stdio",
+                "config": {"command": "x"},
+            },
+        )
+        assert mcp_resp.status_code in (200, 201)
+        source_id = mcp_resp.json()["id"]
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+        seed_encryptor = Encryptor(key_before, key_path=key_path)
+
+        seed_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        seed_conn.row_factory = aiosqlite.Row
+        try:
+            ext_repo = AgentExternalCredentialRepository(seed_conn, seed_encryptor)
+            await ext_repo.create(
+                source_id=source_id,
+                label="rollback-credential",
+                identifier="ext_rollbackidentifier",
+                secret="rollbackextsecret",
+            )
+        finally:
+            await seed_conn.close()
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secret FROM agent_external_credentials WHERE identifier = ?",
+                ("ext_rollbackidentifier",),
+            ) as cur:
+                ct_before = (await cur.fetchone())["secret"]
+        finally:
+            await direct_conn.close()
+
+        real_execute = aiosqlite.Connection.execute
+
+        def _raising_execute(self, sql, *args, **kwargs):
+            if isinstance(sql, str) and sql.strip().startswith("UPDATE agent_external_credentials"):
+                raise RuntimeError("simulated ext credential UPDATE failure")
+            return real_execute(self, sql, *args, **kwargs)
+
+        with (
+            patch("aiosqlite.Connection.execute", _raising_execute),
+            pytest.raises(RuntimeError, match="simulated ext credential UPDATE failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        assert key_path.read_bytes() == key_before
+        assert not next_key_path(key_path).exists()
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secret FROM agent_external_credentials WHERE identifier = ?",
+                ("ext_rollbackidentifier",),
+            ) as cur:
+                assert (await cur.fetchone())["secret"] == ct_before
+        finally:
+            await direct_conn.close()
 
 
 # ── Provider helper ────────────────────────────────────────────────────

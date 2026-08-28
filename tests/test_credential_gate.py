@@ -51,6 +51,7 @@ from the_one.interfaces.web.middleware import (
     CALLER_SCOPE_KEY,
     EXEMPT_PATHS,
     LIVENESS_PATH,
+    OAUTH_CALLBACK_PATH,
     SESSION_COOKIE_NAME,
     CredentialGateMiddleware,
     OriginAllowlistMiddleware,
@@ -192,8 +193,11 @@ class TestExemption:
         assert "base_prompt" not in body_text
         assert "prompt" not in body_text
 
-    def test_exempt_set_has_exactly_one_member(self) -> None:
-        assert EXEMPT_PATHS == frozenset({LIVENESS_PATH})
+    def test_exempt_set_is_liveness_and_oauth_callback(self) -> None:
+        """Mission 22 / Flight 01 / Leg 03 (Q3): renamed in place (not
+        deleted and re-added, so `git blame` shows the intent shift) when
+        the exemption set grew its second member, the OAuth callback."""
+        assert EXEMPT_PATHS == frozenset({LIVENESS_PATH, OAUTH_CALLBACK_PATH})
 
     def test_head_on_liveness_path_is_exempt(self, tmp_path: Path) -> None:
         app = _make_app(tmp_path)

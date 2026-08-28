@@ -54,15 +54,16 @@ operator secret this project stores (the encryption key, provider API keys):
 OS file permissions, not a second factor. A future flight adding real
 multi-user isolation would need to revisit this (see "Future Work" below).
 
-- **Exactly one exemption**: `GET /api/live`, a minimal liveness probe that
+- **Exactly two exemptions**: `GET /api/live`, a minimal liveness probe that
   returns `{"status": "ok"}` and nothing else — no version, no build info, no
   prompt text. `/api/info` was considered and rejected as the exemption
   instead: it returns `base_prompt` (the agent's full system prompt), and
   exempting it would have published that to every local process regardless
   of credential. `/api/info` is therefore credentialed like every other
-  route; only the liveness probe is reachable with nothing presented, which
-  is what lets a pure "did the server come up yet" readiness wait — the
-  desktop launcher's own just-started-server poll
+  route; only the liveness probe and the OAuth callback below are reachable
+  with nothing presented. The liveness exemption is what lets a pure "did
+  the server come up yet" readiness wait — the desktop launcher's own
+  just-started-server poll
   (`the_one/interfaces/desktop/shell.py::_wait_until_serving`) and the
   browser-test harness's equivalent (`tests/browser/conftest.py`) — succeed
   before either process holds or needs a credential. Callers asking a
@@ -71,6 +72,19 @@ multi-user isolation would need to revisit this (see "Future Work" below).
   `_select_port` port classifier, `make verify-serving`, and CI
   packaged-smoke all send the credential and treat the response as proof of
   ownership, not just liveness.
+
+  The second exemption, `GET /api/oauth/callback` (Mission 22 / Flight 01 /
+  Leg 03, Design Decision Q3): the external IdP's redirect back to this
+  path is a cross-site top-level navigation, on which the `SameSite=Strict`
+  session cookie is withheld by spec, so the route cannot pass through the
+  gate the normal way — without the exemption the redirect 401s before the
+  handler runs and the pending OAuth flow times out. It is safe
+  unauthenticated because its own single-use, SDK-generated, unguessable
+  `state` token *is* the credential for this one path: the handler 401s on
+  a missing/unknown `state`, mints no credential, sets no cookie, reads or
+  writes no DB row, and consumes `state` on first use, so a caller cannot
+  do anything with this route beyond resolving a pending flow whose `state`
+  they already hold.
 - **Two credentials, two lifetimes — do not conflate them:**
   - A **long-lived, persisted credential** (`the_one/api_credential.py`),
     stored at `<data_dir>/api-credential` (mode `0600`, written with no
@@ -132,10 +146,13 @@ multi-user isolation would need to revisit this (see "Future Work" below).
   example). `GET` requests and missing-`Origin` callers (curl,
   server-to-server) pass through this layer by design — that used to be a
   known, accepted gap; it is now exactly the gap the credential gate above
-  closes for every route except the one exemption. `/api/live` is the only
-  request that can reach this layer without the credential gate having
-  already checked it, and it returns nothing sensitive by construction, so
-  passing through unauthenticated here costs nothing.
+  closes for every route except its two exemptions. `/api/live` and
+  `GET /api/oauth/callback` are the only requests that can reach this layer
+  without the credential gate having already checked them: the former
+  returns nothing sensitive by construction, and the latter is guarded by
+  its own single-use `state` token instead (see "Exactly two exemptions"
+  above) — so passing through unauthenticated here costs nothing for
+  either.
 - Provider URL validation (M06 F1 L5) refuses non-`https://` `base_url`
   values for non-localhost hosts at all three create/update/test endpoints
   (HTTP 422). `mock` and `ollama` provider types are skipped.
@@ -344,6 +361,22 @@ provenance.
   — the residual prompt-injection risk and its approval-mode mitigation
   described above apply identically whether the write originates from the
   agent itself or from an external client.
+- **Operational trace: mint/revoke/rotate and cascade-revoke are all
+  operator-readable INFO log lines, not a durable tombstone (Flight 01 Leg
+  2, Q2).** The route layer logs one INFO line per mint / revoke / rotate
+  (agent name, `ext_` identifier, label, and the identified caller — never
+  the secret); `manage.disable` and `manage.cascade_delete` each log one
+  INFO line at the two points a credential row disappears WITHOUT an
+  explicit revoke (surface disable, agent delete), naming the evicted
+  identifiers and their count, since the FK cascade has already removed the
+  store rows by the time either function runs. A `revoked_at` tombstone
+  column was considered and rejected: `agent_external_credentials.source_id`
+  is `ON DELETE CASCADE`, so a tombstone would record operator revokes but
+  not cascades — a half-record unless the FK itself changed. A queryable
+  audit trail is an events table, a separate initiative from this flight. **This
+  log-line field set (agent, identifier, label, principal; identifiers +
+  count at cascade points) is the convention future credential-lifecycle
+  logging follows.**
 
 ## Network Bind
 
@@ -565,7 +598,14 @@ with the unsandboxed Windows posture.
   `LLMProviderRepository`. Key rotation is exposed via
   `POST /api/encryption/rotate` — like every route, it requires the
   credential gate's identified caller (see "Authentication" above) and,
-  behind that, the Origin-allowlist middleware.
+  behind that, the Origin-allowlist middleware. Rotation hands the new key
+  off to disk via a transient `encryption.key.next` sidecar (mode `0o600`)
+  staged *before* the DB commit and promoted *after*: this makes every
+  crash point — including a hard kill between the commit and the on-disk
+  key-file replace — self-healing on next process start via a startup
+  reconcile, rather than leaving any credential stranded on a key the
+  process does not hold. See `the_one/agents.md` "Encryption-rotation
+  invariant (seven corpora)" for the full handoff contract.
 - **SQLite database and data directory** (squawk 0011 / GH #169): the data
   directory is created and tightened to mode `0o700`; `<data_dir>/the-one.db`
   and its `-wal`/`-shm` sidecars (when present) are created and tightened to

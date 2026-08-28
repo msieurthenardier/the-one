@@ -57,6 +57,7 @@ from the_one.db.codec import (
     truncate_for_event,
 )
 from the_one.db.connection import get_connection
+from the_one.db.key_reconcile import reconcile_pending_key
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.repositories import (
@@ -188,6 +189,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         prune_box_scratch()
         await init_db()
         conn = await get_connection()
+        # Reconcile a leftover rotation sidecar (encryption.key.next) before any
+        # encryptor-backed repository is constructed below — repositories hold
+        # the encryptor by reference, and this mutates it in place
+        # (`install_key` / `discard_pending_key`), so the ordering is what
+        # makes the by-reference propagation sufficient. See flight Design
+        # Decision Q1 / `the_one.db.key_reconcile`.
+        _reconcile_outcome = await reconcile_pending_key(conn, get_encryptor(settings.data_dir))
+        if _reconcile_outcome != "absent":
+            logger.info("encryption key sidecar reconciled at startup: %s", _reconcile_outcome)
         store = SQLiteAgentStore(conn)
         await migrate_json_to_sqlite(store)
         # M21 F01 L02: register the self-configuration credential source behind

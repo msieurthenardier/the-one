@@ -717,7 +717,7 @@ These sections record decisions and invariants. Module layout, exports, and per-
 
 ### Encryption rotation invariant
 
-`POST /api/encryption/rotate` re-encrypts ALL provider credentials, ALL MCP source secrets, ALL connector account secrets, AND every agent's `tool_overrides` / `mcp_overrides` columns (M21 F01 L01) in a single crash-safe transaction, commits the DB, then atomically replaces the key file via `os.replace`. The single-pass rotation is authoritative: a partial rotation that handled only a subset of these surfaces would leave the rest encrypted under a key no longer on disk. See "Encryption-rotation invariant (three corpora)" below for the full five-surface list and the crash-safety contract.
+`POST /api/encryption/rotate` re-encrypts ALL provider credentials, ALL MCP source secrets, ALL connector account secrets, every agent's `tool_overrides` / `mcp_overrides` columns (M21 F01 L01), every tool config's `secrets` blob, AND every external credential's `secret` (M22 F01 L01) in a single crash-safe transaction, commits the DB, then hands the new key off to disk via a two-phase sidecar (stage before commit, promote after) rather than a direct `os.replace`. The single-pass rotation is authoritative: a partial rotation that handled only a subset of these surfaces would leave the rest encrypted under a key no longer on disk. See "Encryption-rotation invariant (seven corpora)" below for the full seven-surface list and the crash-safety / sidecar-handoff contract.
 
 ### `__MASKED__` sentinel (LLM providers)
 
@@ -829,6 +829,7 @@ Everything above is the agent's OWN `agt` principal reaching its surface over th
 - **Per-principal revoke / rotate (`api.py`, DD7)** — contrast the operator credential's rotate-EVERYTHING. `revoke` DELETEs one row and evicts one registry entry (the next request bearing that token is 401, no restart); `rotate` DELETEs the old and mints a fresh credential for the SAME label/agent, returning the new token once and 401-ing the old immediately. Both enforce a cross-ID 404 guard (`cred.source_id` must equal `name`'s surface row id) so a grant can never be revoked/rotated through another agent's route, and NEVER touch the agent's `agt` credential or any sibling external grant. `mint`/`rotate` 409 when the surface is not enabled (they issue a live credential); `revoke` works on an orphaned (detached-but-present) surface too, so an operator can always tear a grant down.
 - **External-write provenance in the revision log (schema v37, DD3).** The surface routes an external caller by `caller.source == EXTERNAL_SOURCE_NAME`: `_calling_principal` returns `(agent_name, "external", caller.identifier)` vs `(agent_name, "self", None)` for the agent's own write. Every revision the write path appends carries `source` (`agent_revisions.source` CHECK widened to `'self' | 'restore' | 'external'`) plus a nullable `source_principal` = the `ext_` identifier for an external write (NULL for `self`/`restore`) — so the log answers "which external principal wrote this."
 - **External writes honor the SAME per-agent approval flag.** The write path checks `config.self_revision_requires_approval` regardless of source, so an external client's proposal is held in the pending queue (never silently applied) exactly like a `self` write when approval mode is on — the operator gate on the mission's central write-risk covers the external principal with no special-casing.
+- **Operational trace: log lines, not a tombstone (Flight 01 Leg 2, Q2).** Mint/revoke/rotate each emit one INFO line on `the_one.interfaces.web.api`'s module logger (agent name, `ext_` identifier, label, principal — never the secret); `manage.disable`/`manage.cascade_delete` each emit one INFO line on `the_one.self_configuration.manage`'s logger at the two points a credential row disappears without an explicit revoke (surface disable, agent delete), carrying the evicted identifiers and their count — the row is already gone by then (FK cascade), so the cascade line can't carry a label the way the mint line does. A `revoked_at` tombstone was considered and rejected: the FK cascade would bypass it (recording explicit revokes but not cascades), and a queryable audit trail is properly an events table — a separate initiative from this flight, alongside the Advisory logging sweep, which inherits this log-line field set as its convention.
 
 ### MCP F2 Client Foundation (authoritative for F3+)
 
@@ -1231,17 +1232,32 @@ Concurrent-acquire-same-key races to a shared worker: the lock-held branch in `c
 
 A connector that supports per-(peer, channel) gating implements the optional `resolve` hook (see §4 in `connectors/README.md`); the `ConnectorPlugin` Protocol stays at its 4-method shape. Per the `structural-Protocol-satisfaction` convention, implementations do NOT inherit from the Protocols — they just expose the right methods. **Structural satisfaction is per-Protocol, not subsystem-wide**: a connector that claims to satisfy `ConnectorPlugin` + `CommandHandler` MUST be asserted via `isinstance(conn, ProtocolType)` for each Protocol it claims, separately. The per-platform integration tests (Flight 8 Discord, Flight 9 second connector) carry those assertions. "Single contract file" is the mission criterion; multiple Protocols in one file satisfy it.
 
-### Encryption-rotation invariant (five corpora)
+### Encryption-rotation invariant (seven corpora)
 
-`POST /api/encryption/rotate` (`interfaces/web/api.py:rotate_encryption_key`) re-encrypts every credential ciphertext in **one atomic transaction**. As of Mission 21 Flight 1 Leg 1 the rotation covers five corpora:
+`POST /api/encryption/rotate` (`interfaces/web/api.py:rotate_encryption_key`) re-encrypts every credential ciphertext in **one atomic transaction**. As of Mission 22 Flight 1 Leg 1 the rotation covers seven corpora:
 
 1. `llm_providers.api_key` (Mission 03)
 2. `llm_providers.secrets` (Mission 19 Flight 1 — the anthropic-plan OAuth token set)
 3. `mcp_sources.secrets` (Mission 07)
 4. `connectors.secrets` (Mission 10 Flight 1; table renamed from `connector_accounts` by M11 F11 L1 v23)
 5. `agents.tool_overrides` / `agents.mcp_overrides` (Mission 21 Flight 1 Leg 1 — see "Agent override secrets storage" below)
+6. `tool_configs.secrets` (Mission 16 Flight 8 Leg 3 — built-in tool API keys, e.g. `web_search`'s keyed-engine credentials)
+7. `agent_external_credentials.secret` (Mission 21 Flight 3 — the `ext_` client credential store)
 
-A failure in any of the five UPDATE loops calls `conn.rollback()` and re-raises, so a partial rotation that handled only a subset is impossible. The single `await conn.commit()` is the authoritative commit point; the on-disk key file is replaced atomically via `os.replace` only AFTER the DB commit succeeds. Migration-residue rows (plaintext `'{}'` carried over from the column default) are tolerated via `InvalidToken`-swallowing decrypt and normalized to proper ciphertext for `{}` as a side-effect across the first four corpora; the agents columns use `_decrypt_overrides_column` instead — same tolerant-decrypt shape, but legacy plaintext there is real operator data rather than a `'{}'` default (see "Agent override secrets storage").
+A failure in any of the seven UPDATE loops calls `conn.rollback()`, discards the staged key sidecar (see below), and re-raises, so a partial rotation that handled only a subset is impossible. Migration-residue rows (plaintext `'{}'` carried over from the column default) are tolerated via `InvalidToken`-swallowing decrypt and normalized to proper ciphertext for `{}` as a side-effect across corpora 1–4 and 6; the agents columns use `_decrypt_overrides_column` instead — same tolerant-decrypt shape, but legacy plaintext there is real operator data rather than a `'{}'` default (see "Agent override secrets storage"). Corpus 7 (`agent_external_credentials.secret`) decrypts **strictly** — a decrypt failure there is real corruption, not migration residue, and aborts the rotation before any write.
+
+**Key handoff — two-phase sidecar (flight Design Decision Q1).** The single `await conn.commit()` is the authoritative DB commit point, but the on-disk key file is no longer replaced directly after it. Instead:
+
+1. Before the commit, the new key is staged to `<key_path>.next` via `Encryptor.stage_pending_key` (atomic write, `0o600`, via `_write_key_atomic`). If staging fails, the DB is untouched.
+2. If the commit fails, the transaction rolls back and the sidecar is discarded (`Encryptor.discard_pending_key`).
+3. Once the commit succeeds, `Encryptor.install_key(new_key)` runs immediately — no `await` in between — so no other coroutine can observe "DB committed under the new key, in-memory encryptor still on the old key." Connector-pool eviction (previously immediately after the on-disk replace) now runs after this install.
+4. The sidecar is then promoted to the canonical key file via `Encryptor.promote_pending_key` (`os.replace`). If promotion fails (disk full, permission, cross-device), the route returns `{"status": "ok", "key_file": "staged"}` instead of `"promoted"` — the DB and in-memory encryptor are already correct on the new key, and the sidecar stays on disk for the startup reconcile to finish the job.
+
+**`MultiFernet` read mode.** While a pending key is staged, `Encryptor` decrypts with `MultiFernet([Fernet(canonical), Fernet(pending)])` (canonical first) so in-flight reads never fail across the staged-but-not-yet-promoted window; `encrypt()` always uses the canonical key.
+
+**Startup reconcile.** `the_one/db/key_reconcile.py:reconcile_pending_key(conn, encryptor)` runs in both entrypoints (`app.py:lifespan`, `cli.py:_run_cli`) between `get_connection()` and the first encryptor-backed repository construction — repositories hold the encryptor by reference, and the reconcile mutates it in place, so this ordering is what makes that by-reference propagation sufficient. It samples ciphertext across all seven corpora (`sample_ciphertexts`) and either promotes the pending key (at least one sample decrypts under it, or nothing is decidable) or discards it (no sample decrypts under it but at least one decrypts under the canonical key) via `the_one.encryption.resolve_pending_key`.
+
+**CLI-window trade-off.** A CLI process already running during a crashed rotation keeps encrypting new rows under the canonical key until it restarts — the reconcile only runs at process start. Negligible for a single-operator app; documented rather than engineered around.
 
 ### Outbound contract
 

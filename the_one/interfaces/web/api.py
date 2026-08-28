@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -46,9 +47,12 @@ from the_one.db.repositories import (
     SQLiteAgentStore,
     ToolConfigRepository,
     _decrypt_overrides_column,
+    _decrypt_secrets_blob,
     _encrypt_overrides_column,
+    _encrypt_secrets_blob,
 )
 from the_one.encryption import Encryptor, get_encryptor
+from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
 from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
 from the_one.self_configuration import external_credentials as self_configuration_external
@@ -1040,8 +1044,24 @@ async def _enabled_surface_id_or_409(name: str) -> str:
     return st["source_id"]
 
 
+def _caller_principal(request: Request) -> str:
+    """Flight 01 Leg 2 (Q2): render the credential-gate-identified caller as
+    ``source:identifier`` for a log line, or ``"-"`` when absent (a
+    throwaway test app with no middleware, or a request that reached this
+    route by some other means). ``ext_``/``agt_`` callers are confined to
+    ``/mcp/self-configuration`` (see ``surface.py``), so in production the
+    principal on these routes is always the operator credential — still
+    worth logging, and free."""
+    caller = request.scope.get(CALLER_SCOPE_KEY)
+    if caller is None:
+        return "-"
+    return f"{caller.source}:{caller.identifier}"
+
+
 @router.post("/agents/{name}/self-configuration/external-credentials")
-async def mint_external_credential(name: str, body: _ExternalCredentialMintBody) -> dict[str, Any]:
+async def mint_external_credential(
+    name: str, body: _ExternalCredentialMintBody, request: Request
+) -> dict[str, Any]:
     """DD1/DD2/DD7: mint a distinct external-client credential scoped to
     this agent's surface. Returns ``{identifier, label, token, url}`` — the
     ``ext_<id>.<secret>`` token exactly ONCE (no read path returns it
@@ -1057,6 +1077,13 @@ async def mint_external_credential(name: str, body: _ExternalCredentialMintBody)
         secret=credential.secret,
     )
     self_configuration_external.register(source_id, credential)
+    logger.info(
+        "external-credential: minted %s (label=%r) for agent %r by %s",
+        credential.identifier,
+        body.label,
+        name,
+        _caller_principal(request),
+    )
     return {
         "identifier": credential.identifier,
         "label": body.label,
@@ -1108,21 +1135,32 @@ async def _external_credential_of_agent_or_404(name: str, identifier: str) -> di
 
 
 @router.delete("/agents/{name}/self-configuration/external-credentials/{identifier}")
-async def revoke_external_credential(name: str, identifier: str) -> dict[str, str]:
+async def revoke_external_credential(
+    name: str, identifier: str, request: Request
+) -> dict[str, str]:
     """DD7: hard-revoke one external credential — DELETE the row and evict
     its registry entry, so the next request bearing that token is 401 with
     no restart. 404 when *identifier* is not a credential of *name*'s
     surface (cross-ID guard). Never touches the agent's own ``agt``
     credential or another external credential."""
-    await _external_credential_of_agent_or_404(name, identifier)
+    cred = await _external_credential_of_agent_or_404(name, identifier)
     repo = await _agent_external_credentials_repo()
     await repo.delete(identifier)
     self_configuration_external.unregister_identifier(identifier)
+    logger.info(
+        "external-credential: revoked %s (label=%r) for agent %r by %s",
+        identifier,
+        cred["label"],
+        name,
+        _caller_principal(request),
+    )
     return {"status": "ok"}
 
 
 @router.post("/agents/{name}/self-configuration/external-credentials/{identifier}/rotate")
-async def rotate_external_credential(name: str, identifier: str) -> dict[str, Any]:
+async def rotate_external_credential(
+    name: str, identifier: str, request: Request
+) -> dict[str, Any]:
     """DD7: revoke the old credential and mint a fresh one for the same
     label/agent, returning the new ``{identifier, label, token, url}`` once.
     The old token stops working immediately (401). 404 when *identifier* is
@@ -1143,6 +1181,14 @@ async def rotate_external_credential(name: str, identifier: str) -> dict[str, An
         secret=new_credential.secret,
     )
     self_configuration_external.register(source_id, new_credential)
+    logger.info(
+        "external-credential: rotated %s -> %s (label=%r) for agent %r by %s",
+        identifier,
+        new_credential.identifier,
+        label,
+        name,
+        _caller_principal(request),
+    )
     return {
         "identifier": new_credential.identifier,
         "label": label,
@@ -4650,6 +4696,53 @@ async def trigger_purge_sweep() -> dict[str, Any]:
     return {"deleted": result["deleted"], "last_purge_at": result["last_purge_at"]}
 
 
+class _PendingOAuthFlowBody(BaseModel):
+    """Typed body for `POST /_test/oauth/pending`, deliberately unlike the
+    sibling `/_test/` seams above (which parse `request.json()` by hand) —
+    a typed model is a better fit for a four-field registration payload and
+    the mismatch is not drift."""
+
+    state: str
+    source_id: str
+    chat_session_id: str
+    tool_call_id: str | None = None
+
+
+@router.post("/_test/oauth/pending")
+async def seed_pending_oauth_flow(body: _PendingOAuthFlowBody) -> dict[str, str]:
+    """Mission 22 / Flight 01 / Leg 03 — dev-mode-gated test seam.
+
+    Registers a pending OAuth flow (`the_one.mcp.oauth._state.register`) so
+    an out-of-process caller can seed one over HTTP. Only in-process code
+    can otherwise create a pending flow, which is fine for the unit-test
+    suite (it imports `_state` directly) but not for a browser-lane test
+    driving a spawned app subprocess — this seam exists solely so
+    `tests/browser/test_flow_oauth_callback_cross_site.py` can seed a flow
+    before navigating to `/api/oauth/callback`. Gating mirrors the sibling
+    `/_test/` seams (403 when dev_mode is off).
+    """
+    if not settings.dev_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="test-seam endpoint requires THE_ONE_DEV_MODE=true",
+        )
+    from the_one.mcp.oauth import _state as oauth_state
+
+    try:
+        oauth_state.register(
+            body.state,
+            source_id=body.source_id,
+            tool_call_id=body.tool_call_id,
+            chat_session_id=body.chat_session_id,
+        )
+    except RuntimeError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"pending OAuth flow already registered for state: {body.state!r}",
+        )
+    return {"state": body.state}
+
+
 def _session_summary(session: ChatSession) -> dict[str, Any]:
     return {
         "id": session.id,
@@ -5538,28 +5631,41 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
 
 @router.post("/encryption/rotate")
 async def rotate_encryption_key() -> dict[str, str]:
-    """Rotate the encryption key with crash-safe ordering.
+    """Rotate the encryption key with a crash-safe two-phase sidecar handoff.
 
     Re-encrypts every LLM provider row's ``api_key`` AND ``secrets`` blob
     (M19 F01: the anthropic-plan OAuth token set), every MCP source row's
-    ``secrets`` blob, every connector account row's ``secrets`` blob, AND
+    ``secrets`` blob, every connector account row's ``secrets`` blob,
     every agent row's ``tool_overrides`` / ``mcp_overrides`` columns (M21
-    F01 L01 / flight-log Decision D1) using a freshly generated key in
-    memory and commits the DB transaction *before* the new key file
-    replaces the old one via temp-file + ``os.replace``. ALL FIVE surfaces
-    commit atomically — a partial rotation that handled only a subset
-    would leave the others encrypted under a key that no longer exists on
-    disk. If the DB commit fails, the on-disk key file is left
-    byte-identical to its pre-rotation contents so existing ciphertext on
-    all five surfaces remains decryptable.
+    F01 L01 / flight-log Decision D1), every tool config row's ``secrets``
+    blob, AND every external-credential row's ``secret`` (flight-log
+    Decision D1) — SEVEN corpora total — using a freshly generated key in
+    memory, all inside a single DB transaction.
 
-    Migration-residue MCP, connector, and provider-secrets rows (plaintext
-    ``'{}'`` carried over from the column default) are tolerated via
-    InvalidToken-swallowing decrypt; they are normalized to proper
-    ciphertext for ``{}`` as a side-effect. The agents columns use the
-    store's own ``_decrypt_overrides_column`` instead (legacy plaintext
-    there is real operator data, not a ``'{}'`` default — see that
-    helper's docstring); ``NULL`` columns stay ``NULL``.
+    Handoff ordering (flight Design Decision Q1): the new key is staged to
+    ``<key_path>.next`` via :meth:`Encryptor.stage_pending_key` *before*
+    the DB commit. If staging fails, the DB is untouched. If the commit
+    fails, the transaction rolls back and the sidecar is discarded. Once
+    the commit succeeds, the new key is installed in memory immediately
+    (no ``await`` in between — other coroutines must never observe "DB on
+    new key, memory on old key") and only then is the sidecar promoted to
+    the canonical key file. If that promotion fails (disk full,
+    permission, cross-device), the DB and in-memory encryptor are already
+    correct on the new key; the sidecar stays staged on disk and a
+    startup reconcile (`the_one.db.key_reconcile`) promotes it on the
+    next process start — no credential is ever left stranded on a key the
+    process does not hold.
+
+    Migration-residue MCP, connector, provider-secrets, and tool-config
+    rows (plaintext ``'{}'`` carried over from the column default) are
+    tolerated via InvalidToken-swallowing decrypt; they are normalized to
+    proper ciphertext for ``{}`` as a side-effect. The agents columns use
+    the store's own ``_decrypt_overrides_column`` instead (legacy
+    plaintext there is real operator data, not a ``'{}'`` default — see
+    that helper's docstring); ``NULL`` columns stay ``NULL``. The
+    external-credential ``secret`` column decrypts strictly — an
+    ``ext_`` row is never migration residue, so an ``InvalidToken`` there
+    aborts the rotation before any write.
     """
     encryptor = get_encryptor(settings.data_dir)
     if encryptor.key_path is None:
@@ -5659,6 +5765,27 @@ async def rotate_encryption_key() -> dict[str, str]:
         mcp_overrides = _decrypt_overrides_column(encryptor, row["mcp_overrides"])
         decrypted_agents.append((row["name"], tool_overrides, mcp_overrides))
 
+    # Sixth surface (flight-log Decision D1): tool_configs.secrets. Tolerant
+    # decrypt via the shared helper — same '{}' migration-residue pattern
+    # as mcp_sources/connectors above (ToolConfigRepository._ciphertext_to_secrets
+    # delegates to the same helper).
+    async with conn.execute("SELECT name, secrets FROM tool_configs") as cur:
+        tool_config_rows = await cur.fetchall()
+    decrypted_tool_configs: list[tuple[str, dict[str, Any]]] = [
+        (row["name"], _decrypt_secrets_blob(encryptor, row["secrets"])) for row in tool_config_rows
+    ]
+
+    # Seventh surface (flight-log Decision D1): agent_external_credentials.secret.
+    # STRICT decrypt — unlike the tolerant corpora above, an ext_ credential
+    # row is never migration residue, so a decrypt failure here is real
+    # corruption and must abort the rotation before any write (mirrors the
+    # api_key strict decrypt at the top of this function).
+    async with conn.execute("SELECT identifier, secret FROM agent_external_credentials") as cur:
+        ext_credential_rows = await cur.fetchall()
+    decrypted_ext_credentials: list[tuple[str, str]] = [
+        (row["identifier"], encryptor.decrypt(row["secret"])) for row in ext_credential_rows
+    ]
+
     # 2. Generate a new key + Encryptor in memory only (no disk writes yet).
     new_key = Fernet.generate_key()
     new_encryptor = Encryptor(new_key)
@@ -5685,16 +5812,39 @@ async def rotate_encryption_key() -> dict[str, str]:
         )
         for name, tool_overrides, mcp_overrides in decrypted_agents
     ]
+    reencrypted_tool_configs = [
+        (name, _encrypt_secrets_blob(new_encryptor, secrets_dict))
+        for name, secrets_dict in decrypted_tool_configs
+    ]
+    reencrypted_ext_credentials = [
+        (identifier, new_encryptor.encrypt(secret))
+        for identifier, secret in decrypted_ext_credentials
+    ]
+
+    # 3b. Stage the new key to a `.next` sidecar BEFORE the DB commit
+    #     (Design Decision Q1 — two-phase handoff). If this raises, the
+    #     database is untouched and the canonical key file is unchanged.
+    sidecar_path = key_path.with_name(key_path.name + ".next")
+    try:
+        sidecar_path = encryptor.stage_pending_key(new_key)
+    except OSError:
+        logger.exception(
+            "rotation: could not stage new key sidecar at %s; database untouched",
+            sidecar_path,
+        )
+        raise HTTPException(status_code=500, detail="could not stage new encryption key") from None
 
     # 4. Write all rows in a single transaction and commit. If anything in
-    #    this block raises, roll the transaction back so the connection
-    #    cache does not surface uncommitted ciphertext encrypted with the
-    #    new (not-yet-on-disk) key. The key file is untouched at this
-    #    point, so re-raising leaves the system fully recoverable. The
-    #    single commit() covers ALL FIVE surfaces (llm_providers.api_key,
-    #    llm_providers.secrets, mcp_sources.secrets, connectors.secrets,
-    #    agents.tool_overrides / agents.mcp_overrides) — a failure in any
-    #    UPDATE loop rolls back all of them atomically.
+    #    this block raises, roll the transaction back, discard the staged
+    #    sidecar, and re-raise so the connection cache does not surface
+    #    uncommitted ciphertext encrypted with the new (not-yet-on-disk)
+    #    key. The key file is untouched at this point, so re-raising
+    #    leaves the system fully recoverable. The single commit() covers
+    #    ALL SEVEN surfaces (llm_providers.api_key, llm_providers.secrets,
+    #    mcp_sources.secrets, connectors.secrets, agents.tool_overrides /
+    #    agents.mcp_overrides, tool_configs.secrets,
+    #    agent_external_credentials.secret) — a failure in any UPDATE loop
+    #    rolls back all of them atomically.
     try:
         for pid, ct in reencrypted:
             await conn.execute(
@@ -5721,10 +5871,47 @@ async def rotate_encryption_key() -> dict[str, str]:
                 "UPDATE agents SET tool_overrides = ?, mcp_overrides = ? WHERE name = ?",
                 (tool_ct, mcp_ct, agent_name),
             )
+        for tool_name, ct in reencrypted_tool_configs:
+            await conn.execute(
+                "UPDATE tool_configs SET secrets = ? WHERE name = ?",
+                (ct, tool_name),
+            )
+        for identifier, ct in reencrypted_ext_credentials:
+            await conn.execute(
+                "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
+                (ct, identifier),
+            )
         await conn.commit()
     except Exception:
         await conn.rollback()
+        encryptor.discard_pending_key()
         raise
+
+    # Immediately after the commit — NO `await` between this line and the
+    # commit above (Design Decision Q1 invariant): other coroutines must
+    # never observe "DB committed under the new key, in-memory encryptor
+    # still on the old key". Connector-pool eviction (previously step 4b)
+    # now runs AFTER this install, further down.
+    encryptor.install_key(new_key)
+
+    # Promote the sidecar to the canonical key file. `install_key` above
+    # already cleared the in-memory pending key, so the key is passed
+    # explicitly here (see `Encryptor.promote_pending_key` docstring). If
+    # the promotion fails, the DB and in-memory encryptor are already
+    # correct on the new key; the sidecar stays staged on disk and the
+    # startup reconcile promotes it on the next process start.
+    try:
+        encryptor.promote_pending_key(new_key)
+        key_file = "promoted"
+    except OSError:
+        logger.exception(
+            "rotation: database committed under the new key but promoting %s over %s "
+            "failed; the sidecar stays staged and will be promoted by the startup "
+            "reconcile",
+            sidecar_path,
+            key_path,
+        )
+        key_file = "staged"
 
     # 4b. Evict warm connector pool entries so the next acquire reloads
     #     credentials decrypted under the new key. Lives OUTSIDE the
@@ -5743,31 +5930,25 @@ async def rotate_encryption_key() -> dict[str, str]:
         try:
             await _evict_all_for_account(aid)
         except Exception:
-            import logging
-
-            logging.getLogger(__name__).exception(
+            logger.exception(
                 "rotation: connector pool eviction for account %r failed; "
                 "continuing on-disk key replace. Warm entries (if any) "
                 "will serve stale credentials until idle-TTL elapses.",
                 aid,
             )
 
-    # 5. Persist the new key to a temp file in the same directory as the
-    #    canonical key path. Mode 0o600 is set at creation time via os.open
-    #    (Path.write_bytes followed by chmod has a brief world-readable
-    #    window).
-    tmp_path = key_path.with_name(f"{key_path.name}.tmp.{secrets.token_hex(4)}")
-    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        os.write(fd, new_key)
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    logger.info(
+        "encryption key rotated: key=%s providers=%d provider_secrets=%d mcp_sources=%d "
+        "connectors=%d agents=%d tool_configs=%d external_credentials=%d key_file=%s",
+        hashlib.sha256(new_key).hexdigest()[:8],
+        len(reencrypted),
+        len(reencrypted_provider_secrets),
+        len(reencrypted_mcps),
+        len(reencrypted_connectors),
+        len(reencrypted_agents),
+        len(reencrypted_tool_configs),
+        len(reencrypted_ext_credentials),
+        key_file,
+    )
 
-    # 6. Atomic rename — after this point the new key is canonical on disk.
-    os.replace(str(tmp_path), str(key_path))
-
-    # 7. Update the cached encryptor so subsequent requests use the new key.
-    encryptor.install_key(new_key)
-
-    return {"status": "ok"}
+    return {"status": "ok", "key_file": key_file}

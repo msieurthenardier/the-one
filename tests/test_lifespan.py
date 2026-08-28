@@ -23,6 +23,12 @@ import pytest
 
 from the_one.platform.pty import PtySession
 
+# Every test in this module drives the real ``lifespan(app)`` through
+# startup AND shutdown — reset the module-global shutdown latches after
+# each so a later test's register()/acquire() doesn't see a stale
+# "shutting down" state (see the fixture's docstring in conftest.py).
+pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
+
 
 class _MockPtySession(PtySession):
     """In-memory ``PtySession`` for the lifespan drain test."""
@@ -478,3 +484,63 @@ async def test_lifespan_warms_connector_with_attached_agent(
         )
         entry = pool_mod._pool[account_key]
         assert entry.client is not None, "Entry client must be populated (gateway connected)"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M22 F01 L01 — encryption-key rotation sidecar reconcile at startup
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def test_lifespan_reconciles_leftover_rotation_sidecar(
+    _isolated_data_dir,
+) -> None:
+    """AC8: a `.next` sidecar leftover from an interrupted rotation, plus
+    one provider row already encrypted under it, is promoted by the
+    lifespan's startup reconcile — before `SQLiteAgentStore(conn)` (or any
+    other encryptor-backed repository) is constructed. On exit from
+    startup the canonical key file holds the new key and `.next` is gone.
+    """
+    from cryptography.fernet import Fernet
+
+    from the_one.config import settings as _settings
+    from the_one.db.connection import get_connection
+    from the_one.db.models import LLMProviderConfig
+    from the_one.db.repositories import LLMProviderRepository
+    from the_one.db.schema import ensure_schema
+    from the_one.encryption import Encryptor, _encryptor_cache
+
+    tmp_path = _isolated_data_dir
+    old_key = Fernet.generate_key()
+    new_key = Fernet.generate_key()
+    (tmp_path / "encryption.key").write_bytes(old_key)
+    (tmp_path / "encryption.key.next").write_bytes(new_key)
+
+    conn = await get_connection()
+    await ensure_schema(conn)
+
+    # Seed a provider row already re-encrypted under the pending (new) key —
+    # simulating a rotation whose commit succeeded before the crash.
+    seed_encryptor = Encryptor(new_key)
+    provider_repo = LLMProviderRepository(conn, seed_encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(
+            id="lifespan-reconcile-provider",
+            name="Lifespan Reconcile Provider",
+            type="openai",
+            base_url="https://api.openai.com/v1",
+            api_key="sk-lifespanreconcile1234",
+        )
+    )
+
+    _encryptor_cache.clear()
+
+    from the_one.interfaces.web.app import app, lifespan
+
+    async with lifespan(app):
+        assert (tmp_path / "encryption.key").read_bytes() == new_key
+        assert not (tmp_path / "encryption.key.next").exists()
+
+    # Still true after shutdown.
+    assert (tmp_path / "encryption.key").read_bytes() == new_key
+    assert not (tmp_path / "encryption.key.next").exists()
+    assert _settings.data_dir == tmp_path

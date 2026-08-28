@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import stat
 from pathlib import Path
 
 import pytest
-from cryptography.fernet import InvalidToken
+from cryptography.fernet import Fernet, InvalidToken
 
-from the_one.encryption import Encryptor, _encryptor_cache, _write_key_atomic, get_encryptor
+from the_one.encryption import (
+    Encryptor,
+    _encryptor_cache,
+    _write_key_atomic,
+    get_encryptor,
+    next_key_path,
+    resolve_pending_key,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -202,8 +210,164 @@ class TestKeyRotation:
         assert (tmp_path / "encryption.key").read_bytes() == key_before
 
     def test_rotation_without_key_path_raises(self) -> None:
-        from cryptography.fernet import Fernet
-
         enc = Encryptor(Fernet.generate_key())
         with pytest.raises(RuntimeError, match="no key_path set"):
             enc.rotate_key(lambda old, new: None)
+
+
+class TestPendingKey:
+    """Tests for the two-phase sidecar rotation-handoff primitives."""
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="POSIX-only: Windows does not model 0o600 file permissions",
+    )
+    def test_stage_writes_sidecar_at_0600(self, tmp_path: Path) -> None:
+        enc = get_encryptor(tmp_path)
+        new_key = Fernet.generate_key()
+        sidecar = enc.stage_pending_key(new_key)
+        assert sidecar == next_key_path(tmp_path / "encryption.key")
+        assert sidecar.read_bytes() == new_key
+        assert stat.S_IMODE(os.stat(sidecar).st_mode) == 0o600
+        assert enc.pending_key == new_key
+
+    def test_get_encryptor_with_next_decrypts_both_encrypts_canonical(self, tmp_path: Path) -> None:
+        enc = get_encryptor(tmp_path)
+        canonical_key = (tmp_path / "encryption.key").read_bytes()
+        old_ciphertext = enc.encrypt("old-value")
+
+        new_key = Fernet.generate_key()
+        _write_key_atomic(next_key_path(tmp_path / "encryption.key"), new_key)
+        _encryptor_cache.clear()
+
+        enc2 = get_encryptor(tmp_path)
+        assert enc2.pending_key == new_key
+        # Decrypts ciphertext produced under either key.
+        assert enc2.decrypt(old_ciphertext) == "old-value"
+        assert enc2.decrypt(Encryptor(new_key).encrypt("new-value")) == "new-value"
+        # Encrypts under the canonical key.
+        new_ciphertext = enc2.encrypt("fresh")
+        assert Fernet(canonical_key).decrypt(new_ciphertext.encode()) == b"fresh"
+
+    def test_get_encryptor_without_next_behaves_as_today(self, tmp_path: Path) -> None:
+        enc = get_encryptor(tmp_path)
+        assert enc.pending_key is None
+
+    def test_promote_replaces_file_and_drops_fallback(self, tmp_path: Path) -> None:
+        enc = get_encryptor(tmp_path)
+        old_ciphertext = enc.encrypt("before")
+        new_key = Fernet.generate_key()
+        enc.stage_pending_key(new_key)
+        enc.promote_pending_key()
+
+        key_path = tmp_path / "encryption.key"
+        assert key_path.read_bytes() == new_key
+        assert not next_key_path(key_path).exists()
+        assert enc.pending_key is None
+        with pytest.raises(InvalidToken):
+            enc.decrypt(old_ciphertext)
+
+    def test_discard_unlinks_and_drops_pending(self, tmp_path: Path) -> None:
+        enc = get_encryptor(tmp_path)
+        canonical_key = (tmp_path / "encryption.key").read_bytes()
+        new_key = Fernet.generate_key()
+        sidecar = enc.stage_pending_key(new_key)
+        assert sidecar.exists()
+
+        enc.discard_pending_key()
+        assert not sidecar.exists()
+        assert enc.pending_key is None
+        # Still encrypts/decrypts under the canonical key.
+        assert enc.decrypt(enc.encrypt("still-works")) == "still-works"
+        assert Fernet(canonical_key).decrypt(enc.encrypt("x").encode()) == b"x"
+
+    def test_resolve_pending_key_promotes_when_sample_decrypts_under_pending(
+        self, tmp_path: Path
+    ) -> None:
+        enc = get_encryptor(tmp_path)
+        new_key = Fernet.generate_key()
+        enc.stage_pending_key(new_key)
+        sample = Encryptor(new_key).encrypt("new-row")
+
+        outcome = resolve_pending_key(enc, [sample])
+        assert outcome == "promoted"
+        assert enc.pending_key is None
+        assert (tmp_path / "encryption.key").read_bytes() == new_key
+
+    def test_resolve_pending_key_discards_when_only_canonical_decrypts(
+        self, tmp_path: Path
+    ) -> None:
+        enc = get_encryptor(tmp_path)
+        canonical_key = (tmp_path / "encryption.key").read_bytes()
+        old_ciphertext = enc.encrypt("old-row")
+        new_key = Fernet.generate_key()
+        enc.stage_pending_key(new_key)
+
+        outcome = resolve_pending_key(enc, [old_ciphertext])
+        assert outcome == "discarded"
+        assert enc.pending_key is None
+        assert (tmp_path / "encryption.key").read_bytes() == canonical_key
+        assert not next_key_path(tmp_path / "encryption.key").exists()
+
+    def test_resolve_pending_key_undecidable_promotes(self, tmp_path: Path) -> None:
+        enc = get_encryptor(tmp_path)
+        new_key = Fernet.generate_key()
+        enc.stage_pending_key(new_key)
+
+        outcome = resolve_pending_key(enc, [])
+        assert outcome == "promoted"
+        assert (tmp_path / "encryption.key").read_bytes() == new_key
+
+    def test_resolve_pending_key_mixed_promotes_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        enc = get_encryptor(tmp_path)
+        old_ciphertext = enc.encrypt("old-row")
+        new_key = Fernet.generate_key()
+        enc.stage_pending_key(new_key)
+        new_sample = Encryptor(new_key).encrypt("new-row")
+
+        with caplog.at_level(logging.WARNING, logger="the_one.encryption"):
+            outcome = resolve_pending_key(enc, [old_ciphertext, new_sample])
+        assert outcome == "promoted"
+        assert (tmp_path / "encryption.key").read_bytes() == new_key
+        assert any(
+            record.levelno == logging.WARNING and "1" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_resolve_pending_key_absent_without_pending(self, tmp_path: Path) -> None:
+        enc = get_encryptor(tmp_path)
+        assert resolve_pending_key(enc, ["anything"]) == "absent"
+
+    def test_write_key_atomic_leaves_no_tmp_on_write_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_write = os.write
+
+        def failing_write(fd: int, data: bytes) -> int:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("the_one.encryption.os.write", failing_write)
+        key_path = tmp_path / "encryption.key"
+        with pytest.raises(OSError, match="disk full"):
+            _write_key_atomic(key_path, b"some-key-bytes")
+        monkeypatch.setattr("the_one.encryption.os.write", real_write)
+        assert not key_path.exists()
+        leftovers = list(tmp_path.iterdir())
+        assert leftovers == []
+
+    def test_corrupt_sidecar_ignored_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        key_path = tmp_path / "encryption.key"
+        sidecar = next_key_path(key_path)
+        get_encryptor(tmp_path)  # creates the canonical key
+        sidecar.write_bytes(b"not-a-valid-fernet-key")
+
+        _encryptor_cache.clear()
+        with caplog.at_level(logging.WARNING, logger="the_one.encryption"):
+            enc = get_encryptor(tmp_path)
+        assert enc.pending_key is None
+        assert any("sidecar" in record.getMessage() for record in caplog.records)
+        assert resolve_pending_key(enc, ["anything"]) == "absent"

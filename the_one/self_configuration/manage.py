@@ -267,7 +267,20 @@ async def disable(
     # store rows); evict their in-memory registry entries too, mirroring the
     # `agt` `unregister(row.id)` above — so an `ext_` token dies with the
     # surface on the next request, no restart.
-    external_credentials.unregister(row.id)
+    evicted = external_credentials.unregister(row.id)
+    # Flight 01 Leg 2 (Q2): the row is gone before anything could read its
+    # label, so this line carries identifiers (and a count), not labels —
+    # the mint line already binds identifier -> label. No line when nothing
+    # was evicted (nothing changed, nothing to report).
+    if evicted:
+        logger.info(
+            "external-credential: surface %s for agent %r disabled; "
+            "cascade-revoked %d external credential(s): %s",
+            row.id,
+            agent_name,
+            len(evicted),
+            evicted,
+        )
     return True
 
 
@@ -418,7 +431,18 @@ async def cascade_delete(
     # M21 F03 L01 (DD9): agent-delete cascade-revokes its external
     # credentials (FK ON DELETE CASCADE removed the store rows); evict the
     # in-memory registry entries too, mirroring the `agt` `unregister` above.
-    external_credentials.unregister(row.id)
+    evicted = external_credentials.unregister(row.id)
+    # Flight 01 Leg 2 (Q2): mirrors the `disable` cascade line above, cause
+    # "removed with the agent" instead of "disabled".
+    if evicted:
+        logger.info(
+            "external-credential: surface %s for agent %r removed with the agent; "
+            "cascade-revoked %d external credential(s): %s",
+            row.id,
+            agent_name,
+            len(evicted),
+            evicted,
+        )
 
 
 async def reject_foreign_surface_attachments(
