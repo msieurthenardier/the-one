@@ -2,7 +2,7 @@
 
 **Date**: 2026-08-28
 **Flight**: [Credential lifecycle integrity and observability](flight.md)
-**Status**: completed
+**Status**: landed
 **Duration**: 2026-08-28 – 2026-08-28 (one session; three autonomous legs, no HAT)
 **Legs Completed**: 3 of 3 autonomous (optional `uat-and-alignment` not run)
 
