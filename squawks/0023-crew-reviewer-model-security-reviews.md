@@ -57,6 +57,6 @@ not restatements of this crew-file policy.
 ## Sign-Off
 **Reviewer**: Reviewer agent (independent, diff-scoped batch review of turnaround 2026-08-28; Sonnet — batch touches the credential gate and key-material code)
 **Verdict**: confirmed
-**Commit**: applied on disk 2026-08-28 (`.flightops/` is gitignored — local configuration, not versioned); artifact in `{sha}` on `squawk/turnaround-2026-08-28` — PR #{pr}
+**Commit**: applied on disk 2026-08-28 (`.flightops/` is gitignored — local configuration, not versioned); artifact in `92c2563` on `squawk/turnaround-2026-08-28` — PR #180
 
 Full unit suite at close-out: 4580 passed / 10 skipped / 0 failed (513s); browser lane for 0022: 2 passed.
