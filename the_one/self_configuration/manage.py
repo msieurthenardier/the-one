@@ -23,7 +23,11 @@ from the_one.db.repositories import (
     SQLiteAgentStore,
 )
 from the_one.self_configuration import external_credentials
-from the_one.self_configuration.constants import CREDENTIAL_SECRET_KEY, MOUNT_PATH
+from the_one.self_configuration.constants import (
+    CREDENTIAL_SECRET_KEY,
+    MOUNT_PATH,
+    is_surface_row,
+)
 from the_one.self_configuration.credentials import (
     credential_from_header,
     encode_for_header,
@@ -50,12 +54,11 @@ logger = logging.getLogger(__name__)
 # collide with the platform-managed surface row.
 SURFACE_ROW_NAME = "self-configuration"
 
-
-def is_surface_row(source: MCPSource) -> bool:
-    """LD1: a row is a surface row iff its ``config`` carries the ownership
-    marker ``{"self_configuration": {"agent": "<name>"}}``."""
-    marker = (source.config or {}).get("self_configuration")
-    return isinstance(marker, dict) and bool(marker.get("agent"))
+# Squawk 0004: the predicate moved to ``constants.py`` (a leaf module both
+# this module and ``credentials.py`` can import without a cycle) —
+# ``is_surface_row`` is imported above rather than redefined here, so
+# existing callers/tests referencing ``manage.is_surface_row`` are
+# unaffected.
 
 
 def owner_of(source: MCPSource) -> str | None:

@@ -45,6 +45,8 @@ def _seed_applied_revision(
     proposed_value: str,
     base_value: str,
     created_at: str | None = None,
+    source: str = "self",
+    source_principal: str | None = None,
 ) -> str:
     """INSERT an applied agent_revisions row via sync sqlite3. Returns id.
 
@@ -53,6 +55,10 @@ def _seed_applied_revision(
     (list_for_agent sorts ``created_at DESC, id DESC`` — see
     test_restore_controls_independent_per_field_with_shared_value, which
     needs a deterministic oldest-first walk order).
+
+    ``source``/``source_principal`` default to the pre-existing 'self'/NULL
+    shape (schema v37 widened ``source`` to admit 'external' and added the
+    nullable ``source_principal`` column — see squawk 0008).
     """
     db_path = data_dir / "the-one.db"
     revision_id = uuid.uuid4().hex
@@ -62,23 +68,33 @@ def _seed_applied_revision(
             conn.execute(
                 "INSERT INTO agent_revisions ("
                 " id, agent_name, field, proposed_value, base_value,"
-                " status, source, restored_from, created_at, resolved_at"
-                ") VALUES (?, ?, ?, ?, ?, 'applied', 'self', NULL,"
+                " status, source, source_principal, restored_from, created_at, resolved_at"
+                ") VALUES (?, ?, ?, ?, ?, 'applied', ?, ?, NULL,"
                 " datetime('now'), datetime('now'))",
-                (revision_id, agent_name, field, proposed_value, base_value),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO agent_revisions ("
-                " id, agent_name, field, proposed_value, base_value,"
-                " status, source, restored_from, created_at, resolved_at"
-                ") VALUES (?, ?, ?, ?, ?, 'applied', 'self', NULL, ?, ?)",
                 (
                     revision_id,
                     agent_name,
                     field,
                     proposed_value,
                     base_value,
+                    source,
+                    source_principal,
+                ),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO agent_revisions ("
+                " id, agent_name, field, proposed_value, base_value,"
+                " status, source, source_principal, restored_from, created_at, resolved_at"
+                ") VALUES (?, ?, ?, ?, ?, 'applied', ?, ?, NULL, ?, ?)",
+                (
+                    revision_id,
+                    agent_name,
+                    field,
+                    proposed_value,
+                    base_value,
+                    source,
+                    source_principal,
                     created_at,
                     created_at,
                 ),
@@ -148,6 +164,51 @@ def test_history_renders_all_statuses(app_with_data_dir: tuple[str, Path], page:
     title_attr = meta_text.get_attribute("title")
     assert title_attr, "expected the exact timestamp preserved as a title= tooltip"
     assert title_attr != raw_text, "title= should carry the raw timestamp, not the formatted text"
+
+
+@pytest.mark.browser
+def test_history_labels_external_source_distinctly(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Squawk 0008: a revision with ``source='external'`` must render as
+    "external (<principal>)" — not collapse into "self-revised" — while a
+    plain 'self' revision keeps reading "self-revised"."""
+    base_url, data_dir = app_with_data_dir
+    _seed_agent(base_url, "history-external-source-agent", description="D1")
+    _seed_applied_revision(
+        data_dir,
+        agent_name="history-external-source-agent",
+        field="description",
+        proposed_value="D0",
+        base_value="SELF-BASE",
+        created_at="2026-01-01T00:00:00",
+        source="self",
+    )
+    _seed_applied_revision(
+        data_dir,
+        agent_name="history-external-source-agent",
+        field="description",
+        proposed_value="D1",
+        base_value="D0",
+        created_at="2026-01-01T00:00:01",
+        source="external",
+        source_principal="ext_abc123",
+    )
+    _navigate_to_self_configuration_tab(page, base_url, "history-external-source-agent")
+
+    expect(page.locator('[data-testid="revision-history-entry"]')).to_have_count(2, timeout=8000)
+
+    external_entry = page.locator('[data-testid="revision-history-entry"][data-source="external"]')
+    expect(external_entry).to_have_count(1)
+    expect(external_entry.locator(".history-entry-meta-text")).to_have_text(
+        re.compile(r"^external \(ext_abc123\) ·")
+    )
+
+    self_entry = page.locator('[data-testid="revision-history-entry"][data-source="self"]')
+    expect(self_entry).to_have_count(1)
+    expect(self_entry.locator(".history-entry-meta-text")).to_have_text(
+        re.compile(r"^self-revised ·")
+    )
 
 
 @pytest.mark.browser

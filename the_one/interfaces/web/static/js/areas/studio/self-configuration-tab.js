@@ -47,7 +47,7 @@
 //
 // M21 F02 L03 adds a revision-HISTORY section below the pending queue: the
 // full revisions list (newest-first) — each entry shows field, before→after,
-// timestamp, source (self/restore) and status. Restore is operator-direct
+// timestamp, source (self/restore/external) and status. Restore is operator-direct
 // (applies immediately regardless of approval mode). To make "restore any
 // earlier value" literally true with NO duplicate buttons, the history
 // renders one Restore control per DISTINCT value-node — the dedup of
@@ -1008,7 +1008,21 @@
           // source + status + timestamp, human-readable and attributable.
           // HAT fix #4: formatted relative time instead of the raw ISO
           // string; the exact instant stays available via `title=`.
-          var sourceLabel = rev.source === 'restore' ? 'restored' : 'self-revised';
+          var sourceLabel;
+          if (rev.source === 'restore') {
+            sourceLabel = 'restored';
+          } else if (rev.source === 'external') {
+            // source_principal is the credential IDENTIFIER (e.g.
+            // "ext_abc123"), never the secret — safe to display. Built via
+            // string concat into a textContent assignment below, so no
+            // markup injection risk even if the identifier ever contained
+            // special characters.
+            sourceLabel = (typeof rev.source_principal === 'string' && rev.source_principal)
+              ? 'external (' + rev.source_principal + ')'
+              : 'external';
+          } else {
+            sourceLabel = 'self-revised';
+          }
           var ts = formatRevisionTimestamp(rev.created_at);
           metaText.textContent = sourceLabel + ' · ' + rev.status +
             (ts.text ? ' · ' + ts.text : '');

@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import aiosqlite
 from cryptography.fernet import InvalidToken
 
-from the_one.agent.config import AgentConfig
+# AgentConfig is import-cycle-only here (squawk 0003): repositories -> agent.config
+# -> agent (package __init__) -> agent.core -> mcp.errors -> mcp (package __init__)
+# -> mcp._pool -> repositories, re-entering this module before MCPSourceRepository
+# is defined. AgentConfig is used only in annotations (deferred by
+# `from __future__ import annotations` above) plus one runtime construction in
+# `_row_to_config`, which imports it locally instead.
+if TYPE_CHECKING:
+    from the_one.agent.config import AgentConfig
 from the_one.db.models import (
     AgentRevision,
     ChatSession,
@@ -350,6 +357,11 @@ class SQLiteAgentStore:
         await self.conn.commit()
 
     def _row_to_config(self, row: aiosqlite.Row) -> AgentConfig:
+        # Local import (squawk 0003): AgentConfig is TYPE_CHECKING-only at module
+        # scope to break the repositories <-> agent.config <-> mcp._pool import
+        # cycle; this is the one call site that needs the real class at runtime.
+        from the_one.agent.config import AgentConfig
+
         enabled = json.loads(row["enabled_tools"]) if row["enabled_tools"] else None
         return AgentConfig(
             name=row["name"],

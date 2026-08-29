@@ -33,6 +33,7 @@ from the_one.self_configuration.constants import (
     AGENT_CREDENTIAL_PREFIX,
     CREDENTIAL_SECRET_KEY,
     SOURCE_NAME,
+    is_surface_row,
 )
 
 _BEARER_PREFIX = "Bearer "
@@ -112,16 +113,16 @@ def load_from_rows(sources: Iterable[MCPSource]) -> None:
     Edge Cases): a credential for a row that no longer exists (or is no
     longer marked) simply stops resolving after this call.
 
-    Rows are filtered by the ownership marker (``manage.is_surface_row``
-    duplicated inline here to avoid a circular import — ``manage`` imports
-    this module for ``register``/``unregister``).
+    Rows are filtered by the ownership marker — ``constants.is_surface_row``
+    (squawk 0004: previously duplicated inline here to avoid a circular
+    import; both this module and ``manage`` now import the predicate from
+    the leaf ``constants`` module instead).
     """
     _registry.clear()
     for source in sources:
         if source.type != "streamable-http":
             continue
-        marker = (source.config or {}).get("self_configuration")
-        if not isinstance(marker, dict) or not marker.get("agent"):
+        if not is_surface_row(source):
             continue
         header_value = (source.secrets or {}).get(CREDENTIAL_SECRET_KEY)
         credential = credential_from_header(header_value)
