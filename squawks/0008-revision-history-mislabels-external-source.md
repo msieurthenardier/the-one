@@ -72,7 +72,7 @@ Extended `tests/browser/test_studio_self_configuration_history.py`:
 ## Sign-Off
 **Reviewer**: Reviewer agent (independent, diff-scoped batch review of turnaround 2026-08-29; Sonnet — batch touches `api_credential.py`, the DB import graph, and self-configuration identity)
 **Verdict**: confirmed
-**Commit**: `{sha}` on `squawk/turnaround-2026-08-29` — PR #{pr}
+**Commit**: `cefa92f` on `squawk/turnaround-2026-08-29` — PR #181
 
 Full unit suite at close-out: 4586 passed, 10 skipped, 704 deselected, 20 warnings in 557.56s (0:09:17).
 **Reviewer**:
