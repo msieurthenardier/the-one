@@ -199,6 +199,51 @@ class TestExemption:
         the exemption set grew its second member, the OAuth callback."""
         assert EXEMPT_PATHS == frozenset({LIVENESS_PATH, OAUTH_CALLBACK_PATH})
 
+    def test_exempt_paths_are_get_only_on_the_real_app(self) -> None:
+        """Squawk 0021: `EXEMPT_PATHS` is path-only (DD5) — the gate does
+        no method check — so the safety argument for every member rests
+        entirely on the route itself being registered GET-only, so any
+        other method 405s at routing before the exemption ever matters
+        (see the rationale comment above `EXEMPT_PATHS` in middleware.py).
+        Pins that registration against the REAL app (not the throwaway
+        `_make_app` used elsewhere in this module), for every current and
+        future member, so a route that quietly grows a POST/PUT/etc.
+        handler on an exempt path — or a new exemption added without the
+        GET-only precondition — fails loudly here instead of silently
+        becoming an unauthenticated hole. Also asserts every exempt path
+        has a matching route at all: an exempt path with no route is a
+        typo that would otherwise sit dead in the set forever."""
+        from the_one.interfaces.web.app import app as real_app
+
+        routes_by_path: dict[str, list] = {}
+        for route in real_app.routes:
+            path = getattr(route, "path", None)
+            if path is not None:
+                routes_by_path.setdefault(path, []).append(route)
+
+        for exempt_path in EXEMPT_PATHS:
+            matches = routes_by_path.get(exempt_path)
+            assert matches, (
+                f"{exempt_path!r} is a member of EXEMPT_PATHS but no route "
+                "is registered at that path on the real app — an exempt "
+                "path with no matching route is a typo waiting to become "
+                "a hole the day a route is added there without review."
+            )
+            for route in matches:
+                methods = set(getattr(route, "methods", None) or ())
+                offending = methods - {"GET", "HEAD"}
+                assert not offending, (
+                    f"{exempt_path!r} is a member of EXEMPT_PATHS, whose "
+                    "safety argument depends on the route being "
+                    "registered GET-only so any other method 405s at "
+                    "routing before the credential gate's path-only "
+                    f"exemption ever matters — but it declares methods "
+                    f"{sorted(methods)!r}, including non-GET/HEAD "
+                    f"method(s) {sorted(offending)!r}. Narrow the route's "
+                    "declared methods, or remove the path from "
+                    "EXEMPT_PATHS and require a credential."
+                )
+
     def test_head_on_liveness_path_is_exempt(self, tmp_path: Path) -> None:
         app = _make_app(tmp_path)
         with TestClient(app) as client:

@@ -332,9 +332,37 @@ class TestPendingKey:
         assert outcome == "promoted"
         assert (tmp_path / "encryption.key").read_bytes() == new_key
         assert any(
-            record.levelno == logging.WARNING and "1" in record.getMessage()
+            record.levelno == logging.WARNING
+            and "1" in record.getMessage()
+            and "CLI-window" in record.getMessage()
+            and "unreadable after promotion" in record.getMessage()
             for record in caplog.records
         )
+
+    def test_undecidable_promote_is_safe_because_sidecar_precedes_commit(
+        self, tmp_path: Path
+    ) -> None:
+        """The undecidable->promote branch is not vulnerable to losing readable data.
+
+        Residue-only samples (plaintext that decrypts under neither key) plus a
+        pending key give resolve_pending_key nothing decidable, so it promotes.
+        That's safe only because the sidecar is staged before the DB commit
+        (rotate_encryption_key step 3b): nothing was re-encrypted under a key that
+        promotion could strand. Prove it by round-tripping ciphertext written
+        under the (now-canonical) key *after* promotion.
+        """
+        enc = get_encryptor(tmp_path)
+        new_key = Fernet.generate_key()
+        enc.stage_pending_key(new_key)
+        residue_sample = "{}"  # plaintext residue: decrypts under neither key
+
+        outcome = resolve_pending_key(enc, [residue_sample])
+        assert outcome == "promoted"
+        assert (tmp_path / "encryption.key").read_bytes() == new_key
+
+        # Data written after promotion round-trips cleanly — nothing readable was lost.
+        post_promotion_ciphertext = enc.encrypt("written-after-promotion")
+        assert enc.decrypt(post_promotion_ciphertext) == "written-after-promotion"
 
     def test_resolve_pending_key_absent_without_pending(self, tmp_path: Path) -> None:
         enc = get_encryptor(tmp_path)

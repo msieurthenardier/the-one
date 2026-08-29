@@ -260,9 +260,12 @@ def resolve_pending_key(
         encryptor.promote_pending_key()
         if under_canonical_only > 0:
             logger.warning(
-                "encryption key reconcile: promoted pending key; %d sample(s) were "
-                "still encrypted under the canonical key at promotion time "
-                "(rows written during the crash window, if any, may need re-encrypting)",
+                "encryption key reconcile: promoted pending key; %d sampled "
+                "ciphertext(s) decrypt only under the retiring canonical key and "
+                "will become unreadable after promotion — the documented "
+                "CLI-window loss (a process that kept encrypting under the old "
+                "key during an interrupted rotation); see agents.md "
+                "'Encryption-rotation invariant'",
                 under_canonical_only,
             )
         logger.info(
@@ -281,6 +284,10 @@ def resolve_pending_key(
         return "discarded"
 
     # Nothing decidable (no encrypted rows, or only plaintext residue) — promote.
+    # Safe because the sidecar is written *before* the DB commit (rotate_encryption_key
+    # step 3b): a `.next` with no decidable ciphertext means either a fresh DB, rows
+    # that are residue-only, or a rotation that crashed before commit — in every case
+    # nothing was actually re-encrypted under a key that promotion would lose.
     encryptor.promote_pending_key()
     logger.info("encryption key reconcile: promoted (nothing decidable)")
     return "promoted"
