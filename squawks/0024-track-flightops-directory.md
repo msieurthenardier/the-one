@@ -53,4 +53,4 @@ decision 2026-08-28: track it. Remove the line, add the directory, leave `.memor
 ## Sign-Off
 **Reviewer**: Reviewer agent (independent, diff-scoped; Haiku — non-security diff, first application of the squawk 0023 rule)
 **Verdict**: confirmed
-**Commit**: `{sha}` on `squawk/turnaround-2026-08-28` — PR #180
+**Commit**: `767e87d` on `squawk/turnaround-2026-08-28` — PR #180
