@@ -52,11 +52,9 @@ def auth_headers_for(base_url: str) -> dict[str, str]:
     (test bodies making direct requests to the app under test, as opposed
     to the seeders/fixtures in this package which already resolve their
     own headers) don't each duplicate the ``credential_for(...)`` lookup
-    and ``None``-guard. Mirrors ``conftest.py``'s private
-    ``_auth_headers_for`` / ``seeders.py``'s private ``_auth_headers``
-    (both pre-existing, both module-local) — this one is public because
-    it is meant to be imported directly by test modules outside this
-    package's own fixture/seeder machinery.
+    and ``None``-guard. ``conftest.py`` and ``seeders.py`` both import
+    this function directly (squawk 0001) rather than keeping their own
+    module-local copies.
     """
     credential = credential_for(base_url)
     if credential is None:

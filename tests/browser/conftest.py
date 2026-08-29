@@ -45,6 +45,9 @@ from urllib.parse import urlsplit
 import httpx
 import pytest
 from browser._credential_registry import (
+    auth_headers_for,
+)
+from browser._credential_registry import (
     credential_for as _credential_for,
 )
 from browser._credential_registry import (
@@ -160,24 +163,6 @@ def _write_credential(data_dir: Path) -> LocalApiCredential:
         data_dir / api_credential._CREDENTIAL_FILENAME, credential
     )
     return credential
-
-
-def _auth_headers_for(base_url: str) -> dict[str, str]:
-    """``Authorization`` header dict for whichever app is registered at
-    *base_url*, or ``{}`` if none is (defensive fallback — a raw ``httpx``
-    call with no header is exactly what every seeder sent before this
-    leg, so an unregistered base_url degrades to prior behavior rather
-    than raising).
-
-    Used by the module-level ``_seed_openrouter_provider`` /
-    ``_seed_ollama_provider`` helpers below (Mission 20 / Flight 1 / Leg 3
-    — DD10: the credential is resolved from the ``base_url`` these
-    functions already receive, not threaded through as a new parameter).
-    """
-    credential = _credential_for(base_url)
-    if credential is None:
-        return {}
-    return {"Authorization": f"Bearer {credential.encode()}"}
 
 
 # ── App subprocess ────────────────────────────────────────────────────────
@@ -562,7 +547,7 @@ def _seed_openrouter_provider(base_url: str, name: str = "OR Mock") -> str:
             "base_url": "https://openrouter.ai/api/v1",
             "api_key": "sk-or-test",
         },
-        headers=_auth_headers_for(base_url),
+        headers=auth_headers_for(base_url),
         timeout=5.0,
     )
     assert r.status_code == 201, f"seed_openrouter_provider failed: {r.status_code} {r.text}"
@@ -579,7 +564,7 @@ def _seed_ollama_provider(base_url: str, name: str = "Local Ollama") -> str:
             "base_url": "http://localhost:11434/v1",
             "api_key": "",
         },
-        headers=_auth_headers_for(base_url),
+        headers=auth_headers_for(base_url),
         timeout=5.0,
     )
     assert r.status_code == 201, f"seed_ollama_provider failed: {r.status_code} {r.text}"

@@ -9,6 +9,14 @@ per-request path check. Nothing in this module imports anything from
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Type-only — keeps this leaf module free of a runtime import from
+    # ``the_one.db`` (see the module docstring). ``is_surface_row`` below
+    # duck-types on the ``.config`` attribute instead.
+    from the_one.db.models import MCPSource
+
 # Where the self-configuration FastMCP sub-app is mounted on the existing
 # app/port (DD1). No new port — see the flight's re-entrancy probe. LD4:
 # a real FastMCP instance is mounted here, stateless, with a trailing-slash
@@ -77,3 +85,24 @@ EXTERNAL_CREDENTIAL_PREFIX = "ext"
 # transport merges into request headers
 # (``mcp/transports/streamable_http.py:build_request_headers``).
 CREDENTIAL_SECRET_KEY = "Authorization"
+
+# LD1: the key inside a surface row's ``config`` dict that carries the
+# ownership marker (``{"self_configuration": {"agent": "<name>"}}``)
+# identifying the row as a self-configuration surface row. Squawk 0004:
+# hoisted here (with :func:`is_surface_row` below) so ``manage.py`` and
+# ``credentials.py`` share one predicate instead of each carrying their own
+# copy of the marker check for import-order reasons.
+OWNER_MARKER_KEY = "self_configuration"
+
+
+def is_surface_row(source: "MCPSource") -> bool:
+    """LD1: a row is a surface row iff its ``config`` carries the ownership
+    marker ``{"self_configuration": {"agent": "<name>"}}``.
+
+    Takes anything duck-typed like
+    :class:`~the_one.db.models.MCPSource` (an object with a ``.config``
+    mapping attribute) — the type import above is ``TYPE_CHECKING``-only so
+    this leaf module keeps importing nothing from ``the_one.db`` at runtime.
+    """
+    marker = (source.config or {}).get(OWNER_MARKER_KEY)
+    return isinstance(marker, dict) and bool(marker.get("agent"))

@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import logging
 import socket
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import httpx
 import pytest
@@ -458,3 +459,239 @@ class TestAC9ExternalDiesWithSurface:
                 source=_ext_source(base_url, token), auth_provider=None
             ) as mcp_client:
                 await mcp_client.call_tool("get_my_configuration", {})
+
+
+# ── Squawk 0006: dedicated two-agent-simultaneous isolation e2e ───────────
+
+
+class TestSquawk0006TwoAgentSimultaneousIsolation:
+    """Flight 1 Leg 2 AC9 (ownership guard) was ticked on enforcement +
+    code inspection alone (Flight 1 debrief, "What Could Be Improved →
+    Technical") — not a dedicated two-agent-simultaneous end-to-end test.
+
+    This stands up TWO surface-enabled agents at once, with both `agt_`
+    credentials live concurrently (mirrors ``TestAC8CrossAgentIsolation``'s
+    `ext_` version of this, but for the agent's own credential, driven
+    through a real ``MCPClient`` — the same mechanism the DD9 tests above
+    use to present ``row``, not ``MCPToolProvider``/``AgentFactory``), and
+    proves isolation in both directions: reads never cross, writes never
+    cross (and a write to one agent never undoes the other's), and
+    disabling one agent's surface refuses only that agent's credential
+    while the other's keeps working.
+    """
+
+    async def test_two_live_agt_credentials_never_cross(self, running_surface: str) -> None:
+        base_url = running_surface
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            await _seed_agent_with_provider("a-iso6a")
+            await _seed_agent_with_provider("a-iso6b")
+            await client.post("/api/agents/a-iso6a/self-configuration")
+            await client.post("/api/agents/a-iso6b/self-configuration")
+            agent_a = (await client.get("/api/agents/a-iso6a")).json()
+            agent_b = (await client.get("/api/agents/a-iso6b")).json()
+            source_id_a = agent_a["mcp_source_ids"][0]
+            source_id_b = agent_b["mcp_source_ids"][0]
+
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        mcp_repo = MCPSourceRepository(conn, encryptor)
+        store = SQLiteAgentStore(conn, encryptor)
+
+        # Both `agt_` credentials are live concurrently — fetch both rows
+        # (each carries its OWN agent's bearer in its own encrypted
+        # `secrets["Authorization"]`) up front, before either is exercised,
+        # so neither call below is what "activates" isolation.
+        row_a = await mcp_repo.get(source_id_a)
+        row_b = await mcp_repo.get(source_id_b)
+
+        from the_one.mcp.client import MCPClient
+        from the_one.mcp.errors import MCPAuthRequired, MCPConnectionError
+
+        # ── reads never cross: A's credential resolves only to A, B's only to B ──
+        async with MCPClient(source=row_a, auth_provider=None) as ca:
+            res_a = await ca.call_tool("get_my_configuration", {})
+        async with MCPClient(source=row_b, auth_provider=None) as cb:
+            res_b = await cb.call_tool("get_my_configuration", {})
+
+        assert (res_a.structured or {}).get("name") == "a-iso6a"
+        assert (res_b.structured or {}).get("name") == "a-iso6b"
+
+        # ── A's write changes A's stored row and leaves B's untouched ──
+        async with MCPClient(source=row_a, auth_provider=None) as ca:
+            write_a = await ca.call_tool(
+                "update_my_description",
+                {"text": "description written by agent A", "apply": "next_session"},
+            )
+        assert (write_a.structured or {}).get("applied_to_store") is True
+
+        cfg_a = await store.load("a-iso6a")
+        cfg_b = await store.load("a-iso6b")
+        assert cfg_a.description == "description written by agent A"
+        assert cfg_b.description == ""
+
+        # ── vice versa: B's write changes B's stored row, and does not
+        # clobber the write A just made to its own row ──
+        async with MCPClient(source=row_b, auth_provider=None) as cb:
+            write_b = await cb.call_tool(
+                "update_my_description",
+                {"text": "description written by agent B", "apply": "next_session"},
+            )
+        assert (write_b.structured or {}).get("applied_to_store") is True
+
+        cfg_a = await store.load("a-iso6a")
+        cfg_b = await store.load("a-iso6b")
+        assert cfg_a.description == "description written by agent A"
+        assert cfg_b.description == "description written by agent B"
+
+        # ── negative: disabling B's surface refuses B's credential (the
+        # same 401/403-at-the-gate class the single-agent AC9 test above
+        # asserts) while A's credential still works. A's live check runs
+        # BEFORE the expected-failure block below, not after — mirrors
+        # every other `pytest.raises(MCPAuthRequired ...)` use in this
+        # file, which always ends its test on the raise rather than
+        # opening a further `MCPClient` afterward in the same event loop.
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            disable_resp = await client.delete("/api/agents/a-iso6b/self-configuration")
+        assert disable_resp.status_code == 200
+
+        async with MCPClient(source=row_a, auth_provider=None) as ca:
+            res_a_after = await ca.call_tool("get_my_configuration", {})
+        assert (res_a_after.structured or {}).get("name") == "a-iso6a"
+
+        with pytest.raises((MCPAuthRequired, MCPConnectionError)):
+            async with MCPClient(source=row_b, auth_provider=None) as cb:
+                await cb.call_tool("get_my_configuration", {})
+
+
+# ── Squawk 0005: shutdown-drain under load, live self-configuration
+# connection ─────────────────────────────────────────────────────────────
+
+
+class TestSquawk0005ShutdownDrainUnderLoad:
+    """Squawk 0005: the lifespan shutdown branch (`app.py`'s `lifespan`)
+    evicts every marked self-configuration surface row's pool entries via
+    `_evict_all_for_source(row.id)` BEFORE the general
+    `_mcp_pool_shutdown_drain()` runs — the mitigation for a loopback
+    session that would otherwise log a benign-but-noisy WARNING if torn
+    down after the listener closes. That ordering was reasoned but never
+    exercised with a surface-enabled agent holding a LIVE pool connection
+    at shutdown (Flight 1 debrief carry-over). This proves it under a
+    genuinely live connection.
+
+    Why this doesn't drive the real `the_one.interfaces.web.app.lifespan`
+    directly, mirroring `tests/test_lifespan.py`'s bare
+    `async with lifespan(app)` idiom: the self-configuration surface is a
+    REAL loopback HTTP connection to `http://127.0.0.1:{settings.port}
+    {MOUNT_PATH}/` — nothing is listening on that port unless a real
+    `uvicorn.Server` is actually bound to it, and the bare
+    `async with lifespan(app)` idiom (as used throughout
+    `test_lifespan.py`) never binds a port — it only enters the context
+    manager in-process. Separately, the real `app` singleton's
+    `session_manager.run()` is guarded to fire at most ONCE per process
+    (`app.py`'s `_self_configuration_session_manager_started`, per this
+    file's own module docstring above) — by the time any given test runs
+    in a full-suite process, that guard is realistically already spent
+    from earlier `TestClient(app)` cycles elsewhere, so even a live-bound
+    `app` singleton would not reliably serve the mount. Per the squawk's
+    sanctioned fallback, this instead reproduces the SAME SHAPE the
+    lifespan's shutdown branch performs — evict-the-surface-row before
+    the general drain — directly at the pool layer, against a genuinely
+    live self-configuration connection obtained exactly as `running_surface`
+    provides it elsewhere in this file: a real `uvicorn.Server` bound to
+    an OS-allocated port, the platform's own loopback client path.
+    """
+
+    async def test_live_surface_connection_evicted_before_general_drain(
+        self,
+        running_surface: str,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        base_url = running_surface
+        async with httpx.AsyncClient(base_url=base_url, headers=auth_headers()) as client:
+            await _seed_agent_with_provider("a-drain5")
+            resp = await client.post("/api/agents/a-drain5/self-configuration")
+            assert resp.status_code == 200, resp.text
+            agent = (await client.get("/api/agents/a-drain5")).json()
+            source_id = agent["mcp_source_ids"][0]
+
+        from the_one.mcp import _pool as pool_mod
+
+        try:
+            # Acquire a LIVE pool entry the way an agent turn would —
+            # this dials the real loopback surface over HTTP and holds a
+            # warm, connected `MCPClient` in `pool_mod._pool`.
+            client_conn = await pool_mod.acquire("a-drain5", source_id)
+            assert client_conn.is_alive
+
+            # Leave one in-flight tool call running at the moment of
+            # shutdown — fired but NOT awaited before eviction starts,
+            # so it's genuinely concurrent with the drain sequence below.
+            inflight = asyncio.ensure_future(client_conn.call_tool("get_my_configuration", {}))
+
+            # Spy on call order exactly like app.py's shutdown branch:
+            # evict the marked surface row's pool entries BEFORE the
+            # general MCP pool drain.
+            order: list[str] = []
+            original_evict_all = pool_mod._evict_all_for_source
+            original_shutdown_drain = pool_mod.shutdown_drain
+
+            async def _spying_evict_all(sid: str) -> None:
+                order.append("evict")
+                await original_evict_all(sid)
+
+            async def _spying_shutdown_drain() -> None:
+                order.append("drain")
+                await original_shutdown_drain()
+
+            monkeypatch.setattr(pool_mod, "_evict_all_for_source", _spying_evict_all)
+            monkeypatch.setattr(pool_mod, "shutdown_drain", _spying_shutdown_drain)
+
+            async def _shutdown_sequence() -> None:
+                # Mirrors app.py's lifespan shutdown branch order
+                # exactly: evict the surface row's pool entries first
+                # (while the listener is still up), THEN run the
+                # general MCP pool drain.
+                await pool_mod._evict_all_for_source(source_id)
+                await pool_mod.shutdown_drain()
+
+            with caplog.at_level(logging.WARNING):
+                # Bound comfortably under the drain's own worst-case
+                # ceiling (two ~10s-per-entry timeouts, evict then
+                # drain) — a real hang here means the mitigation
+                # regressed.
+                await asyncio.wait_for(_shutdown_sequence(), timeout=15.0)
+
+            assert order == ["evict", "drain"], order
+            assert pool_mod._pool == {}
+
+            # The in-flight call must not be left hanging forever by the
+            # eviction/disconnect it raced against — bound its own
+            # outcome separately and tolerate any exception the
+            # mid-flight teardown produced (a clean result, a
+            # connection-closed error, or a cancellation are all
+            # acceptable; only a HANG would be a real defect, and
+            # `wait_for`'s timeout both catches and cancels that).
+            with suppress(Exception):
+                await asyncio.wait_for(inflight, timeout=5.0)
+
+            noisy = [
+                r
+                for r in caplog.records
+                if r.levelno >= logging.WARNING
+                and (
+                    "did not terminate" in r.getMessage()
+                    or "stuck" in r.getMessage().lower()
+                    or "unterminated" in r.getMessage().lower()
+                )
+            ]
+            assert noisy == [], [(r.levelname, r.getMessage()) for r in noisy]
+        finally:
+            # Belt-and-suspenders: `shutdown_drain()` latches module-global
+            # `_shutting_down = True` — left set, every LATER test in this
+            # process whose path reaches `pool_mod.acquire` (e.g.
+            # `TestAC3ClientPresentsCredential`, `TestSquawk0006...` above)
+            # would fail with "MCP pool is shutting down". Reset
+            # unconditionally, mirroring `tests/test_lifespan.py`'s
+            # `reset_lifespan_singletons` fixture for the same hazard.
+            await pool_mod._clear_for_test()

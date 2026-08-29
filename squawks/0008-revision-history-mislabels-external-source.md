@@ -1,10 +1,10 @@
 # Squawk 0008: Revision-history UI mislabels `external` revisions as "self-revised"
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-08-27
-**Completed**: —
+**Completed**: 2026-08-29
 
 ## Report
 
@@ -35,14 +35,46 @@ backend, schema, or API change. Sourced from the Mission 21 Flight 3 debrief Act
   (M21 F03 L02).
 
 ## Corrective Action
-*(written at completion)*
+
+`the_one/interfaces/web/static/js/areas/studio/self-configuration-tab.js`:
+
+- Replaced the two-way `rev.source === 'restore' ? 'restored' : 'self-revised'` ternary
+  at (former) `:1011` with a three-way `if`/`else if`/`else`: `'restore'` → `restored`,
+  `'external'` → `external`, plus, when `rev.source_principal` is a non-empty string,
+  `external (<principal>)` (e.g. `external (ext_abc123)`) — the credential identifier,
+  never the secret; anything else (including the existing `'self'` value) falls through
+  to the unchanged default `self-revised`, so the change is backward-compatible for
+  every existing revision row. The label is still assigned via `metaText.textContent`
+  (never `innerHTML`), so the interpolated identifier is auto-escaped.
+- Updated the stale header comment (former `:49-50`) from "source (self/restore)" to
+  "source (self/restore/external)".
+- Confirmed `entry.setAttribute('data-source', rev.source)` (former `:980`) already
+  carries the raw, untransformed value — no change needed there; the new browser test
+  asserts against it directly (`[data-source="external"]` / `[data-source="self"]`).
 
 ## Verification
-*(written at completion — a DOM/browser test asserting an `external` revision row shows
-the distinct label, mirroring `tests/browser/test_studio_self_configuration_history.py`)*
+
+Extended `tests/browser/test_studio_self_configuration_history.py`:
+
+- `_seed_applied_revision` gained optional `source` (default `"self"`, unchanged
+  behavior for existing callers) and `source_principal` (default `None`) parameters,
+  now passed through to the `agent_revisions` INSERT (schema v37 columns).
+- Added `test_history_labels_external_source_distinctly`: seeds one `source='self'`
+  revision and one `source='external'` revision with `source_principal='ext_abc123'`
+  on the same agent, then asserts the rendered `.history-entry-meta-text` reads
+  `external (ext_abc123) · …` for the external row and `self-revised · …` for the self
+  row (matched via each entry's `data-source` attribute).
+- `.venv/bin/ruff check` and `.venv/bin/ruff format --check` pass on the test file.
+- `THE_ONE_DEV_MODE=true PYTHON=.venv/bin/python bash scripts/run-tests.sh -m browser
+  tests/browser/test_studio_self_configuration_history.py -x --timeout 120 -q` — all 4
+  tests in the file pass (3 pre-existing + 1 new).
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Reviewer agent (independent, diff-scoped batch review of turnaround 2026-08-29; Sonnet — batch touches `api_credential.py`, the DB import graph, and self-configuration identity)
+**Verdict**: confirmed
+**Commit**: `cefa92f` on `squawk/turnaround-2026-08-29` — PR #181
+
+Full unit suite at close-out: 4586 passed, 10 skipped, 704 deselected, 20 warnings in 557.56s (0:09:17).
 **Reviewer**:
 **Verdict**:
 **Commit**:

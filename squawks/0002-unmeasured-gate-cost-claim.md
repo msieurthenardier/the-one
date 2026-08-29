@@ -1,10 +1,10 @@
 # Squawk 0002: Gate's per-request cost is asserted in a docstring, never measured
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-08-08
-**Completed**: —
+**Completed**: 2026-08-29
 
 ## Report
 
@@ -45,18 +45,39 @@ Flight debrief, "What Could Be Improved → Technical":
 
 ## Corrective Action
 
-*(written at completion)*
+Measured with a throwaway micro-benchmark (session scratchpad, not committed —
+not in the repo per the scope note): an isolated temp data dir, a credential
+written the same way `tests/test_api_credential.py` writes one
+(`get_credential()`, which creates-on-first-use), the default file source
+registered, then `resolve_caller(presented)` timed over 20,000 iterations for
+(a) the warm cache-hit path (same credential repeatedly — the per-request
+production case) and (b) a wrong-credential miss, via `time.perf_counter_ns`.
+Run 3 times; middle run reported. A bare `stat()` on the credential file was
+timed for reference.
 
-Measure the per-request cost once — e.g. time N gated requests against a
-throwaway app with and without the middleware, run locally and discarded — then
-replace the qualitative claim with the measured figure and the conditions it was
-taken under. If the measurement contradicts the claim, that is the finding, and
-it should be escalated rather than quietly reworded.
+Result: the claim holds and is a significant underestimate of the actual
+margin — the measured cost is roughly two orders of magnitude below "sub-
+millisecond," not merely under the 1ms bar. Docstring updated at
+`the_one/api_credential.py:resolve_caller` (~line 455) with the measured
+figure, the date, the one-sentence method, and the machine class, keeping the
+original "sub-millisecond" claim structure intact rather than replacing it
+(the measurement supports it, so no softening or escalation is warranted).
 
 ## Verification
 
-The docstring cites a real number and how it was obtained. `make test-unit` green
-(no behavioural change expected — this touches a docstring only).
+Benchmark output (middle of 3 runs, N=20,000 iterations each, `the_one`
+`resolve_caller`, Linux/WSL2 local disk):
+
+```
+cache-hit   median=6.251us  p99=14.673us
+wrong-cred  median=5.773us  p99=13.001us
+bare stat() median=0.981us  p99=1.301us
+```
+
+The docstring now cites this figure, the date, and how it was obtained.
+
+`PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_api_credential.py -x --timeout 60` — passing.
+`.venv/bin/ruff check .` and `.venv/bin/ruff format --check .` — passing.
 
 ## Sign-Off
 

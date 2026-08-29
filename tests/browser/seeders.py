@@ -22,21 +22,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
-from browser._credential_registry import credential_for as _credential_for
+from browser._credential_registry import auth_headers_for
 
 from tests._acl_shape_helpers import _to_v24_allowlist
-
-
-def _auth_headers(base_url: str) -> dict[str, str]:
-    """``Authorization`` header for the app registered at *base_url*, or
-    ``{}`` if none is registered (defensive fallback — degrades to the
-    pre-leg-3 unauthenticated behavior rather than raising, so a caller
-    invoking a seeder against an app spawned outside the consolidated
-    ``_spawn_app`` path still works)."""
-    credential = _credential_for(base_url)
-    if credential is None:
-        return {}
-    return {"Authorization": f"Bearer {credential.encode()}"}
 
 
 @dataclass
@@ -74,7 +62,7 @@ def seed_mock_provider(
         "config": config or {},
     }
     r = httpx.post(
-        f"{base_url}/api/providers", json=payload, headers=_auth_headers(base_url), timeout=5.0
+        f"{base_url}/api/providers", json=payload, headers=auth_headers_for(base_url), timeout=5.0
     )
     assert r.status_code == 201, f"seed_mock_provider failed: {r.status_code} {r.text}"
     return r.json()["id"]
@@ -112,7 +100,7 @@ def seed_mock_agent(
     if max_iterations is not None:
         payload["max_iterations"] = max_iterations
     r = httpx.post(
-        f"{base_url}/api/agents", json=payload, headers=_auth_headers(base_url), timeout=5.0
+        f"{base_url}/api/agents", json=payload, headers=auth_headers_for(base_url), timeout=5.0
     )
     assert r.status_code == 201, f"seed_mock_agent failed: {r.status_code} {r.text}"
     return r.json()["name"]
@@ -164,7 +152,7 @@ def seed_connector(
     if session_continuation_seconds is not None:
         payload["session_continuation_seconds"] = session_continuation_seconds
     r = httpx.post(
-        f"{base_url}/api/connectors", json=payload, headers=_auth_headers(base_url), timeout=5.0
+        f"{base_url}/api/connectors", json=payload, headers=auth_headers_for(base_url), timeout=5.0
     )
     assert r.status_code == 201, f"seed_connector failed: {r.status_code} {r.text}"
     return r.json()["id"]
@@ -201,7 +189,7 @@ def seed_tool_config(
     r = httpx.put(
         f"{base_url}/api/tools/configs/{name}",
         json=body,
-        headers=_auth_headers(base_url),
+        headers=auth_headers_for(base_url),
         timeout=5.0,
     )
     assert r.status_code == 200, f"seed_tool_config failed: {r.status_code} {r.text}"
