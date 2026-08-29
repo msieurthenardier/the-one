@@ -1,6 +1,6 @@
 # Mission: Post-Mission-21 Maintenance
 
-**Status**: active
+**Status**: completed
 **Depends on**: none (clears debt surfaced after Mission 21; touches `interfaces/web/api.py`, `interfaces/web/middleware.py`, `encryption.py`, `db/repositories.py`, and possibly `db/schema.py`)
 
 ## Outcome
@@ -30,17 +30,17 @@ crosses the `SameSite=Strict` cookie boundary.
 
 ## Success Criteria
 
-- [ ] `rotate_encryption_key` cannot leave the database committed under a new key
+- [x] `rotate_encryption_key` cannot leave the database committed under a new key
       while the on-disk key file and in-memory encryptor remain on the old one — the
       DB↔key-file handoff has a defined recovery path, logs success and failure, and
       a test that injects a key-file write fault proves credentials stay decryptable.
       *(B8-rotate)*
-- [ ] Minting and revoking an `ext_` external credential leaves a durable,
+- [x] Minting and revoking an `ext_` external credential leaves a durable,
       operator-readable trace (at minimum an operational log line with agent,
       credential id, label, and principal), and the tombstone question — `revoked_at`
       column via migration v38, or log-only — is decided and recorded.
       *(B8-ext-credential-trace)*
-- [ ] The external-IdP OAuth callback (`GET /api/oauth/callback`) is verified to
+- [x] The external-IdP OAuth callback (`GET /api/oauth/callback`) is verified to
       complete end-to-end through the credential gate on a real cross-site redirect,
       the chosen mechanism (gate exemption on the state-guarded path, or
       `postMessage` from `window.opener`) is implemented, and a middleware-inclusive
@@ -82,7 +82,7 @@ tombstone; gate exemption vs. `postMessage` for the OAuth callback.
 
 ## Known Issues
 
-- [ ] Two encrypted columns were added after the rotation invariant was written and never joined the rotation transaction — `tool_configs.secrets` (M16 F08 L03) and `agent_external_credentials.secret` (M21 F03). Fixed in Flight 1 Leg 1 (flight-log Decision D1); the debrief should propose a structural guard so the next encrypted column cannot miss it.
+- [x] Two encrypted columns were added after the rotation invariant was written and never joined the rotation transaction — `tool_configs.secrets` (M16 F08 L03) and `agent_external_credentials.secret` (M21 F03). Fixed in Flight 1 Leg 1 (flight-log Decision D1); the debrief should propose a structural guard so the next encrypted column cannot miss it. → Guard test landed as squawk 0018 (turnaround 2026-08-28); the `EncryptedColumn` registry refactor is carried to the next maintenance report (mission debrief, Action Items).
 
 ## Flights
 
