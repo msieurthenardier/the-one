@@ -224,7 +224,7 @@ when done directly against their APIs.
 > planned and created one at a time as work progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] Flight 1: Remove — delete `the_one/connectors/`, the connector tools,
+- [x] Flight 1: Remove — delete `the_one/connectors/`, the connector tools,
       the Studio connector editor and Chat approval/audit panels, the 18
       routes, the lifespan warm-acquire/pool-drain, `AgentConfig` ACL fields
       and validator, `PendingApproval`; one migration retiring

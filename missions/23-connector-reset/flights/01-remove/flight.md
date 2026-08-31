@@ -1,13 +1,13 @@
 # Flight: Remove
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Connector Reset](../../mission.md)
 
 ## Contributing to Criteria
 - [x] `discord.py` and `aiohttp` are absent from the runtime dependency closure, and no third-party chat-platform SDK is present in base dependencies — `uv lock` no-op, 0 hits for either package in `uv.lock` and in the `uv export --no-dev --no-emit-project --extra gui --extra all-llms` CI-consumer closure; both genuinely unimportable in the synced venv (leg 3 verification)
 - [x] The `pending_approvals` table, the `agents.connector_ids` / `connector_acls` / `connector_always_listen` columns, and legacy connector rows are retired by a single new migration; an existing database upgrades cleanly — v38, `tests/test_db_migration.py` 84/84 passed in isolation incl. `TestSchemaV38`'s upgrade/idempotency tests and the v23→v38 chained-legacy-row path (leg 3 verification)
 - [x] `make test-unit` and every browser lane pass; the tests for removed capabilities are deleted, not skipped; the `discord_hat` marker and its Makefile target are gone — fresh `make test-unit`: 3561 passed/0 failed/10 skipped/542 deselected (skip count unchanged from pre-flight baseline, confirming deletion not skipping); all 4 browser lanes green (leg 2's runs, no frontend changes since); `discord_hat` marker/Makefile target confirmed absent, only a retirement comment remains in `pyproject.toml:121` (leg 3 verification)
-- [ ] The Windows packaged build (Concourse) still builds and the packaged smoke check passes with the smaller closure
+- [x] The Windows packaged build (Concourse) still builds and the packaged smoke check passes with the smaller closure — build 581708 on the temporary `windows-installer-flight01` pipeline (branch `flight/01-remove`), 2026-08-31: succeeded end-to-end incl. the "[4/6] smoke: frozen doctor" gate; installer 59 MiB (was 62 MiB)
 - [x] *(foundation for)* the ≤3,000 Python / ≤1,000 JS size ceilings — this flight establishes the zero baseline the running count is tracked from — Python LOC under `the_one/connectors/` = 0, connector-tool LOC = 0, connector Studio JS LOC = 0 (all confirmed via leg 3's fresh count); note `the_one/connectors/` directory itself persists on disk (stray root-owned `__pycache__/`, zero `.py` content) — see flight log Anomalies #2
 
 ---
@@ -64,7 +64,7 @@ Delete the entire connector subsystem — ~8.8k Python LOC (`the_one/connectors/
 - [x] Migration head verified: `CURRENT_VERSION = 37` (`the_one/db/schema.py:15`); v38 slot free
 - [x] Deletion/edit inventory compiled (2026-08-30 reconnaissance, recorded in flight log)
 - [ ] `uv` available for lock regeneration; fresh `uv lock` runs clean before the flight starts
-- [ ] Concourse reachable for the Windows packaged build + smoke check (leg 3)
+- [x] Concourse reachable for the Windows packaged build + smoke check (verified 2026-08-31, post-commit per re-scope)
 - [x] Lock-consumer audit: `.github/workflows/windows-installer.yml` (tag-gated) and `pr-lint.yml`'s pip-audit gate consume the same `uv export` closure this flight regenerates; discord.py/aiohttp are base dependencies (not extras), so removal flows through with no double-declaration — squawks 0009/0015 both trace to drift in exactly this area, hence the explicit check in leg 3
 - [ ] No uncommitted work in the target repo; work happens on a flight branch per project convention
 
