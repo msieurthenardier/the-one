@@ -387,6 +387,93 @@ provenance.
   count at cascade points) is the convention future credential-lifecycle
   logging follows.**
 
+## Connector Channel Contract (Mission 23 Flight 2)
+
+The connector subsystem (`the_one/connectors/`) bridges external chat
+platforms (Discord lands Flight 3; the stub plugin under
+`the_one/connectors/stub.py` is a dev/test-only fixture, never registered in
+production) to the agent loop. It introduces a new class of caller — a
+platform peer, who is by construction untrusted relative to the operator —
+so admission and authorization are separate concerns from the operator-vs-API
+model above.
+
+**Admission (DD-2/DD-3)**: a flat, per-connector allowlist —
+`Connector.config["allowlist"]` holds `peers` and `channels` lists.
+`the_one/connectors/inbound.py::is_admitted` checks membership before
+anything else runs; an unadmitted sender's message is silently dropped —
+nothing is persisted, no chat session is created, no agent turn runs. The
+one exception is a correctly-typed pairing code: `POST
+/api/connectors/{id}/pairing-code` (operator-only, behind the credential
+gate) mints a short hex code with a 10-minute TTL
+(`ConnectorManager.PAIRING_TTL_SECONDS`), held in-memory keyed by connector
+id. An unadmitted DM whose body matches the live code consumes it
+atomically (no `await` between check and consume, so concurrent submissions
+resolve first-caller-wins) and appends the sender to `allowlist.peers` —
+the *only* side effect an unadmitted sender can trigger. A second
+submission of an already-consumed (or expired, or wrong) code is a silent
+no-op, same as any other unadmitted message.
+
+**Reply policy (DD-6)** is a separate, non-security gate layered on top of
+admission: an admitted sender still only gets a reply when the message is a
+DM, `@mention`s the bot, or targets a channel on `config["always_listen"]`.
+This bounds agent-loop invocations (and therefore LLM spend), not access —
+an admitted-but-not-replied-to message still passed the allowlist check
+above.
+
+**Send-tool authorization (DD-4)** — `the_one/tools/connector_send.py`'s
+`SendToPlatformChannelTool.execute()` re-checks the live `Connector` row at
+call time (not cached at agent-construction time), and the rule is a union
+across the two target shapes:
+
+- **Channel target**: sendable by the agent named in `channel_map[channel_id]`
+  if that channel has a mapping, else by `default_agent` — i.e. the same
+  agent that would have *received* an inbound message on that channel is the
+  only one authorized to send on it.
+- **DM target**: sendable *only* by `default_agent` — `channel_map` never
+  applies to DMs (DD-4) — and only to a peer already on
+  `allowlist.peers`. An agent cannot DM an unpaired peer even if it is
+  `default_agent`.
+
+Any other calling agent, or any DM target not on the allowlist, gets a
+`[error] [constraint] ...` string back (never an exception) — the same
+binding-derived check the doctor probe's warnings surface proactively
+(`_connector_doctor_warnings` in `the_one/interfaces/web/api.py`: a missing
+`default_agent`, or a `default_agent` that exists but lacks the send tool
+enabled, both render as operator-visible warnings rather than failing
+silently at send time). `the_one/tools/connector_history.py`'s
+`fetch_channel_history` (DD-8, optional per-plugin) is authorized
+identically.
+
+**Dual-gated test seams**: `POST /api/_test/stub/inbound` and
+`GET /api/_test/stub/outbound` require **both** `settings.dev_mode` and
+`THE_ONE_STUB_TEST_ENDPOINT=1` — mirroring the purge-sweep test seam's risk
+profile, not the inert-metadata OAuth-pending seam's, because these seams
+inject free text into a live agent loop with real LLM calls and tool
+execution. `THE_ONE_STUB_TEST_ENDPOINT=1` also gates `"stub"`'s entry in
+`GET /api/connectors/types` (so it cannot be created outside a dev/test
+instance) and the lifespan-startup hook that registers `StubPlugin`
+(`the_one/interfaces/web/app.py`). All three gates share one env var by
+design — there is no way to open one without the others. The retired
+pre-reset name `THE_ONE_REGISTER_STUB_CONNECTOR` is fully gone, not
+resurrected.
+
+**Credentials, masking, and rotation**: `Connector.secrets` (the platform
+token/credential) is Fernet-encrypted at rest, masked on every response via
+the same `_mask_secrets`/`_looks_masked` helpers the MCP-source and provider
+PUT handlers use (per-key `__MASKED__` round-trip; a masked sentinel on
+*create* is rejected with 422 — there is no stored secret yet to preserve).
+`POST /api/connectors` and `PUT /api/connectors/{id}` both restart the
+connector's listener from the just-persisted row — a `PUT` unconditionally
+stops the old listener and starts a fresh one, so no listener ever survives
+on stale credentials (the "save reconnects the gateway" convention).
+`POST /api/encryption/rotate` re-encrypts every connector row's `secrets`
+blob as one of the rotation's corpora, then stops and restarts every
+currently-tracked listener from a freshly re-fetched (post-rotation) row —
+see `the_one/agents.md` "Encryption-rotation invariant" for the full
+seven-corpora contract and `ConnectorManager._run`'s per-reconnect
+fresh-row re-fetch (the DD-Q3 fix that keeps a long-lived listener from
+reconnecting on secrets decrypted before a rotation).
+
 ## Network Bind
 
 - Default `host=127.0.0.1` (localhost only). Host-native (`the-one serve` /
@@ -624,22 +711,22 @@ with the unsandboxed Windows posture.
   `api-credential` and `encryption.key` files above already rely on.
 - **MCP source, connector, and built-in tool-config secrets**: same
   Fernet field-segregated `config`+`secrets` encryption-at-rest as the
-  provider keys. (The `connectors` table's routing/ACL/approval
+  provider keys. (The pre-reset `connectors` table's routing/ACL/approval
   machinery was removed in the Mission 23 connector reset; the row and
-  its secret encryption persist independently and remain in scope for
-  rotation — see `the_one/agents.md` "Encryption-rotation invariant
-  (seven corpora)".) Built-in tool secrets (schema v32 `tool_configs.secrets`)
-  are marker-driven — any tool Config field tagged `secret: true` is
-  stored encrypted and masked over the API. `web_search`'s keyed-engine
-  API keys (Brave/Google PSE/Tavily) are the first consumers. See
+  its secret encryption persisted independently throughout, and the
+  reset connector contract — Flight 2 — has a real masking/rotation
+  surface again: see "Connector Channel Contract" above and
+  `the_one/agents.md` "Encryption-rotation invariant (seven corpora)".)
+  Built-in tool secrets (schema v32 `tool_configs.secrets`) are
+  marker-driven — any tool Config field tagged `secret: true` is stored
+  encrypted and masked over the API. `web_search`'s keyed-engine API keys
+  (Brave/Google PSE/Tavily) are the first consumers. See
   `the_one/agents.md` "Tool config secrets storage".
 - **`__MASKED__` sentinel**: provider edit form preserves stored API keys
   when the operator hasn't touched the field. The same mask-shape +
-  preserve-on-masked semantics apply to MCP and tool-config secret
-  fields. (The connector edit surface that applied this to `connectors`
-  row secrets was removed in the Mission 23 connector reset, along with
-  the rest of the connector API/UI; the row's own Fernet encryption is
-  unaffected — see the bullet above.) See [CLAUDE.md](CLAUDE.md)
+  preserve-on-masked semantics apply to MCP, tool-config, and (again, as
+  of the Mission 23 Flight 2 reset — see "Connector Channel Contract"
+  above) connector secret fields. See [CLAUDE.md](CLAUDE.md)
   "`__MASKED__` sentinel for API key updates".
 - **Per-agent MCP override credentials**: `agents.tool_overrides` and
   `agents.mcp_overrides` are both Fernet-encrypted at rest. Of the two,

@@ -104,6 +104,10 @@ When `THE_ONE_DEV_MODE=true` is set, an extra provider type `mock` becomes avail
 - UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)
 - Existing mock providers continue to render correctly in the admin UI even after dev mode is later disabled
 
+### Stub connector test endpoints (Mission 23 Flight 2)
+
+`THE_ONE_STUB_TEST_ENDPOINT=1`, set **together with** `THE_ONE_DEV_MODE=true` (both gates, not either alone), unlocks the `"stub"` connector type end-to-end: it's admitted into `GET /api/connectors/types` (so it's creatable in Studio), a lifespan-startup hook registers the in-process `StubPlugin` (`the_one/connectors/stub.py`) under type `"stub"`, and the two test-seam routes `POST /api/_test/stub/inbound` / `GET /api/_test/stub/outbound` (`interfaces/web/api.py`) stop 403-ing — they inject/observe messages against a stub connector's live listener without a real chat platform. Dual-gated like the purge-sweep seam (real LLM calls and tool execution, not inert metadata) — never set on an instance other than a disposable dev/test one. Never touch port 8484 or the operator's default data directory when this is set. See `the_one/connectors/README.md` "Test seams" and `tests/behavior/stub-connector-round-trip.md` for the end-to-end usage.
+
 ## Security posture
 
 See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the project's threat model and intentional security choices (no-auth-by-design, single-user local-only, Origin-allowlist mitigation, SSRF/subprocess boundaries).

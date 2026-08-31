@@ -44,6 +44,8 @@ from the_one.agent.factory import (
 )
 from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.config import settings
+from the_one.connectors.manager import ConnectorManager
+from the_one.connectors.manager import set_manager as _set_module_connector_manager
 from the_one.db import close_connection, init_db
 from the_one.db.codec import (
     decode_messages,
@@ -59,6 +61,7 @@ from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     ChatSessionRepository,
+    ConnectorRepository,
     LLMProviderRepository,
     MCPSourceRepository,
     SQLiteAgentStore,
@@ -228,10 +231,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _self_configuration_external.load_from_rows(await _self_configuration_ext_repo.load_all())
         _state["factory"] = AgentFactory(store=store)
         # M10 F8 L4: install the application factory into the module-level
-        # accessor at ``the_one.agent.factory`` so gateway-listener handlers
-        # (Discord's ``on_message`` in F8, Slack's event handler in F9, …)
-        # spawned inside ``plugin.connect`` can resolve it without changing
-        # the plugin contract. Teardown clears the slot below.
+        # accessor at ``the_one.agent.factory`` so the connector inbound
+        # pipeline (``the_one/connectors/inbound.py::dispatch_inbound``,
+        # invoked from a plugin's ``on_inbound`` callback) can resolve it
+        # without changing the plugin contract — exercised today through
+        # the stub plugin's test seams; Discord (Flight 3) and later
+        # platforms (Flight 4) will drive the same path through a real
+        # gateway listener. Teardown clears the slot below.
         _set_module_factory(_state["factory"])
         # F5 L2: start the OAuth pending-flow TTL sweep task. The
         # ``_state`` (OAuth) module is reached via the public lifespan
@@ -252,6 +258,43 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # purge-loop start. Due-based catch-up on entry, then sleep+recheck.
         global _catalog_refresh_task
         _catalog_refresh_task = asyncio.create_task(_model_catalog_refresh_loop())
+        # Mission 23 Flight 2 Leg 2 (design review Q1, resolved): dual-gated
+        # stub-registration startup hook — the new-gate successor to the
+        # retired THE_ONE_REGISTER_STUB_CONNECTOR hook. Own guarded block,
+        # entirely separate from squawk-0025's MCP evict/drain block AND
+        # from the Leg 1 connector-manager start/drain hooks immediately
+        # below. Without this, nothing ever registers the stub plugin in a
+        # LIVE process — the leg-3 behavior test (and a Studio-created stub
+        # connector on the dev instance) would have no working listener to
+        # connect to. Registered BEFORE the manager's start_all below so an
+        # already-persisted stub connector row finds its plugin at startup,
+        # not just on the next save. Symmetric teardown lives in shutdown,
+        # after the manager drain (see below).
+        global _stub_connector_registered_by_hook
+        _stub_connector_registered_by_hook = False
+        if settings.dev_mode and os.environ.get("THE_ONE_STUB_TEST_ENDPOINT") == "1":
+            from the_one.connectors import registry as _connector_registry
+            from the_one.connectors.stub import StubPlugin as _StubPlugin
+
+            _connector_registry.register_for_test("stub", _StubPlugin())
+            _stub_connector_registered_by_hook = True
+
+        # Mission 23 Flight 2 Leg 1: start the connector listener manager
+        # just before the yield, mirroring the OAuth-sweep/reaper/purge/
+        # catalog starts above. Wrapped in its own try/except (a connector
+        # startup failure must not kill app startup, mirroring the other
+        # startup blocks) — squawk-0025's MCP evict/drain block below is
+        # UNCHANGED by this addition; the manager's own drain is placed in
+        # shutdown well clear of it (see below).
+        global _connector_manager
+        _connector_manager = ConnectorManager()
+        try:
+            _connector_encryptor = get_encryptor(settings.data_dir)
+            _connector_repo = ConnectorRepository(await get_connection(), _connector_encryptor)
+            await _connector_manager.start_all(_connector_repo, _connector_encryptor)
+            _set_module_connector_manager(_connector_manager)
+        except Exception:
+            logger.exception("connector manager startup failed")
         yield
         # Drain the PTY session registry on shutdown — cancels the idle
         # reaper task and closes any live sessions. Wrapped in
@@ -335,6 +378,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await stop_periodic_sweep()
         except Exception:
             logger.exception("OAuth periodic sweep shutdown failed")
+        # Mission 23 Flight 2 Leg 1: drain the connector manager's listener
+        # tasks. Placed AFTER the OAuth sweep stop (clear of squawk 0025's
+        # MCP evict/drain block above, which stays byte-identical) and
+        # BEFORE the factory-reference release below — the manager's
+        # supervisor tasks call ``dispatch_inbound``, which resolves the
+        # module-level factory, so draining first keeps that resolvable
+        # for any in-flight inbound. (``global _connector_manager`` was
+        # already declared once above, at the startup site — a SECOND
+        # ``global`` statement for the same name later in this function
+        # is a SyntaxError, not a harmless repeat.)
+        if _connector_manager is not None:
+            try:
+                await _connector_manager.drain()
+            except Exception:
+                logger.exception("connector manager shutdown failed")
+            _set_module_connector_manager(None)
+            _connector_manager = None
+        # Mission 23 Flight 2 Leg 2: symmetric teardown for the dual-gated
+        # stub-registration startup hook above. Unregisters "stub" ONLY if
+        # THIS process's hook is what registered it — a test's own direct
+        # ``registry.register_for_test("stub", ...)`` call never sets this
+        # flag, so it is never clobbered by a lifespan cycle that didn't
+        # register anything. Without this, a later ``TestClient(app)``
+        # lifespan cycle in the same process (unit-test suite) could
+        # inherit a stale "stub" registration from an earlier cycle where
+        # the gate happened to be open.
+        if _stub_connector_registered_by_hook:
+            from the_one.connectors import registry as _connector_registry
+
+            _connector_registry.unregister("stub")
+            _stub_connector_registered_by_hook = False
         # M10 F8 L4: release the module-level factory reference so post-
         # shutdown ``get_factory()`` reads return None. Defensive — not
         # strictly required for correctness because the process is exiting,
@@ -377,6 +451,18 @@ app.mount(_SELF_CONFIGURATION_MOUNT_PATH, _self_configuration_surface.mcp.stream
 # ── State ─────────────────────────────────────────────────────────────────
 
 _state: dict[str, Any] = {}
+
+# Mission 23 Flight 2 Leg 1: the running connector manager. Mirrors
+# `_state["factory"]`'s pattern of also installing into a module-level
+# accessor (`_set_module_connector_manager`) for non-web-layer consumers
+# (the send/history tools; ``the_one.connectors.manager.get_manager``).
+_connector_manager: ConnectorManager | None = None
+
+# Mission 23 Flight 2 Leg 2: True for the lifetime of a lifespan cycle iff
+# THIS process's dual-gated startup hook registered the "stub" connector
+# type — read at shutdown so the symmetric teardown only unregisters when
+# it's the one that registered (see the startup/shutdown blocks above).
+_stub_connector_registered_by_hook: bool = False
 
 
 def _get_factory() -> AgentFactory:
@@ -1160,6 +1246,15 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
         # M11 F13 L5: ship the routing-audit snapshot so the Chat UI
         # panel renders on join without a separate REST round-trip.
         "session_metadata": session.session_metadata,
+        # M23 F02 L03 (behavior-test fix): surface the connector platform
+        # (None for a web-native session) so the Chat UI can distinguish
+        # "no visibility key on this tool_result because there's no
+        # operator/peer distinction at all" (non-connector session) from
+        # "no visibility key because this tool_result is genuinely
+        # peer-visible" (connector session) — needed to gate promoting a
+        # delivered tool result to a top-level bubble instead of collapsing
+        # it into the "Tool activity" accordion.
+        "platform": session.platform,
     }
 
 
@@ -1184,6 +1279,9 @@ async def _build_session_joined_degraded(restored: RestoredSession) -> dict[str,
         # M11 F13 L5: ship the routing-audit snapshot on the degraded
         # path too — db: ChatSessionModel already carries the field.
         "session_metadata": db.session_metadata,
+        # M23 F02 L03: mirror _build_session_joined_ok's platform field —
+        # db: ChatSessionModel already carries it too.
+        "platform": db.platform,
     }
 
 
@@ -1471,14 +1569,17 @@ async def _process_and_broadcast(
     # the persistence side; this site handles the live side). Mirrors
     # the codec's projection rule at db/codec.py:173-176 — only emit
     # the key when the value is meaningful. The session_locks[session.id]
-    # at L258 serializes against connectors/_inbound.py:155's
-    # dispatch_inbound, so there is no race.
+    # acquired by ``_spawn_message_processing`` (this module) serializes
+    # against ``the_one.connectors.inbound.dispatch_inbound``'s own
+    # ``async with session_locks[session_row.id]:`` block (Mission 23
+    # Flight 2 Leg 1 — the kept ``the_one/sessions/`` lock registry is the
+    # SAME dict both paths acquire from), so there is no race.
     #
     # M11 F06 L03: this path does NOT acquire a ``peer_name`` key — the
     # operator IS the source; there is no peer to attribute. Peer-
-    # attributed user events flow via the dispatcher path
-    # (connectors/_inbound.py) where the codec spreads ``peer_name``
-    # from the ``Message.peer_name`` field at projection time.
+    # attributed user events would flow via the dispatcher path
+    # (``the_one.connectors.inbound``) if/when that path binds
+    # ``peer_name`` post-step — not yet done as of Flight 2 Leg 1.
     if session.platform is not None:
         user_event["visibility"] = OPERATOR_VISIBILITY
     session.add_event(user_event)
@@ -1521,7 +1622,20 @@ async def _process_and_broadcast(
         nonlocal chunks_seen, partial_text
         chunks_seen = True
         partial_text += content
-        await _send_to_session(session, {"type": "assistant_chunk", "content": content})
+        chunk_event: dict[str, Any] = {"type": "assistant_chunk", "content": content}
+        # M23 F02 L03 (behavior-test fix): assistant text on a connector-
+        # attached session is UNCONDITIONALLY OPERATOR_VISIBILITY per
+        # ``tag_post_step_visibility``'s rule (Role.ASSISTANT is never the
+        # successful-platform-send exception, which is TOOL-only) — no need
+        # to wait for that post-step pass (which runs after this whole
+        # step loop) to know the value live. Closes the live-vs-reload
+        # rendering gap the streaming path used to carry (see the removed
+        # "known limitation" note this replaces, and the equivalent fix
+        # below for the legacy `assistant`/`thinking`/`tool_call` events and
+        # the nuanced `tool_result` case).
+        if session.platform is not None:
+            chunk_event["visibility"] = OPERATOR_VISIBILITY
+        await _send_to_session(session, chunk_event)
 
     async def _broadcast_usage(usage: Any) -> None:
         # F7 L04: interim mid-stream usage broadcast. Mirrors the final-
@@ -1579,6 +1693,15 @@ async def _process_and_broadcast(
 
                 if msg.content:
                     event: dict[str, Any] = {"type": "assistant", "content": msg.content}
+                    # M23 F02 L03: same deterministic tag as _broadcast_chunk
+                    # above — an ASSISTANT message on a connector-attached
+                    # session is always OPERATOR_VISIBILITY, so this can be
+                    # set live rather than waiting for the post-step
+                    # tag_post_step_visibility pass below. Fixes the
+                    # live-vs-reload marker inconsistency (the [operator-only]
+                    # prefix used to appear only after reload).
+                    if session.platform is not None:
+                        event["visibility"] = OPERATOR_VISIBILITY
                     session.add_event(event)
                     if not chunks_seen:
                         # Direct-action / non-streaming path — broadcast the
@@ -1606,23 +1729,28 @@ async def _process_and_broadcast(
                     # same shape as the persisted-replay event: same key,
                     # omitted (not null) when visibility is None.
                     #
-                    # Timing caveat: for connector-tagged sessions,
-                    # ``tag_post_step_visibility`` (llm/base.py)
-                    # sets ``msg.visibility`` AFTER this step loop completes —
-                    # so at this broadcast point ``msg.visibility`` is still
-                    # None for those sessions and no ``visibility`` key is
-                    # emitted live; the connector-tagged value only becomes
-                    # visible after persistence + session rejoin re-derives it
-                    # via codec.py. Live parity is therefore exact today for
-                    # non-connector / operator-typed turns, and reached only
-                    # after rejoin for connector turns — still strictly better
-                    # than emitting no visibility field at all (closes the F10
-                    # action item; see maintenance report 2026-07-10 DOC1).
+                    # M23 F02 L03 (behavior-test fix): thinking is always
+                    # emitted by an ASSISTANT message, which — like the
+                    # `assistant`/`assistant_chunk` events above — is
+                    # unconditionally OPERATOR_VISIBILITY on a connector-
+                    # attached session (Role.ASSISTANT is never the
+                    # successful-platform-send exception in
+                    # tag_post_step_visibility, which is TOOL-only). Set it
+                    # deterministically here rather than waiting on
+                    # msg.visibility, which the post-step pass below hasn't
+                    # set yet at this point in the loop — this used to be a
+                    # documented "live parity only after rejoin" limitation
+                    # (closed the F10 action item at the time); it is now
+                    # exact live too. Non-connector sessions keep the
+                    # msg.visibility fallback (always None today, forward-
+                    # compat with any future non-connector visibility use).
                     thinking_event: dict[str, Any] = {
                         "type": "thinking",
                         "content": _thinking_text,
                     }
-                    if msg.visibility is not None:
+                    if session.platform is not None:
+                        thinking_event["visibility"] = OPERATOR_VISIBILITY
+                    elif msg.visibility is not None:
                         thinking_event["visibility"] = msg.visibility
                     await _send_to_session(session, thinking_event)
                 if msg.tool_calls:
@@ -1641,6 +1769,15 @@ async def _process_and_broadcast(
                             "parent_message_id": current_turn_parent_id,
                             "tool_call_id": tc.id,
                         }
+                        # M23 F02 L03: a tool_call is emitted by the same
+                        # ASSISTANT message as above — always
+                        # OPERATOR_VISIBILITY on a connector-attached
+                        # session (a tool CALL is never itself the
+                        # successful-platform-send exception; only its
+                        # eventual TOOL result can be). Same live-vs-reload
+                        # fix as `assistant`/`assistant_chunk`/`thinking`.
+                        if session.platform is not None:
+                            tc_event["visibility"] = OPERATOR_VISIBILITY
                         session.add_event(tc_event)
                         await _send_to_session(session, tc_event)
 
@@ -1675,6 +1812,23 @@ async def _process_and_broadcast(
                     await _send_to_session(session, event)
                     paused = True
                     break
+                # M23 F02 L03: unlike ASSISTANT above, a TOOL result's
+                # visibility is NOT deterministic from `session.platform`
+                # alone — it depends on whether THIS result is the
+                # successful `send_to_platform_channel` exception
+                # (tag_post_step_visibility's rule in llm/base.py). Tag now
+                # (not after the whole turn settles, as the pre-existing
+                # post-step call below still does for persistence) so the
+                # live broadcast + in-memory session.history carry the same
+                # value the DB-persisted / reload render will show — closes
+                # the same live-vs-reload gap as the ASSISTANT-side events
+                # above. Safe to call repeatedly: idempotent over the
+                # already-yielded messages[pre_step_len:] slice, and the
+                # parent ASSISTANT message (with its tool_calls) was
+                # appended earlier this same turn, so the send-tool-name
+                # lookup already has what it needs.
+                if session.platform is not None:
+                    tag_post_step_visibility(session.agent.messages, pre_step_len)
                 tr_event = {
                     "type": "tool_result",
                     "content": truncate_for_event(msg.tool_result.content),
@@ -1682,6 +1836,8 @@ async def _process_and_broadcast(
                     "parent_message_id": current_turn_parent_id,
                     "tool_call_id": msg.tool_result.tool_call_id,
                 }
+                if msg.visibility is not None:
+                    tr_event["visibility"] = msg.visibility
                 session.add_event(tr_event)
                 await _send_to_session(session, tr_event)
                 result_messages.append(

@@ -329,6 +329,117 @@ async def test_ws_typed_with_platform_send_tool_result_gets_none(monkeypatch) ->
 
 
 # ---------------------------------------------------------------------------
+# 5b. M23 F02 L03 (behavior-test fix) — the LIVE broadcast events (not just
+#     the persisted Message objects test 5 above checks) carry the correct
+#     visibility tag, live, on a connector-attached session. Regression test
+#     for behavior-test run 2026-08-31-21-37-14 checkpoint 6: before this
+#     fix, `assistant`/`tool_call`/`tool_result` broadcast dicts never
+#     carried a `visibility` key at all (tag_post_step_visibility ran AFTER
+#     the whole step loop broadcast everything) — only a page reload showed
+#     the correct marker.
+# ---------------------------------------------------------------------------
+
+
+async def test_live_broadcast_events_carry_visibility_on_connector_session(monkeypatch) -> None:
+    """Same scripted turn as test 5 (assistant-with-tool-call → successful
+    platform-send tool_result → closing assistant text), but asserting the
+    LIVE captured broadcast dicts rather than the persisted messages:
+
+    - the live ``assistant`` event for the closing text carries
+      ``visibility=OPERATOR_VISIBILITY`` (no ``chunks_seen`` in this stub,
+      so the legacy non-streaming ``assistant`` event fires for both
+      assistant turns);
+    - the live ``tool_call`` event carries ``visibility=OPERATOR_VISIBILITY``
+      (a tool CALL is never the successful-platform-send exception; only
+      its result can be);
+    - the live ``tool_result`` event for the successful platform-send
+      carries ``visibility=None`` (key omitted) — peer-visible, matching
+      the persisted tag from test 5.
+    """
+    captured = _patch_broadcast_and_save(monkeypatch)
+
+    system_msg = Message.system("system")
+    assistant_with_tc = Message.assistant(
+        "calling platform send",
+        tool_calls=[
+            ToolCall(
+                id="tc-send",
+                name="send_to_platform_channel",
+                arguments={"content": "hello peers"},
+            )
+        ],
+    )
+    success_tool_result = Message.tool(
+        ToolResult(
+            tool_call_id="tc-send",
+            content="[platform-send-ok] delivered",
+            metadata=None,
+        )
+    )
+    final_assistant = Message.assistant("sent")
+    agent = _ShimStubAgent(
+        step_messages=[assistant_with_tc, success_tool_result, final_assistant],
+        agent_messages=[system_msg],
+    )
+    session = Session(
+        id="cs-L4-5b",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-18T00:00:00+00:00",
+        platform="stub",
+    )
+
+    await _process_and_broadcast(session, "say hello to peers")
+
+    assistant_events = [e for e in captured if e.get("type") == "assistant"]
+    assert len(assistant_events) == 2, captured
+    for evt in assistant_events:
+        assert evt.get("visibility") == OPERATOR_VISIBILITY, evt
+
+    tool_call_events = [e for e in captured if e.get("type") == "tool_call"]
+    assert len(tool_call_events) == 1, captured
+    assert tool_call_events[0].get("visibility") == OPERATOR_VISIBILITY
+
+    tool_result_events = [e for e in captured if e.get("type") == "tool_result"]
+    assert len(tool_result_events) == 1, captured
+    assert "visibility" not in tool_result_events[0], tool_result_events[0]
+
+
+async def test_live_broadcast_events_omit_visibility_on_web_native_session(monkeypatch) -> None:
+    """Sister test: on a web-native session, none of the live broadcast
+    events (assistant/tool_call/tool_result) carry a ``visibility`` key —
+    the deterministic tag added in this fix is gated on
+    ``session.platform is not None``, same as every other event site.
+    """
+    captured = _patch_broadcast_and_save(monkeypatch)
+
+    system_msg = Message.system("system")
+    assistant_with_tc = Message.assistant(
+        "calling a tool",
+        tool_calls=[ToolCall(id="tc-1", name="some_tool", arguments={})],
+    )
+    tool_result = Message.tool(
+        ToolResult(tool_call_id="tc-1", content="tool output", metadata=None)
+    )
+    final_assistant = Message.assistant("done")
+    agent = _ShimStubAgent(
+        step_messages=[assistant_with_tc, tool_result, final_assistant],
+        agent_messages=[system_msg],
+    )
+    session = Session(
+        id="cs-L4-5c",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-18T00:00:00+00:00",
+        platform=None,
+    )
+
+    await _process_and_broadcast(session, "hello")
+
+    for evt in captured:
+        if evt.get("type") in ("assistant", "tool_call", "tool_result"):
+            assert "visibility" not in evt, evt
+
+
+# ---------------------------------------------------------------------------
 # 6. Bounds check: agent.step raises BEFORE the user-append lands
 # ---------------------------------------------------------------------------
 
@@ -591,27 +702,30 @@ async def test_live_thinking_broadcast_carries_visibility_when_set(
 
 
 # ---------------------------------------------------------------------------
-# 12. DOC1 (M18 F04 L02) — live ``thinking`` broadcast omits visibility
-#     when the yielded message doesn't have it set yet (connector timing
-#     caveat)
+# 12. M23 F02 L03 (behavior-test fix) — live ``thinking`` broadcast carries
+#     visibility on a connector-attached session even when the yielded
+#     message hasn't been tagged yet (closes the live-vs-reload gap)
 # ---------------------------------------------------------------------------
 
 
-async def test_live_thinking_broadcast_omits_visibility_when_unset(
+async def test_live_thinking_broadcast_carries_visibility_on_connector_session_even_when_unset(
     monkeypatch,
 ) -> None:
-    """DOC1 sister test: when the yielded assistant Message has
-    ``visibility=None`` at broadcast time, the live ``thinking`` event
-    MUST NOT carry the ``visibility`` key — mirrors codec.py's when-None
-    handling exactly (omitted, not null).
+    """M23 F02 L03: this used to be the connector-tagged-session TIMING GAP
+    (``tag_post_step_visibility`` runs AFTER this broadcast, so
+    ``msg.visibility`` was still ``None`` here and no key was emitted live —
+    full live/replay parity was reached only after persistence + rejoin).
 
-    This is also the connector-tagged-session case in practice:
-    ``tag_post_step_visibility`` (``llm/base.py``)
-    runs AFTER the step loop that broadcasts this event, so
-    ``msg.visibility`` is still ``None`` here even on a connector-attached
-    session — full live/replay parity for those sessions is reached only
-    after persistence + rejoin, not at broadcast time. See the code
-    comment at the broadcast site (``app.py``, live thinking broadcast).
+    The fix makes this deterministic instead of timing-dependent: a
+    ``thinking`` event is always emitted by an ASSISTANT message, which is
+    unconditionally ``OPERATOR_VISIBILITY`` on a connector-attached session
+    (Role.ASSISTANT is never the successful-platform-send exception in
+    ``tag_post_step_visibility``, which is TOOL-only) — so the live
+    broadcast site can set it immediately, without waiting on
+    ``msg.visibility``. Regression test for behavior-test run
+    ``2026-08-31-21-37-14`` checkpoint 6 (a live-rendered assistant reply
+    missing its ``[operator-only]`` marker that appeared correctly after
+    reload).
     """
     captured = _patch_broadcast_and_save(monkeypatch)
 
@@ -632,6 +746,50 @@ async def test_live_thinking_broadcast_omits_visibility_when_unset(
     )
 
     await _process_and_broadcast(session, "operator hello")
+
+    thinking_events = [e for e in captured if e.get("type") == "thinking"]
+    assert len(thinking_events) == 1, captured
+    thinking_event = thinking_events[0]
+    assert thinking_event["content"] == "reasoning about the answer"
+    assert thinking_event.get("visibility") == OPERATOR_VISIBILITY
+
+
+# ---------------------------------------------------------------------------
+# 13. M23 F02 L03 — live ``thinking`` broadcast still omits visibility on a
+#     web-native session (the deterministic tag is gated on
+#     session.platform; there's no operator/peer distinction to tag at all
+#     for a non-connector session)
+# ---------------------------------------------------------------------------
+
+
+async def test_live_thinking_broadcast_omits_visibility_on_web_native_session(
+    monkeypatch,
+) -> None:
+    """Sister test to the connector-session case above: on a web-native
+    session, the live ``thinking`` event MUST NOT carry a ``visibility``
+    key — mirrors codec.py's when-None handling exactly (omitted, not
+    null) and matches every other event type's web-native behavior in
+    this file.
+    """
+    captured = _patch_broadcast_and_save(monkeypatch)
+
+    system_msg = Message.system("system")
+    assistant_reply = Message.assistant(
+        "here is my answer",
+        thinking=[ThinkingBlock(type="thinking", thinking="reasoning about the answer")],
+    )
+    agent = _ShimStubAgent(
+        step_messages=[assistant_reply],
+        agent_messages=[system_msg],
+    )
+    session = Session(
+        id="cs-DOC1-3",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-18T00:00:00+00:00",
+        platform=None,
+    )
+
+    await _process_and_broadcast(session, "web hello")
 
     thinking_events = [e for e in captured if e.get("type") == "thinking"]
     assert len(thinking_events) == 1, captured

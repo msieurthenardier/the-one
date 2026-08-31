@@ -111,6 +111,14 @@ App.registerArea({
     var pendingStart = null; // { agentName: string|null }
     var sessions = [];
     var currentAgentName = null;
+    // M23 F02 L03 (behavior-test fix): the joined session's connector
+    // platform, if any (mirrors ChatSession.platform / session_joined's new
+    // `platform` field). null for a web-native session. Used to gate the
+    // peer-visible-tool-result promotion below — the operator-only /
+    // peer-visible distinction only exists for connector-attached sessions;
+    // a plain chat session's tool results have no visibility concept at all
+    // and must keep collapsing into the "Tool activity" accordion.
+    var currentSessionPlatform = null;
     var messagesEl, inputEl, sendBtn, stopBtn, sessionListEl, agentSelect, agentBadgeEl;
     var fileInputEl, attachBtn;
     // M16 F12 L08: minimal image-ingestion producer. Staged images
@@ -522,11 +530,18 @@ App.registerArea({
           else messagesEl.appendChild(msg);
         }
         else if (ev.type === 'tool_result') {
-          // L03: same bucketing for tool_result events.
-          var trace2 = getOrCreateTrace(ev.parent_message_id);
-          var msg2 = buildToolMsg(ev.content, ev.is_error, ev.tool_call_id, { visibility: ev.visibility });
-          if (trace2) App.chat.appendToTrace(trace2, msg2);
-          else messagesEl.appendChild(msg2);
+          // M23 F02 L03: a delivered (peer-visible) tool result is
+          // promoted to a top-level bubble — imperceivable buried inside
+          // the collapsed accordion otherwise. Everything else keeps the
+          // pre-existing L03 bucketing.
+          if (isDeliveredToolResult(ev)) {
+            appendDeliveredToolMsg(ev, agentLabel, ev.ts || null);
+          } else {
+            var trace2 = getOrCreateTrace(ev.parent_message_id);
+            var msg2 = buildToolMsg(ev.content, ev.is_error, ev.tool_call_id, { visibility: ev.visibility });
+            if (trace2) App.chat.appendToTrace(trace2, msg2);
+            else messagesEl.appendChild(msg2);
+          }
         }
         // Filter transient model-loading pings — live UI hints, not history.
         else if (ev.type === 'system' && ev.content !== 'Loading model...' && ev.content !== 'Model loaded.') {
@@ -771,6 +786,33 @@ App.registerArea({
       var el = App.chat.renderMessage(isError ? 'tool error' : 'tool', text, opts);
       if (toolCallId) el.dataset.toolCallId = toolCallId;
       return el;
+    }
+
+    // M23 F02 L03 (behavior-test fix): a tool_result event is "delivered"
+    // (peer-visible, e.g. a successful send_to_platform_channel result) when
+    // the session is connector-attached AND the event carries no
+    // operator-only tag. Gated on `currentSessionPlatform` — a plain
+    // (non-connector) chat session's tool results carry no `visibility` key
+    // either, but there's no peer to have seen them, so they must keep
+    // collapsing into the "Tool activity" accordion like before. Excludes
+    // error results defensively (an error never actually reached a
+    // platform-send success, but the visibility tag alone shouldn't be the
+    // only guard against surfacing an error as if it were delivered).
+    function isDeliveredToolResult(ev) {
+      return !!currentSessionPlatform && !ev.is_error && ev.visibility !== 'operator';
+    }
+
+    // Renders a delivered (peer-visible) tool-result as a top-level bubble
+    // — outside the "Tool activity" accordion — with the same agent
+    // attribution row an ordinary assistant reply gets, so it reads as "this
+    // reached the peer" rather than as leftover tool debug chatter. `ts`
+    // mirrors addMsg's own default: history replay passes the stored
+    // timestamp (may be undefined — renders unsuffixed); the live handler
+    // passes the render-time Date.
+    function appendDeliveredToolMsg(ev, agentLabel, ts) {
+      var msgEl = buildToolMsg(ev.content, ev.is_error, ev.tool_call_id, { visibility: ev.visibility });
+      messagesEl.appendChild(msgEl);
+      messagesEl.appendChild(App.chat.renderAttribution('from-agent', agentLabel, ts));
     }
 
     // Track per-source consent popups so the WS-delivered consent_url
@@ -1145,6 +1187,13 @@ App.registerArea({
             App.router.replaceSub('sessions/' + currentSessionId);
           }
           currentAgentName = data.agent_name;
+          // M23 F02 L03: capture the joined session's connector platform
+          // (undefined on a degraded-session payload's older clients / any
+          // server that hasn't rolled this field out — falls back to null,
+          // same as a genuine web-native session) BEFORE renderHistory runs,
+          // since it reads currentSessionPlatform to gate tool-result
+          // promotion.
+          currentSessionPlatform = data.platform || null;
           updateAgentBadge(data.agent_name);
           syncDropdownToCurrent();
           hideThinking();
@@ -1231,6 +1280,7 @@ App.registerArea({
             hideThinking();
             currentSessionId = null;
             currentAgentName = null;
+            currentSessionPlatform = null;
             if (window.App && window.App.router) App.router.replaceSub(null);
             messagesEl.innerHTML = '';
             setSessionHealth('ok');
@@ -1325,14 +1375,23 @@ App.registerArea({
           // Iteration boundary — finalize the current streaming bubble.
           finalizeStreamingBubble();
           currentStreamingVisibility = null;
-          // L03: route into the trace shell for this assistant turn.
-          var resTrace = getOrCreateTrace(data.parent_message_id);
-          // M10 F05 L05: forward visibility from the live tool_result event.
-          var resMsg = buildToolMsg(data.content, data.is_error, data.tool_call_id, { visibility: data.visibility });
-          if (resTrace) {
-            App.chat.appendToTrace(resTrace, resMsg);
+          // M23 F02 L03: a delivered (peer-visible) tool result is
+          // promoted to a top-level bubble live too, matching renderHistory
+          // — otherwise a live-vs-reload rendering gap would just move from
+          // the operator-only marker (fixed above) to this accordion
+          // placement instead.
+          if (isDeliveredToolResult(data)) {
+            appendDeliveredToolMsg(data, currentAgentName || 'agent', new Date().toISOString());
           } else {
-            messagesEl.appendChild(resMsg);
+            // L03: route into the trace shell for this assistant turn.
+            var resTrace = getOrCreateTrace(data.parent_message_id);
+            // M10 F05 L05: forward visibility from the live tool_result event.
+            var resMsg = buildToolMsg(data.content, data.is_error, data.tool_call_id, { visibility: data.visibility });
+            if (resTrace) {
+              App.chat.appendToTrace(resTrace, resMsg);
+            } else {
+              messagesEl.appendChild(resMsg);
+            }
           }
           scrollToBottomIfPinned();
         }

@@ -23,9 +23,14 @@ from pydantic import BaseModel, ValidationError
 from the_one import __version__
 from the_one.api_credential import LocalApiCredential
 from the_one.config import settings
+from the_one.connectors import registry as connector_registry
+from the_one.connectors.base import ConnectorClientError, DoctorReport, InboundEnvelope
+from the_one.connectors.manager import PAIRING_TTL_SECONDS
+from the_one.connectors.manager import get_manager as get_connector_manager
 from the_one.db.connection import get_connection
 from the_one.db.models import (
     ChatSession,
+    Connector,
     KBItem,
     KnowledgeBase,
     LLMProviderConfig,
@@ -36,6 +41,7 @@ from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     AgentRevisionRepository,
     ChatSessionRepository,
+    ConnectorRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
@@ -248,6 +254,12 @@ async def _mcp_repo() -> MCPSourceRepository:
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     return MCPSourceRepository(conn, encryptor)
+
+
+async def _connector_repo() -> ConnectorRepository:
+    conn = await get_connection()
+    encryptor = get_encryptor(settings.data_dir)
+    return ConnectorRepository(conn, encryptor)
 
 
 async def _chat_repo() -> ChatSessionRepository:
@@ -2660,6 +2672,350 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     return {"status": "auth_required", "consent_url": consent_url}
 
 
+# ── Connector Accounts (Mission 23 Flight 2 Leg 2, DD-7) ───────────────────
+#
+# Seven CRUD/doctor/pairing routes over the kept ``connectors`` table, plus
+# an eighth ``/connectors/types`` route (design review Q2) gating "stub"
+# creatability behind the same dual gate as the two test seams below.
+# Masking mirrors the MCP source pattern (``Connector.secrets`` is a
+# free-form dict like ``MCPSource.secrets``) — reuses ``_mask_secrets`` /
+# ``_looks_masked`` verbatim, NOT the single-column ``_mask_api_key``
+# pattern. PUT always stops the old listener and starts a fresh one from
+# the just-persisted row (Edge Cases: "MUST NOT leave a listener running on
+# stale credentials" — unconditional restart is the implementer's-choice
+# variation that satisfies this without a connection-relevant-change diff).
+
+
+def _connector_response(account: Connector) -> dict[str, Any]:
+    """Render a Connector into the masked HTTP response shape.
+
+    Mirrors ``_mcp_source_response`` minus the OAuth-managed-keys strip
+    (connectors have no OAuth-managed keys) and the ``_cache`` flag (no
+    lazy-install cache to reflect). ``model_dump()`` populates
+    ``data["secrets"]`` with the decrypted plaintext dict; the overwrite
+    below is the load-bearing anti-leak step — see
+    ``tests/test_api_secret_mask_roundtrip.py``.
+    """
+    data = account.model_dump()
+    data["secrets"] = _mask_secrets(account.secrets)
+    return data
+
+
+def _creatable_connector_types() -> set[str]:
+    """Types selectable in the UI / accepted by ``create_connector`` on
+    THIS running instance. "discord" is always creatable (Flight 3 ships
+    the plugin; the type exists on the model today per DD-1). "stub" is
+    creatable only when BOTH gates are open — ``settings.dev_mode`` AND
+    ``THE_ONE_STUB_TEST_ENDPOINT=1`` — the same dual gate as the two
+    ``/_test/stub/...`` seams below and the lifespan startup hook that
+    registers the stub plugin (``interfaces/web/app.py``). Mirrors the
+    provider/MCP ``/types`` precedent (``list_provider_types`` /
+    ``list_mcp_source_types``)."""
+    types = {"discord"}
+    if settings.dev_mode and os.environ.get("THE_ONE_STUB_TEST_ENDPOINT") == "1":
+        types.add("stub")
+    return types
+
+
+async def _connector_doctor_warnings(account: Connector) -> list[str]:
+    """Binding-health warnings (DD-4 trade-offs): a connector's
+    ``default_agent`` may not exist, or may exist but lack the send tool
+    — both are operator foot-guns the doctor probe surfaces alongside the
+    plugin's own report, never as a crash."""
+    from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
+
+    warnings: list[str] = []
+    default_agent = account.config.get("default_agent")
+    if not default_agent:
+        warnings.append("no default_agent configured — this connector cannot serve traffic")
+        return warnings
+    store = await _agent_store()
+    if not await store.exists(default_agent):
+        warnings.append(f"default_agent {default_agent!r} does not exist")
+        return warnings
+    agent_cfg = await store.load(default_agent)
+    if not agent_cfg.is_tool_enabled(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME):
+        warnings.append(f"agent {default_agent!r} does not have the send tool enabled")
+    return warnings
+
+
+@router.get("/connectors")
+async def list_connectors() -> list[dict[str, Any]]:
+    repo = await _connector_repo()
+    return [_connector_response(a) for a in await repo.list()]
+
+
+@router.get("/connectors/types")
+async def list_connector_types() -> list[dict[str, str]]:
+    """MUST be registered BEFORE ``/connectors/{connector_id}`` — FastAPI
+    matches routes in registration order; reordering would resolve GET
+    ``/connectors/types`` to ``get_connector`` with ``connector_id="types"``
+    and 404. Mirrors ``list_mcp_source_types`` / ``list_provider_types``."""
+    return [{"value": t, "label": t.capitalize()} for t in sorted(_creatable_connector_types())]
+
+
+@router.get("/connectors/{connector_id}")
+async def get_connector(connector_id: str) -> dict[str, Any]:
+    repo = await _connector_repo()
+    try:
+        account = await repo.get(connector_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+    return _connector_response(account)
+
+
+@router.post("/connectors", status_code=201)
+async def create_connector(request: Request) -> dict[str, Any]:
+    data = await request.json()
+    if "id" not in data:
+        data["id"] = uuid.uuid4().hex[:12]
+    # Edge Case: a masked sentinel on CREATE is rejected — there is no
+    # stored secret yet to preserve.
+    incoming_secrets = data.get("secrets")
+    if isinstance(incoming_secrets, dict):
+        for key, value in incoming_secrets.items():
+            if _looks_masked(value):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"secrets[{key!r}] is a masked placeholder; there is no stored "
+                        "secret to preserve on create."
+                    ),
+                )
+    try:
+        account = Connector.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    if account.type not in _creatable_connector_types():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Connector type {account.type!r} is not creatable on this instance.",
+        )
+    repo = await _connector_repo()
+    await repo.create(account)
+    # Edge Case: a connector must start listening on create, not only on
+    # the next app restart.
+    manager = get_connector_manager()
+    if manager is not None:
+        manager.start(account, get_encryptor(settings.data_dir), repo=repo)
+    return _connector_response(account)
+
+
+@router.put("/connectors/{connector_id}")
+async def update_connector(connector_id: str, request: Request) -> dict[str, Any]:
+    data = await request.json()
+    data["id"] = connector_id
+    repo = await _connector_repo()
+    try:
+        existing = await repo.get(connector_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+
+    # Per-key __MASKED__ resolution — verbatim mirror of the MCP source PUT
+    # handler's block (minus the OAuth-managed-keys step, which has no
+    # connector analog).
+    incoming_secrets = data.get("secrets")
+    if incoming_secrets is not None:
+        if not isinstance(incoming_secrets, dict):
+            raise HTTPException(status_code=422, detail="secrets must be a dict.")
+        resolved_secrets: dict[str, Any] = {}
+        for key, value in incoming_secrets.items():
+            if _looks_masked(value):
+                if key in existing.secrets:
+                    resolved_secrets[key] = existing.secrets[key]
+                # else: client sent __MASKED__ for a key we don't have; drop
+                # it silently — same as an omitted key.
+            else:
+                resolved_secrets[key] = value
+        data["secrets"] = resolved_secrets
+
+    # ``model_copy(update=...)`` does NOT re-run field validators in
+    # Pydantic v2 — round-trip through model_dump()|data→model_validate so
+    # the DD-2 config validator fires on the merged payload. Mirrors
+    # ``update_mcp_source``.
+    try:
+        merged = existing.model_dump()
+        merged.update(data)
+        updated = Connector.model_validate(merged)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    if updated.type not in _creatable_connector_types():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Connector type {updated.type!r} is not creatable on this instance.",
+        )
+    await repo.update(updated)
+
+    # PUT restarting semantics (leg Context / Edge Cases): unconditionally
+    # stop the old listener and start a fresh one from the just-persisted
+    # row. Strictly satisfies "credential/enabled/type change restarts the
+    # listener" (a superset — every save restarts) and "no stale-credential
+    # listener survives a save" without needing a connection-relevant-change
+    # diff. ``repo`` is threaded through so the DD-Q3 rotation fix's
+    # fresh-row re-fetch applies to this listener's future reconnects too.
+    manager = get_connector_manager()
+    if manager is not None:
+        await manager.stop(connector_id)
+        manager.start(updated, get_encryptor(settings.data_dir), repo=repo)
+
+    return _connector_response(updated)
+
+
+@router.delete("/connectors/{connector_id}")
+async def delete_connector(connector_id: str) -> dict[str, str]:
+    """DELETE stops the listener BEFORE the row dies (DD-7)."""
+    repo = await _connector_repo()
+    try:
+        await repo.get(connector_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+    manager = get_connector_manager()
+    if manager is not None:
+        await manager.stop(connector_id)
+    try:
+        await repo.delete(connector_id)
+    except KeyError:
+        # Race: another caller deleted between our get and delete.
+        raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+    return {"status": "ok"}
+
+
+@router.post("/connectors/{connector_id}/test")
+async def test_connector(connector_id: str) -> dict[str, Any]:
+    """Doctor probe: plugin report + binding-health warnings (DD-4).
+
+    With no plugin registered for the type — the NORM this flight, since
+    Discord lands Flight 3 — this returns a clean degraded/failed report,
+    never a crash (design review catch #1). Doctor runs on a disabled
+    connector too (there is no ``enabled`` gate to check — see Deviations
+    in the flight log): doctor is diagnosis, not traffic.
+    """
+    repo = await _connector_repo()
+    try:
+        account = await repo.get(connector_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+
+    plugin = connector_registry.get_plugin(account.type)
+    if plugin is None:
+        report = DoctorReport(
+            status="failed",
+            message=f"no plugin registered for type {account.type!r}",
+        )
+    else:
+        try:
+            report = await plugin.doctor(account, get_encryptor(settings.data_dir))
+        except ConnectorClientError as exc:
+            report = DoctorReport(status="failed", message=str(exc))
+        except Exception as exc:
+            logger.exception("connector %s: doctor probe raised", connector_id)
+            report = DoctorReport(status="failed", message=f"doctor probe raised: {exc}")
+
+    warnings = await _connector_doctor_warnings(account)
+    return {
+        "status": report.status,
+        "message": report.message,
+        "details": report.details,
+        "warnings": warnings,
+    }
+
+
+@router.post("/connectors/{connector_id}/pairing-code")
+async def generate_connector_pairing_code(connector_id: str) -> dict[str, str]:
+    """Generate (or regenerate) the one-time pairing code (DD-3).
+
+    404s on an unknown connector id — repo-checked FIRST, before touching
+    the manager's in-memory pairing store. A second request replaces
+    (invalidates) the first: ``ConnectorManager.generate_pairing_code``
+    simply overwrites the prior ``_PairingEntry`` for this connector id.
+    Allowed even when the connector's listener isn't running — the code
+    just expires unused by TTL (Edge Case, stated rather than left
+    implicit).
+    """
+    repo = await _connector_repo()
+    try:
+        await repo.get(connector_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+    manager = get_connector_manager()
+    if manager is None:
+        raise HTTPException(status_code=503, detail="connector manager is not running")
+    code = manager.generate_pairing_code(connector_id)
+    from datetime import datetime, timedelta, timezone
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=PAIRING_TTL_SECONDS)).isoformat()
+    return {"code": code, "expires_at": expires_at}
+
+
+# ── Connector test seams (DD-10) — dual-gated like purge-sweep ─────────────
+#
+# ``settings.dev_mode`` AND ``THE_ONE_STUB_TEST_ENDPOINT=1``: these seams
+# inject free text into a live agent loop with LLM calls and tool
+# execution — purge-sweep's risk profile, not the inert-metadata
+# oauth/pending seam's. The old ``THE_ONE_REGISTER_STUB_CONNECTOR`` name is
+# fully absent and not resurrected (design review 2026-08-31).
+
+
+@router.post("/_test/stub/inbound")
+async def stub_test_inbound(request: Request) -> dict[str, Any]:
+    """Inject an inbound envelope into the stub plugin's live connection.
+
+    The act path for the ``stub-connector-round-trip`` behavior test (leg
+    3) and this leg's own route tests — drives admission/pairing/reply
+    without a real platform. Requires the stub plugin to already be
+    connected for ``connector_id`` (via the lifespan startup hook, or a
+    test's own ``registry.register_for_test`` + manager start).
+    """
+    if not settings.dev_mode or os.environ.get("THE_ONE_STUB_TEST_ENDPOINT") != "1":
+        raise HTTPException(
+            status_code=403,
+            detail="test-seam endpoint requires dev_mode + THE_ONE_STUB_TEST_ENDPOINT=1",
+        )
+    from the_one.connectors.stub import StubPlugin
+
+    body = await request.json()
+    envelope = InboundEnvelope(
+        platform="stub",
+        connector_id=body["connector_id"],
+        channel_id=body.get("channel_id", ""),
+        thread_id=body.get("thread_id"),
+        peer_id=body["peer_id"],
+        peer_name=body.get("peer_name", body["peer_id"]),
+        text=body["text"],
+        is_dm=bool(body.get("is_dm", False)),
+        mentions_bot=bool(body.get("mentions_bot", False)),
+    )
+    try:
+        await StubPlugin.push_inbound(body["connector_id"], envelope)
+    except ConnectorClientError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"status": "ok"}
+
+
+@router.get("/_test/stub/outbound")
+async def stub_test_outbound() -> dict[str, Any]:
+    """Read the stub plugin's recorded outbound sends — the observe path
+    proving what did/didn't reach the "platform" (DD-10)."""
+    if not settings.dev_mode or os.environ.get("THE_ONE_STUB_TEST_ENDPOINT") != "1":
+        raise HTTPException(
+            status_code=403,
+            detail="test-seam endpoint requires dev_mode + THE_ONE_STUB_TEST_ENDPOINT=1",
+        )
+    from the_one.connectors.stub import StubPlugin
+
+    records = []
+    for target, content in StubPlugin.outbound_records:
+        records.append(
+            {
+                "connector_id": getattr(target, "connector_id", None),
+                "channel_id": getattr(target, "channel_id", None),
+                "peer_id": getattr(target, "peer_id", None),
+                "content": content,
+            }
+        )
+    return {"records": records}
+
+
 # ── OAuth callback (F5 §9) ────────────────────────────────────────────────
 
 
@@ -4426,6 +4782,31 @@ async def rotate_encryption_key() -> dict[str, str]:
             key_path,
         )
         key_file = "staged"
+
+    # Rotation-restart (design review Q3, leg-2 scope): stop and restart
+    # every currently-tracked connector listener from a freshly re-fetched
+    # row. Without this, a listener that survives on its original
+    # closure-captured account never revisits the connect path until it
+    # needs to reconnect — and even then, only the DD-Q3 ``_run`` fresh-row
+    # fix (manager.py) protects it, which itself only fires because ``repo``
+    # was threaded through at ``start()`` time. Restarting explicitly here
+    # closes the gap for a listener that's alive and NOT currently
+    # reconnecting at the moment of rotation. Best-effort per connector —
+    # one connector's restart failure must not abort the (already-committed)
+    # rotation response.
+    _connector_manager = get_connector_manager()
+    if _connector_manager is not None:
+        _connector_repo_for_restart = ConnectorRepository(conn, encryptor)
+        for _connector_id in _connector_manager.listener_ids():
+            try:
+                await _connector_manager.stop(_connector_id)
+                _fresh_connector = await _connector_repo_for_restart.get(_connector_id)
+            except KeyError:
+                continue
+            except Exception:
+                logger.exception("rotation: restarting connector %s listener failed", _connector_id)
+                continue
+            _connector_manager.start(_fresh_connector, encryptor, repo=_connector_repo_for_restart)
 
     logger.info(
         "encryption key rotated: key=%s providers=%d provider_secrets=%d mcp_sources=%d "

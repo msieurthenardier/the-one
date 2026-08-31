@@ -723,13 +723,17 @@ class TestConnectorRepository:
     """
 
     async def test_create_and_get(self, connector_repo: ConnectorRepository) -> None:
+        # Mission 23 Flight 2 Leg 1 (DD-2): ``config`` now carries the
+        # reserved-key schema (``default_agent``/``channel_map``/
+        # ``allowlist``/``always_listen``) — the pre-reset ``"intent"``
+        # key this test used is rejected by the new validator.
         account = Connector(
-            id="a1", name="Test Bot", type="stub", config={"intent": "guild_messages"}
+            id="a1", name="Test Bot", type="stub", config={"default_agent": "bot-1"}
         )
         await connector_repo.create(account)
         loaded = await connector_repo.get("a1")
         assert loaded.name == "Test Bot"
-        assert loaded.config == {"intent": "guild_messages"}
+        assert loaded.config == {"default_agent": "bot-1"}
 
     async def test_list(self, connector_repo: ConnectorRepository) -> None:
         await connector_repo.create(Connector(id="b", name="Bravo Bot", type="stub"))
@@ -757,12 +761,12 @@ class TestConnectorRepository:
             id="a1",
             name="Discord Bot",
             type="stub",
-            config={"intent": "guild_messages"},
+            config={"default_agent": "bot-1"},
             secrets={"BOT_TOKEN": "discord_secret_value_xyz"},
         )
         await connector_repo.create(account)
         fetched = await connector_repo.get("a1")
-        assert fetched.config == {"intent": "guild_messages"}
+        assert fetched.config == {"default_agent": "bot-1"}
         assert fetched.secrets == {"BOT_TOKEN": "discord_secret_value_xyz"}
 
     async def test_secrets_encrypted_at_rest(self, connector_repo: ConnectorRepository) -> None:
@@ -791,7 +795,7 @@ class TestConnectorRepository:
 
     async def test_empty_secrets_default(self, connector_repo: ConnectorRepository) -> None:
         """An account created without secrets= round-trips with secrets={}."""
-        account = Connector(id="a1", name="Test", type="stub", config={"x": 1})
+        account = Connector(id="a1", name="Test", type="stub", config={"default_agent": "bot-1"})
         await connector_repo.create(account)
         fetched = await connector_repo.get("a1")
         assert fetched.secrets == {}
