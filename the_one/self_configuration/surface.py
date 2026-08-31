@@ -30,7 +30,6 @@ from the_one.db.connection import get_connection
 from the_one.db.models import now_iso
 from the_one.db.repositories import (
     AgentRevisionRepository,
-    ConnectorRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
@@ -165,10 +164,14 @@ async def get_my_configuration(ctx: Context) -> dict[str, Any]:
 
 @mcp.tool()
 async def describe_my_capabilities(ctx: Context) -> dict[str, Any]:
-    """Return the tools, sources, and connectors this agent holds — names
-    and descriptions only, filtered through the operator's existing
+    """Return the tools and sources this agent holds — names and
+    descriptions only, filtered through the operator's existing
     per-source and per-tool controls. Never a source config, URL, header,
     or secret.
+
+    Mission 23 Flight 1 (backend-removal leg, DD-5): no longer surfaces
+    connectors — the connector subsystem is gone; the payload's
+    ``connectors`` key was dropped by :func:`build_describe_my_capabilities`.
     """
     agent_name = await _calling_agent(ctx)
     conn = await get_connection()
@@ -177,12 +180,10 @@ async def describe_my_capabilities(ctx: Context) -> dict[str, Any]:
     config = await agent_store.load(agent_name)
     tool_config_repo = ToolConfigRepository(conn, encryptor)
     mcp_repo = MCPSourceRepository(conn, encryptor)
-    connector_repo = ConnectorRepository(conn, encryptor)
     return await build_describe_my_capabilities(
         config,
         tool_config_repo=tool_config_repo,
         mcp_repo=mcp_repo,
-        connector_repo=connector_repo,
     )
 
 

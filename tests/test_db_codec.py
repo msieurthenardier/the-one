@@ -563,7 +563,7 @@ class TestMessagesToUiEventsThinking:
         }
 
     def test_thinking_carries_visibility_on_replay(self) -> None:
-        from the_one.connectors import OPERATOR_VISIBILITY
+        from the_one.llm.base import OPERATOR_VISIBILITY
 
         msg = Message.assistant(
             "answer",

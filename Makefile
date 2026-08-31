@@ -200,9 +200,9 @@ test: ## Run all default tests host-native (unit + browser; excludes -m live and
 	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -v --tb=short
 
 .PHONY: test-unit
-test-unit: ## Run unit tests only host-native (excludes browser, live, pixel, requires_bwrap, discord_hat)
+test-unit: ## Run unit tests only host-native (excludes browser, live, pixel, requires_bwrap)
 	# Keep this -m in sync with pyproject.toml addopts' default-deselect set.
-	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap and not discord_hat' -v --tb=short
+	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap' -v --tb=short
 
 .PHONY: test-browser
 test-browser: ## Run browser tests host-native (requires THE_ONE_DEV_MODE=true; uses Playwright)
@@ -221,10 +221,6 @@ test-bwrap: ## Run @requires_bwrap sandbox tests host-native (default-deselected
 .PHONY: test-live
 test-live: ## Run live-LLM tests host-native (AIAT — requires a running the-one server)
 	$(PY) -m pytest -m live tests/test_aiat.py -v --tb=short
-
-.PHONY: test-discord-hat
-test-discord-hat: ## Run live multi-bot Discord HAT host-native (needs bot tokens + a test guild; SKIPs without env)
-	$(PY) -m pytest -m discord_hat tests/live/discord_hat/ -v --tb=short
 
 # ── Smoke (F9 L2 D2 generic-runtime) ──────────────────────────────────
 

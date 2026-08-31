@@ -14,7 +14,6 @@ db.session_metadata without hitting the DB).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 from the_one.db.models import ChatSession as ChatSessionModel
 
@@ -112,13 +111,10 @@ class TestSessionJoinedDegradedCarriesLastUsage:
         )
         restored = RestoredSession(None, SESSION_STATUS_AGENT_DELETED, db_row)
 
-        # _build_session_joined_degraded calls _merge_pending_approvals_into_history
-        # which does a DB query. Patch it to return the empty history directly.
-        with patch(
-            "the_one.interfaces.web.app._merge_pending_approvals_into_history",
-            return_value=[],
-        ):
-            payload = await _build_session_joined_degraded(restored)
+        # Mission 23 Flight 1 (backend-removal leg): _build_session_joined_degraded
+        # no longer calls _merge_pending_approvals_into_history (deleted along
+        # with the connector package, DD-2) — no DB-query patch needed.
+        payload = await _build_session_joined_degraded(restored)
 
         assert payload["session_metadata"] is not None
         assert payload["session_metadata"]["last_usage"] == _LAST_USAGE
@@ -138,10 +134,6 @@ class TestSessionJoinedDegradedCarriesLastUsage:
         )
         restored = RestoredSession(None, SESSION_STATUS_AGENT_DELETED, db_row)
 
-        with patch(
-            "the_one.interfaces.web.app._merge_pending_approvals_into_history",
-            return_value=[],
-        ):
-            payload = await _build_session_joined_degraded(restored)
+        payload = await _build_session_joined_degraded(restored)
 
         assert payload["session_metadata"] is None

@@ -46,7 +46,6 @@
     general: 'agent-tab-panel-general',
     knowledge: 'agent-tab-panel-knowledge',
     mcps: 'agent-tab-panel-mcps',
-    connectors: 'agent-tab-panel-connectors',
     tools: 'agent-tab-panel-tools',
     'self-configuration': 'agent-tab-panel-self-configuration'
   };
@@ -100,18 +99,13 @@
     html += '<button type="button" role="tab" class="tab" id="agent-tab-mcps" ' +
       'aria-controls="' + PANEL_IDS.mcps + '" data-tab-id="mcps" ' +
       'data-testid="tab-mcps" aria-selected="false" tabindex="-1">MCPs</button>';
-    // M10 F6 L5: Connectors tab sits between MCPs and Built-in Tools.
-    // Attach toggles per connector account + per-account ACL editor.
-    html += '<button type="button" role="tab" class="tab" id="agent-tab-connectors" ' +
-      'aria-controls="' + PANEL_IDS.connectors + '" data-tab-id="connectors" ' +
-      'data-testid="tab-connectors" aria-selected="false" tabindex="-1">Connectors</button>';
     // data-tab-id="tools" + data-testid="tab-tools" preserved (browser
     // tests + URL routing still key off "tools"); only the visible label
     // and panel content semantics narrow to "Built-in Tools".
     html += '<button type="button" role="tab" class="tab" id="agent-tab-tools" ' +
       'aria-controls="' + PANEL_IDS.tools + '" data-tab-id="tools" ' +
       'data-testid="tab-tools" aria-selected="false" tabindex="-1">Built-in Tools</button>';
-    // M21 F01 L02 — sixth tab: enable/disable the loopback self-
+    // M21 F01 L02 — fifth tab: enable/disable the loopback self-
     // configuration MCP surface for this agent. Off by default; see
     // studio/self-configuration-tab.js.
     html += '<button type="button" role="tab" class="tab" id="agent-tab-self-configuration" ' +
@@ -127,8 +121,6 @@
       '" data-tab-id="knowledge" aria-labelledby="agent-tab-knowledge" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.mcps +
       '" data-tab-id="mcps" aria-labelledby="agent-tab-mcps" hidden></div>';
-    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.connectors +
-      '" data-tab-id="connectors" aria-labelledby="agent-tab-connectors" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.tools +
       '" data-tab-id="tools" aria-labelledby="agent-tab-tools" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS['self-configuration'] +
@@ -157,7 +149,6 @@
     var generalPanel = container.querySelector('#' + PANEL_IDS.general);
     var knowledgePanel = container.querySelector('#' + PANEL_IDS.knowledge);
     var mcpsPanel = container.querySelector('#' + PANEL_IDS.mcps);
-    var connectorsPanel = container.querySelector('#' + PANEL_IDS.connectors);
     var toolsPanel = container.querySelector('#' + PANEL_IDS.tools);
     var selfConfigurationPanel = container.querySelector('#' + PANEL_IDS['self-configuration']);
 
@@ -176,14 +167,6 @@
       onSelectedSourceChange: callbacks.onSelectedMcpSourceChange,
       pendingSourceId: callbacks.pendingMcpAgentSourceId
     });
-    // M10 F6 L5 — Connectors tab: attach toggles + per-account ACL editor.
-    // Mirrors the renderMcpsTab call site shape. `allConnectors`
-    // is refreshed on every agent-edit mount via refreshConnectorsCache
-    // (mirror of refreshMcpSourcesCache).
-    window.App.studio.renderConnectorsTab(connectorsPanel, agent,
-      callbacks.allConnectors, {
-        onChange: callbacks.onChange
-      });
     window.App.studio.renderToolsTab(toolsPanel, agent, {
       toolCategories: callbacks.toolCategories,
       allTools: callbacks.allTools,

@@ -51,17 +51,19 @@ class TestBuiltinToolProviderL3:
         provider = BuiltinToolProvider()
         zero_arg = provider.get_tools()
         explicit_none = provider.get_tools(tool_configs=None, agent_overrides=None)
-        # Same shape: 24 tools (20 base + the four M11 F7 L10
-        # channel-context tools), same names, in the same order.
+        # Same shape: 19 tools (Mission 23 Flight 1 removed the five
+        # connector tools — send_to_platform_channel + the four M11 F7
+        # L10 channel-context tools — along with the connector package),
+        # same names, in the same order.
         assert [t.name for t in zero_arg] == [t.name for t in explicit_none]
-        assert len(zero_arg) == 24
+        assert len(zero_arg) == 19
 
     def test_empty_dicts_go_through_factory_path(self) -> None:
         # Both args are non-None empty dicts → factory path. Each tool's
-        # Config resolves to the empty default; result still has 24 tools.
+        # Config resolves to the empty default; result still has 19 tools.
         provider = BuiltinToolProvider()
         tools = provider.get_tools({}, {})
-        assert len(tools) == 24
+        assert len(tools) == 19
         names = {t.name for t in tools}
         assert names == {
             "shell",
@@ -83,11 +85,6 @@ class TestBuiltinToolProviderL3:
             "fetch_url",
             "download_file",
             "web_search",
-            "send_to_platform_channel",
-            "fetch_channel_history",
-            "fetch_thread_history",
-            "fetch_dm_history",
-            "list_visible_channels",
         }
 
     def test_per_agent_isolation_factory_path(self) -> None:
@@ -108,12 +105,12 @@ class TestBuiltinToolProviderL3:
             assert ta is not tb, f"singleton leaked for {ta.name}"
 
     def test_unknown_tool_name_in_overrides_silently_ignored(self) -> None:
-        # An unknown tool name in agent_overrides must not raise; the 24
+        # An unknown tool name in agent_overrides must not raise; the 19
         # known tools are still instantiated. Mirrors the v7
         # enabled_tools/disabled_tools strip semantic.
         provider = BuiltinToolProvider()
         tools = provider.get_tools(None, {"nonexistent_tool": {"foo": "bar"}})
-        assert len(tools) == 24
+        assert len(tools) == 19
         names = {t.name for t in tools}
         assert "nonexistent_tool" not in names
 

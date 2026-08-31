@@ -5,8 +5,8 @@ Mission 20 / Flight 1 / Leg 3 (``harness-credential-plumbing``) — DD10.
 Plain helper FUNCTION (not a fixture), so it lives here rather than in
 ``tests/conftest.py`` — mirroring the project's existing split between
 fixtures (must live in a ``conftest.py`` for pytest auto-discovery) and
-the helper functions that consume them (``tests/_acl_shape_helpers.py``,
-``tests/_connector_dispatch_helpers.py``). Every one of the 34 unit-test
+the standalone helper modules that consume them.
+Every one of the 34 unit-test
 client fixtures (28 ``httpx.AsyncClient(transport=ASGITransport(...))``,
 6 ``TestClient(...)``) imports ``auth_headers`` from here and passes it
 as the ``headers=`` argument on client construction — a one-line-per-file

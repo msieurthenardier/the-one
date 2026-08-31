@@ -313,9 +313,8 @@
   }
   /* L7 (F7 Rec #3(a)): default .tool-enable-switch is now position: relative;
      no override needed for .tools-editor-enabled-row, .mf-sandbox-network-row,
-     .cf-auto-relay-row, .connector-always-listen-row, or
-     .cf-always-listen-row. Tile-corner consumers opt in via the
-     .tool-enable-switch--corner modifier. */
+     .cf-auto-relay-row, or .cf-always-listen-row. Tile-corner consumers opt in
+     via the .tool-enable-switch--corner modifier. */
 
   /* === Editor prompt block (F6 HAT inline fix #1) ============================
      The tool's `description` IS the prompt baked into the LLM tools schema.
@@ -504,7 +503,7 @@
   }
   /* F6 HAT inline tweak — section header row pairing the section title with
      an info icon (hint moved out of the prior `.tools-editor-test-help`
-     paragraph onto a discoverable-on-hover icon, mirroring the per-field
+     paragraph onto a hover-revealed icon, mirroring the per-field
      info-icon pattern). The row is a flex container so the icon sits on
      the same baseline as the title text without affecting other section
      titles (which keep their original block layout). The `.field-info-icon`

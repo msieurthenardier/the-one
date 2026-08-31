@@ -140,14 +140,8 @@ _ATTR_FOR_PARAM = re.compile(r'(?<![\w-])for="([^"\'\n]+)\'\s*\+')
 _ATTR_ARIA_DESCRIBEDBY = re.compile(r'aria-describedby="([^"\'\n]+)"')
 _ATTR_ARIA_DESCRIBEDBY_PARAM = re.compile(r'aria-describedby="([^"\'\n]+)\'\s*\+')
 
-# for-targets whose control ``id`` is emitted through a concatenation helper
-# (``renderLifecycleSelect`` in connector-editor.js renders
-# ``id="' + escapeAttr(id) + '"``) — invisible to the literal-id scan but
-# present at runtime. Verified by reading the helper. These two rows migrated
-# to ``.field-group`` in M17 F5 L2, but their ``<select>`` id is STILL emitted
-# via renderLifecycleSelect (concatenated), so the ``for`` target stays
-# helper-indirected; listed so the global resolver stays false-positive-free.
-# Prune only when renderLifecycleSelect is retired / emits a literal id.
+# for-targets whose control ``id`` is emitted through a concatenation helper,
+# invisible to the literal-id scan but present at runtime.
 #
 # ``mf-args`` / ``mf-sandbox-writable-paths`` (mcp-server-editor.js): the two
 # chip-list ``label[for]`` targets. M17 F6 L3 fixed the runtime label-dangle by
@@ -158,8 +152,6 @@ _ATTR_ARIA_DESCRIBEDBY_PARAM = re.compile(r'aria-describedby="([^"\'\n]+)\'\s*\+
 # invisible to the literal-id scan but present at runtime — asserted by the
 # runtime DOM guard in ``tests/browser/test_flow_chiplist_label_resolver.py``.
 FIELD_FOR_ID_HELPER_INDIRECTED: set[str] = {
-    "cf-continuation-window",
-    "cf-idle-timeout",
     "mf-args",
     "mf-sandbox-writable-paths",
 }

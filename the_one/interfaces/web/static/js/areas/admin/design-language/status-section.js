@@ -13,12 +13,10 @@
   // to claim vertical space.
   function render(host) {
     host.innerHTML =
-      // --- badges (provider / tool category / connector) ---
+      // --- badges (provider / tool category) ---
       //     Per-badge ink (M17 F3 L4): each badge×ink pair clears body AA in
       //     both themes. Provider + tool badges use their real .area-admin
-      //     classes (the gallery renders inside .area-admin). The connector
-      //     badge is .area-studio-scoped, so discord is shown via the shared
-      //     provider-badge base with inline fill/ink tokens for reference.
+      //     classes (the gallery renders inside .area-admin).
       '<div style="display: flex; flex-direction: column; gap: 8px;">' +
         '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">provider badges</span>' +
         '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">' +
@@ -37,10 +35,6 @@
           '<span class="admin-tool-badge admin-tool-badge--execution">execution</span>' +
           '<span class="admin-tool-badge admin-tool-badge--web">web</span>' +
           '<span class="admin-tool-badge admin-tool-badge--unknown">unknown</span>' +
-        '</div>' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">connector badge (studio-scoped; shown for reference)</span>' +
-        '<div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">' +
-          '<span class="admin-provider-badge" style="background: var(--badge-discord); color: var(--badge-ink-discord);">discord</span>' +
         '</div>' +
       '</div>' +
 

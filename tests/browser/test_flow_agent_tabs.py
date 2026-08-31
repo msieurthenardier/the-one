@@ -65,13 +65,14 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
 
 
 @pytest.mark.browser
-def test_tablist_renders_with_six_tabs(app_with_agent: SeededApp, page: Page) -> None:
+def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -> None:
     """The agent editor renders a tablist with tabs and correct ARIA.
 
-    The Connectors tab (M10 F6 L5, commit 93c4120) sits between MCPs and
-    Built-in Tools; the Self-configuration tab (M21 F01 L02) sits last, so
-    the tablist now renders 6 tabs in order: General / Knowledge / MCPs /
-    Connectors / Built-in Tools / Self-configuration.
+    The Self-configuration tab (M21 F01 L02) sits last, so the tablist
+    renders 5 tabs in order: General / Knowledge / MCPs / Built-in Tools /
+    Self-configuration. (A Connectors tab sat between MCPs and Built-in
+    Tools from M10 through Mission 23 Flight 1, which reset the connector
+    subsystem and removed it.)
     """
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -81,17 +82,14 @@ def test_tablist_renders_with_six_tabs(app_with_agent: SeededApp, page: Page) ->
     expect(tablist).to_be_visible()
 
     tabs = page.locator('[role="tab"]')
-    # General + Knowledge + MCPs + Connectors + Built-in Tools + Self-configuration
-    expect(tabs).to_have_count(6)
+    # General + Knowledge + MCPs + Built-in Tools + Self-configuration
+    expect(tabs).to_have_count(5)
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute("aria-selected", "false")
-    expect(page.locator('[data-testid="tab-connectors"]')).to_have_attribute(
-        "aria-selected", "false"
-    )
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "false")
     expect(page.locator('[data-testid="tab-self-configuration"]')).to_have_attribute(
         "aria-selected", "false"

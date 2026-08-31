@@ -116,9 +116,10 @@ async def _build_source_index(
 
 
 # M19 F01 L02: the provider-type → registry-name map now lives in
-# ``the_one.llm.registry.PROVIDER_TYPE_MAP`` (single source of truth for the
-# three dispatch callers: this factory, ``connectors/_inference.py``, and the
-# provider API branches). The module-load drift assert moved with it.
+# ``the_one.llm.registry.PROVIDER_TYPE_MAP`` (single source of truth for
+# this factory and the provider API branches — the connector dispatcher's
+# ``connectors/_inference.py`` was a third caller before Mission 23 Flight 1
+# deleted the connector package). The module-load drift assert moved with it.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -299,32 +300,6 @@ class AgentFactory:
         disabled_names = {c.name for c in configs if not c.enabled}
         agent_overrides = config.tool_overrides or {}
 
-        # F4 (M10) L3: connector carve-out flags.
-        # - connector_attached: agent has at least one connector account.
-        # - send_tool_enabled: the platform-send tool passes both the operator
-        #   filter (not in disabled_names) AND the per-agent filter
-        #   (config.is_tool_enabled). This is the SAME predicate the
-        #   registry-build for-loop below uses.
-        # The carve-out (loading the tool's schema into the F10 baseline-
-        # visible set) and the system-prompt directive both consult these
-        # flags. Computed once here so the post-loop carve-out site reuses.
-        connector_attached = bool(config.connector_ids)
-        send_tool_enabled = (
-            "send_to_platform_channel" not in disabled_names
-            and config.is_tool_enabled("send_to_platform_channel")
-        )
-
-        # M11 F5 L6 HAT round-8: the M11 F2 L3 per-account
-        # ``system_prompt_directive`` collection block was REMOVED here.
-        # Mission M11 criterion #14 (operator-editable system-prompt
-        # directive per connector account) was reverted in this round;
-        # substrate defaults are used universally. The ``operator_directive``
-        # kwarg on ``compose_system_prompt`` was likewise removed.
-        # The ``system_prompt_directive`` key on persisted
-        # ``Connector.config`` is now IGNORED at agent-create time
-        # (the API validator no longer accepts it on new writes; old rows
-        # that still carry it have no effect on prompt composition).
-
         # 3. Build filtered tool registry — fresh ToolRegistry per call,
         # populated with fresh per-agent tool instances (the provider
         # invokes the resolver internally per Decision 10). The filter
@@ -381,24 +356,16 @@ class AgentFactory:
         )
 
         for provider in self.tool_providers:
-            if isinstance(provider, BuiltinToolProvider):
-                tools = provider.get_tools(
-                    tool_configs_by_name,
-                    agent_overrides,
-                    agent_name=name,
-                    connector_ids=config.connector_ids,
-                    connector_acls=config.connector_acls,
-                )
-            else:
-                # Non-builtin providers (test stubs, future provider types)
-                # use the unwidened signature. Adding `connector_ids`
-                # to the ToolProvider Protocol would force every test stub
-                # to accept it; the branch keeps the change scoped.
-                tools = provider.get_tools(
-                    tool_configs_by_name,
-                    agent_overrides,
-                    agent_name=name,
-                )
+            # Mission 23 Flight 1 (backend-removal leg): this used to branch
+            # on `isinstance(provider, BuiltinToolProvider)` to pass extra
+            # `connector_ids`/`connector_acls` construction kwargs — removed
+            # with the connector package (DD-4), so every provider now takes
+            # the same call shape.
+            tools = provider.get_tools(
+                tool_configs_by_name,
+                agent_overrides,
+                agent_name=name,
+            )
             for tool in tools:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
@@ -414,31 +381,8 @@ class AgentFactory:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
 
-        # F4 (M10) L3: F10 baseline carve-out. When the agent is connector-
-        # attached AND the platform-send tool is enabled (both layers), the
-        # tool's schema is pre-loaded into the baseline-visible set so the
-        # agent doesn't have to invoke `search_tools` to discover it. The
-        # `registry.tool_names` (public @property at tools/base.py:129-131)
-        # membership guard is defensive: in test scenarios where the
-        # tool_providers list omits BuiltinToolProvider, the tool is absent
-        # from the registry and the carve-out cannot fire — instead of
-        # crashing, skip silently (the test setup is non-production).
-        if (
-            connector_attached
-            and send_tool_enabled
-            and "send_to_platform_channel" in registry.tool_names
-        ):
-            _send_tool = registry.get("send_to_platform_channel")
-            loaded_schemas.append(_send_tool.to_schema())
-            loaded_tool_names.add(_send_tool.name)
-
         # 3. Resolve system prompt
-        system_prompt = compose_system_prompt(
-            BASE_PROMPT,
-            config.system_prompt,
-            connector_attached=connector_attached,
-            send_tool_enabled=send_tool_enabled,
-        )
+        system_prompt = compose_system_prompt(BASE_PROMPT, config.system_prompt)
 
         # 4. Create agent
         # F10 L1: pass the shared containers so the Agent's

@@ -1,10 +1,11 @@
 """Neutral session-state registries.
 
-Hosts cross-subsystem state that BOTH interfaces.web.app and
-connectors._inbound need to coordinate on. Import direction is
-one-way INTO this package; nothing here imports from interfaces
-or connectors. F5 L2 introduced this module to close the
-mission Known Issue about per-session lock unification.
+Hosts cross-subsystem state that ``interfaces.web.app`` (and, before
+Mission 23 Flight 1 deleted the connector package, the connector
+dispatcher's inbound handler) need to coordinate on. Import direction
+is one-way INTO this package; nothing here imports from interfaces.
+F5 L2 introduced this module to close the mission Known Issue about
+per-session lock unification.
 """
 
 from the_one.sessions._broadcast import (

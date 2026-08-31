@@ -302,31 +302,20 @@ async def mcp_fixture_http_client():
             await client.aclose()
 
 
-# ---------------------------------------------------------------------------
-# Connector-dispatch fixtures (M10 F4 L5 — extracted to enable auto-
-# discovery from conftest.py without per-file explicit imports). Pytest
-# auto-discovers fixtures from conftest.py; the supporting helper FUNCTIONS
-# (``_seed_provider_and_agent``, ``_make_factory``, etc.) live in
-# ``tests/_connector_dispatch_helpers`` and are explicitly imported in
-# each consumer file (function imports do not require auto-discovery).
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 async def isolated_db(tmp_path, monkeypatch):
-    """Per-test sqlite DB at tmp_path for connector-dispatch e2e tests.
+    """Per-test sqlite DB at tmp_path with the module-level connection
+    singleton repointed at it.
 
-    The dispatcher resolves its DB connection via ``get_connection()``
-    inside the function body, so we need the module-level singleton
-    repointed at the per-test path. Schema is applied via a side
-    connection so the singleton opens cleanly on first
-    ``get_connection()``.
+    Callers resolve their DB connection via ``get_connection()`` inside
+    the function body, so we need the module-level singleton repointed
+    at the per-test path. Schema is applied via a side connection so the
+    singleton opens cleanly on first ``get_connection()``.
 
-    Lives in ``conftest.py`` (NOT in
-    ``tests/_connector_dispatch_helpers.py``) because pytest only
-    auto-discovers fixtures from conftest. The helper FUNCTIONS that
-    consume this fixture's side effects are in
-    ``_connector_dispatch_helpers`` and imported explicitly per file.
+    Originally introduced for the connector-dispatch e2e tests (M10 F4
+    L5); those are gone (Mission 23 Flight 1), but the fixture itself is
+    still consumed by other tests that need an isolated DB behind the
+    connection singleton.
     """
     import aiosqlite as _aiosqlite
 
@@ -357,12 +346,13 @@ def reset_lifespan_singletons():
 
     The lifespan's shutdown branch calls each subsystem's
     ``shutdown_drain()``, which latches module-global
-    ``_shutting_down = True`` in three modules
-    (``the_one.tools._session_registry``, ``the_one.mcp._pool``,
-    ``the_one.connectors._pool``). Left set, the latch makes any LATER
-    test in the same process that calls ``register()`` / ``acquire()``
-    fail with ``RuntimeError: ... shutting down`` — a pure test-ordering
-    flake (M17 F1 L4 root cause: ``test_lifespan.py``'s first test failed
+    ``_shutting_down = True`` in two modules
+    (``the_one.tools._session_registry``, ``the_one.mcp._pool`` — a third,
+    the connector pool module, was deleted with the connector package at
+    Mission 23 Flight 1). Left set, the latch makes any LATER test in
+    the same process that calls ``register()`` / ``acquire()`` fail with
+    ``RuntimeError: ... shutting down`` — a pure test-ordering flake
+    (M17 F1 L4 root cause: ``test_lifespan.py``'s first test failed
     whenever ``test_index_asset_cache_busting.py`` ran before it).
 
     Activate module-wide in any module that drives the real ``lifespan``
@@ -371,21 +361,19 @@ def reset_lifespan_singletons():
         pytestmark = pytest.mark.usefixtures("reset_lifespan_singletons")
 
     The clears run via ``asyncio.run`` in a fresh loop: after a completed
-    ``shutdown_drain`` all three registries are empty with no live tasks,
-    so each ``_clear_for_test`` is a cheap flag/state reset — nothing
+    ``shutdown_drain`` both registries are empty with no live tasks, so
+    each ``_clear_for_test`` is a cheap flag/state reset — nothing
     cross-loop is awaited.
     """
     yield
 
     import asyncio as _asyncio
 
-    from the_one.connectors._pool import _clear_for_test as _clear_connector_pool
     from the_one.mcp._pool import _clear_for_test as _clear_mcp_pool
     from the_one.tools._session_registry import _clear_for_test as _clear_session_registry
 
     async def _reset() -> None:
         await _clear_session_registry()
         await _clear_mcp_pool()
-        await _clear_connector_pool()
 
     _asyncio.run(_reset())

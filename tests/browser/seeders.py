@@ -24,8 +24,6 @@ from dataclasses import dataclass
 import httpx
 from browser._credential_registry import auth_headers_for
 
-from tests._acl_shape_helpers import _to_v24_allowlist
-
 
 @dataclass
 class SeededApp:
@@ -104,58 +102,6 @@ def seed_mock_agent(
     )
     assert r.status_code == 201, f"seed_mock_agent failed: {r.status_code} {r.text}"
     return r.json()["name"]
-
-
-def seed_connector(
-    base_url: str,
-    name: str = "Test Account",
-    type: str = "stub",
-    secrets: dict | None = None,
-    config: dict | None = None,
-    idle_timeout_seconds: int | None = None,
-    session_continuation_seconds: int | None = None,
-) -> str:
-    """POST a connector account via /api/connectors and return its id.
-
-    M10 F2 L6: mirrors ``seed_mock_provider``'s shape. Requires the
-    target app subprocess to have registered the StubPlugin under the
-    ``'stub'`` type — handled automatically by ``app_clean``'s
-    ``THE_ONE_REGISTER_STUB_CONNECTOR=1`` env var (set in conftest.py).
-
-    F5 L8 HAT: also accepts ``session_continuation_seconds`` so tests
-    can seed a non-null continuation window and exercise the
-    "Never (always continue)" dropdown selection round-trip.
-
-    ``name`` is not unique-constrained server-side, so callers may seed
-    duplicates intentionally for grid-rendering tests.
-
-    M11 F12 L4 — auto-translates ``config['allowlist']`` to the post-v24
-    structured-tuple shape if the test author passes the flat shape. The
-    Pydantic validator REJECTS the flat shape post-L3, so this is the
-    seeder-level back-compat shim. Already-structured entries pass
-    through unchanged. Also renames the ``dm_admission`` Literal value
-    ``"allowlisted-peers-only"`` → ``"admin-approved"`` (operator-
-    vocabulary alignment per F12 L3).
-    """
-    config = config or {}
-    if isinstance(config.get("allowlist"), dict):
-        config = dict(config)
-        config["allowlist"] = _to_v24_allowlist(config["allowlist"])
-    payload: dict = {
-        "name": name,
-        "type": type,
-        "config": config,
-        "secrets": secrets or {},
-    }
-    if idle_timeout_seconds is not None:
-        payload["idle_timeout_seconds"] = idle_timeout_seconds
-    if session_continuation_seconds is not None:
-        payload["session_continuation_seconds"] = session_continuation_seconds
-    r = httpx.post(
-        f"{base_url}/api/connectors", json=payload, headers=auth_headers_for(base_url), timeout=5.0
-    )
-    assert r.status_code == 201, f"seed_connector failed: {r.status_code} {r.text}"
-    return r.json()["id"]
 
 
 def seed_tool_config(

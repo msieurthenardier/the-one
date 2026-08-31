@@ -9,9 +9,8 @@
 
 Verifies the daily automatic purge end to end against a live instance: a single sweep
 deletes every conversation whose last engaged interaction (`updated_at`) predates the
-owning agent's retention window, while leaving conversations inside the window intact,
-never touching another agent's conversations, and never deleting an agent's *active*
-connector session (whose `updated_at` is recent). It also verifies the due-based
+owning agent's retention window, while leaving conversations inside the window intact
+and never touching another agent's conversations. It also verifies the due-based
 catch-up semantics: the global `last_purge_at` advances after a sweep, and a sweep is
 skipped when one ran recently.
 
@@ -52,21 +51,18 @@ service driven through real HTTP, and that the dev-mode trigger fires one true s
   field extraction.
 
 **Assertion convention (read before running):** survivors and victims are tracked by the
-**session ids returned from the seeding `POST`s**, NOT by connector fields. The list/summary
-response (`GET /api/chat/sessions`) intentionally omits `platform`/`connector_id`/`channel_id`
-(the `_session_summary` shape — this is the same omission the F2 purge spec tripped on). So the
-Executor records each seeded id at POST time and asserts presence/absence of those ids after the
-sweep. Do **not** assert on connector fields in the list response — they are not there.
+**session ids returned from the seeding `POST`s**. So the Executor records each seeded id at
+POST time and asserts presence/absence of those ids after the sweep.
 
 ## Steps
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | Read baseline: `GET /api/chat/sessions?agent_name=TARGET` and `?agent_name=BYSTANDER`; record both counts. | (Setup row — record the two baseline counts for later delta assertions. No judgment.) |
-| 2 | Seed for TARGET via `POST /api/chat/sessions`: (a) an **aged interactive** session with `updated_at` 60 days in the past; (b) a **recent interactive** session with `updated_at` = now; (c) an **aged superseded connector** session (platform/connector_id/channel_id set, `updated_at` 60 days past); (d) an **active connector** session (same channel quintuple intent, `updated_at` = now). | Each `POST` returns 201 with the session id echoed. TARGET now has baseline+4 sessions on `GET …?agent_name=TARGET`. |
-| 3 | Seed for BYSTANDER via `POST /api/chat/sessions`: one **aged interactive** session with `updated_at` 90 days in the past. | `POST` returns 201. BYSTANDER now has baseline+1 sessions. |
-| 4 | Fire one sweep: `POST /api/_test/purge-sweep`. | Response is 200 with a JSON body reporting a `deleted` count ≥ 2 (at least TARGET's two aged rows) AND a `last_purge_at` timestamp that is recent (within the last minute). |
-| 5 | Read TARGET's sessions: `GET /api/chat/sessions?agent_name=TARGET`; check the seeded ids from step 2. | The two **aged** TARGET ids (2a interactive + 2c superseded connector) are **absent**; the **recent** interactive id (2b) AND the **active connector** id (2d) are **present**. Net TARGET count = baseline+2. What each row proves: **2c (aged superseded connector) being swept** is the connector-specific assertion — connector rows are subject to the same age filter as interactive rows. **2d surviving** proves a recent row inside the window is kept (its connector-ness is incidental — the sweep never consults connector fields or the resolver, only `updated_at`); it guards against the active connector session being wrongly purged. |
+| 2 | Seed for TARGET via `POST /api/chat/sessions`: (a) an **aged** session with `updated_at` 60 days in the past; (b) a **recent** session with `updated_at` = now. | Each `POST` returns 201 with the session id echoed. TARGET now has baseline+2 sessions on `GET …?agent_name=TARGET`. |
+| 3 | Seed for BYSTANDER via `POST /api/chat/sessions`: one **aged** session with `updated_at` 90 days in the past. | `POST` returns 201. BYSTANDER now has baseline+1 sessions. |
+| 4 | Fire one sweep: `POST /api/_test/purge-sweep`. | Response is 200 with a JSON body reporting a `deleted` count ≥ 1 (at least TARGET's aged row) AND a `last_purge_at` timestamp that is recent (within the last minute). |
+| 5 | Read TARGET's sessions: `GET /api/chat/sessions?agent_name=TARGET`; check the seeded ids from step 2. | The **aged** TARGET id (2a) is **absent**; the **recent** id (2b) is **present**. Net TARGET count = baseline+1. This proves the sweep's cutoff is age-based (`updated_at` alone), keeping a row inside the window while dropping one outside it. |
 | 6 | Read BYSTANDER's sessions: `GET /api/chat/sessions?agent_name=BYSTANDER`. | BYSTANDER's aged session is **still present** — count = baseline+1, unchanged. The sweep honored BYSTANDER's own (default) retention window independently and, more importantly, did not bleed TARGET's sweep across agents. *(Note: this asserts no cross-agent bleed; BYSTANDER's 90-day-aged row is itself past the default 30-day window, so whether it is also swept depends on BYSTANDER's retention — see Variant B for the explicit per-agent-window case. For THIS step seed BYSTANDER with an aged row whose age is **inside** BYSTANDER's window to isolate the isolation assertion. Author note: set BYSTANDER's seed `updated_at` to 5 days past, not 90, so the only thing under test here is "TARGET's sweep didn't touch BYSTANDER.")* |
 | 7 | Fire a second sweep immediately: `POST /api/_test/purge-sweep`, but this time **without** forcing (use the due-respecting form if the endpoint exposes one; otherwise read `last_purge_at` and assert the due-check would skip). | Either the endpoint reports `skipped` / `deleted: 0` because `< 24h` elapsed since step 4's `last_purge_at`, OR (if the test endpoint always forces) the response still reports `deleted: 0` because there is nothing left to purge. The due-based "don't re-run within 24h" property is observable via the unchanged `last_purge_at` on the due-respecting path. |
 

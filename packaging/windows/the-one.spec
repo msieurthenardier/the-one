@@ -182,11 +182,11 @@ binaries = [
     *winpty_bins,
 ]
 
-# PyNaCl / discord voice: discord.py voice support is unused by this app, so
-# nacl is force-EXCLUDED. This both silences PyInstaller's "missing module"
-# warning for the optional voice path and trims the bundle — preferred over
-# collecting a dependency we never call.
-excludes = ["nacl"]
+# Mission 23 Flight 1 (backend-removal leg): the nacl exclusion existed
+# only for discord.py's optional voice support; discord.py itself is
+# gone from the dependency closure now, so there is nothing to exclude.
+# Kept as an empty list — ``excludes=`` below expects the name to exist.
+excludes = []
 
 
 # TWO EXEs in one one-dir bundle (operator-HAT fix). DD6 originally pinned a single

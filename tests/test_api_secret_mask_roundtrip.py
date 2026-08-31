@@ -8,10 +8,13 @@ PUT it back unchanged silently corrupted the stored secret to the literal
 mask string — discovered via a Discord connector account whose ``BOT_TOKEN``
 persisted to disk as ``***...SD7U`` after such a round-trip.
 
-These tests pin the round-trip safety for all three affected entities
-(MCP source, connector account, LLM provider), the canonical sentinel path,
-and the negative case where a user-supplied value merely starts with ``***``
-but is NOT a mask shape.
+These tests pin the round-trip safety for the entities still reachable
+over REST (MCP source, LLM provider), the canonical sentinel path, and
+the negative case where a user-supplied value merely starts with ``***``
+but is NOT a mask shape. The connector-account coverage that originally
+motivated this file is gone with the connector REST routes (Mission 23
+Flight 1, DD-1) — the contract itself (masking + sentinel-preserve) is
+generic and remains proven by the surviving entities.
 """
 
 from __future__ import annotations
@@ -170,57 +173,10 @@ class TestMCPSourceRoundTrip:
         assert json.loads(decrypted) == {"K": real_value}
 
 
-# ── Connector round-trip ─────────────────────────────────────────────────
-
-
-class TestConnectorRoundTrip:
-    async def test_get_put_get_does_not_corrupt_secret(self, client_and_key) -> None:
-        """Mirror of the MCP test for connectors.
-
-        Reproduces the exact failure mode discovered in production for the
-        Discord ``BOT_TOKEN`` that persisted as ``***...SD7U`` after the
-        operator's GET → PUT round-trip.
-        """
-        client, key, db_path = client_and_key
-        real_value = "real-bot-token-abc123"
-
-        create = await client.post(
-            "/api/connectors",
-            json={
-                "name": "Discord Bot",
-                "type": "stub",
-                "secrets": {"BOT_TOKEN": real_value},
-            },
-        )
-        account_id = create.json()["id"]
-
-        got = await client.get(f"/api/connectors/{account_id}")
-        assert got.status_code == 200
-        masked_payload = got.json()
-        assert masked_payload["secrets"]["BOT_TOKEN"] == "***...c123"
-
-        put = await client.put(f"/api/connectors/{account_id}", json=masked_payload)
-        assert put.status_code == 200
-
-        got_again = await client.get(f"/api/connectors/{account_id}")
-        assert got_again.json()["secrets"]["BOT_TOKEN"] == "***...c123"
-
-        direct_conn = await aiosqlite.connect(str(db_path))
-        direct_conn.row_factory = aiosqlite.Row
-        try:
-            async with direct_conn.execute(
-                "SELECT secrets FROM connectors WHERE id = ?",
-                (account_id,),
-            ) as cur:
-                row = await cur.fetchone()
-        finally:
-            await direct_conn.close()
-        assert row is not None
-        decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
-        stored = json.loads(decrypted)
-        assert stored == {"BOT_TOKEN": real_value}, (
-            f"Round-trip corrupted the stored secret: got {stored!r}"
-        )
+# TestConnectorRoundTrip is deleted: Mission 23 Flight 1 (DD-1) removes
+# the connector REST routes outright. The GET-mask / PUT-preserve
+# contract this class pinned for connector secrets is still exercised
+# for MCP sources and LLM providers above/below.
 
 
 # ── LLM provider round-trip ──────────────────────────────────────────────
@@ -313,33 +269,8 @@ class TestSentinelPathStillWorks:
         decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
         assert json.loads(decrypted) == {"K": "ghp_realsecretvalue"}
 
-    async def test_connector_sentinel_preserves(self, client_and_key) -> None:
-        client, key, db_path = client_and_key
-        create = await client.post(
-            "/api/connectors",
-            json={
-                "name": "Bot",
-                "type": "stub",
-                "secrets": {"BOT_TOKEN": "tok_realvalue"},
-            },
-        )
-        account_id = create.json()["id"]
-        await client.put(
-            f"/api/connectors/{account_id}",
-            json={"secrets": {"BOT_TOKEN": "__MASKED__"}},
-        )
-        direct_conn = await aiosqlite.connect(str(db_path))
-        direct_conn.row_factory = aiosqlite.Row
-        try:
-            async with direct_conn.execute(
-                "SELECT secrets FROM connectors WHERE id = ?",
-                (account_id,),
-            ) as cur:
-                row = await cur.fetchone()
-        finally:
-            await direct_conn.close()
-        decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
-        assert json.loads(decrypted) == {"BOT_TOKEN": "tok_realvalue"}
+    # test_connector_sentinel_preserves is deleted: Mission 23 Flight 1
+    # (DD-1) removes the connector REST routes outright.
 
     async def test_provider_sentinel_preserves(self, client_and_key) -> None:
         client, key, db_path = client_and_key
@@ -425,37 +356,8 @@ class TestNonMaskValuesPassThrough:
             "Non-mask values starting with '***' must overwrite, not preserve."
         )
 
-    async def test_connector_starlit_prefix_is_real_value(self, client_and_key) -> None:
-        client, key, db_path = client_and_key
-        create = await client.post(
-            "/api/connectors",
-            json={
-                "name": "Bot",
-                "type": "stub",
-                "secrets": {"BOT_TOKEN": "original-token"},
-            },
-        )
-        account_id = create.json()["id"]
-
-        # ``***...toolong`` — 7 chars after the dots, beyond the
-        # ``{1,4}`` bound — must NOT match the mask shape and must
-        # overwrite as a real value.
-        await client.put(
-            f"/api/connectors/{account_id}",
-            json={"secrets": {"BOT_TOKEN": "***...toolong"}},
-        )
-        direct_conn = await aiosqlite.connect(str(db_path))
-        direct_conn.row_factory = aiosqlite.Row
-        try:
-            async with direct_conn.execute(
-                "SELECT secrets FROM connectors WHERE id = ?",
-                (account_id,),
-            ) as cur:
-                row = await cur.fetchone()
-        finally:
-            await direct_conn.close()
-        decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
-        assert json.loads(decrypted) == {"BOT_TOKEN": "***...toolong"}
+    # test_connector_starlit_prefix_is_real_value is deleted: Mission 23
+    # Flight 1 (DD-1) removes the connector REST routes outright.
 
 
 # ── Unit-level pin on the helper itself ──────────────────────────────────

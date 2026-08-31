@@ -92,7 +92,7 @@ DARK: dict[str, str] = {
     # code well — one step darker than bg, primary fg (16.6:1).
     "code_block_bg": "#0c0d10",
     "code_block_fg": "#ededf0",
-    # provider / tool / connector badge FILLS — brand-stable (same in both
+    # provider / tool badge FILLS — brand-stable (same in both
     # themes for providers; tool fills diverge in light — see LIGHT below).
     "badge_ollama": "#2ecc71",
     "badge_openai_compatible": "#d4a800",
@@ -103,7 +103,6 @@ DARK: dict[str, str] = {
     "badge_openrouter": "#7c3aed",
     "badge_mock": "#888888",
     "badge_unknown": "#888888",
-    "badge_discord": "#5865F2",
     "badge_filesystem": "#008b8b",
     "badge_execution": "#b8860b",
     "badge_web": "#c71585",
@@ -117,7 +116,6 @@ DARK: dict[str, str] = {
     "badge_ink_openrouter": "#ffffff",
     "badge_ink_mock": "#101114",
     "badge_ink_unknown": "#101114",
-    "badge_ink_discord": "#ffffff",
     "badge_ink_filesystem": "#101114",
     "badge_ink_execution": "#101114",
     "badge_ink_web": "#ffffff",
@@ -168,7 +166,7 @@ LIGHT: dict[str, str] = {
     # code well — pale zinc + primary ink (16.1:1).
     "code_block_bg": "#f4f4f5",
     "code_block_fg": "#18181b",
-    # provider / tool / connector badge FILLS — providers brand-stable
+    # provider / tool badge FILLS — providers brand-stable
     # (same hex as dark); tool fills diverge: filesystem/execution lighter,
     # web darkened #d63a93 → #cc2d87 so its white ink clears body AA.
     "badge_ollama": "#2ecc71",
@@ -180,7 +178,6 @@ LIGHT: dict[str, str] = {
     "badge_openrouter": "#7c3aed",
     "badge_mock": "#888888",
     "badge_unknown": "#888888",
-    "badge_discord": "#5865F2",
     "badge_filesystem": "#0e8e8e",
     "badge_execution": "#c5912a",
     "badge_web": "#cc2d87",
@@ -193,7 +190,6 @@ LIGHT: dict[str, str] = {
     "badge_ink_openrouter": "#ffffff",
     "badge_ink_mock": "#101114",
     "badge_ink_unknown": "#101114",
-    "badge_ink_discord": "#ffffff",
     "badge_ink_filesystem": "#101114",
     "badge_ink_execution": "#101114",
     "badge_ink_web": "#ffffff",

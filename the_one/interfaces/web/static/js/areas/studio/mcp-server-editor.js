@@ -539,7 +539,7 @@
     html += '<div class="editor-section mcp-stdio-only' + (sandboxHidden ? ' is-hidden' : '') + '" data-testid="mcp-sandbox-section">';
     html += '<div class="section-title">Sandbox</div>';
     // Network allowed: stacked .field-group (M17 F5 L4 migration) — label
-    // above the iOS-style toggle, mirroring the connectors-tab Allow-DMs
+    // above the iOS-style toggle, matching the self-configuration tab's
     // toggle field-group. The class="field-input" on the checkbox keeps
     // attachStaticListeners wiring dirty-tracking via change events.
     var netTitleText = networkAllowed
@@ -684,8 +684,7 @@
     html += '<label for="mf-type">Type</label>';
     html += '<select class="field-input field-select" id="mf-type" data-field="type">';
     // F5 L6 HAT: ``hidden`` attribute keeps the placeholder out of the
-    // open list while still displaying its text in the closed state —
-    // matches the connector-editor type-select treatment.
+    // open list while still displaying its text in the closed state.
     if (isCreate) html += '<option value="" disabled selected hidden>Select a transport…</option>';
     var types = mcpTypes || [];
     for (var t = 0; t < types.length; t++) {

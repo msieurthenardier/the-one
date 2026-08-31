@@ -1,6 +1,7 @@
 """Unit tests for ``the_one.logging_config.configure_logging``.
 
-M11 F15 L1 — pins the connector-observability logging contract:
+M11 F15 L1 — pins the ``the_one`` namespace-logger contract (originally
+motivated by connector observability; the contract itself is general):
 
 - A single stdout ``StreamHandler`` is attached to the ``the_one``
   namespace logger at ``settings.log_level``.
@@ -91,8 +92,8 @@ def test_the_one_warning_still_visible_to_caplog(
     logger and depends on ``propagate=True``)."""
     configure_logging()
 
-    child = logging.getLogger("the_one.connectors.test_caplog_probe")
-    with caplog.at_level(logging.WARNING, logger="the_one.connectors.test_caplog_probe"):
+    child = logging.getLogger("the_one.probe_module.test_caplog_probe")
+    with caplog.at_level(logging.WARNING, logger="the_one.probe_module.test_caplog_probe"):
         child.warning("probe-visible-to-caplog")
 
     matching = [

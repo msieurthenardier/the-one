@@ -59,8 +59,7 @@ if [[ -n "$lane" ]]; then
   chat_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py' \
             'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
             'test_flow_usage_restore.py')
-  studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_connector_*' 'test_mcp_*' \
-              'test_flow_agent_*' 'test_flow_connector_*')
+  studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*')
   system_pat=('test_flow_admin_*' 'test_flow_provider_*')
 
   lane_files=()

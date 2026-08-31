@@ -204,8 +204,8 @@ agent's own Self-configuration tab in Studio.
   surface from inside the agent's own tool call, and neither returns a
   source config, URL, header, or secret; `get_my_configuration`'s
   projection is an explicit field list that never touches
-  `tool_overrides`, `mcp_overrides`, `provider_config_id`, `kb_ids`,
-  `mcp_source_ids`, or `connector_ids`), and `update_my_description` /
+  `tool_overrides`, `mcp_overrides`, `provider_config_id`, `kb_ids`, or
+  `mcp_source_ids`), and `update_my_description` /
   `update_my_system_prompt` (M21 F01 L03 — the write path). No tool takes
   a field name; the allowlist is the catalog's shape, so a future
   `AgentConfig` field is unwritable because nothing addresses it.
@@ -275,8 +275,8 @@ agent's own Self-configuration tab in Studio.
   rather than an ordinary row delete.
 - **Indirect prompt injection is the surface's live residual risk**,
   recorded here rather than treated as closed. Any content an agent's
-  *other* tools feed into its context (web fetch, MCP servers, connector
-  messages) can now, as of M21 F01 L03, instruct the agent to call
+  *other* tools feed into its context (web fetch, MCP servers) can now,
+  as of M21 F01 L03, instruct the agent to call
   `update_my_system_prompt` or `update_my_description` — nothing gates
   the write tools beyond the existing per-source/per-tool checkboxes an
   operator uses for every MCP tool. A prompt-injected agent that decides
@@ -624,15 +624,22 @@ with the unsandboxed Windows posture.
   `api-credential` and `encryption.key` files above already rely on.
 - **MCP source, connector, and built-in tool-config secrets**: same
   Fernet field-segregated `config`+`secrets` encryption-at-rest as the
-  provider keys. Built-in tool secrets (schema v32 `tool_configs.secrets`)
+  provider keys. (The `connectors` table's routing/ACL/approval
+  machinery was removed in the Mission 23 connector reset; the row and
+  its secret encryption persist independently and remain in scope for
+  rotation — see `the_one/agents.md` "Encryption-rotation invariant
+  (seven corpora)".) Built-in tool secrets (schema v32 `tool_configs.secrets`)
   are marker-driven — any tool Config field tagged `secret: true` is
   stored encrypted and masked over the API. `web_search`'s keyed-engine
   API keys (Brave/Google PSE/Tavily) are the first consumers. See
   `the_one/agents.md` "Tool config secrets storage".
 - **`__MASKED__` sentinel**: provider edit form preserves stored API keys
   when the operator hasn't touched the field. The same mask-shape +
-  preserve-on-masked semantics apply to MCP, connector, and tool-config
-  secret fields. See [CLAUDE.md](CLAUDE.md)
+  preserve-on-masked semantics apply to MCP and tool-config secret
+  fields. (The connector edit surface that applied this to `connectors`
+  row secrets was removed in the Mission 23 connector reset, along with
+  the rest of the connector API/UI; the row's own Fernet encryption is
+  unaffected — see the bullet above.) See [CLAUDE.md](CLAUDE.md)
   "`__MASKED__` sentinel for API key updates".
 - **Per-agent MCP override credentials**: `agents.tool_overrides` and
   `agents.mcp_overrides` are both Fernet-encrypted at rest. Of the two,

@@ -24,7 +24,7 @@ can sit on in BOTH themes —
   carve-out is retired)
 
 Badge (``--badge-*``) × ink (``--badge-ink-*``) pairs are GATED here as
-of Mission 17 Flight 03 Leg 04: every provider / tool / connector badge
+of Mission 17 Flight 03 Leg 04: every provider / tool badge
 carries a per-badge ink (light-toned fills take dark ink, dark-toned
 fills take white ink) so its text clears body AA (≥4.5:1) on that fill
 in BOTH themes. web's light-theme fill was darkened (#d63a93 → #cc2d87)
@@ -263,7 +263,7 @@ def test_status_text_passes_body_aa(theme: str, fg_key: str, bg_key: str) -> Non
 # asserts --status-danger text clears body AA on that fill.
 #
 # This gates .btn-muted-destructive (components.css) — the real destructive
-# button (Danger Zone / delete across provider/connector/mcp-server editors,
+# button (Danger Zone / delete across provider/mcp-server editors,
 # general-tab, system-page): 12px normal-weight = body text needing ≥4.5:1.
 # The light-theme #dc2626 → #b91c1c deepening (M17 F3 accessibility fix)
 # cleared it; this test fails loudly if a future retune lightens it back.
@@ -432,35 +432,6 @@ def test_warning_text_on_soft_fill_passes_body_aa(theme: str, bg_key: str) -> No
 
 
 # ---------------------------------------------------------------------------
-# Connector empty-types banner prose on the soft-warning wash — both themes
-# (M17 F5 L2)
-# ---------------------------------------------------------------------------
-#
-# studio.css `.connector-empty-types-banner` paints body-sm --fg prose (and a
-# --status-warning <strong>) on a --status-warning-bg-soft rgba wash. Same
-# composited-a11y genre as the VRAM warning gate above: the wash is rgba (not
-# mirrored), so reconstruct the rendered fill by compositing --status-warning
-# at the soft alpha over each editor ladder surface, then assert the --fg body
-# prose clears body AA on that fill. The --status-warning <strong> reuses the
-# EXACT pair gated by test_warning_text_on_soft_fill_passes_body_aa above, so it
-# needs no separate assertion here. (The banner's <code> sits on a SOLID
-# --surface-elevated, so the fg-ladder sweep covers it — not composite-gated.)
-@pytest.mark.parametrize("bg_key", ("bg", "surface", "surface_elevated"))
-@pytest.mark.parametrize("theme", THEMES)
-def test_connector_empty_types_banner_prose_passes_body_aa(theme: str, bg_key: str) -> None:
-    """`--fg` banner prose ≥ 4.5:1 on the composited `--status-warning-bg-soft`
-    fill, over bg AND surface AND surface-elevated, in BOTH themes."""
-    palette = _palette(theme)
-    alpha = _STATUS_WARNING_SOFT_ALPHA[theme]
-    fill = _alpha_composite(palette["status_warning"], alpha, palette[bg_key])
-    ratio = contrast_ratio(palette["fg"], fill)
-    assert ratio >= 4.5, (
-        f"{theme} connector empty-types banner prose fails body AA: fg on "
-        f"status-warning-bg-soft over {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
-    )
-
-
-# ---------------------------------------------------------------------------
 # Indeterminate tool-switch thumb (≥ 3.0:1 UI) — both themes (M17 F5 L1)
 # ---------------------------------------------------------------------------
 #
@@ -545,36 +516,6 @@ def test_tinted_user_bubble_text_passes_body_aa(theme: str) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Discoverable-dropdown hover/focus item text (composited-a11y gate) — M17 F5 L3
-# ---------------------------------------------------------------------------
-#
-# The studio connector allowlist/routing discoverable-dropdown paints each
-# menu item's --fg text on a --accent-translucent WASH when the item is
-# hovered or keyboard-focused (studio.css: .discoverable-dropdown-item:hover /
-# --focused { background: --accent-translucent }). The menu's own background is
-# the solid --surface (studio.css .discoverable-dropdown-menu), so the wash
-# composites over --surface — NOT --bg. The flat WCAG formula can't read the
-# rgba alpha, so the gate reconstructs the fill (--accent at the theme's
-# --accent-translucent alpha over --surface) and asserts the --fg item text
-# still clears body AA (≥4.5:1) in the hovered/focused state, both themes.
-# (The aria-selected item's --accent text on the plain --surface is the
-# pre-existing accent×surface pair covered by the UI ladder sweep, ≥3.0 — not
-# introduced by this leg, so not re-gated here.)
-@pytest.mark.parametrize("theme", THEMES)
-def test_discoverable_dropdown_hover_item_text_passes_body_aa(theme: str) -> None:
-    """--fg item text ≥ 4.5:1 on the composited --accent-translucent hover/focus
-    wash over the dropdown menu's --surface background, both themes."""
-    palette = _palette(theme)
-    alpha = _ACCENT_TRANSLUCENT_ALPHA[theme]
-    fill = _alpha_composite(palette["accent"], alpha, palette["surface"])
-    ratio = contrast_ratio(palette["fg"], fill)
-    assert ratio >= 4.5, (
-        f"{theme} discoverable-dropdown hover item text fails body AA: fg on "
-        f"accent-translucent over surface = {ratio:.2f}:1 (need ≥ 4.5:1)"
-    )
-
-
 @pytest.mark.parametrize(
     "surface_label",
     [
@@ -644,7 +585,6 @@ _BADGE_INK_PAIRS = (
     ("openrouter", "badge_openrouter", "badge_ink_openrouter"),
     ("mock", "badge_mock", "badge_ink_mock"),
     ("unknown", "badge_unknown", "badge_ink_unknown"),
-    ("discord", "badge_discord", "badge_ink_discord"),
     ("filesystem", "badge_filesystem", "badge_ink_filesystem"),
     ("execution", "badge_execution", "badge_ink_execution"),
     ("web", "badge_web", "badge_ink_web"),
@@ -767,8 +707,7 @@ _CONTRAST_EXEMPT: dict[str, str] = {
     "--accent-translucent": (
         "rgba wash of the gated --accent hue; no standalone ratio. Composited-"
         "gated at consumers: test_tinted_user_bubble_text_passes_body_aa, "
-        "test_tool_switch_indeterminate_thumb_holds_ui_contrast, "
-        "test_discoverable_dropdown_hover_item_text_passes_body_aa."
+        "test_tool_switch_indeterminate_thumb_holds_ui_contrast."
     ),
     "--accent-translucent-hover": (
         "rgba hover wash of the gated --accent hue; a transient hover fill, no "
@@ -783,8 +722,7 @@ _CONTRAST_EXEMPT: dict[str, str] = {
     ),
     "--status-warning-bg-soft": (
         "rgba wash of the gated --status-warning hue; composited-gated by "
-        "test_warning_text_on_soft_fill_passes_body_aa and "
-        "test_connector_empty_types_banner_prose_passes_body_aa."
+        "test_warning_text_on_soft_fill_passes_body_aa."
     ),
     "--status-warning-bg-soft-2": (
         "rgba wash of the gated --status-warning hue (denser variant); a fill "

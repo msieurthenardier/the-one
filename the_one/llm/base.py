@@ -139,6 +139,14 @@ class TokenUsage:
     output_tokens: int = 0
 
 
+# M10 F03 L02: visibility tag literal for ``Message.visibility`` (below).
+# A typo like ``"opperator"`` at a production set-site is caught at import
+# / IDE time rather than persisting silently. Plain assignment (not
+# ``Final[str]``) matches the project's existing module-level-constant
+# style; the codebase has zero existing ``typing.Final`` usages.
+OPERATOR_VISIBILITY = "operator"
+
+
 @dataclass
 class Message:
     role: Role
@@ -163,10 +171,8 @@ class Message:
     # None = no operator-only restriction (platform-visible for connector
     # sessions; the only layer for non-connector sessions).
     # "operator" = operator-console only; never propagated to the platform.
-    # Constant published as ``OPERATOR_VISIBILITY`` from
-    # ``the_one.connectors`` — use it at every production set site
-    # (dispatcher in F3 L4; platform-send tool in F4; Chat-UI
-    # operator-input path in F5).
+    # Constant published as ``OPERATOR_VISIBILITY`` (below, this module) —
+    # use it at every production set site.
     visibility: str | None = None
     # M11 F06 L01: peer_name attribution for connector-attached sessions.
     # None = no peer attribution (operator-typed, agent-internal, or
@@ -315,6 +321,81 @@ class Message:
             tool_result=result,
             visibility=visibility,
         )
+
+
+def tag_post_step_visibility(
+    messages: list[Message],
+    pre_step_len: int,
+) -> None:
+    """Apply post-step visibility rules to messages appended by ``agent.step``.
+
+    Relocated here (Mission 23 Flight 1, backend-removal leg) from the
+    connector package's deleted ``post_step_metadata`` module — the
+    connector dispatcher's other call sites there (``bind_peer_name``,
+    ``bind_channel_context``, ``resolve_channel_name``) go with the
+    package, but this mutator has a surviving caller: the WS-storage-edge
+    shim in ``the_one/interfaces/web/app.py`` (``_process_and_broadcast``
+    / ``_resume_paused_session``), pinned by
+    ``tests/test_ws_storage_edge_shim_visibility.py``. Its home is now
+    ``llm/base.py`` alongside ``OPERATOR_VISIBILITY`` and ``Message``.
+
+    **Touches**: every ``Role`` EXCEPT ``Role.USER`` — i.e.
+    ``Role.ASSISTANT`` and ``Role.TOOL`` messages at or after
+    ``pre_step_len`` have their ``visibility`` overwritten.
+
+    **Skips**: ``Role.USER`` messages at or after ``pre_step_len``.
+    The peer-inbound dispatcher constructs USER with
+    ``visibility=None`` (peer-visible); the operator-input WS shim
+    constructs USER with ``visibility=OPERATOR_VISIBILITY``. Either
+    way, the post-step pass does not touch the USER message — its
+    visibility is the caller's contract.
+
+    Mutates ``messages`` in place. Returns ``None``. Caller is
+    responsible for tagging the entry-point USER message at
+    construction time (BEFORE ``agent.step``); this helper does not
+    touch it.
+
+    ``pre_step_len`` is the length of ``messages`` BEFORE the
+    ``agent.step`` call. The helper iterates
+    ``messages[pre_step_len:]`` and applies the rules below.
+
+    Tagging rules (preserved verbatim from M10 F4 L4):
+
+    - ``Role.USER`` messages at or after ``pre_step_len`` are
+      SKIPPED (see above).
+    - ``Role.TOOL`` whose parent ``tool_call.name ==
+      "send_to_platform_channel"`` AND content starts with the
+      platform-send success prefix → ``visibility=None`` (peer-visible;
+      the platform-send tool already pushed the content to peers). The
+      send tool itself is deleted with the connector package (DD-4);
+      this branch is dormant until Flight 2 re-attaches a tool of that
+      name, but the tagging contract stays pinned by the test above.
+    - Everything else → ``OPERATOR_VISIBILITY`` (assistant text +
+      intermediate tool calls/results stay operator-only).
+    - Messages at indices ``< pre_step_len`` (the pre-existing
+      history) are NEVER touched.
+    """
+    # "[platform-send-ok]" was PLATFORM_SEND_OK_PREFIX from the deleted
+    # connectors package (M10 F04 L01) — deleted, not relocated (DD-3),
+    # since it belongs to the send tool. The literal value is inlined
+    # here because the tagging rule above still needs it.
+    platform_send_ok_prefix = "[platform-send-ok]"
+    new_msgs = messages[pre_step_len:]
+    tool_call_names: dict[str, str] = {}
+    for msg in new_msgs:
+        if msg.role == Role.ASSISTANT:
+            for tc in msg.tool_calls:
+                tool_call_names[tc.id] = tc.name
+    for msg in new_msgs:
+        if msg.role == Role.USER:
+            continue
+        is_successful_platform_send = (
+            msg.role == Role.TOOL
+            and msg.tool_result is not None
+            and tool_call_names.get(msg.tool_result.tool_call_id) == "send_to_platform_channel"
+            and msg.content.startswith(platform_send_ok_prefix)
+        )
+        msg.visibility = None if is_successful_platform_send else OPERATOR_VISIBILITY
 
 
 def build_user_message_content(msg: Message) -> str | list[ContentBlock]:

@@ -44,15 +44,11 @@ from the_one.agent.factory import (
 )
 from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.config import settings
-from the_one.connectors import OPERATOR_VISIBILITY
-from the_one.connectors._pool import shutdown_drain as _connector_pool_shutdown_drain
-from the_one.connectors.visibility import tag_post_step_visibility
 from the_one.db import close_connection, init_db
 from the_one.db.codec import (
     decode_messages,
     encode_messages,
     messages_to_ui_events,
-    pending_approvals_to_ui_events,
     thinking_display_text,
     truncate_for_event,
 )
@@ -65,7 +61,6 @@ from the_one.db.repositories import (
     ChatSessionRepository,
     LLMProviderRepository,
     MCPSourceRepository,
-    PendingApprovalRepository,
     SQLiteAgentStore,
 )
 from the_one.encryption import get_encryptor
@@ -77,7 +72,16 @@ from the_one.interfaces.web.middleware import (
     OriginAllowlistMiddleware,
     build_default_allowlist,
 )
-from the_one.llm.base import ContentBlock, ImageContent, Message, Role, TextContent, content_to_text
+from the_one.llm.base import (
+    OPERATOR_VISIBILITY,
+    ContentBlock,
+    ImageContent,
+    Message,
+    Role,
+    TextContent,
+    content_to_text,
+    tag_post_step_visibility,
+)
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
 from the_one.self_configuration import external_credentials as _self_configuration_external
 from the_one.self_configuration import manage as _self_configuration_manage
@@ -248,101 +252,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # purge-loop start. Due-based catch-up on entry, then sleep+recheck.
         global _catalog_refresh_task
         _catalog_refresh_task = asyncio.create_task(_model_catalog_refresh_loop())
-        # M10 F2 L6: dev-mode-gated test-seam — when
-        # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
-        # register the in-process StubPlugin as the 'stub' connector type so
-        # browser tests running against an `app_clean` subprocess can exercise
-        # the doctor-probe and create-and-test paths end-to-end. Production
-        # never sets this env var; the dev-mode gate matches the precedent set
-        # by the LLM mock provider and OpenRouter test-models seam. Mirrors
-        # the test-seam contract documented in `_stub.py` (production code
-        # MUST NOT import that module — but the test seam is the explicit
-        # opt-in path).
-        if settings.dev_mode and os.environ.get("THE_ONE_REGISTER_STUB_CONNECTOR") == "1":
-            from the_one.connectors._stub import StubPlugin
-            from the_one.connectors.registry import register_for_test
-
-            register_for_test("stub", StubPlugin)
-            logger.info(
-                "Registered StubPlugin under 'stub' connector type via "
-                "THE_ONE_REGISTER_STUB_CONNECTOR test seam (dev_mode=true)"
-            )
-
-        # M10 F8 L11 HAT: warm-acquire each connector account at startup so
-        # the gateway listeners (e.g. Discord's on_message handler) spin up
-        # immediately. Without this, accounts stay offline until the first
-        # agent-initiated outbound triggers acquire — meaning inbound
-        # traffic is silently missed until then.
-        #
-        # M11 F2 L2 (formerly M10 F8 L11 Fix #6): Walk all connector accounts
-        # (not just those with attached agents) and acquire via the
-        # account-shared ``account_acquire`` primitive. The earlier "first
-        # alphabetical attached agent" probe is irrelevant once the pool
-        # routes connector callers through one entry per account — full-stop.
-        # We still skip accounts with no attached agents to avoid the
-        # cost of warming a gateway that no agent will route through;
-        # this is a policy choice, not a structural requirement.
-        # Errors are logged but do NOT prevent the-one from starting —
-        # a misbehaving connector must not take the rest of the system down.
-        try:
-            from the_one.connectors._pool import account_acquire
-            from the_one.db.repositories import ConnectorRepository
-
-            connector_repo = ConnectorRepository(conn, get_encryptor(settings.data_dir))
-            accounts = await connector_repo.list()
-            for account in accounts:
-                try:
-                    attached = await store.list_by_connector(account.id)
-                    if not attached:
-                        logger.info(
-                            "Connector account %r (type=%r) has no attached agents; "
-                            "skipping startup acquire",
-                            account.id,
-                            account.type,
-                        )
-                        continue
-                    await account_acquire(account.id)
-                    logger.info(
-                        "Warm-acquired connector account %r (type=%r) at startup "
-                        "(account-shared pool entry; %d attached agent(s))",
-                        account.id,
-                        account.type,
-                        len(attached),
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to warm-acquire connector account %r (type=%r) at startup; "
-                        "listener will spin up on first agent-initiated outbound instead",
-                        account.id,
-                        account.type,
-                    )
-        except Exception:
-            logger.exception(
-                "Connector-account warm-acquire pass at startup failed entirely; "
-                "individual accounts may stay offline until first outbound triggers acquire"
-            )
-
-        # M11 F13 L3 — Settings.inference_provider_config_id +
-        # Settings.inference_model were removed; per-connector inference
-        # configuration now lives on the connector.config row (added by the
-        # v26 migration; edited per-connector via the Studio connector
-        # editor at F13 L4). If the operator's environment still sets either
-        # legacy env var (e.g. carried over in a host shell profile or .env
-        # from the F7 L12 HAT), surface a one-time deprecation warning so the
-        # dead env var is visible without breaking startup.
-        _legacy_pid = os.environ.get("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID")
-        _legacy_model = os.environ.get("THE_ONE_INFERENCE_MODEL")
-        if _legacy_pid or _legacy_model:
-            logger.warning(
-                "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID and/or "
-                "THE_ONE_INFERENCE_MODEL is set in the environment, "
-                "but those env vars are no longer consulted (F13 L3 "
-                "removed Settings.inference_*). Per-connector "
-                "inference LLM configuration now lives on the "
-                "connector.config row; edit per-connector via the "
-                "Studio connector editor."
-            )
-
         yield
         # Drain the PTY session registry on shutdown — cancels the idle
         # reaper task and closes any live sessions. Wrapped in
@@ -417,28 +326,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await _mcp_pool_shutdown_drain()
         except Exception:
             logger.exception("MCP pool shutdown failed")
-        # M10 F1 L6: drain the connector pool AFTER MCP pool drain. Like MCP,
-        # connectors hold warm network connections; each subsystem's
-        # ``shutdown_drain`` bounds its drain time at ~10s via parallel
-        # gather, so sequential subsystem drains are fine. Connector pool
-        # drain runs BEFORE the OAuth sweep stop (parallel to MCP's
-        # ordering) and BEFORE DB close.
-        try:
-            await _connector_pool_shutdown_drain()
-        except Exception:
-            logger.exception("connector pool shutdown failed")
-        # M11 F17: drain in-flight save-warm background tasks after the
-        # connector pool is drained. Mirrors the _inflight_resume_tasks drain
-        # above. Save-warm tasks write to _connect_error_store and then
-        # exit; letting them finish (or cancelling them if they stall) avoids
-        # orphaned tasks at process shutdown.
-        from the_one.interfaces.web.api import _inflight_save_warm_tasks
-
-        for task in list(_inflight_save_warm_tasks):
-            task.cancel()
-        if _inflight_save_warm_tasks:
-            with contextlib.suppress(Exception):
-                await asyncio.gather(*list(_inflight_save_warm_tasks), return_exceptions=True)
         # F5 L2: stop the OAuth pending-flow TTL sweep task. Runs AFTER the
         # MCP pool drain so any in-flight OAuth refreshes triggered by
         # pool teardown can complete first.
@@ -987,52 +874,6 @@ async def _chat_repo() -> ChatSessionRepository:
     return ChatSessionRepository(conn)
 
 
-async def _pending_approval_repo() -> PendingApprovalRepository:
-    """M11 F9 L4 — app.py-local PendingApproval repository factory.
-
-    Mirrors ``_chat_repo`` (line above). ``api.py:86`` ships its own copy
-    for the L3 approve/dismiss endpoints; both call the same
-    ``PendingApprovalRepository(conn)`` shape and operate against the
-    same singleton ``get_connection()``. The two factories are
-    intentionally independent — app.py and api.py do not share local
-    factory scope. See leg-04 Sub-step B.
-    """
-    conn = await get_connection()
-    return PendingApprovalRepository(conn)
-
-
-async def _merge_pending_approvals_into_history(
-    ui_events: list[dict[str, Any]],
-    db_session: ChatSessionModel,
-) -> list[dict[str, Any]]:
-    """M11 F9 L4 — merge pending-approval rows into the history stream.
-
-    Shared by ``_restore_session`` (healthy path) and
-    ``_build_session_joined_degraded`` (degraded path). Sessions without
-    connector context (``connector_id is None or peer_id is None``)
-    short-circuit — no DB query, return ``ui_events`` unchanged.
-
-    Merge ordering is by sort-key
-    ``(e.get("ts") or e.get("received_at") or "")`` ascending. Messages
-    use ``ts`` (live broadcast) or are missing it entirely (replay rows
-    decoded by ``messages_to_ui_events``); pending-approvals use
-    ``received_at``. ISO8601 strings sort lexicographically. Messages
-    without an explicit ts float to the top — acceptable per leg spec.
-    """
-    if db_session.connector_id is None or db_session.peer_id is None:
-        return ui_events
-    pending_repo = await _pending_approval_repo()
-    pending_rows = await pending_repo.list_for_account_peer(
-        db_session.connector_id, db_session.peer_id
-    )
-    if not pending_rows:
-        return ui_events
-    pending_events = pending_approvals_to_ui_events(pending_rows)
-    combined = ui_events + pending_events
-    combined.sort(key=lambda e: e.get("ts") or e.get("received_at") or "")
-    return combined
-
-
 async def _create_session(
     agent_name: str | None = None,
     source: str = "web",
@@ -1159,12 +1000,6 @@ async def _restore_session(session_id: str) -> RestoredSession:
         non_system = [m for m in messages if m.role != Role.SYSTEM]
         agent.messages = agent.messages[:1] + non_system
     ui_events = messages_to_ui_events(messages)
-
-    # M11 F9 L4: merge any pending-approval rows for this connector-keyed
-    # session into the history stream so the operator sees pending banners
-    # on rejoin. Sessions without connector context (operator-typed) get
-    # no DB query.
-    ui_events = await _merge_pending_approvals_into_history(ui_events, db_session)
 
     async with _sessions_lock:
         if session_id in _sessions:
@@ -1332,18 +1167,13 @@ async def _build_session_joined_degraded(restored: RestoredSession) -> dict[str,
     """Build a session_joined payload for a degraded (agent_deleted/provider_missing) session.
 
     History is decoded from the DB row directly — there is no in-memory
-    Session for degraded states.
-
-    M11 F9 L4: merges pending-approval banners into the replay history
-    via ``_merge_pending_approvals_into_history`` (same shape as the
-    healthy path in ``_restore_session``). Now ``async`` because the
-    merge does a DB query; degraded path is reached from an async WS
-    handler so the await is structurally safe.
+    Session for degraded states. Stays ``async`` (no ``await`` left in
+    the body since the M23 F01 pending-approval merge was removed) so
+    its call site (an async WS handler) doesn't need to change.
     """
     db = restored.db_session
     assert db is not None, "degraded RestoredSession must carry db_session"
     ui_events = messages_to_ui_events(decode_messages(db.messages))
-    ui_events = await _merge_pending_approvals_into_history(ui_events, db)
     return {
         "type": "session_joined",
         "session_id": db.id,
@@ -1777,7 +1607,7 @@ async def _process_and_broadcast(
                     # omitted (not null) when visibility is None.
                     #
                     # Timing caveat: for connector-tagged sessions,
-                    # ``tag_post_step_visibility`` (post_step_metadata.py:57)
+                    # ``tag_post_step_visibility`` (llm/base.py)
                     # sets ``msg.visibility`` AFTER this step loop completes —
                     # so at this broadcast point ``msg.visibility`` is still
                     # None for those sessions and no ``visibility`` key is

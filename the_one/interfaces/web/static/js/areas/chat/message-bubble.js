@@ -49,8 +49,8 @@
     // CSS left-align override (.area-chat .msg.user.msg-from-peer in chat.css,
     // declared after .area-chat .msg.user — same specificity, last-rule-wins).
     // Composes cleanly with visibility: peer-inbound users have visibility=None
-    // by construction (connectors/visibility.py skips Role.USER), so
-    // isOperatorOnly above is false for peer bubbles.
+    // by construction (the visibility tagger in llm/base.py skips Role.USER),
+    // so isOperatorOnly above is false for peer bubbles.
     if (opts.peerName) {
       fullCls += ' msg-from-peer';
     }

@@ -57,7 +57,9 @@ def ollama_provider() -> OllamaProvider:
 
 
 # Representative structured returns from L10 connector-context tools
-# (see ``the_one/tools/connector_history.py`` for the source shapes).
+# (the connector package, including this shape's source, was deleted at
+# Mission 23 Flight 1 — the shape itself is still representative of any
+# tool returning list[dict] structured content).
 LIST_OF_DICTS_RESULT: list[dict[str, object]] = [
     {
         "peer_id": "1234567890",

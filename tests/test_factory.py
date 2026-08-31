@@ -10,14 +10,11 @@ import pytest
 from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import (
-    _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-    BASE_PROMPT,
     AgentConfig,
 )
 from the_one.agent.factory import AgentFactory
-from the_one.db.models import Connector, LLMProviderConfig, ToolConfig
+from the_one.db.models import LLMProviderConfig, ToolConfig
 from the_one.tools.base import Tool
-from the_one.tools.builtins import BuiltinToolProvider
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,14 +114,6 @@ def factory(store: InMemoryStore) -> AgentFactory:
     mock_tool_repo = AsyncMock()
     mock_tool_repo.list = AsyncMock(return_value=[])
 
-    # M10 F8 L11 HAT Fix #5 (pre-F7) used per-account lookup to resolve
-    # ``auto_relay`` for the system-prompt directive; M11 F7 L9 deleted
-    # that gating, but the factory still consults the account repo for
-    # other purposes. Mock the repository to return a default account
-    # for any account_id the caller's AgentConfig references.
-    mock_acc_repo = AsyncMock()
-    mock_acc_repo.get = AsyncMock(side_effect=lambda aid: Connector(id=aid, name=aid, type="stub"))
-
     with (
         patch("the_one.agent.factory.get_provider", _fake_get_provider),
         patch("the_one.agent.factory.settings") as mock_settings,
@@ -132,10 +121,6 @@ def factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
-        patch(
-            "the_one.db.repositories.ConnectorRepository",
-            return_value=mock_acc_repo,
-        ),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -568,307 +553,15 @@ class TestPlanProviderConstruction:
 
 
 # ---------------------------------------------------------------------------
-# F4 (M10) L3: connector carve-out + system-prompt + provider wiring
+# Connector carve-out / system-prompt / provider-wiring tests are deleted:
+# Mission 23 Flight 1 (backend-removal leg, DD-4) removed the F4/F10
+# connector baseline carve-out, the connector-aware system-prompt
+# directive, and the ``connector_ids``/``connector_acls`` kwarg threading
+# through ``BuiltinToolProvider.get_tools`` entirely — ``compose_system_
+# prompt`` takes no connector kwargs, and every tool provider now gets
+# the same plain 3-arg call. ``set_factory``/``get_factory`` (below) are
+# unaffected and stay.
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def factory_with_builtin_tool_configs(store: InMemoryStore):
-    """Yields a callable that builds a factory using BuiltinToolProvider.
-
-    The callable accepts ``tool_configs`` (a list[ToolConfig] seeded into
-    ``mock_tool_repo.list()``) and returns a context manager. Patches are
-    activated on ``__enter__`` and torn down on ``__exit__`` — patches
-    stay live for the body of the ``with`` block (and therefore during
-    ``factory.create()``), matching the patch-scope correctness of the
-    existing ``factory`` fixture at tests/test_factory.py:115-126.
-    """
-    mock_repo = AsyncMock()
-    mock_repo.get = AsyncMock(return_value=_make_provider_config())
-
-    def _make_with_tool_configs(
-        tool_configs: list[ToolConfig] | None = None,
-        extra_tool_providers: list | None = None,
-        connectors: dict[str, Connector] | None = None,
-    ):
-        class _Ctx:
-            def __enter__(self):
-                mock_tool_repo = AsyncMock()
-                mock_tool_repo.list = AsyncMock(return_value=tool_configs or [])
-
-                # Factory consults the account repo (pre-F7 this was the
-                # per-account ``auto_relay`` lookup; M11 F7 L9 deleted the
-                # auto_relay gating but the repo is still consulted for
-                # other purposes). ``connectors`` is a {account_id:
-                # Connector} mapping; missing IDs synthesize a
-                # default Connector so the caller's existing tests
-                # stay green without rework.
-                accounts_map = dict(connectors or {})
-                mock_acc_repo = AsyncMock()
-
-                async def _acc_get(aid: str) -> Connector:
-                    if aid in accounts_map:
-                        return accounts_map[aid]
-                    return Connector(id=aid, name=aid, type="stub")
-
-                mock_acc_repo.get = AsyncMock(side_effect=_acc_get)
-
-                self._patches = [
-                    patch("the_one.agent.factory.get_provider", _fake_get_provider),
-                    patch("the_one.agent.factory.settings"),
-                    patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
-                    patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
-                    patch(
-                        "the_one.db.repositories.LLMProviderRepository",
-                        return_value=mock_repo,
-                    ),
-                    patch(
-                        "the_one.db.repositories.ToolConfigRepository",
-                        return_value=mock_tool_repo,
-                    ),
-                    patch(
-                        "the_one.db.repositories.ConnectorRepository",
-                        return_value=mock_acc_repo,
-                    ),
-                ]
-                self._active = [p.start() for p in self._patches]
-                # Index 1 corresponds to the settings patch.
-                self._active[1].agents_dir = Path("/tmp/test-agents")
-                self._active[1].data_dir = Path("/tmp/test-data")
-                self._active[1].ensure_dirs = lambda: None
-                providers = [BuiltinToolProvider()]
-                if extra_tool_providers:
-                    providers.extend(extra_tool_providers)
-                return AgentFactory(
-                    store=store,
-                    tool_providers=providers,
-                    mcp_provider=None,
-                )
-
-            def __exit__(self, *args):
-                for p in self._patches:
-                    p.stop()
-
-        return _Ctx()
-
-    yield _make_with_tool_configs
-
-
-class TestConnectorBaselineCarveOut:
-    """F10 baseline carve-out: send_to_platform_channel is pre-loaded into
-    the model-visible set when the agent is connector-attached AND the
-    operator + per-agent gates both pass."""
-
-    async def test_carveout_loads_send_tool_when_attached_and_enabled(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=["acc-1"],
-        )
-        await store.save(cfg)
-        # No ToolConfig row for send_to_platform_channel → not in
-        # disabled_names → operator-enabled by default.
-        with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
-            agent = await factory.create("connector-agent")
-        assert "send_to_platform_channel" in agent._loaded_tool_names
-        schema_names = [s["name"] for s in agent._loaded_schemas]
-        assert schema_names == ["send_to_platform_channel"]
-
-    async def test_no_carveout_when_no_connectors(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        cfg = AgentConfig(
-            name="non-connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=[],
-        )
-        await store.save(cfg)
-        with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
-            agent = await factory.create("non-connector-agent")
-        assert agent._loaded_schemas == []
-        assert agent._loaded_tool_names == set()
-
-    async def test_no_carveout_when_tool_operator_disabled(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=["acc-1"],
-        )
-        await store.save(cfg)
-        tool_configs = [
-            ToolConfig(name="send_to_platform_channel", config={}, enabled=False),
-        ]
-        with factory_with_builtin_tool_configs(tool_configs=tool_configs) as factory:
-            agent = await factory.create("connector-agent")
-        assert agent._loaded_schemas == []
-        assert "send_to_platform_channel" not in agent._loaded_tool_names
-
-    async def test_no_carveout_when_tool_per_agent_disabled(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=["acc-1"],
-            disabled_tools=["send_to_platform_channel"],
-        )
-        await store.save(cfg)
-        with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
-            agent = await factory.create("connector-agent")
-        assert agent._loaded_schemas == []
-        assert "send_to_platform_channel" not in agent._loaded_tool_names
-
-
-class TestConnectorSystemPrompt:
-    """The factory composes a connector-aware system prompt: a directive is
-    inserted between BASE_PROMPT and the persona when the agent is
-    connector-attached."""
-
-    async def test_non_connector_uses_base_prompt(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        cfg = AgentConfig(
-            name="non-connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=[],
-        )
-        await store.save(cfg)
-        with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
-            agent = await factory.create("non-connector-agent")
-        assert agent.system_prompt.startswith(BASE_PROMPT)
-
-    async def test_connector_attached_tool_enabled_includes_auto_relay_directive(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        """M11 F7 L9: when a connector is attached, the auto-relay
-        directive is unconditionally appended to the agent's system
-        prompt. (Pre-F7 this was gated on a per-account ``auto_relay``
-        flag; F7 made auto-relay an invariant of engaged turns and L9
-        deleted the gating kwarg.)"""
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=["acc-1"],
-        )
-        await store.save(cfg)
-        with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
-            agent = await factory.create("connector-agent")
-        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in agent.system_prompt
-
-    async def test_connector_attached_tool_disabled_includes_on_directive(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        """M11 F7 L9: when the send tool is disabled, the auto-relay
-        directive still lands — directive selection no longer
-        consults ``send_tool_enabled`` (the kwarg is retained in the
-        composer signature but is a no-op in directive selection; it
-        is still computed by the factory for the F10 schema-preload
-        carve-out)."""
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=["acc-1"],
-        )
-        await store.save(cfg)
-        tool_configs = [
-            ToolConfig(name="send_to_platform_channel", config={}, enabled=False),
-        ]
-        with factory_with_builtin_tool_configs(tool_configs=tool_configs) as factory:
-            agent = await factory.create("connector-agent")
-        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in agent.system_prompt
-
-
-# M11 F5 L6 HAT round-8: ``TestConnectorOperatorDirectiveCollection``
-# was REMOVED here (3 tests). The M11 F2 L3 per-account
-# ``system_prompt_directive`` collection block in
-# ``AgentFactory.create`` no longer exists (criterion #14 reverted);
-# nothing to exercise.
-
-
-class TestFactoryToolProviderWiring:
-    """The factory passes connector_ids to BuiltinToolProvider only;
-    other providers in the list (test stubs, future provider types) get the
-    unwidened 3-arg call."""
-
-    async def test_builtin_provider_receives_connector_ids(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        captured_builtin: dict[str, Any] = {}
-        captured_stub: dict[str, Any] = {}
-
-        # Wrap BuiltinToolProvider.get_tools to capture the kwargs without
-        # losing the real behavior (we still need the tool registry populated).
-        original_get_tools = BuiltinToolProvider.get_tools
-
-        def _wrapped_builtin_get_tools(self, *args, **kwargs):
-            captured_builtin["args"] = args
-            captured_builtin["kwargs"] = kwargs
-            return original_get_tools(self, *args, **kwargs)
-
-        # Build a stub provider that captures its call shape too.
-        class CapturingStubProvider:
-            @property
-            def name(self) -> str:
-                return "capturing-stub"
-
-            def get_tools(
-                self,
-                tool_configs: dict[str, dict] | None = None,
-                agent_overrides: dict[str, dict] | None = None,
-                agent_name: str | None = None,
-            ) -> list[Tool]:
-                captured_stub["tool_configs"] = tool_configs
-                captured_stub["agent_overrides"] = agent_overrides
-                captured_stub["agent_name"] = agent_name
-                return []
-
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_ids=["acc-1"],
-        )
-        await store.save(cfg)
-
-        with patch.object(BuiltinToolProvider, "get_tools", _wrapped_builtin_get_tools):
-            ctx = factory_with_builtin_tool_configs(
-                tool_configs=[],
-                extra_tool_providers=[CapturingStubProvider()],
-            )
-            with ctx as factory:
-                await factory.create("connector-agent")
-
-        # BuiltinToolProvider receives connector_ids kwarg.
-        assert captured_builtin["kwargs"].get("connector_ids") == ["acc-1"]
-        # Stub provider does NOT receive the kwarg (no isinstance branch hit).
-        assert captured_stub["agent_name"] == "connector-agent"
 
 
 # ---------------------------------------------------------------------------
@@ -960,10 +653,6 @@ class TestNativeApiWiring:
         )
         mock_tool_repo = AsyncMock()
         mock_tool_repo.list = AsyncMock(return_value=[])
-        mock_acc_repo = AsyncMock()
-        mock_acc_repo.get = AsyncMock(
-            side_effect=lambda aid: Connector(id=aid, name=aid, type="stub")
-        )
 
         await store.save(
             AgentConfig(
@@ -980,7 +669,6 @@ class TestNativeApiWiring:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
-            patch("the_one.db.repositories.ConnectorRepository", return_value=mock_acc_repo),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")

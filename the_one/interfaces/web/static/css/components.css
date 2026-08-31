@@ -103,51 +103,6 @@
     color: var(--fg);
   }
 
-  /* === Nav pending-approval badge (M11 F17 L9 — Leg E) === */
-  /* Pill badge on the Chat nav button; hidden at count=0 via JS display:none. */
-  .nav-pending-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 9px;
-    background-color: var(--accent);
-    color: var(--fg-on-accent);
-    font-size: 11px;
-    font-weight: var(--font-weight-semibold);
-    line-height: 1;
-  }
-
-  /* === Pending approvals left-panel section (M11 F17 L9 — Leg E) === */
-  .pending-approvals-section {
-    margin-bottom: 8px;
-  }
-  .pending-approvals-title {
-    color: var(--accent);
-  }
-  .pending-approval-item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    cursor: default;
-  }
-  .pending-approval-peer-name {
-    font-weight: var(--font-weight-semibold);
-    font-size: var(--font-size-body-sm);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .pending-approval-preview {
-    font-size: var(--font-size-caption);
-    color: var(--fg-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
   /* === List Item (sidebar/category list rows with focus-within delete reveal) === */
   /* Sources consolidated: chat .session-item, admin .admin-category-item.
      Studio's agent inventory migrated from .list-item.agent-item rows to
@@ -316,7 +271,7 @@
      affordance — an info-icon tooltip (.field-info-icon) or similar. Keeps
      the label + icon on one line ABOVE the stacked control. The label + icon
      stay SIBLINGS (never nest interactive content inside <label>). Shared
-     vocabulary primitive (F5) — the studio connector/discord/mcp editors and
+     vocabulary primitive (F5) — the studio mcp/provider editors and
      any future stacked field with a help tooltip consume it. */
   .field-group-label {
     display: flex;
@@ -327,8 +282,8 @@
      ``.is-invalid`` on the control and render the message in a
      ``.field-error`` element directly below it. (Studio's former area-scoped
      ``.field-row .field-error`` 100px-gutter variant was retired in F5 L2
-     when connector-editor — its last consumer — migrated to ``.field-group``;
-     inline validation now flows through this un-scoped primitive.) */
+     when its last consumer migrated to ``.field-group``; inline validation
+     now flows through this un-scoped primitive.) */
   .field-input.is-invalid,
   .field-textarea.is-invalid,
   .field-select.is-invalid { border-color: var(--status-danger); }
@@ -426,7 +381,7 @@
   .section-title:first-child { margin-top: 0; }
   /* Real section HEADINGS (h2) get an element-scoped size bump. The
      `.section-title` class is worn by BOTH true headings (studio
-     connector-editor "Connection"/"Credentials"/… h2s) AND a non-heading
+     mcp-server-editor.js's h2 section labels) AND a non-heading
      quiet label (chat sidebar `<label class="section-title" for="chat-agent-select">`
      at areas/chat.js). A bare `.section-title { font-size }` rule would inflate
      that label too; the `h2` element scope keeps the label at body-sm. The
@@ -1176,8 +1131,8 @@
     color: var(--fg-muted);
     cursor: pointer;
     /* M17 F4 L03: always-visible-but-quiet (F3 CTA lesson — no hover-reveal-only
-       affordance). Resting opacity keeps the copy control discoverable at rest;
-       wrap-hover / focus-within / the button's own hover+focus lift it to full.
+       affordance). Resting opacity keeps the copy control visible/findable at
+       rest; wrap-hover / focus-within / the button's own hover+focus lift it to full.
        The button is keyboard-reachable (a real <button> in the DOM) regardless. */
     opacity: 0.6;
     transition: opacity 0.15s, color 0.15s, border-color 0.15s;

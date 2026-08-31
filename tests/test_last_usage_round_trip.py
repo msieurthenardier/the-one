@@ -217,16 +217,11 @@ async def test_last_usage_round_trip_db_reload_branch(
     monkeypatch.setattr(web_app, "_get_factory", lambda: mock_factory)
 
     # _restore_session internally calls _chat_repo() → get_connection() → DB.
-    # Patch get_connection to return our test conn.
-    # It also calls _merge_pending_approvals_into_history; patch to avoid
-    # a live PendingApproval DB query on a session with no connector context.
-    with (
-        patch("the_one.interfaces.web.app.get_connection", return_value=conn),
-        patch(
-            "the_one.interfaces.web.app._merge_pending_approvals_into_history",
-            return_value=[],
-        ),
-    ):
+    # Patch get_connection to return our test conn. (Mission 23 Flight 1,
+    # backend-removal leg: _restore_session no longer calls
+    # _merge_pending_approvals_into_history — deleted along with the
+    # connector package, DD-2 — so no second patch is needed.)
+    with patch("the_one.interfaces.web.app.get_connection", return_value=conn):
         restored = await _restore_session(session_id)
 
     # Assert the restore succeeded.
@@ -266,11 +261,7 @@ async def test_last_usage_round_trip_db_reload_branch(
     )
     degraded_restored = RestoredSession(None, SESSION_STATUS_AGENT_DELETED, degraded_db_row)
 
-    with patch(
-        "the_one.interfaces.web.app._merge_pending_approvals_into_history",
-        return_value=[],
-    ):
-        degraded_payload = await _build_session_joined_degraded(degraded_restored)
+    degraded_payload = await _build_session_joined_degraded(degraded_restored)
 
     degraded_meta = degraded_payload.get("session_metadata")
     assert degraded_meta is not None, "degraded payload must carry session_metadata"

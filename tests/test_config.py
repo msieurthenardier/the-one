@@ -58,26 +58,11 @@ class TestAgentConfigConstruction:
         assert not hasattr(cfg, "llm_provider")
         assert not hasattr(cfg, "llm_base_url")
 
-    def test_connector_ids_defaults_to_empty_list(self):
-        """M10 F4: ``connector_ids`` mirrors ``mcp_source_ids`` —
-        empty list is the no-attached state, not None."""
-        cfg = AgentConfig(name="t")
-        assert cfg.connector_ids == []
-
-    def test_connector_ids_round_trip(self):
-        """Non-empty ``connector_ids`` survives model_dump →
-        model_validate."""
-        cfg = AgentConfig(name="t", connector_ids=["acc-a", "acc-b"])
-        dumped = cfg.model_dump()
-        assert dumped["connector_ids"] == ["acc-a", "acc-b"]
-        revived = AgentConfig.model_validate(dumped)
-        assert revived.connector_ids == ["acc-a", "acc-b"]
-
-    def test_pre_f4_row_deserializes_with_empty_connector_ids(self):
-        """Back-compat: pre-F4 stored agent rows have no
-        ``connector_ids`` key; field defaults to []."""
-        cfg = AgentConfig.model_validate({"name": "t"})
-        assert cfg.connector_ids == []
+    # test_connector_ids_defaults_to_empty_list,
+    # test_connector_ids_round_trip, and
+    # test_pre_f4_row_deserializes_with_empty_connector_ids are deleted:
+    # Mission 23 Flight 1 (backend-removal leg, step 4) removed
+    # ``connector_ids`` from ``AgentConfig`` entirely.
 
 
 # ===================================================================
@@ -273,97 +258,19 @@ class TestComposeSystemPrompt:
         out = compose_system_prompt(BASE_PROMPT, "Custom.")
         assert out == BASE_PROMPT + "\n\n---\n\nCustom."
 
-    # ── M11 F7 L9: single-directive surface ───────────────────────
-    #
-    # The pre-F7 surface had TWO directives (auto-relay ON / OFF)
-    # dispatched on the ``auto_relay`` kwarg. F7 made auto-relay an
-    # invariant of engaged turns (the L8 policy gate silences
-    # everything else upstream), so the OFF directive became dead
-    # code and was deleted at L9 along with the ``auto_relay`` kwarg
-    # itself. The surviving directive is unconditionally appended
-    # when ``connector_attached=True``. ``send_tool_enabled`` stays
-    # in the signature as a no-op (callers still compute it for the
-    # F10 carve-out that pre-loads the send tool's schema).
-
-    def test_connector_attached_includes_auto_relay_directive(self):
-        """``connector_attached=True`` unconditionally lands the
-        auto-relay directive — telling the agent its plaintext IS the
-        platform reply by default, no permission-asking required.
-        Post-L9: there is no longer an OFF state to select; the
-        directive is invariant when connector_attached is True."""
-        from the_one.agent.config import (
-            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-            compose_system_prompt,
-        )
-
-        out = compose_system_prompt(
-            BASE_PROMPT,
-            "",
-            connector_attached=True,
-            send_tool_enabled=True,
-        )
-        assert BASE_PROMPT in out
-        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in out
-
-    def test_connector_attached_tool_disabled_includes_on_directive(self):
-        """``send_tool_enabled=False`` does NOT change directive
-        selection — the directive is unconditional when
-        ``connector_attached=True``. The directive references
-        ``send_to_platform_channel`` regardless of tool enablement;
-        when disabled, the LLM cannot call it regardless of the
-        prompt. This test pins the kwarg's no-op status."""
-        from the_one.agent.config import (
-            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-            compose_system_prompt,
-        )
-
-        out = compose_system_prompt(
-            BASE_PROMPT,
-            "",
-            connector_attached=True,
-            send_tool_enabled=False,
-        )
-        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in out
-
-    def test_connector_attached_with_persona_persona_after_directive(self):
-        """Persona appears AFTER the directive, separated by '---'."""
-        from the_one.agent.config import (
-            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-            compose_system_prompt,
-        )
-
-        out = compose_system_prompt(
-            BASE_PROMPT,
-            "Custom persona.",
-            connector_attached=True,
-            send_tool_enabled=True,
-        )
-        # Shape: base + \n\n + directive + \n\n---\n\n + persona.
-        assert out.index(BASE_PROMPT) < out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
-        assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index("---")
-        assert out.endswith("Custom persona.")
-
-    def test_directive_forward_references_l10_history_tools(self):
-        """Pins the L9 design: the directive forward-references L10's
-        history-fetch tools with "if available" hedging so the prompt
-        stays truthful pre-L10 (tools not registered → "tool not
-        available" on call) and post-L10 (tools registered → calls
-        succeed)."""
-        from the_one.agent.config import _CONNECTOR_AUTO_RELAY_DIRECTIVE
-
-        assert "fetch_channel_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
-        assert "fetch_thread_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
-        assert "fetch_dm_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
-        assert "list_visible_channels" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
-        assert "if available" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
-
-    # ── M11 F5 L6 HAT round-8: operator_directive removed ─────────
-    # The M11 F2 L3 ``operator_directive`` kwarg and the per-account
-    # ``system_prompt_directive`` collection were REMOVED. The
-    # corresponding append-mode test cluster (three tests) was
-    # deleted alongside; legacy callers that still pass the kwarg
-    # would now raise ``TypeError`` (no longer in the composer's
-    # signature). Nothing in production code passes it.
+    # Mission 23 Flight 1 (backend-removal leg, DD-4): the M11 F7 L9
+    # single-directive connector-aware surface (the auto-relay directive,
+    # its ``connector_attached``/``send_tool_enabled`` kwargs, and the
+    # ``_CONNECTOR_AUTO_RELAY_DIRECTIVE`` constant) is removed entirely
+    # along with the connector package — ``compose_system_prompt`` now
+    # takes exactly ``(base, persona)``. The four tests that pinned that
+    # surface (test_connector_attached_includes_auto_relay_directive,
+    # test_connector_attached_tool_disabled_includes_on_directive,
+    # test_connector_attached_with_persona_persona_after_directive,
+    # test_directive_forward_references_l10_history_tools) are deleted.
+    # The M11 F2 L3 ``operator_directive`` kwarg and per-account
+    # ``system_prompt_directive`` collection were ALSO already removed
+    # (M11 F5 L6 HAT round-8) — nothing to exercise there either.
 
 
 # ===================================================================

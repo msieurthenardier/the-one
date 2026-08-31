@@ -1,18 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
-
 from the_one.tools._search_backends import SearchBackend, build_search_backend
 from the_one.tools._web_config import WebConfig
 from the_one.tools._web_search_config import WebSearchConfig
 from the_one.tools.base import Tool
-from the_one.tools.connector_history import (
-    FetchChannelHistoryTool,
-    FetchDmHistoryTool,
-    FetchThreadHistoryTool,
-    ListVisibleChannelsTool,
-)
-from the_one.tools.connector_send import SendToPlatformChannelTool
 from the_one.tools.filesystem import (
     DeleteFileTool,
     EditFileTool,
@@ -66,11 +57,6 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "fetch_url": FetchUrlTool,
     "download_file": DownloadFileTool,
     "web_search": WebSearchTool,
-    "send_to_platform_channel": SendToPlatformChannelTool,
-    "fetch_channel_history": FetchChannelHistoryTool,
-    "fetch_thread_history": FetchThreadHistoryTool,
-    "fetch_dm_history": FetchDmHistoryTool,
-    "list_visible_channels": ListVisibleChannelsTool,
 }
 
 # M14 F4 L7 — ordering-is-policy assertion. The cross-config resolution loop in
@@ -87,19 +73,6 @@ assert next(n for n, c in _TOOL_CLASSES.items() if c.Config is FilesystemConfig)
     "'read_file'. The cross-config resolution loop keys FilesystemConfig under the "
     "first matching tool — tool-config tests and operators keying FS policy under "
     "'read_file' will silently break. Update this assert AND audit all test fixtures."
-)
-
-# M11 F7 L10: connector tools that receive the per-agent connector
-# context kwargs (``connector_ids``, ``connector_acls``) in
-# ``BuiltinToolProvider.get_tools``'s factory path. Centralized here so
-# adding a fifth connector tool doesn't require touching the dispatch
-# branch inline.
-_CONNECTOR_CONTEXT_TOOL_CLASSES: tuple[type[Tool], ...] = (
-    SendToPlatformChannelTool,
-    FetchChannelHistoryTool,
-    FetchThreadHistoryTool,
-    FetchDmHistoryTool,
-    ListVisibleChannelsTool,
 )
 
 
@@ -143,9 +116,6 @@ class BuiltinToolProvider:
         tool_configs: dict[str, dict] | None = None,
         agent_overrides: dict[str, dict] | None = None,
         agent_name: str | None = None,
-        *,
-        connector_ids: list[str] | None = None,
-        connector_acls: dict[str, dict[str, list[str]]] | None = None,
     ) -> list[Tool]:
         # Both None → introspection path (no resolver invocation).
         # `Tool.__init__` defaults `cross_configs={}` and `agent_name=None`,
@@ -208,27 +178,11 @@ class BuiltinToolProvider:
             # call; frozen Configs (FilesystemConfig + future ExecutionConfig)
             # prevent any tool from mutating a peer's view.
             #
-            # F4 leg 2: SendToPlatformChannelTool needs the agent's attached
-            # connector-account ids at construction. Mirrors the
-            # SearchTools special construction at factory.py:290-297, kept
-            # inside the provider for _TOOL_CLASSES symmetry.
-            #
-            # M11 F7 L10: the four channel-context tools
-            # (``fetch_channel_history``, ``fetch_thread_history``,
-            # ``fetch_dm_history``, ``list_visible_channels``) take the
-            # same kwargs — they consult ``connector_acls`` to gate
-            # reads on the channel / peer axes. The classes that need
-            # the injection are listed in
-            # :data:`_CONNECTOR_CONTEXT_TOOL_CLASSES`.
-            extra_kwargs: dict[str, Any] = (
-                {
-                    "connector_ids": connector_ids or [],
-                    "connector_acls": connector_acls,
-                }
-                if cls in _CONNECTOR_CONTEXT_TOOL_CLASSES
-                else {}
-            )
-            result.append(
-                cls(cfg, cross_configs=cross_configs, agent_name=agent_name, **extra_kwargs)
-            )
+            # Mission 23 Flight 1 (backend-removal leg): the five connector
+            # tools that used to receive extra ``connector_ids``/
+            # ``connector_acls`` construction kwargs here (send + four
+            # channel-context fetch tools) were deleted with the connector
+            # package — every remaining tool takes the plain construction
+            # below.
+            result.append(cls(cfg, cross_configs=cross_configs, agent_name=agent_name))
         return result

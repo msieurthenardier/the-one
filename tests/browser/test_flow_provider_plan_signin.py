@@ -53,9 +53,6 @@ PLAN_BASE_URL = "https://api.anthropic.com"
 # fixture duplicated verbatim across 8 `test_flow_*.py` files, now
 # consolidated onto the shared `_spawn_app` path in `browser/conftest.py`
 # — pytest auto-discovers it from the directory conftest, no import needed.
-# (This file previously omitted `THE_ONE_REGISTER_STUB_CONNECTOR` from its
-# own copy; the shared fixture sets it unconditionally — harmless here,
-# this suite never registers a connector.)
 
 
 def _seed_plan_provider(base_url: str, name: str = "Claude Plan") -> str:

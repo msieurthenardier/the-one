@@ -4,6 +4,11 @@ Pure-function tests over an isolated SQLite connection + encryptor, no HTTP
 layer. The regression net mirrors ``test_list_returns_masked_secrets``: an
 assertion on ``json.dumps(result)`` TEXT, not on which fields a masking
 helper touches.
+
+Mission 23 Flight 1 (backend-removal leg, DD-5): the connector fixtures and
+the ``describe_my_capabilities`` ``connectors`` key were removed along with
+the connector subsystem — ``build_describe_my_capabilities`` no longer takes
+a ``connector_repo`` argument, and its result no longer carries that key.
 """
 
 from __future__ import annotations
@@ -15,9 +20,8 @@ import pytest
 from cryptography.fernet import Fernet
 
 from the_one.agent.config import AgentConfig
-from the_one.db.models import Connector, KnowledgeBase, LLMProviderConfig, MCPSource
+from the_one.db.models import KnowledgeBase, LLMProviderConfig, MCPSource
 from the_one.db.repositories import (
-    ConnectorRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
@@ -52,7 +56,6 @@ class TestGetMyConfigurationSecretFree:
         provider_repo = LLMProviderRepository(conn, encryptor)
         kb_repo = KnowledgeBaseRepository(conn)
         mcp_repo = MCPSourceRepository(conn, encryptor)
-        connector_repo = ConnectorRepository(conn, encryptor)
 
         provider = LLMProviderConfig(
             id="prov-1",
@@ -75,20 +78,11 @@ class TestGetMyConfigurationSecretFree:
         )
         await mcp_repo.create(mcp_source)
 
-        connector = Connector(
-            id="conn-1",
-            name="My Discord",
-            type="stub",
-            secrets={"token": "CONNECTOR_SUPER_SECRET_TOKEN"},
-        )
-        await connector_repo.create(connector)
-
         config = AgentConfig(
             name="secret-agent",
             provider_config_id="prov-1",
             kb_ids=["kb-1"],
             mcp_source_ids=["mcp-1"],
-            connector_ids=["conn-1"],
             mcp_overrides={
                 "github": {
                     "bearer_token": "OVERRIDE_BEARER_SECRET",
@@ -105,7 +99,6 @@ class TestGetMyConfigurationSecretFree:
         for secret in (
             "sk-ant-SUPERSECRETKEY",
             "MCP_SOURCE_SECRET_TOKEN",
-            "CONNECTOR_SUPER_SECRET_TOKEN",
             "OVERRIDE_BEARER_SECRET",
             "OVERRIDE_HEADER_SECRET",
         ):
@@ -148,7 +141,6 @@ class TestDescribeMyCapabilities:
         conn, encryptor = db
         tool_config_repo = ToolConfigRepository(conn, encryptor)
         mcp_repo = MCPSourceRepository(conn, encryptor)
-        connector_repo = ConnectorRepository(conn, encryptor)
 
         await tool_config_repo.upsert("shell", {}, enabled=False)
 
@@ -157,7 +149,6 @@ class TestDescribeMyCapabilities:
             config,
             tool_config_repo=tool_config_repo,
             mcp_repo=mcp_repo,
-            connector_repo=connector_repo,
         )
         names = {t["name"] for t in result["builtin_tools"]}
         assert "shell" not in names
@@ -167,14 +158,12 @@ class TestDescribeMyCapabilities:
         conn, encryptor = db
         tool_config_repo = ToolConfigRepository(conn, encryptor)
         mcp_repo = MCPSourceRepository(conn, encryptor)
-        connector_repo = ConnectorRepository(conn, encryptor)
 
         config = AgentConfig(name="agent-disabled-agent", disabled_tools=["shell"])
         result = await build_describe_my_capabilities(
             config,
             tool_config_repo=tool_config_repo,
             mcp_repo=mcp_repo,
-            connector_repo=connector_repo,
         )
         names = {t["name"] for t in result["builtin_tools"]}
         assert "shell" not in names
@@ -186,7 +175,6 @@ class TestDescribeMyCapabilities:
         conn, encryptor = db
         tool_config_repo = ToolConfigRepository(conn, encryptor)
         mcp_repo = MCPSourceRepository(conn, encryptor)
-        connector_repo = ConnectorRepository(conn, encryptor)
 
         source = MCPSource(
             id="mcp-2",
@@ -213,7 +201,6 @@ class TestDescribeMyCapabilities:
             config,
             tool_config_repo=tool_config_repo,
             mcp_repo=mcp_repo,
-            connector_repo=connector_repo,
         )
         github_entry = next(s for s in result["mcp_sources"] if s["name"] == "github")
         assert github_entry["tools"] == ["list_issues"]
@@ -223,7 +210,6 @@ class TestDescribeMyCapabilities:
         conn, encryptor = db
         tool_config_repo = ToolConfigRepository(conn, encryptor)
         mcp_repo = MCPSourceRepository(conn, encryptor)
-        connector_repo = ConnectorRepository(conn, encryptor)
 
         source = MCPSource(
             id="mcp-self",
@@ -251,7 +237,6 @@ class TestDescribeMyCapabilities:
             config,
             tool_config_repo=tool_config_repo,
             mcp_repo=mcp_repo,
-            connector_repo=connector_repo,
         )
         entry = next(
             s for s in result["mcp_sources"] if s["name"] == "self-configuration (listing-agent)"
@@ -262,7 +247,6 @@ class TestDescribeMyCapabilities:
         conn, encryptor = db
         tool_config_repo = ToolConfigRepository(conn, encryptor)
         mcp_repo = MCPSourceRepository(conn, encryptor)
-        connector_repo = ConnectorRepository(conn, encryptor)
 
         source = MCPSource(
             id="mcp-3",
@@ -277,39 +261,26 @@ class TestDescribeMyCapabilities:
         )
         await mcp_repo.create(source)
 
-        connector = Connector(
-            id="conn-2",
-            name="secret-connector",
-            type="stub",
-            secrets={"token": "CONNECTOR_MUST_NOT_LEAK"},
-        )
-        await connector_repo.create(connector)
-
         config = AgentConfig(
             name="no-leak-capabilities-agent",
             mcp_source_ids=["mcp-3"],
-            connector_ids=["conn-2"],
         )
         result = await build_describe_my_capabilities(
             config,
             tool_config_repo=tool_config_repo,
             mcp_repo=mcp_repo,
-            connector_repo=connector_repo,
         )
         text = json.dumps(result)
         assert "internal.example.com" not in text
         assert "leaky-path" not in text
         assert "not-a-secret-but-should-not-leak-either" not in text
         assert "MUST_NOT_LEAK" not in text
-        assert "CONNECTOR_MUST_NOT_LEAK" not in text
-        assert set(result.keys()) == {"builtin_tools", "mcp_sources", "connectors"}
-        assert result["connectors"] == [{"name": "secret-connector", "type": "stub"}]
+        assert set(result.keys()) == {"builtin_tools", "mcp_sources"}
 
     async def test_source_with_no_cache_reports_tools_known_false(self, db) -> None:
         conn, encryptor = db
         tool_config_repo = ToolConfigRepository(conn, encryptor)
         mcp_repo = MCPSourceRepository(conn, encryptor)
-        connector_repo = ConnectorRepository(conn, encryptor)
 
         source = MCPSource(
             id="mcp-4",
@@ -324,7 +295,6 @@ class TestDescribeMyCapabilities:
             config,
             tool_config_repo=tool_config_repo,
             mcp_repo=mcp_repo,
-            connector_repo=connector_repo,
         )
         entry = next(s for s in result["mcp_sources"] if s["name"] == "never-connected")
         assert entry == {

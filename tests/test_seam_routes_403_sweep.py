@@ -45,9 +45,6 @@ _PLACEHOLDER = "placeholder-id"
 # the 403 assertion below pass for the wrong reason (or not fire). Keyed
 # by (method, raw route path — with `{param}` placeholders still in it).
 _EXTRA_REQUEST_KWARGS: dict[tuple[str, str], dict[str, object]] = {
-    ("GET", "/api/_test/chat/sessions/lookup"): {
-        "params": {"connector_id": _PLACEHOLDER, "channel_id": _PLACEHOLDER},
-    },
     ("POST", "/api/_test/oauth/pending"): {
         "json": {
             "state": _PLACEHOLDER,
@@ -64,10 +61,14 @@ _EXTRA_REQUEST_KWARGS: dict[tuple[str, str], dict[str, object]] = {
 # that starts matching `_SEAM_PREFIX` without anyone updating this set is
 # exactly the accidental-un-registration (or accidental-addition-without-
 # a-gate) scenario the squawk is closing.
+#
+# Mission 23 Flight 1 (backend-removal leg, DD-6): the two connector
+# seams — POST /chat/sessions/{id}/routing-audit and
+# GET /chat/sessions/lookup — are deleted; their only callers were
+# connector browser tests being deleted, and the session-keying columns
+# they read are kept, so Flight 2 or 3 can restore them verbatim.
 _EXPECTED_SEAMS: frozenset[tuple[str, str]] = frozenset(
     {
-        ("POST", "/api/_test/chat/sessions/{session_id}/routing-audit"),
-        ("GET", "/api/_test/chat/sessions/lookup"),
         ("POST", "/api/_test/purge-sweep"),
         ("POST", "/api/_test/oauth/pending"),
     }

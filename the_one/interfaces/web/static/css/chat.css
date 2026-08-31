@@ -34,13 +34,13 @@
   .area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .area-chat .session-item-agent { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* M10 F05 L01: connector-bound sessions render a source badge below the
+  /* M10 F05 L01: platform-bound sessions render a source badge below the
      agent line. Tokens mirror .session-group-label (uppercase + tiny +
      tertiary) — the bucket header is the section-scoped analogue; this is
      the row-scoped one. Sits inside .session-item-text so its width is
      clipped by the flex column's min-width:0 and the .session-item-title
      ellipsis behavior is preserved unchanged. Per-platform color theming
-     (session-item-source--{type}) is reserved for F8/F9 connector-specific
+     (session-item-source--{type}) is reserved for future platform-specific
      visual treatments — F5 ships only the base rule. */
   .area-chat .session-item-source {
     font-family: var(--font-family-mono);
@@ -71,8 +71,7 @@
     gap: 6px;
     flex-shrink: 0;
     /* F09-06: first right-side control in the header flexbox — margin-left:auto
-       pushes it (and the routing-audit trigger after it) to the right edge,
-       leaving the agent badge left. */
+       pushes it to the right edge, leaving the agent badge left. */
     margin-left: auto;
     background: transparent;
     border: 1px solid transparent;
@@ -283,182 +282,6 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-  }
-  /* M11 F13 L5 / M16 F09 L04 (F09-06): Routing audit — per-session inspector
-     for session_metadata["routing"]. Relocated from an inline <details> panel
-     above the composer to a header trigger + centered overlay. The trigger
-     matches the .new-chat-header affordance; the overlay reuses the
-     .modal-overlay / .modal-dialog styling (components.css) with a
-     .routing-audit-modal sizing modifier. The row / badge / expansion / body
-     styles below are unchanged — they render the entries inside the overlay. */
-  .area-chat .routing-audit-trigger {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--space-1);
-    color: var(--accent);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    padding: 4px 10px;
-    white-space: nowrap;
-    transition: background 0.2s ease, border-color 0.2s ease;
-  }
-  .area-chat .routing-audit-trigger:hover,
-  .area-chat .routing-audit-trigger:focus-visible {
-    background: var(--accent-translucent-hover);
-    border-color: var(--accent);
-  }
-  .area-chat .routing-audit-trigger:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  /* The overlay toggles via the `hidden` attribute rather than DOM add/remove.
-     .modal-overlay sets display:flex (author origin), which would otherwise
-     override the UA [hidden]{display:none} rule — so re-assert hidden here at
-     higher specificity to keep the overlay dismissed until opened. */
-  .routing-audit-overlay[hidden] { display: none; }
-  /* Overlay sizing modifier — reasonably sized (not full width), with the
-     entries body scrolling internally so a long list / narrow viewport stays
-     within bounds. */
-  .routing-audit-modal {
-    max-width: 720px;
-    max-height: min(80vh, 640px);
-    min-width: 0;
-  }
-  .routing-audit-modal-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .routing-audit-modal-header .modal-dialog-title {
-    flex: 1;
-    min-width: 0;
-  }
-  .routing-audit-modal .routing-audit-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--space-1);
-    color: var(--fg-muted);
-    cursor: pointer;
-  }
-  .routing-audit-modal .routing-audit-close svg { width: 18px; height: 18px; }
-  .routing-audit-modal .routing-audit-close:hover { color: var(--fg); background: var(--surface-translucent); }
-  .routing-audit-modal .routing-audit-close:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .routing-audit-modal .routing-audit-refresh:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .area-chat .routing-audit-body {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    /* Inside the overlay (.modal-dialog already pads 24px): scroll the entries
-       list internally so the dialog stays within its max-height / the viewport
-       on a long list or narrow screen. */
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    font-size: var(--font-size-body-sm);
-  }
-  .area-chat .routing-audit-empty {
-    color: var(--fg-muted);
-    font-style: italic;
-    padding: 12px 0;
-  }
-  .area-chat .routing-audit-row {
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 6px 10px;
-  }
-  .area-chat .routing-audit-row-summary {
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    list-style: none;
-  }
-  .area-chat .routing-audit-row-summary::-webkit-details-marker { display: none; }
-  .area-chat .routing-audit-ts {
-    color: var(--fg-tertiary);
-    font-family: var(--font-family-mono);
-    font-variant-numeric: tabular-nums;
-  }
-  .area-chat .routing-audit-agent { color: var(--fg); }
-  .area-chat .routing-audit-scope {
-    color: var(--fg-muted);
-    font-family: var(--font-family-mono);
-    text-transform: uppercase;
-    font-size: var(--font-size-tiny);
-    letter-spacing: 0.05em;
-  }
-  .area-chat .routing-audit-reason {
-    color: var(--fg-muted);
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .area-chat .routing-audit-badge {
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--fg-on-accent);
-  }
-  .area-chat .routing-audit-badge--stepped {
-    background: var(--status-success);
-  }
-  .area-chat .routing-audit-badge--command-intercepted {
-    background: var(--accent);
-  }
-  .area-chat .routing-audit-badge--no-eligible {
-    background: var(--status-warning);
-  }
-  .area-chat .routing-audit-badge--policy-silent {
-    background: var(--fg-muted);
-  }
-  .area-chat .routing-audit-expansion {
-    margin: 8px 0 0 0;
-    padding: 8px 12px;
-    background: var(--surface-translucent);
-    border-radius: 4px;
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 4px 12px;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-  }
-  .area-chat .routing-audit-expansion dt {
-    color: var(--fg-muted);
-  }
-  .area-chat .routing-audit-expansion dd {
-    margin: 0;
-    color: var(--fg);
-    overflow-wrap: anywhere;
-  }
-  .area-chat .routing-audit-policy {
-    margin: 0;
-    padding-left: 12px;
-    border-left: 2px solid var(--border);
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 4px 12px;
   }
   .area-chat .msg.system { align-self: center; color: var(--fg-tertiary); font-size: var(--font-size-body-sm); }
   /* M10 F05 L05: visibility distinction for operator-only bubbles. Persisted
