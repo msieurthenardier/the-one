@@ -16,7 +16,7 @@ Two id classes are registered:
 - **Literal ids** — the full id appears as-is in the source (HTML-string
   attribute or `setAttribute('data-testid', '...')`).
 - **Parametric prefix families** — the id is built by concatenation from a
-  static prefix (e.g. `connector-row-` + id). Registered by prefix; the guard
+  static prefix (e.g. `mcp-source-row-` + id). Registered by prefix; the guard
   matches families by prefix.
 
 A third table lists **manual exceptions**: ids carried through variables or
@@ -38,13 +38,11 @@ caught — but it cannot see where the attribute is emitted.
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
 | `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `back-agent-btn` | studio | |
-| `back-connector-btn` | studio | |
 | `back-mcp-source-btn` | studio | |
 | `back-provider-btn` | admin | |
 | `back-tool-btn` | admin | |
 | `base-prompt-content` | admin | |
 | `cancel-agent-btn` | studio | |
-| `cancel-connector-btn` | studio | |
 | `cancel-mcp-source-btn` | studio | |
 | `cancel-provider-btn` | admin | |
 | `cancel-tool-btn` | admin | |
@@ -60,87 +58,10 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-welcome` | chat | |
 | `chat-welcome-mascot` | chat | |
 | `confirm-dialog-overlay` | shell | |
-| `connector-advanced-section` | studio | |
-| `connector-allowlist-banner` | studio | |
-| `connector-allowlist-banner-led` | studio | |
-| `connector-allowlist-banner-refresh` | studio | |
-| `connector-allowlist-banner-status` | studio | |
-| `connector-allowlist-dm-admission-hint` | studio | |
-| `connector-allowlist-dm-admission-row` | studio | |
-| `connector-allowlist-dm-admission-select` | studio | |
-| `connector-allowlist-guilds-hint` | studio | |
-| `connector-allowlist-lists` | studio | |
-| `connector-allowlist-peers-hint` | studio | |
-| `connector-allowlist-peers-row` | studio | |
-| `connector-allowlist-server-rows` | studio | |
-| `connector-allowlist-servers-section` | studio | |
-| `connector-allowlist-servers-slot` | studio | |
-| `connector-always-listen-hint` | studio | |
-| `connector-always-listen-toggle` | studio | |
-| `connector-attached-agents-list` | studio | |
-| `connector-attached-agents-table` | studio | |
-| `connector-bot-token-hint` | studio | |
-| `connector-card` | studio | |
-| `connector-config` | studio | |
-| `connector-config-add-row-btn` | studio | |
-| `connector-config-inference-model-hint` | studio | |
-| `connector-config-inference-model-select` | studio | |
-| `connector-config-inference-provider-hint` | studio | |
-| `connector-config-inference-provider-select` | studio | |
-| `connector-config-table` | studio | |
-| `connector-config-tbody` | studio | |
-| `connector-connection-section` | studio | |
-| `connector-continuation-hint` | studio | |
-| `connector-editor-error` | studio | |
-| `connector-empty-types-banner` | studio | |
-| `connector-idle-hint` | studio | |
-| `connector-inference-rows-container` | studio | |
-| `connector-invite-copy-btn` | studio | |
-| `connector-invite-hint` | studio | |
-| `connector-invite-info` | studio | |
-| `connector-invite-recompute-btn` | studio | |
-| `connector-invite-section` | studio | |
-| `connector-invite-url` | studio | |
-| `connector-invite-url-wrap` | studio | |
-| `connector-live-status` | studio | |
-| `connector-live-status-error` | studio | |
-| `connector-live-status-error-link` | studio | |
-| `connector-live-status-error-wrap` | studio | |
-| `connector-name-input` | studio | |
-| `connector-pairing-code-input` | studio | |
-| `connector-pairing-copy-btn` | studio | |
-| `connector-pairing-generate-btn` | studio | |
-| `connector-pairing-reveal-row` | studio | |
-| `connector-pairing-status` | studio | |
-| `connector-routing-add-row-btn` | studio | |
-| `connector-routing-default` | studio | |
-| `connector-routing-default-hint` | studio | |
-| `connector-routing-table` | studio | |
-| `connector-routing-tbody` | studio | |
-| `connector-runtime-config-section` | studio | |
-| `connector-secrets-add-row-btn` | studio | |
-| `connector-secrets-table` | studio | |
-| `connector-secrets-tbody` | studio | |
-| `connector-test-connection-btn` | studio | |
-| `connector-test-details` | studio | |
-| `connector-test-details-wrap` | studio | |
-| `connector-test-led` | studio | |
-| `connector-test-message` | studio | |
-| `connector-type-readonly` | studio | |
-| `connector-type-select` | studio | |
-| `connectors-empty-state` | studio | |
-| `connectors-list` | studio | |
 | `delete-agent-btn` | studio | |
 | `delete-blocked-message` | admin | |
-| `delete-connector-btn` | studio | |
 | `delete-mcp-source-btn` | studio | |
 | `delete-provider-btn` | admin | |
-| `discord-additional-config-row` | studio | |
-| `discord-bot-token` | studio | |
-| `discord-bot-token-eye-btn` | studio | |
-| `discord-presence-hint` | studio | |
-| `discord-presence-name` | studio | |
-| `discord-presence-type` | studio | |
 | `kv-add-row-btn` | studio | |
 | `mcp-command-custom` | studio | |
 | `mcp-command-hint` | studio | |
@@ -168,18 +89,10 @@ caught — but it cannot see where the attribute is emitted.
 | `model-capabilities` | studio | |
 | `model-ctx-chip` | studio | |
 | `nav-chat-btn` | shell | |
-| `nav-pending-badge` | shell | |
 | `new-agent-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
 | `new-chat-btn` | chat | |
-| `new-connector-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
 | `new-mcp-source-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
 | `new-provider-btn` | admin | Unified create CTA (M17 F3 L3) — always-visible header button |
-| `pending-approval-approve` | chat | |
-| `pending-approval-badge` | chat | |
-| `pending-approval-banner` | chat | |
-| `pending-approval-dismiss` | chat | |
-| `pending-approval-item` | chat | |
-| `pending-approvals-section` | chat | |
 | `pending-count` | studio | Self-configuration tab per-agent pending-revision count (M21 F02 L02) |
 | `pending-queue` | studio | Self-configuration tab pending-revision queue container (M21 F02 L02) |
 | `pending-queue-empty` | studio | Self-configuration tab empty-queue notice (M21 F02 L02) |
@@ -223,17 +136,6 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-stale` | studio | Self-configuration staleness (409) panel (M21 F02 L02) |
 | `revision-stale-proposed` | studio | Self-configuration staleness panel proposed value (M21 F02 L02) |
 | `rotate-key-btn` | admin | |
-| `routing-audit-badge` | chat | |
-| `routing-audit-body` | chat | |
-| `routing-audit-close` | chat | |
-| `routing-audit-empty` | chat | |
-| `routing-audit-expansion` | chat | |
-| `routing-audit-overlay` | chat | |
-| `routing-audit-policy` | chat | |
-| `routing-audit-refresh` | chat | |
-| `routing-audit-row` | chat | |
-| `routing-audit-row-summary` | chat | |
-| `routing-audit-trigger` | chat | |
 | `save-agent-btn` | studio | |
 | `save-mcp-source-btn` | studio | |
 | `save-provider-btn` | admin | |
@@ -259,12 +161,10 @@ caught — but it cannot see where the attribute is emitted.
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
 | `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
 | `studio-knowledge-stub` | studio | |
-| `tab-access-and-routing` | studio | |
-| `tab-connectors` | studio | |
 | `tab-general` | studio | |
 | `tab-knowledge` | studio | |
 | `tab-mcps` | studio | |
-| `tab-self-configuration` | studio | sixth agent-editor tab (M21 F01 L02) |
+| `tab-self-configuration` | studio | fifth agent-editor tab (M21 F01 L02) |
 | `tab-tools` | studio | |
 | `test-connection-btn` | admin | |
 | `test-provider-btn` | studio | |
@@ -280,38 +180,6 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
-| `agent-connector-admit-dms-` | studio | |
-| `agent-connector-admit-dms-hint-` | studio | |
-| `agent-connector-admit-dms-row-` | studio | |
-| `agent-connector-always-listen-` | studio | |
-| `agent-connector-peers-dm-note-` | studio | |
-| `connector-acl-` | studio | |
-| `connector-acl-axis-` | studio | |
-| `connector-acl-axis-count-` | studio | |
-| `connector-acl-axis-toggle-` | studio | |
-| `connector-acl-checkbox-warn-` | studio | |
-| `connector-allowlist-` | studio | |
-| `connector-allowlist-channels-wildcard-` | studio | |
-| `connector-allowlist-roles-wildcard-` | studio | |
-| `connector-allowlist-server-row-` | studio | |
-| `connector-allowlist-server-row-remove-` | studio | |
-| `connector-attached-agent-` | studio | |
-| `connector-attached-agent-channels-` | studio | |
-| `connector-attached-agent-detach-` | studio | |
-| `connector-attached-agent-link-` | studio | |
-| `connector-attached-agent-peers-` | studio | |
-| `connector-details-body-` | studio | |
-| `connector-missing-` | studio | |
-| `connector-row-` | studio | |
-| `connector-toggle-` | studio | |
-| `discoverable-dropdown-` | studio | |
-| `discoverable-dropdown-chip-` | studio | |
-| `discoverable-dropdown-chip-remove-` | studio | |
-| `discoverable-dropdown-chips-` | studio | |
-| `discoverable-dropdown-input-` | studio | |
-| `discoverable-dropdown-item-` | studio | |
-| `discoverable-dropdown-menu-` | studio | |
-| `discoverable-dropdown-status-` | studio | |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |
 | `mcp-no-tools-msg-` | studio | |
@@ -330,9 +198,6 @@ caught — but it cannot see where the attribute is emitted.
 
 ## Manual exceptions (variable-carried literals)
 
-| Testid | Surface | Notes |
-|--------|---------|-------|
-| `connector-continuation-input` | studio | passed to `renderLifecycleSelect(...)`, `connector-editor.js` |
-| `connector-idle-timeout-input` | studio | passed to `renderLifecycleSelect(...)`, `connector-editor.js` |
-| `create-and-test-connector-btn` | studio | `saveTestId` ternary, `connector-editor.js` (create mode) |
-| `save-connector-btn` | studio | `saveTestId` ternary, `connector-editor.js` (edit mode) |
+No entries currently — the connector editor (Mission 23 Flight 1) was the
+sole occupant of this table. Re-add a row here if a future feature carries
+a testid through a variable/parameter the extractor can't see statically.

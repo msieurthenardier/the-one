@@ -132,8 +132,8 @@ def load_from_rows(sources: Iterable[MCPSource]) -> None:
 
 
 def clear_for_test() -> None:
-    """Wipe the registry. Test-only seam — mirrors
-    ``the_one.connectors.registry.clear_for_test``'s naming convention."""
+    """Wipe the registry. Test-only seam — mirrors the connector
+    registry's now-deleted ``clear_for_test`` naming convention."""
     _registry.clear()
 
 

@@ -11,8 +11,8 @@
 > port `8484` (the mission dev instance is now `8485`), the retired goldfinch-only
 > apparatus assumptions, and the gone "Discord Constellation" connector fixture. Retiring
 > it loses no regression coverage — `studio-agent-crud` covers a real create/edit/delete
-> flow and `connector-editor-keyboard-a11y` covers the connector-editor a11y surface. Kept
-> for history; not deleted.
+> flow. The connector account editor Steps 2–3 exercise no longer exists (Mission 23
+> Connector Reset removed the old connector-editor UI). Kept for history; not deleted.
 
 ## Intent
 
@@ -37,7 +37,9 @@ Smoke test for the Studio web UI. Verifies that the application loads, that core
 
 ## Out of Scope
 
-- Toggle interactions, save behaviour, and routing rules — those are exercised by the discord-engagement spec.
+- Toggle interactions, save behaviour, and routing rules for the connector account editor
+  in Steps 2–3 — that editor no longer exists (Mission 23 Connector Reset); this note is
+  kept for historical context only.
 - Login / authentication — Studio currently has none.
 - Performance, accessibility audits — separate concerns.
 

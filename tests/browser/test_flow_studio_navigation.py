@@ -1,11 +1,12 @@
 """End-to-end flow tests: studio section navigation (F5 leg 01).
 
-Covers the four-section sidebar (Agents / Knowledge / MCP Servers /
-Connector Accounts). Post-F2 retrofit: the third section was originally
-a "Tools" stub and became the relocated "MCP Servers" surface (moved
-from the admin nav because MCP sources are user-managed entities, not
-system settings). M10 F2 leg 05 added the fourth section, "Connector
-Accounts" — the same operator-managed-entity shape as MCP Sources.
+Covers the three-section sidebar (Agents / Knowledge / MCP Servers).
+Post-F2 retrofit: the third section was originally a "Tools" stub and
+became the relocated "MCP Servers" surface (moved from the admin nav
+because MCP sources are user-managed entities, not system settings).
+M10 F2 leg 05 added a fourth section, "Connector Accounts" (later
+"Connectors"); Mission 23 Flight 1 reset the connector subsystem and
+removed it, returning the nav to three entries.
 
 - Section nav buttons render with correct ARIA + roving tabindex
 - Click navigation updates URL hash + active section
@@ -36,22 +37,16 @@ def _wait_studio_ready(page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_studio_section_nav_renders_four_buttons(app_clean: str, page: Page) -> None:
-    """The section-nav has four buttons (Agents / Knowledge / MCP Servers / Connectors).
-
-    F5 L8 HAT: fourth label renamed from "Connector Accounts" → "Connectors".
-    The internal section id `connectors` is unchanged (data-section
-    attribute still matches the F2 contract).
-    """
+def test_studio_section_nav_renders_three_buttons(app_clean: str, page: Page) -> None:
+    """The section-nav has three buttons (Agents / Knowledge / MCP Servers)."""
     page.goto(f"{app_clean}#studio")
     _wait_studio_ready(page)
 
     buttons = page.locator(".section-nav-item")
-    expect(buttons).to_have_count(4)
+    expect(buttons).to_have_count(3)
     expect(buttons.nth(0)).to_have_text("Agents")
     expect(buttons.nth(1)).to_have_text("Knowledge")
     expect(buttons.nth(2)).to_have_text("MCP Servers")
-    expect(buttons.nth(3)).to_have_text("Connectors")
 
 
 @pytest.mark.browser
@@ -82,12 +77,10 @@ def test_studio_section_nav_roving_tabindex(app_clean: str, page: Page) -> None:
     agents_btn = page.locator('.section-nav-item[data-section="agents"]')
     knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
     mcp_btn = page.locator('.section-nav-item[data-section="mcp-sources"]')
-    connector_btn = page.locator('.section-nav-item[data-section="connectors"]')
 
     expect(agents_btn).to_have_attribute("tabindex", "0")
     expect(knowledge_btn).to_have_attribute("tabindex", "-1")
     expect(mcp_btn).to_have_attribute("tabindex", "-1")
-    expect(connector_btn).to_have_attribute("tabindex", "-1")
 
 
 @pytest.mark.browser
@@ -152,35 +145,30 @@ def test_studio_keyboard_arrow_navigation(app_clean: str, page: Page) -> None:
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
     assert focused_section == "knowledge"
 
-    # ArrowDown → MCP Servers.
+    # ArrowDown → MCP Servers (the last entry).
     page.keyboard.press("ArrowDown")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
     assert focused_section == "mcp-sources"
-
-    # ArrowDown → Connector Accounts (the new last entry, M10 F2 leg 05).
-    page.keyboard.press("ArrowDown")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connectors"
 
     # ArrowDown wraps → Agents.
     page.keyboard.press("ArrowDown")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
     assert focused_section == "agents"
 
-    # ArrowUp wraps backward → Connector Accounts (new last entry).
+    # ArrowUp wraps backward → MCP Servers (last entry).
     page.keyboard.press("ArrowUp")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connectors"
+    assert focused_section == "mcp-sources"
 
     # Home → Agents.
     page.keyboard.press("Home")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
     assert focused_section == "agents"
 
-    # End → Connector Accounts (the new last entry).
+    # End → MCP Servers (the last entry).
     page.keyboard.press("End")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connectors"
+    assert focused_section == "mcp-sources"
 
     # Focus moved but URL did NOT change (manual activation).
     assert page.evaluate("location.hash") == "#studio/agents"

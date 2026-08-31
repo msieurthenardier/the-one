@@ -118,12 +118,11 @@ CONTINUE_SCHEMA = {
 # to the model-visible set as a side effect of calling search_tools.
 # F10 follow-up: search_tools and search_mcps were merged into a single
 # tool that covers both the built-in catalog and any attached MCP servers.
-# F4 (M10) carve-out: `send_to_platform_channel` is pre-loaded into the
-# visible set at AgentFactory.create() time when the agent has connector
-# accounts attached AND the operator has the tool enabled — the
-# deliberate exception so connector-attached agents don't need to
-# search_tools for it. See agent/factory.py for the carve-out site and
-# agent/config.py:compose_system_prompt for the paired prompt directive.
+# Mission 23 Flight 1 (backend-removal leg): the F4 (M10) baseline
+# carve-out that pre-loaded `send_to_platform_channel`'s schema for
+# connector-attached agents was removed along with the connector package
+# and the send tool itself (DD-4) — search_tools is now the sole
+# discovery path for every non-`continue` tool, no exceptions.
 SEARCH_TOOLS_SCHEMA = {
     "name": "search_tools",
     "description": (
@@ -438,8 +437,8 @@ class Agent:
         through verbatim as assistant text rather than being parsed and dispatched.
 
         The swap logic mirrors the prior 08A approach: swap BASE_PROMPT → CHAT_ONLY_PROMPT
-        so the persona (and any connector directive) carry through unchanged. No addendum,
-        no catalog, no `degraded_tools` protocol injection.
+        so the persona carries through unchanged. No addendum, no catalog, no
+        `degraded_tools` protocol injection.
 
         Updates Flight 3 DD2 / DD-G: the degraded path is now conversational-only;
         the Leg-09 backstop (partition/synthesize logic below) becomes harmless dead code
@@ -448,8 +447,8 @@ class Agent:
         still validates the loop logic for structured-tool_calls inputs in tests. See
         flight-log for the debrief cleanup note.
         """
-        # Swap BASE_PROMPT → CHAT_ONLY_PROMPT so the persona and any connector
-        # directive carry through unchanged.
+        # Swap BASE_PROMPT → CHAT_ONLY_PROMPT so the persona carries through
+        # unchanged.
         if self.system_prompt.startswith(BASE_PROMPT):
             chat_system = CHAT_ONLY_PROMPT + self.system_prompt[len(BASE_PROMPT) :]
         else:

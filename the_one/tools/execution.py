@@ -555,7 +555,7 @@ def prune_box_scratch() -> None:
     The ``settings`` import is **function-local** (design-review requirement): a
     module-level import would eagerly instantiate ``Settings()`` at import time and
     break env-monkeypatching tests — mirrors the precedent in
-    ``_ephemeral_box_scratch`` and in ``tools/connector_send.py``.
+    ``_ephemeral_box_scratch``.
     """
     import logging
 
@@ -581,8 +581,7 @@ def _ephemeral_box_scratch() -> Iterator[Path]:
     Creates ``settings.data_dir / "boxes" / <uuid4().hex>`` as the scratch root.
     The ``settings`` import is **function-local** (design-review requirement): a
     module-level ``from the_one.config import settings`` would eagerly instantiate
-    ``Settings()`` at import time and break env-monkeypatching tests — mirrors the
-    precedent in ``tools/connector_send.py`` / ``tools/connector_history.py``.
+    ``Settings()`` at import time and break env-monkeypatching tests.
 
     Guarantees ``shutil.rmtree`` in ``finally`` so the scratch dir is removed on
     both clean return and exception (including timeouts that propagate as

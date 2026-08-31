@@ -120,9 +120,9 @@ Once the app is up, configure each provider in **System → LLM Providers** — 
 
 **MCP** (`the_one/mcp/`) — Model Context Protocol client (M07). Talks to external MCP servers over stdio or streamable-HTTP; sandboxed with bubblewrap by default; OAuth pause-and-replay for servers requiring user authorization. Built-in execution tools (`shell`, `python_exec`) route through the same bubblewrap seam via a host-workspace profile (M14).
 
-**Connectors** (`the_one/connectors/`) — Bi-directional communication connector framework (M10). Plugin contract + per-(agent, connector) lifecycle pool + encrypted-credentials persistence. Flight 2 ships the operator-visible admin surface (`/api/connectors` REST + Agent Studio editor); real platform plugins (Discord, …) land in subsequent flights.
+**Connectors** — The bi-directional chat-platform connector framework (M10: routing engine, ACL, peer approvals, slash commands, Discord plugin) was reset; a new, minimal connector contract is planned for a later flight of Mission 23.
 
-**Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connectors, chat sessions, and a Knowledge Base index live here. API keys, MCP secrets, and connector secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts every encrypted corpus (seven columns).
+**Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connectors, chat sessions, and a Knowledge Base index live here. The `connectors` table and its encrypted-credentials row persist independently of the reset connector framework above. API keys, MCP secrets, and connector secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts every encrypted corpus (seven columns).
 
 ## Security
 

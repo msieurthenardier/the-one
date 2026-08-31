@@ -34,22 +34,6 @@ App.registerArea({
       }
       return 'mcp-sources';
     }
-    if (this._activeSection === 'connectors') {
-      // M11 F11 L2: vocabulary unified — both hash route slug and internal
-      // _activeSection key are 'connectors' (the F5 L8 HAT operator-facing
-      // slug + legacy substrate-name fallback retired alongside the v23
-      // table rename). Symmetry with mcp-sources preserved.
-      if (this._connectorFormMode === 'add') return 'connectors/new';
-      if (this._connectorFormMode === 'edit' && this._editingConnector) {
-        return 'connectors/' + encodeURIComponent(this._editingConnector.id);
-      }
-      // Hydrate-vs-fetch race: pending id known but account not yet loaded.
-      if (this._pendingConnectorFormMode === 'add') return 'connectors/new';
-      if (this._pendingConnectorId) {
-        return 'connectors/' + encodeURIComponent(this._pendingConnectorId);
-      }
-      return 'connectors';
-    }
     if (this._activeSection === 'agents' && this._selectedAgent && !this._createMode) {
       var base = 'agents/' + encodeURIComponent(this._selectedAgent.name) +
         '/' + (this._activeTab || 'general');
@@ -93,8 +77,6 @@ App.registerArea({
     var pendingTab = 'general';
     var pendingMcpSourceId_local = null;
     var pendingMcpSourceFormMode_local = null;
-    var pendingConnectorId_local = null;
-    var pendingConnectorFormMode_local = null;
     if (sub === 'knowledge') {
       section = 'knowledge';
     } else if (sub === 'mcp-sources') {
@@ -114,28 +96,6 @@ App.registerArea({
       var mslashIdx = mrest.indexOf('/');
       if (mslashIdx !== -1) mrest = mrest.slice(0, mslashIdx);
       pendingMcpSourceId_local = mrest ? decodeURIComponent(mrest) : null;
-    } else if (sub === 'connectors') {
-      // M11 F11 L2: vocabulary unified — only the 'connectors' slug is
-      // accepted (the F5 L8 HAT legacy substrate-name slug retired
-      // alongside the URL rename). The router's serialize-after-hydrate
-      // pass will rewrite the URL to 'connectors'.
-      section = 'connectors';
-    } else if (sub === 'connectors/new') {
-      section = 'connectors';
-      pendingConnectorFormMode_local = 'add';
-    } else if (sub && sub.indexOf('connectors/') === 0) {
-      // Direct-load on connectors/{id}: parse the connector id so the
-      // editor opens on refresh. Mirrors the mcp-sources parsing pattern
-      // above.
-      section = 'connectors';
-      pendingConnectorFormMode_local = 'edit';
-      var crestPrefix = 'connectors/';
-      var crest = sub.slice(crestPrefix.length);
-      if (crest.charAt(crest.length - 1) === '/') crest = crest.slice(0, -1);
-      // Defensive: if extra path segments, take only the first.
-      var cslashIdx = crest.indexOf('/');
-      if (cslashIdx !== -1) crest = crest.slice(0, cslashIdx);
-      pendingConnectorId_local = crest ? decodeURIComponent(crest) : null;
     } else if (sub && sub.indexOf('agents/') === 0) {
       section = 'agents';
       var rest = sub.slice('agents/'.length);
@@ -159,7 +119,7 @@ App.registerArea({
           pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
           tab = 'mcps';
         }
-        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'connectors' || tab === 'tools' || tab === 'self-configuration') {
+        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools' || tab === 'self-configuration') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
@@ -193,9 +153,6 @@ App.registerArea({
     // not mcp-sources/...) so navigation away clears stale pending.
     this._pendingMcpSourceId = pendingMcpSourceId_local;
     this._pendingMcpSourceFormMode = pendingMcpSourceFormMode_local;
-    // Same for connectors.
-    this._pendingConnectorId = pendingConnectorId_local;
-    this._pendingConnectorFormMode = pendingConnectorFormMode_local;
     if (this._setActiveSection) {
       this._setActiveSection(section, { writeUrl: false });
     }
@@ -204,7 +161,6 @@ App.registerArea({
     // path won't re-enter the editor branch. Fire consume unconditionally
     // so within-section direct-loads open the editor.
     if (this._tryConsumePendingMcpSource) this._tryConsumePendingMcpSource();
-    if (this._tryConsumePendingConnector) this._tryConsumePendingConnector();
   },
 
   init: function (sidebar, content) {
@@ -215,11 +171,6 @@ App.registerArea({
     self._agents = [];
     self._allTools = [];
     self._allMcpSources = [];
-    // M10 F6 L5 — all connector accounts cache for the agent-editor
-    // Connectors tab. Mirrors _allMcpSources: lazy initial list from
-    // loadAll, refreshed on every agent-edit mount via
-    // refreshConnectorsCache (mirror of refreshMcpSourcesCache).
-    self._allConnectors = [];
     self._allKnowledgeBases = [];
     self._allProviders = [];
     self._selectedAgent = null;
@@ -278,43 +229,6 @@ App.registerArea({
       configurable: true
     });
 
-    // ── Connector Accounts state (M10 F2 leg 05) ─────────────────────────
-    // Parallel to the MCP Sources block above. The Connector Accounts
-    // section is structurally identical to MCP Sources (operator-managed
-    // entities, many-to-many identities, per-type config — see flight's
-    // "Studio placement, not Admin" design decision). State shape mirrors
-    // the MCP pattern: type list cached at init, account list lazily
-    // fetched on section render, formMode + editingConnector drive
-    // grid-vs-editor dispatch, pending* slots handle the hydrate-vs-fetch
-    // race.
-    var CONNECTOR_TYPES = [];
-    var connectorTypesReady = null;
-    var connectors = null; // null until first fetch resolves
-    var connectorFormMode = null; // null | 'add' | 'edit'
-    var editingConnector = null;
-    var pendingConnectorId = self._pendingConnectorId || null;
-    var pendingConnectorFormMode = self._pendingConnectorFormMode || null;
-    Object.defineProperty(self, '_connectorFormMode', {
-      get: function () { return connectorFormMode; },
-      set: function (v) { connectorFormMode = v; },
-      configurable: true
-    });
-    Object.defineProperty(self, '_editingConnector', {
-      get: function () { return editingConnector; },
-      set: function (v) { editingConnector = v; },
-      configurable: true
-    });
-    Object.defineProperty(self, '_pendingConnectorId', {
-      get: function () { return pendingConnectorId; },
-      set: function (v) { pendingConnectorId = v; },
-      configurable: true
-    });
-    Object.defineProperty(self, '_pendingConnectorFormMode', {
-      get: function () { return pendingConnectorFormMode; },
-      set: function (v) { pendingConnectorFormMode = v; },
-      configurable: true
-    });
-
     // ── beforeunload listener (F5 leg 04) ────────────────────────────────
     //
     // Registered ONCE at init() time (init runs once per area lifetime,
@@ -337,37 +251,6 @@ App.registerArea({
         e.returnValue = '';
         return '';
       }
-    });
-
-    // ── connector-agent-detached listener (M11 F9 L5) ────────────────────
-    //
-    // Listens for the CustomEvent dispatched by the connector account
-    // editor's per-row detach handler. When the Connectors grid is the
-    // active studio section, re-fetch the list so the agent-count badge
-    // refreshes immediately (the badge value comes from the
-    // ``attached_agents_count`` field on the GET /api/connectors
-    // response).
-    //
-    // Registered ONCE at init() time (init runs once per area lifetime,
-    // gated by app.js's initialized[areaId] check) — mirrors the
-    // ``connectors-tab.js:73`` precedent for ``connector-
-    // always-listen-changed``. No teardown: handler is a guarded no-op
-    // when the operator is on any section other than the Connectors
-    // grid.
-    //
-    // TODO(routine-maintenance): F4 R13 studio-event-bus lift candidate;
-    // M11 F9 L6 will refactor this inline listener (and the matching
-    // dispatch in ``connector-editor.js``) into the shared bus.
-    App.studio.eventBus.on('connector-agent-detached', function () {
-      // Bail when the operator is not on the Connectors grid section —
-      // ``fetchConnectors_`` itself stale-guards on
-      // ``self._activeSection`` so a late-arriving fetch is safe, but
-      // shortcutting here avoids the network round-trip entirely.
-      if (self._activeSection !== 'connectors') return;
-      // ``fetchConnectors_`` is a function declaration in this
-      // same closure (hoisted) so this reference is well-defined even
-      // though the function appears later in the file.
-      fetchConnectors_();
     });
 
     var TOOL_CATEGORIES = {
@@ -417,15 +300,7 @@ App.registerArea({
       // 'mcp-sources' (matches the /api/mcp-sources REST path) while the
       // user-facing label uses "MCP Servers" (mirrors the storage entity
       // vs. UI label asymmetry from M07 F1).
-      { id: 'mcp-sources', label: 'MCP Servers' },
-      // M10 F2 leg 05: Connector Accounts section. Operator-managed
-      // identities (Discord bots, Slack workspace apps, etc.); structural
-      // match to MCP sources. Internal section id is 'connectors'
-      // (matches the F2 entity contract — /api/connectors REST
-      // path, Connector entity name). F5 L8 HAT: the operator-facing
-      // hash slug and label are "Connectors" (shorter, friendlier); the
-      // entity-vs-label asymmetry mirrors MCP Servers vs. mcp-sources.
-      { id: 'connectors', label: 'Connectors' }
+      { id: 'mcp-sources', label: 'MCP Servers' }
     ], self._activeSection, {
       onSelect: function (section) {
         // F4 L5: delegate to _confirmLeaveImpl (single source of truth).
@@ -443,9 +318,9 @@ App.registerArea({
           // Clear editor state of the OUTGOING section when leaving
           // (so re-entering lands on the grid, not the prior editor).
           // M10 F6 L7 HAT: prior logic only cleared state on
-          // same-section reclicks, so Agents → Connectors → Agents
-          // restored the previously-edited agent's editor (incl. tab).
-          // Routing should land on the listing instead.
+          // same-section reclicks, so re-entering Agents after visiting
+          // another section restored the previously-edited agent's editor
+          // (incl. tab). Routing should land on the listing instead.
           var prev = self._activeSection;
           if (prev !== section) {
             if (prev === 'agents' && (self._selectedAgent || self._createMode)) {
@@ -455,10 +330,6 @@ App.registerArea({
             } else if (prev === 'mcp-sources' && mcpSourceFormMode) {
               mcpSourceFormMode = null;
               editingMcpSource = null;
-              dirty = false;
-            } else if (prev === 'connectors' && connectorFormMode) {
-              connectorFormMode = null;
-              editingConnector = null;
               dirty = false;
             }
           } else {
@@ -470,10 +341,6 @@ App.registerArea({
             } else if (section === 'mcp-sources' && mcpSourceFormMode) {
               mcpSourceFormMode = null;
               editingMcpSource = null;
-              dirty = false;
-            } else if (section === 'connectors' && connectorFormMode) {
-              connectorFormMode = null;
-              editingConnector = null;
               dirty = false;
             }
           }
@@ -731,222 +598,6 @@ App.registerArea({
     }
     self._tryConsumePendingMcpSource = tryConsumePendingMcpSource;
 
-    // ── Connector Accounts section (M10 F2 leg 05) ───────────────────────
-    // Mirror of the MCP Sources block above. Connector accounts share the
-    // same operator-managed-entity shape, so the routing/render machinery
-    // is structurally parallel. The placeholder editor lands in this leg;
-    // leg 6 replaces it wholesale with the full editor (Connection,
-    // Credentials, Lifecycle, Test Connection, Danger Zone).
-    function renderConnectorsSection() {
-      sectionContentEl.innerHTML = '';
-      // Promote pending-create to formMode='add' BEFORE deciding grid vs
-      // editor so the editor mounts on first paint (no transient grid
-      // flash). Pending-edit can't promote here because the account needs
-      // to be in the cache; tryConsumePendingConnector handles
-      // that path after fetchConnectors_ resolves.
-      if (!connectorFormMode && self._pendingConnectorFormMode === 'add') {
-        connectorFormMode = 'add';
-        editingConnector = null;
-        self._pendingConnectorFormMode = null;
-        self._pendingConnectorId = null;
-      }
-      if (connectorFormMode) {
-        // Reset orchestrator dirty mirror BEFORE editor mount (mirrors the
-        // mcp-source-editor pattern). Editor's onDirtyChange fires on
-        // first user input.
-        dirty = false;
-        var ready = connectorTypesReady || fetchConnectorTypes();
-        // F4 follow-up: re-fetch the connector on editor entry so the editor
-        // always reflects current backend state (peers, dm_admission, etc.)
-        // rather than the cached list entry. Covers the case where a peer was
-        // approved while the editor was open or the user navigates back to the
-        // same connector after an out-of-band change. Falls back to the cached
-        // editingConnector on any fetch error so the UX degrades gracefully.
-        var freshConnectorReady = (connectorFormMode === 'edit' && editingConnector && editingConnector.id)
-          ? fetch('/api/connectors/' + encodeURIComponent(editingConnector.id))
-              .then(function (r) { return r.ok ? r.json() : null; })
-              .then(function (fresh) {
-                if (fresh && fresh.id) {
-                  editingConnector = fresh;
-                  // Patch the list cache so the grid tile reflects the
-                  // refreshed state if the operator clicks Back.
-                  if (connectors) {
-                    for (var _ci = 0; _ci < connectors.length; _ci++) {
-                      if (connectors[_ci].id === fresh.id) {
-                        connectors[_ci] = fresh;
-                        break;
-                      }
-                    }
-                  }
-                }
-              })
-              .catch(function () { /* network error — use cached editingConnector */ })
-          : Promise.resolve();
-        Promise.all([ready, freshConnectorReady]).then(function () {
-          // Re-check formMode at resolution time — operator may have
-          // navigated away mid-fetch.
-          if (connectorFormMode == null || self._activeSection !== 'connectors') return;
-          function doHandleBack() {
-            connectorFormMode = null;
-            editingConnector = null;
-            dirty = false;
-            if (window.App && window.App.router) App.router.replaceSub('connectors');
-            renderConnectorsSection();
-          }
-          App.studio.renderConnectorEditor(sectionContentEl, editingConnector, CONNECTOR_TYPES, {
-            onBack: function () {
-              if (dirty) {
-                App.confirmDialog({ onConfirm: doHandleBack });
-                return;
-              }
-              doHandleBack();
-            },
-            onCancel: function () {
-              // Create-mode Cancel: navigate back to grid. Cancel-when-
-              // dirty is intentional discard — no dialog gate.
-              connectorFormMode = null;
-              editingConnector = null;
-              dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('connectors');
-              renderConnectorsSection();
-            },
-            onSaveSuccess: function (updated, isCreate) {
-              editingConnector = updated;
-              connectorFormMode = 'edit';
-              dirty = false;
-              if (window.App && window.App.router) {
-                App.router.replaceSub(self.serializeState());
-              }
-              if (isCreate) {
-                renderConnectorsSection();
-              }
-            },
-            onDeleteSuccess: function () {
-              connectorFormMode = null;
-              editingConnector = null;
-              dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('connectors');
-              renderConnectorsSection();
-            },
-            onDirtyChange: function (d) { dirty = d; }
-          });
-        });
-        return;
-      }
-      // Grid branch
-      App.studio.renderConnectorsGrid(sectionContentEl, connectors, {
-        selectedId: editingConnector ? editingConnector.id : null,
-        onSelectConnector: selectConnector,
-        onCreateConnector: enterCreateConnectorMode
-      });
-      fetchConnectors_().then(function () {
-        // Stale-then guard — bail if user navigated away mid-fetch.
-        if (self._activeSection !== 'connectors') return;
-        // After fetch resolves, attempt to consume any pending hash-route
-        // selection (e.g. direct-load on #studio/connectors/{id}).
-        tryConsumePendingConnector();
-      });
-    }
-
-    function fetchConnectorTypes() {
-      connectorTypesReady = fetch('/api/connectors/types')
-        .then(function (r) { return r.json(); })
-        .then(function (types) { CONNECTOR_TYPES = types; })
-        .catch(function () { CONNECTOR_TYPES = []; });
-      return connectorTypesReady;
-    }
-
-    function fetchConnectors_() {
-      return fetch('/api/connectors')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          // Stale-then guard: bail if user navigated away mid-fetch.
-          if (self._activeSection !== 'connectors') return;
-          connectors = data;
-          populateConnectorsGrid();
-        })
-        .catch(function () {
-          if (self._activeSection !== 'connectors') return;
-          var gridEl = sectionContentEl.querySelector('.entity-tile-grid');
-          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load connector accounts.</div>';
-        });
-    }
-
-    function populateConnectorsGrid() {
-      // Stale-then guard: bail when no longer on connectors OR
-      // when the editor is mounted (no grid in the DOM to populate).
-      if (self._activeSection !== 'connectors') return;
-      if (connectorFormMode) return;
-      App.studio.renderConnectorsGrid(sectionContentEl, connectors, {
-        selectedId: editingConnector ? editingConnector.id : null,
-        onSelectConnector: selectConnector,
-        onCreateConnector: enterCreateConnectorMode
-      });
-    }
-
-    function selectConnector(id) {
-      var account = findConnector(id);
-      if (!account) return; // pending-id race; will be re-attempted after fetch
-      connectorFormMode = 'edit';
-      editingConnector = account;
-      pendingConnectorId = null;
-      pendingConnectorFormMode = null;
-      self._pendingConnectorId = null;
-      self._pendingConnectorFormMode = null;
-      if (window.App && window.App.router) {
-        App.router.replaceSub(self.serializeState());
-      }
-      renderConnectorsSection();
-    }
-
-    function enterCreateConnectorMode() {
-      connectorFormMode = 'add';
-      editingConnector = null;
-      pendingConnectorId = null;
-      pendingConnectorFormMode = null;
-      self._pendingConnectorId = null;
-      self._pendingConnectorFormMode = null;
-      if (window.App && window.App.router) {
-        App.router.replaceSub(self.serializeState());
-      }
-      renderConnectorsSection();
-    }
-
-    function findConnector(id) {
-      if (!connectors) return null;
-      for (var i = 0; i < connectors.length; i++) {
-        if (connectors[i].id === id) return connectors[i];
-      }
-      return null;
-    }
-
-    function tryConsumePendingConnector() {
-      // Pull pending state from instance properties — hydrateState may
-      // have set them after init() already captured the closure-locals.
-      var pid = self._pendingConnectorId;
-      var pmode = self._pendingConnectorFormMode;
-      if (!pid && !pmode) return;
-      if (pmode === 'add') {
-        connectorFormMode = 'add';
-        editingConnector = null;
-        self._pendingConnectorId = null;
-        self._pendingConnectorFormMode = null;
-        renderConnectorsSection();
-        return;
-      }
-      if (pmode === 'edit' && pid) {
-        var found = findConnector(pid);
-        if (found) {
-          connectorFormMode = 'edit';
-          editingConnector = found;
-          self._pendingConnectorId = null;
-          self._pendingConnectorFormMode = null;
-          renderConnectorsSection();
-        }
-        // else: not in cache; will retry after fetchConnectors_ resolves.
-      }
-    }
-    self._tryConsumePendingConnector = tryConsumePendingConnector;
 
     function setActiveSection(section, options) {
       options = options || {};
@@ -962,18 +613,10 @@ App.registerArea({
         editingMcpSource = null;
         dirty = false;
       }
-      // M10 F2 leg 05: parallel reset for connectors on leave.
-      if (prevSection === 'connectors' && section !== 'connectors') {
-        connectorFormMode = null;
-        editingConnector = null;
-        dirty = false;
-      }
       if (section === 'knowledge') {
         renderKnowledgeSection();
       } else if (section === 'mcp-sources') {
         renderMcpSourcesSection();
-      } else if (section === 'connectors') {
-        renderConnectorsSection();
       } else {
         renderAgentsSection();
       }
@@ -1204,14 +847,6 @@ App.registerArea({
       });
     }
 
-    function fetchConnectorsList() {
-      // M10 F6 L5 — list of all connector accounts for the agent-editor
-      // Connectors tab. Parallel to fetchMcpSources above; the REST path
-      // is the same one rendered by the connectors grid (leg 4
-      // surface) so a fresh fetch picks up deletions / additions made on
-      // the connectors page since the studio area mounted.
-      return fetch('/api/connectors').then(function (r) { return r.json(); });
-    }
     function fetchKnowledgeBases() { return fetch('/api/knowledge-bases').then(function (r) { return r.json(); }); }
     function fetchProviders() { return fetch('/api/providers').then(function (r) { return r.json(); }); }
 
@@ -1258,20 +893,6 @@ App.registerArea({
         self._allMcpSources = sources;
       }).catch(function () {
         self._allMcpSources = self._allMcpSources || [];
-      });
-    }
-
-    // M10 F6 L5 — parallel to refreshMcpSourcesCache: re-fetch the
-    // connector accounts list on every agent-edit mount so an account
-    // created (or deleted) on the connectors page becomes
-    // visible (or stops being visible — with a defensive "missing"
-    // placeholder if pinned) in the Connectors tab without a manual
-    // page reload. On error, keep the prior cache.
-    function refreshConnectorsCache() {
-      return fetchConnectorsList().then(function (accounts) {
-        self._allConnectors = accounts;
-      }).catch(function () {
-        self._allConnectors = self._allConnectors || [];
       });
     }
 
@@ -1377,12 +998,7 @@ App.registerArea({
     function loadAll() {
       return Promise.all([
         fetchAgents(), fetchTools(), fetchMcpSources(),
-        fetchKnowledgeBases(), fetchProviders(),
-        // M10 F6 L5 — connector accounts populate the agent-editor
-        // Connectors tab. Fetched once at area mount alongside the
-        // other entity lists; refreshed per-edit via
-        // refreshConnectorsCache.
-        fetchConnectorsList()
+        fetchKnowledgeBases(), fetchProviders()
       ])
         .then(function (results) {
           self._agents = results[0];
@@ -1390,7 +1006,6 @@ App.registerArea({
           self._allMcpSources = results[2];
           self._allKnowledgeBases = results[3];
           self._allProviders = results[4];
-          self._allConnectors = results[5];
           // Capability fetch chains off providers — separate Promise.all
           // because it depends on results[4]. Failures are non-fatal:
           // tiles render without chips rather than blocking the list.
@@ -1410,8 +1025,8 @@ App.registerArea({
     // top-level list-fetch failure) instead of touching sectionContentEl.
     // The init path has nothing worth preserving yet, so it appends a
     // persistent `.admin-loading` line — the same class studio.js already
-    // uses for section-level fetch failures (fetchMcpSources_/
-    // fetchConnectors_ below), already styled for `.area-studio` in
+    // uses for section-level fetch failures (fetchMcpSources_ below),
+    // already styled for `.area-studio` in
     // studio.css. Built via createElement/textContent (not innerHTML) per
     // tests/test_ui_guards.py's dynamic-sink freeze.
     function showLoadAllError(err, opts) {
@@ -1667,7 +1282,7 @@ App.registerArea({
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a source
       // created on the source-edit page appears in the MCPs tab without
       // a manual page reload. Both refreshes run in parallel.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorsCache()]).then(function () {
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
         renderEditor(agent);
         updateContentVisibility();
         writeUrl_();
@@ -1696,7 +1311,7 @@ App.registerArea({
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a freshly
       // created source is visible from the new-agent MCPs tab without
       // a manual page reload.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorsCache()]).then(function () {
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
         renderEditor(null);
         updateContentVisibility();
         writeUrl_();
@@ -1751,9 +1366,6 @@ App.registerArea({
         allMcpSources: self._allMcpSources,
         fetchMcpSourceTools: fetchMcpSourceTools,
         pendingMcpAgentSourceId: self._pendingMcpAgentSourceId || null,
-        // M10 F6 L5 — connector accounts list for the Connectors tab.
-        // Same mount-time cache pattern as allMcpSources.
-        allConnectors: self._allConnectors,
         // Callback so renderMcpsTab can notify studio.js when the selected
         // source changes (chip click → per-attachment editor). studio.js
         // updates _selectedMcpAgentSourceId and syncs the URL.
@@ -2370,263 +1982,6 @@ App.registerArea({
 
       data.mcp_overrides = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : null;
 
-      // ── M10 F6 L5 — connector_ids + connector_acls ─────────
-      //
-      // `connector_ids` from the Connectors-tab attach toggles
-      // (`[data-connector-toggle][data-connector-id]`).
-      // Order preserved by DOM walk (mirrors the mcp_source_ids walk
-      // above). Stale ids (pinned-but-deleted accounts) are also
-      // collected via their "(missing — account deleted)" placeholder
-      // row, which renders an enabled toggle — operator must explicitly
-      // un-check to prune. Mirrors the MCP-source-deletion behavior.
-      var connectorToggles = editorEl.querySelectorAll(
-        '[data-connector-toggle][data-connector-id]'
-      );
-      data.connector_ids = [];
-      for (var ci = 0; ci < connectorToggles.length; ci++) {
-        if (connectorToggles[ci].checked) {
-          data.connector_ids.push(
-            connectorToggles[ci].dataset.connectorId
-          );
-        }
-      }
-
-      // `connector_acls` from the per-account ACL editors. L7 HAT
-      // semantic redesign: each axis is independently captured as one
-      // of three values (tri-state):
-      //   - null → inherit account-scope
-      //   - []   → explicit empty (peers: no peer; channels: DMs only)
-      //   - [items] → subset (intersected with account-scope)
-      //
-      // Markup is one of two modes per axis (set by connectors-tab.js):
-      //   - .connector-acl-chiplist with data-connector-acl-mode="chips"
-      //     → free chip-list editor (axis: empty chips ⇒ null,
-      //       non-empty chips ⇒ [items])
-      //   - .connector-acl-checkboxlist with
-      //     data-connector-acl-mode="checkboxes"
-      //     → checkbox list (all checked ⇒ null,
-      //       none checked ⇒ [],
-      //       some checked ⇒ [checked items])
-      //
-      // If BOTH axes of an account resolve to null (inherit-both), we
-      // OMIT the account entry from the serialized payload (matches the
-      // pre-redesign omit-when-both-empty behavior; the validator
-      // accepts both shapes either way). data.connector_acls = null
-      // when the outer dict ends up empty.
-      var aclAxisEls = editorEl.querySelectorAll(
-        '[data-connector-acl-account][data-connector-acl-list][data-connector-acl-mode]'
-      );
-      var aclAccounts = {};
-      for (var li = 0; li < aclAxisEls.length; li++) {
-        var wrapper = aclAxisEls[li];
-        var aid = wrapper.dataset.connectorAclAccount;
-        var listKind = wrapper.dataset.connectorAclList;
-        var mode = wrapper.dataset.connectorAclMode;
-        if (!aid || (listKind !== 'peers' && listKind !== 'channels')) continue;
-
-        // M11 F12 L4 — per-agent peers/channels persist in the
-        // structured-tuple shape mirroring account-scope storage:
-        //   peers    → ``[{id}]`` bare dicts (post-v28 M11 F17 L8
-        //               Leg D; dm_allowed retired — per-agent peers
-        //               never carried it post-v26 either; the latent
-        //               bug here emitted it with value true which the
-        //               post-v26 Pydantic validator rejects).
-        //   channels → ``[{guild_id, channel_id}]`` (guild_id sourced
-        //               from the per-channel-id lookup map on the
-        //               checkbox wrapper, ``data-channel-guild-id-map``
-        //               attribute; the dropdown emits structured tuples
-        //               directly so the chips-mode path passes them
-        //               through).
-        function _wrapPerAgentEntry(id, axisListKind, channelGuildIdMap) {
-          var s = (id == null) ? '' : String(id);
-          if (!s) return null;
-          if (axisListKind === 'peers') {
-            return { id: s };
-          }
-          if (axisListKind === 'channels') {
-            var g = null;
-            if (channelGuildIdMap && Object.prototype.hasOwnProperty.call(channelGuildIdMap, s)) {
-              var mapped = channelGuildIdMap[s];
-              g = mapped ? String(mapped) : null;
-            }
-            return { guild_id: g, channel_id: s };
-          }
-          return s;
-        }
-
-        var axisValue; // null | [] | [items]
-        if (mode === 'checkboxes') {
-          var boxes = wrapper.querySelectorAll('input[type="checkbox"]');
-          var total = boxes.length;
-          var checkedVals = [];
-          for (var bi = 0; bi < total; bi++) {
-            if (boxes[bi].checked) checkedVals.push(boxes[bi].value);
-          }
-          // M11 F12 L4 — channels checkbox wrapper carries a per-id
-          // guild_id lookup as a JSON-encoded data attribute (populated
-          // by connectors-tab.js from the account-scope structured
-          // shape). Decode once per wrapper; pass into the wrapper.
-          var channelGuildIdMap = null;
-          if (listKind === 'channels') {
-            var rawMap = wrapper.getAttribute('data-channel-guild-id-map');
-            if (rawMap) {
-              try { channelGuildIdMap = JSON.parse(rawMap); }
-              catch (e) { channelGuildIdMap = null; }
-            }
-          }
-          if (total === 0) {
-            // No account-scope chips to choose from — treat as inherit.
-            axisValue = null;
-          } else if (checkedVals.length === total) {
-            axisValue = null; // all checked = inherit
-          } else if (checkedVals.length === 0) {
-            axisValue = []; // none checked = explicit empty
-          } else {
-            var wrappedSubset = [];
-            for (var wi = 0; wi < checkedVals.length; wi++) {
-              var wrapped = _wrapPerAgentEntry(checkedVals[wi], listKind, channelGuildIdMap);
-              if (wrapped) wrappedSubset.push(wrapped);
-            }
-            axisValue = wrappedSubset;
-          }
-        } else {
-          // chips mode
-          //
-          // M11 F3 L6b — per-agent overlay dispatch: when the wrapper
-          // carries an ``_overlayChipValues`` getter (installed by
-          // connectors-tab.js when the per-agent overlay swaps in the
-          // dropdown for Discord-type accounts), consult it first. The
-          // dropdown's chip DOM shape differs from the chip-list
-          // editor's; falling through to the text-node walk would
-          // mis-read dropdown chips. Stub-type / no-entry accounts
-          // continue rendering the chip-list and the text-node walk
-          // reads them identically to the pre-L6b shape.
-          //
-          // M11 F12 L4 — dropdown path returns the structured-tuple
-          // shape directly (its valueShape was 'peer' / 'channel'); pass
-          // those entries through unchanged. The text-node-walk fallback
-          // produces bare id strings, which get wrapped via
-          // ``_wrapPerAgentEntry`` (guild_id defaults to null for
-          // chip-list-mode channels — these flows have no account-scope
-          // chips to source guild context from).
-          var chipVals = [];
-          if (typeof wrapper._overlayChipValues === 'function') {
-            var overlayVals = wrapper._overlayChipValues() || [];
-            for (var ov = 0; ov < overlayVals.length; ov++) {
-              var ovEntry = overlayVals[ov];
-              if (ovEntry == null) continue;
-              if (typeof ovEntry === 'object') {
-                chipVals.push(ovEntry);  // already structured per L4
-              } else {
-                var ovStr = String(ovEntry);
-                if (ovStr) {
-                  var ovWrapped = _wrapPerAgentEntry(ovStr, listKind, null);
-                  if (ovWrapped) chipVals.push(ovWrapped);
-                }
-              }
-            }
-          } else {
-            var chips = wrapper.querySelectorAll('.chip');
-            for (var cj = 0; cj < chips.length; cj++) {
-              var text = chips[cj].textContent || '';
-              if (text.charAt(text.length - 1) === '×') {
-                text = text.slice(0, -1);
-              }
-              text = text.trim();
-              if (!text) continue;
-              var chipWrapped = _wrapPerAgentEntry(text, listKind, null);
-              if (chipWrapped) chipVals.push(chipWrapped);
-            }
-          }
-          if (chipVals.length === 0) {
-            axisValue = null; // empty chip-list = inherit / unrestricted
-          } else {
-            axisValue = chipVals;
-          }
-        }
-
-        if (!aclAccounts[aid]) aclAccounts[aid] = { peers: null, channels: null };
-        aclAccounts[aid][listKind] = axisValue;
-      }
-
-      // M11 F10 L3: collect per-agent admit_dms opt-out toggles. Walks
-      // every input with ``data-field="admit_dms"`` carrying a
-      // ``data-account-id``; emits ``admit_dms: false`` into
-      // ``aclAccounts[aid]`` ONLY when the checkbox is UNCHECKED.
-      //
-      // Semantic contract (mirrors the connector_acls "absent = inherit"
-      // convention for peers/channels):
-      //   - checked → DO NOT emit the key (inherit account-scope)
-      //   - unchecked → emit ``admit_dms: false`` (explicit opt-out)
-      //
-      // ``true`` is structurally equivalent to inherit and never
-      // produced by the UI; it would just clutter the persisted shape.
-      //
-      // Disabled-and-checked inputs are skipped — when account-scope
-      // ``dm_admission === "none"`` the per-agent override is inert,
-      // and dropping it from emission keeps storage clean. This is the
-      // intentional cleanup posture documented in the L3 leg artifact:
-      // flipping account-scope to "none" and saving the agent removes
-      // the per-agent opt-out from storage.
-      //
-      // Walks AFTER the peers/channels collection (which initializes
-      // ``aclAccounts[aid] = { peers: null, channels: null }`` entries
-      // for any account with rendered axis editors) so a merge is
-      // safe — but we still init on miss to handle the
-      // admit-dms-without-peers-or-channels-rendered edge case (e.g.
-      // empty account-scope lists where no axis editor mounts).
-      var admitDmsToggles = editorEl.querySelectorAll(
-        '[data-field="admit_dms"][data-account-id]'
-      );
-      for (var adi = 0; adi < admitDmsToggles.length; adi++) {
-        var adInput = admitDmsToggles[adi];
-        var adAid = adInput.getAttribute('data-account-id');
-        if (!adAid) continue;
-        if (adInput.checked) continue;  // checked = inherit (no key emitted)
-        if (adInput.disabled) continue;  // disabled = structurally inert
-        if (!aclAccounts[adAid]) {
-          aclAccounts[adAid] = { peers: null, channels: null };
-        }
-        aclAccounts[adAid].admit_dms = false;
-      }
-
-      var finalAcls = {};
-      for (var aid2 in aclAccounts) {
-        var entry = aclAccounts[aid2];
-        // M11 F10 L3: omit accounts where ALL of peers/channels/admit_dms
-        // are inherit-state. Equivalently: emit the entry only if any
-        // axis has an explicit narrowing. ``admit_dms`` is explicit
-        // when the key is present (collect path only sets it to
-        // ``false``; ``true`` and absent both inherit).
-        if (entry.peers === null
-            && entry.channels === null
-            && !("admit_dms" in entry)) continue;
-        finalAcls[aid2] = entry;
-      }
-      data.connector_acls = Object.keys(finalAcls).length > 0 ? finalAcls : null;
-
-      // M11 F7 L11: collect per-account always_listen toggles into a
-      // ``{account_id: bool, ...}`` dict for the AgentConfig
-      // ``connector_always_listen`` field (L6 storage). Mirrors the
-      // ``connector_acls`` collection precedent immediately above —
-      // walk every per-agent toggle that carries
-      // ``data-field="connector_always_listen"`` with
-      // ``data-account-id``, group by account id, and emit ``null`` when
-      // no toggles are rendered (no attached accounts, or the agent
-      // editor's Connectors tab never mounted). The L6 validator accepts
-      // null + the dict shape; null is the "field not in use" baseline.
-      var alwaysListenToggles = editorEl.querySelectorAll(
-        '[data-field="connector_always_listen"][data-account-id]'
-      );
-      var alwaysListenDict = {};
-      for (var ali = 0; ali < alwaysListenToggles.length; ali++) {
-        var alInput = alwaysListenToggles[ali];
-        var alAid = alInput.getAttribute('data-account-id');
-        if (alAid) alwaysListenDict[alAid] = !!alInput.checked;
-      }
-      data.connector_always_listen = Object.keys(alwaysListenDict).length > 0
-        ? alwaysListenDict
-        : null;
 
       return data;
     }

@@ -1,6 +1,6 @@
 # Mission: Connector Reset
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 
@@ -90,17 +90,19 @@ when done directly against their APIs.
       pairing code for first contact; an unknown sender gets silence and
       nothing is persisted for them. There is no LLM-based engagement gate,
       no per-agent ACL overlay, and no approval queue.
-- [ ] Exactly one agent serves a connector (with an optional channel→agent
-      map if Open Question 3 resolves that way); there is no routing engine,
-      no routing rules, and no routing audit log.
-- [ ] The `pending_approvals` table and the `agents.connector_acls` /
-      `connector_always_listen` columns are retired by a single new migration;
-      an existing database with legacy connector rows and legacy agent JSON
-      upgrades cleanly and its Discord connector keeps working after the
-      operator re-saves it in the new form.
+- [ ] A connector serves one default agent, with an optional flat
+      channel→agent map (a config field, not an engine); there is no routing
+      engine, no routing rules, and no routing audit log.
+- [ ] The `pending_approvals` table, the `agents.connector_ids` /
+      `connector_acls` / `connector_always_listen` columns, and legacy
+      connector rows are
+      retired by a single new migration; an existing database with legacy
+      connector rows and legacy agent JSON upgrades cleanly, and the
+      operator re-creates the Discord connector in the new form.
 - [ ] The connector subsystem — `the_one/connectors/` including both platform
       clients, plus the connector tools — is at most 3,000 Python lines, and
-      the connector Studio UI is at most 1,000 JS lines.
+      the connector Studio UI — including both platforms' Studio forms — is
+      at most 1,000 JS lines.
 - [ ] `make test-unit` and every browser lane pass; the tests for removed
       capabilities are deleted, not skipped; the `discord_hat` marker and its
       Makefile target are gone; a new live HAT exists for Discord and Telegram.
@@ -146,12 +148,20 @@ when done directly against their APIs.
   only agent→platform path; the `set_factory()`/`get_factory()` accessor;
   and the `chat_sessions` platform columns and partial index. No chat-history
   migration.
-- **The migration ledger is append-only.** v13–v29 remain as history; this
-  mission adds one migration step. The `connectors.type` CHECK constraint
+- **The migration ledger is append-only.** v13–v37 remain as history (head
+  verified v37 at flight-planning, 2026-08-30); this mission adds one
+  migration step (v38). The `connectors.type` CHECK constraint
   changes only via the established table-rename ceremony.
 - **Criteria come from the one-job statement, not from M10/M11's deferral
   lists.** The M11 debrief's first lesson. Nothing deferred by M10 or M11 is
   in scope unless it appears in the Success Criteria above.
+- **The size ceilings are stop-and-split triggers, not aspirations.** The
+  estimated landing zone (Flight 2 ≤1,500 + Discord client 700–1,100 +
+  Telegram ~300) leaves as little as ~100 lines of slack under the 3,000
+  Python ceiling. Track the running connector line count at each flight's
+  close; crossing 3,000 Python or 1,000 JS lines mid-flight stops work for
+  a split/renegotiation conversation — the same mechanism as Flight 1's
+  pre-declared split point, not a criterion quietly failed at the end.
 - **Live verification never targets port 8484** or the operator's default
   data directory — dedicated dev instance only, per the standing rule.
 - **Planning-only skills do not implement.** Implementation runs through
@@ -175,32 +185,34 @@ when done directly against their APIs.
 - Network egress to `discord.com`/`gateway.discord.gg` and `api.telegram.org`
   from the dev machine.
 
-## Open Questions
+## Resolved Questions (2026-08-30 planning session)
 
-1. **Telegram: raw Bot API or `python-telegram-bot`?** The constraint above
-   answers this (raw `getUpdates` long-poll on `httpx`, ~300 lines, zero
-   deps), but PTB is LGPL and `httpx`-only and would save writing the
-   client. Confirm the constraint holds before Flight 4 is specced.
-2. **Does anything else re-introduce `aiohttp` once `discord.py` leaves?**
-   Verify with a fresh `uv lock` after Flight 1; if a transitive path remains,
-   the first criterion needs re-wording, not quiet failure.
-3. **One agent per connector, or connector default + channel→agent map?** A
-   flat map is a config field, not an engine, and covers "this channel is the
-   coding agent's." Recommend the map; decide before Flight 2's contract is
-   fixed.
-4. **History tool: shrink to "last N messages" or drop?** The current
-   546-line tool fetches channel and DM history. A 40-line "last N" is the
-   common case. Decide in Flight 2.
-5. **Text commands: keep `/new` only?** Recommend yes — a peer needs a way
-   to start a fresh session; nothing else in the six-command vocabulary
-   survives one-agent-per-connector.
-6. **Existing Discord connector rows on upgrade.** Keep the row and prune
-   reserved config keys in the migration (recommended), or require the
-   operator to re-create the connector? The eighth criterion assumes keep.
-7. **Where does the fake-gateway test fixture live?** A `websockets.serve`
-   Discord gateway double is the natural unit fixture for Flight 3; decide
-   whether it belongs under `tests/_sandbox_fixtures.py`-style shared helpers
-   or the Discord module's own tests.
+1. **Telegram client: raw Bot API.** `getUpdates` long-poll on `httpx`,
+   ~300 lines, zero new dependencies. PTB considered and declined — the
+   no-chat-SDK constraint holds as written.
+2. **Nothing else re-introduces `aiohttp`.** Verified against the current
+   `uv.lock`: the only dependents are `discord-py` and the project's own
+   explicit CVE-floor pin (`aiohttp>=3.14.3`, documented in `pyproject.toml`
+   as "via discord.py"). Removing both removes the package. The fresh
+   `uv lock` after Flight 1 remains the confirming check.
+3. **Connector default agent + optional channel→agent map.** The map is a
+   flat config field, not an engine; covers "this channel is the coding
+   agent's." Reflected in the seventh success criterion.
+4. **History tool shrinks to "last N messages."** The 546-line
+   `the_one/tools/connector_history.py` is replaced in Flight 2 by a small
+   tool fetching the last N messages of the current channel/DM.
+5. **Text commands: `/new` only.** The rest of the six-command vocabulary
+   (`/agents`, `/talk-to`, `/whoami`, `/reset`, `/help`) does not survive
+   one-agent-per-connector; with a single command there is nothing for
+   `/help` to list.
+6. **Existing Discord connector rows are retired, not migrated.** The
+   Flight 1 migration drops legacy connector rows along with
+   `pending_approvals` and the agent ACL columns; the operator re-creates
+   the connector in the new form. Reflected in the eighth success criterion.
+7. **Fake-gateway fixture lives at the shared tests root.** An
+   underscore-prefixed module beside `tests/_pty_fixtures.py` and
+   `tests/_sandbox_fixtures.py`, matching the project's convention for
+   shared fixture helpers.
 
 ## Known Issues
 
@@ -212,21 +224,27 @@ when done directly against their APIs.
 > planned and created one at a time as work progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] Flight 1: Remove — delete `the_one/connectors/`, the connector tools,
+- [x] Flight 1: Remove — delete `the_one/connectors/`, the connector tools,
       the Studio connector editor and Chat approval/audit panels, the 18
       routes, the lifespan warm-acquire/pool-drain, `AgentConfig` ACL fields
       and validator, `PendingApproval`; one migration retiring
-      `pending_approvals` and the agent ACL columns; `discord.py` and the
+      `pending_approvals`, the agent ACL columns, and legacy connector
+      rows; `discord.py` and the
       aiohttp CVE-floor block out of `pyproject.toml`, lock regenerated;
       `discord_hat` marker, Makefile target, `tests/live/discord_hat/`, the
-      11 connector behavior specs and ~52 test files removed; PyInstaller
+      11 connector behavior specs and ~52 test files removed (an
+      approximation — files that also exercise kept behavior such as
+      `Message.visibility` are edited to drop connector setup, not
+      deleted); PyInstaller
       `nacl` exclusion removed; docs reduced to a stub contract. Ends green
       with no connector runtime.
 - [ ] Flight 2: Channel contract — one Protocol
       (`connect` / `disconnect` / `send` / `doctor` + an inbound callback),
       one long-lived listener task per connector with reconnect, the kept
       session keying and send tool re-attached, flat allowlist + pairing
-      code, the DM / mention / always-listen reply policy, `/new`, a minimal
+      code, the DM / mention / always-listen reply policy, `/new` (the sole
+      text command), the default-agent + optional channel→agent map, the
+      small "last N messages" history tool, a minimal
       Studio form, the in-process stub plugin, and the rewritten
       `connectors/README.md` and `agents.md` section. Target ≤1,500 Python
       lines including the stub.
@@ -235,8 +253,8 @@ when done directly against their APIs.
       `resume_gateway_url`, reconnect with backoff, non-reconnectable close
       codes 4004/4010–4014), REST client with per-bucket + global rate
       limiting and 429 handling, the ~10 endpoints a text bot needs, a
-      fake-gateway fixture, a live HAT and a behavior test against the
-      operator's bot.
+      fake-gateway fixture at the shared tests root, a live HAT and a
+      behavior test against the operator's bot.
 - [ ] Flight 4: Telegram — second platform through the same contract on
       `httpx` long-poll; proves the "no files outside its own module and
       registration site" criterion; live HAT.
@@ -246,7 +264,10 @@ when done directly against their APIs.
 **Pre-declared split point:** if Flight 1's deletion cannot land green
 without partially rebuilding (most likely because the Chat UI's connector
 session rendering or the encryption-rotation invariant tests need a live
-connector row to exercise), stop and split — a "stub-only connector row"
+connector row to exercise — though the 2026-08-30 viability check found
+the rotation test already seeds its connector row via raw SQL and the
+Chat UI's session badge is keyed on `chat_sessions.platform`, so neither
+trigger is expected to fire), stop and split — a "stub-only connector row"
 flight between 1 and 2 — rather than letting the delete flight absorb
 rebuild work. The M11 "gate-sweep batch" lesson applies in reverse: a delete
 flight that starts building is the same scope explosion.

@@ -115,7 +115,7 @@ class PlanCredentialSource:
     Obtain instances via :func:`get_credential_source` — the process-wide
     registry keys one source (and one lock) per provider id, which is
     what makes the single-flight guarantee hold across every consumer
-    (agents, connectors, ``/test``, ``/models``).
+    (agents, ``/test``, ``/models``).
     """
 
     def __init__(self, provider_id: str):
@@ -219,8 +219,8 @@ def get_credential_source(provider_id: str) -> PlanCredentialSource:
     """Return the process-wide credential source for ``provider_id``.
 
     One source (and one lock) per provider id — every construction site
-    (agent factory, connector inference, ``/test``, ``/models``) resolves
-    through here so refreshes are single-flight process-wide.
+    (agent factory, ``/test``, ``/models``) resolves through here so
+    refreshes are single-flight process-wide.
     """
     source = _sources.get(provider_id)
     if source is None:

@@ -34,14 +34,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock
 
-from the_one.connectors import OPERATOR_VISIBILITY, PLATFORM_SEND_OK_PREFIX
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.app import (
     Session,
     _process_and_broadcast,
     _resume_paused_session,
 )
-from the_one.llm.base import Message, ThinkingBlock, ToolCall, ToolResult
+from the_one.llm.base import OPERATOR_VISIBILITY, Message, ThinkingBlock, ToolCall, ToolResult
 
 
 class _ShimStubAgent:
@@ -293,7 +292,10 @@ async def test_ws_typed_with_platform_send_tool_result_gets_none(monkeypatch) ->
     success_tool_result = Message.tool(
         ToolResult(
             tool_call_id="tc-send",
-            content=f"{PLATFORM_SEND_OK_PREFIX} delivered",
+            # "[platform-send-ok]" was PLATFORM_SEND_OK_PREFIX from the deleted
+            # connectors package (M10 F04 L01); the send tool it tagged is
+            # gone with the package (DD-4), so the literal is inlined here.
+            content="[platform-send-ok] delivered",
             metadata=None,
         )
     )
@@ -604,7 +606,7 @@ async def test_live_thinking_broadcast_omits_visibility_when_unset(
     handling exactly (omitted, not null).
 
     This is also the connector-tagged-session case in practice:
-    ``tag_post_step_visibility`` (``connectors/post_step_metadata.py:57``)
+    ``tag_post_step_visibility`` (``llm/base.py``)
     runs AFTER the step loop that broadcasts this event, so
     ``msg.visibility`` is still ``None`` here even on a connector-attached
     session — full live/replay parity for those sessions is reached only

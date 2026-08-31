@@ -40,9 +40,8 @@ import pytest
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
-from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.db.codec import encode_messages
-from the_one.llm.base import Message, ToolResult
+from the_one.llm.base import OPERATOR_VISIBILITY, Message, ToolResult
 
 # `app_with_data_dir` (Mission 20 / Flight 1 / Leg 3): formerly a local
 # fixture duplicated verbatim across 8 `test_flow_*.py` files, now

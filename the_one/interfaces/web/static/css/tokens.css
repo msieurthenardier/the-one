@@ -134,7 +134,6 @@
     --badge-openrouter: #7c3aed;
     --badge-mock: #888888;
     --badge-unknown: #888888;
-    --badge-discord: #5865F2;
 
     /* tool category badges (F6 leg 02) — semantically distinct from provider
        badges so the visual grouping reads as "tool category" not "provider type". */
@@ -155,7 +154,6 @@
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;
-    --badge-ink-discord: #ffffff;
     --badge-ink-filesystem: #101114;
     --badge-ink-execution: #101114;
     --badge-ink-web: #ffffff;
@@ -269,7 +267,6 @@
     --badge-openrouter: #7c3aed;
     --badge-mock: #888888;
     --badge-unknown: #888888;
-    --badge-discord: #5865F2;
 
     /* tool category badges (F6 leg 02) — filesystem/execution stay slightly
        lighter than their dark-theme fills (both take dark ink; see
@@ -290,7 +287,6 @@
     --badge-ink-openrouter: #ffffff;
     --badge-ink-mock: #101114;
     --badge-ink-unknown: #101114;
-    --badge-ink-discord: #ffffff;
     --badge-ink-filesystem: #101114;
     --badge-ink-execution: #101114;
     --badge-ink-web: #ffffff;

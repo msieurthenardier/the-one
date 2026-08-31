@@ -226,10 +226,10 @@ PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane shared    # cross-cutti
 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio -q
 ```
 
-Each lane runs independently green under the venv python (browser tests need `discord`, which the venv has and system `python3` does not — always pass `PYTHON=.venv/bin/python`). The full suite still runs exactly as before (`make test-browser`, no `--lane`).
+Each lane runs independently green under the venv python (always pass `PYTHON=.venv/bin/python`). The full suite still runs exactly as before (`make test-browser`, no `--lane`).
 
 - **`chat`** — `test_flow_chat*`, `test_flow_markdown_chat`, `test_flow_new_chat`, `test_flow_streaming`, `test_flow_context_overlay_thresholds`, `test_flow_usage_restore`
-- **`studio`** — `test_flow_studio_*`, `test_studio_*`, `test_connector_*`, `test_mcp_*`, `test_flow_agent_*`, `test_flow_connector_*`
+- **`studio`** — `test_flow_studio_*`, `test_studio_*`, `test_mcp_*`, `test_flow_agent_*`
 - **`system`** — `test_flow_admin_*`, `test_flow_provider_*`
 - **`shared`** — the **complement**: every browser test file not claimed by the three area lanes (smoke, theme sync, markdown, keyboard, hash routing, oauth modal, dirty-confirm, cross-area gate, picker, seeders, app fixture, …)
 

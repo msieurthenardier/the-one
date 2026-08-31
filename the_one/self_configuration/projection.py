@@ -14,7 +14,6 @@ from typing import Any
 
 from the_one.agent.config import AgentConfig
 from the_one.db.repositories import (
-    ConnectorRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
@@ -37,9 +36,8 @@ async def build_get_my_configuration(
     ``provider`` (``{name, type}`` — never the id, api_key, base_url, or
     secrets), ``max_iterations``, ``chat_history_retention_days``,
     ``enabled_tools``, ``disabled_tools``, ``knowledge_bases`` (names).
-    Never touches ``tool_overrides``, ``mcp_overrides``, ``connector_acls``,
-    ``connector_always_listen``, ``provider_config_id``, ``kb_ids``,
-    ``mcp_source_ids``, or ``connector_ids``.
+    Never touches ``tool_overrides``, ``mcp_overrides``, ``provider_config_id``,
+    ``kb_ids``, or ``mcp_source_ids``.
 
     Edge case: no provider configured → ``provider: None`` (a provider is a
     chat concern, not a self-configuration-surface gate).
@@ -91,8 +89,6 @@ def _builtin_tools_for_agent(
         tool_configs_by_name,
         agent_overrides,
         agent_name=config.name,
-        connector_ids=config.connector_ids,
-        connector_acls=config.connector_acls,
     )
     return [
         {"name": t.name, "description": t.description}
@@ -106,15 +102,19 @@ async def build_describe_my_capabilities(
     *,
     tool_config_repo: ToolConfigRepository,
     mcp_repo: MCPSourceRepository,
-    connector_repo: ConnectorRepository,
 ) -> dict[str, Any]:
     """LD5's ``describe_my_capabilities`` projection.
 
     ``builtin_tools`` (name + description, filtered by the operator +
-    per-agent predicates), ``mcp_sources`` (name, type, and tool names from
-    ``config._cache.tools`` run through :func:`filter_mcp_tools_by_override`
-    — never bypassed), and ``connectors`` (name, type). No source config,
-    URL, header, or secret ever appears here.
+    per-agent predicates) and ``mcp_sources`` (name, type, and tool names
+    from ``config._cache.tools`` run through
+    :func:`filter_mcp_tools_by_override` — never bypassed). No source
+    config, URL, header, or secret ever appears here.
+
+    Mission 23 Flight 1 (backend-removal leg, DD-5): the payload no longer
+    carries a ``connectors`` key — the connector subsystem (and this
+    projection's ``ConnectorRepository`` dependency) is gone. A future
+    flight may re-add a minimal field over the kept ``connectors`` table.
 
     The self-configuration surface itself is listed among ``mcp_sources``
     with no special-casing: once enabled, its row is an ordinary entry in
@@ -162,16 +162,7 @@ async def build_describe_my_capabilities(
             }
         )
 
-    connectors: list[dict[str, str]] = []
-    for account_id in config.connector_ids:
-        try:
-            account = await connector_repo.get(account_id)
-        except KeyError:
-            continue
-        connectors.append({"name": account.name, "type": account.type})
-
     return {
         "builtin_tools": builtin_tools,
         "mcp_sources": mcp_sources,
-        "connectors": connectors,
     }

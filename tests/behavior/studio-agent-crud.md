@@ -84,9 +84,8 @@ hard reload) so a stale in-memory list can't mask the mutation.
 
 - Provider configuration / the Admin providers surface — the mock provider is a seeded
   precondition, not under test here (covered by the system/provider browser lane).
-- The other agent-editor tabs' content (Knowledge stub, MCPs, Connectors, Built-in Tools) —
-  this flow only drives the General tab. Connector routing keyboard a11y is covered by
-  `connector-editor-keyboard-a11y`.
+- The other agent-editor tabs' content (Knowledge stub, MCPs, Built-in Tools) — this flow
+  only drives the General tab.
 - The save→delete race fallback (concurrent delete during a PUT) — covered deterministically
   by the unit/route-stub test `tests/browser/test_flow_studio_agent_save_race.py`, not this
   wall-clock flow.

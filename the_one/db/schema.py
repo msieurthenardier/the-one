@@ -7,12 +7,11 @@ import logging
 
 import aiosqlite
 
-from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 37
+CURRENT_VERSION = 38
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -20,12 +19,14 @@ CURRENT_VERSION = 37
 # addition only needs to touch ``_provider_types.py``.
 _PROVIDER_TYPES_SQL = ", ".join(f"'{t}'" for t in PROVIDER_TYPES)
 
-# Build comma-separated quoted SQL literal list, sourced from
-# CONNECTOR_TYPES. The v19 CHECK constraint (added by F8 L2's
-# table-rename ceremony on ``connector_accounts.type``) references this;
-# future connector types added to the tuple flow automatically into the
-# constraint via the next CHECK-changing migration.
-_CONNECTOR_TYPES_SQL = ", ".join(f"'{t}'" for t in CONNECTOR_TYPES)
+# Mission 23 Flight 1 (backend-removal leg): ``db/_connector_types.py`` —
+# and its ``CONNECTOR_TYPES``-derived ``_CONNECTOR_TYPES_SQL`` this module
+# used to build — is deleted with the connector package. The v19 and v23
+# ``CHECK (type IN ('discord', 'stub'))`` constraints below are now frozen
+# inline literals: schema history is append-only, so they never change
+# regardless of what Flight 2 does to the model's Literal. A future
+# CHECK-changing migration (Flight 2 or later) adds a NEW constraint via
+# the established table-rename ceremony — it does not edit these.
 
 SCHEMA_V1 = f"""\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -749,11 +750,13 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # v12. F8 L2 lands layer 4 of the connector-type 6-layer extension
         # checklist documented in ``agents.md:299-306``.
         #
-        # CHECK set is sourced from ``_CONNECTOR_TYPES_SQL`` (defined at
-        # module top, mirroring ``_PROVIDER_TYPES_SQL``) so future
-        # connector types added to ``CONNECTOR_TYPES`` flow automatically
-        # into the next CHECK-changing migration without editing this
-        # block. ``'stub'`` is in the CHECK per the M07 ``'mock'``-in-
+        # CHECK set is a frozen inline literal (Mission 23 Flight 1 —
+        # ``db/_connector_types.py`` and its derivation are gone; schema
+        # history is append-only, so this block never changes again). A
+        # future connector type does NOT flow in automatically — Flight 2
+        # or later adds a NEW constraint via a fresh CHECK-changing
+        # migration, it does not edit this one. ``'stub'`` is in the CHECK
+        # per the M07 ``'mock'``-in-
         # PROVIDER_TYPES precedent — 69+ test sites construct
         # ``Connector(type='stub')`` (the Pydantic class was renamed
         # from its historical *Account* form by M11 F11 L1 v23); the
@@ -791,14 +794,14 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
             pre_v23_source_exists = await cursor.fetchone() is not None
 
         if pre_v23_source_exists:
-            await conn.executescript(f"""\
+            await conn.executescript("""\
 PRAGMA foreign_keys=OFF;
 
 CREATE TABLE connector_accounts_new (
     id TEXT PRIMARY KEY,
-    type TEXT NOT NULL CHECK (type IN ({_CONNECTOR_TYPES_SQL})),
-    config TEXT DEFAULT '{{}}',
-    secrets TEXT DEFAULT '{{}}',
+    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),
+    config TEXT DEFAULT '{}',
+    secrets TEXT DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     name TEXT NOT NULL DEFAULT '',
@@ -983,7 +986,7 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
         #    in place, so the v6/v12/v19 ``executescript`` row-rewrite
         #    precedent applies — CREATE NEW with the renamed FK
         #    reference, INSERT FROM OLD, DROP OLD, ALTER RENAME. The
-        #    ``CHECK (type IN ({_CONNECTOR_TYPES_SQL}))`` constraint
+        #    ``CHECK (type IN ('discord', 'stub'))`` constraint
         #    on the parent ``type`` column is preserved verbatim from
         #    v19; the 9-column shape is otherwise unchanged.
         # 2. Column-rename on ``chat_sessions`` + ``agents`` (no FK on
@@ -1057,6 +1060,63 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
             if pre_v23_source_exists:
                 await conn.execute("DROP TABLE connector_accounts")
                 await conn.commit()
+
+            # Mission 23 Flight 1 (backend-removal leg) note: v38 drops
+            # ``pending_approvals`` (whole table) and the ``agents``
+            # connector-id column while leaving ``connectors`` itself
+            # untouched (only its ROWS are cleared) — breaking the
+            # assumption above that ``connectors`` existing implies
+            # ``pending_approvals``/``agents`` are ALSO already in their
+            # post-v23 shape. A schema_version-rewind re-run recreates
+            # ``pending_approvals`` fresh (v21) and re-adds the agents
+            # connector column (v17) in their OLD pre-v23 names while
+            # ``connectors`` survives untouched from the prior pass.
+            # Finish segment 2 / segment 4 here too if still needed —
+            # same shape checks and DDL as the ``elif`` branch below,
+            # just reachable when ``connectors`` already exists.
+            async with conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_approvals'"
+            ) as cursor:
+                pa_present_here = (await cursor.fetchone()) is not None
+            if pa_present_here:
+                async with conn.execute("PRAGMA table_info(pending_approvals)") as cursor:
+                    pa_cols_here = {r[1] for r in await cursor.fetchall()}
+                if "connector_account_id" in pa_cols_here:
+                    await conn.execute("PRAGMA foreign_keys=OFF")
+                    await conn.executescript("""\
+CREATE TABLE pending_approvals_new (
+    id TEXT PRIMARY KEY,
+    connector_id TEXT NOT NULL
+        REFERENCES connectors(id) ON DELETE CASCADE,
+    peer_id TEXT NOT NULL,
+    peer_name TEXT NOT NULL,
+    preview TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    status TEXT NOT NULL
+        CHECK (status IN ('pending', 'approved', 'dismissed')),
+    resolved_at TEXT
+);
+
+INSERT INTO pending_approvals_new (id, connector_id, peer_id, peer_name, \
+preview, received_at, status, resolved_at)
+    SELECT id, connector_account_id, peer_id, peer_name, preview, \
+received_at, status, resolved_at FROM pending_approvals;
+
+DROP TABLE pending_approvals;
+
+ALTER TABLE pending_approvals_new RENAME TO pending_approvals;
+
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
+    ON pending_approvals (connector_id, peer_id, status);
+""")
+                    await conn.execute("PRAGMA foreign_keys=ON")
+
+            async with conn.execute("PRAGMA table_info(agents)") as cursor:
+                ag_cols_here = {row[1] for row in await cursor.fetchall()}
+            if "connector_account_ids" in ag_cols_here:
+                await conn.execute(
+                    "ALTER TABLE agents RENAME COLUMN connector_account_ids TO connector_ids"
+                )
         elif pre_v23_source_exists:
             # Per-segment Python-level guards (NOT a single
             # executescript) because the hand-built ``TestSchemaVNN_*_
@@ -1075,14 +1135,14 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
 
             # Segment 1: connector_accounts → connectors row-rewrite
             # (always runs in this branch — pre_v23_source_exists is True).
-            await conn.executescript(f"""\
+            await conn.executescript("""\
 PRAGMA foreign_keys=OFF;
 
 CREATE TABLE connectors_new (
     id TEXT PRIMARY KEY,
-    type TEXT NOT NULL CHECK (type IN ({_CONNECTOR_TYPES_SQL})),
-    config TEXT DEFAULT '{{}}',
-    secrets TEXT DEFAULT '{{}}',
+    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),
+    config TEXT DEFAULT '{}',
+    secrets TEXT DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     name TEXT NOT NULL DEFAULT '',
@@ -2140,3 +2200,58 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (37,))
         await conn.commit()
         version = 37
+
+    if version < 38:
+        # Mission 23 Flight 1 (backend-removal leg, DD-2) — retire the
+        # connector runtime's DB surface: the ``pending_approvals`` table
+        # (+ its index), the three ``agents`` connector-attachment columns,
+        # and every row in ``connectors`` (the table, ``ConnectorRepository``,
+        # and encryption-rotation enrollment are KEPT — only legacy rows go;
+        # Flight 2 rebuilds minimal CRUD over this same table). Follows the
+        # ledger's idempotent presence-check pattern with
+        # ``INSERT OR IGNORE INTO schema_version`` LAST. A plain
+        # ``ALTER TABLE agents DROP COLUMN`` suffices for the three
+        # columns — design review confirmed no index/CHECK entanglement on
+        # any of them, so the table-rename ceremony (v10/v19/v23/v37
+        # exemplars) is not needed here; SQLite's ``DROP COLUMN`` support
+        # (3.35.0, 2021-03-12) is well within the Python ≥3.11 floor.
+        #
+        # 1. ``pending_approvals`` + its index. ``DROP INDEX``/``DROP
+        #    TABLE ... IF EXISTS`` are themselves idempotent, so no PRAGMA
+        #    presence check is needed here — a re-run after this block has
+        #    already landed (schema_version rewind) is a no-op by
+        #    construction.
+        await conn.execute("DROP INDEX IF EXISTS idx_pending_approvals_connector_peer_status")
+        await conn.execute("DROP TABLE IF EXISTS pending_approvals")
+
+        # 2. The three ``agents`` connector-attachment columns. Guarded by
+        #    PRAGMA table_info presence checks (mirrors the v32
+        #    ``tool_configs.secrets`` ADD COLUMN idiom, inverted for DROP)
+        #    so a schema-version-rewind re-run — where the columns are
+        #    already gone — is a no-op per column, not just per block.
+        #    ``existing_cols`` is empty only for a hand-built partial-schema
+        #    fixture missing ``agents`` entirely; the guard tolerates that
+        #    too (no ALTER attempted, no error).
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            agents_cols = {row[1] for row in await cursor.fetchall()}
+        for _col in ("connector_ids", "connector_acls", "connector_always_listen"):
+            if _col in agents_cols:
+                await conn.execute(f"ALTER TABLE agents DROP COLUMN {_col}")
+
+        # 3. Legacy connector rows. The table itself, its schema, and
+        #    ``ConnectorRepository`` are KEPT (mission constraint) — only
+        #    the rows go, since the REST surface that created them no
+        #    longer exists and Flight 2's binding direction is the
+        #    inverse (connector → default agent, stored in connector
+        #    config JSON). Guarded on table presence for the same
+        #    hand-built-fixture tolerance as step 2.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connectors'"
+        ) as cursor:
+            connectors_table_present = (await cursor.fetchone()) is not None
+        if connectors_table_present:
+            await conn.execute("DELETE FROM connectors")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (38,))
+        await conn.commit()
+        version = 38

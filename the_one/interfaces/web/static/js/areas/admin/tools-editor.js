@@ -167,7 +167,7 @@
       // icon next to the section title (parity with the per-field info-icon
       // pattern from `tools-form-helpers.js`). The prior `<p
       // class="field-description tools-editor-test-help">` was visually
-      // dense and operators preferred the discoverable-on-hover form. Same
+      // dense and operators preferred the hover-revealed form. Same
       // `App.icon('info')` + literal `ⓘ` fallback as the per-field path.
       var testHint = 'Runs ' + name + ' against a fixed input using your currently-saved configuration. Use this to verify a narrow / denylist actually refuses, or to confirm that a network change still works.';
       var testHintAttr = escapeAttr(testHint);

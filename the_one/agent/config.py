@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 BASE_PROMPT = """\
 You are an AI agent with access to a set of tools. Use them to accomplish what the \
@@ -70,103 +70,17 @@ to direct, concise responses.
 """
 
 
-# ── Connector system-prompt directive (M11 F7 L9) ─────────────────────
-#
-# A single directive is appended whenever the agent is attached to a
-# connector account. F7 made auto-relay an invariant of engaged turns
-# (mentions, DMs, ``/talk_to`` redirects, or inference-yes turns reach
-# the agent; everything else is silenced upstream by the L8 policy
-# gate). The pre-F7 OFF directive (and the ``auto_relay`` kwarg that
-# selected it) was deleted in this leg — there is no longer an OFF
-# state to describe.
-#
-# The directive forward-references L10's history tools
-# (``fetch_channel_history`` / ``fetch_thread_history`` /
-# ``fetch_dm_history`` / ``list_visible_channels``) with "if available"
-# hedging so the prompt stays truthful both pre-L10 (tools not yet
-# registered → "tool not available" on call) and post-L10 (tools
-# registered → calls succeed). This matches the pre-F7 OFF directive's
-# hedging pattern around ``send_to_platform_channel``.
-#
-# KEEP IN SYNC WITH JS twin in
-# ``the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js``
-# only if a Session-section codeblock surface re-emerges; L5 removed
-# all four JS sites that mirrored the pre-F7 directives. Python is the
-# sole source of truth post-L9.
+def compose_system_prompt(base: str, persona: str) -> str:
+    """Compose the agent's system prompt: ``base``, optionally appended
+    with a per-agent ``persona`` via a "---" separator.
 
-_CONNECTOR_AUTO_RELAY_DIRECTIVE = (
-    "This conversation is attached to a connector account on an external "
-    "platform (Discord, Slack, etc.). You only see messages the system "
-    "has decided to engage you on — direct messages, mentions of you, "
-    "explicit ``/talk_to`` redirects from peers, or messages a "
-    "lightweight inference pre-step decided are worth your response "
-    "(the operator can configure this per-account). Messages the "
-    "inference step silenced never reach you and are intentionally "
-    "invisible.\n\n"
-    "Auto-relay is on: your plaintext replies in this session ARE "
-    "automatically delivered to platform peers — treat the conversation "
-    "as the platform conversation itself. Do NOT ask the operator for "
-    "permission to respond on the platform; do NOT narrate that you're "
-    "'using send_to_platform_channel'; just reply naturally as you "
-    'would in any chat. Messages tagged ``visibility="platform"`` in '
-    "the history came from platform peers; messages tagged "
-    '``visibility="operator"`` came from the operator\'s private '
-    "local Chat console (operator-only — these are NOT relayed).\n\n"
-    "If you need recent channel context beyond what's in this session "
-    "(e.g. catching up after a silent stretch), use the "
-    "``fetch_channel_history`` / ``fetch_thread_history`` / "
-    "``fetch_dm_history`` tools if available. Use "
-    "``list_visible_channels`` to discover which channels and peers "
-    "you can read. If you need to send a message to a different "
-    "channel or thread on the platform (not the current one), use the "
-    "``send_to_platform_channel`` tool explicitly with a target "
-    "specifying the destination."
-)
-
-
-def compose_system_prompt(
-    base: str,
-    persona: str,
-    *,
-    connector_attached: bool = False,
-    send_tool_enabled: bool = False,
-) -> str:
-    """Compose the agent's system prompt.
-
-    Mission 10 Flight 4 Leg 3 introduced the connector-aware extension
-    point so agents attached to a connector account receive an explicit
-    directive about how their outbound flows.
-
-    Non-connector callers (``AgentConfig.get_system_prompt()`` for
-    persistence/edit-form use; the WS handler's prompt-equivalence
-    checks) pass ``connector_attached=False`` and receive byte-identical
-    output to the pre-F4 ``{base}\\n\\n---\\n\\n{persona}`` shape.
-
-    M11 F7 L9: the directive surface collapsed to a single directive.
-    F7 made auto-relay an invariant of engaged turns — the L8 policy
-    gate (mentions, DMs, ``/talk_to``, or inference-yes) silences
-    everything else upstream, so the LLM never sees a turn it shouldn't
-    relay on. The pre-F7 OFF directive and the ``auto_relay`` kwarg
-    that selected it were both deleted here; the surviving directive
-    is unconditionally appended whenever ``connector_attached=True``.
-    It forward-references L10's history tools
-    (``fetch_channel_history`` etc.) with "if available" hedging so it
-    stays truthful pre-L10 and post-L10.
-
-    ``send_tool_enabled`` is RETAINED IN THE SIGNATURE BUT NOT
-    CONSULTED in directive selection — the directive is now
-    unconditional when ``connector_attached=True``. The factory still
-    computes ``send_tool_enabled`` for unrelated purposes (the F10
-    carve-out that pre-loads the send tool's schema into the agent's
-    visible-schema set); keeping the kwarg avoids churning the
-    factory call site for a no-op semantic change. The new directive's
-    wording covers both tool-enabled and tool-disabled cases via the
-    explicit ``send_to_platform_channel`` mention — when the tool is
-    disabled, the LLM cannot call it regardless of the prompt.
+    Mission 23 Flight 1 (backend-removal leg): the connector-aware
+    extension point (``connector_attached``/``send_tool_enabled`` kwargs
+    and the auto-relay directive they selected) was removed with the
+    connector subsystem — every caller now gets the plain
+    ``{base}\\n\\n---\\n\\n{persona}`` shape unconditionally.
     """
     parts = [base]
-    if connector_attached:
-        parts.append(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
     if persona:
         parts.append("---")
         parts.append(persona)
@@ -196,8 +110,6 @@ class AgentConfig(BaseModel):
     # Associations (reference IDs only — no functional behavior yet)
     kb_ids: list[str] = Field(default_factory=list)
     mcp_source_ids: list[str] = Field(default_factory=list)
-    # M10 F4: connector accounts attached to this agent. Mirror of mcp_source_ids.
-    connector_ids: list[str] = Field(default_factory=list)
 
     # Tool-level constraint overrides (per-agent narrowing or substitution).
     # None means "no overrides set" (uses tool-level defaults — locked-down
@@ -217,69 +129,6 @@ class AgentConfig(BaseModel):
     # for the same Pydantic v2 inner-validation reason as `tool_overrides`.
     mcp_overrides: dict[str, dict[str, Any]] | None = None
 
-    # M10 F6 L1c: per-agent ACL overrides keyed by account_id.
-    # Shape: {account_id: {"peers": list[str] | None,
-    #                       "channels": list[str] | None}}.
-    #
-    # M10 F6 L7 HAT — semantic redesign (see flight-log "Deviations"):
-    # each per-axis value is tri-state:
-    #   - ``None`` → INHERIT account-scope (no per-agent narrowing on
-    #     this axis)
-    #   - ``[]`` (explicit empty list) → "no access" sentinel for this
-    #     axis. For peers, no peer is permitted; for channels, "DMs only"
-    #     — but DM classification ships in F8 (Discord), so until then
-    #     the runtime fails closed on outbound non-DM channels.
-    #   - ``[items]`` → subset (intersected with account-scope on this
-    #     axis).
-    #
-    # The two axes are INDEPENDENTLY overridable. Both keys
-    # (``"peers"``, ``"channels"``) MUST be present in each per-account
-    # entry; partial entries are rejected by the validator below — the
-    # operator's per-axis intent is captured by ``None`` vs ``[]`` vs
-    # ``[items]``, not by key omission.
-    #
-    # ``None`` (the field default) and ``{}`` (empty outer dict) are
-    # both valid and mean "no per-agent narrowing for any account."
-    # An entry being ABSENT from a non-empty outer dict ALSO means
-    # "inherit account-scope" for that specific account.
-    #
-    # Inner type ``dict[str, Any]`` (widened in M11 F12 L3 from
-    # ``list[str] | bool | None``) so the structured-tuple shape (per-
-    # peer {id, dm_allowed}; per-channel {guild_id, channel_id}; per-
-    # role {guild_id, role_id}) is accepted at the Pydantic boundary.
-    # The :meth:`_validate_connector_acls` validator enforces the exact
-    # per-key shape — mirrors how the account-scope allowlist validator
-    # in :mod:`the_one.db.models` accepts ``dict[str, Any]`` for
-    # ``config['allowlist']`` and runs its own per-key checks.
-    connector_acls: dict[str, dict[str, Any]] | None = None
-
-    # M11 F7 L6: per-agent ``always_listen`` toggle keyed by account_id.
-    # Shape: ``{account_id: bool}``. ``True`` means the agent listens to
-    # all messages on that account (bypassing the F7 default mentions-only
-    # gate); ``False`` (or absent) means the agent stays mentions-only on
-    # that account.
-    #
-    # Precondition (set by M11 F7 L5): the account-level
-    # ``Connector.config["always_listen"]`` is the master gate. A
-    # per-agent ``True`` here is structurally inert when the account-level
-    # switch is False — the L8 policy-gate consult site checks account
-    # first and short-circuits. The validator does NOT enforce this
-    # composition; per Flight DD §8, "accept-and-document is the lighter
-    # discipline."
-    #
-    # ``None`` (field default) and ``{}`` are both valid (no per-agent
-    # override). ``None`` decodes from NULL DB rows (pre-v20 agents AND
-    # new agents without per-agent overrides); ``{}`` decodes from
-    # ``"{}"`` JSON (an agent that was edited then had all toggles
-    # removed). Both have the same runtime semantic; the codec preserves
-    # the distinction for round-trip fidelity (mirrors ``connector_acls``).
-    #
-    # L8 consult pattern (per the leg DD): absent account_id → False
-    # (the per-agent default). Read site mirrors the L5 account-level
-    # read: ``config.connector_always_listen.get(account_id, False) if
-    # config.connector_always_listen else False``.
-    connector_always_listen: dict[str, bool] | None = None
-
     # Behavior
     max_iterations: int = 20
     chat_history_retention_days: int = Field(default=30, ge=1, le=365)
@@ -293,288 +142,6 @@ class AgentConfig(BaseModel):
     # v35 `agents.self_revision_requires_approval INTEGER NOT NULL DEFAULT 0`
     # column (plain load, no absent/NULL case).
     self_revision_requires_approval: bool = False
-
-    @field_validator("connector_acls", mode="after")
-    @classmethod
-    def _validate_connector_acls(
-        cls, value: dict[str, dict[str, Any]] | None
-    ) -> dict[str, dict[str, Any]] | None:
-        """Enforce exact-keys shape on per-account ACL inner dicts.
-
-        The widened annotation ``dict[str, dict[str, Any]]`` (M11 F12
-        L3) accepts the structured-tuple shape for peers / channels /
-        roles introduced by the v24 migration; this validator enforces
-        the exact per-key shape that Pydantic cannot derive from the
-        type hint alone.
-
-        Each inner dict MUST have the required keys ``{"peers",
-        "channels"}`` and MAY optionally carry the M10 F8 L8 axes
-        ``{"guilds", "roles"}`` plus the M11 F10 L1 axis
-        ``{"admit_dms"}`` — no other keys, no missing required keys.
-
-        M10 F6 L7 HAT semantic — each axis is tri-state:
-          - ``None`` → inherit account-scope
-          - ``[]`` → explicit empty (peers: no peer; channels: DMs-only
-            sentinel; runtime resolution for DMs-only ships in F8 — until
-            then outbound fails closed)
-          - ``[items]`` → subset (intersected with account-scope)
-
-        M11 F12 L3 — peers / channels / roles entries use the
-        structured-tuple shape mirroring the account-scope allowlist
-        validator in :mod:`the_one.db.models`:
-
-          - ``peers``: ``list[{id: str}]`` (post-F13 L2: ``dm_allowed``
-            is REJECTED on per-agent peer entries — the F12 footgun is
-            retired; DM admission is decided exclusively at account-
-            scope per-peer)
-          - ``channels``: ``list[{guild_id: str, channel_id: str}]``
-            — ``channel_id`` may be the wildcard sentinel ``"*"`` meaning
-            "any channel of this guild" (M11 F12 L5)
-          - ``roles``: ``list[{guild_id: str, role_id: str}]`` —
-            ``role_id`` may be the wildcard sentinel ``"*"`` meaning
-            "any role of this guild" (M11 F12 L5)
-
-        ``admit_dms`` stays as the ``bool | None`` opt-out sentinel.
-
-        ``None`` and ``{}`` outer values are both valid (semantically:
-        no per-agent narrowing).
-
-        Pydantic v2 ``@field_validator(mode="after")`` runs on both
-        ``model_validate`` and direct ``BaseModel(**kwargs)`` so the
-        repository read path at ``_row_to_config`` is validated without
-        a separate ``model_validate`` wrapper.
-        """
-        if value is None:
-            return value
-        for account_id, acl in value.items():
-            if not isinstance(acl, dict):
-                raise ValueError(
-                    f"connector_acls[{account_id!r}] must be a dict; got {type(acl).__name__}"
-                )
-            keys = set(acl.keys())
-            extra = keys - {"peers", "channels", "guilds", "roles", "admit_dms"}
-            if extra:
-                raise ValueError(
-                    f"connector_acls[{account_id!r}] has unexpected keys: {sorted(extra)}"
-                )
-            missing = {"peers", "channels"} - keys
-            if missing:
-                raise ValueError(
-                    f"connector_acls[{account_id!r}] is missing required keys: {sorted(missing)}"
-                )
-
-            for key, value_at_key in acl.items():
-                if key == "admit_dms":
-                    if value_at_key is not None and not isinstance(value_at_key, bool):
-                        raise ValueError(
-                            f"connector_acls[{account_id!r}]['admit_dms'] "
-                            f"must be bool or None; got "
-                            f"{type(value_at_key).__name__}"
-                        )
-                    continue
-
-                # peers / channels / guilds / roles — tri-state:
-                # None (inherit), [] (explicit empty), or [items].
-                if value_at_key is None:
-                    continue
-                if not isinstance(value_at_key, list):
-                    raise ValueError(
-                        f"connector_acls[{account_id!r}][{key!r}] must "
-                        f"be a list or None; got "
-                        f"{type(value_at_key).__name__}"
-                    )
-
-                if key == "guilds":
-                    # Guilds axis stays as list[str] (no per-entry
-                    # scoping — a guild IS the scope).
-                    for i, item in enumerate(value_at_key):
-                        if not isinstance(item, str):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['guilds'][{i}] must be a string; got "
-                                f"{type(item).__name__}"
-                            )
-                elif key == "peers":
-                    # M11 F13 L2 — per-agent peers entries are bare
-                    # ``{id: str}`` dicts. The ``dm_allowed`` field is
-                    # REJECTED (F12 footgun retirement; the per-peer
-                    # DM toggle is account-scope only per the F12 L3
-                    # DM Composition Truth Table).
-                    for i, item in enumerate(value_at_key):
-                        if not isinstance(item, dict):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['peers'][{i}] must be a dict with "
-                                f"key {{'id'}}; got "
-                                f"{type(item).__name__}"
-                            )
-                        item_keys = set(item.keys())
-                        extra_keys = item_keys - {"id"}
-                        if extra_keys:
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['peers'][{i}] has unexpected keys: "
-                                f"{sorted(extra_keys)} — per-agent "
-                                f"peer entries must not carry "
-                                f"'dm_allowed' (the per-peer DM "
-                                f"toggle is account-scope only; F12 "
-                                f"footgun retirement, F13 L2)"
-                            )
-                        missing_keys = {"id"} - item_keys
-                        if missing_keys:
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['peers'][{i}] is missing required "
-                                f"keys: {sorted(missing_keys)}"
-                            )
-                        if not isinstance(item["id"], str):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['peers'][{i}]['id'] must be a "
-                                f"string; got "
-                                f"{type(item['id']).__name__}"
-                            )
-                elif key == "channels":
-                    # M11 F12 L5 — channels:
-                    # list[{guild_id: str, channel_id: str}]. Post-v25
-                    # the guild_id field is REQUIRED and non-null (was
-                    # str | None in L3); channel_id accepts the wildcard
-                    # sentinel ``"*"`` meaning "any channel of this
-                    # guild" — emitted by the hierarchical
-                    # Server-as-parent per-agent overlay when a server
-                    # row has no explicit channel narrowing.
-                    for i, item in enumerate(value_at_key):
-                        if not isinstance(item, dict):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['channels'][{i}] must be a dict "
-                                f"with keys {{'guild_id', 'channel_id'}}"
-                                f"; got {type(item).__name__}"
-                            )
-                        item_keys = set(item.keys())
-                        extra_keys = item_keys - {"guild_id", "channel_id"}
-                        if extra_keys:
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['channels'][{i}] has unexpected "
-                                f"keys: {sorted(extra_keys)}"
-                            )
-                        missing_keys = {
-                            "channel_id",
-                            "guild_id",
-                        } - item_keys
-                        if missing_keys:
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['channels'][{i}] is missing "
-                                f"required keys: {sorted(missing_keys)}"
-                            )
-                        if not isinstance(item["channel_id"], str):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['channels'][{i}]['channel_id'] must "
-                                f"be a string; got "
-                                f"{type(item['channel_id']).__name__}"
-                            )
-                        guild_id = item["guild_id"]
-                        if not isinstance(guild_id, str):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['channels'][{i}]['guild_id'] must "
-                                f"be a non-null string (post-v25 the "
-                                f"hierarchical Server-as-parent UI "
-                                f"requires every channel entry to be "
-                                f"guild-scoped); got "
-                                f"{type(guild_id).__name__}"
-                            )
-                elif key == "roles":
-                    # M11 F12 L5 — roles:
-                    # list[{guild_id: str, role_id: str}]. Post-v25
-                    # the guild_id field is REQUIRED and non-null (was
-                    # str | None in L3); role_id accepts the wildcard
-                    # sentinel ``"*"`` meaning "any role of this guild" —
-                    # emitted by the hierarchical Server-as-parent
-                    # per-agent overlay when a server row has no
-                    # explicit role narrowing.
-                    for i, item in enumerate(value_at_key):
-                        if not isinstance(item, dict):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['roles'][{i}] must be a dict with "
-                                f"keys {{'guild_id', 'role_id'}}; got "
-                                f"{type(item).__name__}"
-                            )
-                        item_keys = set(item.keys())
-                        extra_keys = item_keys - {"guild_id", "role_id"}
-                        if extra_keys:
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['roles'][{i}] has unexpected keys: "
-                                f"{sorted(extra_keys)}"
-                            )
-                        missing_keys = {"role_id", "guild_id"} - item_keys
-                        if missing_keys:
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['roles'][{i}] is missing required "
-                                f"keys: {sorted(missing_keys)}"
-                            )
-                        if not isinstance(item["role_id"], str):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['roles'][{i}]['role_id'] must be a "
-                                f"string; got "
-                                f"{type(item['role_id']).__name__}"
-                            )
-                        guild_id = item["guild_id"]
-                        if not isinstance(guild_id, str):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['roles'][{i}]['guild_id'] must be a "
-                                f"non-null string (post-v25 the "
-                                f"hierarchical Server-as-parent UI "
-                                f"requires every role entry to be "
-                                f"guild-scoped); got "
-                                f"{type(guild_id).__name__}"
-                            )
-        return value
-
-    @field_validator("connector_always_listen", mode="after")
-    @classmethod
-    def _validate_connector_always_listen(
-        cls, value: dict[str, bool] | None
-    ) -> dict[str, bool] | None:
-        """Enforce inner-value bool invariants on the per-agent toggle dict.
-
-        Shape contract: outer keys are account_id strings (enforced by the
-        ``dict[str, bool]`` annotation; Pydantic v2 coerces or rejects
-        non-str keys before the validator runs). Inner values must be bools
-        — defensively enforced here against truthy-but-non-bool smuggling
-        through the kv-table or raw-JSON edit paths.
-
-        Runtime semantic (NOT validator-enforced — composition happens at
-        the L8 policy-gate consult site):
-        - The account-level ``always_listen`` switch (L5) is the master
-          gate; per-agent True is structurally inert when account-level
-          is False (the account check short-circuits).
-        - Absent account_id in the dict → False (the per-agent default).
-        - Explicit False is equivalent to absent and round-trips as-is so
-          the codec preserves the operator's intent.
-
-        Per Flight DD §8: "accept-and-document is the lighter discipline"
-        — the validator does NOT reject inconsistent (per-agent True +
-        account-level False) configurations; the dispatcher's gate
-        composition handles them correctly at runtime.
-        """
-        if value is None:
-            return value
-        for account_id, toggle in value.items():
-            if not isinstance(toggle, bool):
-                raise ValueError(
-                    f"connector_always_listen[{account_id!r}] must be a bool "
-                    f"(True or False); got {type(toggle).__name__}: {toggle!r}"
-                )
-        return value
 
     def is_tool_enabled(self, tool_name: str) -> bool:
         """Check if a specific tool should be available to this agent.
@@ -607,15 +174,5 @@ class AgentConfig(BaseModel):
     def get_system_prompt(self) -> str:
         """Return the resolved system prompt: BASE_PROMPT, optionally
         appended with a per-agent persona via a "---" separator.
-
-        Non-connector callers (persistence edit form, WS handler's
-        prompt-equivalence checks) use this method. The factory uses
-        :func:`compose_system_prompt` directly with the actual connector
-        flags so its output reflects the connector state.
         """
-        return compose_system_prompt(
-            BASE_PROMPT,
-            self.system_prompt,
-            connector_attached=False,
-            send_tool_enabled=False,
-        )
+        return compose_system_prompt(BASE_PROMPT, self.system_prompt)

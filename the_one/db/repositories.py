@@ -25,7 +25,6 @@ from the_one.db.models import (
     KnowledgeBase,
     LLMProviderConfig,
     MCPSource,
-    PendingApproval,
     ToolConfig,
     now_iso,
 )
@@ -162,31 +161,6 @@ class SQLiteAgentStore:
         ) as cur:
             return [row[0] for row in await cur.fetchall()]
 
-    async def list_by_connector(self, account_id: str) -> list[AgentConfig]:
-        """Return agent configs attached to ``account_id``.
-
-        M10 F7 L3: inverse-query for the routing engine (F7 L4) and the
-        dispatcher integration (F7 L5). Returns the list alphabetically
-        ordered by ``AgentConfig.name`` (via the SQL ``ORDER BY``).
-
-        ``connector_ids`` is a JSON-encoded list column (F4 L5
-        v17 migration). Filtering is Python-side after a full table
-        scan — the agents table is operator-scale (tens, not millions),
-        so the linear scan is acceptable. If this becomes a hot path
-        a later mission can add a join table (or use SQLite's JSON1
-        ``json_each``).
-
-        Returns ``[]`` for unknown account; does NOT raise.
-        """
-        async with self.conn.execute("SELECT * FROM agents ORDER BY name") as cur:
-            rows = await cur.fetchall()
-        result: list[AgentConfig] = []
-        for row in rows:
-            config = self._row_to_config(row)
-            if account_id in config.connector_ids:
-                result.append(config)
-        return result
-
     async def load(self, name: str) -> AgentConfig:
         async with self.conn.execute("SELECT * FROM agents WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()
@@ -202,11 +176,10 @@ class SQLiteAgentStore:
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
                 kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
-                connector_ids, connector_acls,
-                connector_always_listen, chat_history_retention_days,
+                chat_history_retention_days,
                 self_revision_requires_approval,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -219,9 +192,6 @@ class SQLiteAgentStore:
                 mcp_source_ids=excluded.mcp_source_ids,
                 tool_overrides=excluded.tool_overrides,
                 mcp_overrides=excluded.mcp_overrides,
-                connector_ids=excluded.connector_ids,
-                connector_acls=excluded.connector_acls,
-                connector_always_listen=excluded.connector_always_listen,
                 chat_history_retention_days=excluded.chat_history_retention_days,
                 self_revision_requires_approval=excluded.self_revision_requires_approval,
                 updated_at=excluded.updated_at
@@ -239,13 +209,6 @@ class SQLiteAgentStore:
                 json.dumps(config.mcp_source_ids),
                 _encrypt_overrides_column(self.encryptor, config.tool_overrides),
                 _encrypt_overrides_column(self.encryptor, config.mcp_overrides),
-                json.dumps(config.connector_ids),
-                json.dumps(config.connector_acls) if config.connector_acls is not None else None,
-                (
-                    json.dumps(config.connector_always_listen)
-                    if config.connector_always_listen is not None
-                    else None
-                ),
                 config.chat_history_retention_days,
                 int(config.self_revision_requires_approval),
                 now,
@@ -384,28 +347,6 @@ class SQLiteAgentStore:
             # reused here).
             tool_overrides=_decrypt_overrides_column(self.encryptor, row["tool_overrides"]),
             mcp_overrides=_decrypt_overrides_column(self.encryptor, row["mcp_overrides"]),
-            # `or "[]"` defends against both NULL (pre-v17 rows persisted
-            # before the M10 F4 L5 migration added the column) AND the
-            # empty-string edge case. The v17 migration is the gate that
-            # guarantees the column exists; this expression handles the
-            # NULL value for legacy rows.
-            connector_ids=json.loads(row["connector_ids"] or "[]"),
-            # M10 F6 L1c: per-agent ACL override. NULL (pre-v18 rows AND
-            # the default for agents without per-agent narrowing) decodes
-            # to None, distinguishing it from `{}` (which round-trips
-            # verbatim — see the empty-outer-dict round-trip test). The
-            # truthiness mirrors `tool_overrides` / `mcp_overrides` above.
-            connector_acls=(json.loads(row["connector_acls"]) if row["connector_acls"] else None),
-            # M11 F7 L6: per-agent always_listen toggle. NULL (pre-v20 rows
-            # AND default for agents without per-agent overrides) decodes
-            # to None, distinguishing it from `{}` (an agent that was
-            # edited then had all toggles removed). Truthiness mirrors
-            # `connector_acls` above.
-            connector_always_listen=(
-                json.loads(row["connector_always_listen"])
-                if row["connector_always_listen"]
-                else None
-            ),
             chat_history_retention_days=row["chat_history_retention_days"],
             # M21 F02 L02: per-agent approval mode. Plain read mirroring
             # `chat_history_retention_days` above — the v35 migration adds the
@@ -761,212 +702,14 @@ class ConnectorRepository:
         )
 
 
-# ── Pending approval repository ──────────────────────────────────────────
-
-
-class PendingApprovalRepository:
-    """Async CRUD for pending Discord-native peer approvals.
-
-    M11 F9 L2. No encryptor (no secrets to encrypt). Mirrors
-    ``ConnectorRepository`` connection-passing shape sans the
-    encryptor argument.
-
-    Dedup contract (cycle-2 architect §2): ``upsert_pending`` enforces
-    ONE row per ``(connector_id, peer_id, status='pending')``
-    via an UPDATE-in-place when the index matches, INSERT otherwise.
-    Terminal-state transitions (``mark_approved``, ``mark_dismissed``)
-    raise ``ValueError`` if invoked on an already-terminal row OTHER
-    than the same target (idempotent on self-target — calling
-    ``mark_approved`` on an approved row is a no-op).
-    """
-
-    def __init__(self, conn: aiosqlite.Connection) -> None:
-        self.conn = conn
-
-    async def get(self, approval_id: str) -> PendingApproval:
-        async with self.conn.execute(
-            "SELECT * FROM pending_approvals WHERE id = ?", (approval_id,)
-        ) as cur:
-            row = await cur.fetchone()
-        if row is None:
-            raise KeyError(f"Pending approval not found: {approval_id}")
-        return self._row_to_model(row)
-
-    async def upsert_pending(
-        self,
-        *,
-        connector_id: str,
-        peer_id: str,
-        peer_name: str,
-        preview: str,
-        original_message: str | None = None,
-        channel_id: str | None = None,
-        thread_id: str | None = None,
-        is_dm: bool | None = None,
-    ) -> tuple["PendingApproval", bool]:
-        """Upsert a pending row keyed by (account, peer, status='pending').
-
-        If a pending row already exists for (account, peer), UPDATE
-        ``peer_name``, ``preview``, ``received_at`` in place and return
-        ``(updated_row, False)``. Otherwise INSERT a fresh row with a new
-        uuid and ``status='pending'`` and return ``(new_row, True)``.
-
-        The ``created`` bool lets callers distinguish a first-time DM from a
-        repeat DM while still pending — used by the inbound dispatcher to fire
-        a one-time auto-reply only on creation (M11 F17 L9 — Leg E).
-
-        The v29 replay-context fields (``original_message``, ``channel_id``,
-        ``thread_id``, ``is_dm``) are stored on INSERT and on UPDATE so the
-        approval-replay path always has the latest message context available
-        (M11 F17 L10 — Leg F).
-        """
-        async with self.conn.execute(
-            "SELECT id FROM pending_approvals "
-            "WHERE connector_id = ? AND peer_id = ? AND status = 'pending' "
-            "LIMIT 1",
-            (connector_id, peer_id),
-        ) as cur:
-            existing = await cur.fetchone()
-        ts = now_iso()
-        is_dm_int = int(is_dm) if is_dm is not None else None
-        if existing is None:
-            # 32-char full hex (matches connectors/_session.py:184 — same
-            # world: dispatcher-created, web-API-referenced).
-            new_id = uuid.uuid4().hex
-            await self.conn.execute(
-                "INSERT INTO pending_approvals "
-                "(id, connector_id, peer_id, peer_name, preview, "
-                " received_at, status, resolved_at, "
-                " original_message, channel_id, thread_id, is_dm) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, ?)",
-                (
-                    new_id,
-                    connector_id,
-                    peer_id,
-                    peer_name,
-                    preview,
-                    ts,
-                    original_message,
-                    channel_id,
-                    thread_id,
-                    is_dm_int,
-                ),
-            )
-            await self.conn.commit()
-            return await self.get(new_id), True
-        approval_id = existing["id"]
-        await self.conn.execute(
-            "UPDATE pending_approvals "
-            "SET peer_name = ?, preview = ?, received_at = ?, "
-            "    original_message = ?, channel_id = ?, thread_id = ?, is_dm = ? "
-            "WHERE id = ?",
-            (
-                peer_name,
-                preview,
-                ts,
-                original_message,
-                channel_id,
-                thread_id,
-                is_dm_int,
-                approval_id,
-            ),
-        )
-        await self.conn.commit()
-        return await self.get(approval_id), False
-
-    async def list_for_account_peer(self, account_id: str, peer_id: str) -> list[PendingApproval]:
-        async with self.conn.execute(
-            "SELECT * FROM pending_approvals "
-            "WHERE connector_id = ? AND peer_id = ? "
-            "ORDER BY received_at ASC",
-            (account_id, peer_id),
-        ) as cur:
-            return [self._row_to_model(r) for r in await cur.fetchall()]
-
-    async def list_by_account(self, account_id: str) -> list[PendingApproval]:
-        async with self.conn.execute(
-            "SELECT * FROM pending_approvals WHERE connector_id = ? ORDER BY received_at ASC",
-            (account_id,),
-        ) as cur:
-            return [self._row_to_model(r) for r in await cur.fetchall()]
-
-    async def count_pending(self) -> int:
-        """Return the global count of ``status='pending'`` rows across all connectors.
-
-        Used by ``GET /api/connectors/peer-approvals/pending-count``
-        (M11 F17 L9 — Leg E top-nav badge).
-        """
-        async with self.conn.execute(
-            "SELECT COUNT(*) FROM pending_approvals WHERE status = 'pending'"
-        ) as cur:
-            row = await cur.fetchone()
-        return row[0] if row else 0
-
-    async def list_all_pending(self) -> list["PendingApproval"]:
-        """Return all ``status='pending'`` rows across all connectors, newest first.
-
-        Used by ``GET /api/connectors/peer-approvals/pending`` for the Chat
-        left-panel pending section (M11 F17 L9 — Leg E).
-        """
-        async with self.conn.execute(
-            "SELECT * FROM pending_approvals WHERE status = 'pending' ORDER BY received_at DESC"
-        ) as cur:
-            return [self._row_to_model(r) for r in await cur.fetchall()]
-
-    async def mark_approved(self, approval_id: str) -> PendingApproval:
-        return await self._transition(approval_id, "approved")
-
-    async def mark_dismissed(self, approval_id: str) -> PendingApproval:
-        return await self._transition(approval_id, "dismissed")
-
-    async def _transition(
-        self, approval_id: str, target: Literal["approved", "dismissed"]
-    ) -> PendingApproval:
-        current = await self.get(approval_id)  # raises KeyError
-        if current.status == target:
-            return current  # idempotent on self-target
-        if current.status != "pending":
-            raise ValueError(
-                f"Pending approval {approval_id} is {current.status}; cannot transition to {target}"
-            )
-        await self.conn.execute(
-            "UPDATE pending_approvals SET status = ?, resolved_at = ? WHERE id = ?",
-            (target, now_iso(), approval_id),
-        )
-        await self.conn.commit()
-        return await self.get(approval_id)
-
-    def _row_to_model(self, row: aiosqlite.Row) -> PendingApproval:
-        # v29 replay-context fields are nullable (additive ALTER ADD COLUMN
-        # — pre-v29 rows carry NULL for all four). Read via dict-access +
-        # ``None`` fallback so the method works against both pre-v29 and
-        # post-v29 rows (and against hand-built test fixtures that may not
-        # include the new columns in the SELECT).
-        keys = row.keys() if hasattr(row, "keys") else []
-        is_dm_raw = row["is_dm"] if "is_dm" in keys else None
-        return PendingApproval(
-            id=row["id"],
-            connector_id=row["connector_id"],
-            peer_id=row["peer_id"],
-            peer_name=row["peer_name"],
-            preview=row["preview"],
-            received_at=row["received_at"],
-            status=row["status"],
-            resolved_at=row["resolved_at"],
-            original_message=row["original_message"] if "original_message" in keys else None,
-            channel_id=row["channel_id"] if "channel_id" in keys else None,
-            thread_id=row["thread_id"] if "thread_id" in keys else None,
-            is_dm=bool(is_dm_raw) if is_dm_raw is not None else None,
-        )
-
-
 # ── Agent revision repository ────────────────────────────────────────────
 
 
 class AgentRevisionRepository:
     """Async access to the ``agent_revisions`` revision log (M21 F02 L01).
 
-    No encryptor (mirrors :class:`PendingApprovalRepository`): the logged
+    No encryptor (mirrors the now-deleted ``PendingApprovalRepository``
+    precedent): the logged
     ``base_value`` / ``proposed_value`` are the plaintext ``description`` /
     ``system_prompt`` values, which cross no encryption boundary, so the
     log holds no secret material.
@@ -1001,7 +744,7 @@ class AgentRevisionRepository:
         Mints ``id`` as ``uuid.uuid4().hex`` (the repository owns the
         INSERT; the caller supplies ``created_at`` / ``resolved_at``
         explicitly, so the id is not a model ``default_factory``) —
-        mirroring ``PendingApprovalRepository.upsert_pending``.
+        mirroring the now-deleted ``PendingApprovalRepository.upsert_pending``.
 
         M21 F03 L02 (DD3): ``source_principal`` records the external
         credential identifier for ``source='external'`` rows (NULL for
@@ -1057,8 +800,8 @@ class AgentRevisionRepository:
     async def count_pending(self, agent_name: str) -> int:
         """Return the count of ``status='pending'`` rows for one agent.
 
-        Scoped to ``agent_name`` (unlike the connector
-        ``PendingApprovalRepository.count_pending`` which is global) —
+        Scoped to ``agent_name`` (unlike the now-deleted connector
+        ``PendingApprovalRepository.count_pending``, which was global) —
         approval mode and its queue are per-agent.
         """
         async with self.conn.execute(
@@ -1085,7 +828,7 @@ class AgentRevisionRepository:
         ``proposed_value`` / ``base_value`` / ``created_at`` in place and
         return ``(updated_row, False)``. Otherwise ``append`` a fresh
         ``status='pending', resolved_at=None`` row and return
-        ``(new_row, True)`` — mirroring
+        ``(new_row, True)`` — mirroring the now-deleted
         ``PendingApprovalRepository.upsert_pending``'s ``created`` flag.
 
         A re-propose refreshes ``base_value`` to the latest captured
@@ -1140,7 +883,7 @@ class AgentRevisionRepository:
     ) -> AgentRevision:
         """Transition a ``pending`` row to a terminal state.
 
-        Copies ``PendingApprovalRepository._transition`` semantics:
+        Copies the now-deleted ``PendingApprovalRepository._transition`` semantics:
         idempotent when already at ``target``; ``ValueError`` on any
         non-``pending`` non-``target`` state (the API layer maps this to
         409); a single UPDATE stamping ``status`` + ``resolved_at``.
@@ -1406,8 +1149,9 @@ class ChatSessionRepository:
         superseded sessions are preserved (per flight design: historical
         sessions remain queryable in Chat UI as distinct rows).
 
-        M10 F03 L03 — consumed by
-        :func:`the_one.connectors._session.resolve_session`.
+        M10 F03 L03 — consumed by the connector dispatcher's session
+        resolver (deleted with the connector package, Mission 23 Flight 1;
+        this session-keying method itself is kept for Flight 2).
         """
         async with self.conn.execute(
             "SELECT * FROM chat_sessions"
@@ -1460,9 +1204,9 @@ class ChatSessionRepository:
         :meth:`update_last_inbound` (M10 F03 L04) and through this
         method itself for whole-history mutations (e.g.
         ``_save_session_to_db`` at
-        ``the_one/interfaces/web/app.py:469-487``; the connector
-        dispatcher at
-        ``the_one/connectors/_inbound.py:dispatch_inbound``). The
+        ``the_one/interfaces/web/app.py:469-487``; formerly also the
+        connector dispatcher's inbound handler, deleted with the
+        connector package at Mission 23 Flight 1). The
         whole-history pattern fetches the row, calls
         ``row.model_copy(update={"title": ..., "messages": ...})``,
         and hands the result to ``repo.update`` — the connector-
@@ -1560,22 +1304,22 @@ class ChatSessionRepository:
     async def update_last_inbound(self, session_id: str, when: str) -> None:
         """Bump the connector-driven activity timestamps for a session.
 
-        Touches both ``last_inbound_at`` (consumed by the resolver's
-        continuation-window check at
-        :func:`the_one.connectors._session.resolve_session`) and
-        ``updated_at`` (the most-recent-by-updated_at ordering the
-        resolver uses to pick the active row when multiple historical
+        Touches both ``last_inbound_at`` (consumed by the connector
+        dispatcher's session resolver's continuation-window check,
+        deleted with the connector package at Mission 23 Flight 1) and
+        ``updated_at`` (the most-recent-by-updated_at ordering that
+        resolver used to pick the active row when multiple historical
         rows exist for the same external key).
 
         Raises ``KeyError`` if the session doesn't exist — mirrors
         :meth:`update` / :meth:`delete` / :meth:`purge_messages`
         not-found semantics.
 
-        M10 F03 L04 — narrow primitive consumed by
-        :func:`the_one.connectors._inbound.dispatch_inbound`. The
-        seven connector-identity columns are intentionally not touched
-        — see :meth:`update`'s docstring for the identity-columns
-        contract.
+        M10 F03 L04 — narrow primitive formerly consumed by the
+        connector dispatcher's inbound handler (deleted with the
+        connector package). The seven connector-identity columns are
+        intentionally not touched — see :meth:`update`'s docstring for
+        the identity-columns contract.
         """
         async with self.conn.execute(
             "SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)

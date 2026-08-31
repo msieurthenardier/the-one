@@ -109,7 +109,7 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "host.innerHTML = // --- Static dialog preview (no backdrop) --- '<div style=\"dis",
     ],
     "areas/admin/design-language/status-section.js": [
-        "host.innerHTML = // --- badges (provider / tool category / connector) --- // Per",
+        "host.innerHTML = // --- badges (provider / tool category) --- // Per-badge ink (",
     ],
     "areas/admin/provider-editor.js": [
         "container.innerHTML = html;",
@@ -155,9 +155,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     "areas/chat/history-buckets.js": [
         "delBtn.innerHTML = App.icon('x');",
     ],
-    "areas/chat/routing-audit-panel.js": [
-        "closeBtn.innerHTML = (window.App && App.icon) ? App.icon('x') : '✕';",
-    ],
     "areas/studio.js": [
         "content.innerHTML = '<div class=\"studio-section-content\"></div>' + '<div class=\"",
         "agentsContentEl.innerHTML = '<div class=\"page-header\">' + '<h1 class=\"page-title",
@@ -170,40 +167,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     ],
     "areas/studio/agent-editor.js": [
         "container.innerHTML = html;",
-    ],
-    "areas/studio/connector-editor.js": [
-        "container.innerHTML = html;",
-        "tmp.innerHTML = renderConfigRow({ key: '', value: '' }, idx);",
-        "eyeBtn.innerHTML = window.App.icon('eye-off');",
-        "eyeBtn.innerHTML = window.App.icon('eye');",
-        "tmp.innerHTML = renderSecretRow({ key: '', value: '', _originalMasked: '' }, idx",
-        "detailsEl.innerHTML = renderDetailsBlock(details);",
-        "sel.innerHTML = _buildOptions(sel.value || '', false);",
-        "defaultSelect.innerHTML = _buildOptions(defaultSelect.value || '', true);",
-        "tmp.innerHTML = _renderRoutingRow({ scope: '', match: [], agent: '' }, idx, addV",
-        "listEl.innerHTML = html;",
-        'listEl.innerHTML = \'<em class="form-hint">Could not load attached agents (status',
-        "listEl.innerHTML = '<em class=\"form-hint\">Network error: ' + window.App.escapeHt",
-        "sel.innerHTML = html;",
-        "sel.innerHTML = html;",
-        "sel.innerHTML = failHtml;",
-        "btn.innerHTML = window.App.icon('refresh') + ' Regenerate code';",
-        "btn.innerHTML = originalHtml;",
-    ],
-    "areas/studio/connector-form-discord.js": [
-        "eyeBtn.innerHTML = window.App.icon('eye-off');",
-        "eyeBtn.innerHTML = window.App.icon('eye');",
-    ],
-    "areas/studio/connectors-grid.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Conn',
-        "gridEl.innerHTML = '<div class=\"empty-canvas\">' + '<div class=\"empty-canvas-inne",
-        "gridEl.innerHTML = html;",
-    ],
-    "areas/studio/connectors-tab.js": [
-        "div.innerHTML = 'No connector accounts registered yet. ' + '<a href=\"#studio/con",
-    ],
-    "areas/studio/discoverable-dropdown.js": [
-        "root.innerHTML = '<div class=\"chip-list-editor discoverable-dropdown-input-row d",
     ],
     "areas/studio/general-tab.js": [
         "panel.innerHTML = html;",
@@ -308,9 +271,14 @@ def test_registered_testids_exist_in_source() -> None:
 def test_manual_exception_testids_still_in_source() -> None:
     """Manual-exception ids (variable-carried, invisible to extraction)
     must still appear as plain string literals somewhere in the JS
-    sources, so deleting one is caught."""
+    sources, so deleting one is caught.
+
+    The table itself may legitimately be empty (e.g. after Mission 23
+    Flight 1 removed the connector editor, its sole occupants) — an empty
+    list here is not evidence of a broken parser, unlike the literal/
+    parametric tables which always carry entries.
+    """
     _, _, reg_manual = parse_registry()
-    assert reg_manual, "Registry's manual-exceptions table is empty or unparseable"
     missing = [t for t in reg_manual if not id_appears_as_string_literal(t)]
     if missing:
         raise AssertionError(

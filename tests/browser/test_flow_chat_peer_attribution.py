@@ -39,9 +39,8 @@ import pytest
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
-from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.db.codec import encode_messages
-from the_one.llm.base import Message
+from the_one.llm.base import OPERATOR_VISIBILITY, Message
 
 # `app_with_data_dir` (Mission 20 / Flight 1 / Leg 3): formerly a local
 # fixture duplicated verbatim across 8 `test_flow_*.py` files, now
@@ -113,8 +112,8 @@ def test_chat_renders_peer_attribution(
         Message.system("you are a test agent"),
         # USER #1: operator-typed (no peer_name; visibility=operator)
         Message.user("operator typing", visibility=OPERATOR_VISIBILITY),
-        # USER #2: peer-attributed (visibility=None per
-        # connectors/visibility.py:60 which skips Role.USER)
+        # USER #2: peer-attributed (visibility=None per the visibility
+        # tagger in llm/base.py, which skips Role.USER)
         Message.user("hey @bot ping?", peer_name="alice"),
         # ASSISTANT (operator-visibility, gets the marker)
         Message.assistant("pong", visibility=OPERATOR_VISIBILITY),

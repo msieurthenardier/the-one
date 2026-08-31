@@ -33,7 +33,8 @@ def is_session_processing(session_id: str) -> bool:
 
 def clear_locks_for_test() -> None:
     """Drop all locks. Test fixtures only — production code never
-    calls this. Mirrors the pre-existing _clear_for_test on the
-    connectors pool and dispatcher modules.
+    calls this. Mirrors the pre-existing ``_clear_for_test`` on the
+    MCP pool module (and, before Mission 23 Flight 1 deleted the
+    connector package, the connector pool and dispatcher modules).
     """
     session_locks.clear()

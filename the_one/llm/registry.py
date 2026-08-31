@@ -12,9 +12,11 @@ _providers: dict[str, type[LLMProvider]] = {}
 # ``tests/test_provider_types_consistency.py``); the ``openai-compatible`` →
 # ``ollama`` re-route is the one historical alias and lives here only.
 # M19 F01 L02: lifted here from ``agent/factory.py`` (the code's own
-# forward-note) now that a third caller exists — ``agent/factory.py``,
-# ``connectors/_inference.py``, and the provider ``/test``+``/models`` API
-# branches all dispatch through this single source of truth.
+# forward-note) once a third caller existed — ``agent/factory.py`` and
+# the provider ``/test``+``/models`` API branches dispatch through this
+# single source of truth (the connector dispatcher's third caller,
+# ``connectors/_inference.py``, was deleted with the connector package
+# at Mission 23 Flight 1).
 PROVIDER_TYPE_MAP = {
     "ollama": "ollama",
     "openai-compatible": "ollama",

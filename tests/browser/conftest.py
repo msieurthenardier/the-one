@@ -199,12 +199,6 @@ def _spawn_app(
     env = os.environ.copy()
     env["THE_ONE_DATA_DIR"] = str(data_dir)
     env["THE_ONE_DEV_MODE"] = "true"
-    # M10 F2 L6: opt the spawned subprocess into the StubPlugin test-seam
-    # so connector browser tests can exercise the 'stub' type via
-    # /api/connectors/types and POST /test/connect. Gated server-
-    # side on `settings.dev_mode AND env-var == "1"`; production never
-    # sets the env var.
-    env["THE_ONE_REGISTER_STUB_CONNECTOR"] = "1"
     # Note: THE_ONE_PORT/THE_ONE_HOST omitted — uvicorn binds via the explicit
     # --host/--port flags below; nothing in app.py reads settings.port post-init.
     if extra_env:
@@ -335,9 +329,9 @@ def _establish_session_cookie(context: BrowserContext, origin: str, credential) 
     ``browser.new_context(...)`` — e.g. for extra ``permissions=[...]``)
     share one implementation of the mint-then-follow-redirect exchange.
     Two local copies of this exchange (one that had it, one that didn't) is
-    exactly how ``test_flow_studio_connector_invite_section.py``'s
-    ``clipboard_page`` fixture went stale after the gate was registered —
-    see this module's and ``credentialed_context()``'s docstrings.
+    exactly how a clipboard-permission test's local ``clipboard_page``
+    fixture went stale after the gate was registered — see this module's
+    and ``credentialed_context()``'s docstrings.
     """
     mint_resp = context.request.post(
         f"{origin}/api/session/handoff",
@@ -370,7 +364,7 @@ def credentialed_context(browser: Browser, base_url: str, **context_kwargs) -> B
     ``test_markdown.py``'s ``page_with_app`` set only the header (silently
     incompatible with the chat area's bare ``new WebSocket(...)``, which
     the WHATWG spec forbids attaching custom headers to — see the ``page``
-    fixture's docstring) and ``test_flow_studio_connector_invite_section.py``'s
+    fixture's docstring) and a clipboard-permission test's local
     ``clipboard_page`` set neither, which is what actually failed once the
     gate went live. Centralizing here is the fix meant to stop a third local
     copy reintroducing the same gap — see ``**context_kwargs`` below for how

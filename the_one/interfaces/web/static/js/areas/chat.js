@@ -110,7 +110,6 @@ App.registerArea({
     // the normal auto-join of the most-recent session.
     var pendingStart = null; // { agentName: string|null }
     var sessions = [];
-    var pendingApprovals = []; // M11 F17 L9 (Leg E) — left-panel pending section
     var currentAgentName = null;
     var messagesEl, inputEl, sendBtn, stopBtn, sessionListEl, agentSelect, agentBadgeEl;
     var fileInputEl, attachBtn;
@@ -331,24 +330,8 @@ App.registerArea({
     // Insert telemetry overlay between .messages and .input-area.
     chromeEl.insertBefore(App.chat.renderTelemetry(), chromeEl.querySelector('.input-area'));
 
-    // M11 F13 L5 / M16 F09 L04 (F09-06): routing-audit inspector for
-    // session_metadata["routing"] entries. The trigger lives right-justified
-    // in the header row (gated behind a live session — the header only shows
-    // inside .chat-chrome, which is hidden on the welcome screen). Clicking it
-    // opens a centered overlay holding the Refresh control + entries; open()
-    // mounts the overlay on <body> (full-viewport backdrop) and close()
-    // detaches it. The overlay node is kept detached here and populated in the
-    // session_joined handler below from data.session_metadata (render/query
-    // work on the detached node).
-    var routingAuditTriggerEl = App.chat.routingAuditPanel.createTrigger();
-    var routingAuditOverlayEl = App.chat.routingAuditPanel.createOverlay();
-    content.querySelector('.header').appendChild(routingAuditTriggerEl);
-    routingAuditTriggerEl.addEventListener('click', function () {
-      App.chat.routingAuditPanel.open(routingAuditOverlayEl, routingAuditTriggerEl);
-    });
-
     // F09-04: pinned region for the queued-message chip — inserted directly
-    // above the composer (after telemetry/routing) and OUTSIDE the scrolling
+    // above the composer (after telemetry) and OUTSIDE the scrolling
     // .messages list, so a held queued message stays visible and cannot scroll
     // away. showPendingQueued/clearPendingQueued toggle its `hidden` state.
     pendingQueuedRegionEl = document.createElement('div');
@@ -492,10 +475,6 @@ App.registerArea({
         clearPendingQueued();
       }
       currentSessionId = null;
-      // M11 F9 L4: reset pending-approval dedup on new-chat creation.
-      // renderHistory does NOT run for the new-session path, so the
-      // renderHistory-side reset alone would not cover it.
-      seenApprovalIds = Object.create(null);
       if (window.App && window.App.router) App.router.replaceSub(null);
       var msg = { action: 'new_session' };
       if (agentName) msg.agent_name = agentName;
@@ -509,10 +488,6 @@ App.registerArea({
       // starts fresh; getOrCreateTrace will append shells to the freshly
       // emptied .messages container.
       traceShells = Object.create(null);
-      // M11 F9 L4: reset pending-approval dedup on replay. Each
-      // session_joined event re-emits the historical pending-approval
-      // events; the dedup is scoped to the active session, not lifetime.
-      seenApprovalIds = Object.create(null);
       var agentLabel = agentName || 'agent';
       for (var i = 0; i < history.length; i++) {
         var ev = history[i];
@@ -557,62 +532,10 @@ App.registerArea({
         else if (ev.type === 'system' && ev.content !== 'Loading model...' && ev.content !== 'Model loaded.') {
           addMsg('system', ev.content, null, histOpts);
         }
-        // M11 F9 L4: pending-approval banner on replay path.
-        else if (ev.type === 'pending-approval') {
-          if (!seenApprovalIds[ev.approval_id]) {
-            seenApprovalIds[ev.approval_id] = true;
-            var pendingBanner = App.chat.renderPendingApproval(ev, {
-              onApprove: onApproveClick,
-              onDismiss: onDismissClick,
-            });
-            messagesEl.appendChild(pendingBanner);
-          }
-        }
       }
       messagesEl.removeAttribute('aria-busy');
     }
 
-    // M11 F9 L4: pending-approval click handlers. Closures over addMsg so
-    // the banner module itself stays scope-clean (per Sub-step D: the
-    // banner IIFE must not reach for chat.js-local symbols). Optimistic
-    // update (apply 'acting' class, hide buttons via CSS) then POST; on
-    // 200 swap to the new status badge; on non-200 revert and surface a
-    // system error.
-    function onApproveClick(approvalId, connectorId, bannerEl) {
-      onApprovalAction('approve', approvalId, connectorId, bannerEl);
-    }
-
-    function onDismissClick(approvalId, connectorId, bannerEl) {
-      onApprovalAction('dismiss', approvalId, connectorId, bannerEl);
-    }
-
-    function onApprovalAction(action, approvalId, connectorId, bannerEl) {
-      // Optimistic: dim the banner and disable click-through while the
-      // request is in flight. CSS rule `.msg-pending-approval-acting`
-      // applies `pointer-events: none` and `opacity: 0.6`.
-      bannerEl.classList.add('msg-pending-approval-acting');
-      var url = '/api/connectors/' + encodeURIComponent(connectorId) +
-        '/peer-approvals/' + encodeURIComponent(approvalId) + '/' + action;
-      var verb = action === 'approve' ? 'Approve' : 'Dismiss';
-      fetch(url, { method: 'POST' })
-        .then(function (resp) {
-          if (resp.ok) {
-            return resp.json().then(function (updated) {
-              App.chat.applyApprovalStatus(bannerEl, updated.status);
-            });
-          }
-          bannerEl.classList.remove('msg-pending-approval-acting');
-          return resp.text().then(function (body) {
-            var msg = verb + ' failed: HTTP ' + resp.status;
-            if (body) msg += ' — ' + body.slice(0, 200);
-            addMsg('system', msg);
-          });
-        })
-        .catch(function (e) {
-          bannerEl.classList.remove('msg-pending-approval-acting');
-          addMsg('system', verb + ' failed: ' + (e && e.message ? e.message : e));
-        });
-    }
 
     function joinSession(id) {
       // F09-04: a held queued message is client-only and does not carry across
@@ -808,16 +731,6 @@ App.registerArea({
     // same shell. Reset on `renderHistory` (replay) and re-seeded from the
     // DOM on WS-reconnect mid-turn via getOrCreateTrace's fallback below.
     var traceShells = Object.create(null);
-
-    // M11 F9 L4: dedup set of pending-approval ids seen this session.
-    // Skips re-render when both the replay path (renderHistory) and the
-    // WS broadcast path (onmessage 'pending-approval' branch) deliver the
-    // same approval_id — handles the restore-then-broadcast race AND the
-    // broadcast-then-restore race symmetrically. Reset at two boundaries:
-    // inside renderHistory (covers session_joined replay) and inside
-    // startSessionWith (covers new-chat creation, which sets currentSessionId
-    // = null without calling renderHistory).
-    var seenApprovalIds = Object.create(null);
 
     function getOrCreateTrace(parentMessageId) {
       if (!parentMessageId) return null;
@@ -1171,9 +1084,6 @@ App.registerArea({
 
         if (data.type === 'session_list') {
           sessions = data.sessions;
-          // M11 F17 L9 (Leg E) — fetch pending approvals for the left-panel
-          // pinned section, then render the session list. Errors are swallowed
-          // so a failing endpoint never blocks session navigation.
           var _sessionCallbacks = {
             onJoin: joinSession,
             onDelete: function (id, btn) {
@@ -1190,43 +1100,36 @@ App.registerArea({
               });
             }
           };
-          fetch('/api/connectors/peer-approvals/pending')
-            .then(function (r) { return r.ok ? r.json() : []; })
-            .catch(function () { return []; })
-            .then(function (approvals) {
-              pendingApprovals = Array.isArray(approvals) ? approvals : [];
-              App.chat.renderSessionList(
-                sessionListEl, sessions, currentSessionId, _sessionCallbacks, pendingApprovals
-              );
-              // Drain queued new-session intent (from startSessionWith while WS
-              // was reconnecting). Takes priority over pendingJoinId and
-              // auto-join so the user's explicit "new chat / switch agent"
-              // action is honoured after a brief reconnect.
-              if (pendingStart) {
-                var startIntent = pendingStart;
-                pendingStart = null;
-                currentSessionId = null;
-                seenApprovalIds = Object.create(null);
-                if (window.App && window.App.router) App.router.replaceSub(null);
-                var startMsg = { action: 'new_session' };
-                if (startIntent.agentName) startMsg.agent_name = startIntent.agentName;
-                ws.send(JSON.stringify(startMsg));
-                return;
-              }
-              if (pendingJoinId) {
-                var target = pendingJoinId;
-                pendingJoinId = null;
-                // Verify the session exists in the list before joining; if not,
-                // fall through to auto-join.
-                var found = false;
-                for (var i = 0; i < sessions.length; i++) {
-                  if (sessions[i].id === target) { found = true; break; }
-                }
-                if (found) { joinSession(target); return; }
-              }
-              if (sessions.length > 0 && !currentSessionId) joinSession(sessions[0].id);
-              else if (!currentSessionId) showWelcome();
-            });
+          App.chat.renderSessionList(
+            sessionListEl, sessions, currentSessionId, _sessionCallbacks
+          );
+          // Drain queued new-session intent (from startSessionWith while WS
+          // was reconnecting). Takes priority over pendingJoinId and
+          // auto-join so the user's explicit "new chat / switch agent"
+          // action is honoured after a brief reconnect.
+          if (pendingStart) {
+            var startIntent = pendingStart;
+            pendingStart = null;
+            currentSessionId = null;
+            if (window.App && window.App.router) App.router.replaceSub(null);
+            var startMsg = { action: 'new_session' };
+            if (startIntent.agentName) startMsg.agent_name = startIntent.agentName;
+            ws.send(JSON.stringify(startMsg));
+            return;
+          }
+          if (pendingJoinId) {
+            var target = pendingJoinId;
+            pendingJoinId = null;
+            // Verify the session exists in the list before joining; if not,
+            // fall through to auto-join.
+            var found = false;
+            for (var i = 0; i < sessions.length; i++) {
+              if (sessions[i].id === target) { found = true; break; }
+            }
+            if (found) { joinSession(target); return; }
+          }
+          if (sessions.length > 0 && !currentSessionId) joinSession(sessions[0].id);
+          else if (!currentSessionId) showWelcome();
           return;
         }
 
@@ -1249,7 +1152,7 @@ App.registerArea({
           renderHistory(data.history, data.agent_name);
           // M16 F06 L02: synchronously restore persisted last_usage into
           // the overlay so the token counts aren't lost on session reopen.
-          // Uses the same defensive read pattern as the routing panel below.
+          // Uses a defensive read pattern (session_metadata may be absent).
           // max_context_tokens is 0 here (unknown until the seed resolves);
           // the bar will fill once setTelemetryMax runs async shortly after.
           var lastUsage = (data.session_metadata && data.session_metadata.last_usage) || null;
@@ -1261,12 +1164,6 @@ App.registerArea({
               max_context_tokens: 0,
             });
           }
-          // M11 F13 L5: render the routing audit panel from the join
-          // payload's session_metadata and wire the Refresh button to
-          // re-fetch via REST.
-          var routing = (data.session_metadata && data.session_metadata.routing) || [];
-          App.chat.routingAuditPanel.render(routingAuditOverlayEl, routing);
-          App.chat.routingAuditPanel.wireRefresh(routingAuditOverlayEl, data.session_id);
           setSessionHealth(data.status || 'ok');
           // Sync per-session busy state to server ground truth
           // (`is_session_processing(session.id)`). Without this,
@@ -1338,11 +1235,6 @@ App.registerArea({
             messagesEl.innerHTML = '';
             setSessionHealth('ok');
             syncDropdownToCurrent();
-            // M11 F13 L5: clear the routing audit panel back to empty
-            // state when the current session is deleted. F09-06: also close
-            // the overlay if it happens to be open for the deleted session.
-            App.chat.routingAuditPanel.close();
-            App.chat.routingAuditPanel.render(routingAuditOverlayEl, []);
             // Don't auto-create — session_list refresh below picks the fallback.
           }
           refreshSessionList();
@@ -1357,9 +1249,9 @@ App.registerArea({
           // broadcast emits inline within step) — the channel is wired
           // for the follow-on live-broadcast tagging leg.
           // M11 F06 L04: forward peer_name from the live broadcast onto the
-          // attribution + bubble side. Connector-inbound user events carry
-          // data.peer_name (per F6 L3 dispatcher binding + F6 L2 codec
-          // projection). Operator-typed user events have no peer_name.
+          // attribution + bubble side. Peer-attributed inbound user events
+          // (per F6 L3 dispatcher binding + F6 L2 codec projection) carry
+          // data.peer_name. Operator-typed user events have no peer_name.
           var liveAttribution = data.peer_name || 'You';
           addMsg(cls, (data.source && data.source !== 'web' ? '[' + data.source + '] ' : '') + data.content, liveAttribution, { visibility: data.visibility, peerName: data.peer_name });
         }
@@ -1446,23 +1338,6 @@ App.registerArea({
         }
         else if (data.type === 'system') handleSystem(data);
         else if (data.type === 'usage') App.chat.updateTelemetry(content, data);
-        else if (data.type === 'pending-approval') {
-          // M11 F9 L4: live pending-approval banner from the dispatcher
-          // (the_one/connectors/_inbound.py emit site). Dedup against the
-          // replay path's seenApprovalIds Set so an in-flight broadcast
-          // that races a session restore doesn't double-render. The
-          // event shape is byte-identical to the codec's projection at
-          // pending_approvals_to_ui_events.
-          if (!seenApprovalIds[data.approval_id]) {
-            seenApprovalIds[data.approval_id] = true;
-            var liveBanner = App.chat.renderPendingApproval(data, {
-              onApprove: onApproveClick,
-              onDismiss: onDismissClick,
-            });
-            messagesEl.appendChild(liveBanner);
-            scrollToBottomIfPinned();
-          }
-        }
         else if (data.type === 'auth_required') {
           // F5 L5: lazy-path → render an inline "Login required for <source>"
           // button in the chat history. First emission has consent_url=null;

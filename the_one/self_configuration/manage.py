@@ -85,8 +85,9 @@ def surface_url() -> str:
 async def find_surface_row(mcp_repo: MCPSourceRepository, agent_name: str) -> MCPSource | None:
     """The agent's surface row, if one exists — regardless of whether it is
     currently attached (``mcp_source_ids``). Linear scan: operator-scale
-    source counts, mirrors ``SQLiteAgentStore.list_by_connector``'s
-    precedent for "no join table needed yet"."""
+    source counts, mirroring the now-deleted
+    ``SQLiteAgentStore.list_by_connector``'s precedent for "no join table
+    needed yet"."""
     for source in await mcp_repo.list():
         if is_surface_row(source) and owner_of(source) == agent_name:
             return source

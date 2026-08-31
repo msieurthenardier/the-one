@@ -5,10 +5,10 @@ relocated to studio post-F2 retrofit because MCP sources are user-managed
 entities, not system settings.
 
 Covers:
-- Studio section nav has 4 entries (Agents / Knowledge / MCP Servers /
-  Connectors — the Tools stub was replaced by MCP Servers in the F2
-  retrofit; Connector Accounts (renamed to "Connectors" in F5 L8 HAT)
-  was added in M10 F2 leg 05)
+- Studio section nav has 3 entries (Agents / Knowledge / MCP Servers —
+  the Tools stub was replaced by MCP Servers in the F2 retrofit; a
+  fourth "Connectors" entry existed from M10 through Mission 23 Flight 1,
+  which reset the connector subsystem)
 - Click "MCP Servers" → URL becomes #studio/mcp-sources
 - Direct-load #studio/mcp-sources renders the MCP Servers page
 - Direct-load #studio/mcp-sources/new renders the editor
@@ -30,17 +30,14 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_studio_section_nav_includes_mcp_servers(app_clean: str, page: Page) -> None:
-    """Studio section nav has 4 entries: Agents | Knowledge | MCP Servers | Connectors.
-
-    F5 L8 HAT: the fourth label was renamed from "Connector Accounts" → "Connectors".
-    """
+    """Studio section nav has 3 entries: Agents | Knowledge | MCP Servers."""
     page.goto(f"{app_clean}#studio")
     nav = page.locator(".area-studio .section-nav")
     expect(nav).to_be_visible(timeout=5000)
     items = page.locator(".area-studio .section-nav-item")
-    expect(items).to_have_count(4)
+    expect(items).to_have_count(3)
     labels = items.evaluate_all("els => els.map(e => e.textContent.trim())")
-    assert labels == ["Agents", "Knowledge", "MCP Servers", "Connectors"]
+    assert labels == ["Agents", "Knowledge", "MCP Servers"]
 
 
 @pytest.mark.browser

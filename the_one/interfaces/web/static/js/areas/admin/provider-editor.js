@@ -208,8 +208,8 @@
     // <input type="checkbox"> (id/data-field/`field-input` preserved) is
     // visually-hidden inside the switch label but stays keyboard-operable and
     // drives the collect + dirty machinery via `.checked`. The info-icon follows
-    // the LABEL (`label (i) field` order) to match the established pattern in the
-    // Discord connector form, not the num_ctx `label | input | ⓘ` order.
+    // the LABEL (`label (i) field` order) to match the established icon-tooltip
+    // pattern, not the num_ctx `label | input | ⓘ` order.
     var thinkingEnabled = !!(!isCreate && provider.config && provider.config.thinking_enabled);
     var teDesc = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
     var teIcon = (window.App && window.App.icon) ? window.App.icon('info') : '';

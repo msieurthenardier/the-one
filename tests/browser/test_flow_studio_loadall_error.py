@@ -1,10 +1,10 @@
 """Studio `loadAll()` rejection handling (squawk 0014).
 
-`loadAll()` is a `Promise.all` over six fetches (agents, tools, MCP
-sources, knowledge bases, providers, connectors). Neither call site
+`loadAll()` is a `Promise.all` over five fetches (agents, tools, MCP
+sources, knowledge bases, providers). Neither call site
 (`init()`, `self._refresh`) had a `.catch` — a rejection (network blip,
 non-JSON error body) left the area silently blank / stuck, with nothing
-shown to the operator. None of the six fetch helpers check `r.ok`, so a
+shown to the operator. None of the five fetch helpers check `r.ok`, so a
 JSON error body does NOT reject `.json()`; only a non-JSON body (the
 realistic shape of an unhandled-exception 500 page) or a network failure
 does. The stubs below return a plain-text 500 body to reproduce that.
@@ -13,7 +13,7 @@ Covers:
 - `init()` path: loadAll rejects on first mount — a visible, persistent
   `.admin-loading` error line appears (mirrors the existing per-section
   fetch-failure convention already used elsewhere in studio.js).
-- Healthy baseline: with all six routes healthy, the area renders
+- Healthy baseline: with all five routes healthy, the area renders
   normally and no error line appears — regression guard against the fix
   itself misfiring.
 - `_refresh` path (triggered by `activate()` on area re-entry): loadAll
@@ -31,7 +31,7 @@ from playwright.sync_api import Page, expect
 def _fail_knowledge_bases(route) -> None:
     """Return a non-JSON 500 body — the shape that actually makes
     `r.json()` reject (a JSON error body would resolve fine, since none
-    of loadAll's six fetch helpers check `r.ok`)."""
+    of loadAll's five fetch helpers check `r.ok`)."""
     route.fulfill(status=500, content_type="text/plain", body="Internal Server Error")
 
 
