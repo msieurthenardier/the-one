@@ -41,7 +41,7 @@ from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
 from the_one.db.codec import encode_messages
-from the_one.llm.base import OPERATOR_VISIBILITY, Message, ToolResult
+from the_one.llm.base import OPERATOR_VISIBILITY, Message, ToolCall, ToolResult
 
 # `app_with_data_dir` (Mission 20 / Flight 1 / Leg 3): formerly a local
 # fixture duplicated verbatim across 8 `test_flow_*.py` files, now
@@ -71,6 +71,35 @@ def _seed_session_with_messages(
             " id, agent_name, title, messages, created_at, updated_at"
             ") VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))",
             (session_id, agent_name, "operator visibility test", messages_json),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _seed_connector_session_with_messages(
+    data_dir: Path,
+    *,
+    session_id: str,
+    agent_name: str,
+    messages_json: str,
+) -> None:
+    """Like ``_seed_session_with_messages`` but also sets ``platform`` —
+    the column ``Session.platform`` restores from (``_restore_session`` /
+    ``_get_or_restore_session``), which the M23 F02 L03 promoted-tool-
+    result fix gates on. A row seeded via ``_seed_session_with_messages``
+    (platform left NULL) is a web-native session as far as the fix is
+    concerned, even though its messages carry connector-shaped fields —
+    this helper is the connector-attached counterpart.
+    """
+    db_path = data_dir / "the-one.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            "INSERT INTO chat_sessions ("
+            " id, agent_name, title, messages, created_at, updated_at, platform"
+            ") VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), ?)",
+            (session_id, agent_name, "connector tool-result promotion test", messages_json, "stub"),
         )
         conn.commit()
     finally:
@@ -179,3 +208,142 @@ def test_chat_renders_operator_visibility_distinction(
     # (stashed by renderMessage when opts.visibility is truthy).
     has_dataset = operator_only.first.evaluate("el => el.dataset.visibility")
     assert has_dataset == "operator", f"expected data-visibility='operator', got {has_dataset!r}"
+
+
+@pytest.mark.browser
+def test_chat_promotes_delivered_tool_result_out_of_accordion(
+    app_with_data_dir: tuple[str, Path],
+    page: Page,
+) -> None:
+    """M23 F02 L03 (behavior-test fix #2): on a connector-attached session,
+    a PEER-VISIBLE tool result (e.g. a successful ``send_to_platform_channel``
+    call) renders as a top-level bubble outside the "Tool activity"
+    accordion, while an OPERATOR-ONLY tool result stays collapsed inside it.
+
+    Regression test for behavior-test run 2026-08-31-21-37-14 checkpoint 7:
+    the `[platform-send-ok]` result was correctly tagged peer-visible but
+    imperceivable — buried in a collapsed accordion with no default-visible
+    cue.
+
+    Seeds two assistant/tool-call/tool-result turns on a connector-attached
+    (``platform="stub"``) session:
+    - turn 1: an internal, OPERATOR-ONLY tool call + result — stays fully
+      collapsed inside its trace shell (2 items).
+    - turn 2: a ``send_to_platform_channel`` tool call (operator-only, like
+      every tool CALL) whose RESULT is peer-visible (``visibility=None``,
+      the successful-send tag) — the call stays in its trace shell (1 item,
+      the result is NOT there); the result renders as a standalone
+      top-level bubble, visible without expanding anything.
+    """
+    base_url, data_dir = app_with_data_dir
+
+    provider_id = seed_mock_provider(base_url)
+    agent_name = seed_mock_agent(base_url, provider_id)
+
+    msgs = [
+        Message.system("you are a test agent"),
+        Message.user("please send it", peer_name="peer-1"),
+        # Turn 1: an internal tool call + result — both operator-only.
+        Message.assistant(
+            "",
+            tool_calls=[ToolCall(id="tc-internal", name="some_internal_tool", arguments={})],
+            visibility=OPERATOR_VISIBILITY,
+        ),
+        Message.tool(
+            ToolResult(tool_call_id="tc-internal", content="internal result", is_error=False),
+            visibility=OPERATOR_VISIBILITY,
+        ),
+        # Turn 2: the platform-send call (operator-only) whose result is
+        # peer-visible (visibility=None) — the delivered content.
+        Message.assistant(
+            "",
+            tool_calls=[
+                ToolCall(
+                    id="tc-send",
+                    name="send_to_platform_channel",
+                    arguments={
+                        "target": {"connector_id": "conn-1", "peer_id": "peer-1"},
+                        "content": "ping",
+                    },
+                )
+            ],
+            visibility=OPERATOR_VISIBILITY,
+        ),
+        Message.tool(
+            ToolResult(
+                tool_call_id="tc-send",
+                content="[platform-send-ok] sent to conn-1 DM peer-1: 'ping' (msg_id=1)",
+                is_error=False,
+            ),
+            visibility=None,
+        ),
+    ]
+    encoded = encode_messages(msgs)
+
+    session_id = str(uuid.uuid4())
+    _seed_connector_session_with_messages(
+        data_dir,
+        session_id=session_id,
+        agent_name=agent_name,
+        messages_json=encoded,
+    )
+
+    page.goto(f"{base_url}#chat/sessions/{session_id}")
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    expect(page.locator(".msg").first).to_be_visible(timeout=5000)
+
+    # Both tool calls always route through a trace shell (they're never the
+    # successful-send exception themselves) — two turns, two shells.
+    trace_shells = page.locator('[data-testid="trace-shell"]')
+    expect(trace_shells).to_have_count(2, timeout=5000)
+
+    # Turn 1's shell: both the call and its result stayed collapsed inside.
+    first_body_count = trace_shells.nth(0).locator(".trace-body .msg").count()
+    assert first_body_count == 2, (
+        f"expected turn 1's trace shell to hold 2 collapsed items (call + "
+        f"operator-only result), got {first_body_count}"
+    )
+
+    # Turn 2's shell: only the call — the delivered result was diverted out.
+    second_body_count = trace_shells.nth(1).locator(".trace-body .msg").count()
+    assert second_body_count == 1, (
+        f"expected turn 2's trace shell to hold only the tool CALL (1 item) "
+        f"— the peer-visible result must not collapse into it, got {second_body_count}"
+    )
+    trace2_text = trace_shells.nth(1).locator(".trace-body").text_content()
+    assert "platform-send-ok" not in (trace2_text or ""), (
+        "the delivered tool result leaked into the collapsed accordion "
+        "instead of being promoted to a top-level bubble"
+    )
+
+    # The delivered result is a DIRECT CHILD of .messages (top-level,
+    # sibling to the trace shells and other bubbles) — not nested inside
+    # any trace shell — and visible without expanding anything.
+    delivered = page.locator(".messages > .msg.tool")
+    expect(delivered).to_have_count(1, timeout=5000)
+    expect(delivered).to_be_visible()
+    delivered_text = delivered.text_content() or ""
+    assert delivered_text.startswith("[platform-send-ok]"), (
+        f"expected the promoted bubble's text to start with the delivered "
+        f"prefix, got {delivered_text!r}"
+    )
+    has_operator_class = delivered.evaluate("el => el.classList.contains('msg-operator-only')")
+    assert has_operator_class is False, (
+        "the promoted (peer-visible) tool result must not carry "
+        ".msg-operator-only"
+    )
+
+    # It gets an attribution row like a delivered message, per the fix's
+    # "rendered like a delivered message" requirement.
+    delivered_attribution = delivered.evaluate(
+        "el => { const n = el.nextElementSibling; "
+        "return n ? { cls: n.className, text: n.textContent } : null; }"
+    )
+    assert delivered_attribution is not None, (
+        "the promoted tool result should be followed by an attribution "
+        "row, like an ordinary assistant reply"
+    )
+    assert "from-agent" in delivered_attribution["cls"], (
+        f"expected the attribution row to use the 'from-agent' side, "
+        f"got cls={delivered_attribution['cls']!r}"
+    )

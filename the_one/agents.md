@@ -252,7 +252,7 @@ Event-handler installation (registering a handler that depends on application-le
 
 Applies to any event-driven handler (gateway listeners, periodic sweeps, background workers, lifespan-startup callbacks) that depends on application-level dependency injection. Does NOT apply to handlers wired into a synchronous import path that runs at module-load. The pattern is connector-agnostic and applies project-wide to any lifespan-driven handler.
 
-Citation: the worked example — a connector gateway listener installed in F8 L4 (`DiscordPlugin.connect`'s `on_message` handler) whose lifespan-time pool-acquire wiring was deferred to L11, leaving the inbound code path end-to-end unreachable in production for seven flights — lived in the connector subsystem, removed in the Mission 23 connector reset. The module-level `set_factory` / `get_factory` accessor pair it relied on (`the_one/agent/factory.py`, consumed by `the_one/interfaces/web/app.py`'s lifespan startup) still exists but currently has no gateway-listener caller; re-attach a citation here if a future event-driven handler adopts the same accessor.
+Citation: the worked example — a connector gateway listener installed in F8 L4 (`DiscordPlugin.connect`'s `on_message` handler) whose lifespan-time pool-acquire wiring was deferred to L11, leaving the inbound code path end-to-end unreachable in production for seven flights — lived in the connector subsystem, removed in the Mission 23 connector reset. The module-level `set_factory` / `get_factory` accessor pair it relied on (`the_one/agent/factory.py`, consumed by `the_one/interfaces/web/app.py`'s lifespan startup) has a real caller again as of the Mission 23 connector reset (Flight 2): `the_one/connectors/inbound.py::dispatch_inbound` calls `get_factory()` at dispatch time, wired end-to-end alongside the manager's lifespan `start_all`/`drain` hooks in the same leg (`01-contract-core`) — this time honoring `lifespan-wiring-same-leg-as-installation` rather than repeating the F8/L11 split. Re-attach a further citation if a future event-driven handler (Discord, Flight 3) adopts the same accessor.
 
 Source: M10 mission-debrief "Process §6" — add `lifespan-wiring-same-leg-as-installation` to `/leg` and `/flight` design guidance; also "Methodology Feedback §4."
 
@@ -264,7 +264,7 @@ Applies whenever a contract change crosses two or more of {Pydantic schema, DB s
 
 Citations (n=2 — pattern is at codification threshold per `function-local-import-to-break-load-cycle` precedent):
 - M21 F02 L02: `AgentConfig.self_revision_requires_approval` field landed alongside schema v35 migration (`agents.self_revision_requires_approval INTEGER NOT NULL DEFAULT 0`), `SQLiteAgentStore.set_self_revision_requires_approval` repository method, and the `surface.py:_apply_revision` branch consumer in a single leg.
-- Historical: two connector-subsystem citations (`AgentConfig.connector_ids` / v17; `AgentConfig.connector_acls` / v18) demonstrated this pattern before the connector subsystem was removed in the Mission 23 connector reset; re-attach if a comparable case recurs.
+- Historical: two connector-subsystem citations (`AgentConfig.connector_ids` / v17; `AgentConfig`'s since-removed per-connector allowlist field / v18) demonstrated this pattern before the pre-reset connector subsystem was deleted in Mission 23 Flight 1; re-attach if a comparable case recurs.
 
 Source: M10 mission-debrief "Documentation §1 (Architect addition)" — `atomic-leg-pattern` (Pydantic field + migration + repository + ripple-sites in one leg; F4 L5 + F6 L1c are n=2); also "Methodology Feedback §8."
 
@@ -693,6 +693,58 @@ Everything above is the agent's OWN `agt` principal reaching its surface over th
 - **External writes honor the SAME per-agent approval flag.** The write path checks `config.self_revision_requires_approval` regardless of source, so an external client's proposal is held in the pending queue (never silently applied) exactly like a `self` write when approval mode is on — the operator gate on the mission's central write-risk covers the external principal with no special-casing.
 - **Operational trace: log lines, not a tombstone (Flight 01 Leg 2, Q2).** Mint/revoke/rotate each emit one INFO line on `the_one.interfaces.web.api`'s module logger (agent name, `ext_` identifier, label, principal — never the secret); `manage.disable`/`manage.cascade_delete` each emit one INFO line on `the_one.self_configuration.manage`'s logger at the two points a credential row disappears without an explicit revoke (surface disable, agent delete), carrying the evicted identifiers and their count — the row is already gone by then (FK cascade), so the cascade line can't carry a label the way the mint line does. A `revoked_at` tombstone was considered and rejected: the FK cascade would bypass it (recording explicit revokes but not cascades), and a queryable audit trail is properly an events table — a separate initiative from this flight, alongside the Advisory logging sweep, which inherits this log-line field set as its convention.
 
+### Connector subsystem contract (Mission 23 Flight 2)
+
+`the_one/connectors/` bridges external chat platforms to the agent loop.
+Mission 23 Flight 1 deleted the pre-reset framework outright (a ~430-line
+message-routing layer, per-agent ACLs, manual peer-approval flows, a
+slash-command surface, worker-pool machinery, the Discord plugin); Flight 2
+rebuilt a small, platform-agnostic core from scratch. **The full contract —
+Protocol shapes, manager lifecycle, inbound pipeline stages, pairing, reply
+policy, the send/history-tool authorization rule, config schema, test
+seams, known limitations — lives in `the_one/connectors/README.md`.** This
+entry is the architecture-index pointer other subsystem-contract entries
+get; don't duplicate the README's content here.
+
+- **Module map**: `base.py` (Protocols + envelope/target dataclasses),
+  `registry.py` (type → plugin dict, test-only registration — no
+  production plugin ships yet), `manager.py` (`ConnectorManager`:
+  listener-task lifecycle + in-memory pairing store, installed via
+  `set_manager`/`get_manager` mirroring `agent.factory`'s accessor pair),
+  `inbound.py` (`dispatch_inbound`: admission → `/new` → reply policy →
+  session resolution → per-session-locked agent dispatch), `stub.py`
+  (`StubPlugin`: in-process test/dev fixture, never registered in
+  production).
+- **Two built-in tools** re-attached alongside the package:
+  `tools/connector_send.py` (`send_to_platform_channel`) and
+  `tools/connector_history.py` (`fetch_channel_history`, DD-8, optional per
+  plugin via `getattr(client, "history", None)` —
+  `optional-plugin-hook-via-getattr-sentinel` above). Both share one
+  binding-derived authorization rule (see the README's "Authorization
+  rule").
+- **Persisted across the reset, unaffected by the deletion/rebuild**: the
+  `Connector` DB model/row, `ConnectorRepository`, and connector-secret
+  enrollment in the encryption-rotation invariant above; `Message.visibility`
+  and the `ChatSession` session-keying columns (`platform`, `connector_id`,
+  `channel_id`, `thread_id`, `peer_id`, `session_metadata`,
+  `last_inbound_at`). Flight 1 deleted the dispatcher that populated them;
+  Flight 2's `inbound.py` populates them again, on the new contract.
+- **Reply visibility** (`tag_post_step_visibility`, `the_one/llm/base.py`)
+  is connector-agnostic machinery with a live connector-specific branch
+  again: a successful `send_to_platform_channel` tool result is tagged
+  peer-visible (`visibility=None`); everything else a turn produces stays
+  operator-only. See "`message-additive-back-compat-via-emit-when-non-none`"
+  above for the general visibility-field convention this specializes.
+- **Discord (Flight 3)** is the first real plugin; **Flight 4** proves the
+  `ConnectorPlugin` contract generalizes to further platforms (Slack,
+  Matrix, Signal, email — each a small client, none needing a public
+  endpoint per the mission's design). The module-level `set_factory`/
+  `get_factory` accessor (`the_one/agent/factory.py`) that a real gateway
+  listener resolves the application factory through — see
+  `lifespan-wiring-same-leg-as-installation` above — already has a real
+  caller via the stub plugin's test seams; Flight 3 is expected to be the
+  first REAL (non-test) gateway listener to drive it.
+
 ### MCP F2 Client Foundation (authoritative for F3+)
 
 1. **Module layout** — `the_one/mcp/` is a peer of `the_one/llm/`, NOT a sub-package of `the_one/tools/`. `MCPClient` is a service abstraction; `MCPToolProvider` wraps individual `MCPTool`s into the project's `Tool` abstraction.
@@ -1046,7 +1098,18 @@ Six layers must coordinate. Missing any one causes either silent rejection (vali
 
 ---
 
-> **Connector subsystem removed (Mission 23 connector reset).** This file previously carried a "Connector type extension checklist" and a "Connector subsystem" section (Mission 10 Flight 1 and its follow-on flights) documenting the routing engine, ACL axes, peer approvals, slash commands, and worker-pool machinery of the connector package. That subsystem was deleted from the codebase; a future flight of Mission 23 will define a new, minimal connector contract, and its extension checklist and architecture index belong here once that lands. The `Connector` DB model/row, `ConnectorRepository`, and connector-secret enrollment in the encryption-rotation invariant above are unaffected — they persist independently of the deleted routing/ACL/approval machinery. `Message.visibility` and the `ChatSession` session-keying columns (`platform`, `connector_id`, `channel_id`, `thread_id`, `peer_id`, `session_metadata`, `last_inbound_at`) also persist unchanged; only the dispatcher that populated them for connector-driven sessions is gone.
+> **Connector subsystem rebuilt (Mission 23 Flight 2).** This file previously
+> carried a "Connector type extension checklist" and a "Connector subsystem"
+> section (Mission 10 Flight 1 and its follow-on flights) documenting the
+> pre-reset package's message-routing layer, ACL axes, manual peer-approval
+> flows, slash commands, and worker-pool machinery — deleted wholesale in
+> Mission 23 Flight 1. Flight 2 defined a new, minimal connector contract;
+> see "Connector subsystem contract (Mission 23 Flight 2)" under "Subsystem
+> contracts" above for the architecture index, and
+> `the_one/connectors/README.md` for the full contract. No provider-type-style
+> extension checklist applies here — adding a platform means implementing
+> the `ConnectorPlugin`/`ConnectorClient` Protocols (see the README), not
+> touching a fixed multi-file checklist the way an LLM provider type does.
 
 ## Streaming protocol
 

@@ -157,6 +157,50 @@ class Connector(BaseModel):
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
+    @field_validator("config", mode="after")
+    @classmethod
+    def _validate_connector_config(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Mission 23 Flight 2 DD-2: compact reserved-key validator.
+
+        Replaces the pre-reset 430-line routing/ACL schema. Unknown
+        top-level keys are rejected; ``default_agent`` is validated for
+        shape only — a dangling reference (renamed/deleted agent) is a
+        doctor-reported condition, not a validator error (DD-2
+        trade-off: agents are project-local, not worth the FK-style
+        coupling).
+        """
+        allowed = {"default_agent", "channel_map", "allowlist", "always_listen"}
+        unknown = set(value) - allowed
+        if unknown:
+            raise ValueError(f"Connector.config has unknown key(s): {sorted(unknown)}")
+        if "default_agent" in value and not isinstance(value["default_agent"], str):
+            raise ValueError("Connector.config['default_agent'] must be a string")
+        if "channel_map" in value:
+            channel_map = value["channel_map"]
+            if not isinstance(channel_map, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in channel_map.items()
+            ):
+                raise ValueError("Connector.config['channel_map'] must be a dict[str, str]")
+        if "allowlist" in value:
+            allowlist = value["allowlist"]
+            if not isinstance(allowlist, dict) or set(allowlist) - {"peers", "channels"}:
+                raise ValueError(
+                    "Connector.config['allowlist'] must be a dict with only 'peers'/'channels' keys"
+                )
+            for axis in ("peers", "channels"):
+                if axis in allowlist and (
+                    not isinstance(allowlist[axis], list)
+                    or not all(isinstance(v, str) for v in allowlist[axis])
+                ):
+                    raise ValueError(f"Connector.config['allowlist'][{axis!r}] must be list[str]")
+        if "always_listen" in value:
+            always_listen = value["always_listen"]
+            if not isinstance(always_listen, list) or not all(
+                isinstance(v, str) for v in always_listen
+            ):
+                raise ValueError("Connector.config['always_listen'] must be list[str]")
+        return value
+
 
 # Mission 23 Flight 1 (backend-removal leg): ``db/_connector_types.py`` is
 # deleted with the connector package. Its ``CONNECTOR_TYPES`` derivation fed

@@ -1,15 +1,15 @@
 # Flight: Channel Contract
 
-**Status**: planning
+**Status**: completed
 **Mission**: [Connector Reset](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] Connector credentials remain Fernet-encrypted at rest, masked in every response, and enrolled in `POST /api/encryption/rotate`
-- [ ] Admission is a flat allowlist of peer and channel identifiers plus a pairing code for first contact; an unknown sender gets silence and nothing is persisted for them; no LLM engagement gate, no per-agent ACL overlay, no approval queue
-- [ ] A connector serves one default agent, with an optional flat channel→agent map; no routing engine, rules, or routing audit log
-- [ ] *(retained, verified here via behavior test)* The Chat UI shows unified history for a connector-bound session with operator-only messages distinguished from peer-visible ones; operator-typed messages never reach the platform
-- [ ] *(running count)* Connector subsystem ≤3,000 Python lines total — this flight's budget is ≤1,500 including the stub; connector Studio UI within the 1,000-JS-line ceiling
-- [ ] *(partial)* Docs describe the new contract with no references to removed machinery
+- [x] Connector credentials remain Fernet-encrypted at rest, masked in every response, and enrolled in `POST /api/encryption/rotate` — flight-end review verified Fernet at rest, MCP-pattern masking, rotation stop+restart with fresh-row re-fetch (tested)
+- [x] Admission is a flat allowlist plus one-time TTL pairing code; unknown sender gets total silence, nothing persisted (behavior-test checkpoints 3–4, both runs); no engagement gate/ACL overlay/approval queue exists
+- [x] A connector serves one default agent with an optional flat channel→agent map (DD-4 authorization matrix enforced and tested); no routing engine, rules, or audit log
+- [x] *(retained, verified via behavior test)* Unified history with peer attribution, operator-only distinction, and top-level peer-visible tool results; operator messages never reach the platform (run 2026-08-31-22-43-08, 7/7)
+- [x] *(running count)* Python 1,060 / 1,500 flight (1,060 / 3,000 mission); JS ~675 / 1,000 mission ceiling (flight-end recount; FD-accepted over the 650 flight target)
+- [x] *(partial)* Five docs rewritten; forbidden-term greps clean (flight-end review re-verified)
 
 ---
 
@@ -95,9 +95,9 @@ Rebuild the connector subsystem's platform-agnostic core on the seams Flight 1 k
 Build order follows the dependency chain: contract core first (importable, unit-tested, stub-proven), then the HTTP/UI surface over it, then the end-to-end behavior gate. The old package at git ref `main~1^` (pre-Flight-1) is reference material for contracts being preserved (send tool semantics, session reuse rules, masking round-trip) — consulted, never copied wholesale. Config validation lives on the kept `Connector` model as one compact validator. `app.py` lifespan gains two small hooks (manager start after startup, manager drain in shutdown — placed so the MCP drain block `:396-418` is again untouched). Docs rewritten: `the_one/connectors/README.md` (the contract, ~short), the `agents.md` connector section, `README.md` architecture paragraph replacing the Flight-1 placeholder, `SECURITY-MODEL.md` connector wording.
 
 ### Checkpoints
-- [ ] Leg 1 lands: contract core + tools complete; stub round-trip covered in unit tests; `make test-unit` green; Python line count reported vs budget
-- [ ] Leg 2 lands: routes + Studio form + testid registry; all browser lanes green; JS line count reported vs budget
-- [ ] Leg 3 lands: `/behavior-test stub-connector-round-trip` passes; docs rewritten; final line counts and lane results recorded
+- [x] Leg 1 lands: contract core + tools complete; stub round-trip covered in unit tests; `make test-unit` green; Python line count reported vs budget
+- [x] Leg 2 lands: routes + Studio form + testid registry; all browser lanes green; JS line count reported vs budget
+- [x] Leg 3 lands: `/behavior-test stub-connector-round-trip` passes (run 2, 7/7); docs rewritten; final line counts and lane results recorded
 
 ### Adaptation Criteria
 
@@ -113,9 +113,9 @@ Build order follows the dependency chain: contract core first (importable, unit-
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `contract-core` - Protocol, registry, manager, inbound pipeline (admission/pairing//new/session/dispatch/reply policy), stub plugin, send tool + history tool re-attachment, config validator, lifespan hooks, unit tests, line-count checkpoint
-- [ ] `routes-and-studio` - Seven routes with masking, the two dev_mode-gated test seams (including the deliberate edit to `test_seam_routes_403_sweep.py`'s hardcoded `_EXPECTED_SEAMS` set — it does not auto-widen, by design), Studio form + testid registry + browser tests, JS line-count checkpoint
-- [ ] `behavior-gate-and-docs` - Finalize + run `stub-connector-round-trip` behavior test to pass, rewrite docs, final metrics
+- [x] `contract-core` - Protocol, registry, manager, inbound pipeline (admission/pairing//new/session/dispatch/reply policy), stub plugin, send tool + history tool re-attachment, config validator, lifespan hooks, unit tests, line-count checkpoint
+- [x] `routes-and-studio` - Seven routes with masking, the two dev_mode-gated test seams (including the deliberate edit to `test_seam_routes_403_sweep.py`'s hardcoded `_EXPECTED_SEAMS` set — it does not auto-widen, by design), Studio form + testid registry + browser tests, JS line-count checkpoint
+- [x] `behavior-gate-and-docs` - Finalize + run `stub-connector-round-trip` behavior test to pass, rewrite docs, final metrics
 
 ---
 

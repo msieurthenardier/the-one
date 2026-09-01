@@ -8,13 +8,14 @@ PUT it back unchanged silently corrupted the stored secret to the literal
 mask string — discovered via a Discord connector account whose ``BOT_TOKEN``
 persisted to disk as ``***...SD7U`` after such a round-trip.
 
-These tests pin the round-trip safety for the entities still reachable
-over REST (MCP source, LLM provider), the canonical sentinel path, and
-the negative case where a user-supplied value merely starts with ``***``
-but is NOT a mask shape. The connector-account coverage that originally
-motivated this file is gone with the connector REST routes (Mission 23
-Flight 1, DD-1) — the contract itself (masking + sentinel-preserve) is
-generic and remains proven by the surviving entities.
+These tests pin the round-trip safety for MCP sources, LLM providers, and
+connector accounts (masking + sentinel-preserve — the canonical sentinel
+path — and the negative case where a user-supplied value merely starts
+with ``***`` but is NOT a mask shape). The connector-account coverage was
+deleted outright when Mission 23 Flight 1 (DD-1) removed the connector
+REST routes, then reinstated here by Flight 2 Leg 2 alongside the routes
+themselves (design review correction: connectors mask per-key like MCP
+sources, not single-column like providers).
 """
 
 from __future__ import annotations
@@ -173,10 +174,56 @@ class TestMCPSourceRoundTrip:
         assert json.loads(decrypted) == {"K": real_value}
 
 
-# TestConnectorRoundTrip is deleted: Mission 23 Flight 1 (DD-1) removes
-# the connector REST routes outright. The GET-mask / PUT-preserve
-# contract this class pinned for connector secrets is still exercised
-# for MCP sources and LLM providers above/below.
+class TestConnectorRoundTrip:
+    """Mission 23 Flight 2 Leg 2 reinstates the connector REST routes
+    (Flight 1, DD-1, deleted them outright). Masking reuses the MCP-style
+    per-key ``_mask_secrets``/``_looks_masked`` helpers (design review
+    correction: ``Connector.secrets`` is a free-form dict like
+    ``MCPSource.secrets``, NOT the single-column ``_mask_api_key``
+    shape) — this class is the connector analogue of
+    ``TestMCPSourceRoundTrip`` above."""
+
+    async def test_get_put_get_does_not_corrupt_secret(self, client_and_key) -> None:
+        client, key, db_path = client_and_key
+        real_value = "real-connector-token-abc123"
+
+        create = await client.post(
+            "/api/connectors",
+            json={
+                "name": "RT",
+                "type": "discord",
+                "config": {"default_agent": "bot-1"},
+                "secrets": {"token": real_value},
+            },
+        )
+        cid = create.json()["id"]
+
+        got = await client.get(f"/api/connectors/{cid}")
+        assert got.status_code == 200
+        masked_payload = got.json()
+        assert masked_payload["secrets"]["token"] == "***...c123"
+
+        put = await client.put(f"/api/connectors/{cid}", json=masked_payload)
+        assert put.status_code == 200
+
+        got_again = await client.get(f"/api/connectors/{cid}")
+        assert got_again.json()["secrets"]["token"] == "***...c123"
+
+        direct_conn = await aiosqlite.connect(str(db_path))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM connectors WHERE id = ?", (cid,)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        assert row is not None
+        decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
+        stored = json.loads(decrypted)
+        assert stored == {"token": real_value}, (
+            f"Round-trip corrupted the stored secret: got {stored!r}"
+        )
 
 
 # ── LLM provider round-trip ──────────────────────────────────────────────
@@ -269,8 +316,38 @@ class TestSentinelPathStillWorks:
         decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
         assert json.loads(decrypted) == {"K": "ghp_realsecretvalue"}
 
-    # test_connector_sentinel_preserves is deleted: Mission 23 Flight 1
-    # (DD-1) removes the connector REST routes outright.
+    async def test_connector_sentinel_preserves(self, client_and_key) -> None:
+        client, key, db_path = client_and_key
+        create = await client.post(
+            "/api/connectors",
+            json={
+                "name": "S",
+                "type": "discord",
+                "config": {"default_agent": "bot-1"},
+                "secrets": {"token": "ghp_realconnectorsecret"},
+            },
+        )
+        cid = create.json()["id"]
+        await client.put(
+            f"/api/connectors/{cid}",
+            json={
+                "name": "S",
+                "type": "discord",
+                "config": {"default_agent": "bot-1"},
+                "secrets": {"token": "__MASKED__"},
+            },
+        )
+        direct_conn = await aiosqlite.connect(str(db_path))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM connectors WHERE id = ?", (cid,)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
+        assert json.loads(decrypted) == {"token": "ghp_realconnectorsecret"}
 
     async def test_provider_sentinel_preserves(self, client_and_key) -> None:
         client, key, db_path = client_and_key
@@ -356,8 +433,40 @@ class TestNonMaskValuesPassThrough:
             "Non-mask values starting with '***' must overwrite, not preserve."
         )
 
-    # test_connector_starlit_prefix_is_real_value is deleted: Mission 23
-    # Flight 1 (DD-1) removes the connector REST routes outright.
+    async def test_connector_starlit_prefix_is_real_value(self, client_and_key) -> None:
+        client, key, db_path = client_and_key
+        create = await client.post(
+            "/api/connectors",
+            json={
+                "name": "S",
+                "type": "discord",
+                "config": {"default_agent": "bot-1"},
+                "secrets": {"token": "original-connector-token"},
+            },
+        )
+        cid = create.json()["id"]
+        await client.put(
+            f"/api/connectors/{cid}",
+            json={
+                "name": "S",
+                "type": "discord",
+                "config": {"default_agent": "bot-1"},
+                "secrets": {"token": "***hello"},
+            },
+        )
+        direct_conn = await aiosqlite.connect(str(db_path))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM connectors WHERE id = ?", (cid,)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
+        assert json.loads(decrypted) == {"token": "***hello"}, (
+            "Non-mask values starting with '***' must overwrite, not preserve."
+        )
 
 
 # ── Unit-level pin on the helper itself ──────────────────────────────────

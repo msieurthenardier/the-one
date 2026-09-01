@@ -367,18 +367,26 @@ def tag_post_step_visibility(
       "send_to_platform_channel"`` AND content starts with the
       platform-send success prefix → ``visibility=None`` (peer-visible;
       the platform-send tool already pushed the content to peers). The
-      send tool itself is deleted with the connector package (DD-4);
-      this branch is dormant until Flight 2 re-attaches a tool of that
-      name, but the tagging contract stays pinned by the test above.
+      send tool was re-attached in Mission 23 Flight 2 Leg 1
+      (``the_one/tools/connector_send.py``) — this branch is live again,
+      exercised end-to-end by the connector inbound pipeline
+      (``the_one/connectors/inbound.py::dispatch_inbound``), and the
+      tagging contract stays pinned by the test above plus
+      ``tests/test_connector_send_tool.py::test_shared_constants_pin_llm_base_literals``.
     - Everything else → ``OPERATOR_VISIBILITY`` (assistant text +
       intermediate tool calls/results stay operator-only).
     - Messages at indices ``< pre_step_len`` (the pre-existing
       history) are NEVER touched.
     """
-    # "[platform-send-ok]" was PLATFORM_SEND_OK_PREFIX from the deleted
-    # connectors package (M10 F04 L01) — deleted, not relocated (DD-3),
-    # since it belongs to the send tool. The literal value is inlined
-    # here because the tagging rule above still needs it.
+    # "[platform-send-ok]" is ``PLATFORM_SEND_OK_PREFIX``, now defined in
+    # ``the_one/tools/connector_send.py`` (re-attached Mission 23 Flight 2
+    # Leg 1). Inlined here rather than imported — ``the_one/llm/`` does not
+    # import from ``the_one/tools/`` (tools depend on llm-adjacent layers,
+    # not the reverse; see this flight's flight-log Deviations for Leg 1's
+    # explicit "assert, not import" call). Agreement between the two
+    # literals is pinned by
+    # ``tests/test_connector_send_tool.py::test_shared_constants_pin_llm_base_literals``
+    # instead of a shared import.
     platform_send_ok_prefix = "[platform-send-ok]"
     new_msgs = messages[pre_step_len:]
     tool_call_names: dict[str, str] = {}

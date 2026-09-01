@@ -4,6 +4,8 @@ from the_one.tools._search_backends import SearchBackend, build_search_backend
 from the_one.tools._web_config import WebConfig
 from the_one.tools._web_search_config import WebSearchConfig
 from the_one.tools.base import Tool
+from the_one.tools.connector_history import FetchChannelHistoryTool
+from the_one.tools.connector_send import SendToPlatformChannelTool
 from the_one.tools.filesystem import (
     DeleteFileTool,
     EditFileTool,
@@ -57,6 +59,12 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "fetch_url": FetchUrlTool,
     "download_file": DownloadFileTool,
     "web_search": WebSearchTool,
+    # Mission 23 Flight 2 Leg 1 (DD-4/DD-8): re-attached at the END of the
+    # dict per the ordering-is-policy assertion below — these two tools
+    # carry the empty default Config, so appending them cannot change
+    # which tool name resolves FilesystemConfig.
+    "send_to_platform_channel": SendToPlatformChannelTool,
+    "fetch_channel_history": FetchChannelHistoryTool,
 }
 
 # M14 F4 L7 — ordering-is-policy assertion. The cross-config resolution loop in
@@ -182,7 +190,11 @@ class BuiltinToolProvider:
             # tools that used to receive extra ``connector_ids``/
             # ``connector_acls`` construction kwargs here (send + four
             # channel-context fetch tools) were deleted with the connector
-            # package — every remaining tool takes the plain construction
-            # below.
+            # package. Flight 2 Leg 1 re-attaches two of them
+            # (``send_to_platform_channel`` / ``fetch_channel_history``) —
+            # DD-4 authorization is binding-derived and evaluated inside
+            # each tool's ``execute()`` against the live ``Connector`` row,
+            # not threaded through construction kwargs, so every tool
+            # (old and new) still takes the plain construction below.
             result.append(cls(cfg, cross_configs=cross_configs, agent_name=agent_name))
         return result

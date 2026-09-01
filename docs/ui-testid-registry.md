@@ -58,8 +58,13 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-welcome` | chat | |
 | `chat-welcome-mascot` | chat | |
 | `confirm-dialog-overlay` | shell | |
+| `connector-card` | studio | Connectors grid tile (M23 F02 L02); `data-id` carries the connector id |
+| `connector-channel-map-row` | studio | Connector-editor channel→agent map, one row (M23 F02 L02) |
+| `connector-doctor-result` | studio | Connector-editor doctor probe result region (M23 F02 L02) |
+| `connector-pairing-result` | studio | Connector-editor pairing-code + expiry result region (M23 F02 L02) |
 | `delete-agent-btn` | studio | |
 | `delete-blocked-message` | admin | |
+| `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
 | `delete-mcp-source-btn` | studio | |
 | `delete-provider-btn` | admin | |
 | `kv-add-row-btn` | studio | |
@@ -198,6 +203,13 @@ caught — but it cannot see where the attribute is emitted.
 
 ## Manual exceptions (variable-carried literals)
 
-No entries currently — the connector editor (Mission 23 Flight 1) was the
-sole occupant of this table. Re-add a row here if a future feature carries
-a testid through a variable/parameter the extractor can't see statically.
+| Testid | Surface | Notes |
+|--------|---------|-------|
+| `back-connector-btn` | studio | Connector-editor header — passed through the local `_btn(className, testid, text)` helper's `testid` parameter (M23 F02 L02) |
+| `cancel-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |
+| `connector-channel-map-add-btn` | studio | Connector-editor channel→agent map add-row, same `_btn` indirection (M23 F02 L02) |
+| `connector-channel-map-remove-btn` | studio | Connector-editor channel→agent map per-row remove, same `_btn` indirection (M23 F02 L02) |
+| `connector-doctor-btn` | studio | Connector-editor doctor probe, same `_btn` indirection (M23 F02 L02) |
+| `connector-pairing-btn` | studio | Connector-editor pairing-code generation, same `_btn` indirection (M23 F02 L02) |
+| `new-connector-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M23 F02 L02) |
+| `save-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |

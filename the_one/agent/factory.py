@@ -123,21 +123,27 @@ async def _build_source_index(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Module-level factory accessor (M10 F8 L4)
+# Module-level factory accessor (M10 F8 L4; Mission 23 Flight 2 gave it its
+# first real caller after the connector reset)
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Gateway listeners (Discord's ``on_message`` handler in F8, Slack's
-# event handler in F9, …) spawn from inside ``plugin.connect`` — i.e.
-# inside the pool's per-(agent, account) worker task — so they cannot
+# A connector plugin's gateway listener spawns from inside ``plugin.connect``
+# — i.e. inside the pool's per-(agent, account) worker task — so it cannot
 # receive an :class:`AgentFactory` reference through the
-# ``plugin.connect(account, encryptor)`` signature. Adding it would also
-# break the stateless-plugin contract.
+# ``plugin.connect(account, encryptor, on_inbound)`` signature. Adding it
+# would also break the stateless-plugin contract.
 #
 # Instead, the FastAPI lifespan startup calls :func:`set_factory` once
-# after constructing the application factory; listeners call
-# :func:`get_factory` at dispatch time. Returns ``None`` during the
-# pre-startup window and after shutdown; consumers MUST handle the
-# ``None`` case defensively (log and return rather than dereference).
+# after constructing the application factory; the connector inbound
+# pipeline (``the_one/connectors/inbound.py::dispatch_inbound``, invoked
+# from the ``on_inbound`` callback ``ConnectorManager`` threads into every
+# ``plugin.connect`` call) calls :func:`get_factory` at dispatch time —
+# today exercised through the stub plugin's test seams; Discord (Flight 3)
+# and later platforms (Flight 4) will drive the same path through a real
+# gateway listener. Returns ``None`` during the pre-startup window and
+# after shutdown; consumers MUST handle the ``None`` case defensively (log
+# and return rather than dereference) — ``dispatch_inbound`` does exactly
+# this.
 #
 # Mirrors the existing precedent at
 # ``the_one/interfaces/web/app.py:_get_factory`` (which reads from a
@@ -154,7 +160,7 @@ _factory: "AgentFactory | None" = None
 
 
 def set_factory(factory: "AgentFactory | None") -> None:
-    """Install the application :class:`AgentFactory` for gateway-listener access.
+    """Install the application :class:`AgentFactory` for connector-listener access.
 
     Called once at FastAPI lifespan startup after constructing the
     factory (see ``the_one/interfaces/web/app.py``). Pass ``None`` at
@@ -167,11 +173,13 @@ def set_factory(factory: "AgentFactory | None") -> None:
 def get_factory() -> "AgentFactory | None":
     """Return the application :class:`AgentFactory`, or ``None`` pre-startup.
 
-    Consumed by gateway listeners (Discord's ``on_message`` in F8 L4,
-    Slack's event handler in F9, …) at dispatch time. Returns ``None``
-    when the lifespan has not yet run :func:`set_factory` or has torn
-    down — callers MUST handle this gracefully (log a WARNING and
-    return rather than dereferencing).
+    Consumed by the connector inbound pipeline
+    (``the_one/connectors/inbound.py::dispatch_inbound``) at dispatch
+    time — today via the stub plugin's test seams, and via a real gateway
+    listener once Discord (Flight 3) and later platforms (Flight 4) land.
+    Returns ``None`` when the lifespan has not yet run :func:`set_factory`
+    or has torn down — callers MUST handle this gracefully (log a WARNING
+    and return rather than dereferencing).
     """
     return _factory
 

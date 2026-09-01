@@ -614,8 +614,9 @@ async def test_acquire_after_shutdown_drain_raises_runtime_error(
 
 
 async def test_lifespan_shutdown_drain_order(monkeypatch):
-    """Locks the lifespan shutdown ordering across subsystems:
-    PTY drain → MCP drain → OAuth sweep stop → DB close.
+    """Locks the lifespan startup/shutdown ordering across subsystems:
+    connector-manager start (startup) then PTY drain → MCP drain → OAuth
+    sweep stop → connector-manager drain → DB close (shutdown).
 
     Mocks the four startup symbols (init_db, get_connection,
     migrate_json_to_sqlite, SQLiteAgentStore, AgentFactory) so lifespan's
@@ -630,6 +631,14 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     ``stop_periodic_sweep``) is imported function-locally in
     ``lifespan``; monkeypatch it on the ``the_one.mcp.oauth`` module
     since that's where the import resolves.
+
+    Mission 23 Flight 2 Leg 1: a NEW connector-manager start/drain pair
+    is spliced in — start just before the startup ``yield`` (wrapped in
+    its own try/except, mirroring the other startup blocks, per the
+    Leg 1 design review), drain AFTER the OAuth sweep stop and BEFORE DB
+    close. ``app_mod.ConnectorManager`` is monkeypatched to a fake class
+    so this test never touches a real connector or a real repository
+    query against ``_fake_conn`` (a bare, non-awaitable ``MagicMock``).
     """
     from the_one.interfaces.web import app as app_mod
     from the_one.mcp import oauth as oauth_mod
@@ -658,6 +667,17 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     # to a no-op.
     monkeypatch.setattr(oauth_mod, "start_periodic_sweep", lambda: None)
 
+    # Connector-manager spy — replaces the real class so `start_all` never
+    # queries `_fake_conn` and `drain` never touches a real listener task.
+    class _FakeConnectorManager:
+        async def start_all(self, repo, encryptor):
+            calls.append("connector_start")
+
+        async def drain(self):
+            calls.append("connector_drain")
+
+    monkeypatch.setattr(app_mod, "ConnectorManager", _FakeConnectorManager)
+
     # Shutdown spies.
     async def _fake_pty_drain():
         calls.append("pty")
@@ -683,9 +703,11 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     async with app_mod.lifespan(fake_app):
         pass
 
-    # Filter to the recognized drain steps; assert the full order.
-    drain_steps = [c for c in calls if c in ("pty", "mcp", "oauth", "db")]
-    assert drain_steps == ["pty", "mcp", "oauth", "db"]
+    # Filter to the recognized steps; assert the full order.
+    drain_steps = [
+        c for c in calls if c in ("connector_start", "pty", "mcp", "oauth", "connector_drain", "db")
+    ]
+    assert drain_steps == ["connector_start", "pty", "mcp", "oauth", "connector_drain", "db"]
 
 
 async def test_drain_timeout_handles_stuck_worker(monkeypatch):

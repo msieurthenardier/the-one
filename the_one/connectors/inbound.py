@@ -1,0 +1,292 @@
+"""Inbound pipeline: admission → pairing → ``/new`` → reply policy →
+session resolution → per-session-locked agent dispatch (DD-1, DD-3, DD-5,
+DD-6). Platform gateway listeners (spawned inside ``plugin.connect``) call
+:func:`dispatch_inbound` for every message they receive; the manager's
+:meth:`ConnectorManager._connect_once` wires this as the ``on_inbound``
+callback for production connectors.
+
+Explicitly OUT of scope (superseded by DD-2/DD-4/DD-6, unlike the
+pre-reset ``_inbound.py``): no per-agent ACL, no routing engine, no
+routing/audit log, no command-handler protocol beyond the single ``/new``
+interception, no engagement-inference LLM gate.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import uuid
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
+
+from the_one.agent._context import current_chat_session_id
+from the_one.agent.factory import (
+    AgentNotFoundError,
+    ProviderNotConfiguredError,
+    ProviderNotFoundError,
+    get_factory,
+)
+from the_one.connectors.base import InboundEnvelope
+from the_one.db.codec import decode_messages, encode_messages
+from the_one.db.models import ChatSession, Connector, now_iso
+from the_one.llm.base import Message, Role, tag_post_step_visibility
+from the_one.sessions import session_locks
+
+if TYPE_CHECKING:
+    from the_one.connectors.manager import ConnectorManager
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_CONTINUATION_SECONDS = 86400  # 24 hours
+_CONTINUATION_ENV_VAR = "THE_ONE_SESSION_CONTINUATION_SECONDS"
+
+
+def _resolve_continuation_seconds(override: int | None = None) -> int:
+    """Explicit ``override`` (per-connector) → env var (read at call time) → default."""
+    if override is not None:
+        return override
+    raw = os.environ.get(_CONTINUATION_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_CONTINUATION_SECONDS
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "%s=%r is not an int; falling back to %d",
+            _CONTINUATION_ENV_VAR,
+            raw,
+            _DEFAULT_CONTINUATION_SECONDS,
+        )
+        return _DEFAULT_CONTINUATION_SECONDS
+
+
+def is_admitted(connector: Connector, envelope: InboundEnvelope) -> bool:
+    """Flat allowlist admission (DD-2/DD-3): peer OR channel on the allowlist."""
+    allowlist = connector.config.get("allowlist") or {}
+    peers = allowlist.get("peers") or []
+    channels = allowlist.get("channels") or []
+    return envelope.peer_id in peers or envelope.channel_id in channels
+
+
+def should_reply(connector: Connector, envelope: InboundEnvelope) -> bool:
+    """DD-6: reply iff DM, mention, or an always-listen channel. No engine."""
+    if envelope.is_dm:
+        return True
+    if envelope.mentions_bot:
+        return True
+    always_listen = connector.config.get("always_listen") or []
+    return envelope.channel_id in always_listen
+
+
+async def _pair_peer(connector: Connector, peer_id: str, repo) -> None:
+    """Append ``peer_id`` to ``allowlist.peers`` and persist (DD-3)."""
+    config = dict(connector.config)
+    allowlist = dict(config.get("allowlist") or {})
+    peers = list(allowlist.get("peers") or [])
+    if peer_id not in peers:
+        peers.append(peer_id)
+    allowlist["peers"] = peers
+    config["allowlist"] = allowlist
+    await repo.update(connector.model_copy(update={"config": config}))
+
+
+async def _handle_new(connector: Connector, envelope: InboundEnvelope, chat_repo) -> None:
+    """``/new``: write the ``ended_at`` sentinel on the matching session, if any."""
+    existing = await chat_repo.find_most_recent_by_external_key(
+        platform=envelope.platform,
+        connector_id=connector.id,
+        channel_id=envelope.channel_id,
+        thread_id=envelope.thread_id,
+    )
+    if existing is not None:
+        await chat_repo.set_session_metadata_key(existing.id, "ended_at", now_iso())
+
+
+def _session_title(envelope: InboundEnvelope) -> str:
+    return f"DM: {envelope.peer_name}" if envelope.is_dm else envelope.channel_id
+
+
+async def resolve_session(
+    envelope: InboundEnvelope,
+    connector: Connector,
+    chat_repo,
+    *,
+    agent_name: str,
+) -> ChatSession:
+    """Map an inbound envelope to its ``chat_sessions`` row (DD-5).
+
+    Keyed on ``(platform, connector_id, channel_id, thread_id)``;
+    ``peer_id`` is stored but not part of the lookup. Reuses the most
+    recent matching row when within the continuation window AND it
+    carries no ``/new``-written ``ended_at`` sentinel; otherwise creates
+    a fresh row.
+    """
+    continuation = _resolve_continuation_seconds(override=connector.session_continuation_seconds)
+    existing = await chat_repo.find_most_recent_by_external_key(
+        platform=envelope.platform,
+        connector_id=connector.id,
+        channel_id=envelope.channel_id,
+        thread_id=envelope.thread_id,
+    )
+    if existing is not None:
+        metadata = existing.session_metadata or {}
+        if "ended_at" not in metadata and existing.last_inbound_at is not None:
+            try:
+                last = datetime.fromisoformat(existing.last_inbound_at)
+            except ValueError:
+                last = None
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                if (now - last).total_seconds() < continuation:
+                    return existing
+
+    current_iso = now_iso()
+    new_session = ChatSession(
+        id=uuid.uuid4().hex,
+        agent_name=agent_name,
+        title=_session_title(envelope),
+        messages="[]",
+        created_at=current_iso,
+        updated_at=current_iso,
+        platform=envelope.platform,
+        connector_id=connector.id,
+        channel_id=envelope.channel_id,
+        thread_id=envelope.thread_id,
+        peer_id=envelope.peer_id,
+        session_metadata=None,
+        last_inbound_at=current_iso,
+    )
+    await chat_repo.create(new_session)
+    return new_session
+
+
+def _bind_peer_name(messages: list[Message], pre_step_len: int, peer_name: str) -> None:
+    """Bind ``peer_name`` onto the USER message ``agent.step`` appended.
+
+    Mirrors the pre-reset ``connectors/post_step_metadata.py::bind_peer_name``
+    (removed whole-cloth in the Mission 23 Flight 1 backend-removal, along
+    with the rest of that package) — the flight's own constraint forbids
+    modifying ``agent/core.py`` to accept ``peer_name`` at message-append
+    time, so the dispatcher binds it onto the just-appended message
+    afterward, inside the same per-session lock ``dispatch_inbound`` already
+    holds for the call. Without this, ``Message.user(envelope.text)`` (built
+    internally by ``Agent.step``) always carries ``peer_name=None``, and the
+    Chat UI has no attribution to render — the peer's inbound text becomes
+    visually indistinguishable from the operator's own words.
+
+    **Touches**: ``Role.USER`` only — the single message at
+    ``messages[pre_step_len]``. **Skips**: every other role — this is the
+    composition complement of :func:`the_one.llm.base.tag_post_step_visibility`,
+    which skips ``Role.USER`` and touches every other role; the two mutators
+    address disjoint slices of ``messages[pre_step_len:]`` and cannot
+    conflict by construction.
+
+    Asserts ``messages[pre_step_len].role == Role.USER`` so a future
+    ``agent.step`` regression that fails to append a USER message surfaces
+    here, not at the next consumer.
+    """
+    assert messages[pre_step_len].role == Role.USER, (
+        "agent.step must append a Role.USER message at pre_step_len"
+    )
+    messages[pre_step_len].peer_name = peer_name
+
+
+def _resolve_agent_name(connector: Connector, envelope: InboundEnvelope) -> str | None:
+    """DD-2: channel_map entry for a channel target, else default_agent. DMs
+    never consult channel_map — the default agent is the sole DM recipient."""
+    if not envelope.is_dm:
+        channel_map = connector.config.get("channel_map") or {}
+        mapped = channel_map.get(envelope.channel_id)
+        if mapped:
+            return mapped
+    return connector.config.get("default_agent")
+
+
+async def dispatch_inbound(
+    connector_id: str,
+    envelope: InboundEnvelope,
+    *,
+    manager: "ConnectorManager",
+) -> None:
+    """Run one inbound envelope through the full pipeline.
+
+    Errors at the connector-load stage are logged and swallowed — a
+    connector-layer failure does not take the agent runtime down.
+    ``factory.create`` / ``agent.step`` errors are also caught and logged
+    here (the manager's ``on_inbound`` wrapper provides a second layer of
+    the same defense; both are kept since this function has direct unit
+    test coverage that does not go through the manager).
+    """
+    from the_one.config import settings
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ChatSessionRepository, ConnectorRepository
+    from the_one.encryption import get_encryptor
+
+    conn = await get_connection()
+    encryptor = get_encryptor(settings.data_dir)
+    conn_repo = ConnectorRepository(conn, encryptor)
+    chat_repo = ChatSessionRepository(conn)
+
+    try:
+        connector = await conn_repo.get(connector_id)
+    except KeyError:
+        logger.warning("dispatch_inbound: connector %s not found", connector_id)
+        return
+
+    if not is_admitted(connector, envelope):
+        # Unknown sender: silence, nothing persisted — EXCEPT the one
+        # narrow case of a correct pairing code, which persists the
+        # allowlist append and nothing else (DD-3).
+        if envelope.is_dm and manager.consume_pairing_code(connector_id, envelope.text.strip()):
+            await _pair_peer(connector, envelope.peer_id, conn_repo)
+        return
+
+    if envelope.text.strip() == "/new":
+        await _handle_new(connector, envelope, chat_repo)
+        return
+
+    if not should_reply(connector, envelope):
+        return
+
+    agent_name = _resolve_agent_name(connector, envelope)
+    if not agent_name:
+        logger.warning("dispatch_inbound: connector %s has no default_agent", connector_id)
+        return
+
+    factory = get_factory()
+    if factory is None:
+        logger.warning("dispatch_inbound: no application factory installed; dropping inbound")
+        return
+
+    session_row = await resolve_session(envelope, connector, chat_repo, agent_name=agent_name)
+
+    async with session_locks[session_row.id]:
+        await chat_repo.update_last_inbound(session_row.id, now_iso())
+        try:
+            agent = await factory.create(agent_name)
+        except (AgentNotFoundError, ProviderNotFoundError, ProviderNotConfiguredError):
+            logger.exception("dispatch_inbound: failed to build agent %r", agent_name)
+            return
+
+        db_session = await chat_repo.get(session_row.id)
+        stored = decode_messages(db_session.messages)
+        if stored:
+            non_system = [m for m in stored if m.role != Role.SYSTEM]
+            agent.messages = agent.messages[:1] + non_system
+
+        pre_step_len = len(agent.messages)
+        token = current_chat_session_id.set(session_row.id)
+        try:
+            async for _ in agent.step(envelope.text):
+                pass
+            _bind_peer_name(agent.messages, pre_step_len, envelope.peer_name)
+            tag_post_step_visibility(agent.messages, pre_step_len)
+            encoded = encode_messages(agent.messages)
+            updated = db_session.model_copy(update={"messages": encoded})
+            await chat_repo.update(updated)
+        except Exception:
+            logger.exception("dispatch_inbound: agent.step failed for session %s", session_row.id)
+        finally:
+            current_chat_session_id.reset(token)

@@ -22,6 +22,12 @@ App.registerArea({
   // (no new redirect logic in studio.js).
   serializeState: function () {
     if (this._activeSection === 'knowledge') return 'knowledge';
+    // Mission 23 Flight 2 Leg 2 (DD-9): the Connectors section is
+    // deliberately NOT deep-link-aware like mcp-sources — no
+    // 'connectors/new' or 'connectors/{id}' sub-path. A refresh while
+    // editing lands back on the grid (minimal-form trade-off, not a
+    // hash-routing gap).
+    if (this._activeSection === 'connectors') return 'connectors';
     if (this._activeSection === 'mcp-sources') {
       if (this._mcpSourceFormMode === 'add') return 'mcp-sources/new';
       if (this._mcpSourceFormMode === 'edit' && this._editingMcpSource) {
@@ -79,6 +85,8 @@ App.registerArea({
     var pendingMcpSourceFormMode_local = null;
     if (sub === 'knowledge') {
       section = 'knowledge';
+    } else if (sub === 'connectors') {
+      section = 'connectors';
     } else if (sub === 'mcp-sources') {
       section = 'mcp-sources';
     } else if (sub === 'mcp-sources/new') {
@@ -229,6 +237,15 @@ App.registerArea({
       configurable: true
     });
 
+    // ── Connectors state (Mission 23 Flight 2 Leg 2) ────────────────────
+    // Deliberately simpler than the MCP-sources state above — no
+    // pending-hash-route race handling (DD-9: no deep-link sub-paths).
+    var CONNECTOR_TYPES = [];
+    var connectorTypesReady = null;
+    var connectors = null; // null until first fetch resolves
+    var connectorFormMode = null; // null | 'add' | 'edit'
+    var editingConnector = null;
+
     // ── beforeunload listener (F5 leg 04) ────────────────────────────────
     //
     // Registered ONCE at init() time (init runs once per area lifetime,
@@ -300,7 +317,11 @@ App.registerArea({
       // 'mcp-sources' (matches the /api/mcp-sources REST path) while the
       // user-facing label uses "MCP Servers" (mirrors the storage entity
       // vs. UI label asymmetry from M07 F1).
-      { id: 'mcp-sources', label: 'MCP Servers' }
+      { id: 'mcp-sources', label: 'MCP Servers' },
+      // Mission 23 Flight 2 Leg 2: reinstates a "Connectors" nav entry
+      // (present M10 through Mission 23 Flight 1, which reset the
+      // connector subsystem and removed it along with the routes).
+      { id: 'connectors', label: 'Connectors' }
     ], self._activeSection, {
       onSelect: function (section) {
         // F4 L5: delegate to _confirmLeaveImpl (single source of truth).
@@ -331,6 +352,10 @@ App.registerArea({
               mcpSourceFormMode = null;
               editingMcpSource = null;
               dirty = false;
+            } else if (prev === 'connectors' && connectorFormMode) {
+              connectorFormMode = null;
+              editingConnector = null;
+              dirty = false;
             }
           } else {
             // Same-section reclick: treat as "back to grid".
@@ -341,6 +366,10 @@ App.registerArea({
             } else if (section === 'mcp-sources' && mcpSourceFormMode) {
               mcpSourceFormMode = null;
               editingMcpSource = null;
+              dirty = false;
+            } else if (section === 'connectors' && connectorFormMode) {
+              connectorFormMode = null;
+              editingConnector = null;
               dirty = false;
             }
           }
@@ -598,6 +627,115 @@ App.registerArea({
     }
     self._tryConsumePendingMcpSource = tryConsumePendingMcpSource;
 
+    // ── Connectors section (Mission 23 Flight 2 Leg 2, DD-9) — one file,
+    // no deep-link sub-paths (see serializeState). Mirrors the
+    // mcp-sources grid/editor dispatch above, minus the pending-hash-
+    // route race handling that only mcp-sources needs.
+    function renderConnectorsSection() {
+      sectionContentEl.innerHTML = '';
+      if (connectorFormMode) {
+        dirty = false;
+        var typesReady = connectorTypesReady || fetchConnectorTypes();
+        // Fetch agents directly rather than reading `self._agents` — the
+        // shared `loadAll()` populating it runs once at init and is NOT
+        // guaranteed to have resolved yet if the operator navigates
+        // straight to #studio/connectors and clicks "New Connector"
+        // immediately (a real race, not just a theoretical one — caught
+        // by tests/browser/test_studio_connector_editor.py). A dedicated
+        // fetch here is always fresh and never depends on load order.
+        Promise.all([typesReady, fetchAgents()]).then(function (results) {
+          var agentsForDropdown = results[1];
+          if (connectorFormMode == null || self._activeSection !== 'connectors') return;
+          function doHandleBack() {
+            connectorFormMode = null;
+            editingConnector = null;
+            dirty = false;
+            if (window.App && window.App.router) App.router.replaceSub('connectors');
+            renderConnectorsSection();
+          }
+          App.studio.renderConnectorEditor(
+            sectionContentEl, editingConnector, CONNECTOR_TYPES, agentsForDropdown, {
+              onBack: function () {
+                if (dirty) {
+                  App.confirmDialog({ onConfirm: doHandleBack });
+                  return;
+                }
+                doHandleBack();
+              },
+              onCancel: doHandleBack,
+              onSaveSuccess: function (updated, isCreate) {
+                editingConnector = updated;
+                connectorFormMode = 'edit';
+                dirty = false;
+                if (isCreate) renderConnectorsSection();
+              },
+              onDeleteSuccess: doHandleBack,
+              onDirtyChange: function (d) { dirty = d; }
+            }
+          );
+        });
+        return;
+      }
+      App.studio.renderConnectorsGrid(sectionContentEl, connectors, {
+        selectedId: editingConnector ? editingConnector.id : null,
+        onSelectConnector: selectConnector,
+        onCreateConnector: enterCreateConnectorMode
+      });
+      fetchConnectors_();
+    }
+
+    function fetchConnectorTypes() {
+      connectorTypesReady = fetch('/api/connectors/types')
+        .then(function (r) { return r.json(); })
+        .then(function (types) { CONNECTOR_TYPES = types; })
+        .catch(function () { CONNECTOR_TYPES = []; });
+      return connectorTypesReady;
+    }
+
+    function fetchConnectors_() {
+      return fetch('/api/connectors')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (self._activeSection !== 'connectors') return;
+          connectors = data;
+          if (!connectorFormMode) {
+            App.studio.renderConnectorsGrid(sectionContentEl, connectors, {
+              selectedId: editingConnector ? editingConnector.id : null,
+              onSelectConnector: selectConnector,
+              onCreateConnector: enterCreateConnectorMode
+            });
+          }
+        })
+        .catch(function () {
+          if (self._activeSection !== 'connectors') return;
+          var gridEl = sectionContentEl.querySelector('.entity-tile-grid');
+          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load connectors.</div>';
+        });
+    }
+
+    function findConnector(id) {
+      if (!connectors) return null;
+      for (var i = 0; i < connectors.length; i++) {
+        if (connectors[i].id === id) return connectors[i];
+      }
+      return null;
+    }
+
+    function selectConnector(id) {
+      var found = findConnector(id);
+      if (!found) return;
+      connectorFormMode = 'edit';
+      editingConnector = found;
+      if (window.App && window.App.router) App.router.replaceSub(self.serializeState());
+      renderConnectorsSection();
+    }
+
+    function enterCreateConnectorMode() {
+      connectorFormMode = 'add';
+      editingConnector = null;
+      if (window.App && window.App.router) App.router.replaceSub(self.serializeState());
+      renderConnectorsSection();
+    }
 
     function setActiveSection(section, options) {
       options = options || {};
@@ -613,10 +751,17 @@ App.registerArea({
         editingMcpSource = null;
         dirty = false;
       }
+      if (prevSection === 'connectors' && section !== 'connectors') {
+        connectorFormMode = null;
+        editingConnector = null;
+        dirty = false;
+      }
       if (section === 'knowledge') {
         renderKnowledgeSection();
       } else if (section === 'mcp-sources') {
         renderMcpSourcesSection();
+      } else if (section === 'connectors') {
+        renderConnectorsSection();
       } else {
         renderAgentsSection();
       }
@@ -2285,7 +2430,8 @@ App.registerArea({
     self._confirmLeaveImpl = function (proceed, abort) {
       var inEditor =
         (self._activeSection === 'agents' && self._selectedAgent) ||
-        (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
+        (self._activeSection === 'mcp-sources' && mcpSourceFormMode) ||
+        (self._activeSection === 'connectors' && connectorFormMode);
       if (dirty && inEditor) {
         App.confirmDialog({ onConfirm: proceed, onCancel: abort });
       } else {

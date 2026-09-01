@@ -238,7 +238,7 @@ when done directly against their APIs.
       deleted); PyInstaller
       `nacl` exclusion removed; docs reduced to a stub contract. Ends green
       with no connector runtime.
-- [ ] Flight 2: Channel contract — one Protocol
+- [x] Flight 2: Channel contract — one Protocol
       (`connect` / `disconnect` / `send` / `doctor` + an inbound callback),
       one long-lived listener task per connector with reconnect, the kept
       session keying and send tool re-attached, flat allowlist + pairing

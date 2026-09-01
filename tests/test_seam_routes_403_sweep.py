@@ -67,10 +67,18 @@ _EXTRA_REQUEST_KWARGS: dict[tuple[str, str], dict[str, object]] = {
 # GET /chat/sessions/lookup — are deleted; their only callers were
 # connector browser tests being deleted, and the session-keying columns
 # they read are kept, so Flight 2 or 3 can restore them verbatim.
+#
+# Mission 23 Flight 2 Leg 2 (DD-10): two NEW connector seams —
+# POST /_test/stub/inbound (act path) and GET /_test/stub/outbound
+# (observe path) — dual-gated (dev_mode AND THE_ONE_STUB_TEST_ENDPOINT=1)
+# like purge-sweep, NOT the single-gate oauth/pending shape. The old
+# THE_ONE_REGISTER_STUB_CONNECTOR name is not resurrected.
 _EXPECTED_SEAMS: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/api/_test/purge-sweep"),
         ("POST", "/api/_test/oauth/pending"),
+        ("POST", "/api/_test/stub/inbound"),
+        ("GET", "/api/_test/stub/outbound"),
     }
 )
 
@@ -99,7 +107,7 @@ _DISCOVERED_SEAMS = _discover_seam_routes()
 
 
 def test_discovered_seam_set_matches_expected() -> None:
-    """Non-empty, and exactly the four known seams.
+    """Non-empty, and matches `_EXPECTED_SEAMS` exactly.
 
     A route added under `/api/_test/` without updating `_EXPECTED_SEAMS`
     here fails this test — the prompt to go update the set (and confirm
