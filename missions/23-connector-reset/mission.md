@@ -134,10 +134,15 @@ when done directly against their APIs.
   app connecting out (gateway, long-poll). The local-only, no-listener posture
   in `SECURITY-MODEL.md` is retained. Webhook-driven platforms stay out of
   scope, as in M10.
-- **The agent loop is not modified.** `agent/core.py` and `agent/factory.py`
-  stay as they are except for removing the `send_to_platform_channel`
-  baseline carve-out if the tool's visibility is handled another way. Same
-  constraint M10 carried and met.
+- **The agent loop is not modified** — *amended 2026-09-01 by the mission
+  owner*: the original clause permitted removing the `send_to_platform_channel`
+  baseline carve-out "if the tool's visibility is handled another way." Two
+  flights of empirical evidence (Flight 2 behavior-test runs 1–2: the model
+  followed the `search_tools` indirection in 1 of 3 raw turns; nudge-sensitive)
+  show visibility is NOT reliably handled another way — the removal condition
+  failed. Flight 3 restores a MINIMAL baseline-visibility carve-out (the send
+  tool's schema visible from session start when enabled for the agent); every
+  other part of `agent/core.py` / `agent/factory.py` stays frozen as before.
 - **Removal lands first and lands green.** Flight 1 deletes; it does not
   rebuild. The tree after Flight 1 has no connector runtime and a green
   suite. This is what makes the mission reversible flight-by-flight.
@@ -213,6 +218,14 @@ when done directly against their APIs.
    underscore-prefixed module beside `tests/_pty_fixtures.py` and
    `tests/_sandbox_fixtures.py`, matching the project's convention for
    shared fixture helpers.
+8. **Send-tool visibility: minimal carve-out restored (2026-09-01).** The
+   Flight 2 reliability finding escalated to the mission owner, who amended
+   the agent-loop constraint (see Constraints) — Flight 3 makes the send
+   tool baseline-visible when enabled, closing the
+   `prompt-discipline-needs-mechanical-fallback` gap mechanically.
+9. **`enabled` is a connector config key, not a column (2026-09-01).** The
+   mission's single migration step is spent (v38); pause-without-delete
+   lands via DD-2 config (`enabled`, default true) with zero schema change.
 
 ## Known Issues
 
