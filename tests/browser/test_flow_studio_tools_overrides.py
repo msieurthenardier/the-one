@@ -90,20 +90,24 @@ def _open_override_panel(page: Page, tool: str) -> None:
 
 @pytest.mark.browser
 def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page: Page) -> None:
-    """Tools tab shows the three category tiles with 19 tool tiles total.
+    """Tools tab shows the four category tiles with 21 tool tiles total.
 
     Guards the same intent as the pre-rebrand "19 tool rows" test: every
-    built-in tool is represented exactly once in the Tools tab.
+    built-in tool is represented exactly once in the Tools tab. Squawk 0028
+    added the "Connectors" category (`send_to_platform_channel` +
+    `fetch_channel_history`, Mission 23 Flight 2) on top of the original
+    19 Filesystem/Execution/Web tools, bringing the totals to 4 categories
+    / 21 tools.
     """
     _open_tools_tab(app_with_agent, page)
     tiles = page.locator(".tools-category-tile")
     expect(tiles.first).to_be_visible()
-    expect(tiles).to_have_count(3)
-    for category in ("Filesystem", "Execution", "Web"):
+    expect(tiles).to_have_count(4)
+    for category in ("Filesystem", "Execution", "Web", "Connectors"):
         expect(page.locator(f'.tools-category-tile[data-category="{category}"]')).to_be_visible()
     # Tool tiles are built up-front (hidden until category expand) — count
     # attached, not visible.
-    expect(page.locator("details.tool-tile")).to_have_count(19)
+    expect(page.locator("details.tool-tile")).to_have_count(21)
 
 
 @pytest.mark.browser
@@ -336,3 +340,66 @@ def test_studio_override_save_round_trips_via_api(app_with_agent: SeededApp, pag
     assert http_overrides.get("extra_allowed_hosts") == ["localhost"], (
         f"unexpected overrides round-trip: {overrides}"
     )
+
+
+@pytest.mark.browser
+def test_studio_connectors_category_renders_both_tools(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0028: the "Connectors" category tile exposes checkboxes for
+    both Mission 23 Flight 2 connector tools — `send_to_platform_channel`
+    and `fetch_channel_history` — previously invisible in this tab (no
+    category bucketed them). Both start checked (fresh agent has no
+    `enabled_tools`/`disabled_tools` override, so every built-in tool
+    defaults enabled) and the category's count badge reads "2 / 2 enabled".
+    """
+    _open_tools_tab(app_with_agent, page)
+    _expand_category(page, "Connectors")
+    tile = page.locator('.tools-category-tile[data-category="Connectors"]')
+    expect(tile.locator(".tools-category-tile-count")).to_have_text("2 / 2 enabled")
+
+    for tool_name in ("send_to_platform_channel", "fetch_channel_history"):
+        row = page.locator(f'details.tool-tile[data-tool="{tool_name}"]')
+        expect(row).to_be_visible()
+        checkbox = row.locator(f'input[data-tool="{tool_name}"]')
+        expect(checkbox).to_be_checked()
+        expect(checkbox).not_to_be_disabled()
+
+
+@pytest.mark.browser
+def test_studio_connectors_category_checkbox_toggle_round_trips_via_api(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Unchecking `send_to_platform_channel` in the Connectors category,
+    saving, then re-fetching the agent via the API confirms the tool
+    landed in `disabled_tools` — same enable/disable wiring as the other
+    three categories (Filesystem/Execution/Web), driven through the same
+    `collectFormData` → `disabled_tools` save path.
+    """
+    _open_tools_tab(app_with_agent, page)
+    _expand_category(page, "Connectors")
+    checkbox = page.locator('input[data-tool="send_to_platform_channel"]')
+    expect(checkbox).to_be_checked()
+    checkbox.uncheck()
+
+    tile = page.locator('.tools-category-tile[data-category="Connectors"]')
+    expect(tile.locator(".tools-category-tile-count")).to_have_text("1 / 2 enabled")
+
+    save_btn = page.locator('[data-testid="save-agent-btn"]')
+    expect(save_btn).to_be_enabled(timeout=5000)
+    save_btn.click()
+    expect(save_btn).to_be_disabled(timeout=5000)
+
+    agent_name = app_with_agent.agent_name
+    assert agent_name is not None
+    r = httpx.get(
+        f"{app_with_agent.base_url}/api/agents/{agent_name}",
+        timeout=5.0,
+        headers=auth_headers_for(app_with_agent.base_url),
+    )
+    assert r.status_code == 200, f"GET agent failed: {r.status_code} {r.text}"
+    body = r.json()
+    assert "send_to_platform_channel" in (body.get("disabled_tools") or []), (
+        f"expected send_to_platform_channel in disabled_tools, got: {body.get('disabled_tools')!r}"
+    )
+    assert "fetch_channel_history" not in (body.get("disabled_tools") or [])

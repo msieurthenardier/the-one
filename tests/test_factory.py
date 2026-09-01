@@ -240,7 +240,26 @@ class TestToolFiltering:
             mcp_source_ids=["github"],
         )
         await store.save(cfg)
-        agent = await factory.create("mcp-restricted")
+        # `mcp_source_ids` also drives factory.py's `_build_source_index`
+        # (search_tools index — unrelated to what this test exercises via
+        # `mcp_provider`/`StubMCPProvider` above). Left unpatched,
+        # `MCPSourceRepository` runs for real against the `factory` fixture's
+        # AsyncMock `conn`, whose auto-specced `.execute(...)` returns an
+        # un-awaited coroutine instead of an async-context-manager result —
+        # raising an unrelated TypeError that the broad `except (KeyError,
+        # Exception)` in `_build_source_index` swallows, leaking an
+        # "AsyncMockMixin._execute_mock_call was never awaited"
+        # RuntimeWarning. Patch it to raise the *intended* KeyError path
+        # (matching the "deleted source" comment in `_build_source_index`)
+        # so the index build takes the real skip-silently branch instead of
+        # an accidental mock-shape crash.
+        mock_source_repo = AsyncMock()
+        mock_source_repo.get = AsyncMock(side_effect=KeyError("source not found"))
+        with patch(
+            "the_one.db.repositories.MCPSourceRepository",
+            return_value=mock_source_repo,
+        ):
+            agent = await factory.create("mcp-restricted")
         # Built-in whitelist still gates built-ins...
         assert "tool_a" in agent.tools.tool_names
         assert "tool_b" not in agent.tools.tool_names
@@ -272,7 +291,19 @@ class TestToolFiltering:
             mcp_source_ids=["github"],
         )
         await store.save(cfg)
-        agent = await factory.create("mcp-blacklist")
+        # See the matching comment in test_builtins_whitelist_does_not_strip_mcp_tools:
+        # `mcp_source_ids` also drives `_build_source_index`, which — left
+        # unpatched — runs the real `MCPSourceRepository` against the
+        # `factory` fixture's AsyncMock `conn` and leaks an "AsyncMockMixin
+        # never awaited" RuntimeWarning via an unrelated mock-shape TypeError.
+        # Patch it to take the intended "deleted source" KeyError branch.
+        mock_source_repo = AsyncMock()
+        mock_source_repo.get = AsyncMock(side_effect=KeyError("source not found"))
+        with patch(
+            "the_one.db.repositories.MCPSourceRepository",
+            return_value=mock_source_repo,
+        ):
+            agent = await factory.create("mcp-blacklist")
         assert "mcp__github__delete_repo" not in agent.tools.tool_names
         assert "mcp__github__list_repos" in agent.tools.tool_names
 

@@ -1465,6 +1465,12 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
 _MASK_PREFIX = "***"
 _MASK_TAIL_SEPARATOR = "..."
 _MASK_TAIL_LEN = 4
+# Squawk 0030: a tail is only shown when it doesn't reconstruct most of
+# the secret. Below this length the tail is elided entirely (fully
+# opaque ``***``) — the tail's identification purpose only makes sense
+# for long tokens; for a 5-char secret like "dummy", showing 4 of them
+# back (``***...ummy``) leaks nearly the whole value.
+_MASK_TAIL_MIN_SECRET_LEN = 12
 
 
 def _emit_mask(value: str) -> str:
@@ -1472,16 +1478,17 @@ def _emit_mask(value: str) -> str:
 
     Assumes a non-empty ``str`` input — callers guard ``None`` / empty
     / non-str before calling. Returns ``_MASK_PREFIX`` (no tail) for
-    short values where exposing the tail would leak too much; returns
-    ``_MASK_PREFIX + _MASK_TAIL_SEPARATOR + value[-_MASK_TAIL_LEN:]``
-    for longer values.
+    secrets shorter than ``_MASK_TAIL_MIN_SECRET_LEN`` — for those,
+    even a 4-char tail would reconstruct most or all of the value;
+    returns ``_MASK_PREFIX + _MASK_TAIL_SEPARATOR + value[-_MASK_TAIL_LEN:]``
+    for secrets at or above that threshold (squawk 0030).
 
     Pair: ``_MASK_SHAPE_RE`` (below) recognizes the output of this
     helper. Both read from the same constants so a future maintainer
     cannot drift the emit shape from the recognize shape. See
     ``the_one/agents.md`` → ``single-source-of-truth-for-paired-helpers``.
     """
-    if len(value) <= _MASK_TAIL_LEN:
+    if len(value) < _MASK_TAIL_MIN_SECRET_LEN:
         return _MASK_PREFIX
     return f"{_MASK_PREFIX}{_MASK_TAIL_SEPARATOR}{value[-_MASK_TAIL_LEN:]}"
 
@@ -1493,9 +1500,10 @@ def _mask_secret_value(value: Any) -> Any:
     secrets dict is ``dict[str, Any]`` per L2's MCPSource model — a
     client could in principle send a non-string value, and we want to
     mask it defensively rather than crash. Empty/None passes through
-    unchanged; ≤4-char string values mask as ``***``; longer string
-    values mask as ``***...{tail4}``; non-string values mask wholesale
-    as ``***`` (no leakage of nested structure). Same per-decoded-value
+    unchanged; string values shorter than ``_MASK_TAIL_MIN_SECRET_LEN``
+    mask as ``***``; longer string values mask as ``***...{tail4}``;
+    non-string values mask wholesale as ``***`` (no leakage of nested
+    structure) (squawk 0030). Same per-decoded-value
     semantic as ``_mask_api_key``, kept separate so future MCP-secret
     shape changes don't drift LLM-provider behavior.
 
