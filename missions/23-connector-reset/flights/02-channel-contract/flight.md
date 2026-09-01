@@ -1,6 +1,6 @@
 # Flight: Channel Contract
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Connector Reset](../../mission.md)
 
 ## Contributing to Criteria
