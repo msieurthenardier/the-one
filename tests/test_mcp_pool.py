@@ -615,13 +615,30 @@ async def test_acquire_after_shutdown_drain_raises_runtime_error(
 
 async def test_lifespan_shutdown_drain_order(monkeypatch):
     """Locks the lifespan startup/shutdown ordering across subsystems:
-    connector-manager start (startup) then PTY drain → MCP drain → OAuth
-    sweep stop → connector-manager drain → DB close (shutdown).
+    connector-manager start (startup) then PTY drain → self-configuration
+    surface eviction → MCP drain → OAuth sweep stop → connector-manager
+    drain → DB close (shutdown).
 
     Mocks the four startup symbols (init_db, get_connection,
     migrate_json_to_sqlite, SQLiteAgentStore, AgentFactory) so lifespan's
     startup does not try to talk to a real DB. Then mocks every
     shutdown target and asserts call order.
+
+    Squawk 0025: the evict-before-drain sequencing was previously
+    unpinned against the real ``lifespan()`` — ``MCPSourceRepository``
+    is monkeypatched to a fake whose ``list()`` returns one row marked as
+    a self-configuration surface row (via the real
+    ``_self_configuration_manage.is_surface_row`` predicate, unmocked),
+    so the real evict/drain try block in ``app.py`` actually calls
+    ``_evict_all_for_source`` before reaching ``_mcp_pool_shutdown_drain``.
+    ``_evict_all_for_source`` is imported function-locally inside
+    ``lifespan`` (``from the_one.mcp._pool import _evict_all_for_source``),
+    so — mirroring the OAuth-sweep pattern below — it's monkeypatched on
+    ``pool_mod`` (the source module) rather than on ``app_mod``: the local
+    import re-resolves the module attribute at call time, after this
+    test's ``monkeypatch.setattr`` has already run. Reordering the two
+    ``try`` blocks in ``app.py`` (evict, then MCP drain) would flip
+    "evict" and "mcp" in ``drain_steps`` and fail this assertion.
 
     Mission 23 Flight 1 (backend-removal leg, DD-8): the connector pool
     drain that M10 F1 L6 spliced in between the MCP drain and the OAuth
@@ -678,9 +695,46 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
 
     monkeypatch.setattr(app_mod, "ConnectorManager", _FakeConnectorManager)
 
+    # Squawk 0025: fake source repository whose ``list()`` returns one row
+    # the REAL ``is_surface_row`` predicate recognizes as a self-configuration
+    # surface row — so the shutdown branch's eviction loop actually calls
+    # ``_evict_all_for_source`` instead of finding nothing to iterate.
+    # ``MCPSourceRepository`` is also instantiated once during STARTUP (the
+    # self-configuration reconcile at ``app.py``'s ``reconcile_on_startup``
+    # call) — that call must keep seeing an empty list, exactly like the
+    # unmocked ``_fake_conn``-backed repository this test relied on before
+    # (a plain ``MagicMock`` connection's chained ``execute()/fetchall()``
+    # naturally yields ``[]``), otherwise the reconcile's rename/update
+    # paths would run against a repo/agent-store this fake doesn't
+    # implement. First ``list()`` call = startup reconcile → ``[]``.
+    # Second ``list()`` call = the shutdown eviction branch → the surface
+    # row.
+    _surface_source = MCPSource(
+        id="surface-src-1",
+        name="surface",
+        type="stdio",
+        config={"self_configuration": {"agent": "test-agent"}},
+    )
+    _mcp_source_repo_list_calls = {"n": 0}
+
+    class _FakeMCPSourceRepository:
+        def __init__(self, conn, encryptor):
+            pass
+
+        async def list(self):
+            _mcp_source_repo_list_calls["n"] += 1
+            if _mcp_source_repo_list_calls["n"] < 2:
+                return []
+            return [_surface_source]
+
+    monkeypatch.setattr(app_mod, "MCPSourceRepository", _FakeMCPSourceRepository)
+
     # Shutdown spies.
     async def _fake_pty_drain():
         calls.append("pty")
+
+    async def _fake_evict_all_for_source(source_id):
+        calls.append("evict")
 
     async def _fake_mcp_drain():
         calls.append("mcp")
@@ -692,6 +746,11 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
         calls.append("db")
 
     monkeypatch.setattr(app_mod, "_session_registry_shutdown_drain", _fake_pty_drain)
+    # ``_evict_all_for_source`` is imported function-locally inside the
+    # shutdown branch (``from the_one.mcp._pool import _evict_all_for_source``);
+    # patch it on the source module (``pool_mod``) so that local import
+    # re-resolves to the spy when the shutdown branch executes.
+    monkeypatch.setattr(pool_mod, "_evict_all_for_source", _fake_evict_all_for_source)
     monkeypatch.setattr(app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain)
     monkeypatch.setattr(oauth_mod, "stop_periodic_sweep", _fake_oauth_sweep_stop)
     monkeypatch.setattr(app_mod, "close_connection", _fake_close_conn)
@@ -703,11 +762,23 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     async with app_mod.lifespan(fake_app):
         pass
 
-    # Filter to the recognized steps; assert the full order.
+    # Filter to the recognized steps; assert the full order. "evict" before
+    # "mcp" is squawk 0025's pinned invariant — reordering the two try
+    # blocks in app.py's shutdown branch flips this pair and fails here.
     drain_steps = [
-        c for c in calls if c in ("connector_start", "pty", "mcp", "oauth", "connector_drain", "db")
+        c
+        for c in calls
+        if c in ("connector_start", "pty", "evict", "mcp", "oauth", "connector_drain", "db")
     ]
-    assert drain_steps == ["connector_start", "pty", "mcp", "oauth", "connector_drain", "db"]
+    assert drain_steps == [
+        "connector_start",
+        "pty",
+        "evict",
+        "mcp",
+        "oauth",
+        "connector_drain",
+        "db",
+    ]
 
 
 async def test_drain_timeout_handles_stuck_worker(monkeypatch):

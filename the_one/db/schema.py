@@ -1074,6 +1074,9 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
             # Finish segment 2 / segment 4 here too if still needed —
             # same shape checks and DDL as the ``elif`` branch below,
             # just reachable when ``connectors`` already exists.
+            # Cross-reference: this is the segment-2 pending_approvals
+            # row-rewrite, duplicated from the ``elif`` branch's Segment 2
+            # below — keep both copies in sync.
             async with conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='pending_approvals'"
             ) as cursor:
@@ -1111,6 +1114,9 @@ CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
 """)
                     await conn.execute("PRAGMA foreign_keys=ON")
 
+            # Cross-reference: this is the segment-4 agents column rename,
+            # duplicated from the ``elif`` branch's Segment 4 below — keep
+            # both copies in sync.
             async with conn.execute("PRAGMA table_info(agents)") as cursor:
                 ag_cols_here = {row[1] for row in await cursor.fetchall()}
             if "connector_account_ids" in ag_cols_here:
@@ -1163,6 +1169,8 @@ ALTER TABLE connectors_new RENAME TO connectors;
             # Segment 2: pending_approvals row-rewrite (FK target
             # repoint + FK column rename). Skip if the table doesn't
             # exist (partial-shape test scenario).
+            # Cross-reference: duplicated in the ``if post_v23_target_exists:``
+            # branch above (Mission 23 Flight 1 note) — keep both copies in sync.
             if "pending_approvals" in v23_present:
                 await conn.executescript("""\
 CREATE TABLE pending_approvals_new (
@@ -1209,6 +1217,8 @@ CREATE INDEX idx_chat_sessions_external_key
 
             # Segment 4: agents column rename. Skip if table missing
             # OR if column already renamed.
+            # Cross-reference: duplicated in the ``if post_v23_target_exists:``
+            # branch above (Mission 23 Flight 1 note) — keep both copies in sync.
             if "agents" in v23_present:
                 async with conn.execute("PRAGMA table_info(agents)") as cursor:
                     ag_cols = {r[1] for r in await cursor.fetchall()}

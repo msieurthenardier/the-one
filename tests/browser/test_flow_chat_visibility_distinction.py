@@ -347,3 +347,35 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
         f"expected the attribution row to use the 'from-agent' side, "
         f"got cls={delivered_attribution['cls']!r}"
     )
+
+    # Squawk 0029: pin the promoted bubble's structural contract with a
+    # cheap DOM-shape assertion, mirroring the exact checks the behavior
+    # test's checkpoint 7 (run-2, 2026-08-31-22-43-08.md) performed via
+    # evaluate_script — so a chat.js regression (e.g. Flight 3's Discord
+    # rendering work) trips this browser test instead of requiring a full
+    # behavior-test run to catch.
+    structural = delivered.evaluate(
+        "el => ({"
+        " className: el.className,"
+        " isDirectChildOfMessages: !!el.parentElement && "
+        "el.parentElement.classList.contains('messages'),"
+        " closestTraceShell: el.closest('[data-testid=\"trace-shell\"]'),"
+        " nextSiblingClass: el.nextElementSibling ? el.nextElementSibling.className : null,"
+        "})"
+    )
+    assert structural["className"] == "msg tool", (
+        f"promoted bubble's className should be exactly 'msg tool' — no "
+        f"'msg-operator-only' or other modifier — got "
+        f"{structural['className']!r}"
+    )
+    assert structural["isDirectChildOfMessages"] is True, (
+        "promoted bubble is not a direct child of .messages"
+    )
+    assert structural["closestTraceShell"] is None, (
+        "promoted bubble is nested inside a [data-testid='trace-shell'] "
+        "accordion — it must be a top-level sibling, not collapsed content"
+    )
+    assert structural["nextSiblingClass"] == "msg-attribution from-agent", (
+        f"expected the promoted bubble's nextElementSibling to be exactly "
+        f"'msg-attribution from-agent', got {structural['nextSiblingClass']!r}"
+    )

@@ -273,7 +273,16 @@ App.registerArea({
     var TOOL_CATEGORIES = {
       'Filesystem': ['read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'mkdir', 'glob', 'grep', 'list_dir'],
       'Execution': ['shell', 'python_exec', 'shell_session_start', 'shell_session_send', 'shell_session_close', 'shell_session_list'],
-      'Web': ['download_file', 'fetch_url', 'http_request', 'web_search']
+      'Web': ['download_file', 'fetch_url', 'http_request', 'web_search'],
+      // Squawk 0028: Mission 23 Flight 2's two connector tools
+      // (`send_to_platform_channel` / `fetch_channel_history`) were
+      // registered as built-ins with no Tools-tab category, making them
+      // invisible to the per-agent enable/disable affordance DD-4 assumes
+      // exists. Named 'Connectors' to match the tools' domain — distinct
+      // from the sidebar's 'Connectors' NAV SECTION (external connector
+      // configs, above); this is a tools-tab category tile, same as
+      // Filesystem/Execution/Web.
+      'Connectors': ['send_to_platform_channel', 'fetch_channel_history']
     };
 
     // ── Layout: sidebar = section-nav only; main panel hosts both the

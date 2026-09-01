@@ -485,6 +485,27 @@ Citations: `the_one/llm/_request_params.py` (resolvers + coercers); `the_one/llm
 precedent in the same file); `the_one/interfaces/web/static/js/areas/admin/provider-editor.js` (UI field +
 save-path config seeding).
 
+### `risk-tiered-test-seam-gating`
+
+Test-only HTTP seams are gated by mutation risk, not gated uniformly. **Inert-metadata seams** — seed or read in-process state without touching live data or driving the agent loop — gate on `settings.dev_mode` alone. **Live-state-mutating or agent-loop-injecting seams** — real DB writes, real LLM calls, real tool execution — gate on `settings.dev_mode` AND a seam-specific env var (`THE_ONE_<NAME>_TEST_ENDPOINT=1`), so a stray `THE_ONE_DEV_MODE=true` left on in a shared dev environment doesn't also arm every high-risk seam.
+
+Classify a new test-only seam against this tier before choosing its gate — don't default to single-gate for convenience, and don't default to dual-gate when the seam is genuinely inert.
+
+Precedents:
+- Single-gate (inert-metadata): `POST /_test/oauth/pending` (`the_one/interfaces/web/api.py`) — registers a pending OAuth flow in `the_one.mcp.oauth._state`; no DB write, no agent loop.
+- Dual-gate (state-mutating): `POST /_test/purge-sweep` (`the_one/interfaces/web/api.py`) — fires a real daily-purge DB sweep; `THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1`.
+- Dual-gate (agent-loop-injecting): `POST /_test/stub/inbound` / `GET /_test/stub/outbound` (`the_one/interfaces/web/api.py`, Mission 23 Flight 2, DD-10) — injects free text into a live agent loop with real LLM calls and tool execution; `THE_ONE_STUB_TEST_ENDPOINT=1`. The same dual gate also decides "stub" connector-type creatability (`_creatable_connector_types`) and the lifespan startup hook that registers `StubPlugin`.
+
+Source: Mission 23 Flight 2 debrief, What Could Be Improved / Documentation — the risk-tiering rationale was re-argued from scratch a second flight running before this entry existed.
+
+### `composition-disjoint-post-step-mutators`
+
+When two post-step mutators must both walk the same `messages[pre_step_len:]` slice after `agent.step` returns, design them to touch disjoint subsets of that slice (by `Role`, or another partition) so they compose in either call order without one function growing multiple jobs. Provable non-overlap by construction beats a single mutator that "does everything" for a turn — each concern stays independently testable and reviewable.
+
+Citation: `the_one/connectors/inbound.py::_bind_peer_name` touches only the `Role.USER` message at `messages[pre_step_len]`; `the_one/llm/base.py::tag_post_step_visibility` touches every role EXCEPT `Role.USER`. `dispatch_inbound` calls them back-to-back (`_bind_peer_name(...)` then `tag_post_step_visibility(...)`); the disjoint `Role` partition means the two calls cannot conflict regardless of order.
+
+Applies to any pair of independent post-step concerns over the same message slice. Does NOT apply when the concerns genuinely need to see each other's output — a single ordered pass is the right shape there.
+
 ### Mission-specific (M16)
 
 Patterns that emerged in Mission 16 (LLM provider hardening) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above, per the same pattern established by `### Mission-specific (M10)` below.

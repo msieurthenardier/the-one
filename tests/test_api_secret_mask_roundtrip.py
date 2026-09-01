@@ -136,14 +136,15 @@ class TestMCPSourceRoundTrip:
         )
 
     async def test_short_value_mask_roundtrip(self, client_and_key) -> None:
-        """Short (≤4 char) secret masks as bare ``***`` — must also round-trip.
+        """Short (< ``_MASK_TAIL_MIN_SECRET_LEN``) secret masks as bare
+        ``***`` — must also round-trip.
 
         Exercises the other branch of ``_MASK_SHAPE_RE`` (no ``...tail``
         suffix). Pre-fix this would have written ``"***"`` as the stored
         value.
         """
         client, key, db_path = client_and_key
-        real_value = "abcd"  # exactly 4 — masks as ``***`` (no suffix)
+        real_value = "abcd"  # well under the threshold — masks as ``***`` (no suffix)
 
         create = await client.post(
             "/api/mcp-sources",
@@ -172,6 +173,62 @@ class TestMCPSourceRoundTrip:
             await direct_conn.close()
         decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
         assert json.loads(decrypted) == {"K": real_value}
+
+    async def test_squawk_0030_below_threshold_secret_masks_fully_opaque_roundtrip(
+        self, client_and_key
+    ) -> None:
+        """Squawk 0030: a secret below ``_MASK_TAIL_MIN_SECRET_LEN`` (12)
+        masks fully opaque (``***``, no tail) — not ``***...{tail4}`` — even
+        though it's longer than the old 4-char short-circuit. Pre-fix, the
+        5-char ``dummy`` reconstructed to ``***...ummy`` (nearly the whole
+        secret). Also pins the round-trip: PUT-ing the GET-masked ``***``
+        back must still preserve (not corrupt) the stored value — the
+        specific correctness risk of widening the opaque-mask range.
+        """
+        client, key, db_path = client_and_key
+        real_value = "dummy"  # 5 chars — old threshold (>4) showed a tail; new (< 12) does not
+
+        create = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "RT-below-threshold",
+                "type": "stdio",
+                "config": {"command": "x"},
+                "secrets": {"TOKEN": real_value},
+            },
+        )
+        sid = create.json()["id"]
+        got = await client.get(f"/api/mcp-sources/{sid}")
+        masked_payload = got.json()
+        assert masked_payload["secrets"]["TOKEN"] == "***"
+
+        put = await client.put(f"/api/mcp-sources/{sid}", json=masked_payload)
+        assert put.status_code == 200
+
+        got_again = await client.get(f"/api/mcp-sources/{sid}")
+        assert got_again.json()["secrets"]["TOKEN"] == "***"
+
+        direct_conn = await aiosqlite.connect(str(db_path))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        decrypted = Fernet(key).decrypt(row["secrets"].encode()).decode()
+        assert json.loads(decrypted) == {"TOKEN": real_value}, (
+            "Round-trip of the widened opaque mask corrupted the stored secret"
+        )
+
+    async def test_squawk_0030_threshold_boundary(self) -> None:
+        """Pin the exact boundary: 11 chars stays fully opaque, 12 chars
+        (the squawk's stated threshold) shows the tail."""
+        from the_one.interfaces.web.api import _emit_mask
+
+        assert _emit_mask("a" * 11) == "***"
+        assert _emit_mask("a" * 12) == "***...aaaa"
 
 
 class TestConnectorRoundTrip:
