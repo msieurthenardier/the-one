@@ -9,6 +9,13 @@
   // not the Config class name, so the mapping is duplicated here.
   // Future flights adding tools must extend this; the L8 verification
   // sweep will fail loudly on a missing entry (defensive `unknown` badge).
+  //
+  // Squawk 0032: this mirror is duplicated a THIRD time in
+  // studio.js's per-agent Tools tab TOOL_CATEGORIES (different shape —
+  // category → [tool names], not tool name → category). Squawk 0028
+  // added the Connectors bucket there; this squawk brings the admin
+  // grid to parity. The two mirrors are not unified — see that squawk's
+  // Corrective Action for why.
   var TOOL_CATEGORIES = {
     // filesystem (9)
     read_file: 'filesystem',
@@ -31,19 +38,26 @@
     http_request: 'web',
     fetch_url: 'web',
     download_file: 'web',
-    web_search: 'web'
+    web_search: 'web',
+    // connectors (2) — Mission 23 Flight 2's platform-connector tools;
+    // added by squawk 0032, mirroring squawk 0028's studio.js fix.
+    send_to_platform_channel: 'connectors',
+    fetch_channel_history: 'connectors'
   };
 
   // F6 L6 (HAT inline fix): the admin Tools grid groups tiles under
   // per-category tabs (Filesystem / Execution / Web) rather than a
   // single alphabetic list. Operator HAT scenario 1 surfaced the
   // single-list layout as a UX gap once the tool count crossed ~10.
+  // Connectors (squawk 0032) appended at the end of declaration order
+  // rather than interleaved, to match studio.js's tab ordering.
   // Tab declaration order (also tab visual order):
-  var CATEGORY_ORDER = ['filesystem', 'execution', 'web'];
+  var CATEGORY_ORDER = ['filesystem', 'execution', 'web', 'connectors'];
   var CATEGORY_LABELS = {
     filesystem: 'Filesystem',
     execution: 'Execution',
-    web: 'Web'
+    web: 'Web',
+    connectors: 'Connectors'
   };
 
   // Active tab persists across grid re-renders within the area lifetime.
@@ -148,7 +162,7 @@
       }
 
       if (groupCount === 0) {
-        // Defensive: with the current 19 tools every category is
+        // Defensive: with the current 21 tools every category is
         // populated, but a future tool-add to a new category (or
         // removing all tools from an existing one) would surface
         // this empty state rather than a blank panel.

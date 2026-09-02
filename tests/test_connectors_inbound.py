@@ -520,6 +520,76 @@ async def test_round_trip_paired_peer_gets_reply(conn_repo, chat_repo) -> None:
     assert assistant_messages[-1].visibility == OPERATOR_VISIBILITY
 
 
+async def test_round_trip_cross_channel_tool_send_suppresses_auto_reply(
+    conn_repo, chat_repo
+) -> None:
+    """DD-10's accepted trade-off: the skip rule is a whole-turn scan, not
+    scoped to the originating target — a successful ``send_to_platform_channel``
+    result anywhere in the turn suppresses auto-delivery, even when that
+    tool-send targeted a DIFFERENT channel than the one the inbound message
+    came in on. The originating channel (``ch-1``) gets no auto-delivered
+    reply; outbound gains only the tool's own record (to ``ch-2``); the
+    turn's trailing plain-text ``done`` stays operator-only."""
+    connector = _connector(
+        {"default_agent": "bot", "allowlist": {"channels": ["ch-1", "ch-2"]}}
+    )
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+
+    provider_repo = LLMProviderRepository(conn_repo.conn, conn_repo.encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(id="prov-1", name="p", type="ollama", base_url="http://x")
+    )
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await agent_store.save(AgentConfig(name="bot", provider_config_id="prov-1"))
+
+    reply = Message.assistant(
+        content="",
+        tool_calls=[
+            ToolCall(
+                id="tc1",
+                name="send_to_platform_channel",
+                arguments={
+                    "target": {"connector_id": "conn-1", "channel_id": "ch-2"},
+                    "content": "posted elsewhere",
+                },
+            )
+        ],
+    )
+    done = Message.assistant(content="done")
+    fake_llm = FakeLLM(responses=[reply, done])
+
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        mgr = ConnectorManager(poll_interval=0.01)
+        set_manager(mgr)
+        encryptor = get_encryptor(settings.data_dir)
+        mgr.start(connector, encryptor)
+        await asyncio.sleep(0.05)
+
+        # Inbound arrives on ch-1 — the tool-send above targets ch-2.
+        envelope = _envelope(channel_id="ch-1", mentions_bot=True)
+        await StubPlugin.push_inbound("conn-1", envelope)
+
+        await mgr.drain()
+
+    # Only the tool's own send lands — to ch-2, never an auto-delivery to
+    # the originating ch-1.
+    assert len(StubPlugin.outbound_records) == 1
+    target, content = StubPlugin.outbound_records[0]
+    assert content == "posted elsewhere"
+    assert target.channel_id == "ch-2"
+
+    sessions = await chat_repo.list()
+    persisted = decode_messages(sessions[0].messages)
+    assistant_messages = [m for m in persisted if m.role == Role.ASSISTANT]
+    assert [m.content for m in assistant_messages][-1] == "done"
+    # DD-10 skip rule applies turn-wide, not per-target: the trailing
+    # plain-text "done" stays operator-only even though the tool-send that
+    # triggered the skip went to a different channel than ch-1.
+    assert assistant_messages[-1].visibility == OPERATOR_VISIBILITY
+
+
 async def test_round_trip_peer_message_persists_attribution(conn_repo, chat_repo) -> None:
     """M23 F02 L03 (behavior-test fix): the persisted USER message from a
     peer's inbound DM carries ``peer_name`` — the Chat UI's ``msg-from-peer``

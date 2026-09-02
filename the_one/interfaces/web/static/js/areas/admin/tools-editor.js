@@ -61,6 +61,10 @@
   // keeps it module-private). The editor's subtitle reads "{description}
   // · {category}". A future flight that needs the same map in three
   // places should extract it into a shared module.
+  //
+  // Squawk 0032: also mirrored a fourth time (different shape) in
+  // studio.js's per-agent Tools tab TOOL_CATEGORIES — see that file's
+  // comment and squawk 0028's Corrective Action. Not unified here.
   var TOOL_CATEGORIES = {
     read_file: 'filesystem',
     write_file: 'filesystem',
@@ -80,7 +84,9 @@
     http_request: 'web',
     fetch_url: 'web',
     download_file: 'web',
-    web_search: 'web'
+    web_search: 'web',
+    send_to_platform_channel: 'connectors',
+    fetch_channel_history: 'connectors'
   };
 
   function renderToolsEditor(container, toolDetail, callbacks) {

@@ -588,6 +588,8 @@ _BADGE_INK_PAIRS = (
     ("filesystem", "badge_filesystem", "badge_ink_filesystem"),
     ("execution", "badge_execution", "badge_ink_execution"),
     ("web", "badge_web", "badge_ink_web"),
+    # connectors (squawk 0032) — admin Tools grid category badge.
+    ("connectors", "badge_connectors", "badge_ink_connectors"),
 )
 
 
