@@ -183,6 +183,24 @@ Any other calling agent, or a DM target outside the allowlist, gets an
 `[error] [constraint] ...` string back — never an exception, never a
 platform call.
 
+**DM channel ids and the bound-agent rule.** Discord DMs are channels
+under the hood (see "Discord (Flight 3)" below). The two rules above are
+keyed on which field the caller sets, not on what the id "really" points
+to: if a raw DM channel id is passed as `target.channel_id` (a Channel
+target), it authorizes under the **bound-agent rule** —
+`channel_map[channel_id]`'s agent, else `default_agent` — same as any
+other channel target, **not** the peer allowlist; the allowlist only
+applies to the `peer_id`-shaped target. This is a stated property of the
+design (HAT-verified 2026-09-02), not a gap: the peer-allowlist guarantee
+holds in practice regardless, because a DM channel id is only ever
+learnable through an already allowlist-gated path — a `Create DM` call
+against an allowlisted peer (the `PeerTarget` send path's own REST call,
+see "Discord (Flight 3)" below) or an admitted inbound DM. An unadmitted
+DM is dropped at Admission before anything persists, so its channel id
+never reaches the agent or the stored history — there is no route by
+which a model could learn a DM channel id for a peer it isn't already
+allowed to reach.
+
 ## Config schema (DD-2)
 
 `Connector.config` is a closed reserved-key dict — unknown top-level keys

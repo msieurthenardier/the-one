@@ -1089,4 +1089,15 @@
     gap: 8px;
     flex-shrink: 0;
   }
+
+  /* === Connector editor: Enabled toggle row (HAT inline fix, Mission 23
+     Flight 3 Leg 4) === */
+  /* `.field-row` already supplies the label-left flex layout + the
+     `.tool-enable-switch` toggle chrome comes from admin.css (shared
+     `.area-admin`/`.area-studio` primitive). This just bumps the row's
+     bottom margin from `.field-row`'s default 8px to 12px, matching the
+     `--space-3` bottom margin the sibling `.field-group` rows (Name, Type,
+     Token) above it use, so the Identity section keeps even vertical
+     rhythm. */
+  .area-studio .connector-enabled-row { margin-bottom: var(--space-3); }
 }

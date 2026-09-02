@@ -261,7 +261,7 @@ when done directly against their APIs.
       Studio form, the in-process stub plugin, and the rewritten
       `connectors/README.md` and `agents.md` section. Target ≤1,500 Python
       lines including the stub.
-- [ ] Flight 3: Discord on a hand-rolled client — gateway task (hello,
+- [x] Flight 3: Discord on a hand-rolled client — gateway task (hello,
       heartbeat with jitter, identify with intents, resume to
       `resume_gateway_url`, reconnect with backoff, non-reconnectable close
       codes 4004/4010–4014), REST client with per-bucket + global rate

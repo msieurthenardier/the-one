@@ -79,12 +79,39 @@
     return s;
   }
 
-  function _checkbox(field, checked) {
-    var i = _el('input', { className: 'field-checkbox' });
-    i.type = 'checkbox';
-    i.setAttribute('data-field', field);
-    i.checked = checked;
-    return i;
+  // HAT inline fix (Mission 23 Flight 3 Leg 4): the bare browser checkbox
+  // rendered orphaned/centered under its label. Reuses the established
+  // `.tool-enable-switch` iOS-style toggle (admin.css, scoped to both
+  // `.area-admin` and `.area-studio` — see components.css's note that it is
+  // the documented single-binary-flip primitive) instead of inventing a new
+  // control. Label-left `.field-row` layout (not the stacked `.field-group`
+  // the other connector fields use) mirrors the same single-toggle
+  // exception documented in tools-editor.js's renderEnabledRow. The real
+  // `<input type="checkbox">` stays in the DOM (visually hidden via
+  // opacity:0, not display:none) — focusable, space-togglable, and
+  // `<label for>`-associated, so it keeps the same a11y contract as a bare
+  // checkbox. `data-field` is preserved for save-time `.checked` reads.
+  function _toggleRow(section, labelText, id, field, checked) {
+    var row = _el('div', { className: 'field-row connector-enabled-row' });
+    row.setAttribute('data-field-name', field);
+    var rowLabel = _el('label', { text: labelText });
+    rowLabel.setAttribute('for', id);
+    var swLabel = _el('label', { className: 'tool-enable-switch' });
+    swLabel.title = labelText + (checked ? ' (on)' : ' (off)');
+    var input = _el('input', {});
+    input.type = 'checkbox';
+    input.id = id;
+    input.setAttribute('data-field', field);
+    input.checked = checked;
+    input.setAttribute('aria-label', labelText);
+    var track = _el('span', { className: 'tool-enable-switch-track' });
+    track.setAttribute('aria-hidden', 'true');
+    swLabel.appendChild(input);
+    swLabel.appendChild(track);
+    row.appendChild(rowLabel);
+    row.appendChild(swLabel);
+    section.appendChild(row);
+    return input;
   }
 
   function _fieldGroup(section, labelText, id, inputEl) {
@@ -226,10 +253,7 @@
     // Checked-state trap (DD-6): render from `!== false`, never a truthy
     // check — `!!config.enabled` is falsy for the absent-key legacy case
     // and would invert the documented default (absent key = enabled).
-    _fieldGroup(
-      identity, 'Enabled', 'conn-enabled',
-      _checkbox('enabled', config.enabled !== false)
-    );
+    _toggleRow(identity, 'Enabled', 'conn-enabled', 'enabled', config.enabled !== false);
 
     // ── Binding ──────────────────────────────────────────────────────
     var binding = _section(container, 'Binding');

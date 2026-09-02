@@ -1,14 +1,14 @@
 # Flight: Discord Client
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Connector Reset](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] A Discord peer who DMs or @mentions the bot receives the attached agent's reply in the same channel, thread, or DM; the agent can send an unprompted message via the single send tool; the bot resumes automatically after a gateway disconnect — observed live against a real Discord bot
-- [ ] `discord.py`/`aiohttp` stay absent — the client is built on the `websockets` + `httpx` already in base dependencies (no new deps)
-- [ ] *(running count)* Connector Python within 3,000 (1,060 used; this flight targets ≤1,100 for the Discord client incl. plugin/translate); connector JS within 1,000 (~675 used; this flight targets ≤50 — the generic form already covers Discord)
-- [ ] A new live HAT exists for Discord (mission criterion 10's second half; the `discord_hat` replacement)
-- [ ] *(mission-amendment)* The send tool is baseline-visible when enabled — the Flight 2 reliability gap closed mechanically (mission Resolved Question 8)
+- [x] A Discord peer who DMs or @mentions the bot receives the attached agent's reply in the same channel, thread, or DM; the agent can send an unprompted message via the single send tool; the bot resumes automatically after a gateway disconnect — observed live against a real Discord bot
+- [x] `discord.py`/`aiohttp` stay absent — the client is built on the `websockets` + `httpx` already in base dependencies (no new deps)
+- [x] *(running count)* Connector Python within 3,000 (1,060 used; this flight targets ≤1,100 for the Discord client incl. plugin/translate); connector JS within 1,000 (~675 used; this flight targets ≤50 — the generic form already covers Discord)
+- [x] A new live HAT exists for Discord (mission criterion 10's second half; the `discord_hat` replacement)
+- [x] *(mission-amendment)* The send tool is baseline-visible when enabled — the Flight 2 reliability gap closed mechanically (mission Resolved Question 8)
 
 ---
 
@@ -79,7 +79,7 @@ Implement Discord as the first real platform behind the Flight 2 contract: a han
 ### Pre-Flight Checklist
 - [x] All open questions resolved (two mission-level resolutions recorded: RQ8 carve-out, RQ9 enabled key)
 - [x] Design decisions documented (9 DDs)
-- [ ] Prerequisites verified (operator supplies tokens/ids before leg 3's gate; PR #186 merge before branch cut)
+- [x] Prerequisites verified (operator supplies tokens/ids before leg 3's gate; PR #186 merge before branch cut)
 - [x] Validation approach defined (unit + fake-gateway; behavior gate; guided HAT)
 - [x] Legs defined (4: discord-client, loop-carveout-and-enabled, live-gate-and-docs, hat-alignment)
 
@@ -115,17 +115,17 @@ Build the client against the fake gateway first (leg 1 fully unit-tested, no liv
 - [x] `discord-client` - Gateway v10 + REST + translate + plugin + production registration + fake-gateway fixture (`tests/_discord_gateway_fixture.py`) + unit tests (heartbeat/jitter/ACK-watchdog, identify/resume/invalid-session, close-code policy, per-bucket + global rate limiting, 429, translation incl. is_dm/mentions_bot/bot-drop/thread_id)
 - [x] `loop-carveout-and-enabled` - DD-5 carve-out (agent loop, narrow, pin-tested) + DD-6 enabled key (validator/manager/PUT/doctor/form checkbox) — the two hard-to-reverse changes isolated with their own checkpoint
 - [x] `live-gate-and-docs` - Finalize + run `discord-live-round-trip` (driver-bot apparatus); `connectors/README.md` Discord section, `agents.md`, CLAUDE.md env conventions; metrics
-- [ ] `hat-alignment` *(interactive)* - Guided HAT: human-account DM + pairing, private console, daily-driver alignment; inline fixes per the HAT fix-vs-feature gate
+- [x] `hat-alignment` *(interactive)* - Guided HAT: human-account DM + pairing, private console, daily-driver alignment; inline fixes per the HAT fix-vs-feature gate
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `make test-unit` + all four browser lanes green; no new deps in `uv.lock`.
