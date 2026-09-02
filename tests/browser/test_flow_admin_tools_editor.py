@@ -104,6 +104,17 @@ def test_editor_renders_prompt_block(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
+def test_editor_connector_tool_shows_connectors_category(app_clean: str, page: Page) -> None:
+    """Squawk 0032: the editor's category subtitle for a connector tool
+    reads 'connectors' — not 'unknown', which is what the pre-fix
+    tools-editor.js TOOL_CATEGORIES mirror gap produced.
+    """
+    page.goto(f"{app_clean}#admin/tools/send_to_platform_channel")
+    expect(page.locator(".editor-title")).to_have_text("send_to_platform_channel", timeout=8000)
+    expect(page.locator(".editor-subtitle-meta")).to_have_text("connectors")
+
+
+@pytest.mark.browser
 def test_editor_renders_enabled_toggle_inline(app_clean: str, page: Page) -> None:
     """HAT inline fix #2: editor's `enabled` row uses the iOS-toggle
     widget (`.tool-enable-switch`) — same visual as the grid tile.

@@ -283,6 +283,10 @@ App.registerArea({
       // configs, above); this is a tools-tab category tile, same as
       // Filesystem/Execution/Web.
       'Connectors': ['send_to_platform_channel', 'fetch_channel_history']
+      // Squawk 0032: the Administration area's Tools grid keeps its own
+      // (differently-shaped) TOOL_CATEGORIES mirrors in
+      // admin/tools-grid.js and admin/tools-editor.js — brought to
+      // parity with this one by that squawk. Not unified with this one.
     };
 
     // ── Layout: sidebar = section-nav only; main panel hosts both the

@@ -212,6 +212,9 @@
   .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
   .area-admin .admin-tool-badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
   .area-admin .admin-tool-badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
+  /* connectors (squawk 0032) — added alongside the TOOL_CATEGORIES bucket
+     for send_to_platform_channel / fetch_channel_history; see tools-grid.js. */
+  .area-admin .admin-tool-badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
   .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */

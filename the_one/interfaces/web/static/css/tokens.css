@@ -140,6 +140,10 @@
     --badge-filesystem: #008b8b;  /* dark cyan */
     --badge-execution: #b8860b;   /* dark goldenrod */
     --badge-web: #c71585;         /* medium violet red */
+    /* connectors (squawk 0032) — theme-stable like the provider badges
+       (large AA margin at 7.84:1 white-on-fill, so no per-theme tune
+       needed the way filesystem/execution/web got). */
+    --badge-connectors: #0b5394;  /* steel blue */
 
     /* per-badge ink (M17 F3 L4) — theme-STABLE (chosen by fill luminance,
        and fills are theme-stable enough that one ink clears AA in both
@@ -157,6 +161,7 @@
     --badge-ink-filesystem: #101114;
     --badge-ink-execution: #101114;
     --badge-ink-web: #ffffff;
+    --badge-ink-connectors: #ffffff;
 
     /* nav rail — ladder-native (no palette island): rail is a plain
        surface with accent reserved for the active state. */
@@ -275,6 +280,9 @@
     --badge-filesystem: #0e8e8e;
     --badge-execution: #c5912a;
     --badge-web: #cc2d87;
+    /* connectors (squawk 0032) — theme-stable, same value as the dark
+       block (see that block's rationale comment). */
+    --badge-connectors: #0b5394;
 
     /* per-badge ink (M17 F3 L4) — theme-stable; identical to the dark block.
        Light fills → dark ink (#101114), dark fills → white ink (#ffffff).
@@ -290,6 +298,7 @@
     --badge-ink-filesystem: #101114;
     --badge-ink-execution: #101114;
     --badge-ink-web: #ffffff;
+    --badge-ink-connectors: #ffffff;
 
     /* nav rail — ladder-native: the light theme's dark-navy palette island
        is RETIRED (v3 design decision); light rail in light theme. */

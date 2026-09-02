@@ -59,7 +59,7 @@ _CONTINUATION_ENV_VAR = "THE_ONE_SESSION_CONTINUATION_SECONDS"
 # ``llm/base.py`` documents at its own inline-literal site. Agreement
 # between all three copies (this module, ``llm/base.py``,
 # ``tools/connector_send.py``) is pinned by
-# ``tests/test_connector_send_tool.py::test_shared_constants_pin_llm_base_literals``.
+# ``tests/test_connector_send_tool.py::test_shared_constants_pin_inbound_literals``.
 _SEND_TO_PLATFORM_CHANNEL_TOOL_NAME = "send_to_platform_channel"
 _PLATFORM_SEND_OK_PREFIX = "[platform-send-ok]"
 

@@ -106,6 +106,8 @@ DARK: dict[str, str] = {
     "badge_filesystem": "#008b8b",
     "badge_execution": "#b8860b",
     "badge_web": "#c71585",
+    # connectors (squawk 0032) — theme-stable, like the provider badges.
+    "badge_connectors": "#0b5394",
     # per-badge INK (M17 F3 L4) — theme-stable; light fills → dark ink,
     # dark fills → white ink. Each fill × its ink is gated ≥4.5 both themes.
     "badge_ink_ollama": "#101114",
@@ -119,6 +121,7 @@ DARK: dict[str, str] = {
     "badge_ink_filesystem": "#101114",
     "badge_ink_execution": "#101114",
     "badge_ink_web": "#ffffff",
+    "badge_ink_connectors": "#ffffff",
 }
 
 
@@ -181,6 +184,8 @@ LIGHT: dict[str, str] = {
     "badge_filesystem": "#0e8e8e",
     "badge_execution": "#c5912a",
     "badge_web": "#cc2d87",
+    # connectors (squawk 0032) — theme-stable, same hex as dark.
+    "badge_connectors": "#0b5394",
     # per-badge INK (M17 F3 L4) — theme-stable; identical to the dark block.
     "badge_ink_ollama": "#101114",
     "badge_ink_openai_compatible": "#101114",
@@ -193,4 +198,5 @@ LIGHT: dict[str, str] = {
     "badge_ink_filesystem": "#101114",
     "badge_ink_execution": "#101114",
     "badge_ink_web": "#ffffff",
+    "badge_ink_connectors": "#ffffff",
 }

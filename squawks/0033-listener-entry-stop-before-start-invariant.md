@@ -1,10 +1,10 @@
 # Squawk 0033: Pin the stop-before-start invariant behind _run's permanent-failure return
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-02
-**Completed**: —
+**Completed**: 2026-09-02
 
 ## Report
 
@@ -27,10 +27,33 @@ cross-references at both call sites.
 - Raised by the Flight 3 debrief (2026-09-02), Developer interview
 
 ## Corrective Action
-*(written at completion)*
+
+Test-and-comments only — no manager behavior change, per squawk scope.
+
+1. Added `test_start_after_permanent_failure_is_noop_until_stop` to
+   `tests/test_connectors_manager.py`. It drives `StubPlugin` to raise
+   `PermanentConnectorFailure` on connect, then asserts: the listener
+   task finishes but the `_ListenerEntry` stays in `_listeners`; a bare
+   `start()` on the same id is a no-op (no new `connect` call, no live
+   client); `stop()` then `start()` clears the stale entry and produces
+   a live listener again. This pins the exact contract the two recovery
+   paths in `api.py` depend on.
+2. Added a one-line cross-reference comment at both call sites in
+   `the_one/interfaces/web/api.py` that rely on stop-before-start —
+   `update_connector`'s PUT restart (~line 2869) and the rotation-restart
+   hook (~line 4877) — each pointing back to the invariant documented on
+   `ConnectorManager._run`'s `PermanentConnectorFailure` branch in
+   `the_one/connectors/manager.py`.
+
+No production code paths changed; `_run`'s permanent-failure return still
+leaves the entry in place exactly as before.
 
 ## Verification
-*(written at completion)*
+
+`PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_connectors_manager.py -x --timeout 30`
+→ 15 passed (14 pre-existing + 1 new), 0.75s.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: independent batch Reviewer (Haiku), squawk/turnaround-2026-09-02
+**Verdict**: confirmed
+**Commit**: squawk/turnaround-2026-09-02 batch commit (PR follows)

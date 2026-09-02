@@ -9,6 +9,7 @@ import asyncio
 import pytest
 
 from the_one.connectors import registry
+from the_one.connectors.base import PermanentConnectorFailure
 from the_one.connectors.manager import ConnectorManager, get_manager, set_manager
 from the_one.connectors.stub import StubPlugin
 from the_one.db.models import Connector
@@ -177,6 +178,44 @@ async def test_start_all_skips_disabled_starts_others(encryptor) -> None:
     assert mgr.client_for("enabled") is not None
     assert mgr.client_for("disabled") is None
     assert set(StubPlugin.connect_calls) == {"absent", "enabled"}
+    await mgr.drain()
+
+
+async def test_start_after_permanent_failure_is_noop_until_stop(encryptor) -> None:
+    """Squawk 0033: pins the invariant ``_run``'s permanent-failure return
+    relies on — the stale ``_ListenerEntry`` is left in ``self._listeners``
+    on purpose, which means a bare ``start()`` on the same id after a
+    ``PermanentConnectorFailure`` is a no-op (``start``'s early-return on a
+    tracked id blocks it) UNTIL a caller does ``stop()`` first, same as
+    every recovery path in ``interfaces/web/api.py`` already does. If a
+    future ``_run`` change starts popping the entry on permanent failure,
+    or a future recovery path calls ``start()`` without ``stop()`` first,
+    this test catches the drift.
+    """
+    mgr = ConnectorManager(poll_interval=0.01)
+    account = _account()
+    StubPlugin.connect_should_fail = PermanentConnectorFailure("nope")
+    mgr.start(account, encryptor)
+    await asyncio.sleep(0.05)
+    assert len(StubPlugin.connect_calls) == 1
+    assert mgr.client_for(account.id) is None
+    # The listener task has finished, but the manager still thinks the id
+    # is tracked — a bare start() is a no-op, not a fresh listener.
+    assert account.id in mgr._listeners
+    assert mgr._listeners[account.id].task.done()
+
+    mgr.start(account, encryptor)
+    await asyncio.sleep(0.05)
+    assert len(StubPlugin.connect_calls) == 1  # still no-op: no new connect
+    assert mgr.client_for(account.id) is None
+
+    # stop() then start() clears the stale entry and yields a live listener.
+    StubPlugin.connect_should_fail = None
+    await mgr.stop(account.id)
+    mgr.start(account, encryptor)
+    await asyncio.sleep(0.05)
+    assert len(StubPlugin.connect_calls) == 2
+    assert mgr.client_for(account.id) is not None
     await mgr.drain()
 
 

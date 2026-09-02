@@ -1,13 +1,14 @@
 """Admin Tools grid + tab + tile tests for F6 leg 07.
 
-Covers the L2 admin Tools grid surface (HAT-refined into 4 category tabs):
+Covers the L2 admin Tools grid surface (HAT-refined into category tabs):
 
 - Page-title is "Built-in Tools" (HAT inline fix #5).
 - 4 category tabs render in declaration order (Filesystem / Execution /
-  Python / Web); Filesystem selected by default.
+  Web / Connectors); Filesystem selected by default. Connectors added by
+  squawk 0032 (mirrors squawk 0028's studio.js Connectors category).
 - Tab click switches the visible panel (active panel shows tiles, others
   hidden via the App.tabs helper's [hidden] attr).
-- Each category surfaces the expected tile counts (9/5/1/4 = 19 total).
+- Each category surfaces the expected tile counts (9/6/4/2 = 21 total).
 - Tile click navigates to the per-tool editor at #admin/tools/<name>.
 - Toggle PUT round-trip persists across reload (in-flight gate awaited
   BEFORE the reload to avoid a race).
@@ -22,18 +23,21 @@ Covers the L2 admin Tools grid surface (HAT-refined into 4 category tabs):
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
 def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> None:
-    """Page-title + 3 category tabs in declaration order; Filesystem panel
+    """Page-title + 4 category tabs in declaration order; Filesystem panel
     is the default-active surface with 9 tiles visible.
 
     Python tab was removed from the admin tools grid (Leg 02 / later — the
-    Python tools moved to the Execution category or were regrouped). The
-    current 3 tabs are: Filesystem, Execution, Web.
+    Python tools moved to the Execution category or were regrouped), then
+    Connectors was added by squawk 0032. The current 4 tabs are:
+    Filesystem, Execution, Web, Connectors.
     """
     page.goto(f"{app_clean}#admin/tools")
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
@@ -42,10 +46,11 @@ def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> Non
     expect(tablist).to_be_visible()
 
     tabs = tablist.locator('[role="tab"]')
-    expect(tabs).to_have_count(3)
+    expect(tabs).to_have_count(4)
     expect(tabs.nth(0)).to_have_text("Filesystem")
     expect(tabs.nth(1)).to_have_text("Execution")
     expect(tabs.nth(2)).to_have_text("Web")
+    expect(tabs.nth(3)).to_have_text("Connectors")
 
     # Filesystem selected by default; its panel is the visible one.
     expect(page.locator('[data-testid="tab-filesystem"]')).to_have_attribute(
@@ -77,7 +82,7 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
 
 @pytest.mark.browser
 def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: Page) -> None:
-    """All three panels' tile counts: 9/6/4 = 19 tools total."""
+    """All four panels' tile counts: 9/6/4/2 = 21 tools total."""
     page.goto(f"{app_clean}#admin/tools")
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
 
@@ -85,12 +90,35 @@ def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: P
         "filesystem": 9,
         "execution": 6,
         "web": 4,
+        "connectors": 2,
     }
     for cat, count in expected.items():
         page.locator(f'[data-testid="tab-{cat}"]').click()
         panel = page.locator(f"#tools-panel-{cat}")
         expect(panel).to_be_visible()
         expect(panel.locator('[data-testid="tool-card"]')).to_have_count(count)
+
+
+@pytest.mark.browser
+def test_admin_tools_connectors_tab_renders_both_tools_with_connectors_badge(
+    app_clean: str, page: Page
+) -> None:
+    """Squawk 0032: send_to_platform_channel / fetch_channel_history render
+    under the Connectors tab with the 'connectors' category badge — not the
+    'unknown' badge the pre-fix TOOL_CATEGORIES mirror gap produced.
+    """
+    page.goto(f"{app_clean}#admin/tools")
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    page.locator('[data-testid="tab-connectors"]').click()
+    panel = page.locator("#tools-panel-connectors")
+    expect(panel).to_be_visible()
+
+    for name in ("send_to_platform_channel", "fetch_channel_history"):
+        tile = panel.locator(f'[data-testid="tool-card"][data-name="{name}"]')
+        expect(tile).to_be_visible()
+        badge = tile.locator(".admin-tool-badge")
+        expect(badge).to_have_text("connectors")
+        expect(badge).to_have_class(re.compile(r"admin-tool-badge--connectors"))
 
 
 @pytest.mark.browser

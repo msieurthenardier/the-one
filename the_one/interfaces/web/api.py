@@ -2866,6 +2866,9 @@ async def update_connector(connector_id: str, request: Request) -> dict[str, Any
     # unrelated field wake a listener that should stay down. ``repo`` is
     # threaded through so the DD-Q3 rotation fix's fresh-row re-fetch
     # applies to this listener's future reconnects too.
+    # Squawk 0033: this stop() before start() is load-bearing — see the
+    # stale-entry invariant documented on ConnectorManager._run's
+    # PermanentConnectorFailure branch (connectors/manager.py).
     manager = get_connector_manager()
     if manager is not None:
         await manager.stop(connector_id)
@@ -4874,6 +4877,9 @@ async def rotate_encryption_key() -> dict[str, str]:
     # reconnecting at the moment of rotation. Best-effort per connector —
     # one connector's restart failure must not abort the (already-committed)
     # rotation response.
+    # Squawk 0033: this stop() before start() is load-bearing — see the
+    # stale-entry invariant documented on ConnectorManager._run's
+    # PermanentConnectorFailure branch (connectors/manager.py).
     _connector_manager = get_connector_manager()
     if _connector_manager is not None:
         _connector_repo_for_restart = ConnectorRepository(conn, encryptor)
