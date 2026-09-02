@@ -12,9 +12,13 @@ from conftest import FakeLLM, StubTool
 from the_one.agent.config import (
     AgentConfig,
 )
+from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import LLMProviderConfig, ToolConfig
+from the_one.llm.base import Message
 from the_one.tools.base import Tool
+from the_one.tools.builtins import BuiltinToolProvider
+from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -126,6 +130,34 @@ def factory(store: InMemoryStore) -> AgentFactory:
         mock_settings.data_dir = Path("/tmp/test-data")
         mock_settings.ensure_dirs = lambda: None
         yield AgentFactory(store=store, tool_providers=[StubToolProvider()])
+
+
+@pytest.fixture
+def builtin_factory(store: InMemoryStore) -> AgentFactory:
+    """Mission 23 Flight 3 Leg 2 (DD-5): a factory wired to the REAL
+    ``BuiltinToolProvider`` (not ``StubToolProvider``) so the carve-out
+    pin tests exercise the real ``send_to_platform_channel`` tool and its
+    real ``to_schema()`` output — never a hand-built dict, matching the
+    dedup comparison ``_on_search_match`` performs against
+    ``SearchTools``'s ``registry.all_schemas()`` source.
+    """
+    mock_repo = AsyncMock()
+    mock_repo.get = AsyncMock(return_value=_make_provider_config())
+    mock_tool_repo = AsyncMock()
+    mock_tool_repo.list = AsyncMock(return_value=[])
+
+    with (
+        patch("the_one.agent.factory.get_provider", _fake_get_provider),
+        patch("the_one.agent.factory.settings") as mock_settings,
+        patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
+        patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+        patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
+        patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+    ):
+        mock_settings.agents_dir = Path("/tmp/test-agents")
+        mock_settings.data_dir = Path("/tmp/test-data")
+        mock_settings.ensure_dirs = lambda: None
+        yield AgentFactory(store=store, tool_providers=[BuiltinToolProvider()])
 
 
 # ---------------------------------------------------------------------------
@@ -709,3 +741,139 @@ class TestNativeApiWiring:
 
         assert captured["name"] == "ollama"
         assert captured["kwargs"].get("native_api") is expected_native
+
+
+class TestSendToolCarveOut:
+    """DD-5 pin tests (Mission 23 Flight 3 Leg 2, mission-owner-amended
+    baseline-visibility carve-out). AC-1..AC-5, ALL through the REAL
+    factory seed path (``builtin_factory.create``) — never hand-built
+    containers, per the leg's ``AgentFactory.create()`` requirement.
+    """
+
+    async def test_present_when_enabled_absent_when_disabled(
+        self, builtin_factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        """AC-1: present (from the FIRST iteration, i.e. seeded at build
+        time, not via search) when enabled for the agent; absent when
+        disabled."""
+        await store.save(
+            AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
+        )
+        await store.save(
+            AgentConfig(
+                name="disabled-agent",
+                provider_config_id="test-provider",
+                llm_model="m",
+                disabled_tools=[SEND_TO_PLATFORM_CHANNEL_TOOL_NAME],
+            )
+        )
+
+        enabled_agent = await builtin_factory.create("enabled-agent")
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in enabled_agent._loaded_tool_names
+        enabled_names = {s["name"] for s in enabled_agent._compute_visible_schemas()}
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in enabled_names
+
+        disabled_agent = await builtin_factory.create("disabled-agent")
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in disabled_agent._loaded_tool_names
+        disabled_names = {s["name"] for s in disabled_agent._compute_visible_schemas()}
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in disabled_names
+
+    async def test_baseline_otherwise_unchanged(
+        self, builtin_factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        """AC-2: exact visible-set shape in both states — no other schema
+        leaks in either way."""
+        await store.save(
+            AgentConfig(
+                name="disabled-agent",
+                provider_config_id="test-provider",
+                llm_model="m",
+                disabled_tools=[SEND_TO_PLATFORM_CHANNEL_TOOL_NAME],
+            )
+        )
+        await store.save(
+            AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
+        )
+
+        disabled_agent = await builtin_factory.create("disabled-agent")
+        assert disabled_agent._compute_visible_schemas() == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
+
+        enabled_agent = await builtin_factory.create("enabled-agent")
+        schemas = enabled_agent._compute_visible_schemas()
+        assert schemas[:2] == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
+        assert len(schemas) == 3
+        assert schemas[2]["name"] == SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
+
+    async def test_no_search_needed_first_llm_call(
+        self, builtin_factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        """AC-3 (live-shaped): the first LLM call's tools= array carries the
+        send-tool schema WITHOUT any search_tools invocation."""
+        await store.save(
+            AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
+        )
+        agent = await builtin_factory.create("enabled-agent")
+        agent.llm.responses = [Message.assistant("done")]
+
+        msgs = [m async for m in agent.step("hello")]
+
+        assert len(agent.llm.calls) == 1  # a single, text-only turn
+        first_call_tools = agent.llm.calls[0]["tools"]
+        assert first_call_tools is not None
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in {t["name"] for t in first_call_tools}
+        assert not any(tc.name == "search_tools" for m in msgs for tc in (m.tool_calls or []))
+
+    async def test_no_duplication_on_search_match(
+        self, builtin_factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        """AC-4: a search_tools call whose results include the seeded tool
+        must NOT duplicate its schema — _on_search_match's name-set dedup
+        covers the seed because seed names are already in loaded_tool_names."""
+        await store.save(
+            AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
+        )
+        agent = await builtin_factory.create("enabled-agent")
+        assert len(agent._loaded_schemas) == 1  # just the seed, pre-search
+
+        search_tool = agent.tools.get("search_tools")
+        await search_tool.execute(query="")  # empty query returns every schema
+
+        schema_names = [s["name"] for s in agent._loaded_schemas]
+        assert schema_names.count(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME) == 1
+        # Length parity is the other half of "no duplicate entry": the name
+        # set and the schema list must stay in lockstep.
+        assert len(agent._loaded_tool_names) == len(agent._loaded_schemas)
+
+    async def test_reset_survival_and_container_identity(
+        self, builtin_factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        """AC-5: after Agent.reset(), the carve-out reappears when enabled
+        and stays absent when disabled; the re-seed mutates the ORIGINAL
+        container objects in place (the closure-capture invariant)."""
+        await store.save(
+            AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
+        )
+        await store.save(
+            AgentConfig(
+                name="disabled-agent",
+                provider_config_id="test-provider",
+                llm_model="m",
+                disabled_tools=[SEND_TO_PLATFORM_CHANNEL_TOOL_NAME],
+            )
+        )
+
+        enabled_agent = await builtin_factory.create("enabled-agent")
+        schemas_obj = enabled_agent._loaded_schemas
+        names_obj = enabled_agent._loaded_tool_names
+        enabled_agent.reset()
+        assert enabled_agent._loaded_schemas is schemas_obj  # object identity survives
+        assert enabled_agent._loaded_tool_names is names_obj
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in {
+            s["name"] for s in enabled_agent._compute_visible_schemas()
+        }
+
+        disabled_agent = await builtin_factory.create("disabled-agent")
+        disabled_agent.reset()
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in {
+            s["name"] for s in disabled_agent._compute_visible_schemas()
+        }

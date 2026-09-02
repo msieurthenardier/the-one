@@ -279,6 +279,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _connector_registry.register_for_test("stub", _StubPlugin())
             _stub_connector_registered_by_hook = True
 
+        # Mission 23 Flight 3 Leg 1: unconditional production Discord
+        # registration — unlike the stub hook just above (dual-gated,
+        # dev/test only), Discord is a real platform and always available.
+        # Own guarded try/except block (a registration failure must not
+        # kill app startup, mirroring the other startup blocks), separate
+        # from the stub hook above and the manager start below. Registered
+        # BEFORE the manager's start_all so an already-persisted Discord
+        # connector row finds its plugin at startup, not just on the next
+        # save. Symmetric unregistration at shutdown, mirroring the stub
+        # hook's hygiene (see below).
+        try:
+            from the_one.connectors.discord import register as _register_discord
+
+            _register_discord()
+        except Exception:
+            logger.exception("discord connector registration failed")
+
         # Mission 23 Flight 2 Leg 1: start the connector listener manager
         # just before the yield, mirroring the OAuth-sweep/reaper/purge/
         # catalog starts above. Wrapped in its own try/except (a connector
@@ -409,6 +426,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             _connector_registry.unregister("stub")
             _stub_connector_registered_by_hook = False
+        # Mission 23 Flight 3 Leg 1: symmetric teardown for the
+        # unconditional Discord registration above — every lifespan cycle
+        # that registers it also unregisters it, so a later cycle in the
+        # same process (unit-test suite) never inherits a stale "discord"
+        # registration.
+        from the_one.connectors import registry as _connector_registry
+
+        _connector_registry.unregister("discord")
         # M10 F8 L4: release the module-level factory reference so post-
         # shutdown ``get_factory()`` reads return None. Defensive — not
         # strictly required for correctness because the process is exiting,

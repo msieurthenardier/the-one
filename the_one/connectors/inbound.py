@@ -1,7 +1,8 @@
 """Inbound pipeline: admission → pairing → ``/new`` → reply policy →
-session resolution → per-session-locked agent dispatch (DD-1, DD-3, DD-5,
-DD-6). Platform gateway listeners (spawned inside ``plugin.connect``) call
-:func:`dispatch_inbound` for every message they receive; the manager's
+session resolution → per-session-locked agent dispatch → auto-reply
+mechanical fallback (DD-1, DD-3, DD-5, DD-6, DD-10). Platform gateway
+listeners (spawned inside ``plugin.connect``) call :func:`dispatch_inbound`
+for every message they receive; the manager's
 :meth:`ConnectorManager._connect_once` wires this as the ``on_inbound``
 callback for production connectors.
 
@@ -26,7 +27,13 @@ from the_one.agent.factory import (
     ProviderNotFoundError,
     get_factory,
 )
-from the_one.connectors.base import InboundEnvelope
+from the_one.connectors.base import (
+    ChannelTarget,
+    ConnectorClientError,
+    InboundEnvelope,
+    PeerTarget,
+    SendTarget,
+)
 from the_one.db.codec import decode_messages, encode_messages
 from the_one.db.models import ChatSession, Connector, now_iso
 from the_one.llm.base import Message, Role, tag_post_step_visibility
@@ -39,6 +46,22 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONTINUATION_SECONDS = 86400  # 24 hours
 _CONTINUATION_ENV_VAR = "THE_ONE_SESSION_CONTINUATION_SECONDS"
+
+# DD-10 (Mission 23 Flight 3, mid-flight amendment): the auto-reply skip
+# rule needs the same two literals ``llm/base.py``'s
+# ``tag_post_step_visibility`` hardcodes — the tool name and the
+# platform-send success prefix, canonically owned by
+# ``the_one/tools/connector_send.py``. Inlined here rather than imported:
+# ``the_one/tools/`` depends on ``the_one/connectors/`` (``connector_send.py``
+# imports ``ChannelTarget``/``ConnectorClientError``/``PeerTarget`` from
+# ``connectors/base.py``), so ``connectors/`` importing back from ``tools/``
+# would form a cycle — the same "assert, not import" layering call
+# ``llm/base.py`` documents at its own inline-literal site. Agreement
+# between all three copies (this module, ``llm/base.py``,
+# ``tools/connector_send.py``) is pinned by
+# ``tests/test_connector_send_tool.py::test_shared_constants_pin_llm_base_literals``.
+_SEND_TO_PLATFORM_CHANNEL_TOOL_NAME = "send_to_platform_channel"
+_PLATFORM_SEND_OK_PREFIX = "[platform-send-ok]"
 
 
 def _resolve_continuation_seconds(override: int | None = None) -> int:
@@ -193,6 +216,105 @@ def _bind_peer_name(messages: list[Message], pre_step_len: int, peer_name: str) 
     messages[pre_step_len].peer_name = peer_name
 
 
+async def _auto_deliver_reply(
+    messages: list[Message],
+    pre_step_len: int,
+    envelope: InboundEnvelope,
+    connector_id: str,
+    manager: "ConnectorManager",
+) -> None:
+    """DD-10: mechanically deliver the turn's final assistant text to the
+    ORIGINATING target, so a reply reaches the peer independent of the
+    model's tool-calling reliability.
+
+    Called AFTER :func:`_bind_peer_name` and
+    :func:`the_one.llm.base.tag_post_step_visibility` have run for this
+    turn — every new message is already tagged ``OPERATOR_VISIBILITY``
+    except a successful platform-send tool result, which
+    ``tag_post_step_visibility`` already left peer-visible.
+
+    Skip rule (no double-send): if any message at or after
+    ``pre_step_len`` is a ``Role.TOOL`` result whose parent tool call is
+    ``send_to_platform_channel`` and whose content starts with the
+    platform-send success prefix, the agent already spoke to the platform
+    deliberately this turn — no auto-delivery, full stop (even if that
+    tool-send targeted a DIFFERENT channel; DD-10's recorded trade-off).
+
+    Otherwise, the turn's FINAL ``Role.ASSISTANT`` message is the
+    candidate. Non-empty text content is delivered via
+    ``manager.client_for(connector_id).send()`` to
+    ``PeerTarget(connector_id, peer_id)`` (DM) or
+    ``ChannelTarget(connector_id, channel_id, thread_id)`` (channel). On
+    success the message's ``visibility`` is flipped to ``None``
+    (peer-visible) IN PLACE — the caller persists ``messages`` right
+    after this returns, so the stored history reflects the delivery. On
+    any failure (no live client, ``ConnectorClientError``, or any other
+    exception from ``send()``) the failure is logged and
+    ``visibility`` is left as ``tag_post_step_visibility`` set it
+    (operator-only) — no retry, no raise; the caller's persist still
+    happens.
+    """
+    new_msgs = messages[pre_step_len:]
+
+    tool_call_names: dict[str, str] = {}
+    for msg in new_msgs:
+        if msg.role == Role.ASSISTANT:
+            for tc in msg.tool_calls:
+                tool_call_names[tc.id] = tc.name
+
+    for msg in new_msgs:
+        if (
+            msg.role == Role.TOOL
+            and msg.tool_result is not None
+            and tool_call_names.get(msg.tool_result.tool_call_id)
+            == _SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
+            and isinstance(msg.content, str)
+            and msg.content.startswith(_PLATFORM_SEND_OK_PREFIX)
+        ):
+            return
+
+    assistant_msgs = [m for m in new_msgs if m.role == Role.ASSISTANT]
+    if not assistant_msgs:
+        return
+    final = assistant_msgs[-1]
+    if not isinstance(final.content, str) or not final.content:
+        return
+
+    target: SendTarget
+    if envelope.is_dm:
+        target = PeerTarget(connector_id, envelope.peer_id)
+    else:
+        target = ChannelTarget(connector_id, envelope.channel_id, envelope.thread_id)
+
+    client = manager.client_for(connector_id)
+    if client is None:
+        logger.warning(
+            "dispatch_inbound: auto-reply delivery skipped for connector %s "
+            "(no live client); reply stays operator-only",
+            connector_id,
+        )
+        return
+
+    try:
+        await client.send(target, final.content)
+    except ConnectorClientError:
+        logger.exception(
+            "dispatch_inbound: auto-reply delivery failed for connector %s; "
+            "reply stays operator-only",
+            connector_id,
+        )
+        return
+    except Exception:
+        logger.exception(
+            "dispatch_inbound: unexpected error auto-delivering reply for connector %s; "
+            "reply stays operator-only",
+            connector_id,
+        )
+        return
+
+    final.visibility = None
+
+
 def _resolve_agent_name(connector: Connector, envelope: InboundEnvelope) -> str | None:
     """DD-2: channel_map entry for a channel target, else default_agent. DMs
     never consult channel_map — the default agent is the sole DM recipient."""
@@ -283,6 +405,7 @@ async def dispatch_inbound(
                 pass
             _bind_peer_name(agent.messages, pre_step_len, envelope.peer_name)
             tag_post_step_visibility(agent.messages, pre_step_len)
+            await _auto_deliver_reply(agent.messages, pre_step_len, envelope, connector_id, manager)
             encoded = encode_messages(agent.messages)
             updated = db_session.model_copy(update={"messages": encoded})
             await chat_repo.update(updated)

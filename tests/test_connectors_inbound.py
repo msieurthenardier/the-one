@@ -22,7 +22,7 @@ from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory, set_factory
 from the_one.config import settings
 from the_one.connectors import registry
-from the_one.connectors.base import InboundEnvelope
+from the_one.connectors.base import ChannelTarget, ConnectorClientError, InboundEnvelope, PeerTarget
 from the_one.connectors.inbound import (
     _DEFAULT_CONTINUATION_SECONDS,
     _resolve_continuation_seconds,
@@ -43,7 +43,7 @@ from the_one.db.repositories import (
     SQLiteAgentStore,
 )
 from the_one.encryption import get_encryptor
-from the_one.llm.base import Message, Role, ToolCall
+from the_one.llm.base import OPERATOR_VISIBILITY, Message, Role, ToolCall
 from the_one.sessions import session_locks
 
 
@@ -460,7 +460,11 @@ async def test_dispatch_inbound_serializes_via_session_locks(
 # ── full stub round trip (acceptance criterion #1) ───────────────────────
 
 
-async def test_round_trip_paired_peer_gets_reply(conn_repo) -> None:
+async def test_round_trip_paired_peer_gets_reply(conn_repo, chat_repo) -> None:
+    """Also the DD-10 skip-rule proof: this turn's successful
+    ``send_to_platform_channel`` result must suppress ``_auto_deliver_reply``
+    for the turn's trailing plain-text message (``done``) — exactly one
+    outbound record (the tool's own), and ``done`` stays operator-only."""
     connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
     await conn_repo.create(connector)
     registry.register_for_test("stub", StubPlugin())
@@ -505,6 +509,15 @@ async def test_round_trip_paired_peer_gets_reply(conn_repo) -> None:
     target, content = StubPlugin.outbound_records[0]
     assert content == "hi back"
     assert target.peer_id == "peer-1"
+
+    sessions = await chat_repo.list()
+    persisted = decode_messages(sessions[0].messages)
+    assistant_messages = [m for m in persisted if m.role == Role.ASSISTANT]
+    assert [m.content for m in assistant_messages][-1] == "done"
+    # DD-10 skip rule: the turn already tool-sent successfully, so the
+    # trailing plain-text "done" is NOT separately auto-delivered — it
+    # stays operator-only, and outbound gained no second record for it.
+    assert assistant_messages[-1].visibility == OPERATOR_VISIBILITY
 
 
 async def test_round_trip_peer_message_persists_attribution(conn_repo, chat_repo) -> None:
@@ -604,3 +617,198 @@ async def test_unknown_command_reaches_agent_as_text(conn_repo) -> None:
     # user turn that triggered it. Filter for the user message instead.
     user_messages = [m for m in fake_llm.calls[0]["messages"] if m.role == Role.USER]
     assert user_messages[-1].content == "/foo bar baz"
+
+
+# ── DD-10: auto-reply mechanical fallback ────────────────────────────────
+
+
+async def _seed_provider_and_agent(conn_repo, agent_store) -> None:
+    provider_repo = LLMProviderRepository(conn_repo.conn, conn_repo.encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(id="prov-1", name="p", type="ollama", base_url="http://x")
+    )
+    await agent_store.save(AgentConfig(name="bot", provider_config_id="prov-1"))
+
+
+async def test_auto_reply_delivers_plain_text_channel_target_with_thread_id(
+    conn_repo, chat_repo
+) -> None:
+    """(a) A plain-text reply on a channel turn auto-delivers via the stub
+    plugin's live client — the outbound record carries a ``ChannelTarget``
+    with the envelope's own ``channel_id``/``thread_id``, and the persisted
+    assistant message is peer-visible."""
+    connector = _connector(
+        {"default_agent": "bot", "allowlist": {"channels": ["ch-1"]}, "always_listen": ["ch-1"]}
+    )
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await _seed_provider_and_agent(conn_repo, agent_store)
+    fake_llm = FakeLLM(responses=[Message.assistant(content="the answer is 4")])
+
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        mgr = ConnectorManager(poll_interval=0.01)
+        set_manager(mgr)
+        encryptor = get_encryptor(settings.data_dir)
+        mgr.start(connector, encryptor)
+        await asyncio.sleep(0.05)
+
+        envelope = _envelope(
+            channel_id="ch-1",
+            thread_id="thread-9",
+            is_dm=False,
+            mentions_bot=False,
+            text="what is 2+2?",
+        )
+        await StubPlugin.push_inbound("conn-1", envelope)
+        await mgr.drain()
+
+    assert len(StubPlugin.outbound_records) == 1
+    target, content = StubPlugin.outbound_records[0]
+    assert content == "the answer is 4"
+    assert isinstance(target, ChannelTarget)
+    assert target.connector_id == "conn-1"
+    assert target.channel_id == "ch-1"
+    assert target.thread_id == "thread-9"
+
+    sessions = await chat_repo.list()
+    assert len(sessions) == 1
+    persisted = decode_messages(sessions[0].messages)
+    assistant_messages = [m for m in persisted if m.role == Role.ASSISTANT]
+    assert len(assistant_messages) == 1
+    assert assistant_messages[0].content == "the answer is 4"
+    assert assistant_messages[0].visibility is None
+
+
+async def test_auto_reply_delivers_plain_text_dm_peer_target(conn_repo, chat_repo) -> None:
+    """(b) A DM envelope resolves a ``PeerTarget`` (not ``ChannelTarget``)."""
+    connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await _seed_provider_and_agent(conn_repo, agent_store)
+    fake_llm = FakeLLM(responses=[Message.assistant(content="hi there")])
+
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        mgr = ConnectorManager(poll_interval=0.01)
+        set_manager(mgr)
+        encryptor = get_encryptor(settings.data_dir)
+        mgr.start(connector, encryptor)
+        await asyncio.sleep(0.05)
+
+        envelope = _envelope(is_dm=True, peer_id="peer-1", channel_id="dm-peer-1", text="hello?")
+        await StubPlugin.push_inbound("conn-1", envelope)
+        await mgr.drain()
+
+    assert len(StubPlugin.outbound_records) == 1
+    target, content = StubPlugin.outbound_records[0]
+    assert content == "hi there"
+    assert isinstance(target, PeerTarget)
+    assert target.connector_id == "conn-1"
+    assert target.peer_id == "peer-1"
+
+    sessions = await chat_repo.list()
+    persisted = decode_messages(sessions[0].messages)
+    assistant_messages = [m for m in persisted if m.role == Role.ASSISTANT]
+    assert assistant_messages[0].visibility is None
+
+
+async def test_auto_reply_no_live_client_stays_operator_only_no_raise(conn_repo, chat_repo) -> None:
+    """(d) Delivery failure — no live client registered for the connector
+    (``manager.client_for`` returns ``None``) — logs and leaves the text
+    operator-only; ``dispatch_inbound`` does not raise, and the turn is
+    still persisted."""
+    connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await _seed_provider_and_agent(conn_repo, agent_store)
+    fake_llm = FakeLLM(responses=[Message.assistant(content="hi there")])
+
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        mgr = ConnectorManager()  # never started — client_for("conn-1") is None
+        envelope = _envelope(is_dm=True, peer_id="peer-1", channel_id="dm-peer-1", text="hello?")
+        await dispatch_inbound("conn-1", envelope, manager=mgr)  # must not raise
+
+    assert StubPlugin.outbound_records == []
+    sessions = await chat_repo.list()
+    assert len(sessions) == 1
+    persisted = decode_messages(sessions[0].messages)
+    assistant_messages = [m for m in persisted if m.role == Role.ASSISTANT]
+    assert assistant_messages[0].content == "hi there"
+    assert assistant_messages[0].visibility == OPERATOR_VISIBILITY
+
+
+async def test_auto_reply_send_raises_connector_client_error_stays_operator_only(
+    conn_repo, chat_repo
+) -> None:
+    """(d) Delivery failure — a live client whose ``send()`` raises
+    ``ConnectorClientError`` — also logs and leaves the text operator-only,
+    with no raise and the turn still persisted."""
+    connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    StubPlugin.send_should_raise = ConnectorClientError("platform unreachable")
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await _seed_provider_and_agent(conn_repo, agent_store)
+    fake_llm = FakeLLM(responses=[Message.assistant(content="hi there")])
+
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        mgr = ConnectorManager(poll_interval=0.01)
+        set_manager(mgr)
+        encryptor = get_encryptor(settings.data_dir)
+        mgr.start(connector, encryptor)
+        await asyncio.sleep(0.05)
+
+        envelope = _envelope(is_dm=True, peer_id="peer-1", channel_id="dm-peer-1", text="hello?")
+        await StubPlugin.push_inbound("conn-1", envelope)
+        await mgr.drain()  # must not raise
+
+    assert StubPlugin.outbound_records == []
+    sessions = await chat_repo.list()
+    assert len(sessions) == 1
+    persisted = decode_messages(sessions[0].messages)
+    assistant_messages = [m for m in persisted if m.role == Role.ASSISTANT]
+    assert assistant_messages[0].content == "hi there"
+    assert assistant_messages[0].visibility == OPERATOR_VISIBILITY
+
+
+async def test_silence_paths_never_auto_deliver(conn_repo, chat_repo) -> None:
+    """(e) Unadmitted sender, ``should_reply`` false, and ``/new`` all
+    short-circuit ``dispatch_inbound`` before ``agent.step`` ever runs —
+    no possible auto-delivery, and nothing outbound or persisted."""
+    connector = _connector(
+        {
+            "default_agent": "bot",
+            "allowlist": {"peers": ["peer-1"], "channels": ["ch-1"]},
+            # ch-1 is admitted (on the allowlist) but NOT always-listen, and
+            # the envelopes below never set mentions_bot/is_dm for it — so
+            # should_reply is False for that channel.
+            "always_listen": ["other-ch"],
+        }
+    )
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    # Unadmitted sender: silence at the admission gate.
+    await dispatch_inbound(
+        "conn-1", _envelope(peer_id="unknown-peer", channel_id="unknown-ch"), manager=mgr
+    )
+    # Admitted channel, but should_reply() is False (no mention/always-listen/dm).
+    await dispatch_inbound(
+        "conn-1",
+        _envelope(channel_id="ch-1", is_dm=False, mentions_bot=False),
+        manager=mgr,
+    )
+    # ``/new`` is intercepted before should_reply is even consulted.
+    await dispatch_inbound(
+        "conn-1", _envelope(is_dm=True, peer_id="peer-1", text="/new"), manager=mgr
+    )
+
+    assert StubPlugin.outbound_records == []
+    assert await chat_repo.list() == []

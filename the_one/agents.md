@@ -495,6 +495,7 @@ Precedents:
 - Single-gate (inert-metadata): `POST /_test/oauth/pending` (`the_one/interfaces/web/api.py`) — registers a pending OAuth flow in `the_one.mcp.oauth._state`; no DB write, no agent loop.
 - Dual-gate (state-mutating): `POST /_test/purge-sweep` (`the_one/interfaces/web/api.py`) — fires a real daily-purge DB sweep; `THE_ONE_PURGE_SWEEP_TEST_ENDPOINT=1`.
 - Dual-gate (agent-loop-injecting): `POST /_test/stub/inbound` / `GET /_test/stub/outbound` (`the_one/interfaces/web/api.py`, Mission 23 Flight 2, DD-10) — injects free text into a live agent loop with real LLM calls and tool execution; `THE_ONE_STUB_TEST_ENDPOINT=1`. The same dual gate also decides "stub" connector-type creatability (`_creatable_connector_types`) and the lifespan startup hook that registers `StubPlugin`.
+- Dual-gate (live-state-mutating): `POST /_test/discord/sever` (`the_one/interfaces/web/api.py`, Mission 23 Flight 3 Leg 3, DD-7) — abruptly kills a real Discord connector's gateway websocket via the optional `sever_for_test` hook; `THE_ONE_DISCORD_TEST_ENDPOINT=1`, its OWN gate name — deliberately not reusing `THE_ONE_STUB_TEST_ENDPOINT`, since arming the stub gate must not also arm a seam that mutates a real platform connection.
 
 Source: Mission 23 Flight 2 debrief, What Could Be Improved / Documentation — the risk-tiering rationale was re-argued from scratch a second flight running before this entry existed.
 
@@ -728,14 +729,17 @@ entry is the architecture-index pointer other subsystem-contract entries
 get; don't duplicate the README's content here.
 
 - **Module map**: `base.py` (Protocols + envelope/target dataclasses),
-  `registry.py` (type → plugin dict, test-only registration — no
-  production plugin ships yet), `manager.py` (`ConnectorManager`:
-  listener-task lifecycle + in-memory pairing store, installed via
+  `registry.py` (type → plugin dict; `discord` registers unconditionally
+  at lifespan startup as of Flight 3, `stub` remains test-only
+  registration), `manager.py` (`ConnectorManager`: listener-task
+  lifecycle + in-memory pairing store, installed via
   `set_manager`/`get_manager` mirroring `agent.factory`'s accessor pair),
   `inbound.py` (`dispatch_inbound`: admission → `/new` → reply policy →
   session resolution → per-session-locked agent dispatch), `stub.py`
   (`StubPlugin`: in-process test/dev fixture, never registered in
-  production).
+  production), `discord/` (`_gateway.py`/`_rest.py`/`plugin.py`, Flight
+  3: the first real `ConnectorPlugin` — full contract in the README's
+  "Discord (Flight 3)" section, not duplicated here).
 - **Two built-in tools** re-attached alongside the package:
   `tools/connector_send.py` (`send_to_platform_channel`) and
   `tools/connector_history.py` (`fetch_channel_history`, DD-8, optional per
@@ -753,18 +757,83 @@ get; don't duplicate the README's content here.
 - **Reply visibility** (`tag_post_step_visibility`, `the_one/llm/base.py`)
   is connector-agnostic machinery with a live connector-specific branch
   again: a successful `send_to_platform_channel` tool result is tagged
-  peer-visible (`visibility=None`); everything else a turn produces stays
-  operator-only. See "`message-additive-back-compat-via-emit-when-non-none`"
-  above for the general visibility-field convention this specializes.
-- **Discord (Flight 3)** is the first real plugin; **Flight 4** proves the
+  peer-visible (`visibility=None`); everything else a turn produces is
+  tagged operator-only by default. See
+  "`message-additive-back-compat-via-emit-when-non-none`" above for the
+  general visibility-field convention this specializes.
+- **DD-10 auto-reply mechanical fallback (Flight 3, mid-flight amendment)**:
+  `dispatch_inbound` (`the_one/connectors/inbound.py::_auto_deliver_reply`)
+  runs immediately after `tag_post_step_visibility` and mechanically
+  delivers the turn's FINAL assistant text to the ORIGINATING target —
+  `PeerTarget`/`ChannelTarget` resolved straight from the inbound
+  `InboundEnvelope`, via `manager.client_for(connector_id).send()` — then
+  flips that message's `visibility` back to `None` (peer-visible), so the
+  persisted history reflects the real delivery. Skip rule: a turn that
+  already contains a successful `send_to_platform_channel` result is left
+  alone entirely (the agent spoke to the platform deliberately; no
+  double-send). Delivery failure (no live client, `ConnectorClientError`,
+  any other exception) is logged and the text is left operator-only — no
+  retry, no crash. This only fires for `dispatch_inbound`-originated turns
+  (a peer's own inbound message); the WS-storage-edge shim's operator-typed
+  path (`interfaces/web/app.py`) never runs through `dispatch_inbound` and
+  is untouched — an operator's console note still never reaches the
+  platform. Landed because live-gate checkpoint 2 attempt 2 proved the
+  prior design had NO mechanism for a plain reply to reach a peer at
+  all — `dispatch_inbound` hands the model only raw text, so it cannot
+  target the send tool, and plain assistant text was operator-only by
+  contract; the project's own `prompt-discipline-needs-mechanical-fallback`
+  convention, applied to the reply path rather than left to model
+  tool-calling reliability (RQ8's lesson). The send tool remains the
+  agent-INITIATED path (speak-first, cross-channel, deliberate re-send) —
+  unchanged, no new tool, no change to the tool's own visible schema. See
+  `the_one/connectors/README.md`'s "Reply visibility" section and
+  `tests/behavior/stub-connector-round-trip.md`'s 2026-09-01 re-author note
+  for the end-to-end contract.
+- **Discord (Flight 3)** is the first real plugin, registered
+  unconditionally (not gated like `stub`); **Flight 4** proves the
   `ConnectorPlugin` contract generalizes to further platforms (Slack,
   Matrix, Signal, email — each a small client, none needing a public
   endpoint per the mission's design). The module-level `set_factory`/
   `get_factory` accessor (`the_one/agent/factory.py`) that a real gateway
   listener resolves the application factory through — see
-  `lifespan-wiring-same-leg-as-installation` above — already has a real
-  caller via the stub plugin's test seams; Flight 3 is expected to be the
-  first REAL (non-test) gateway listener to drive it.
+  `lifespan-wiring-same-leg-as-installation` above — is now driven by a
+  REAL (non-test) gateway listener for the first time.
+- **DD-5 baseline-visibility carve-out (Flight 3 Leg 2, agent loop)**: the
+  mission-amended constraint making `send_to_platform_channel` visible to
+  the model without a `search_tools` call first. Implemented by SEEDING
+  `Agent._loaded_schemas`/`_loaded_tool_names` (the F10 L1 strict-baseline
+  containers) with the send tool's schema at factory-build time — never by
+  appending inside `Agent._compute_visible_schemas`, which would bypass
+  the search-match dedup and risk a duplicate schema reaching the model.
+  `Agent.__init__` copies the seed onto `_seed_schemas`/`_seed_tool_names`
+  so `reset()` (which unconditionally clears the live containers) can
+  re-extend from the seed — the seed itself has no other memory. One
+  deliberate, owner-approved touch to the frozen loop, scoped to a single
+  baseline entry and pinned by tests; see `the_one/agent/core.py`'s
+  `__init__`/`reset()` and `the_one/agent/factory.py`'s
+  `SEND_TO_PLATFORM_CHANNEL_TOOL_NAME` seeding block for the
+  implementation. The `discord-live-round-trip` behavior spec proves it
+  empirically — `test-agent`'s system prompt there carries no tool-
+  discipline nudge, the mechanical-fallback proof `mechanical-fallback-
+  prompt-truth-pairing` (above) requires.
+- **DD-11 send-tool target defaulting (Flight 3, mid-flight amendment)**:
+  `send_to_platform_channel`'s `target` argument is now OPTIONAL — when
+  omitted, the tool resolves a default from `current_chat_session_id`
+  (`agent/_context.py`) → the session's own `chat_sessions` keying
+  columns, mirroring `resolve_session`'s keying (`channel_id` is the
+  session's primary key, not `peer_id`): `channel_id`-bearing → a
+  `ChannelTarget`; `channel_id`-absent + `peer_id`-present → a
+  `PeerTarget`. No active session context, or a session not bound to a
+  connector at all, is a clear error, never a guess. The resolved default
+  is folded into the exact dict shape an explicit `target` takes, so it
+  flows through the SAME binding-derived authorization the explicit-target
+  path already uses — no restructuring, and a defaulted target that fails
+  authorization errors identically to an explicit one. Landed because
+  live-gate checkpoint 5 proved the model can call the DD-5 carved-out
+  tool by name but has no way to discover its own session's platform ids
+  to fill `target` explicitly. See `the_one/connectors/README.md`'s
+  "Send-tool target defaulting (DD-11)" section and
+  `tools/connector_send.py`.
 
 ### MCP F2 Client Foundation (authoritative for F3+)
 

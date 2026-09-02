@@ -169,12 +169,14 @@ class Connector(BaseModel):
         trade-off: agents are project-local, not worth the FK-style
         coupling).
         """
-        allowed = {"default_agent", "channel_map", "allowlist", "always_listen"}
+        allowed = {"default_agent", "channel_map", "allowlist", "always_listen", "enabled"}
         unknown = set(value) - allowed
         if unknown:
             raise ValueError(f"Connector.config has unknown key(s): {sorted(unknown)}")
         if "default_agent" in value and not isinstance(value["default_agent"], str):
             raise ValueError("Connector.config['default_agent'] must be a string")
+        if "enabled" in value and not isinstance(value["enabled"], bool):
+            raise ValueError("Connector.config['enabled'] must be a bool")
         if "channel_map" in value:
             channel_map = value["channel_map"]
             if not isinstance(channel_map, dict) or not all(

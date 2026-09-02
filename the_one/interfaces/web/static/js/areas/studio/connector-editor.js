@@ -21,12 +21,12 @@
 // clears below assign a bare empty string literal to the sink property,
 // which the guard's own rule classifies as static (exempt), not dynamic.
 //
-// Deviation (see flight log): there is no persisted "enabled" field —
-// Connector.config's DD-2 validator (Flight 2 Leg 1) has no such reserved
-// key, and there is no top-level DB column either. Every connector starts
-// listening on create and stops on delete; PUT unconditionally restarts
-// the listener (Edge Cases: implementer's-choice variation of the
-// "MUST NOT leave a listener running on stale credentials" rule).
+// Mission 23 Flight 3 Leg 2 (DD-6): `config.enabled` is now a persisted
+// key (default true, absent key = enabled, no migration). Every connector
+// still starts listening on create (unless created with `enabled: false`)
+// and stops on delete; PUT branches on the NEW row's effective `enabled`
+// value only — true restarts (today's stop+start), false stops and does
+// NOT restart, regardless of the prior value (api.py `update_connector`).
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -77,6 +77,14 @@
       s.appendChild(opt);
     }
     return s;
+  }
+
+  function _checkbox(field, checked) {
+    var i = _el('input', { className: 'field-checkbox' });
+    i.type = 'checkbox';
+    i.setAttribute('data-field', field);
+    i.checked = checked;
+    return i;
   }
 
   function _fieldGroup(section, labelText, id, inputEl) {
@@ -214,6 +222,13 @@
     _fieldGroup(
       identity, 'Token', 'conn-token',
       _input('password', 'token', (cfg.secrets && cfg.secrets.token) || '', 'Platform credential')
+    );
+    // Checked-state trap (DD-6): render from `!== false`, never a truthy
+    // check — `!!config.enabled` is falsy for the absent-key legacy case
+    // and would invert the documented default (absent key = enabled).
+    _fieldGroup(
+      identity, 'Enabled', 'conn-enabled',
+      _checkbox('enabled', config.enabled !== false)
     );
 
     // ── Binding ──────────────────────────────────────────────────────
@@ -408,6 +423,12 @@
         if (channels.length > 0) newConfig.allowlist.channels = channels;
       }
       if (alwaysListen.length > 0) newConfig.always_listen = alwaysListen;
+      // Save-path trap: the generic `field(name)` reader returns `.value`
+      // (useless for a checkbox) — read `.checked` directly. Sparse-config
+      // pattern: checked (default) omits the key; unchecked persists
+      // `enabled: false`.
+      var enabledEl = container.querySelector('[data-field="enabled"]');
+      if (enabledEl && !enabledEl.checked) newConfig.enabled = false;
 
       return {
         name: field('name').trim(),

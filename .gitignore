@@ -5,11 +5,13 @@ dist/
 build/
 .venv/
 .env
-# Live-traffic HAT secrets (M11 F15 L3): real bot tokens live in a local
-# .env.hat, never committed. The `.env` rule above does NOT match `.env.hat`
-# (different suffix), so these explicit patterns are required. The committed
-# `.env.hat.example` (placeholders only) documents the variable names.
-tests/live/discord_hat/.env.hat
+# Live-traffic HAT secrets: real bot tokens live in a local .env.hat, never
+# committed. The `.env` rule above does NOT match `.env.hat` (different
+# suffix), so this explicit pattern is required. The committed
+# `tests/behavior/.env.hat.example` (placeholders only) documents the
+# variable names (Mission 23 Flight 3 Leg 3 — the driver-bot replacement
+# for the pre-reset `tests/live/discord_hat/` HAT, which is gone; the old
+# path-scoped gitignore line for it is pruned here as dead).
 *.env.hat
 *.db
 *.sqlite3

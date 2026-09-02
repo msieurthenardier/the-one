@@ -156,6 +156,30 @@ async def test_manager_backs_off_on_connect_failure(encryptor) -> None:
     await mgr.drain()
 
 
+async def test_start_all_skips_disabled_starts_others(encryptor) -> None:
+    """AC-7 (Mission 23 Flight 3 Leg 2, DD-6): a row with
+    ``config.enabled == False`` gets no listener at boot; enabled and
+    absent-key rows start. ``start()`` itself stays dumb — the skip is
+    ``start_all``'s own guard."""
+    mgr = ConnectorManager(poll_interval=0.01)
+    absent = Connector(id="absent", name="Absent", type="stub")
+    enabled = Connector(id="enabled", name="Enabled", type="stub", config={"enabled": True})
+    disabled = Connector(id="disabled", name="Disabled", type="stub", config={"enabled": False})
+
+    class _FakeRepo:
+        async def list(self) -> list[Connector]:
+            return [absent, enabled, disabled]
+
+    await mgr.start_all(_FakeRepo(), encryptor)
+    await asyncio.sleep(0.05)
+
+    assert mgr.client_for("absent") is not None
+    assert mgr.client_for("enabled") is not None
+    assert mgr.client_for("disabled") is None
+    assert set(StubPlugin.connect_calls) == {"absent", "enabled"}
+    await mgr.drain()
+
+
 def test_get_set_manager_accessor() -> None:
     assert get_manager() is None
     mgr = ConnectorManager()
