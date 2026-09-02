@@ -18,22 +18,27 @@ agree, since ``llm/base.py`` does not import ``tools/`` (layering).
 **DD-11 (Mission 23 Flight 3, mid-flight amendment)**: ``target`` is
 OPTIONAL. When omitted, :meth:`SendToPlatformChannelTool._resolve_default_target`
 resolves a target from ``current_chat_session_id`` (`agent/_context.py`) →
-the current ``chat_sessions`` row's keying columns, mirroring
-``connectors/inbound.py::resolve_session``'s keying: a channel-keyed
-session (``channel_id`` set) resolves to a ``ChannelTarget``, a
-peer/DM-keyed session (``channel_id`` unset, ``peer_id`` set) resolves to
-a ``PeerTarget``. A non-connector session or no session context at all is
-a clear error, never a guess. The resolved default is folded into the
-SAME dict shape an explicit ``target`` argument takes, so it flows through
-the existing parsing + binding-derived authorization below completely
-unchanged — a defaulted target is authorized exactly like an explicit one.
+the current ``chat_sessions`` row's keying columns via
+``connectors/base.py::keying_to_target`` (Mission 23 Flight 4 DD-8
+extraction — this used to be an independent inline implementation; it now
+consumes the shared helper, behavior-preserving). A non-connector session
+or no session context at all is a clear error, never a guess. The
+resolved default is folded into the SAME dict shape an explicit ``target``
+argument takes, so it flows through the existing parsing +
+binding-derived authorization below completely unchanged — a defaulted
+target is authorized exactly like an explicit one.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from the_one.connectors.base import ChannelTarget, ConnectorClientError, PeerTarget
+from the_one.connectors.base import (
+    ChannelTarget,
+    ConnectorClientError,
+    PeerTarget,
+    keying_to_target,
+)
 from the_one.tools.base import Tool
 
 SEND_TO_PLATFORM_CHANNEL_TOOL_NAME = "send_to_platform_channel"
@@ -107,27 +112,25 @@ class SendToPlatformChannelTool(Tool):
         except KeyError:
             return "[error] [constraint] no target given and no active session context"
 
-        not_bound = (
-            "[error] [constraint] this session is not bound to a platform "
-            "conversation; pass target explicitly"
-        )
-        if session.connector_id is None:
-            return not_bound
-
-        # Mirror ``resolve_session``'s keying: ``channel_id`` (not
-        # ``peer_id``) is the session's primary keying column, so a
-        # channel_id-bearing session — DM or not — resolves to a
-        # ``ChannelTarget``; ``peer_id`` alone (no ``channel_id``) is the
-        # peer/DM-keyed shape.
-        if session.channel_id is not None:
+        # DD-8 extraction: the keying decision itself lives in
+        # ``keying_to_target`` (``connectors/base.py``) — a ``None`` covers
+        # BOTH the non-connector-bound case and the degenerate
+        # connector-bound-but-keyless case, and this call site renders the
+        # one error string for either (the error-path handoff pinned at
+        # design review).
+        target = keying_to_target(session)
+        if target is None:
+            return (
+                "[error] [constraint] this session is not bound to a platform "
+                "conversation; pass target explicitly"
+            )
+        if isinstance(target, ChannelTarget):
             return {
-                "connector_id": session.connector_id,
-                "channel_id": session.channel_id,
-                "thread_id": session.thread_id,
+                "connector_id": target.connector_id,
+                "channel_id": target.channel_id,
+                "thread_id": target.thread_id,
             }
-        if session.peer_id is not None:
-            return {"connector_id": session.connector_id, "peer_id": session.peer_id}
-        return not_bound
+        return {"connector_id": target.connector_id, "peer_id": target.peer_id}
 
     async def execute(self, target: Any = None, content: Any = None, **_extra: Any) -> str:  # type: ignore[override]
         if target is None:

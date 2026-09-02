@@ -38,6 +38,7 @@ from the_one.db.connection import get_connection
 from the_one.db.models import ChatSession, Connector, LLMProviderConfig
 from the_one.db.repositories import (
     ChatSessionRepository,
+    ConnectorDirectoryRepository,
     ConnectorRepository,
     LLMProviderRepository,
     SQLiteAgentStore,
@@ -65,6 +66,13 @@ def _envelope(**overrides) -> InboundEnvelope:
 
 def _connector(config: dict | None = None, **kwargs) -> Connector:
     return Connector(id="conn-1", name="Test", type="stub", config=config or {}, **kwargs)
+
+
+def test_inbound_envelope_direct_construction_defaults_peer_username_to_none() -> None:
+    """AC-4's third construction site: a direct construction that omits
+    ``peer_username`` (additive, defaulted field) gets ``None``."""
+    envelope = _envelope()
+    assert envelope.peer_username is None
 
 
 @pytest.fixture(autouse=True)
@@ -184,6 +192,11 @@ def conn_repo(conn) -> ConnectorRepository:
 
 
 @pytest.fixture
+def dir_repo(conn) -> ConnectorDirectoryRepository:
+    return ConnectorDirectoryRepository(conn)
+
+
+@pytest.fixture
 async def seeded_agent(conn) -> str:
     await SQLiteAgentStore(conn).save(AgentConfig(name="bot"))
     return "bot"
@@ -220,6 +233,87 @@ async def test_resolve_session_creates_new_row_on_first_contact(chat_repo, seede
 async def test_resolve_session_dm_title(chat_repo, seeded_agent) -> None:
     envelope = _envelope(is_dm=True, peer_name="Bob", channel_id="dm-bob")
     session = await resolve_session(envelope, _connector(), chat_repo, agent_name=seeded_agent)
+    assert session.title == "DM: Bob"
+
+
+# ── AC-6: directory-named session titles (DD-7) ──────────────────────────
+
+
+async def test_channel_session_titled_from_directory_when_entry_exists(
+    chat_repo, dir_repo, seeded_agent
+) -> None:
+    """A channel session created AFTER its directory entry exists is
+    titled with display_name."""
+    connector = _connector()
+    await dir_repo.upsert(
+        connector_id="conn-1",
+        kind="channel",
+        platform_id="ch-1",
+        thread_id=None,
+        display_name="general",
+        username=None,
+    )
+    envelope = _envelope(channel_id="ch-1", is_dm=False)
+    session = await resolve_session(
+        envelope, connector, chat_repo, dir_repo, agent_name=seeded_agent
+    )
+    assert session.title == "general"
+
+
+async def test_channel_session_titled_with_raw_id_before_directory_entry_exists(
+    chat_repo, dir_repo, seeded_agent
+) -> None:
+    """Before a directory entry exists, the raw channel id — same as
+    today — even when a ``dir_repo`` is passed."""
+    connector = _connector()
+    envelope = _envelope(channel_id="ch-1", is_dm=False)
+    session = await resolve_session(
+        envelope, connector, chat_repo, dir_repo, agent_name=seeded_agent
+    )
+    assert session.title == "ch-1"
+
+
+async def test_channel_session_title_no_retro_rename_after_creation(
+    chat_repo, dir_repo, seeded_agent
+) -> None:
+    """DD-7's stated trade-off: creation-time only — a directory entry
+    that appears AFTER the session already exists does not retroactively
+    rename it."""
+    connector = _connector()
+    envelope = _envelope(channel_id="ch-1", is_dm=False)
+    session = await resolve_session(
+        envelope, connector, chat_repo, dir_repo, agent_name=seeded_agent
+    )
+    assert session.title == "ch-1"
+
+    await dir_repo.upsert(
+        connector_id="conn-1",
+        kind="channel",
+        platform_id="ch-1",
+        thread_id=None,
+        display_name="general",
+        username=None,
+    )
+    reloaded = await chat_repo.get(session.id)
+    assert reloaded.title == "ch-1"
+
+
+async def test_dm_session_title_unaffected_by_directory(chat_repo, dir_repo, seeded_agent) -> None:
+    """DM titles are unchanged even with a ``dir_repo`` passed and a
+    matching directory entry present under a different kind."""
+    connector = _connector()
+    await dir_repo.upsert(
+        connector_id="conn-1",
+        kind="channel",
+        platform_id="dm-bob",
+        thread_id=None,
+        display_name="should-not-be-used",
+        username=None,
+    )
+    envelope = _envelope(is_dm=True, peer_name="Bob", channel_id="dm-bob")
+    session = await resolve_session(
+        envelope, connector, chat_repo, dir_repo, agent_name=seeded_agent
+    )
     assert session.title == "DM: Bob"
 
 
@@ -343,6 +437,124 @@ async def test_new_from_unpaired_peer_is_silent(chat_repo, conn_repo) -> None:
 
     await dispatch_inbound("conn-1", _envelope(text="/new"), manager=mgr)
     assert await chat_repo.list() == []
+
+
+# ── AC-4: directory peer-hook placement (DD-4) ───────────────────────────
+
+
+async def test_admitted_peer_new_message_records_directory_entry(conn_repo, dir_repo) -> None:
+    """An admitted peer's ``/new`` message is still directory-recorded —
+    the hook runs BEFORE the ``/new`` early return."""
+    connector = _connector({"allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    await dispatch_inbound(
+        "conn-1",
+        _envelope(peer_id="peer-1", peer_name="Alice", text="/new", is_dm=True),
+        manager=mgr,
+    )
+
+    entry = await dir_repo.get("conn-1", "peer", "peer-1")
+    assert entry is not None
+    assert entry.display_name == "Alice"
+
+
+async def test_admitted_peer_non_replying_channel_records_directory_entry(
+    conn_repo, dir_repo
+) -> None:
+    """An admitted peer's message in a channel the reply policy ignores
+    (paired peer, no mention, not always-listen) is still recorded — the
+    hook runs BEFORE the ``should_reply`` early return."""
+    connector = _connector({"allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    envelope = _envelope(
+        peer_id="peer-1", peer_name="Alice", is_dm=False, mentions_bot=False, channel_id="ch-1"
+    )
+    assert should_reply(connector, envelope) is False  # sanity: this IS the ignored-reply case
+
+    await dispatch_inbound("conn-1", envelope, manager=mgr)
+
+    entry = await dir_repo.get("conn-1", "peer", "peer-1")
+    assert entry is not None
+    assert entry.display_name == "Alice"
+
+
+async def test_unadmitted_peer_records_nothing_in_directory(conn_repo, dir_repo) -> None:
+    """The silence guarantee's directory extension: an unadmitted peer's
+    message records NOTHING, directory included."""
+    connector = _connector({"allowlist": {}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    await dispatch_inbound(
+        "conn-1", _envelope(peer_id="unknown-peer", peer_name="Mallory"), manager=mgr
+    )
+
+    assert await dir_repo.get("conn-1", "peer", "unknown-peer") is None
+
+
+async def test_directory_peer_upsert_uses_username_when_peer_name_carries_it(
+    conn_repo, dir_repo
+) -> None:
+    """DD-4: the platform-supplied username flows into the directory row
+    alongside display_name."""
+    connector = _connector({"allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    await dispatch_inbound(
+        "conn-1",
+        _envelope(peer_id="peer-1", peer_name="Alice", peer_username="alice99", is_dm=True),
+        manager=mgr,
+    )
+
+    entry = await dir_repo.get("conn-1", "peer", "peer-1")
+    assert entry.display_name == "Alice"
+    assert entry.username == "alice99"
+
+
+async def test_directory_upsert_survives_a_later_agent_step_failure(
+    conn_repo, chat_repo, dir_repo
+) -> None:
+    """Edge case: the directory upsert commits independently of the
+    later agent dispatch — a subsequent ``agent.step`` failure does not
+    roll it back (observation is observation)."""
+    connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    provider_repo = LLMProviderRepository(conn_repo.conn, conn_repo.encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(id="prov-1", name="p", type="ollama", base_url="http://x")
+    )
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await agent_store.save(AgentConfig(name="bot", provider_config_id="prov-1"))
+
+    class RaisingLLM(FakeLLM):
+        async def complete(self, *args, **kwargs):
+            raise RuntimeError("simulated agent.step failure")
+
+    fake_llm = RaisingLLM(responses=[])
+
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        await dispatch_inbound(
+            "conn-1",
+            _envelope(peer_id="peer-1", peer_name="Alice", is_dm=True, text="hello"),
+            manager=mgr,
+        )
+
+    entry = await dir_repo.get("conn-1", "peer", "peer-1")
+    assert entry is not None
+    assert entry.display_name == "Alice"
 
 
 # ── pairing, end to end through dispatch_inbound ─────────────────────────
@@ -530,9 +742,7 @@ async def test_round_trip_cross_channel_tool_send_suppresses_auto_reply(
     came in on. The originating channel (``ch-1``) gets no auto-delivered
     reply; outbound gains only the tool's own record (to ``ch-2``); the
     turn's trailing plain-text ``done`` stays operator-only."""
-    connector = _connector(
-        {"default_agent": "bot", "allowlist": {"channels": ["ch-1", "ch-2"]}}
-    )
+    connector = _connector({"default_agent": "bot", "allowlist": {"channels": ["ch-1", "ch-2"]}})
     await conn_repo.create(connector)
     registry.register_for_test("stub", StubPlugin())
 

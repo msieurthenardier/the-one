@@ -740,13 +740,19 @@ get; don't duplicate the README's content here.
   production), `discord/` (`_gateway.py`/`_rest.py`/`plugin.py`, Flight
   3: the first real `ConnectorPlugin` — full contract in the README's
   "Discord (Flight 3)" section, not duplicated here).
-- **Two built-in tools** re-attached alongside the package:
+- **Three built-in tools** attached alongside the package:
   `tools/connector_send.py` (`send_to_platform_channel`) and
   `tools/connector_history.py` (`fetch_channel_history`, DD-8, optional per
   plugin via `getattr(client, "history", None)` —
-  `optional-plugin-hook-via-getattr-sentinel` above). Both share one
+  `optional-plugin-hook-via-getattr-sentinel` above), sharing one
   binding-derived authorization rule (see the README's "Authorization
-  rule").
+  rule"); and `tools/connector_lookup.py` (`find_platform_destination`,
+  Mission 23 Flight 4 Leg 3, DD-5) — a read-only name-to-id lookup over
+  the passively-populated connector directory, CONNECTOR-LEVEL scoped
+  (not the send/history pair's per-target rule) and carve-out-seeded
+  alongside the send tool (DD-6's generalization of the baseline-
+  visibility carve-out below to the connector tool pair). See the
+  README's "Lookup tool" section for the full contract.
 - **Persisted across the reset, unaffected by the deletion/rebuild**: the
   `Connector` DB model/row, `ConnectorRepository`, and connector-secret
   enrollment in the encryption-rotation invariant above; `Message.visibility`

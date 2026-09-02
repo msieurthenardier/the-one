@@ -485,3 +485,73 @@ async def test_explicit_target_still_works_channel(conn_repo, chat_repo) -> None
     assert StubPlugin.outbound_records[0][0] == ChannelTarget(
         connector_id="c1", channel_id="ch-1", thread_id=None
     )
+
+
+# ── AC-7: keying_to_target — the DD-8 extraction's own unit tests ────────
+
+
+def _keying_session(**overrides: object) -> ChatSession:
+    base: dict = dict(
+        id="sess-x",
+        agent_name="bot",
+        title="t",
+        connector_id=None,
+        channel_id=None,
+        thread_id=None,
+        peer_id=None,
+    )
+    base.update(overrides)
+    return ChatSession(**base)
+
+
+def test_keying_to_target_peer_keyed() -> None:
+    from the_one.connectors.base import keying_to_target
+
+    session = _keying_session(connector_id="c1", peer_id="peer-1")
+    assert keying_to_target(session) == PeerTarget(connector_id="c1", peer_id="peer-1")
+
+
+def test_keying_to_target_channel_keyed() -> None:
+    from the_one.connectors.base import keying_to_target
+
+    session = _keying_session(connector_id="c1", channel_id="ch-1")
+    assert keying_to_target(session) == ChannelTarget(
+        connector_id="c1", channel_id="ch-1", thread_id=None
+    )
+
+
+def test_keying_to_target_channel_keyed_with_thread() -> None:
+    from the_one.connectors.base import keying_to_target
+
+    session = _keying_session(connector_id="c1", channel_id="ch-1", thread_id="th-1")
+    assert keying_to_target(session) == ChannelTarget(
+        connector_id="c1", channel_id="ch-1", thread_id="th-1"
+    )
+
+
+def test_keying_to_target_non_connector_session_returns_none() -> None:
+    from the_one.connectors.base import keying_to_target
+
+    session = _keying_session(connector_id=None)
+    assert keying_to_target(session) is None
+
+
+def test_keying_to_target_degenerate_connector_bound_keyless_returns_none() -> None:
+    """The degenerate branch that moved here from
+    ``connector_send.py``'s old inline implementation: connector_id set,
+    but neither channel_id nor peer_id — the helper must not guess."""
+    from the_one.connectors.base import keying_to_target
+
+    session = _keying_session(connector_id="c1")
+    assert keying_to_target(session) is None
+
+
+def test_keying_to_target_channel_takes_priority_over_peer() -> None:
+    """Mirrors resolve_session's keying: channel_id is the primary
+    keying column, so a row carrying both resolves to a ChannelTarget."""
+    from the_one.connectors.base import keying_to_target
+
+    session = _keying_session(connector_id="c1", channel_id="ch-1", peer_id="peer-1")
+    assert keying_to_target(session) == ChannelTarget(
+        connector_id="c1", channel_id="ch-1", thread_id=None
+    )

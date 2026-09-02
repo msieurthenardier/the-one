@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 38
+CURRENT_VERSION = 39
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2265,3 +2265,106 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (38,))
         await conn.commit()
         version = 38
+
+    if version < 39:
+        # Mission 23 Flight 4 Leg 1: v39 (mission RQ10). THE LAST migration
+        # step this mission authorizes — RQ10's scope is exact (this block
+        # ONLY), any further schema need is a new mission conversation.
+        # Two payloads bundled into the one authorized step (DD-3):
+        #
+        # Segment 1 — ``connectors.type`` CHECK gains ``'telegram'`` via
+        # the established table-rewrite ceremony (the v19 block at
+        # schema.py:~745-825 documents the pattern this follows; v23's
+        # ~:1147 row-rewrite is the CURRENT ``connectors`` shape this
+        # segment rewrites again, verbatim except the CHECK set). Schema
+        # history is append-only — this does NOT edit the v19/v23 blocks,
+        # it adds a NEW constraint the same way every downstream
+        # CHECK-changing migration has (per those blocks' own documented
+        # successor-path comments).
+        #
+        # Unlike v19/v23, no PRAGMA rewind-tolerance guard is needed here:
+        # those two needed one because the SOURCE table's NAME changed
+        # across versions (``connector_accounts`` -> ``connectors``). v39's
+        # source and target share the SAME name throughout
+        # (``connectors`` -> ``connectors_new`` -> ``connectors``), so an
+        # unconditional rewrite is naturally idempotent on a stamp-only
+        # rewind re-run (cf. ``tests/test_db_migration.py::TestSchemaV7::
+        # test_v7_strips_removed_tool_names``, which deletes
+        # ``schema_version`` rows and re-runs ``ensure_schema``) — the
+        # v38 "unconditional step, safe to repeat" precedent, not the
+        # v19/v23 shape-detection dance. This is deliberately LESS
+        # machinery than v19/v23 (leg spec edge-case note: don't
+        # over-build what a same-name rewrite doesn't need).
+        #
+        # Table-presence guard (mirrors v38 step 3's "hand-built
+        # partial-schema fixture missing the table" tolerance): a
+        # ``schema_version``-seeded-at-N test fixture that hand-builds only
+        # the tables its own migration under test needs (a real pattern in
+        # ``tests/test_db_migration.py`` — e.g. a v29-shaped fixture with
+        # only ``agents``/``schema_version``) never created ``connectors``
+        # at all, since it starts past v13/v19/v23. Skipping the rewrite
+        # when the table is absent is a no-op that changes nothing for a
+        # real (monotonically-migrated) database, where ``connectors``
+        # always exists by v39.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connectors'"
+        ) as cursor:
+            connectors_table_present = (await cursor.fetchone()) is not None
+        if connectors_table_present:
+            await conn.executescript("""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE connectors_new (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ('discord', 'stub', 'telegram')),
+    config TEXT DEFAULT '{}',
+    secrets TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    name TEXT NOT NULL DEFAULT '',
+    idle_timeout_seconds INTEGER NULL,
+    session_continuation_seconds INTEGER NULL
+);
+
+INSERT INTO connectors_new (id, type, config, secrets, created_at, updated_at, \
+name, idle_timeout_seconds, session_continuation_seconds)
+    SELECT id, type, config, secrets, created_at, updated_at, name, \
+idle_timeout_seconds, session_continuation_seconds FROM connectors;
+
+DROP TABLE connectors;
+
+ALTER TABLE connectors_new RENAME TO connectors;
+
+PRAGMA foreign_keys=ON;
+""")
+
+        # Segment 2 — ``connector_directory`` (DD-4 schema): a brand-new
+        # table, so it follows the v21 ``pending_approvals`` precedent
+        # (schema.py:~867, ``CREATE TABLE IF NOT EXISTS``) rather than the
+        # rewrite ceremony above — there is no prior shape to preserve,
+        # and ``IF NOT EXISTS`` is already idempotent on any re-run. No FK
+        # to ``connectors``: a deleted connector's rows are removed by one
+        # deterministic DELETE wired into the connector delete route
+        # (DD-1g), not cascade. ``platform_id`` is always the
+        # send-addressable channel/peer id; ``thread_id`` is carried
+        # alongside (NULL for peers and plain channels) exactly as
+        # ``ChannelTarget`` expects it, so copy-the-ids stays literal for
+        # thread entries too. Plaintext — names are the same sensitivity
+        # class as chat history, not secrets: no encryptor, no ciphertext
+        # column.
+        await conn.execute("""\
+CREATE TABLE IF NOT EXISTS connector_directory (
+    connector_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('peer', 'channel')),
+    platform_id TEXT NOT NULL,
+    thread_id TEXT NULL,
+    display_name TEXT NOT NULL,
+    username TEXT NULL,
+    last_seen TEXT NOT NULL,
+    PRIMARY KEY (connector_id, kind, platform_id)
+)
+""")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (39,))
+        await conn.commit()
+        version = 39

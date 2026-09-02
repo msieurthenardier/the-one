@@ -97,18 +97,20 @@ async def test_get_unknown_404(client: AsyncClient) -> None:
     assert resp.status_code == 404
 
 
-async def test_types_route_discord_only_without_gate(client: AsyncClient) -> None:
+async def test_types_route_discord_and_telegram_without_gate(client: AsyncClient) -> None:
+    """AC-2: 'telegram' joins 'discord' unconditionally -- both list with
+    the stub gate closed."""
     resp = await client.get("/api/connectors/types")
     assert resp.status_code == 200
     values = [t["value"] for t in resp.json()]
-    assert values == ["discord"]
+    assert values == ["discord", "telegram"]
 
 
 async def test_types_route_includes_stub_with_gate(client: AsyncClient, stub_gate) -> None:
     resp = await client.get("/api/connectors/types")
     assert resp.status_code == 200
     values = {t["value"] for t in resp.json()}
-    assert values == {"discord", "stub"}
+    assert values == {"discord", "stub", "telegram"}
 
 
 # ── create ────────────────────────────────────────────────────────────
@@ -330,6 +332,45 @@ async def test_delete_stops_listener_before_row_dies(
     assert got.status_code == 404
 
 
+async def test_delete_removes_directory_rows_leaves_other_connectors_untouched(
+    client: AsyncClient, stub_gate
+) -> None:
+    """AC-8/DD-1g: deleting a connector removes its ``connector_directory``
+    rows via the deterministic DELETE (no FK/cascade, per DD-4); another
+    connector's rows are untouched."""
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    create_a = await client.post("/api/connectors", json=_stub_payload(name="A"))
+    connector_a = create_a.json()["id"]
+    create_b = await client.post("/api/connectors", json=_stub_payload(name="B"))
+    connector_b = create_b.json()["id"]
+
+    dir_repo = ConnectorDirectoryRepository(await get_connection())
+    await dir_repo.upsert(
+        connector_id=connector_a,
+        kind="peer",
+        platform_id="p1",
+        thread_id=None,
+        display_name="Alice",
+        username=None,
+    )
+    await dir_repo.upsert(
+        connector_id=connector_b,
+        kind="peer",
+        platform_id="p1",
+        thread_id=None,
+        display_name="Bob",
+        username=None,
+    )
+
+    resp = await client.delete(f"/api/connectors/{connector_a}")
+    assert resp.status_code == 200
+
+    assert await dir_repo.get(connector_a, "peer", "p1") is None
+    assert await dir_repo.get(connector_b, "peer", "p1") is not None
+
+
 # ── doctor ────────────────────────────────────────────────────────────
 
 
@@ -493,6 +534,43 @@ async def test_stub_inbound_seam_409_when_not_connected(client: AsyncClient, stu
         json={"connector_id": "never-connected", "peer_id": "p", "text": "hi"},
     )
     assert resp.status_code == 409
+
+
+async def test_stub_inbound_seam_passes_through_peer_username_into_directory(
+    client: AsyncClient, connected_manager
+) -> None:
+    """AC-4: peer_username flows from the stub seam's optional body field
+    (DD-1f passthrough) through ``dispatch_inbound``'s peer hook into the
+    directory -- the third of the three ``InboundEnvelope`` construction
+    sites."""
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    create = await client.post(
+        "/api/connectors",
+        json=_stub_payload(config={"default_agent": "bot-1", "allowlist": {"peers": ["peer-1"]}}),
+    )
+    connector_id = create.json()["id"]
+    await asyncio.sleep(0.05)
+
+    resp = await client.post(
+        "/api/_test/stub/inbound",
+        json={
+            "connector_id": connector_id,
+            "peer_id": "peer-1",
+            "peer_name": "Alice",
+            "peer_username": "alice99",
+            "text": "/new",
+            "is_dm": True,
+        },
+    )
+    assert resp.status_code == 200
+
+    dir_repo = ConnectorDirectoryRepository(await get_connection())
+    entry = await dir_repo.get(connector_id, "peer", "peer-1")
+    assert entry is not None
+    assert entry.display_name == "Alice"
+    assert entry.username == "alice99"
 
 
 async def test_stub_outbound_seam_renders_recorded_sends(client: AsyncClient, stub_gate) -> None:

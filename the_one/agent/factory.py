@@ -14,6 +14,7 @@ from the_one.llm.registry import PROVIDER_TYPE_MAP
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
+from the_one.tools.connector_lookup import FIND_PLATFORM_DESTINATION_TOOL_NAME
 from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 from the_one.tools.provider import ToolProvider
 
@@ -398,10 +399,21 @@ class AgentFactory:
         # Membership check via tool_names (a KeyError-free `in` check) —
         # NOT registry.get(...), which raises KeyError when the tool was
         # filtered out above (disabled operator-side or per-agent).
-        if SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in registry.tool_names:
-            send_tool = registry.get(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME)
-            loaded_schemas.append(send_tool.to_schema())
-            loaded_tool_names.add(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME)
+        #
+        # DD-6 (Mission 23 Flight 4 Leg 3): generalized to the connector
+        # tool PAIR — the lookup tool joins the send tool in this same
+        # sanctioned seed block (a two-name iteration; `agent/core.py`
+        # stays untouched, the seed/reset mechanism already handles N
+        # entries). `fetch_channel_history` deliberately stays
+        # search-discovered (not chain-critical) and is NOT seeded here.
+        for seed_tool_name in (
+            SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
+            FIND_PLATFORM_DESTINATION_TOOL_NAME,
+        ):
+            if seed_tool_name in registry.tool_names:
+                seed_tool = registry.get(seed_tool_name)
+                loaded_schemas.append(seed_tool.to_schema())
+                loaded_tool_names.add(seed_tool_name)
 
         # 3. Resolve system prompt
         system_prompt = compose_system_prompt(BASE_PROMPT, config.system_prompt)

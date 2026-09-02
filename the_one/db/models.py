@@ -135,12 +135,13 @@ class Connector(BaseModel):
     ``CHECK (type IN ('discord', 'stub'))`` constraint via the F8 L2
     table-rename ceremony; v23 renamed the table to ``connectors`` and
     the ``Connector`` Pydantic class to ``Connector`` via M11
-    F11 L1).
+    F11 L1; v39 (Mission 23 Flight 4 Leg 1, mission RQ10) added
+    ``'telegram'`` to the CHECK via the same ceremony).
 
-    ``type`` is narrowed to ``Literal["discord", "stub"]`` (F8 L2). The
-    module-load assertion below pins the Literal arg-set to
-    ``_CONNECTOR_TYPES`` (this module's own frozen constant, Mission 23
-    Flight 1) so the two cannot drift, paralleling
+    ``type`` is narrowed to ``Literal["discord", "stub", "telegram"]``
+    (F8 L2 + M23 F4 L1). The module-load assertion below pins the Literal
+    arg-set to ``_CONNECTOR_TYPES`` (this module's own frozen constant,
+    Mission 23 Flight 1) so the two cannot drift, paralleling
     :class:`LLMProviderConfig`'s assert at the top of this module.
     """
 
@@ -149,7 +150,7 @@ class Connector(BaseModel):
     # NOTE: keep this ``Literal[...]`` spelled out explicitly — Pydantic /
     # static type checkers cannot consume ``Literal[*_CONNECTOR_TYPES]``
     # unpacking. The module-load assertion below pins the two in sync.
-    type: Literal["discord", "stub"]
+    type: Literal["discord", "stub", "telegram"]
     config: dict[str, Any] = Field(default_factory=dict)
     secrets: dict[str, Any] = Field(default_factory=dict)
     idle_timeout_seconds: int | None = None
@@ -212,7 +213,7 @@ class Connector(BaseModel):
 # once written). Collapsing them onto one shared import was the coupling;
 # each now owns its own constant. This one is the model's own — deliberately
 # duplicated, not re-imported.
-_CONNECTOR_TYPES = ("discord", "stub")
+_CONNECTOR_TYPES = ("discord", "stub", "telegram")
 
 # Pin the explicit ``Literal`` arg-set to ``_CONNECTOR_TYPES`` at import time
 # so any future drift trips immediately rather than at first DB write.
@@ -222,6 +223,36 @@ _CONNECTOR_TYPES = ("discord", "stub")
 assert set(get_args(Connector.model_fields["type"].annotation)) == set(_CONNECTOR_TYPES), (
     "Connector.type Literal drifted from _CONNECTOR_TYPES — update both in lockstep."
 )
+
+
+class ConnectorDirectoryEntry(BaseModel):
+    """A row in ``connector_directory`` (v39, DD-4) — a passively-observed
+    platform peer or channel name. NOT secret (no encryptor anywhere in
+    this model's repository path) — same sensitivity class as plaintext
+    chat history.
+
+    ``kind`` distinguishes peer rows from channel rows sharing the same
+    ``platform_id`` space (Telegram DMs use chat ids that can collide with
+    channel ids — the PK covers ``(connector_id, kind, platform_id)``).
+    ``platform_id`` is always the send-addressable id; ``thread_id`` is
+    carried alongside (``None`` for peers and plain channels) exactly as
+    :class:`the_one.connectors.base.ChannelTarget` expects it.
+    """
+
+    connector_id: str
+    # Leg 3 (Mission 23 Flight 4, DD-5 review must-fix): the connector's
+    # plaintext ``name``, populated ONLY by ``search``'s JOIN enrichment
+    # (never by ``get``'s single-table exact-match query). Declared
+    # explicitly because pydantic's default ``extra="ignore"`` would
+    # otherwise silently DROP the JOIN's extra column, making the
+    # enrichment a no-op behind green SQL.
+    connector_name: str | None = None
+    kind: Literal["peer", "channel"]
+    platform_id: str
+    thread_id: str | None = None
+    display_name: str
+    username: str | None = None
+    last_seen: str
 
 
 class AgentRevision(BaseModel):

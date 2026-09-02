@@ -296,6 +296,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("discord connector registration failed")
 
+        # Mission 23 Flight 4 Leg 2: unconditional production Telegram
+        # registration, same block pattern as Discord immediately above
+        # (own guarded try/except, registered before the manager's
+        # start_all, symmetric unregistration at shutdown below).
+        try:
+            from the_one.connectors.telegram import register as _register_telegram
+
+            _register_telegram()
+        except Exception:
+            logger.exception("telegram connector registration failed")
+
         # Mission 23 Flight 2 Leg 1: start the connector listener manager
         # just before the yield, mirroring the OAuth-sweep/reaper/purge/
         # catalog starts above. Wrapped in its own try/except (a connector
@@ -434,6 +445,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from the_one.connectors import registry as _connector_registry
 
         _connector_registry.unregister("discord")
+        # Mission 23 Flight 4 Leg 2: symmetric teardown for the
+        # unconditional Telegram registration above, mirroring Discord's
+        # own hygiene immediately above.
+        _connector_registry.unregister("telegram")
         # M10 F8 L4: release the module-level factory reference so post-
         # shutdown ``get_factory()`` reads return None. Defensive — not
         # strictly required for correctness because the process is exiting,

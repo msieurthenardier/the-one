@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from the_one.db.models import Connector
+from the_one.db.models import ChatSession, Connector
 from the_one.encryption import Encryptor
 
 
@@ -24,6 +24,14 @@ class InboundEnvelope:
     ``is_dm`` and ``mentions_bot`` are set by the platform client's own
     translation layer (design review 2026-08-31) — the inbound pipeline
     never infers them from ``channel_id`` shape.
+
+    ``peer_username`` (Mission 23 Flight 4 DD-1f/DD-4) is an OPTIONAL,
+    defaulted, additive field — a platform-supplied handle distinct from
+    ``peer_name`` (a display name; names collide, usernames disambiguate
+    in the directory). Discord fills it from ``author.username``, the
+    stub test seam passes it through as an optional body field, Telegram
+    (leg 2) fills it from ``from.username``; a direct construction site
+    that doesn't have one leaves the default ``None``.
     """
 
     platform: str
@@ -35,6 +43,7 @@ class InboundEnvelope:
     text: str
     is_dm: bool
     mentions_bot: bool
+    peer_username: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, hash=False, compare=False)
 
 
@@ -56,6 +65,43 @@ class PeerTarget:
 
 
 SendTarget = ChannelTarget | PeerTarget
+
+
+def keying_to_target(session: ChatSession) -> SendTarget | None:
+    """DD-8 (Mission 23 Flight 4, Flight 3 debrief debt): the single keying
+    authority mapping a ``chat_sessions`` row's keying columns to a
+    :data:`SendTarget`. Consumed by
+    ``tools/connector_send.py::SendToPlatformChannelTool._resolve_default_target``
+    and mirrored by ``connectors/inbound.py::resolve_session``'s own
+    keying (that function looks UP an existing row by these same columns
+    rather than building a ``SendTarget``, so it stays a separate,
+    reference-only consumer — no shared call, per the DD-8 rationale).
+
+    Mirrors ``resolve_session``'s keying semantics: ``channel_id`` (not
+    ``peer_id``) is the session's primary keying column, so a
+    channel_id-bearing session — DM or not — resolves to a
+    :class:`ChannelTarget` (with ``thread_id`` passthrough); ``peer_id``
+    alone (no ``channel_id``) resolves to a :class:`PeerTarget`.
+
+    Returns ``None`` for a non-connector-bound session (``connector_id``
+    unset) AND for the degenerate connector-bound-but-keyless case
+    (``connector_id`` set, but neither ``channel_id`` nor ``peer_id`` —
+    shouldn't occur via ``resolve_session`` in practice, but this helper
+    must not guess). Both collapse to the same ``None`` return so a caller
+    renders its own "not bound to a platform conversation" error for
+    either — the error-path handoff DD-8's design review pinned.
+    """
+    if session.connector_id is None:
+        return None
+    if session.channel_id is not None:
+        return ChannelTarget(
+            connector_id=session.connector_id,
+            channel_id=session.channel_id,
+            thread_id=session.thread_id,
+        )
+    if session.peer_id is not None:
+        return PeerTarget(connector_id=session.connector_id, peer_id=session.peer_id)
+    return None
 
 
 @dataclass(frozen=True, slots=True)
