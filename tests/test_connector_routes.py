@@ -190,6 +190,122 @@ async def test_update_restarts_listener(client: AsyncClient, connected_manager) 
     assert connected_manager.client_for(connector_id) is not None
 
 
+# ── enabled (AC-8, Mission 23 Flight 3 Leg 2, DD-6) ─────────────────────
+
+
+async def test_create_with_enabled_false_does_not_start_listener(
+    client: AsyncClient, connected_manager
+) -> None:
+    resp = await client.post(
+        "/api/connectors",
+        json=_stub_payload(config={"default_agent": "bot-1", "enabled": False}),
+    )
+    assert resp.status_code == 201
+    connector_id = resp.json()["id"]
+    await asyncio.sleep(0.05)
+    assert StubPlugin.connect_calls == []
+    assert connected_manager.client_for(connector_id) is None
+
+
+async def test_update_disabled_to_enabled_starts_listener(
+    client: AsyncClient, connected_manager
+) -> None:
+    """New effective true covers disabled→enabled — today's stop+start."""
+    create = await client.post(
+        "/api/connectors",
+        json=_stub_payload(config={"default_agent": "bot-1", "enabled": False}),
+    )
+    connector_id = create.json()["id"]
+    await asyncio.sleep(0.05)
+    assert connected_manager.client_for(connector_id) is None
+
+    resp = await client.put(
+        f"/api/connectors/{connector_id}",
+        json=_stub_payload(config={"default_agent": "bot-1", "enabled": True}),
+    )
+    assert resp.status_code == 200
+    await asyncio.sleep(0.05)
+    assert len(StubPlugin.connect_calls) == 1
+    assert connected_manager.client_for(connector_id) is not None
+
+
+async def test_update_enabled_to_disabled_stops_only_never_restarts(
+    client: AsyncClient, connected_manager
+) -> None:
+    """New effective false covers enabled→disabled — stop only, NEVER
+    start. This is the deviation from the old 'restart-as-today' framing
+    (amended leg-2 design review 2026-09-01)."""
+    create = await client.post("/api/connectors", json=_stub_payload())
+    connector_id = create.json()["id"]
+    await asyncio.sleep(0.05)
+    assert len(StubPlugin.connect_calls) == 1
+
+    resp = await client.put(
+        f"/api/connectors/{connector_id}",
+        json=_stub_payload(config={"default_agent": "bot-1", "enabled": False}),
+    )
+    assert resp.status_code == 200
+    await asyncio.sleep(0.05)
+    assert len(StubPlugin.disconnect_calls) == 1
+    assert len(StubPlugin.connect_calls) == 1  # never restarted
+    assert connected_manager.client_for(connector_id) is None
+
+
+async def test_update_disabled_to_disabled_unrelated_field_does_not_start(
+    client: AsyncClient, connected_manager
+) -> None:
+    """AC-8 trap case: a PUT to an already-disabled connector changing an
+    unrelated field must not start a listener. FULL current-config resend
+    (mirrors Studio's ``collectPayload()``) — the endpoint's merge is a
+    shallow top-level ``dict.update()``, so a partial ``{"config": {...}}``
+    body would silently drop ``enabled: false`` and test nothing."""
+    create = await client.post(
+        "/api/connectors",
+        json=_stub_payload(config={"default_agent": "bot-1", "enabled": False}),
+    )
+    connector_id = create.json()["id"]
+    await asyncio.sleep(0.05)
+    assert connected_manager.client_for(connector_id) is None
+
+    resp = await client.put(
+        f"/api/connectors/{connector_id}",
+        json=_stub_payload(config={"default_agent": "bot-2", "enabled": False}),
+    )
+    assert resp.status_code == 200
+    await asyncio.sleep(0.05)
+    assert StubPlugin.connect_calls == []  # never started
+    assert connected_manager.client_for(connector_id) is None
+
+
+# ── doctor distinct disabled state (AC-9) ───────────────────────────────
+
+
+async def test_doctor_marks_disabled_connector_distinctly(client: AsyncClient, stub_gate) -> None:
+    """AC-9: doctor still runs the plugin probe (diagnosis, not traffic) on
+    a disabled connector, but the response distinctly marks it disabled."""
+    registry.register_for_test("stub", StubPlugin())
+    create = await client.post(
+        "/api/connectors",
+        json=_stub_payload(config={"default_agent": "bot-1", "enabled": False}),
+    )
+    connector_id = create.json()["id"]
+
+    resp = await client.post(f"/api/connectors/{connector_id}/test")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["disabled"] is True
+    assert body["status"] == "ok"  # StubPlugin.doctor() still runs diagnosis
+
+
+async def test_doctor_marks_enabled_connector_not_disabled(client: AsyncClient, stub_gate) -> None:
+    registry.register_for_test("stub", StubPlugin())
+    create = await client.post("/api/connectors", json=_stub_payload())
+    connector_id = create.json()["id"]
+
+    resp = await client.post(f"/api/connectors/{connector_id}/test")
+    assert resp.json()["disabled"] is False
+
+
 # ── delete ────────────────────────────────────────────────────────────
 
 

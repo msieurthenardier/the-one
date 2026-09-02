@@ -2802,9 +2802,10 @@ async def create_connector(request: Request) -> dict[str, Any]:
     repo = await _connector_repo()
     await repo.create(account)
     # Edge Case: a connector must start listening on create, not only on
-    # the next app restart.
+    # the next app restart. DD-6: honor ``enabled`` (absent key = enabled)
+    # — a connector created with ``enabled: false`` does not start.
     manager = get_connector_manager()
-    if manager is not None:
+    if manager is not None and account.config.get("enabled", True) is not False:
         manager.start(account, get_encryptor(settings.data_dir), repo=repo)
     return _connector_response(account)
 
@@ -2854,17 +2855,22 @@ async def update_connector(connector_id: str, request: Request) -> dict[str, Any
         )
     await repo.update(updated)
 
-    # PUT restarting semantics (leg Context / Edge Cases): unconditionally
-    # stop the old listener and start a fresh one from the just-persisted
-    # row. Strictly satisfies "credential/enabled/type change restarts the
-    # listener" (a superset — every save restarts) and "no stale-credential
-    # listener survives a save" without needing a connection-relevant-change
-    # diff. ``repo`` is threaded through so the DD-Q3 rotation fix's
-    # fresh-row re-fetch applies to this listener's future reconnects too.
+    # PUT restarting semantics (DD-6, amended leg-2 design review
+    # 2026-09-01): branch on the NEW row's effective ``enabled`` value
+    # ONLY — never on whether it changed. Effective true (covers
+    # enabled→enabled config edits AND disabled→enabled) → today's
+    # unconditional stop+start, satisfying "no stale-credential listener
+    # survives a save". Effective false (covers enabled→disabled AND
+    # disabled→disabled) → stop only, NEVER start — the original
+    # "restart-as-today" framing let a disabled→disabled PUT on an
+    # unrelated field wake a listener that should stay down. ``repo`` is
+    # threaded through so the DD-Q3 rotation fix's fresh-row re-fetch
+    # applies to this listener's future reconnects too.
     manager = get_connector_manager()
     if manager is not None:
         await manager.stop(connector_id)
-        manager.start(updated, get_encryptor(settings.data_dir), repo=repo)
+        if updated.config.get("enabled", True) is not False:
+            manager.start(updated, get_encryptor(settings.data_dir), repo=repo)
 
     return _connector_response(updated)
 
@@ -2895,8 +2901,13 @@ async def test_connector(connector_id: str) -> dict[str, Any]:
     With no plugin registered for the type — the NORM this flight, since
     Discord lands Flight 3 — this returns a clean degraded/failed report,
     never a crash (design review catch #1). Doctor runs on a disabled
-    connector too (there is no ``enabled`` gate to check — see Deviations
-    in the flight log): doctor is diagnosis, not traffic.
+    connector too — diagnosis, not traffic — and the response's
+    ``disabled`` field distinctly marks that state (DD-6, Mission 23
+    Flight 3 Leg 2; supersedes the prior "no enabled gate to check" note).
+    A connector can be both disabled AND carry a stale plugin-side
+    permanent-failure marker (disabled after a permanent failure); the two
+    facts are independent and both surface — disabled never masks a prior
+    failure, and vice versa.
     """
     repo = await _connector_repo()
     try:
@@ -2925,6 +2936,7 @@ async def test_connector(connector_id: str) -> dict[str, Any]:
         "message": report.message,
         "details": report.details,
         "warnings": warnings,
+        "disabled": account.config.get("enabled", True) is False,
     }
 
 
@@ -2955,13 +2967,18 @@ async def generate_connector_pairing_code(connector_id: str) -> dict[str, str]:
     return {"code": code, "expires_at": expires_at}
 
 
-# ── Connector test seams (DD-10) — dual-gated like purge-sweep ─────────────
+# ── Connector test seams (DD-10 stub; DD-7 sever) — dual-gated like
+# purge-sweep ─────────────────────────────────────────────────────────────
 #
-# ``settings.dev_mode`` AND ``THE_ONE_STUB_TEST_ENDPOINT=1``: these seams
-# inject free text into a live agent loop with LLM calls and tool
-# execution — purge-sweep's risk profile, not the inert-metadata
-# oauth/pending seam's. The old ``THE_ONE_REGISTER_STUB_CONNECTOR`` name is
-# fully absent and not resurrected (design review 2026-08-31).
+# The two stub seams below gate on ``settings.dev_mode`` AND
+# ``THE_ONE_STUB_TEST_ENDPOINT=1``: they inject free text into a live agent
+# loop with LLM calls and tool execution — purge-sweep's risk profile, not
+# the inert-metadata oauth/pending seam's. The old
+# ``THE_ONE_REGISTER_STUB_CONNECTOR`` name is fully absent and not
+# resurrected (design review 2026-08-31). The Discord sever seam further
+# below (Mission 23 Flight 3 Leg 3, DD-7) gates on ``settings.dev_mode`` AND
+# ``THE_ONE_DISCORD_TEST_ENDPOINT=1`` — its own name, not reusing the stub
+# gate, per ``risk-tiered-test-seam-gating`` (`the_one/agents.md`).
 
 
 @router.post("/_test/stub/inbound")
@@ -3022,6 +3039,61 @@ async def stub_test_outbound() -> dict[str, Any]:
             }
         )
     return {"records": records}
+
+
+@router.post("/_test/discord/sever")
+async def discord_test_sever(request: Request) -> dict[str, Any]:
+    """Controlled-disconnect test seam (Mission 23 Flight 3 Leg 3, DD-7):
+    abruptly severs a LIVE connector's gateway websocket via the OPTIONAL
+    ``sever_for_test`` hook — never a production kill switch. Reached ONLY
+    via ``manager.client_for`` + ``getattr`` (never a Discord-specific
+    import), so the seam is platform-agnostic: Telegram inherits it for
+    free once its client defines the hook. Same dual gate shape as the
+    stub seams above, named per ``risk-tiered-test-seam-gating``
+    (`the_one/agents.md`); raw ``Request`` + manual ``await
+    request.json()`` for the same reason those seams use it — a Pydantic
+    body model would let FastAPI 422 an empty body BEFORE the gate line
+    runs.
+
+    Error taxonomy (design review 2026-09-01): ``client_for`` returns the
+    identical ``None`` for a never-started listener and one that's
+    mid-backoff — it cannot carry the 404/409 distinction alone, so a
+    repo-existence check runs FIRST, mirroring
+    ``generate_connector_pairing_code``'s ``repo.get`` -> ``KeyError`` ->
+    404 idiom: unknown connector -> 404; row exists but no live client
+    (mid-backoff or never started) -> 409; client present but no
+    ``sever_for_test`` hook (e.g. a stub-typed connector) -> an explicit
+    501, never a silent no-op.
+    """
+    if not settings.dev_mode or os.environ.get("THE_ONE_DISCORD_TEST_ENDPOINT") != "1":
+        raise HTTPException(
+            status_code=403,
+            detail="test-seam endpoint requires dev_mode + THE_ONE_DISCORD_TEST_ENDPOINT=1",
+        )
+    body = await request.json()
+    connector_id = body["connector_id"]
+
+    repo = await _connector_repo()
+    try:
+        await repo.get(connector_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+
+    manager = get_connector_manager()
+    client = manager.client_for(connector_id) if manager is not None else None
+    if client is None:
+        raise HTTPException(
+            status_code=409, detail=f"no live client for connector {connector_id}"
+        )
+
+    sever = getattr(client, "sever_for_test", None)
+    if sever is None:
+        raise HTTPException(
+            status_code=501,
+            detail=f"connector {connector_id}'s client has no sever_for_test hook",
+        )
+    sever()
+    return {"status": "ok"}
 
 
 # ── OAuth callback (F5 §9) ────────────────────────────────────────────────

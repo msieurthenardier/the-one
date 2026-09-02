@@ -27,6 +27,7 @@ def test_all_reserved_keys_accepted() -> None:
         "channel_map": {"ch-1": "bot"},
         "allowlist": {"peers": ["p1"], "channels": ["ch-1"]},
         "always_listen": ["ch-1"],
+        "enabled": False,
     }
     conn = _connector(config)
     assert conn.config == config
@@ -65,3 +66,33 @@ def test_allowlist_channels_must_be_list_of_str() -> None:
 def test_always_listen_must_be_list_of_str() -> None:
     with pytest.raises(ValidationError, match="always_listen"):
         _connector({"always_listen": "ch-1"})
+
+
+# ── AC-6 (Mission 23 Flight 3 Leg 2, DD-6): the ``enabled`` key ───────────
+
+
+def test_enabled_key_absent_validates_as_before() -> None:
+    conn = _connector({"default_agent": "bot"})
+    assert "enabled" not in conn.config
+
+
+def test_enabled_true_is_accepted() -> None:
+    conn = _connector({"enabled": True})
+    assert conn.config["enabled"] is True
+
+
+def test_enabled_false_is_accepted() -> None:
+    conn = _connector({"enabled": False})
+    assert conn.config["enabled"] is False
+
+
+def test_enabled_must_be_bool() -> None:
+    with pytest.raises(ValidationError, match="enabled"):
+        _connector({"enabled": "yes"})
+
+
+def test_enabled_int_rejected() -> None:
+    """Pydantic/Python bool is an int subclass — an int literal must still
+    be rejected (not silently truthy-coerced)."""
+    with pytest.raises(ValidationError, match="enabled"):
+        _connector({"enabled": 1})

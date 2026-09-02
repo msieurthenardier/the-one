@@ -14,6 +14,7 @@ from the_one.llm.registry import PROVIDER_TYPE_MAP
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
+from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 from the_one.tools.provider import ToolProvider
 
 if TYPE_CHECKING:
@@ -388,6 +389,19 @@ class AgentFactory:
             for tool in mcp_tools:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
+
+        # DD-5 (Mission 23 Flight 3 Leg 2, mission-owner-amended baseline-
+        # visibility carve-out): SEED the containers rather than append
+        # inside Agent._compute_visible_schemas — a pre-seeded name is
+        # automatically covered by _on_search_match's dedup above, so a
+        # later search_tools hit never sends the model a duplicate schema.
+        # Membership check via tool_names (a KeyError-free `in` check) —
+        # NOT registry.get(...), which raises KeyError when the tool was
+        # filtered out above (disabled operator-side or per-agent).
+        if SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in registry.tool_names:
+            send_tool = registry.get(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME)
+            loaded_schemas.append(send_tool.to_schema())
+            loaded_tool_names.add(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME)
 
         # 3. Resolve system prompt
         system_prompt = compose_system_prompt(BASE_PROMPT, config.system_prompt)

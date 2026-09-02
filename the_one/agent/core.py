@@ -189,6 +189,13 @@ class Agent:
         self._loaded_tool_names: set[str] = (
             loaded_tool_names if loaded_tool_names is not None else set()
         )
+        # DD-5 (Mission 23 Flight 3 Leg 2): capture the factory's baseline-
+        # visibility seed (e.g. the send-to-platform-channel carve-out) on
+        # instance state — copies, since the live containers above mutate
+        # as search_tools matches land. reset() has no memory of any seed
+        # otherwise, so it re-extends from these on every reset.
+        self._seed_schemas: list[dict] = list(self._loaded_schemas)
+        self._seed_tool_names: set[str] = set(self._loaded_tool_names)
 
     def _compute_visible_schemas(self) -> list[dict]:
         """F10 L1: per-iteration model-visible schemas.
@@ -645,6 +652,12 @@ class Agent:
         # _on_match callbacks; re-assignment would orphan those references.
         self._loaded_schemas.clear()
         self._loaded_tool_names.clear()
+        # DD-5: re-seed the baseline carve-out (e.g. the send tool) from
+        # the __init__-captured seed. Also in-place (.extend()/.update()),
+        # for the same closure-capture reason as the .clear() calls above —
+        # this is the "surviving a reset" guarantee the leg pins.
+        self._loaded_schemas.extend(self._seed_schemas)
+        self._loaded_tool_names.update(self._seed_tool_names)
 
     async def aclose(self) -> None:
         """Release the LLM provider's persistent HTTP client.

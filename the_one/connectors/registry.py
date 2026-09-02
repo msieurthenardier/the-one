@@ -19,6 +19,20 @@ def register_for_test(type_name: str, plugin: ConnectorPlugin) -> None:
     _PLUGINS[type_name] = plugin
 
 
+def register(type_name: str, plugin: ConnectorPlugin) -> None:
+    """Register ``plugin`` under ``type_name`` for production use.
+
+    The production counterpart to :func:`register_for_test` — called from
+    app lifespan startup for a real platform plugin (Discord, Mission 23
+    Flight 3), unconditionally (unlike the stub hook, which is dual-gated
+    dev/test-only). Mechanically identical to :func:`register_for_test`
+    (one flat dict); the separate name and docstring exist so call sites
+    read as "this is how a real platform registers" vs. "this is a test
+    seam" — a distinction of intent, not of runtime behavior.
+    """
+    _PLUGINS[type_name] = plugin
+
+
 def get_plugin(type_name: str) -> ConnectorPlugin | None:
     """Return the registered plugin for ``type_name``, or ``None``."""
     return _PLUGINS.get(type_name)

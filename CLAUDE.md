@@ -108,6 +108,33 @@ When `THE_ONE_DEV_MODE=true` is set, an extra provider type `mock` becomes avail
 
 `THE_ONE_STUB_TEST_ENDPOINT=1`, set **together with** `THE_ONE_DEV_MODE=true` (both gates, not either alone), unlocks the `"stub"` connector type end-to-end: it's admitted into `GET /api/connectors/types` (so it's creatable in Studio), a lifespan-startup hook registers the in-process `StubPlugin` (`the_one/connectors/stub.py`) under type `"stub"`, and the two test-seam routes `POST /api/_test/stub/inbound` / `GET /api/_test/stub/outbound` (`interfaces/web/api.py`) stop 403-ing — they inject/observe messages against a stub connector's live listener without a real chat platform. Dual-gated like the purge-sweep seam (real LLM calls and tool execution, not inert metadata) — never set on an instance other than a disposable dev/test one. Never touch port 8484 or the operator's default data directory when this is set. See `the_one/connectors/README.md` "Test seams" and `tests/behavior/stub-connector-round-trip.md` for the end-to-end usage.
 
+### Discord test endpoint + live HAT env conventions (Mission 23 Flight 3)
+
+`THE_ONE_DISCORD_TEST_ENDPOINT=1`, set **together with**
+`THE_ONE_DEV_MODE=true` (both gates, same shape as the stub gate above,
+but its own name — see `the_one/agents.md`'s `risk-tiered-test-seam-gating`),
+unlocks `POST /api/_test/discord/sever`: a controlled-disconnect test seam
+that abruptly kills a live Discord connector's gateway websocket via the
+optional `sever_for_test` client hook, never a production kill switch. See
+`the_one/connectors/README.md` "Test seams" for the route's error
+taxonomy and `tests/behavior/discord-live-round-trip.md` step 6 for the
+resume proof it drives.
+
+The **live HAT** (Hardware-Approximation Test) driver-bot env contract
+lives in `tests/behavior/.env.hat.example` (copy to `tests/behavior/.env.hat`,
+gitignored via the repo `.gitignore`'s `*.env.hat` pattern — never commit
+real tokens): `THE_ONE_HAT_DRIVER_TOKEN` (a second bot, separate from the
+connector's MAIN bot, that acts + observes over Discord REST),
+`THE_ONE_HAT_GUILD_ID`, `THE_ONE_HAT_TEST_CHANNEL_ID`,
+`THE_ONE_HAT_ALWAYS_LISTEN_CHANNEL_ID`, `THE_ONE_HAT_UNTRACKED_CHANNEL_ID`.
+This simplifies the pre-reset `discord_hat` convention's N-sender-bot-token
+list (`THE_ONE_HAT_BOT_TOKENS`) down to one driver bot — the behavior
+test's apparatus only needs to post and read back its own sends via REST,
+never to differentiate multiple senders. See the `.env.hat.example` file's
+own comments for bot-provisioning notes (real browser required — the
+Developer Portal's hCaptcha/MFA block automation; the driver bot does NOT
+need Message Content intent, the MAIN bot does).
+
 ## Security posture
 
 See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the project's threat model and intentional security choices (no-auth-by-design, single-user local-only, Origin-allowlist mitigation, SSRF/subprocess boundaries).

@@ -73,12 +73,19 @@ _EXTRA_REQUEST_KWARGS: dict[tuple[str, str], dict[str, object]] = {
 # (observe path) — dual-gated (dev_mode AND THE_ONE_STUB_TEST_ENDPOINT=1)
 # like purge-sweep, NOT the single-gate oauth/pending shape. The old
 # THE_ONE_REGISTER_STUB_CONNECTOR name is not resurrected.
+#
+# Mission 23 Flight 3 Leg 3 (DD-7): one NEW connector seam —
+# POST /_test/discord/sever — the controlled-disconnect hook for the
+# discord-live-round-trip behavior test's resume step. Dual-gated
+# (dev_mode AND THE_ONE_DISCORD_TEST_ENDPOINT=1), its own env name, not
+# the stub gate.
 _EXPECTED_SEAMS: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/api/_test/purge-sweep"),
         ("POST", "/api/_test/oauth/pending"),
         ("POST", "/api/_test/stub/inbound"),
         ("GET", "/api/_test/stub/outbound"),
+        ("POST", "/api/_test/discord/sever"),
     }
 )
 

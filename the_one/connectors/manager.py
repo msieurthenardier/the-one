@@ -18,7 +18,12 @@ import time
 from dataclasses import dataclass
 
 from the_one.connectors import registry
-from the_one.connectors.base import ConnectorClient, ConnectorPlugin, InboundEnvelope
+from the_one.connectors.base import (
+    ConnectorClient,
+    ConnectorPlugin,
+    InboundEnvelope,
+    PermanentConnectorFailure,
+)
 from the_one.db.models import Connector
 from the_one.db.repositories import ConnectorRepository
 from the_one.encryption import Encryptor
@@ -95,6 +100,13 @@ class ConnectorManager:
 
     async def start_all(self, repo: ConnectorRepository, encryptor: Encryptor) -> None:
         for account in await repo.list():
+            # DD-6 (Mission 23 Flight 3 Leg 2): absent key = enabled, no
+            # migration. ``start()`` itself stays dumb — this is the only
+            # skip point at boot; unit tests constructing accounts directly
+            # and calling ``start()`` keep the original unconditional
+            # behavior.
+            if account.config.get("enabled", True) is False:
+                continue
             self.start(account, encryptor, repo=repo)
 
     def start(
@@ -177,7 +189,21 @@ class ConnectorManager:
                 except KeyError:
                     logger.info("connector %s: row no longer exists; stopping listener", account_id)
                     return
-            client = await self._connect_once(plugin, current, encryptor)
+            try:
+                client = await self._connect_once(plugin, current, encryptor)
+            except PermanentConnectorFailure as exc:
+                # AC-4: stop-and-log, no backoff. The `_ListenerEntry` for
+                # `account_id` is deliberately left in `self._listeners` —
+                # correct today because every recovery path
+                # (`update_connector` PUT, rotation restart) calls `stop()`
+                # before `start()`, so this read as intentional, not a
+                # leak (design review 2026-09-01).
+                logger.error(
+                    "connector %s: permanent failure (%s); listener stopping, no reconnect",
+                    account_id,
+                    exc,
+                )
+                return
             if client is not None:
                 entry = self._listeners.get(account_id)
                 if entry is None:
@@ -213,6 +239,11 @@ class ConnectorManager:
         try:
             return await plugin.connect(account, encryptor, _on_inbound)
         except asyncio.CancelledError:
+            raise
+        except PermanentConnectorFailure:
+            # AC-5: re-raise ahead of the catch-all below so `_run` alone
+            # converts this to stop+log — `_connect_once` itself just
+            # forwards it (no logging here would double-log at two layers).
             raise
         except Exception:
             logger.exception("connector %s: connect failed", account.id)

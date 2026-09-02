@@ -85,6 +85,24 @@ class ConnectorClientError(Exception):
     """Raised by a plugin's send/doctor/history on a platform-side failure."""
 
 
+class PermanentConnectorFailure(ConnectorClientError):  # noqa: N818  (leg-1 contract name; subclass of ConnectorClientError)
+    """Raised by ``ConnectorPlugin.connect`` when the platform closes the
+    connection with a non-reconnectable code (Discord: 4004 authentication
+    failed; 4010-4014 shard/intent misconfiguration) — a condition
+    backoff-and-retry can never resolve.
+
+    ``ConnectorManager._connect_once`` re-raises this ahead of its
+    catch-all ``except Exception`` (which would otherwise swallow it as an
+    ordinary connect failure), and ``ConnectorManager._run`` catches it
+    narrowly: logs, and STOPS retrying — the listener task ends instead of
+    backing off forever on a token that will never become valid. Any other
+    close code or connect failure follows the manager's normal backoff +
+    reconnect path, unchanged. Defined here (contract-level, not in the
+    Discord subpackage) so future platforms (e.g. Telegram) inherit the
+    same stop-retrying channel.
+    """
+
+
 @runtime_checkable
 class ConnectorClient(Protocol):
     """Live per-account connection. One instance per running listener task."""

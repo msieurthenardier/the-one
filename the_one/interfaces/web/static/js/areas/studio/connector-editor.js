@@ -21,12 +21,12 @@
 // clears below assign a bare empty string literal to the sink property,
 // which the guard's own rule classifies as static (exempt), not dynamic.
 //
-// Deviation (see flight log): there is no persisted "enabled" field —
-// Connector.config's DD-2 validator (Flight 2 Leg 1) has no such reserved
-// key, and there is no top-level DB column either. Every connector starts
-// listening on create and stops on delete; PUT unconditionally restarts
-// the listener (Edge Cases: implementer's-choice variation of the
-// "MUST NOT leave a listener running on stale credentials" rule).
+// Mission 23 Flight 3 Leg 2 (DD-6): `config.enabled` is now a persisted
+// key (default true, absent key = enabled, no migration). Every connector
+// still starts listening on create (unless created with `enabled: false`)
+// and stops on delete; PUT branches on the NEW row's effective `enabled`
+// value only — true restarts (today's stop+start), false stops and does
+// NOT restart, regardless of the prior value (api.py `update_connector`).
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -77,6 +77,41 @@
       s.appendChild(opt);
     }
     return s;
+  }
+
+  // HAT inline fix (Mission 23 Flight 3 Leg 4): the bare browser checkbox
+  // rendered orphaned/centered under its label. Reuses the established
+  // `.tool-enable-switch` iOS-style toggle (admin.css, scoped to both
+  // `.area-admin` and `.area-studio` — see components.css's note that it is
+  // the documented single-binary-flip primitive) instead of inventing a new
+  // control. Label-left `.field-row` layout (not the stacked `.field-group`
+  // the other connector fields use) mirrors the same single-toggle
+  // exception documented in tools-editor.js's renderEnabledRow. The real
+  // `<input type="checkbox">` stays in the DOM (visually hidden via
+  // opacity:0, not display:none) — focusable, space-togglable, and
+  // `<label for>`-associated, so it keeps the same a11y contract as a bare
+  // checkbox. `data-field` is preserved for save-time `.checked` reads.
+  function _toggleRow(section, labelText, id, field, checked) {
+    var row = _el('div', { className: 'field-row connector-enabled-row' });
+    row.setAttribute('data-field-name', field);
+    var rowLabel = _el('label', { text: labelText });
+    rowLabel.setAttribute('for', id);
+    var swLabel = _el('label', { className: 'tool-enable-switch' });
+    swLabel.title = labelText + (checked ? ' (on)' : ' (off)');
+    var input = _el('input', {});
+    input.type = 'checkbox';
+    input.id = id;
+    input.setAttribute('data-field', field);
+    input.checked = checked;
+    input.setAttribute('aria-label', labelText);
+    var track = _el('span', { className: 'tool-enable-switch-track' });
+    track.setAttribute('aria-hidden', 'true');
+    swLabel.appendChild(input);
+    swLabel.appendChild(track);
+    row.appendChild(rowLabel);
+    row.appendChild(swLabel);
+    section.appendChild(row);
+    return input;
   }
 
   function _fieldGroup(section, labelText, id, inputEl) {
@@ -215,6 +250,10 @@
       identity, 'Token', 'conn-token',
       _input('password', 'token', (cfg.secrets && cfg.secrets.token) || '', 'Platform credential')
     );
+    // Checked-state trap (DD-6): render from `!== false`, never a truthy
+    // check — `!!config.enabled` is falsy for the absent-key legacy case
+    // and would invert the documented default (absent key = enabled).
+    _toggleRow(identity, 'Enabled', 'conn-enabled', 'enabled', config.enabled !== false);
 
     // ── Binding ──────────────────────────────────────────────────────
     var binding = _section(container, 'Binding');
@@ -408,6 +447,12 @@
         if (channels.length > 0) newConfig.allowlist.channels = channels;
       }
       if (alwaysListen.length > 0) newConfig.always_listen = alwaysListen;
+      // Save-path trap: the generic `field(name)` reader returns `.value`
+      // (useless for a checkbox) — read `.checked` directly. Sparse-config
+      // pattern: checked (default) omits the key; unchecked persists
+      // `enabled: false`.
+      var enabledEl = container.querySelector('[data-field="enabled"]');
+      if (enabledEl && !enabledEl.checked) newConfig.enabled = false;
 
       return {
         name: field('name').trim(),

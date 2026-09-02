@@ -14,6 +14,19 @@ the single source of truth for the two literals ``llm/base.py``'s
 ``tag_post_step_visibility`` also needs (Flight 1 debrief landmine) — a
 pin test (``tests/test_connector_send_tool.py``) asserts the two modules
 agree, since ``llm/base.py`` does not import ``tools/`` (layering).
+
+**DD-11 (Mission 23 Flight 3, mid-flight amendment)**: ``target`` is
+OPTIONAL. When omitted, :meth:`SendToPlatformChannelTool._resolve_default_target`
+resolves a target from ``current_chat_session_id`` (`agent/_context.py`) →
+the current ``chat_sessions`` row's keying columns, mirroring
+``connectors/inbound.py::resolve_session``'s keying: a channel-keyed
+session (``channel_id`` set) resolves to a ``ChannelTarget``, a
+peer/DM-keyed session (``channel_id`` unset, ``peer_id`` set) resolves to
+a ``PeerTarget``. A non-connector session or no session context at all is
+a clear error, never a guess. The resolved default is folded into the
+SAME dict shape an explicit ``target`` argument takes, so it flows through
+the existing parsing + binding-derived authorization below completely
+unchanged — a defaulted target is authorized exactly like an explicit one.
 """
 
 from __future__ import annotations
@@ -37,16 +50,30 @@ class SendToPlatformChannelTool(Tool):
         "do NOT auto-reach the platform — only calling this tool "
         "delivers content to peers. Target EITHER a channel "
         "(connector_id + channel_id, optional thread_id) OR a DM "
-        "(connector_id + peer_id) — never both. You may DM any "
-        "allowlisted peer, including one you have not exchanged a "
+        "(connector_id + peer_id) — never both; omit target entirely to "
+        "send to the platform conversation this session is bound to "
+        "(resolved from the session's own connector/channel/peer "
+        "binding — errors if this session isn't bound to one). You may "
+        "DM any allowlisted peer, including one you have not exchanged a "
         "message with yet (unprompted first contact is in-contract, "
         "bounded by the connector's allowlist)."
     )
+    # DD-11: ``content`` is declared FIRST — ``required`` must be a prefix
+    # of declared property order (``test_tool_base.py``'s
+    # ``TestBuiltinRequiredFirstAgreesWithDeclarationOrder``, the
+    # declaration-order positional-binding invariant for degraded models).
+    # Now that only ``content`` is required, it has to lead; ``target``
+    # (optional) follows.
     parameters = {
         "type": "object",
         "properties": {
+            "content": {"type": "string", "description": "The message body to deliver."},
             "target": {
                 "type": "object",
+                "description": (
+                    "Explicit destination. Omit this field entirely to send "
+                    "to the platform conversation this session is bound to."
+                ),
                 "properties": {
                     "connector_id": {"type": "string"},
                     "channel_id": {"type": ["string", "null"]},
@@ -55,12 +82,60 @@ class SendToPlatformChannelTool(Tool):
                 },
                 "required": ["connector_id"],
             },
-            "content": {"type": "string", "description": "The message body to deliver."},
         },
-        "required": ["target", "content"],
+        "required": ["content"],
     }
 
+    async def _resolve_default_target(self) -> dict[str, Any] | str:
+        """DD-11: resolve an omitted ``target`` from the current session's
+        platform binding. Returns either a dict shaped like an explicit
+        ``target`` argument (so the caller can fall straight into the
+        existing parsing/authorization path) or an ``[error] ...`` string.
+        """
+        from the_one.agent._context import current_chat_session_id
+        from the_one.db.connection import get_connection
+        from the_one.db.repositories import ChatSessionRepository
+
+        session_id = current_chat_session_id.get()
+        if session_id is None:
+            return "[error] [constraint] no target given and no active session context"
+
+        conn = await get_connection()
+        chat_repo = ChatSessionRepository(conn)
+        try:
+            session = await chat_repo.get(session_id)
+        except KeyError:
+            return "[error] [constraint] no target given and no active session context"
+
+        not_bound = (
+            "[error] [constraint] this session is not bound to a platform "
+            "conversation; pass target explicitly"
+        )
+        if session.connector_id is None:
+            return not_bound
+
+        # Mirror ``resolve_session``'s keying: ``channel_id`` (not
+        # ``peer_id``) is the session's primary keying column, so a
+        # channel_id-bearing session — DM or not — resolves to a
+        # ``ChannelTarget``; ``peer_id`` alone (no ``channel_id``) is the
+        # peer/DM-keyed shape.
+        if session.channel_id is not None:
+            return {
+                "connector_id": session.connector_id,
+                "channel_id": session.channel_id,
+                "thread_id": session.thread_id,
+            }
+        if session.peer_id is not None:
+            return {"connector_id": session.connector_id, "peer_id": session.peer_id}
+        return not_bound
+
     async def execute(self, target: Any = None, content: Any = None, **_extra: Any) -> str:  # type: ignore[override]
+        if target is None:
+            resolved = await self._resolve_default_target()
+            if isinstance(resolved, str):
+                return resolved
+            target = resolved
+
         if not isinstance(target, dict):
             return "[error] target must be an object"
         connector_id = target.get("connector_id")

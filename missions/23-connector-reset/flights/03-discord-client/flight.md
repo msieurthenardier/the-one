@@ -1,14 +1,14 @@
 # Flight: Discord Client
 
-**Status**: planning
+**Status**: completed
 **Mission**: [Connector Reset](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] A Discord peer who DMs or @mentions the bot receives the attached agent's reply in the same channel, thread, or DM; the agent can send an unprompted message via the single send tool; the bot resumes automatically after a gateway disconnect — observed live against a real Discord bot
-- [ ] `discord.py`/`aiohttp` stay absent — the client is built on the `websockets` + `httpx` already in base dependencies (no new deps)
-- [ ] *(running count)* Connector Python within 3,000 (1,060 used; this flight targets ≤1,100 for the Discord client incl. plugin/translate); connector JS within 1,000 (~675 used; this flight targets ≤50 — the generic form already covers Discord)
-- [ ] A new live HAT exists for Discord (mission criterion 10's second half; the `discord_hat` replacement)
-- [ ] *(mission-amendment)* The send tool is baseline-visible when enabled — the Flight 2 reliability gap closed mechanically (mission Resolved Question 8)
+- [x] A Discord peer who DMs or @mentions the bot receives the attached agent's reply in the same channel, thread, or DM; the agent can send an unprompted message via the single send tool; the bot resumes automatically after a gateway disconnect — observed live against a real Discord bot
+- [x] `discord.py`/`aiohttp` stay absent — the client is built on the `websockets` + `httpx` already in base dependencies (no new deps)
+- [x] *(running count)* Connector Python within 3,000 (1,060 used; this flight targets ≤1,100 for the Discord client incl. plugin/translate); connector JS within 1,000 (~675 used; this flight targets ≤50 — the generic form already covers Discord)
+- [x] A new live HAT exists for Discord (mission criterion 10's second half; the `discord_hat` replacement)
+- [x] *(mission-amendment)* The send tool is baseline-visible when enabled — the Flight 2 reliability gap closed mechanically (mission Resolved Question 8)
 
 ---
 
@@ -38,15 +38,15 @@ Implement Discord as the first real platform behind the Flight 2 contract: a han
 - Rationale: mission scope verbatim; the rate limiter is the part that must be right (the 2026-08-27 research brief's "honest 700–1,100 lines" is mostly here + gateway).
 - Trade-off: no request queuing beyond per-bucket serialization; a personal bot's volume doesn't need it.
 
-**DD-4 — Envelope translation policy**: MESSAGE_CREATE → `InboundEnvelope` with `is_dm` from the channel type (DM channels resolved via Create-DM/READY cache or channel fetch), `mentions_bot` from the mentions array containing the bot's user id, `peer_name` from author global/display name; messages authored by the bot itself or any other bot are dropped before the pipeline (loop prevention); thread messages carry `thread_id` per the kept session keying.
-- Rationale: explicit envelope flags are the contract (Flight 2 DD-1); bot-authored drops are the standard echo-loop guard.
-- Trade-off: webhook-authored messages are treated as bots (dropped) — fine for scope.
+**DD-4 — Envelope translation policy**: MESSAGE_CREATE → `InboundEnvelope` with `is_dm` from the channel type (DM channels resolved via Create-DM/READY cache or channel fetch), `mentions_bot` from the mentions array containing the bot's user id, `peer_name` from author global/display name; *amended 2026-09-01 (operator-approved, mid-flight — live-gate checkpoint 2 exposed a DD-4/DD-7 contradiction)*: SELF-authored and WEBHOOK messages are dropped unconditionally before the pipeline (the actual echo-loop guard); a message from any OTHER bot is dropped UNLESS that bot's user id is on `config.allowlist.peers` — an explicitly allowlisted bot peer is admitted exactly like a human peer. The original blanket any-bot drop foreclosed DD-7's driver-bot apparatus (a design contradiction no review caught: the apparatus was premise-audited for act+observe, not against the pipeline's admission policy). Random bots still never reach the pipeline (no pairing surface); loops with unallowlisted bots remain impossible; two mutually-allowlisted bots are a deliberate operator configuration. Thread messages carry `thread_id` per the kept session keying.
+- Rationale: explicit envelope flags are the contract (Flight 2 DD-1); self/webhook drops are the standard echo-loop guard; allowlist-gated bot admission restores the driver apparatus and legitimizes bot-to-bot bridges as operator choices.
+- Trade-off: webhook-authored messages are treated as bots (dropped) — fine for scope; an operator who allowlists two bots pointing at each other owns that loop risk.
 
 **DD-5 — The mission-amended visibility carve-out (agent loop, narrow)**: implemented by SEEDING `_loaded_schemas`/`_loaded_tool_names` with the send tool when enabled — the factory (which knows "enabled") passes pre-seeded containers to `Agent.__init__`, AND `__init__` captures the seed on new instance state (e.g. `self._carveout_schema`/`_carveout_tool_name`) so `reset()` — which today unconditionally `.clear()`s both containers with no memory of the seed (second-pass review, `core.py:646-647`) — can re-seed from it — NOT by appending inside `_compute_visible_schemas` (design review 2026-09-01: a naive per-call append bypasses `_on_search_match`'s dedup and a later `search_tools` hit would send the model two copies of the schema). Reuses the existing dedup mechanism for free; nothing else in the loop changes. The Flight 2 pin test (`tag_post_step_visibility` literals) and `test_mcp_pool` lifespan-order test are unaffected; new unit tests pin: (a) carve-out present when enabled, absent when disabled; (b) the rest of the baseline unchanged; (c) a live-shaped test that the tool schema reaches the model-visible set without a `search_tools` call; (d) a `search_tools` query matching the carved-out tool does NOT duplicate its schema in the visible set; (e) after `Agent.reset()`, the carve-out reappears when enabled and stays absent when disabled (the surviving-a-reset guarantee). The behavior spec's tool-use nudge is then REMOVED from `test-agent`'s precondition (the mechanical fallback replaces it — that's the proof).
 - Rationale: mission Resolved Question 8; the constraint's own condition failed empirically.
 - Trade-off: one deliberate, owner-approved touch to the frozen loop; scoped to a single baseline entry and pinned by tests.
 
-**DD-6 — `enabled` as a DD-2 config key**: default `true`. DD-to-AC traceability applied — the four touch points are EACH a named leg-2 acceptance criterion, not prose: (1) validator accepts the key (`db/models.py` `_validate_connector_config`); (2) `manager.start_all` skips disabled; (3) PUT transitions at `api.py:update_connector` (enable → start, disable → stop, else restart-as-today) and create honors it; (4) doctor (`api.py:test_connector`) reports "disabled" as a distinct state; plus (5) the Studio form checkbox. No migration — absent key reads enabled.
+**DD-6 — `enabled` as a DD-2 config key**: default `true`. DD-to-AC traceability applied — the four touch points are EACH a named leg-2 acceptance criterion, not prose: (1) validator accepts the key (`db/models.py` `_validate_connector_config`); (2) `manager.start_all` skips disabled; (3) PUT transitions at `api.py:update_connector` (*amended leg-2 design review 2026-09-01*: branch on the NEW effective `enabled` value only — true → stop+start, false → stop only, regardless of the prior value; the original "enable → start, disable → stop, else restart-as-today" framing let a disabled→disabled PUT restart the listener) and create honors it; (4) doctor (`api.py:test_connector`) reports "disabled" as a distinct state; plus (5) the Studio form checkbox. No migration — absent key reads enabled.
 - Rationale: mission Resolved Question 9.
 - Trade-off: none; absent-key default keeps old rows valid.
 
@@ -55,6 +55,14 @@ Implement Discord as the first real platform behind the Flight 2 contract: a han
 - **Guided HAT leg** (interactive): what bots cannot do — DM the bot from your human account, pair via the code, watch the private console, daily-driver feel; inline fixes per the HAT protocol.
 - Rationale: bots cannot DM bots — the DM/pairing criterion half needs a human; everything channel-shaped automates.
 - Trade-off: the controlled-disconnect mechanism (second-pass review, settled shape): an OPTIONAL `ConnectorClient` sever hook discovered via `getattr(client, "sever_for_test", None)` — the same optional-hook pattern DD-8's `history` uses, keeping the Protocol surface clean and the seam platform-agnostic for Telegram — reached through `manager.client_for(connector_id)` from a dual-gated `/_test/` route in `api.py` (dev_mode AND `THE_ONE_DISCORD_TEST_ENDPOINT=1`, named now per the agents.md risk-tiering convention). This is a second, named out-of-subpackage touch beyond DD-2's — recorded here, not discovered mid-leg. It severs the websocket without a close handshake; never a production kill switch.
+
+**DD-10 — Auto-reply mechanical fallback** *(added mid-flight 2026-09-01, operator-approved — live-gate checkpoint 2 attempt 2 proved the reply path had NO mechanism: `dispatch_inbound` hands the model only raw text, so it cannot target the send tool, and assistant text is operator-only by the visibility contract; the stub spec's Out of Scope had explicitly deferred this gap)*: after an admitted, reply-eligible inbound turn, `dispatch_inbound` mechanically delivers the turn's final assistant text to the ORIGINATING target — `PeerTarget(connector_id, peer_id)` when `is_dm`, else `ChannelTarget(connector_id, channel_id, thread_id)` — via `manager.client_for(connector_id).send()`, then flips that assistant message's visibility to peer-visible (it genuinely reached the peer). Skip rule (no double-send): if the turn already contains a successful `send_to_platform_channel` result, the agent spoke to the platform deliberately — no auto-delivery (trade-off: an agent that tool-sends to a DIFFERENT channel suppresses the auto-reply for that turn; acceptable and recorded). Delivery failure (no live client, `ConnectorClientError`): log and leave the text operator-only — the manager's reconnect owns the connection; no retry queue. The send tool remains the agent-INITIATED path (speak-first, cross-channel); the agent-visible tool surface is unchanged, so the mission's "single send tool" kept-piece is untouched — this is pipeline plumbing, the project's own `prompt-discipline-needs-mechanical-fallback` convention applied to the reply path. CONSEQUENCE for committed contracts: the Flight 2 stub behavior spec's step-5/6 expectations ("assistant text renders operator-only; outbound only grows via the tool") are superseded — that spec is re-authored deliberately as part of this DD, not silently broken.
+- Rationale: the mission criterion is "the peer receives the attached agent's reply in the same channel" — only a mechanical path satisfies it independent of model tool-calling reliability (RQ8's lesson, applied to replies).
+- Trade-off: replies become peer-visible (they should — they were delivered); operators lose the "agent computed but didn't send" state for plain replies, keeping it only for tool-send failures.
+
+**DD-11 — Send-tool target defaults to the session's own binding** *(added mid-flight 2026-09-01, operator-approved — live-gate checkpoint 5 proved DD-5's carve-out works (the model referenced the tool by name, unprompted, no search) but "send to this channel" dead-ends: the session's connector/channel keying is invisible to the model, so it asks the operator for ids)*: `send_to_platform_channel`'s `target` becomes OPTIONAL. When omitted, the tool resolves the target from the current session — `current_chat_session_id` (set on both the inbound-dispatch and operator-WS paths) → the session row's keying columns (`connector_id`/`channel_id`/`thread_id`/`peer_id`, Mission 10) → `ChannelTarget` for channel-keyed sessions, `PeerTarget` for DM-keyed ones, mirroring `resolve_session`'s keying semantics. No session context, or a non-connector session, with no explicit target → the existing error, message updated to say a target is required outside platform-bound sessions. Explicit targets keep working unchanged, and EVERY resolved target — defaulted or explicit — still passes the unchanged DD-4 authorization matrix. The schema description documents the omission semantics ("omit to send to the conversation this session is bound to").
+- Rationale: the target-discoverability gap is structural (models cannot know platform ids); the fix is mechanical resolution from state the app already holds, per the same convention as DD-10 — no prompt engineering, works for small models.
+- Trade-off: the tool schema grows a description clause (the carve-out seeds `to_schema()`, so pin tests asserting schema content need re-aiming); an agent in a non-platform session gets an error rather than a guess — correct, not a regression.
 
 **DD-8 — Fake-gateway fixture at the shared tests root** (mission Resolved Question 7): `tests/_discord_gateway_fixture.py` — a `websockets.serve` double scripting hello/heartbeat/identify/resume/dispatch/close-code scenarios for `_gateway.py`'s unit tests; no real network in unit tests, ever.
 
@@ -71,7 +79,7 @@ Implement Discord as the first real platform behind the Flight 2 contract: a han
 ### Pre-Flight Checklist
 - [x] All open questions resolved (two mission-level resolutions recorded: RQ8 carve-out, RQ9 enabled key)
 - [x] Design decisions documented (9 DDs)
-- [ ] Prerequisites verified (operator supplies tokens/ids before leg 3's gate; PR #186 merge before branch cut)
+- [x] Prerequisites verified (operator supplies tokens/ids before leg 3's gate; PR #186 merge before branch cut)
 - [x] Validation approach defined (unit + fake-gateway; behavior gate; guided HAT)
 - [x] Legs defined (4: discord-client, loop-carveout-and-enabled, live-gate-and-docs, hat-alignment)
 
@@ -104,20 +112,20 @@ Build the client against the fake gateway first (leg 1 fully unit-tested, no liv
 
 > **Note:** Tentative; planned one at a time as the flight progresses.
 
-- [ ] `discord-client` - Gateway v10 + REST + translate + plugin + production registration + fake-gateway fixture (`tests/_discord_gateway_fixture.py`) + unit tests (heartbeat/jitter/ACK-watchdog, identify/resume/invalid-session, close-code policy, per-bucket + global rate limiting, 429, translation incl. is_dm/mentions_bot/bot-drop/thread_id)
-- [ ] `loop-carveout-and-enabled` - DD-5 carve-out (agent loop, narrow, pin-tested) + DD-6 enabled key (validator/manager/PUT/doctor/form checkbox) — the two hard-to-reverse changes isolated with their own checkpoint
-- [ ] `live-gate-and-docs` - Finalize + run `discord-live-round-trip` (driver-bot apparatus); `connectors/README.md` Discord section, `agents.md`, CLAUDE.md env conventions; metrics
-- [ ] `hat-alignment` *(interactive)* - Guided HAT: human-account DM + pairing, private console, daily-driver alignment; inline fixes per the HAT fix-vs-feature gate
+- [x] `discord-client` - Gateway v10 + REST + translate + plugin + production registration + fake-gateway fixture (`tests/_discord_gateway_fixture.py`) + unit tests (heartbeat/jitter/ACK-watchdog, identify/resume/invalid-session, close-code policy, per-bucket + global rate limiting, 429, translation incl. is_dm/mentions_bot/bot-drop/thread_id)
+- [x] `loop-carveout-and-enabled` - DD-5 carve-out (agent loop, narrow, pin-tested) + DD-6 enabled key (validator/manager/PUT/doctor/form checkbox) — the two hard-to-reverse changes isolated with their own checkpoint
+- [x] `live-gate-and-docs` - Finalize + run `discord-live-round-trip` (driver-bot apparatus); `connectors/README.md` Discord section, `agents.md`, CLAUDE.md env conventions; metrics
+- [x] `hat-alignment` *(interactive)* - Guided HAT: human-account DM + pairing, private console, daily-driver alignment; inline fixes per the HAT fix-vs-feature gate
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `make test-unit` + all four browser lanes green; no new deps in `uv.lock`.
