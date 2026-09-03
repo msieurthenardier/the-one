@@ -4,17 +4,24 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import httpx
 
 from the_one.connectors import base
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_BASE_URL = "https://api.telegram.org"
 _ORDINARY_HTTP_TIMEOUT = 15.0
 _LONG_POLL_SLACK_SECONDS = 15.0  # on top of getUpdates's own <=50s timeout (DD-2)
 # DD-2: config errors retrying cannot fix. PermanentConnectorFailure REUSED.
 _PERMANENT_STATUSES = frozenset({401, 404, 409})
+# Squawk 0038: unbounded retry_after could park the caller arbitrarily
+# long. Discord's REST client (DD-3) has no such clamp to mirror; capped
+# here instead. Non-numeric/negative values are treated as the ceiling.
+_MAX_RETRY_AFTER_SECONDS = 60.0
 
 
 class TelegramApiError(base.ConnectorClientError):
@@ -85,7 +92,14 @@ class TelegramApiClient:
         resp = await self._post("sendMessage", payload, timeout=_ORDINARY_HTTP_TIMEOUT)
         if resp.status_code == 429:
             data = resp.json() if resp.content else {}
-            retry_after = float((data.get("parameters") or {}).get("retry_after", 1.0))
+            raw = (data.get("parameters") or {}).get("retry_after", 1.0)
+            try:
+                retry_after = float(raw)
+            except (TypeError, ValueError):
+                retry_after = -1.0
+            if not 0 <= retry_after <= _MAX_RETRY_AFTER_SECONDS:
+                logger.warning("telegram sendMessage: retry_after %r clamped", raw)
+                retry_after = _MAX_RETRY_AFTER_SECONDS
             await asyncio.sleep(retry_after)
             resp = await self._post("sendMessage", payload, timeout=_ORDINARY_HTTP_TIMEOUT)
         return self._handle_response("sendMessage", resp)
