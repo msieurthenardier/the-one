@@ -108,16 +108,25 @@ element is not an `<a>`, instead of inspecting `href`.
   container visible; selecting `discord` shows the intent warning;
   selecting `telegram` shows the `/setprivacy` warning; the doc-link
   anchor is present with `docs/connector-setup.md` in its `href`).
+  *(Stale as of the review fix above — the assertion this bullet
+  describes is exactly the one that let a dead link pass CI. The test
+  now locates `connector-setup-steps-doc-ref`, asserts the doc path is
+  in its text, and asserts the element is NOT an `<a>`.)*
 - `.venv/bin/ruff check the_one/ tests/` — all checks passed.
 - `.venv/bin/ruff format --check the_one/ tests/` — 401 files already
   formatted, no diff.
-- Noted but out of scope: `tests/test_ui_guards.py::
-  test_testids_in_source_are_registered` still fails on 3 pre-existing
-  unregistered testids from squawks 0043/0045
-  (`connector-pairing-code`, `connector-status-led`,
-  `connector-status-label`) — not introduced by this squawk, not part
-  of its verify command, left untouched per the instruction to build on
-  0042-0045 without touching them.
+- Noted but out of scope at the time: `tests/test_ui_guards.py::
+  test_testids_in_source_are_registered` failed on 3 unregistered
+  testids from squawks 0043/0045 (`connector-pairing-code`,
+  `connector-status-led`, `connector-status-label`) — correctly flagged
+  by this squawk's implementer rather than silently absorbed.
+  **Resolved within the batch**: a follow-up registry pass registered
+  those three plus `connector-pairing-copy-btn` (unregistered too, but
+  invisible to the guard's literal-extraction regex because it goes
+  through the `_btn` helper — registered anyway rather than only
+  satisfying the checker). `tests/test_ui_guards.py` → 14 passed.
+  Batch lesson recorded in the commit: a squawk that adds a testid must
+  run the ui-guards test, not just its browser lane.
 
 ## Sign-Off
 **Reviewer**: independent batch Reviewer (Sonnet), squawk/turnaround-2026-09-03b — two passes (blocking dead-link issue routed back into 0046, re-reviewed after fix)
