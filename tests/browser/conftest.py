@@ -34,9 +34,11 @@ test fails only under a FULL-lane run (element-wait timeout) and passes
 clean seconds later run in isolation. Since every ``--lane`` shares this
 conftest, this applies to full-lane runs generally, not just one area —
 but the observed cases so far are all ``studio``: 2026-09-01 Flight 23/3
-leg 2 (``test_flow_studio_mcp_editor.py::test_last_updated_renders_relative_time_format``),
-2026-09-01 Flight 23/3 leg 3 (``test_flow_studio_navigation.py::test_studio_section_nav_renders_four_buttons``),
-2026-09-02 Flight 23/3 debrief run (``test_studio_connector_enabled_checkbox_unchecked_persists_disabled``,
+leg 2 (``test_flow_studio_mcp_editor.py``::
+``test_last_updated_renders_relative_time_format``), 2026-09-01 Flight 23/3
+leg 3 (``test_flow_studio_navigation.py``::
+``test_studio_section_nav_renders_four_buttons``), 2026-09-02 Flight 23/3
+debrief run (``test_studio_connector_enabled_checkbox_unchecked_persists_disabled``,
 isolated rerun 2.5s clean), and 2026-09-02 squawk 0032 verification
 (``test_flow_studio_mcp_editor.py::test_create_stdio_source`` and
 ``test_flow_agent_tabs.py::test_enter_commits_focused_tab``). Standing
