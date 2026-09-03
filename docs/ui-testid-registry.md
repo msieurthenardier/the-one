@@ -61,7 +61,12 @@ caught — but it cannot see where the attribute is emitted.
 | `connector-card` | studio | Connectors grid tile (M23 F02 L02); `data-id` carries the connector id |
 | `connector-channel-map-row` | studio | Connector-editor channel→agent map, one row (M23 F02 L02) |
 | `connector-doctor-result` | studio | Connector-editor doctor probe result region (M23 F02 L02) |
+| `connector-pairing-code` | studio | Connector-editor pairing-code result — the code itself, in its own selectable `<code>` element (Squawk 0043) |
 | `connector-pairing-result` | studio | Connector-editor pairing-code + expiry result region (M23 F02 L02) |
+| `connector-setup-steps` | studio | Connector-editor inline setup-steps section container, both create and edit (Squawk 0046) |
+| `connector-setup-steps-doc-ref` | studio | Connector-editor inline setup-steps plain-text reference naming `docs/connector-setup.md` — not a link; only `/static` is mounted, so an anchor would 404 (renamed from `connector-setup-steps-link` in the squawk 0046 review fix) (Squawk 0046) |
+| `connector-status-label` | studio | Connector-editor header connection-status text, edit mode only (Squawk 0045) |
+| `connector-status-led` | studio | Connector-editor header connection-status LED, edit mode only (Squawk 0045) |
 | `delete-agent-btn` | studio | |
 | `delete-blocked-message` | admin | |
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
@@ -185,6 +190,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Prefix | Surface | Notes |
 |--------|---------|-------|
+| `connector-setup-steps-list-` | studio | Connector-editor inline setup-steps `<ul>`, suffixed with the selected connector type (e.g. `-discord`) (Squawk 0046) |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |
 | `mcp-no-tools-msg-` | studio | |
@@ -211,5 +217,6 @@ caught — but it cannot see where the attribute is emitted.
 | `connector-channel-map-remove-btn` | studio | Connector-editor channel→agent map per-row remove, same `_btn` indirection (M23 F02 L02) |
 | `connector-doctor-btn` | studio | Connector-editor doctor probe, same `_btn` indirection (M23 F02 L02) |
 | `connector-pairing-btn` | studio | Connector-editor pairing-code generation, same `_btn` indirection (M23 F02 L02) |
+| `connector-pairing-copy-btn` | studio | Connector-editor pairing-code copy-to-clipboard button, same `_btn` indirection (Squawk 0043) |
 | `new-connector-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M23 F02 L02) |
 | `save-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |

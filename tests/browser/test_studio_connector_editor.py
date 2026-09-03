@@ -88,6 +88,50 @@ def test_studio_connector_doctor_reports_plugin_failure_without_token(
 
 
 @pytest.mark.browser
+def test_studio_connector_create_form_shows_no_status_led(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0045, pinned decision #1: the auto-probe (and its LED) is an
+    edit-mode-only affordance — there is nothing to probe until the
+    connector exists, so the create form must not render the LED at all."""
+    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    page.locator('[data-testid="new-connector-btn"]').click()
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-testid="connector-status-led"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_studio_connector_status_led_reflects_doctor_result_on_open(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0045: opening an EXISTING connector auto-probes doctor once
+    (no polling, no manual click) and reflects the result on the header
+    LED — the operator's "auto green dot". A tokenless discord connector
+    deterministically fails doctor (same plugin behavior the existing
+    manual-doctor test pins), which maps to the `indicator-led--danger`
+    state and a non-empty accessible label."""
+    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    page.locator('[data-testid="new-connector-btn"]').click()
+    page.locator('[data-field="name"]').fill("LED Test Connector")
+    page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
+    page.locator('[data-testid="save-connector-btn"]').click()
+    expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
+
+    # Re-open fresh from the grid — the clearest "opening an existing
+    # connector" trigger, independent of the post-save auto-transition.
+    page.locator('[data-testid="back-connector-btn"]').click()
+    page.locator('[data-testid="connector-card"]').first.click()
+
+    led = page.locator('[data-testid="connector-status-led"]')
+    expect(led).to_be_visible(timeout=8000)
+    assert (led.get_attribute("aria-label") or "").strip() != ""
+
+    expect(led).to_have_class("indicator-led indicator-led--danger", timeout=8000)
+    assert (led.get_attribute("aria-label") or "").strip() == "Not connected"
+
+
+@pytest.mark.browser
 def test_studio_connector_enabled_checkbox_default_checked_and_persists(
     app_with_agent: SeededApp, page: Page
 ) -> None:
@@ -146,5 +190,74 @@ def test_studio_connector_pairing_code_generation(app_with_agent: SeededApp, pag
     pairing_btn.click()
 
     result = page.locator('[data-testid="connector-pairing-result"]')
-    expect(result).to_contain_text("Code:", timeout=8000)
-    expect(result).to_contain_text("expires", timeout=8000)
+    expect(result).to_contain_text("Expires", timeout=8000)
+
+
+@pytest.mark.browser
+def test_studio_connector_pairing_code_is_selectable_and_copyable(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0043: the generated code must land in its own element (not
+    fused into the surrounding "Code: ... (expires ...)" prose, which the
+    operator could not select/copy) and carry a labelled copy affordance."""
+    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    page.locator('[data-testid="new-connector-btn"]').click()
+    page.locator('[data-field="name"]').fill("Copyable Pairing Test Connector")
+    page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
+    page.locator('[data-testid="save-connector-btn"]').click()
+
+    pairing_btn = page.locator('[data-testid="connector-pairing-btn"]')
+    expect(pairing_btn).to_be_visible(timeout=8000)
+    pairing_btn.click()
+
+    result = page.locator('[data-testid="connector-pairing-result"]')
+    code_el = page.locator('[data-testid="connector-pairing-code"]')
+    expect(code_el).to_be_visible(timeout=8000)
+
+    code_text = code_el.text_content() or ""
+    assert code_text.strip() != ""
+    # The code's own element holds just the code — not the whole prose
+    # string ("Code: ... (expires ...)") the surrounding status text used
+    # to fuse it into.
+    assert "expires" not in code_text.lower()
+    assert code_text.strip() in (result.text_content() or "")
+
+    copy_btn = page.locator('[data-testid="connector-pairing-copy-btn"]')
+    expect(copy_btn).to_be_visible()
+    assert (copy_btn.get_attribute("aria-label") or "").strip() != ""
+
+
+@pytest.mark.browser
+def test_studio_connector_setup_steps_shown_per_type(app_with_agent: SeededApp, page: Page) -> None:
+    """Squawk 0046: selecting a connector type on the CREATE form (where a
+    first-timer needs it most) renders a short static per-type step list —
+    each list names the one thing that silently breaks that platform's
+    setup (Discord: Message Content intent; Telegram: /setprivacy privacy
+    mode) — plus a plain-text reference naming the full walkthrough doc's
+    path (not a link: only `/static` is mounted, so an `<a href="docs/...">`
+    would 404 — see squawk 0046's Corrective Action)."""
+    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    page.locator('[data-testid="new-connector-btn"]').click()
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    steps = page.locator('[data-testid="connector-setup-steps"]')
+    expect(steps).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="type"]').select_option("discord")
+    discord_list = page.locator('[data-testid="connector-setup-steps-list-discord"]')
+    expect(discord_list).to_be_visible(timeout=8000)
+    expect(discord_list).to_contain_text("Message Content Intent")
+
+    page.locator('[data-field="type"]').select_option("telegram")
+    telegram_list = page.locator('[data-testid="connector-setup-steps-list-telegram"]')
+    expect(telegram_list).to_be_visible(timeout=8000)
+    expect(telegram_list).to_contain_text("/setprivacy")
+
+    doc_ref = page.locator('[data-testid="connector-setup-steps-doc-ref"]')
+    expect(doc_ref).to_be_visible()
+    doc_ref_text = doc_ref.text_content() or ""
+    assert "docs/connector-setup.md" in doc_ref_text
+    # Regression guard for the dead-link review fix: this must NOT be an
+    # anchor pointing at an unmounted path (only `/static` is mounted; see
+    # squawk 0046's Corrective Action).
+    assert doc_ref.evaluate("el => el.tagName") != "A"
