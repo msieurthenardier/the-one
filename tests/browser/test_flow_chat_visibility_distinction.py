@@ -329,8 +329,7 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
     )
     has_operator_class = delivered.evaluate("el => el.classList.contains('msg-operator-only')")
     assert has_operator_class is False, (
-        "the promoted (peer-visible) tool result must not carry "
-        ".msg-operator-only"
+        "the promoted (peer-visible) tool result must not carry .msg-operator-only"
     )
 
     # It gets an attribution row like a delivered message, per the fix's
