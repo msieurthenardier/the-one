@@ -12,11 +12,17 @@ per platform below. Both connectors share the same config shape
 | `config.allowlist.peers` / `.channels` | `list[str]` | Admission list — everything else is silently ignored. |
 | `config.always_listen` | `list[str]` | Channel ids that get a reply with no `@mention`. |
 
-Pairing (both platforms): send the connector's DM peer a message; the
-operator's DM back with the pairing code shown in Studio (10-minute TTL)
-appends them to `allowlist.peers`.
+Pairing (both platforms): admitting the first peer takes an explicit pairing
+step — it is **required**, not an optional diagnostic. Have the peer DM the
+connector first, then in Studio click **Generate pairing code** on the
+connector's detail page to produce a one-time code (10-minute TTL). The peer
+sends that code back as an ordinary DM message from their own account;
+receiving it within the TTL appends them to `allowlist.peers`. A fresh
+connector row — for example, one created after the v38 migration retired the
+legacy `connectors` rows — starts with an empty allowlist, so a peer who was
+already admitted on a previous row must be paired again on the new one.
 
-**Verified against**: 2026-09-02 (Mission 23 Flights 3-4).
+**Verified against**: 2026-09-03 (Mission 23 Flights 3-4).
 
 ---
 
@@ -27,7 +33,7 @@ appends them to `allowlist.peers`.
 3. **Enable the Message Content intent** — "Bot" tab → "Privileged Gateway Intents" → toggle **Message Content Intent** ON. Without this, `content` arrives empty on every inbound message regardless of admission — the connector will look "connected but silent". **This applies to every bot token the connector reads messages with**, including a second bot used only for a driver/test account during a live check — not just the main bot.
 4. **Invite the bot to a server** — "OAuth2" → "URL Generator" → scopes `bot`, permissions `Send Messages` + `Read Message History` (add more only as the deployment needs). Open the generated URL, pick the target server.
 5. **Register the connector** — Studio → Connectors → New → type `discord`, paste the bot token into `secrets.token`, set `config.default_agent` to the agent that should own DMs.
-6. **Pair a DM peer** — have the operator's Discord account DM the bot anything; Studio's connector detail page shows a pairing code; the operator replies with that code in the same DM within 10 minutes.
+6. **Pair a DM peer** — have the operator's Discord account DM the bot anything, then in Studio click **Generate pairing code** on the connector's detail page. This is a **required** step to admit the first peer, not a diagnostics-only action; it produces a one-time code good for 10 minutes. Send that code back as an ordinary DM message from the operator's own Discord account, in the same DM, within the TTL.
 7. **Enable a channel** — add the channel id to `config.allowlist.channels` (and `config.always_listen` for reply-with-no-mention), or map it to a specific agent via `config.channel_map`.
 
 **Known limitation**: a bot cannot see another bot's messages on Discord for two DIFFERENT bot accounts talking directly (each is invisible to the other's own gateway subscription unless allowlisted) — see `the_one/connectors/README.md`'s DD-4 amendment for the `allowlist.peers`-gated exception.
@@ -39,7 +45,7 @@ appends them to `allowlist.peers`.
 1. **Create the bot** — DM `@BotFather` on Telegram, send `/newbot`, follow the prompts (display name, then a `_bot`-suffixed username). BotFather returns the bot token — treat it exactly like the Discord token (paste into `secrets.token`, never share it elsewhere).
 2. **Set group privacy mode — REQUIRED for always-listen groups.** By default a Telegram bot in **privacy mode** only receives messages that are commands, `@mention`s, or replies to its own messages in a group — everything else is invisible to it, even with `config.always_listen` set. To make a group fully readable: message `@BotFather`, send `/setprivacy`, pick the bot, choose **Disable**. This must be done BEFORE adding the bot to any group it should always-listen in; Telegram does not retroactively deliver messages the bot missed while privacy was on.
 3. **Register the connector** — Studio → Connectors → New → type `telegram`, paste the bot token into `secrets.token`, set `config.default_agent`.
-4. **Pair a DM peer** — DM the bot from the operator's own Telegram account; follow the same pairing-code flow as Discord above.
+4. **Pair a DM peer** — DM the bot from the operator's own Telegram account, then in Studio click **Generate pairing code** on the connector's detail page. Same as Discord above: this is a **required** step to admit the first peer, not a diagnostics-only action; it produces a one-time code good for 10 minutes, which must be sent back as an ordinary DM message from the operator's own Telegram account, in the same DM, within the TTL.
 5. **Add the bot to a group** — invite it like any member; then add the group's chat id to `config.allowlist.channels` (Studio's connector directory — populated passively as the bot observes traffic — surfaces the chat id/title pairing once the bot has seen at least one qualifying message).
    - **Web-client quirk**: on web.telegram.org, a bot account **cannot be added directly through the group-creation picker** — that picker only offers human contacts. Create the group empty (no members) first, then open **Group Info → Add Members** and type the bot's **full `@username`** (not its display name) to find and add it. This applies to the bot account only; human members can still be added during creation as usual.
 6. **Forum topics** — a message inside a forum-topic thread carries a `thread_id` distinct from the parent group's channel id; addressing that thread specifically (rather than the group's general topic) needs its own `channel_map`/`allowlist` entry, copied from the directory lookup tool's `thread_id` field.

@@ -132,6 +132,72 @@
     return sec;
   }
 
+  // ── Status LED (Squawk 0045: MCP-panel parity) ────────────────────────
+  // Reuses the shared `indicator-led` primitive (components.css) — no new
+  // CSS component. Maps a doctor probe's `status` ("ok"/"degraded"/
+  // "failed", DoctorReport in the_one/connectors/base.py) plus the /test
+  // response's `disabled` flag onto the LED's four available modifier
+  // states (success/warning/danger/idle). Per the squawk's pinned
+  // decision #2, a disabled connector always shows idle regardless of the
+  // underlying probe status — disabled reads as "not currently trying to
+  // connect", not as a health verdict.
+  function _connectorLedState(status, disabled) {
+    if (disabled) return 'idle';
+    if (status === 'ok') return 'success';
+    if (status === 'degraded') return 'warning';
+    if (status === 'failed') return 'danger';
+    return 'idle';
+  }
+
+  function _connectorLedLabel(status, disabled) {
+    if (disabled) return 'Disabled';
+    if (status === 'ok') return 'Connected';
+    if (status === 'degraded') return 'Degraded';
+    if (status === 'failed') return 'Not connected';
+    return 'Checking connection…';
+  }
+
+  // ── Inline setup steps (Squawk 0046) ──────────────────────────────────
+  // Pinned FD decision: a small STATIC per-type step list, NOT a rendering
+  // of docs/connector-setup.md and NOT any fetch/sync machinery — the doc
+  // stays the source of truth (it carries its own "verified against" date)
+  // and this list is a signpost, condensed by hand to agree with it.
+  // Bullets are kept short and each platform's list names the ONE thing
+  // that silently breaks setup for that platform (Discord: the Message
+  // Content intent; Telegram: /setprivacy Disable) plus where the token
+  // comes from. Pairing is referenced by name only (its own section below
+  // carries the actual help line) so the two don't drift out of sync on
+  // their own. `stub` (and any other/unknown type) intentionally gets no
+  // entry — the section hides itself in that case.
+  var SETUP_STEPS_BY_TYPE = {
+    discord: [
+      'Create an application at the Discord developer portal ' +
+        '(discord.com/developers/applications) → Bot tab → Add Bot. Copy the ' +
+        'token immediately — Discord shows it once — and paste it into Token above.',
+      'Bot tab → Privileged Gateway Intents → enable Message Content Intent. ' +
+        'Skip this and every inbound message arrives with empty content — the ' +
+        'connector looks "connected but silent".',
+      'OAuth2 → URL Generator → scopes `bot`, permissions Send Messages + Read ' +
+        'Message History. Open the generated URL and pick the target server.',
+      'Set a default agent below, then save and use the Pairing section to ' +
+        'admit the first peer.',
+      'Add the channel id(s) to Admission below (and to Always-listen for ' +
+        'reply-with-no-mention).'
+    ],
+    telegram: [
+      'DM @BotFather → /newbot → follow the prompts. BotFather returns the ' +
+        'token — paste it into Token above.',
+      'Message @BotFather → /setprivacy → Disable, BEFORE adding the bot to ' +
+        'any group it should always-listen in. Skip this and the bot only sees ' +
+        'commands, @mentions, and replies to its own messages in a group — not ' +
+        'retroactive once a message is missed.',
+      'Set a default agent below, then save and use the Pairing section to ' +
+        'admit the first peer.',
+      "Add the bot to a group like any member, then add the group's chat id " +
+        'to Admission below.'
+    ]
+  };
+
   function _linesToArray(text) {
     return String(text || '')
       .split('\n')
@@ -224,6 +290,27 @@
       className: 'editor-title',
       text: isCreate ? 'New Connector' : (cfg.name || '')
     }));
+
+    // Squawk 0045: connection-status LED, edit mode only (no LED on the
+    // create form — nothing to probe until the connector exists). Sits in
+    // the header next to the connector name, not inside Diagnostics — the
+    // operator's "auto green dot" is at-a-glance, not a diagnosis tool.
+    var statusLedEl = null;
+    var statusLabelEl = null;
+    if (!isCreate) {
+      var statusRow = _el('div', { className: 'connector-status-row' });
+      statusLedEl = _el('span', { className: 'indicator-led indicator-led--idle' });
+      statusLedEl.setAttribute('data-testid', 'connector-status-led');
+      statusLedEl.setAttribute('aria-label', 'Checking connection…');
+      statusRow.appendChild(statusLedEl);
+      statusLabelEl = _el('span', {
+        className: 'connector-status-label',
+        text: 'Checking connection…'
+      });
+      statusLabelEl.setAttribute('data-testid', 'connector-status-label');
+      statusRow.appendChild(statusLabelEl);
+      headerText.appendChild(statusRow);
+    }
     header.appendChild(headerText);
 
     var actions = _el('div', { className: 'form-actions' });
@@ -245,7 +332,8 @@
     var identity = _section(container, 'Identity');
     _fieldGroup(identity, 'Name', 'conn-name', _input('text', 'name', cfg.name, 'connector-name'));
     var typeOptions = types.map(function (t) { return { value: t.value, label: t.label }; });
-    _fieldGroup(identity, 'Type', 'conn-type', _select('type', typeOptions, cfg.type));
+    var typeSelectEl = _select('type', typeOptions, cfg.type);
+    _fieldGroup(identity, 'Type', 'conn-type', typeSelectEl);
     _fieldGroup(
       identity, 'Token', 'conn-token',
       _input('password', 'token', (cfg.secrets && cfg.secrets.token) || '', 'Platform credential')
@@ -254,6 +342,50 @@
     // check — `!!config.enabled` is falsy for the absent-key legacy case
     // and would invert the documented default (absent key = enabled).
     _toggleRow(identity, 'Enabled', 'conn-enabled', 'enabled', config.enabled !== false);
+
+    // ── Setup steps (Squawk 0046) ───────────────────────────────────────
+    // Rendered on BOTH create and edit — a first-timer needs this most on
+    // the create form, before anything else on the page helps them. Kept
+    // live against the Type select so switching types before saving
+    // updates the bullets immediately.
+    var setupSteps = _section(container, 'Setup steps');
+    setupSteps.setAttribute('data-testid', 'connector-setup-steps');
+    var setupStepsList = _el('ul', { className: 'connector-setup-steps-list' });
+    setupSteps.appendChild(setupStepsList);
+    // Squawk 0046 review fix (dead link): only `/static` is mounted
+    // (the_one/interfaces/web/app.py), so `docs/` is not served over HTTP —
+    // an `<a href="docs/connector-setup.md">` 404s. No route/static mount
+    // for `docs/` (new HTTP surface + security-posture question, out of
+    // scope for a squawk) and no external GitHub link (this is a
+    // local-first app that may run offline; an outbound link is an
+    // operator choice, not an implementer's). Grepped the rest of the app
+    // for an existing "point at repo docs" pattern first — none exists —
+    // so this renders as plain text via the shared `.field-hint` muted-text
+    // primitive (components.css), naming the file path for the operator to
+    // open from the repo checkout themselves.
+    var setupStepsDocRef = _el('span', {
+      className: 'field-hint connector-setup-steps-doc-ref',
+      text: 'Full walkthrough: docs/connector-setup.md (in the repo)'
+    });
+    setupStepsDocRef.setAttribute('data-testid', 'connector-setup-steps-doc-ref');
+    setupSteps.appendChild(setupStepsDocRef);
+
+    function updateSetupSteps() {
+      var type = typeSelectEl.value;
+      var steps = SETUP_STEPS_BY_TYPE[type];
+      setupStepsList.innerHTML = ''; // static clear — exempt from the sink freeze
+      if (!steps) {
+        setupSteps.hidden = true;
+        return;
+      }
+      setupSteps.hidden = false;
+      setupStepsList.setAttribute('data-testid', 'connector-setup-steps-list-' + type);
+      steps.forEach(function (stepText) {
+        setupStepsList.appendChild(_el('li', { text: stepText }));
+      });
+    }
+    updateSetupSteps();
+    typeSelectEl.addEventListener('change', updateSetupSteps);
 
     // ── Binding ──────────────────────────────────────────────────────
     var binding = _section(container, 'Binding');
@@ -279,6 +411,73 @@
       admission, 'Always-listen channels (one per line)', 'conn-always-listen',
       _textarea('always_listen', _arrayToLines(config.always_listen), 2)
     );
+
+    // ── Pairing (edit mode only) ──────────────────────────────────────
+    // Squawk 0044: pairing is the required enrollment action that admits the
+    // first peer, not diagnosis — it was previously filed under Diagnostics
+    // next to "Run doctor", which misled operators into treating it as
+    // optional. Relocated here, next to the admission fields it feeds.
+    var pairingResultEl = null;
+    if (!isCreate) {
+      var pairing = _section(container, 'Pairing');
+      pairing.appendChild(_el('p', {
+        className: 'section-description',
+        text: 'The peer DMs the bot, you generate a code, and the peer replies with it within 10 minutes.'
+      }));
+      var pairingBtn = _btn(
+        'btn-outlined-primary pairing-btn', 'connector-pairing-btn', 'Generate pairing code'
+      );
+      pairing.appendChild(pairingBtn);
+      pairingResultEl = _el('div', { className: 'connector-pairing-result' });
+      pairingResultEl.setAttribute('data-testid', 'connector-pairing-result');
+      pairingResultEl.setAttribute('role', 'status');
+      pairingResultEl.setAttribute('aria-live', 'polite');
+      pairing.appendChild(pairingResultEl);
+
+      // Renders the generated code as its own selectable <code> element (not
+      // fused into the status prose) plus a Copy button, mirroring the
+      // <code> + copy-button + clipboard pattern already used for markdown
+      // code blocks (markdown.js renderCodeBlock). Expiry stays plain prose.
+      pairingBtn.addEventListener('click', function () {
+        pairingResultEl.textContent = 'Generating…';
+        fetch('/api/connectors/' + encodeURIComponent(cfg.id) + '/pairing-code', { method: 'POST' })
+          .then(function (r) {
+            if (!r.ok) throw new Error('pairing-code request failed: HTTP ' + r.status);
+            return r.json();
+          })
+          .then(function (result) {
+            pairingResultEl.textContent = '';
+            var codeRow = _el('div', { className: 'connector-pairing-code-row' });
+            var codeEl = _el('code', { className: 'connector-pairing-code', text: result.code });
+            codeEl.setAttribute('data-testid', 'connector-pairing-code');
+            codeRow.appendChild(codeEl);
+            var copyBtn = _btn(
+              'btn-outlined-primary connector-pairing-copy-btn', 'connector-pairing-copy-btn', 'Copy'
+            );
+            copyBtn.setAttribute('aria-label', 'Copy pairing code');
+            copyBtn.addEventListener('click', function () {
+              var clip = (typeof navigator !== 'undefined') && navigator.clipboard;
+              if (!clip || typeof clip.writeText !== 'function') {
+                if (window.App && window.App.showFlash) window.App.showFlash(pairingResultEl, 'Copy failed', true);
+                return;
+              }
+              clip.writeText(codeEl.textContent).then(function () {
+                if (window.App && window.App.showFlash) window.App.showFlash(pairingResultEl, 'Copied!');
+              }).catch(function () {
+                if (window.App && window.App.showFlash) window.App.showFlash(pairingResultEl, 'Copy failed', true);
+              });
+            });
+            codeRow.appendChild(copyBtn);
+            pairingResultEl.appendChild(codeRow);
+            pairingResultEl.appendChild(_el(
+              'span', { className: 'connector-pairing-expiry', text: 'Expires ' + result.expires_at }
+            ));
+          })
+          .catch(function (err) {
+            pairingResultEl.textContent = err.message || String(err);
+          });
+      });
+    }
 
     // ── Channel → agent map ──────────────────────────────────────────
     var mapSection = _section(container, 'Channel → agent map');
@@ -328,9 +527,20 @@
       markDirty();
     });
 
+    // Applies a doctor probe outcome to the header LED. Shared by the
+    // one-shot auto-probe below and the manual "Run doctor" button so the
+    // two stay in sync — whichever probed last wins.
+    function applyDoctorStatusToLed(status, disabled) {
+      if (!statusLedEl) return;
+      var state = _connectorLedState(status, disabled);
+      var label = _connectorLedLabel(status, disabled);
+      statusLedEl.className = 'indicator-led indicator-led--' + state;
+      statusLedEl.setAttribute('aria-label', label);
+      if (statusLabelEl) statusLabelEl.textContent = label;
+    }
+
     // ── Diagnostics + Danger Zone (edit mode only) ────────────────────
     var doctorResultEl = null;
-    var pairingResultEl = null;
     if (!isCreate) {
       var diagnostics = _section(container, 'Diagnostics');
       var doctorBtn = _btn('btn-outlined-primary doctor-btn', 'connector-doctor-btn', 'Run doctor');
@@ -340,16 +550,6 @@
       doctorResultEl.setAttribute('role', 'status');
       doctorResultEl.setAttribute('aria-live', 'polite');
       diagnostics.appendChild(doctorResultEl);
-
-      var pairingBtn = _btn(
-        'btn-outlined-primary pairing-btn', 'connector-pairing-btn', 'Generate pairing code'
-      );
-      diagnostics.appendChild(pairingBtn);
-      pairingResultEl = _el('div', { className: 'connector-pairing-result' });
-      pairingResultEl.setAttribute('data-testid', 'connector-pairing-result');
-      pairingResultEl.setAttribute('role', 'status');
-      pairingResultEl.setAttribute('aria-live', 'polite');
-      diagnostics.appendChild(pairingResultEl);
 
       var danger = _el('div', { className: 'editor-section danger-zone' });
       danger.appendChild(_el('div', { className: 'section-title danger-zone-title', text: 'Danger Zone' }));
@@ -370,26 +570,30 @@
             var lines = [result.status + ': ' + result.message];
             (result.warnings || []).forEach(function (w) { lines.push('warning: ' + w); });
             doctorResultEl.textContent = lines.join(' | ');
+            applyDoctorStatusToLed(result.status, result.disabled);
           })
           .catch(function (err) {
             doctorResultEl.textContent = 'Doctor request failed: ' + (err.message || err);
           });
       });
 
-      pairingBtn.addEventListener('click', function () {
-        pairingResultEl.textContent = 'Generating…';
-        fetch('/api/connectors/' + encodeURIComponent(cfg.id) + '/pairing-code', { method: 'POST' })
-          .then(function (r) {
-            if (!r.ok) throw new Error('pairing-code request failed: HTTP ' + r.status);
-            return r.json();
-          })
-          .then(function (result) {
-            pairingResultEl.textContent = 'Code: ' + result.code + ' (expires ' + result.expires_at + ')';
-          })
-          .catch(function (err) {
-            pairingResultEl.textContent = err.message || String(err);
-          });
-      });
+      // Squawk 0045, pinned decision #1: probe doctor exactly ONCE,
+      // automatically, when an EXISTING connector is opened — the
+      // operator's "auto green dot". No polling loop, and this branch
+      // never runs for the create form (guarded by the enclosing
+      // `!isCreate`). Drives the header LED only — the Diagnostics
+      // section's result prose stays a manual-click affordance so the
+      // "Run doctor" button's existing behavior/tests are untouched.
+      fetch('/api/connectors/' + encodeURIComponent(cfg.id) + '/test', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (result) {
+          applyDoctorStatusToLed(result.status, result.disabled);
+        })
+        .catch(function () {
+          // Best-effort convenience indicator — leave it at "Checking…"
+          // on failure rather than surfacing a second error path; the
+          // operator still has the manual "Run doctor" button below.
+        });
 
       deleteBtn.addEventListener('click', function () {
         window.App.confirmDelete(deleteBtn, function (el, revertFn) {

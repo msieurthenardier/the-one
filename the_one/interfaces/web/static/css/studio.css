@@ -1100,4 +1100,64 @@
      Token) above it use, so the Identity section keeps even vertical
      rhythm. */
   .area-studio .connector-enabled-row { margin-bottom: var(--space-3); }
+
+  /* Generated pairing code — a distinct selectable/copyable <code> element
+     (squawk 0043), not fused into the status-row prose. */
+  .area-studio .connector-pairing-code-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+  }
+  .area-studio .connector-pairing-code {
+    font-family: var(--font-family-mono, monospace);
+    font-size: var(--font-size-body-sm);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    user-select: text;
+  }
+  .area-studio .connector-pairing-expiry {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+
+  /* Connection-status LED (Squawk 0045, MCP-panel parity) — sits under the
+     connector name in the editor header. Reuses the shared `.indicator-led`
+     primitive (components.css); this just lays out the row + label. */
+  .area-studio .connector-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .area-studio .connector-status-row .indicator-led { flex-shrink: 0; }
+  .area-studio .connector-status-label {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+
+  /* Inline setup steps (Squawk 0046) — a short per-type bullet list plus a
+     plain-text doc-path reference. Defensive [hidden] rule follows this
+     file's established pattern (see connector-status-row's siblings and
+     the mcp-*[hidden] rules above) since a later, more specific `display`
+     rule elsewhere in the layer could otherwise beat the UA
+     `[hidden]{display:none}` default. */
+  .area-studio .connector-setup-steps[hidden] { display: none; }
+  .area-studio .connector-setup-steps-list {
+    margin: 0 0 8px;
+    padding-left: 20px;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .connector-setup-steps-list li { margin-bottom: 6px; }
+  .area-studio .connector-setup-steps-list li:last-child { margin-bottom: 0; }
+  /* Review fix (dead link, squawk 0046): the doc reference is plain text,
+     not a link — no route serves `docs/` over HTTP (see the JS comment at
+     its render site). `.field-hint` (components.css) supplies the muted
+     caption styling; this just sets it on its own line under the list. */
+  .area-studio .connector-setup-steps-doc-ref {
+    display: block;
+  }
 }

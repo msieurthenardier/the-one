@@ -23,7 +23,7 @@ Audited by the mission-debrief Architect against the code and repository state, 
 | Flat allowlist + pairing; silence for unknowns; no gate/ACL/queue | **met** | Grep-clean across the five docs for the forbidden concepts; verified live three times (stub, Discord, Telegram HATs) |
 | One default agent + optional channel map; no routing engine | **met** | — |
 | Single migration retiring legacy tables/columns/rows; clean upgrade | **met** | v38 (Flight 1, 84/84 migration tests incl. chained legacy path); plus v39 authorized narrowly (RQ10) and scoped exactly — the ledger closes at 39 |
-| Connectors ≤3,000 Python / ≤1,000 JS | **met — at the edge** | **2,970 / 3,000 Python** (package 2,553 + tools 417); JS ~720 / 1,000. The Python ceiling is now a live constraint, not a margin |
+| Connectors ≤3,000 Python / ≤1,000 JS | **met — at the edge** | **2,970 / 3,000 Python** (package 2,553 + tools 417); JS ~720 / 1,000 *(see the correction annotation below)*. The Python ceiling is now a live constraint, not a margin |
 | Tests pass; deletions not skips; `discord_hat` gone; new live HATs exist | **met** | 3,910 unit + all lanes; marker and target gone (comment remains); Discord and Telegram HATs executed. One cosmetic leftover: root-owned stray `.pyc` files in the deleted `tests/live/discord_hat/` dir (untracked, gitignored, un-removable from this session) |
 | Five docs describe the new contract with no stale references | **met** (one completeness gap fixed in this debrief) | Forbidden-term grep clean; the top-level README's architecture paragraph was two facts behind (missing the third tool; "replies never auto-forward" predated DD-10) — corrected in this debrief's commit |
 | Windows packaged build + smoke with the smaller closure | **met on Flight 1's evidence** (operator ruling) | Flight 1 built and smoke-passed (installer 62→59 MiB); the pipeline auto-triggers on every green `main`; later builds were not re-confirmed from this session (Concourse unreachable at debrief time) — the operator accepted Flight 1's proof plus the auto-trigger design as sufficient |
@@ -104,3 +104,25 @@ For mission-control (carry to the skills):
 - [ ] Next platform flight design: state the peer/channel admission doctrine mechanically
 - [ ] Mission-control: adopt items 1–5 of Methodology Feedback into the skills (a mission-control-side change; not this project's work)
 - [ ] Release v0.8.0 — Connector Reset (operator-requested; follows this debrief's merge)
+
+---
+
+## Correction (annotated 2026-09-03, post-close)
+
+The JS figure in the Success Criteria table ("~720 / 1,000") was a carried-forward
+running estimate, never re-derived from the diff. The 2026-09-03b turnaround's batch
+Reviewer measured it: `connector-editor.js` was **514** lines at this mission's close
+(`e5edc4a`), not ~720. The criterion holds either way — both readings are comfortably
+under 1,000 — so the verdict is unchanged.
+
+Annotated rather than rewritten: a debrief is a snapshot of what was known at close,
+and the error is itself evidence for the lesson the debrief already drew ("budget
+arithmetic must be re-derived, not summed" — What Could Be Improved → Process). Two
+instances of that class now: Flight 4's leg-summed Python total (corrected at
+flight-end review) and this JS estimate (corrected post-close). The rule stands and
+its cost is now measured twice.
+
+For anyone reading forward: the connector JS surface after the 2026-09-03b UI
+turnaround is **710** lines in `connector-editor.js` (+196 that batch), plus the
+connector-related touches in the shared Studio files. Well under 1,000; measure from
+the diff before planning any further connector UI work.
