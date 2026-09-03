@@ -134,6 +134,11 @@ async def _upsert_channel_directory(
     philosophy of never taking the inbound pipeline down over a
     connector-layer concern.
     """
+    # Squawk 0040: a group DM (type=3) differs in shape from a 1:1 DM
+    # (type=1) -- Discord's schema carries a "name" key that is nullable
+    # rather than simply absent when the group has no custom name set.
+    # ``.get("name")`` yields ``None`` for both shapes, so both hit this
+    # same falsy-name skip -- pinned deliberately, not an oversight.
     name = channel.get("name")
     if not name:
         return

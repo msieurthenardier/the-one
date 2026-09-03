@@ -58,6 +58,7 @@ class FakeTelegramApi:
         error_status: dict[str, int] | None = None,
         empty_poll_delay: float = 0.02,
         reject_parse_mode_once: bool = False,
+        retry_after: Any = 0,
     ) -> None:
         self.me = me or {"id": 111, "is_bot": True, "username": "TestBot"}
         self.updates: list[dict[str, Any]] = list(updates or [])
@@ -65,6 +66,9 @@ class FakeTelegramApi:
         self.error_status = dict(error_status or {})
         self.empty_poll_delay = empty_poll_delay
         self.reject_parse_mode_once = reject_parse_mode_once
+        # Squawk 0038: the scripted 429's retry_after value, e.g. an absurd
+        # (99999) or malformed ("soon") value to exercise _api.py's clamp.
+        self.retry_after = retry_after
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.sent_messages: list[dict[str, Any]] = []
         self._sent_429_once: set[str] = set()
@@ -103,7 +107,12 @@ class FakeTelegramApi:
         if status == 429 and method not in self._sent_429_once:
             self._sent_429_once.add(method)
             return httpx.Response(
-                429, json={"ok": False, "error_code": 429, "parameters": {"retry_after": 0}}
+                429,
+                json={
+                    "ok": False,
+                    "error_code": 429,
+                    "parameters": {"retry_after": self.retry_after},
+                },
             )
         if status is not None and status != 429:
             return httpx.Response(

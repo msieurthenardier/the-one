@@ -811,6 +811,12 @@ class ConnectorDirectoryRepository:
         unbound agent (no connector names it) returns an empty result, not
         an error.
 
+        Squawk 0039: the substring is escaped (``%``, ``_``, and the
+        escape char ``\\`` itself) before being embedded in the ``LIKE``
+        pattern, with a matching ``ESCAPE '\\'`` clause — a literal query
+        of ``%`` or ``_`` matches only names containing that literal
+        character, not every/any row.
+
         Leg 3 (review HIGH fix): the SELECT gains a plain JOIN to
         ``connectors`` returning its plaintext ``name`` as ``connector_name``
         — one more RAW column, no encryptor, no per-candidate
@@ -832,13 +838,19 @@ class ConnectorDirectoryRepository:
             return []
 
         placeholders = ", ".join("?" for _ in authorized_ids)
-        like = f"%{query.lower()}%"
+        # Escape the LIKE metacharacters ('%', '_') and the escape char
+        # itself ('\') in the user-supplied substring, so a literal query
+        # of "%" or "_" matches only names containing that literal
+        # character rather than every/any row.
+        escaped_query = query.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped_query}%"
         async with self.conn.execute(
             "SELECT cd.connector_id, cd.kind, cd.platform_id, cd.thread_id, "
             "cd.display_name, cd.username, cd.last_seen, c.name AS connector_name "
             "FROM connector_directory cd JOIN connectors c ON c.id = cd.connector_id "
             f"WHERE cd.connector_id IN ({placeholders}) "
-            "AND (LOWER(cd.display_name) LIKE ? OR LOWER(cd.username) LIKE ?) "
+            "AND (LOWER(cd.display_name) LIKE ? ESCAPE '\\' "
+            "OR LOWER(cd.username) LIKE ? ESCAPE '\\') "
             "ORDER BY cd.last_seen DESC LIMIT 10",
             (*authorized_ids, like, like),
         ) as cur:

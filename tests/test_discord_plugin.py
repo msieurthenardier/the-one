@@ -358,6 +358,12 @@ async def _channel_type_and_name_handler(request: httpx.Request) -> httpx.Respon
         "guild-text-1": {"type": 0, "name": "general"},
         "thread-1": {"type": 11, "name": "my-thread"},
         "dm-channel-1": {"type": 1},  # Discord DMs carry no "name".
+        # Group DMs (type=3) differ in shape from a 1:1 DM: Discord's
+        # schema carries a "name" key that is nullable rather than
+        # simply absent. Modeled explicitly (not just omitted) so this
+        # fixture exercises the present-but-null case, not merely a
+        # missing key.
+        "group-dm-channel-1": {"type": 3, "name": None},
     }
     return httpx.Response(200, json={"id": channel_id, **catalog.get(channel_id, {"type": 0})})
 
@@ -470,6 +476,46 @@ async def test_dm_channel_carries_no_name_and_is_not_captured(isolated_db):
 
     conn = await get_connection()
     entry = await ConnectorDirectoryRepository(conn).get("acc-1", "channel", "dm-channel-1")
+    assert entry is None
+
+
+async def test_group_dm_channel_carries_null_name_and_is_not_captured(isolated_db):
+    """Squawk 0040: a group DM (channel ``type=3``) is a distinct shape
+    from a 1:1 DM -- its ``Get Channel`` response carries a "name" key
+    that is present but ``null`` (rather than omitted) when the group has
+    not been given a custom name. ``channel.get("name")`` yields ``None``
+    either way, so it hits the same falsy-name skip as a 1:1 DM: no
+    channel-directory row, and never an empty-string name (leg 1's
+    invariant). Pinning this as a decision, not an accident."""
+    from the_one.connectors.discord.plugin import _translate_message_create
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    state = _AccountState(bot_user_id=BOT_ID)
+    rest = RestClient(
+        "tok",
+        base_url="https://discord.test/api/v10",
+        transport=httpx.MockTransport(_channel_type_and_name_handler),
+    )
+    try:
+        envelope = await _translate_message_create(
+            state,
+            rest,
+            {
+                "channel_id": "group-dm-channel-1",
+                "content": "hello group",
+                "author": {"id": "peer-1", "username": "Alice"},
+                "mentions": [],
+            },
+            "acc-1",
+        )
+        assert envelope is not None
+        assert envelope.is_dm is True
+    finally:
+        await rest.aclose()
+
+    conn = await get_connection()
+    entry = await ConnectorDirectoryRepository(conn).get("acc-1", "channel", "group-dm-channel-1")
     assert entry is None
 
 

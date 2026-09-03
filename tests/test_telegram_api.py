@@ -10,6 +10,7 @@ import pytest
 
 from tests._telegram_api_fixture import FakeTelegramApi
 from the_one.connectors.base import ConnectorClientError, PermanentConnectorFailure
+from the_one.connectors.telegram import _api
 from the_one.connectors.telegram._api import TelegramApiClient, TelegramApiError
 
 
@@ -119,5 +120,38 @@ async def test_send_message_429_retries_once_then_succeeds():
         assert result == {"message_id": 999}
         # First call hit the scripted 429; the retry succeeded.
         assert len([c for c in fake.calls if c[0] == "sendMessage"]) == 2
+    finally:
+        await client.aclose()
+
+
+async def test_send_message_429_absurd_retry_after_is_clamped(monkeypatch):
+    # Squawk 0038: an absurd retry_after must not be slept on verbatim.
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(_api.asyncio, "sleep", fake_sleep)
+    fake = FakeTelegramApi(error_status={"sendMessage": 429}, retry_after=99999)
+    client = _client(fake)
+    try:
+        await client.send_message(chat_id="c1", text="hi")
+        assert slept == [_api._MAX_RETRY_AFTER_SECONDS]
+    finally:
+        await client.aclose()
+
+
+async def test_send_message_429_malformed_retry_after_is_clamped(monkeypatch):
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(_api.asyncio, "sleep", fake_sleep)
+    fake = FakeTelegramApi(error_status={"sendMessage": 429}, retry_after="soon")
+    client = _client(fake)
+    try:
+        await client.send_message(chat_id="c1", text="hi")
+        assert slept == [_api._MAX_RETRY_AFTER_SECONDS]
     finally:
         await client.aclose()

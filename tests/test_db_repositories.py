@@ -1045,6 +1045,66 @@ class TestConnectorDirectoryRepository:
         results = await connector_directory_repo.search("bot-1", "aLiCe")
         assert {r.platform_id for r in results} == {"p1", "p2"}
 
+    async def test_search_literal_percent_query_matches_only_percent_names(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        """Squawk 0039: a query of ``%`` is a LIKE metacharacter — it must
+        be escaped so it matches only names that literally contain
+        ``%``, not every row in scope."""
+        await connector_repo.create(
+            Connector(id="c1", name="t", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="100% Match",
+            username=None,
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p2",
+            thread_id=None,
+            display_name="No Wildcard Here",
+            username=None,
+        )
+        results = await connector_directory_repo.search("bot-1", "%")
+        assert {r.platform_id for r in results} == {"p1"}
+
+    async def test_search_literal_underscore_query_matches_only_underscore_names(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        """Squawk 0039: a query of ``_`` is a LIKE single-char wildcard —
+        it must be escaped so it matches only names that literally
+        contain ``_``, not every row in scope."""
+        await connector_repo.create(
+            Connector(id="c1", name="t", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="under_score",
+            username=None,
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p2",
+            thread_id=None,
+            display_name="No Wildcard Here",
+            username=None,
+        )
+        results = await connector_directory_repo.search("bot-1", "_")
+        assert {r.platform_id for r in results} == {"p1"}
+
     async def test_search_unbound_agent_returns_empty_not_error(
         self, connector_directory_repo: ConnectorDirectoryRepository
     ) -> None:

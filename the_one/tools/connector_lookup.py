@@ -41,8 +41,8 @@ class FindPlatformDestinationTool(Tool):
         "candidate carries connector_id + peer_id; a channel candidate "
         "carries connector_id + channel_id (and thread_id when set). "
         "Omit connector_id unless you already have one from a prior "
-        "result of this tool — operators name connectors by phrase, and "
-        "a guessed connector_id yields false zero-matches."
+        "result of this tool — it is an opaque id, never the platform "
+        "type name, and a guessed connector_id yields false zero-matches."
     )
     # `required` must be a prefix of declared property order
     # (`tests/test_tool_base.py`'s declaration-order positional-binding
@@ -58,9 +58,10 @@ class FindPlatformDestinationTool(Tool):
             "connector_id": {
                 "type": ["string", "null"],
                 "description": (
-                    "Optional further narrowing to one connector. Omit "
-                    "unless you already have a connector_id from a prior "
-                    "result of this tool."
+                    "An opaque id returned by a prior result of this tool "
+                    "— never the platform type name (e.g. never 'stub', "
+                    "'telegram', 'discord'). Omit unless you already have "
+                    "such an id."
                 ),
             },
         },
