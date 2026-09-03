@@ -41,6 +41,7 @@ from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     AgentRevisionRepository,
     ChatSessionRepository,
+    ConnectorDirectoryRepository,
     ConnectorRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
@@ -260,6 +261,11 @@ async def _connector_repo() -> ConnectorRepository:
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     return ConnectorRepository(conn, encryptor)
+
+
+async def _connector_directory_repo() -> ConnectorDirectoryRepository:
+    conn = await get_connection()
+    return ConnectorDirectoryRepository(conn)
 
 
 async def _chat_repo() -> ChatSessionRepository:
@@ -2712,14 +2718,17 @@ def _connector_response(account: Connector) -> dict[str, Any]:
 def _creatable_connector_types() -> set[str]:
     """Types selectable in the UI / accepted by ``create_connector`` on
     THIS running instance. "discord" is always creatable (Flight 3 ships
-    the plugin; the type exists on the model today per DD-1). "stub" is
-    creatable only when BOTH gates are open — ``settings.dev_mode`` AND
+    the plugin; the type exists on the model today per DD-1); "telegram"
+    joins it unconditionally (Mission 23 Flight 4 DD-1b — the plugin ships
+    in leg 2, but the type is admitted here in leg 1's lockstep set same
+    as "discord" was in Flight 3). "stub" is creatable only when BOTH
+    gates are open — ``settings.dev_mode`` AND
     ``THE_ONE_STUB_TEST_ENDPOINT=1`` — the same dual gate as the two
     ``/_test/stub/...`` seams below and the lifespan startup hook that
     registers the stub plugin (``interfaces/web/app.py``). Mirrors the
     provider/MCP ``/types`` precedent (``list_provider_types`` /
     ``list_mcp_source_types``)."""
-    types = {"discord"}
+    types = {"discord", "telegram"}
     if settings.dev_mode and os.environ.get("THE_ONE_STUB_TEST_ENDPOINT") == "1":
         types.add("stub")
     return types
@@ -2880,7 +2889,9 @@ async def update_connector(connector_id: str, request: Request) -> dict[str, Any
 
 @router.delete("/connectors/{connector_id}")
 async def delete_connector(connector_id: str) -> dict[str, str]:
-    """DELETE stops the listener BEFORE the row dies (DD-7)."""
+    """DELETE stops the listener BEFORE the row dies (DD-7); DD-1g's
+    directory cleanup runs after the connector row itself is confirmed
+    gone (a deterministic DELETE — no FK/cascade, per DD-4)."""
     repo = await _connector_repo()
     try:
         await repo.get(connector_id)
@@ -2894,6 +2905,8 @@ async def delete_connector(connector_id: str) -> dict[str, str]:
     except KeyError:
         # Race: another caller deleted between our get and delete.
         raise HTTPException(status_code=404, detail=f"Connector not found: {connector_id}")
+    directory_repo = await _connector_directory_repo()
+    await directory_repo.delete_for_connector(connector_id)
     return {"status": "ok"}
 
 
@@ -3012,6 +3025,7 @@ async def stub_test_inbound(request: Request) -> dict[str, Any]:
         text=body["text"],
         is_dm=bool(body.get("is_dm", False)),
         mentions_bot=bool(body.get("mentions_bot", False)),
+        peer_username=body.get("peer_username"),
     )
     try:
         await StubPlugin.push_inbound(body["connector_id"], envelope)
@@ -3085,9 +3099,7 @@ async def discord_test_sever(request: Request) -> dict[str, Any]:
     manager = get_connector_manager()
     client = manager.client_for(connector_id) if manager is not None else None
     if client is None:
-        raise HTTPException(
-            status_code=409, detail=f"no live client for connector {connector_id}"
-        )
+        raise HTTPException(status_code=409, detail=f"no live client for connector {connector_id}")
 
     sever = getattr(client, "sever_for_test", None)
     if sever is None:

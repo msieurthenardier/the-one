@@ -77,9 +77,19 @@ when done directly against their APIs.
       message the peer did not prompt via the single send tool; the bot
       resumes automatically after a gateway disconnect — all observed live
       against a real Discord bot.
-- [ ] A Telegram peer gets the same round-trip through the same contract,
-      and the Telegram platform adds no files outside its own module and its
-      registration site.
+- [ ] A Telegram peer gets the same round-trip through the same contract;
+      every shared-code touch the Telegram platform needs is named, minimal,
+      and platform-agnostic in the design decision that introduces it.
+      *(Reworded 2026-09-02 by the mission owner on the Flight 3 debrief's
+      recommendation — the original "no files outside its own module and its
+      registration site" was disproven by Discord itself, which made four
+      legitimate, named shared-code touches; the reworded form is what
+      actually held up under review.)*
+- [ ] *(added 2026-09-02, operator-approved during Flight 4 planning)* An
+      agent can address an outbound send by a person's or channel's observed
+      name — resolved through a directory the system populates passively as
+      it sees names — across multiple connectors, with ambiguity surfaced
+      to the agent rather than guessed through.
 - [ ] The Chat UI shows the unified history for a connector-bound session
       with operator-only messages distinguished from peer-visible ones, and an
       operator-typed message never reaches the external platform — the
@@ -156,7 +166,12 @@ when done directly against their APIs.
 - **The migration ledger is append-only.** v13–v37 remain as history (head
   verified v37 at flight-planning, 2026-08-30); this mission adds one
   migration step (v38). The `connectors.type` CHECK constraint
-  changes only via the established table-rename ceremony.
+  changes only via the established table-rename ceremony. *Amended
+  2026-09-02 by the mission owner (Resolved Question 10)*: one ADDITIONAL
+  step (v39) is authorized, narrowly scoped to Flight 4's approved schema
+  needs — the connector-type CHECK change admitting `'telegram'` (via the
+  established ceremony) and the `connector_directory` table — one step,
+  nothing else rides along.
 - **Criteria come from the one-job statement, not from M10/M11's deferral
   lists.** The M11 debrief's first lesson. Nothing deferred by M10 or M11 is
   in scope unless it appears in the Success Criteria above.
@@ -226,6 +241,21 @@ when done directly against their APIs.
 9. **`enabled` is a connector config key, not a column (2026-09-01).** The
    mission's single migration step is spent (v38); pause-without-delete
    lands via DD-2 config (`enabled`, default true) with zero schema change.
+10. **Second migration step authorized, narrowly (2026-09-02).** Flight 4
+    planning found a genuine collision: `'telegram'` cannot exist as a
+    connector type without a CHECK-change migration, and v38 is spent. The
+    mission owner authorized ONE additional step (v39) scoped to the
+    connector-type CHECK change plus the `connector_directory` table
+    approved for the same flight. The append-only ledger discipline is
+    unchanged; the budget grew by exactly one deliberate step.
+11. **Name-directory send targeting joins the mission (2026-09-02).** The
+    Flight 3 HAT proved explicit `connector:channel` sends work end-to-end
+    and the operator scoped the missing piece precisely: persist observed
+    names (display name AND username where the platform has both — bare
+    friendly names collide) alongside ids, resolved via a SEPARATE lookup
+    tool (not a send-tool name form), with ambiguity returned to the agent
+    as candidates. Included in Flight 4 to validate the architecture as
+    genuinely multi-connector; new success criterion added.
 
 ## Known Issues
 
@@ -268,9 +298,11 @@ when done directly against their APIs.
       limiting and 429 handling, the ~10 endpoints a text bot needs, a
       fake-gateway fixture at the shared tests root, a live HAT and a
       behavior test against the operator's bot.
-- [ ] Flight 4: Telegram — second platform through the same contract on
-      `httpx` long-poll; proves the "no files outside its own module and
-      registration site" criterion; live HAT.
+- [x] Flight 4: Telegram + name directory — second platform through the same
+      contract on `httpx` long-poll (proves the reworded additive-seam
+      criterion); the passively-populated name directory + lookup tool
+      (multi-connector validation); v39 (RQ10); connector setup help file;
+      live HAT.
 - [ ] Flight 5 *(optional)*: Alignment — vibe coding session for creative
       collaboration and hands-on adjustments.
 

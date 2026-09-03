@@ -5,6 +5,7 @@ from the_one.tools._web_config import WebConfig
 from the_one.tools._web_search_config import WebSearchConfig
 from the_one.tools.base import Tool
 from the_one.tools.connector_history import FetchChannelHistoryTool
+from the_one.tools.connector_lookup import FindPlatformDestinationTool
 from the_one.tools.connector_send import SendToPlatformChannelTool
 from the_one.tools.filesystem import (
     DeleteFileTool,
@@ -65,6 +66,15 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     # which tool name resolves FilesystemConfig.
     "send_to_platform_channel": SendToPlatformChannelTool,
     "fetch_channel_history": FetchChannelHistoryTool,
+    # Mission 23 Flight 4 Leg 3 (DD-5/DD-6): the read-only lookup tool that
+    # chains into send_to_platform_channel's target. Appended after the
+    # existing pair for the same reason those were appended at the end —
+    # this tool carries the empty default Config, so appending cannot
+    # change which tool name resolves FilesystemConfig (see the
+    # ordering-is-policy assertion below). The sole registration seam:
+    # the tool is inert (never reachable, never carve-out-seedable) until
+    # it is entered here.
+    "find_platform_destination": FindPlatformDestinationTool,
 }
 
 # M14 F4 L7 — ordering-is-policy assertion. The cross-config resolution loop in

@@ -165,6 +165,46 @@ shape an explicit `target` takes, so it is authorized by the SAME rule
 below — a defaulted target that fails authorization errors identically
 to an explicit one. Explicit `target` arguments are unaffected.
 
+## Lookup tool (`find_platform_destination`, DD-5, Mission 23 Flight 4 Leg 3)
+
+Read-only. `tools/connector_lookup.py`'s `FindPlatformDestinationTool` looks
+up an observed peer/channel by name — case-insensitive substring match over
+`display_name` OR `username`, ≤10 results, newest `last_seen` first — and
+returns a compact JSON array of candidates. Each candidate carries
+`connector_id`, `connector_name`, `kind`, `display_name`, `username`,
+`last_seen`, and is keyed LITERALLY as `send_to_platform_channel`'s `target`
+expects: a peer candidate carries `peer_id` (never a channel key); a channel
+candidate carries `channel_id` (+ `thread_id` when set, never a peer key) —
+no generic `platform_id` ever reaches the model. Zero matches returns a
+clear message naming the query, not an empty array. An empty/whitespace
+query is a clear `[error] [constraint] ...`, never a full-table dump.
+
+**Authorization is CONNECTOR-LEVEL** (`ConnectorDirectoryRepository.search`,
+`db/repositories.py`) — quoting the repository's own scoping ruling
+verbatim:
+
+> Search scoping is CONNECTOR-LEVEL by design (designer ruling,
+> 2026-09-02): a connector is in scope when `agent_name` appears ANYWHERE
+> in its binding (`config.default_agent` OR any `config.channel_map`
+> value) — a deliberate simplification, NOT per-target precision.
+> Rationale: send-time authorization remains the real per-target gate
+> (unchanged, enforced in `tools/connector_send.py`); this lookup exposes
+> only names within one connector, which is one operator trust domain; a
+> per-target search filter would duplicate the send matrix for marginal
+> privacy inside a domain the operator already configured.
+
+Read-only: NO authorization error paths beyond scoping — an out-of-scope
+connector's rows are simply absent from results (enumeration reveals
+nothing). An unbound agent (no connector names it) gets an empty result,
+not an error.
+
+Seeded via the DD-6 baseline-visibility carve-out, same as
+`send_to_platform_channel` — see `agent/factory.py`'s seed loop and
+`the_one/agents.md`'s "DD-5 baseline-visibility carve-out" for the
+mechanism. The two-call chain (lookup → send with explicit ids) is the
+operator-chosen shape for name-addressed sends; see
+`tests/behavior/directory-lookup-send.md` for the end-to-end gate.
+
 ## Authorization rule (send tool + history tool)
 
 `send_to_platform_channel` (`tools/connector_send.py`) and
@@ -317,6 +357,83 @@ free). Body: `{"connector_id": "..."}`. Error taxonomy: unknown connector
 client present but no hook (e.g. a stub-typed connector) → 501. Never a
 production kill switch. See `tests/behavior/discord-live-round-trip.md`'s
 step 6 for the end-to-end resume proof this seam drives.
+
+## Telegram (Flight 4)
+
+`telegram/` (`_api.py`, `plugin.py`) — a hand-rolled long-poll client on
+`httpx` (DD-1/DD-2, Mission 23 Flight 4); no new dependency
+(`python-telegram-bot`/`aiogram` stay absent). Registered unconditionally
+at lifespan startup, same block pattern as Discord.
+
+- **Poll loop**: one `getUpdates(offset, timeout=50, allowed_updates=
+  ["message"])` loop per account. `offset` is the at-least-once
+  redelivery cursor — advanced only after a batch is fully dispatched, so
+  an unclean restart re-fetches (and redelivers) the last un-acknowledged
+  batch; no dedup is attempted (personal-bot scale, documented trade-off,
+  not hidden). `getMe` at `connect()` captures the bot's id + `@username`.
+  `is_alive()` = the poll task lives and the last successful poll is
+  within `2*timeout+grace`.
+- **Error policy**: 401/404 (bad token) and 409 Conflict (another
+  `getUpdates` consumer already holds the long-poll slot — a config error
+  retrying cannot fix) raise `PermanentConnectorFailure` (REUSED from
+  Discord's contract, `connectors/base.py` — zero new shared code);
+  anything else lets the loop die and the manager's ordinary backoff
+  reconnect (a fresh `connect()`) own retry, mirroring Discord's own
+  pre-READY-only close-code policy trade-off.
+- **Translation**: `chat.type == "private"` → `is_dm`; `mentions_bot` from
+  a `mention` entity slicing to `@botusername` (case-insensitive, UTF-16
+  code-unit offsets) or a `text_mention` entity matching the bot's id;
+  `peer_name` from `first_name [+ last_name]`; `peer_username` from
+  `from.username`; channel/group targets keyed by `str(chat.id)`; a
+  `message_thread_id` becomes the envelope's `thread_id` (forum topics);
+  bot-authored messages drop unless allowlisted (Flight 3's DD-4
+  parity); text-less messages (joins, stickers, captionless media) drop.
+- **Directory**: every group/supergroup message carries `chat.title` —
+  upserted into the channel directory unconditionally (not
+  admission-gated, per the flight's DD-4 cycle-2 ruling — see
+  `plugin.py`'s `_upsert_channel_directory`). Peer entries come from the
+  shared `dispatch_inbound` hook, same as Discord.
+- **Outbound**: `sendMessage(chat_id=..., text=...)` — a `ChannelTarget`
+  maps to `chat_id=channel_id` (+ `message_thread_id` when set); a
+  `PeerTarget` maps to `chat_id=peer_id` directly — Telegram's DM chat id
+  IS the user id, so there is no Create-DM REST step (unlike Discord).
+- **Formatted rendering (HAT step 8, daily-driver fix promoted through a
+  scoped review)**: `TelegramClient.send()` runs `content` through
+  `_render.render_telegram_html` (a small hand-rolled, dependency-free
+  markdown → Telegram-HTML converter — `<b> <i> <a href> <code> <pre>`
+  only; tables/headings degrade, list markers stay literal text) and
+  sends with `parse_mode="HTML"`. `_api.TelegramApiClient.send_message`
+  gained an **optional** `parse_mode` param, omitted from the payload
+  when `None` (mirrors the existing `message_thread_id` pattern).
+  Two layers of defense, both exercised by `tests/test_telegram_render.py`
+  and `tests/test_telegram_plugin.py`:
+  - **No-raise guarantee**: `send()` wraps the converter call in
+    `try/except Exception` — any converter failure degrades to the
+    original, unconverted text with no `parse_mode` at all (the
+    formatted attempt is never even made).
+  - **Mechanical fallback**: if the formatted attempt itself raises
+    `TelegramApiError` (any 4xx/5xx/`ok:false` — never string-matched;
+    this also heals HTML-inflation past the 4096-char limit), `send()`
+    retries **once** with the original text and no `parse_mode`. A
+    second failure re-raises normally. `_api`'s own one-shot-429 retry
+    stays self-contained inside each of those two attempts, so at most
+    two independent send attempts ever happen — no double-delivery
+    combination exists. Fallback logging records the chat id, the error
+    description, and before/after byte-lengths — **never the message
+    content** (log-hygiene; see squawk 0037 in this same subpackage,
+    about the token itself leaking via httpx's own request-URL logging).
+- **NO `history` hook.** The Bot API has no message-history endpoint —
+  the optional-hook pattern (`ConnectorClient.history`, above) working as
+  designed: `TelegramClient` simply omits the method, and
+  `fetch_channel_history`'s existing `getattr(client, "history", None) is
+  None` branch covers it with zero new code.
+- **Credential**: the bot token lives in `Connector.secrets["token"]`,
+  baked into the Bot API URL path (`/bot<token>/<method>`) rather than a
+  header — same masked-at-rest, Fernet-encrypted contract as Discord.
+
+See [`docs/connector-setup.md`](../../docs/connector-setup.md) for the
+operator walkthrough (both platforms), including Telegram's `/setprivacy`
+requirement for always-listen groups.
 
 ## Known limitations
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,6 +34,8 @@ from the_one.connectors.discord._gateway import GatewayConnection
 from the_one.connectors.discord._rest import DEFAULT_BASE_URL, RestClient
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor
+
+logger = logging.getLogger(__name__)
 
 # Discord channel types (only the ones DM/thread detection needs).
 _CHANNEL_TYPE_DM = 1
@@ -71,14 +74,89 @@ class _AccountState:
     allowlist_peers: frozenset[str] = field(default_factory=frozenset)
 
 
-async def _resolve_channel_type(state: _AccountState, rest: RestClient, channel_id: str) -> int:
+async def _resolve_channel_type(
+    state: _AccountState, rest: RestClient, channel_id: str, connector_id: str
+) -> int:
+    """Fetches (and caches) a channel's type — and, on the cache-miss fetch
+    only, opportunistically captures its name into the directory (DD-1d,
+    DD-4). The cache-miss gate is load-bearing for AC-5's honesty
+    contract, not incidental: since ``channel_type_cache`` lives on
+    ``_AccountState`` and survives reconnects for the life of the process
+    (its own documented contract — see the field above), a channel's name
+    is captured AT MOST ONCE PER PROCESS LIFETIME. A rename is observed
+    only after a process restart clears the cache — a deliberate,
+    honestly-stated trade-off (live rename-tracking would need a fetch
+    cadence this leg does not add), not a bug.
+
+    This function is only reached from ``_translate_message_create``
+    AFTER its self/webhook/unallowlisted-foreign-bot drop checks —  so a
+    channel whose only traffic so far was dropped bot/self messages has
+    never hit this path, and its directory entry (like its
+    ``channel_type_cache`` entry) is captured on the first QUALIFYING
+    message, not the channel's first message ever.
+    """
     cached = state.channel_type_cache.get(channel_id)
     if cached is not None:
         return cached
     channel = await rest.get_channel(channel_id)
     ctype = channel.get("type", 0)
     state.channel_type_cache[channel_id] = ctype
+    await _upsert_channel_directory(connector_id, channel_id, channel, ctype)
     return ctype
+
+
+async def _upsert_channel_directory(
+    connector_id: str, channel_id: str, channel: dict[str, Any], ctype: int
+) -> None:
+    """DD-4 (cycle-2 decision, made at flight level not deferred): channel
+    entries are DELIBERATELY NOT admission-gated — plugin-side channel
+    observation records any channel the bot can see, allowlisted or not.
+    A stated asymmetry with the peer path: channel names are
+    operator-domain metadata (the operator invited the bot into the
+    guild; rooms are not people, so no third-party-silence concern), and
+    the bound agent is ALREADY authorized to send to any channel of its
+    connector (Flight 2's bound-agent rule), so naming visible channels
+    grants zero new reach.
+
+    A DM/group-DM ``Get Channel`` response carries no ``"name"`` (DMs
+    aren't named) — skipping the upsert when absent both keeps DMs out of
+    the (channel-only) directory kind and honors the "never an
+    empty-string name in the directory" invariant; a real guild channel
+    or thread always carries one. Threads store the DD-4 thread shape:
+    ``platform_id`` = the thread's own send-addressable channel id (as
+    ``channel_id`` already is for a thread, per ``_translate_message_
+    create``'s ``thread_id`` assignment), ``thread_id`` alongside it.
+
+    Best-effort: any failure here (e.g. schema/connection issues in an
+    environment that never touched the DB before) is logged and
+    swallowed — a directory-observation hiccup must never break message
+    translation, mirroring this module's self/webhook/foreign-bot drop
+    philosophy of never taking the inbound pipeline down over a
+    connector-layer concern.
+    """
+    name = channel.get("name")
+    if not name:
+        return
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    thread_id = channel_id if ctype in _THREAD_TYPES else None
+    try:
+        conn = await get_connection()
+        await ConnectorDirectoryRepository(conn).upsert(
+            connector_id=connector_id,
+            kind="channel",
+            platform_id=channel_id,
+            thread_id=thread_id,
+            display_name=name,
+            username=None,
+        )
+    except Exception:
+        logger.exception(
+            "discord plugin: channel-directory upsert failed for connector %s channel %s",
+            connector_id,
+            channel_id,
+        )
 
 
 async def _translate_message_create(
@@ -102,7 +180,7 @@ async def _translate_message_create(
         # `is_admitted` allowlist check as usual).
         return None
     channel_id = d.get("channel_id", "")
-    ctype = await _resolve_channel_type(state, rest, channel_id)
+    ctype = await _resolve_channel_type(state, rest, channel_id, connector_id)
     mentions = d.get("mentions") or []
     peer_name = author.get("global_name") or author.get("username") or "unknown"
     return InboundEnvelope(
@@ -115,6 +193,10 @@ async def _translate_message_create(
         text=d.get("content", ""),
         is_dm=ctype in _DM_TYPES,
         mentions_bot=any(m.get("id") == state.bot_user_id for m in mentions),
+        # DD-1f/DD-4 (Mission 23 Flight 4): the directory disambiguation
+        # field — Discord's own handle, distinct from the display-name
+        # ``peer_name`` above (which prefers ``global_name``).
+        peer_username=author.get("username"),
         raw=d,
     )
 

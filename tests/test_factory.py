@@ -18,6 +18,7 @@ from the_one.db.models import LLMProviderConfig, ToolConfig
 from the_one.llm.base import Message
 from the_one.tools.base import Tool
 from the_one.tools.builtins import BuiltinToolProvider
+from the_one.tools.connector_lookup import FIND_PLATFORM_DESTINATION_TOOL_NAME
 from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 
 # ---------------------------------------------------------------------------
@@ -748,14 +749,23 @@ class TestSendToolCarveOut:
     baseline-visibility carve-out). AC-1..AC-5, ALL through the REAL
     factory seed path (``builtin_factory.create``) — never hand-built
     containers, per the leg's ``AgentFactory.create()`` requirement.
+
+    Mission 23 Flight 4 Leg 3 (DD-6): generalized to the connector tool
+    PAIR (``send_to_platform_channel`` + ``find_platform_destination``).
+    The shared ``"disabled-agent"`` fixture now disables BOTH names (no
+    fixture split, per the leg's designer ruling), so the baseline-shape
+    assertions below (``test_baseline_otherwise_unchanged``,
+    ``test_no_duplication_on_search_match``) were rewritten IN PLACE for
+    the pair-seeded world; independent absence per tool is covered
+    separately by ``test_each_tool_independently_absent_when_disabled``.
     """
 
     async def test_present_when_enabled_absent_when_disabled(
         self, builtin_factory: AgentFactory, store: InMemoryStore
     ) -> None:
-        """AC-1: present (from the FIRST iteration, i.e. seeded at build
-        time, not via search) when enabled for the agent; absent when
-        disabled."""
+        """AC-1 (DD-6 pin (a)/(b)): the PAIR is present (from the FIRST
+        iteration, i.e. seeded at build time, not via search) when both
+        enabled for the agent; both absent when both disabled."""
         await store.save(
             AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
         )
@@ -764,31 +774,80 @@ class TestSendToolCarveOut:
                 name="disabled-agent",
                 provider_config_id="test-provider",
                 llm_model="m",
-                disabled_tools=[SEND_TO_PLATFORM_CHANNEL_TOOL_NAME],
+                disabled_tools=[
+                    SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
+                    FIND_PLATFORM_DESTINATION_TOOL_NAME,
+                ],
             )
         )
 
         enabled_agent = await builtin_factory.create("enabled-agent")
         assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in enabled_agent._loaded_tool_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME in enabled_agent._loaded_tool_names
         enabled_names = {s["name"] for s in enabled_agent._compute_visible_schemas()}
         assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in enabled_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME in enabled_names
 
         disabled_agent = await builtin_factory.create("disabled-agent")
         assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in disabled_agent._loaded_tool_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME not in disabled_agent._loaded_tool_names
         disabled_names = {s["name"] for s in disabled_agent._compute_visible_schemas()}
         assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in disabled_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME not in disabled_names
+
+    async def test_each_tool_independently_absent_when_disabled(
+        self, builtin_factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        """AC-1 (DD-6 pin (b), the independence half): disabling ONE name
+        does not affect the other — each tool's carve-out seeding is
+        gated on its own registry presence."""
+        await store.save(
+            AgentConfig(
+                name="send-only-agent",
+                provider_config_id="test-provider",
+                llm_model="m",
+                disabled_tools=[FIND_PLATFORM_DESTINATION_TOOL_NAME],
+            )
+        )
+        await store.save(
+            AgentConfig(
+                name="lookup-only-agent",
+                provider_config_id="test-provider",
+                llm_model="m",
+                disabled_tools=[SEND_TO_PLATFORM_CHANNEL_TOOL_NAME],
+            )
+        )
+
+        send_only_agent = await builtin_factory.create("send-only-agent")
+        send_only_names = {s["name"] for s in send_only_agent._compute_visible_schemas()}
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in send_only_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME not in send_only_names
+
+        lookup_only_agent = await builtin_factory.create("lookup-only-agent")
+        lookup_only_names = {s["name"] for s in lookup_only_agent._compute_visible_schemas()}
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME in lookup_only_names
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in lookup_only_names
 
     async def test_baseline_otherwise_unchanged(
         self, builtin_factory: AgentFactory, store: InMemoryStore
     ) -> None:
-        """AC-2: exact visible-set shape in both states — no other schema
-        leaks in either way."""
+        """AC-2 (rewritten in place for the pair-seeded baseline, DD-6,
+        Mission 23 Flight 4 Leg 3 — was an exact 2-element list for the
+        disabled case and an exact 3-element list for the enabled case
+        when only ``send_to_platform_channel`` existed): exact visible-set
+        shape in both states — no other schema leaks in either way. The
+        disabled case is UNCHANGED shape (both carve-out names disabled
+        via the shared fixture); the enabled case now carries both seeded
+        tool schemas after the baseline pair."""
         await store.save(
             AgentConfig(
                 name="disabled-agent",
                 provider_config_id="test-provider",
                 llm_model="m",
-                disabled_tools=[SEND_TO_PLATFORM_CHANNEL_TOOL_NAME],
+                disabled_tools=[
+                    SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
+                    FIND_PLATFORM_DESTINATION_TOOL_NAME,
+                ],
             )
         )
         await store.save(
@@ -801,8 +860,11 @@ class TestSendToolCarveOut:
         enabled_agent = await builtin_factory.create("enabled-agent")
         schemas = enabled_agent._compute_visible_schemas()
         assert schemas[:2] == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
-        assert len(schemas) == 3
-        assert schemas[2]["name"] == SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
+        assert len(schemas) == 4
+        assert {s["name"] for s in schemas[2:]} == {
+            SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
+            FIND_PLATFORM_DESTINATION_TOOL_NAME,
+        }
 
     async def test_no_search_needed_first_llm_call(
         self, builtin_factory: AgentFactory, store: InMemoryStore
@@ -820,26 +882,32 @@ class TestSendToolCarveOut:
         assert len(agent.llm.calls) == 1  # a single, text-only turn
         first_call_tools = agent.llm.calls[0]["tools"]
         assert first_call_tools is not None
-        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in {t["name"] for t in first_call_tools}
+        first_call_tool_names = {t["name"] for t in first_call_tools}
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in first_call_tool_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME in first_call_tool_names
         assert not any(tc.name == "search_tools" for m in msgs for tc in (m.tool_calls or []))
 
     async def test_no_duplication_on_search_match(
         self, builtin_factory: AgentFactory, store: InMemoryStore
     ) -> None:
-        """AC-4: a search_tools call whose results include the seeded tool
-        must NOT duplicate its schema — _on_search_match's name-set dedup
-        covers the seed because seed names are already in loaded_tool_names."""
+        """AC-4 (rewritten in place for the pair-seeded baseline, DD-6,
+        Mission 23 Flight 4 Leg 3 — was ``len == 1`` when only
+        ``send_to_platform_channel`` was seeded): a search_tools call whose
+        results include BOTH seeded tools must NOT duplicate either
+        schema — _on_search_match's name-set dedup covers the seed because
+        seed names are already in loaded_tool_names."""
         await store.save(
             AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
         )
         agent = await builtin_factory.create("enabled-agent")
-        assert len(agent._loaded_schemas) == 1  # just the seed, pre-search
+        assert len(agent._loaded_schemas) == 2  # just the pair seed, pre-search
 
         search_tool = agent.tools.get("search_tools")
         await search_tool.execute(query="")  # empty query returns every schema
 
         schema_names = [s["name"] for s in agent._loaded_schemas]
         assert schema_names.count(SEND_TO_PLATFORM_CHANNEL_TOOL_NAME) == 1
+        assert schema_names.count(FIND_PLATFORM_DESTINATION_TOOL_NAME) == 1
         # Length parity is the other half of "no duplicate entry": the name
         # set and the schema list must stay in lockstep.
         assert len(agent._loaded_tool_names) == len(agent._loaded_schemas)
@@ -847,9 +915,10 @@ class TestSendToolCarveOut:
     async def test_reset_survival_and_container_identity(
         self, builtin_factory: AgentFactory, store: InMemoryStore
     ) -> None:
-        """AC-5: after Agent.reset(), the carve-out reappears when enabled
-        and stays absent when disabled; the re-seed mutates the ORIGINAL
-        container objects in place (the closure-capture invariant)."""
+        """AC-5 (DD-6 pin (c)): after Agent.reset(), the PAIR reappears
+        when enabled and stays absent when both disabled; the re-seed
+        mutates the ORIGINAL container objects in place (the
+        closure-capture invariant)."""
         await store.save(
             AgentConfig(name="enabled-agent", provider_config_id="test-provider", llm_model="m")
         )
@@ -858,7 +927,10 @@ class TestSendToolCarveOut:
                 name="disabled-agent",
                 provider_config_id="test-provider",
                 llm_model="m",
-                disabled_tools=[SEND_TO_PLATFORM_CHANNEL_TOOL_NAME],
+                disabled_tools=[
+                    SEND_TO_PLATFORM_CHANNEL_TOOL_NAME,
+                    FIND_PLATFORM_DESTINATION_TOOL_NAME,
+                ],
             )
         )
 
@@ -868,12 +940,12 @@ class TestSendToolCarveOut:
         enabled_agent.reset()
         assert enabled_agent._loaded_schemas is schemas_obj  # object identity survives
         assert enabled_agent._loaded_tool_names is names_obj
-        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in {
-            s["name"] for s in enabled_agent._compute_visible_schemas()
-        }
+        reset_names = {s["name"] for s in enabled_agent._compute_visible_schemas()}
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME in reset_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME in reset_names
 
         disabled_agent = await builtin_factory.create("disabled-agent")
         disabled_agent.reset()
-        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in {
-            s["name"] for s in disabled_agent._compute_visible_schemas()
-        }
+        disabled_reset_names = {s["name"] for s in disabled_agent._compute_visible_schemas()}
+        assert SEND_TO_PLATFORM_CHANNEL_TOOL_NAME not in disabled_reset_names
+        assert FIND_PLATFORM_DESTINATION_TOOL_NAME not in disabled_reset_names

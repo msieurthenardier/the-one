@@ -12,6 +12,7 @@ from the_one.db.repositories import (
     AgentRevisionRepository,
     AppMetadataRepository,
     ChatSessionRepository,
+    ConnectorDirectoryRepository,
     ConnectorRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
@@ -105,6 +106,12 @@ def connector_repo_encryptor(tmp_path):
 @pytest.fixture
 def connector_repo(conn, connector_repo_encryptor):
     return ConnectorRepository(conn, connector_repo_encryptor)
+
+
+@pytest.fixture
+def connector_directory_repo(conn):
+    # No encryptor fixture (DD-4): connector_directory holds no secrets.
+    return ConnectorDirectoryRepository(conn)
 
 
 @pytest.fixture
@@ -879,6 +886,366 @@ class TestConnectorRepository:
 # the guild_id-required-on-channels/roles rule it carried, no longer
 # exist. Only the ``Connector`` model core survives; see
 # ``TestConnectorRepository`` above for its remaining coverage.
+
+
+# ── Connector Directory Repository (v39, Mission 23 Flight 4 Leg 1) ──────
+
+
+class TestConnectorDirectoryRepository:
+    """AC-3/AC-4/AC-8 coverage: upsert-on-change, exact-match ``get``,
+    connector-level search scoping (incl. the breadth test), and the
+    ``(connector_id, kind, platform_id)`` PK's peer/channel disambiguation.
+    """
+
+    async def test_upsert_then_get(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Alice",
+            username="alice99",
+        )
+        entry = await connector_directory_repo.get("c1", "peer", "p1")
+        assert entry is not None
+        assert entry.display_name == "Alice"
+        assert entry.username == "alice99"
+        assert entry.thread_id is None
+
+    async def test_get_missing_returns_none(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        assert await connector_directory_repo.get("c1", "peer", "no-such-id") is None
+
+    async def test_upsert_on_change_skips_identical_write(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        """The write-per-message guard: a second upsert with the SAME
+        display_name+username does not touch ``last_seen`` (asserted via
+        the row being byte-identical, not just semantically unchanged —
+        a real UPDATE would still be a no-op value-wise but this proves
+        the write itself was skipped, not merely idempotent)."""
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Alice",
+            username="alice99",
+        )
+        first = await connector_directory_repo.get("c1", "peer", "p1")
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Alice",
+            username="alice99",
+        )
+        second = await connector_directory_repo.get("c1", "peer", "p1")
+        assert second.last_seen == first.last_seen
+
+    async def test_upsert_on_change_writes_when_name_changes(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Alice",
+            username="alice99",
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Alice B.",
+            username="alice99",
+        )
+        entry = await connector_directory_repo.get("c1", "peer", "p1")
+        assert entry.display_name == "Alice B."
+
+    async def test_same_platform_id_as_peer_and_channel_disambiguated_by_kind(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        """Edge case: Telegram DMs use chat ids that can collide with a
+        channel id from the same connector — the ``kind`` column
+        disambiguates and the composite PK covers both rows independently."""
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="123",
+            thread_id=None,
+            display_name="Peer One Two Three",
+            username=None,
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="channel",
+            platform_id="123",
+            thread_id=None,
+            display_name="Channel One Two Three",
+            username=None,
+        )
+        peer_entry = await connector_directory_repo.get("c1", "peer", "123")
+        channel_entry = await connector_directory_repo.get("c1", "channel", "123")
+        assert peer_entry.display_name == "Peer One Two Three"
+        assert channel_entry.display_name == "Channel One Two Three"
+
+    async def test_thread_shape_stores_thread_id_alongside_platform_id(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="channel",
+            platform_id="thread-1",
+            thread_id="thread-1",
+            display_name="my-thread",
+            username=None,
+        )
+        entry = await connector_directory_repo.get("c1", "channel", "thread-1")
+        assert entry.thread_id == "thread-1"
+
+    async def test_search_case_insensitive_substring_over_display_name_and_username(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        await connector_repo.create(
+            Connector(id="c1", name="t", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Alice Wonderland",
+            username=None,
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p2",
+            thread_id=None,
+            display_name="Bob",
+            username="ALICEFAN",
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p3",
+            thread_id=None,
+            display_name="Carl",
+            username=None,
+        )
+        results = await connector_directory_repo.search("bot-1", "aLiCe")
+        assert {r.platform_id for r in results} == {"p1", "p2"}
+
+    async def test_search_unbound_agent_returns_empty_not_error(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        assert await connector_directory_repo.search("no-such-agent", "anything") == []
+
+    async def test_search_bounded_to_ten_newest_first(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        await connector_repo.create(
+            Connector(id="c1", name="t", type="stub", config={"default_agent": "bot-1"})
+        )
+        for i in range(12):
+            await connector_directory_repo.upsert(
+                connector_id="c1",
+                kind="peer",
+                platform_id=f"p{i}",
+                thread_id=None,
+                display_name=f"Match {i}",
+                username=None,
+            )
+        results = await connector_directory_repo.search("bot-1", "match")
+        assert len(results) == 10
+        # Every upsert commits immediately with its own ``now_iso()`` call
+        # in insertion order, so the newest ten are the last-inserted ten.
+        assert {r.platform_id for r in results} == {f"p{i}" for i in range(2, 12)}
+
+    async def test_search_scoping_default_agent_positive(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        await connector_repo.create(
+            Connector(id="c1", name="t", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Match",
+            username=None,
+        )
+        results = await connector_directory_repo.search("bot-1", "match")
+        assert len(results) == 1
+
+    async def test_search_scoping_negative_unbound_agent_on_a_real_connector(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        await connector_repo.create(
+            Connector(id="c1", name="t", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Match",
+            username=None,
+        )
+        results = await connector_directory_repo.search("some-other-agent", "match")
+        assert results == []
+
+    async def test_search_connector_level_breadth_channel_map_agent_sees_other_channels_and_peers(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        """AC-3's breadth test: the designer ruling is CONNECTOR-level
+        scoping, not per-target. An agent bound only via ONE
+        ``channel_map`` entry (with a DIFFERENT ``default_agent``) still
+        surfaces directory rows from the connector's OTHER channels and
+        peers — an accidental per-target filter would fail this test by
+        excluding ``ch-other``/``peer-1``."""
+        await connector_repo.create(
+            Connector(
+                id="c1",
+                name="t",
+                type="stub",
+                config={
+                    "default_agent": "someone-else",
+                    "channel_map": {"ch-mapped": "bot-1"},
+                },
+            )
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="channel",
+            platform_id="ch-other",
+            thread_id=None,
+            display_name="Other Channel Match",
+            username=None,
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="peer-1",
+            thread_id=None,
+            display_name="Other Peer Match",
+            username=None,
+        )
+        results = await connector_directory_repo.search("bot-1", "match")
+        assert {r.platform_id for r in results} == {"ch-other", "peer-1"}
+
+    async def test_search_connector_id_filter_intersects_with_authorization(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        """An out-of-scope ``connector_id`` filter yields empty, never a
+        bypass of the authorization scope."""
+        await connector_repo.create(
+            Connector(id="c1", name="t", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_repo.create(
+            Connector(id="c2", name="t2", type="stub", config={"default_agent": "someone-else"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c2",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Match",
+            username=None,
+        )
+        results = await connector_directory_repo.search("bot-1", "match", connector_id="c2")
+        assert results == []
+
+    async def test_search_includes_connector_name_via_join(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        """Leg 3 (Mission 23 Flight 4, review HIGH fix): ``search``'s JOIN
+        enriches each raw row with the connector's plaintext ``name`` — the
+        only path to the lookup tool's "connector name included"
+        requirement, since this repository holds no encryptor and never
+        calls ``ConnectorRepository.get`` per candidate."""
+        await connector_repo.create(
+            Connector(id="c1", name="Ops Bot", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Match",
+            username=None,
+        )
+        results = await connector_directory_repo.search("bot-1", "match")
+        assert len(results) == 1
+        assert results[0].connector_name == "Ops Bot"
+
+    async def test_get_does_not_enrich_connector_name(
+        self,
+        connector_repo: ConnectorRepository,
+        connector_directory_repo: ConnectorDirectoryRepository,
+    ) -> None:
+        """Pin: only ``search``'s JOIN enriches ``connector_name`` — ``get``'s
+        exact-match query stays a single-table read (DD-7's session-title
+        consumer needs no connector name)."""
+        await connector_repo.create(
+            Connector(id="c1", name="Ops Bot", type="stub", config={"default_agent": "bot-1"})
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Match",
+            username=None,
+        )
+        entry = await connector_directory_repo.get("c1", "peer", "p1")
+        assert entry is not None
+        assert entry.connector_name is None
+
+    async def test_delete_for_connector_removes_only_that_connectors_rows(
+        self, connector_directory_repo: ConnectorDirectoryRepository
+    ) -> None:
+        await connector_directory_repo.upsert(
+            connector_id="c1",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Alice",
+            username=None,
+        )
+        await connector_directory_repo.upsert(
+            connector_id="c2",
+            kind="peer",
+            platform_id="p1",
+            thread_id=None,
+            display_name="Bob",
+            username=None,
+        )
+        await connector_directory_repo.delete_for_connector("c1")
+        assert await connector_directory_repo.get("c1", "peer", "p1") is None
+        assert await connector_directory_repo.get("c2", "peer", "p1") is not None
 
 
 # ── Chat Session Repository ──────────────────────────────────────────────

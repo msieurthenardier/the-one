@@ -125,14 +125,30 @@ async def _handle_new(connector: Connector, envelope: InboundEnvelope, chat_repo
         await chat_repo.set_session_metadata_key(existing.id, "ended_at", now_iso())
 
 
-def _session_title(envelope: InboundEnvelope) -> str:
-    return f"DM: {envelope.peer_name}" if envelope.is_dm else envelope.channel_id
+async def _session_title(envelope: InboundEnvelope, connector: Connector, dir_repo=None) -> str:
+    """DD-7 (Mission 23 Flight 4): a channel session titles from the
+    directory's ``display_name`` when an entry exists at CREATION time
+    (a later directory update does NOT retro-rename an existing session —
+    stated trade-off); else the raw channel id, as before. DM sessions are
+    unchanged — the peer name was always known directly from the
+    envelope, no directory lookup needed. ``dir_repo=None`` (test/back-
+    compat callers that don't pass one) falls back to the pre-DD-7
+    behavior unconditionally.
+    """
+    if envelope.is_dm:
+        return f"DM: {envelope.peer_name}"
+    if dir_repo is not None:
+        entry = await dir_repo.get(connector.id, "channel", envelope.channel_id)
+        if entry is not None:
+            return entry.display_name
+    return envelope.channel_id
 
 
 async def resolve_session(
     envelope: InboundEnvelope,
     connector: Connector,
     chat_repo,
+    dir_repo=None,
     *,
     agent_name: str,
 ) -> ChatSession:
@@ -143,6 +159,11 @@ async def resolve_session(
     recent matching row when within the continuation window AND it
     carries no ``/new``-written ``ended_at`` sentinel; otherwise creates
     a fresh row.
+
+    ``dir_repo`` (Mission 23 Flight 4 DD-7, OPTIONAL — defaults ``None``
+    for existing callers/tests that don't need directory-named titles) is
+    threaded through to :func:`_session_title` for a fresh session's
+    title only; it plays no role in the reuse lookup above.
     """
     continuation = _resolve_continuation_seconds(override=connector.session_continuation_seconds)
     existing = await chat_repo.find_most_recent_by_external_key(
@@ -166,10 +187,11 @@ async def resolve_session(
                     return existing
 
     current_iso = now_iso()
+    title = await _session_title(envelope, connector, dir_repo)
     new_session = ChatSession(
         id=uuid.uuid4().hex,
         agent_name=agent_name,
-        title=_session_title(envelope),
+        title=title,
         messages="[]",
         created_at=current_iso,
         updated_at=current_iso,
@@ -343,13 +365,18 @@ async def dispatch_inbound(
     """
     from the_one.config import settings
     from the_one.db.connection import get_connection
-    from the_one.db.repositories import ChatSessionRepository, ConnectorRepository
+    from the_one.db.repositories import (
+        ChatSessionRepository,
+        ConnectorDirectoryRepository,
+        ConnectorRepository,
+    )
     from the_one.encryption import get_encryptor
 
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     conn_repo = ConnectorRepository(conn, encryptor)
     chat_repo = ChatSessionRepository(conn)
+    dir_repo = ConnectorDirectoryRepository(conn)
 
     try:
         connector = await conn_repo.get(connector_id)
@@ -364,6 +391,26 @@ async def dispatch_inbound(
         if envelope.is_dm and manager.consume_pairing_code(connector_id, envelope.text.strip()):
             await _pair_peer(connector, envelope.peer_id, conn_repo)
         return
+
+    # DD-4 (Mission 23 Flight 4): record every ADMITTED envelope's peer
+    # into the directory — immediately after admission, BEFORE the
+    # ``/new`` and ``should_reply`` early returns below, so a peer who
+    # says ``/new`` or speaks in a channel the reply policy ignores is
+    # still observed (design review 2026-09-02: "every admitted envelope"
+    # means every admitted envelope). The silence guarantee for
+    # UNadmitted traffic holds because the admission check above already
+    # returned. Fallback chain mirrors the edge case: peer_name, else the
+    # platform-supplied username, else the raw peer id — never an
+    # empty-string name in the directory.
+    display_name = envelope.peer_name or envelope.peer_username or envelope.peer_id
+    await dir_repo.upsert(
+        connector_id=connector_id,
+        kind="peer",
+        platform_id=envelope.peer_id,
+        thread_id=None,
+        display_name=display_name,
+        username=envelope.peer_username,
+    )
 
     if envelope.text.strip() == "/new":
         await _handle_new(connector, envelope, chat_repo)
@@ -382,7 +429,9 @@ async def dispatch_inbound(
         logger.warning("dispatch_inbound: no application factory installed; dropping inbound")
         return
 
-    session_row = await resolve_session(envelope, connector, chat_repo, agent_name=agent_name)
+    session_row = await resolve_session(
+        envelope, connector, chat_repo, dir_repo, agent_name=agent_name
+    )
 
     async with session_locks[session_row.id]:
         await chat_repo.update_last_inbound(session_row.id, now_iso())

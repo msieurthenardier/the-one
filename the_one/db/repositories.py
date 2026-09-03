@@ -21,6 +21,7 @@ from the_one.db.models import (
     AgentRevision,
     ChatSession,
     Connector,
+    ConnectorDirectoryEntry,
     KBItem,
     KnowledgeBase,
     LLMProviderConfig,
@@ -700,6 +701,157 @@ class ConnectorRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+
+# ── Connector directory repository ───────────────────────────────────────
+
+
+class ConnectorDirectoryRepository:
+    """Async access to ``connector_directory`` (v39, DD-4) — passively
+    observed platform peer/channel names. Sibling to
+    :class:`ConnectorRepository` in construction shape (one ``conn``), but
+    deliberately carries NO encryptor: the table holds no secrets (DD-4),
+    so there is no ciphertext envelope to thread through.
+
+    Two named methods per DD-4/DD-5/DD-7's repository-surface design
+    review: :meth:`search` (agent-scoped candidates, leg 3's lookup tool)
+    and :meth:`get` (exact-match, DD-7's session-title consumer). Both
+    return RAW rows (:class:`ConnectorDirectoryEntry` — ``kind``,
+    ``platform_id``, ``thread_id``, names) — leg 3's tool performs the
+    DD-5 literal-key translation to ``peer_id``/``channel_id``; that
+    boundary is pinned here so leg 3 doesn't guess. "RAW" describes
+    key-translation status (``platform_id``/``thread_id`` are not yet
+    translated), not single-table provenance: :meth:`search` additionally
+    JOINs ``connectors`` for a plaintext ``connector_name`` column (leg 3,
+    review HIGH fix) — a compatible extension of this boundary, not a
+    breach of it.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def upsert(
+        self,
+        *,
+        connector_id: str,
+        kind: str,
+        platform_id: str,
+        thread_id: str | None,
+        display_name: str,
+        username: str | None,
+    ) -> None:
+        """Upsert-on-change (DD-4's write-per-message guard): a write is
+        skipped entirely — including ``last_seen`` — when an existing row
+        already carries the same ``display_name`` + ``username``. Callers
+        are responsible for never passing an empty-string ``display_name``
+        (the edge-case fallback chain — name, else username, else the raw
+        platform id — lives at each call site, not here)."""
+        async with self.conn.execute(
+            "SELECT display_name, username FROM connector_directory "
+            "WHERE connector_id = ? AND kind = ? AND platform_id = ?",
+            (connector_id, kind, platform_id),
+        ) as cur:
+            existing = await cur.fetchone()
+        if (
+            existing is not None
+            and existing["display_name"] == display_name
+            and existing["username"] == username
+        ):
+            return
+        await self.conn.execute(
+            "INSERT INTO connector_directory "
+            "(connector_id, kind, platform_id, thread_id, display_name, username, last_seen) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(connector_id, kind, platform_id) DO UPDATE SET "
+            "thread_id = excluded.thread_id, display_name = excluded.display_name, "
+            "username = excluded.username, last_seen = excluded.last_seen",
+            (connector_id, kind, platform_id, thread_id, display_name, username, now_iso()),
+        )
+        await self.conn.commit()
+
+    async def get(
+        self, connector_id: str, kind: str, platform_id: str
+    ) -> ConnectorDirectoryEntry | None:
+        """DD-7's exact-match consumer (session-title resolution)."""
+        async with self.conn.execute(
+            "SELECT connector_id, kind, platform_id, thread_id, display_name, username, last_seen "
+            "FROM connector_directory WHERE connector_id = ? AND kind = ? AND platform_id = ?",
+            (connector_id, kind, platform_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return ConnectorDirectoryEntry(**dict(row))
+
+    async def search(
+        self, agent_name: str, query: str, connector_id: str | None = None
+    ) -> list[ConnectorDirectoryEntry]:
+        """DD-5's candidate lookup, agent-scoped.
+
+        Search scoping is CONNECTOR-LEVEL by design (designer ruling,
+        2026-09-02): a connector is in scope when ``agent_name`` appears
+        ANYWHERE in its binding (``config.default_agent`` OR any
+        ``config.channel_map`` value) — a deliberate simplification, NOT
+        per-target precision. Rationale: send-time authorization remains
+        the real per-target gate (unchanged, enforced in
+        ``tools/connector_send.py``); this lookup exposes only names
+        within one connector, which is one operator trust domain; a
+        per-target search filter would duplicate the send matrix for
+        marginal privacy inside a domain the operator already configured.
+        Queries ``connectors.config`` directly (plaintext JSON column, no
+        ``secrets`` touched) rather than going through
+        :class:`ConnectorRepository` — this repository holds no
+        encryptor, by design (DD-4).
+
+        Case-insensitive substring match over ``display_name`` OR
+        ``username``; ≤10 rows, newest ``last_seen`` first. ``connector_id``
+        is an OPTIONAL further narrowing — it is intersected with, never a
+        substitute for, the authorization scope above, so passing an
+        out-of-scope id yields an empty result rather than a bypass. An
+        unbound agent (no connector names it) returns an empty result, not
+        an error.
+
+        Leg 3 (review HIGH fix): the SELECT gains a plain JOIN to
+        ``connectors`` returning its plaintext ``name`` as ``connector_name``
+        — one more RAW column, no encryptor, no per-candidate
+        :class:`ConnectorRepository` lookup (``connectors.name`` is never
+        secret). This is the only enrichment path; :meth:`get` stays a
+        single-table exact-match read.
+        """
+        async with self.conn.execute("SELECT id, config FROM connectors") as cur:
+            connector_rows = await cur.fetchall()
+        authorized_ids: list[str] = []
+        for row in connector_rows:
+            config = json.loads(row["config"] or "{}")
+            channel_map = config.get("channel_map") or {}
+            if config.get("default_agent") == agent_name or agent_name in channel_map.values():
+                authorized_ids.append(row["id"])
+        if connector_id is not None:
+            authorized_ids = [c for c in authorized_ids if c == connector_id]
+        if not authorized_ids:
+            return []
+
+        placeholders = ", ".join("?" for _ in authorized_ids)
+        like = f"%{query.lower()}%"
+        async with self.conn.execute(
+            "SELECT cd.connector_id, cd.kind, cd.platform_id, cd.thread_id, "
+            "cd.display_name, cd.username, cd.last_seen, c.name AS connector_name "
+            "FROM connector_directory cd JOIN connectors c ON c.id = cd.connector_id "
+            f"WHERE cd.connector_id IN ({placeholders}) "
+            "AND (LOWER(cd.display_name) LIKE ? OR LOWER(cd.username) LIKE ?) "
+            "ORDER BY cd.last_seen DESC LIMIT 10",
+            (*authorized_ids, like, like),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [ConnectorDirectoryEntry(**dict(r)) for r in rows]
+
+    async def delete_for_connector(self, connector_id: str) -> None:
+        """DD-1g: one deterministic DELETE, wired into the connector
+        delete route. No FK/cascade (DD-4) — this is the mechanism."""
+        await self.conn.execute(
+            "DELETE FROM connector_directory WHERE connector_id = ?", (connector_id,)
+        )
+        await self.conn.commit()
 
 
 # ── Agent revision repository ────────────────────────────────────────────

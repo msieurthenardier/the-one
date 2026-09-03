@@ -4328,3 +4328,192 @@ class TestSchemaV38:
         assert versions.count(38) == 1, f"v38 row should appear exactly once: {versions}"
 
         await conn.close()
+
+
+assert CURRENT_VERSION >= 39, (
+    f"CURRENT_VERSION must be >= 39 for TestSchemaV39 tests (got {CURRENT_VERSION})"
+)
+
+
+class TestSchemaV39:
+    """Tests for the v39 migration (mission RQ10, Mission 23 Flight 4 Leg
+    1) — THE LAST migration step this mission authorizes. Two payloads:
+    ``connectors.type`` CHECK gains ``'telegram'`` (table-rewrite
+    ceremony, same-name rewrite); ``connector_directory`` (DD-4 schema,
+    ``CREATE TABLE IF NOT EXISTS`` per the v21 precedent).
+    """
+
+    async def test_v39_upgrade_from_fresh_db(self, tmp_path) -> None:
+        """A fresh DB lands v39: the CHECK accepts 'telegram' and still
+        rejects an unknown type; ``connector_directory`` exists with the
+        DD-4 columns incl. ``thread_id``; ``CURRENT_VERSION == 39``."""
+        import sqlite3
+
+        db_path = tmp_path / "v39-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # CHECK admits 'telegram' (asserted both ways per AC-1).
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config, secrets, created_at, updated_at) "
+            "VALUES ('tg-1', 'TG', 'telegram', '{}', '{}', 't', 't')"
+        )
+        await conn.commit()
+        async with conn.execute("SELECT type FROM connectors WHERE id = 'tg-1'") as cur:
+            row = await cur.fetchone()
+        assert row["type"] == "telegram"
+
+        with pytest.raises(sqlite3.IntegrityError):
+            await conn.execute(
+                "INSERT INTO connectors (id, type) VALUES (?, ?)",
+                ("bad-1", "not-a-connector-type"),
+            )
+        await conn.rollback()
+
+        # connector_directory exists with the DD-4 columns (incl. thread_id).
+        async with conn.execute("PRAGMA table_info(connector_directory)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert cols == {
+            "connector_id",
+            "kind",
+            "platform_id",
+            "thread_id",
+            "display_name",
+            "username",
+            "last_seen",
+        }, cols
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+        assert CURRENT_VERSION == 39
+
+        await conn.close()
+
+    async def test_v39_upgrade_from_v38_db_preserves_connector_rows(self, tmp_path) -> None:
+        """A v38-shaped database (v39 rewound) upgrades cleanly: an
+        existing 'discord'-typed row survives the rewrite verbatim, and
+        'telegram' becomes insertable post-migration."""
+        db_path = tmp_path / "v39-from-v38.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config, secrets, created_at, updated_at) "
+            "VALUES ('d-1', 'My Discord', 'discord', '{\"default_agent\": \"bot-1\"}', "
+            "'{}', 'created-t', 'updated-t')"
+        )
+        await conn.commit()
+
+        # Rewind the stamp only (structure already at v39's post-shape) —
+        # simulates a v38 database reaching ensure_schema for the first
+        # time under this code version.
+        await conn.execute("DELETE FROM schema_version WHERE version >= 39")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT name, type, config, created_at FROM connectors WHERE id = 'd-1'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["name"] == "My Discord"
+        assert row["type"] == "discord"
+        assert row["config"] == '{"default_agent": "bot-1"}'
+        assert row["created_at"] == "created-t"
+
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config, secrets, created_at, updated_at) "
+            "VALUES ('tg-1', 'TG', 'telegram', '{}', '{}', 't', 't')"
+        )
+        await conn.commit()
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v39_idempotent_on_double_ensure(self, tmp_path) -> None:
+        """ensure_schema twice on a fresh DB: v39 stamped exactly once."""
+        db_path = tmp_path / "v39-double.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(39) == 1, f"v39 row should appear exactly once: {versions}"
+
+        await conn.close()
+
+    async def test_v39_tolerant_of_rewind_rerun(self, tmp_path) -> None:
+        """The rewind-re-run pattern (``TestSchemaV7::
+        test_v7_strips_removed_tool_names``'s pattern, applied here):
+        deleting every ``schema_version`` row from 7 upward and re-running
+        ``ensure_schema`` re-fires the ENTIRE v13/v19/v23/v38/v39 chain.
+        Must not raise; the CHECK/table shape must survive intact — the
+        edge case this leg's spec calls out as needing LESS machinery than
+        v19/v23 (same-name rewrite, naturally idempotent).
+
+        NOTE: this full v7-and-up rewind also re-fires v38's OWN
+        documented-unconditional ``DELETE FROM connectors`` step (its
+        docstring: "intentionally unconditional... a stamp rewind is a
+        test-only structural-idempotency artifact"), so any row inserted
+        before the rewind does NOT survive THIS specific re-run — that is
+        v38's existing, pre-leg behavior, not a v39 regression. v39's own
+        stamp-only-rewind row-preservation is covered by
+        ``test_v39_upgrade_from_v38_db_preserves_connector_rows`` above
+        (which deletes only ``version >= 39``, not the full v7+ cascade).
+        """
+        import sqlite3
+
+        db_path = tmp_path / "v39-rewind.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute("DELETE FROM schema_version WHERE version >= 7")
+        await conn.commit()
+
+        await ensure_schema(conn)  # must not raise
+
+        # Post-rewind, the CHECK still admits 'telegram' and rejects an
+        # unknown type.
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config, secrets, created_at, updated_at) "
+            "VALUES ('tg-1', 'TG', 'telegram', '{}', '{}', 't', 't')"
+        )
+        await conn.commit()
+        async with conn.execute("SELECT type FROM connectors WHERE id = 'tg-1'") as cur:
+            row = await cur.fetchone()
+        assert row["type"] == "telegram"
+
+        with pytest.raises(sqlite3.IntegrityError):
+            await conn.execute(
+                "INSERT INTO connectors (id, type) VALUES (?, ?)",
+                ("bad-2", "not-a-connector-type"),
+            )
+        await conn.rollback()
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        # connector_directory survived the re-run (CREATE TABLE IF NOT
+        # EXISTS, naturally idempotent) and is still queryable/writable.
+        async with conn.execute("SELECT COUNT(*) FROM connector_directory") as cur:
+            assert (await cur.fetchone())[0] == 0
+        await conn.execute(
+            "INSERT INTO connector_directory "
+            "(connector_id, kind, platform_id, thread_id, display_name, username, last_seen) "
+            "VALUES ('tg-1', 'peer', 'p1', NULL, 'Alice', NULL, 't')"
+        )
+        await conn.commit()
+
+        await conn.close()

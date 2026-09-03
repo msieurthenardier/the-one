@@ -318,6 +318,206 @@ async def test_human_authored_message_is_unaffected_by_the_amendment():
         await rest.aclose()
 
 
+async def test_translate_message_create_sets_peer_username_from_author():
+    """AC-4: peer_username flows from the discord construction site
+    (author.username) -- distinct from peer_name, which prefers
+    global_name."""
+    from the_one.connectors.discord.plugin import _translate_message_create
+
+    state = _AccountState(bot_user_id=BOT_ID)
+    rest = RestClient(
+        "tok",
+        base_url="https://discord.test/api/v10",
+        transport=httpx.MockTransport(_channel_type_handler),
+    )
+    try:
+        envelope = await _translate_message_create(
+            state,
+            rest,
+            {
+                "channel_id": "guild-text-1",
+                "content": "hi",
+                "author": {"id": "peer-9", "username": "dana_handle", "global_name": "Dana G"},
+                "mentions": [],
+            },
+            "acc-1",
+        )
+        assert envelope is not None
+        assert envelope.peer_name == "Dana G"
+        assert envelope.peer_username == "dana_handle"
+    finally:
+        await rest.aclose()
+
+
+# ── AC-5: directory channel-name capture ────────────────────────────────
+
+
+async def _channel_type_and_name_handler(request: httpx.Request) -> httpx.Response:
+    channel_id = request.url.path.rsplit("/", 1)[-1]
+    catalog = {
+        "guild-text-1": {"type": 0, "name": "general"},
+        "thread-1": {"type": 11, "name": "my-thread"},
+        "dm-channel-1": {"type": 1},  # Discord DMs carry no "name".
+    }
+    return httpx.Response(200, json={"id": channel_id, **catalog.get(channel_id, {"type": 0})})
+
+
+async def test_channel_name_capture_upserts_directory_entry(isolated_db):
+    """AC-5: the existing channel-resolution path upserts (channel id,
+    name) into the directory."""
+    from the_one.connectors.discord.plugin import _translate_message_create
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    state = _AccountState(bot_user_id=BOT_ID)
+    rest = RestClient(
+        "tok",
+        base_url="https://discord.test/api/v10",
+        transport=httpx.MockTransport(_channel_type_and_name_handler),
+    )
+    try:
+        envelope = await _translate_message_create(
+            state,
+            rest,
+            {
+                "channel_id": "guild-text-1",
+                "content": "hi",
+                "author": {"id": "peer-9", "username": "Dana"},
+                "mentions": [],
+            },
+            "acc-1",
+        )
+        assert envelope is not None
+    finally:
+        await rest.aclose()
+
+    conn = await get_connection()
+    entry = await ConnectorDirectoryRepository(conn).get("acc-1", "channel", "guild-text-1")
+    assert entry is not None
+    assert entry.display_name == "general"
+    assert entry.thread_id is None
+
+
+async def test_channel_name_capture_thread_shape_stores_thread_id_alongside(isolated_db):
+    """AC-5: a thread-typed channel stores the DD-4 thread shape --
+    platform_id is the thread's own send-addressable id, thread_id
+    carried alongside it."""
+    from the_one.connectors.discord.plugin import _translate_message_create
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    state = _AccountState(bot_user_id=BOT_ID)
+    rest = RestClient(
+        "tok",
+        base_url="https://discord.test/api/v10",
+        transport=httpx.MockTransport(_channel_type_and_name_handler),
+    )
+    try:
+        envelope = await _translate_message_create(
+            state,
+            rest,
+            {
+                "channel_id": "thread-1",
+                "content": "in a thread",
+                "author": {"id": "peer-9", "username": "Dana"},
+                "mentions": [],
+            },
+            "acc-1",
+        )
+        assert envelope is not None
+        assert envelope.thread_id == "thread-1"
+    finally:
+        await rest.aclose()
+
+    conn = await get_connection()
+    entry = await ConnectorDirectoryRepository(conn).get("acc-1", "channel", "thread-1")
+    assert entry is not None
+    assert entry.display_name == "my-thread"
+    assert entry.thread_id == "thread-1"
+
+
+async def test_dm_channel_carries_no_name_and_is_not_captured(isolated_db):
+    """A DM/group-DM ``Get Channel`` response carries no 'name' -- the
+    upsert is skipped (never an empty-string name in the directory), so a
+    DM never gets a channel-kind directory row (its peer is recorded
+    separately, by ``dispatch_inbound``'s peer hook)."""
+    from the_one.connectors.discord.plugin import _translate_message_create
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    state = _AccountState(bot_user_id=BOT_ID)
+    rest = RestClient(
+        "tok",
+        base_url="https://discord.test/api/v10",
+        transport=httpx.MockTransport(_channel_type_and_name_handler),
+    )
+    try:
+        envelope = await _translate_message_create(
+            state,
+            rest,
+            {
+                "channel_id": "dm-channel-1",
+                "content": "hello dm",
+                "author": {"id": "peer-1", "username": "Alice"},
+                "mentions": [],
+            },
+            "acc-1",
+        )
+        assert envelope is not None
+        assert envelope.is_dm is True
+    finally:
+        await rest.aclose()
+
+    conn = await get_connection()
+    entry = await ConnectorDirectoryRepository(conn).get("acc-1", "channel", "dm-channel-1")
+    assert entry is None
+
+
+async def test_channel_name_captured_once_per_process_lifetime_not_on_every_message(
+    isolated_db,
+):
+    """AC-5's honesty contract: the upsert only fires on a
+    ``channel_type_cache`` MISS, so a channel's name is captured AT MOST
+    ONCE per process lifetime -- a second message in the same channel
+    does not re-fetch or re-observe a renamed value. The cache
+    deliberately survives reconnects (``_AccountState``'s documented
+    contract); a rename is observed only after a process restart."""
+    from the_one.connectors.discord.plugin import _translate_message_create
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import ConnectorDirectoryRepository
+
+    call_count = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(
+            200, json={"id": "guild-text-1", "type": 0, "name": f"name-at-call-{call_count}"}
+        )
+
+    state = _AccountState(bot_user_id=BOT_ID)
+    rest = RestClient(
+        "tok", base_url="https://discord.test/api/v10", transport=httpx.MockTransport(handler)
+    )
+    d = {
+        "channel_id": "guild-text-1",
+        "content": "hi",
+        "author": {"id": "peer-9", "username": "Dana"},
+        "mentions": [],
+    }
+    try:
+        await _translate_message_create(state, rest, d, "acc-1")
+        await _translate_message_create(state, rest, dict(d, content="hi again"), "acc-1")
+    finally:
+        await rest.aclose()
+
+    assert call_count == 1  # cache hit on the second message -- no re-fetch
+
+    conn = await get_connection()
+    entry = await ConnectorDirectoryRepository(conn).get("acc-1", "channel", "guild-text-1")
+    assert entry.display_name == "name-at-call-1"
+
+
 async def test_connect_threads_config_allowlist_peers_into_account_state(tmp_path: Path):
     """Wiring: ``connect()`` populates ``_AccountState.allowlist_peers``
     from ``account.config.allowlist.peers`` on every (re)connect, so a
