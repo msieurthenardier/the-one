@@ -298,7 +298,7 @@ when done directly against their APIs.
       limiting and 429 handling, the ~10 endpoints a text bot needs, a
       fake-gateway fixture at the shared tests root, a live HAT and a
       behavior test against the operator's bot.
-- [ ] Flight 4: Telegram + name directory — second platform through the same
+- [x] Flight 4: Telegram + name directory — second platform through the same
       contract on `httpx` long-poll (proves the reworded additive-seam
       criterion); the passively-populated name directory + lookup tool
       (multi-connector validation); v39 (RQ10); connector setup help file;

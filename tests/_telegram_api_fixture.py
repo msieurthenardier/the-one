@@ -30,6 +30,23 @@ class FakeTelegramApi:
     401/404/409; ordinary: 500 etc.); ``429`` triggers Telegram's
     ``retry_after`` shape once, then reverts to normal on the retry.
     ``calls`` logs every ``(method, payload)`` for offset/shape assertions.
+
+    ``reject_parse_mode_once`` (Mission 23 Flight 4, HAT step 8 -- Telegram
+    formatted rendering): a one-shot-400 capability for ``sendMessage``,
+    analogous to the existing ``429`` one-shot handling above but keyed on
+    ``"parse_mode" in payload`` rather than on method name alone, so a
+    test can script the plugin's own mechanical fallback (a formatted
+    attempt gets rejected once, the plain-text retry that follows must
+    NOT carry ``parse_mode`` and so sails through). This check runs
+    BEFORE the generic ``error_status``/429 handling below, which is what
+    lets a test compose the two: e.g. ``reject_parse_mode_once=True`` +
+    ``error_status={"sendMessage": 429}`` scripts "400 first (on the
+    parse_mode attempt), then 429 on the plain-text fallback retry" in
+    one fixture -- the fallback retry's own 429 is absorbed by ``_api``'s
+    already-existing one-shot-429 retry, so the plugin still only sees a
+    plain success. Fires at most once, on the first ``sendMessage`` call
+    whose payload contains ``parse_mode``; every other call (with or
+    without ``parse_mode``) is unaffected.
     """
 
     def __init__(
@@ -40,15 +57,18 @@ class FakeTelegramApi:
         send_message_result: dict[str, Any] | None = None,
         error_status: dict[str, int] | None = None,
         empty_poll_delay: float = 0.02,
+        reject_parse_mode_once: bool = False,
     ) -> None:
         self.me = me or {"id": 111, "is_bot": True, "username": "TestBot"}
         self.updates: list[dict[str, Any]] = list(updates or [])
         self.send_message_result = send_message_result or {"message_id": 999}
         self.error_status = dict(error_status or {})
         self.empty_poll_delay = empty_poll_delay
+        self.reject_parse_mode_once = reject_parse_mode_once
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.sent_messages: list[dict[str, Any]] = []
         self._sent_429_once: set[str] = set()
+        self._rejected_parse_mode_once = False
 
     def schedule(self, update: dict[str, Any]) -> None:
         """Append one update -- visible to the NEXT ``getUpdates`` call
@@ -62,6 +82,22 @@ class FakeTelegramApi:
         method = request.url.path.rsplit("/", 1)[-1]
         payload = json.loads(request.content or b"{}")
         self.calls.append((method, payload))
+
+        if (
+            method == "sendMessage"
+            and self.reject_parse_mode_once
+            and not self._rejected_parse_mode_once
+            and "parse_mode" in payload
+        ):
+            self._rejected_parse_mode_once = True
+            return httpx.Response(
+                400,
+                json={
+                    "ok": False,
+                    "error_code": 400,
+                    "description": "fake 400: can't parse entities",
+                },
+            )
 
         status = self.error_status.get(method)
         if status == 429 and method not in self._sent_429_once:

@@ -1,13 +1,13 @@
 # Flight: Telegram and the Name Directory
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Connector Reset](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] A Telegram peer gets the same round-trip through the same contract; every shared-code touch is named, minimal, and platform-agnostic in its DD (the reworded additive-seam criterion, 2026-09-02)
-- [ ] Name-directory send targeting (mission criterion added 2026-09-02): observed-name directory, separate lookup tool, ambiguity surfaced, multi-connector
-- [ ] A new live HAT exists for Telegram (mission criterion 10's Telegram half)
-- [ ] *(running count)* Connector Python within 3,000 (1,782 used; this flight targets ≤700 total: Telegram subpackage ≤350, directory/tool/migration/refactor ≤350); JS within 1,000 (~720 used; target ≤30 — the generic form should cover Telegram)
+- [x] A Telegram peer gets the same round-trip through the same contract; every shared-code touch is named, minimal, and platform-agnostic in its DD (the reworded additive-seam criterion, 2026-09-02)
+- [x] Name-directory send targeting (mission criterion added 2026-09-02): observed-name directory, separate lookup tool, ambiguity surfaced, multi-connector
+- [x] A new live HAT exists for Telegram (mission criterion 10's Telegram half)
+- [x] *(running count)* Connector Python within 3,000 (1,782 used; this flight targets ≤700 total: Telegram subpackage ≤350, directory/tool/migration/refactor ≤350); JS within 1,000 (~720 used; target ≤30 — the generic form should cover Telegram)
 
 ---
 
@@ -82,7 +82,7 @@ Land Telegram as the second real platform through the Flight 2 contract — a lo
 ### Pre-Flight Checklist
 - [x] All open questions resolved (mission RQ10/RQ11 + criterion rewording recorded in mission.md)
 - [x] Design decisions documented (11 DDs)
-- [ ] Prerequisites verified (bot token + privacy mode at leg 4; rest verified)
+- [x] Prerequisites verified (bot token + privacy mode at leg 4; rest verified)
 - [x] Validation approach defined (stub behavior gate; fake Bot API fixture; guided HAT)
 - [x] Legs defined (4: schema-and-shared, telegram-client, directory-tool-and-gate, hat-alignment)
 
@@ -118,17 +118,17 @@ Schema first (leg 1: v39 executed live, lockstep type set, repository, passive-p
 - [x] `schema-and-shared` - v39 (CHECK + `connector_directory` incl. `thread_id`, executed live) + lockstep type set + `ConnectorDirectoryRepository` (query + exact-match methods) + passive-population hooks (inbound peers pre-early-return, incl. optional `peer_username` envelope field + stub-seam passthrough; Discord channel-name capture) + delete-route directory cleanup + DD-7 session titles + DD-8 `keying_to_target` extraction
 - [x] `telegram-client` - `the_one/connectors/telegram/` (long-poll `_api` + plugin + translate + **`chat.title` → directory channel upsert**, DD-4b's Telegram half) + production registration + `tests/_telegram_api_fixture.py` + unit tests (offset semantics, 401/409 permanent-failure, error→manager-backoff, translation incl. is_dm/mentions/bot-drop-with-allowlist, at-least-once note, directory upsert-on-change) + DD-9 setup help file
 - [x] `directory-tool-and-gate` - lookup tool + read-authorization + DD-6 carve-out generalization + pin tests + finalize and RUN `directory-lookup-send` (FD-run stub gate)
-- [ ] `hat-alignment` *(interactive)* - guided HAT: Telegram DM/pairing/group/`/new` live + cross-connector name-addressed sends + daily-driver alignment
+- [x] `hat-alignment` *(interactive)* - guided HAT: Telegram DM/pairing/group/`/new` live + cross-connector name-addressed sends + daily-driver alignment
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `make test-unit` + browser lanes green; no new deps in `uv.lock`; v39 idempotency proven.

@@ -66,12 +66,22 @@ class TelegramApiClient:
         return self._handle_response("getUpdates", resp) or []
 
     async def send_message(
-        self, *, chat_id: str, text: str, message_thread_id: str | None = None
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        message_thread_id: str | None = None,
+        parse_mode: str | None = None,
     ) -> dict[str, Any]:
-        # Plain text, no parse_mode; one bounded retry on 429 (else raises).
+        # One bounded retry on 429 (else raises). `parse_mode` is OPTIONAL
+        # and omitted from the payload when None -- mirrors the
+        # `message_thread_id` pattern immediately below (Mission 23
+        # Flight 4, HAT step 8: Telegram formatted rendering).
         payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if message_thread_id is not None:
             payload["message_thread_id"] = message_thread_id
+        if parse_mode is not None:
+            payload["parse_mode"] = parse_mode
         resp = await self._post("sendMessage", payload, timeout=_ORDINARY_HTTP_TIMEOUT)
         if resp.status_code == 429:
             data = resp.json() if resp.content else {}

@@ -440,27 +440,115 @@ def _client_for_send(fake: FakeTelegramApi) -> TelegramClient:
 
 
 async def test_send_channel_target_with_thread():
+    # Updated for Telegram formatted rendering (Mission 23 Flight 4, HAT
+    # step 8): TelegramClient.send() now converts `content` and sends it
+    # with parse_mode="HTML". Plain "hi" has no markdown constructs, so
+    # the converted text is unchanged -- only `parse_mode` is new here.
     fake = FakeTelegramApi(send_message_result={"message_id": 321})
     client = _client_for_send(fake)
     target = ChannelTarget(connector_id="acc-1", channel_id="c1", thread_id="t1")
     result = await client.send(target, "hi")
     assert result.platform_message_id == "321"
-    assert fake.sent_messages[0] == {"chat_id": "c1", "text": "hi", "message_thread_id": "t1"}
+    assert fake.sent_messages[0] == {
+        "chat_id": "c1",
+        "text": "hi",
+        "message_thread_id": "t1",
+        "parse_mode": "HTML",
+    }
 
 
 async def test_send_channel_target_without_thread():
+    # Updated for Telegram formatted rendering -- see comment above.
     fake = FakeTelegramApi()
     client = _client_for_send(fake)
     await client.send(ChannelTarget(connector_id="acc-1", channel_id="c1"), "hi")
     assert "message_thread_id" not in fake.sent_messages[0]
+    assert fake.sent_messages[0]["parse_mode"] == "HTML"
 
 
 async def test_send_peer_target():
+    # Updated for Telegram formatted rendering -- see comment above.
     fake = FakeTelegramApi()
     client = _client_for_send(fake)
     await client.send(PeerTarget(connector_id="acc-1", peer_id="peer-9"), "hi")
     assert fake.sent_messages[0]["chat_id"] == "peer-9"
     assert "message_thread_id" not in fake.sent_messages[0]
+    assert fake.sent_messages[0]["parse_mode"] == "HTML"
+
+
+# ── AC-7b: formatted rendering + mechanical fallback (HAT step 8) ──────────
+
+
+async def test_send_converts_markdown_and_uses_html_parse_mode():
+    fake = FakeTelegramApi()
+    client = _client_for_send(fake)
+    await client.send(PeerTarget(connector_id="acc-1", peer_id="peer-9"), "**bold** and *italic*")
+    assert len(fake.sent_messages) == 1
+    assert fake.sent_messages[0] == {
+        "chat_id": "peer-9",
+        "text": "<b>bold</b> and <i>italic</i>",
+        "parse_mode": "HTML",
+    }
+
+
+async def test_send_400_reject_falls_back_to_plain_text_once():
+    # Fixture rejects the first sendMessage call that carries parse_mode
+    # with a 400; the plugin's mechanical fallback must retry exactly
+    # once, with the ORIGINAL (unconverted) text and no parse_mode.
+    fake = FakeTelegramApi(reject_parse_mode_once=True)
+    client = _client_for_send(fake)
+    result = await client.send(PeerTarget(connector_id="acc-1", peer_id="peer-9"), "**bold**")
+    assert result.platform_message_id == "999"
+    # Exactly one FINAL delivered payload -- the rejected attempt never
+    # reaches `sent_messages` (the fixture only appends on success).
+    assert len(fake.sent_messages) == 1
+    assert fake.sent_messages[0] == {"chat_id": "peer-9", "text": "**bold**"}
+    # Two raw HTTP calls: the rejected parse_mode attempt + the plain retry.
+    send_calls = [c for c in fake.calls if c[0] == "sendMessage"]
+    assert len(send_calls) == 2
+    assert "parse_mode" in send_calls[0][1]
+    assert "parse_mode" not in send_calls[1][1]
+
+
+async def test_send_400_then_fallback_429_no_double_send():
+    # Combined path: the formatted attempt is rejected with a 400 (the
+    # fixture's one-shot parse_mode reject), and the plain-text retry
+    # that follows then hits a 429 -- absorbed transparently by `_api`'s
+    # own one-shot-429 retry (a SEPARATE, already-existing mechanism).
+    # Only one message is ever actually delivered.
+    fake = FakeTelegramApi(reject_parse_mode_once=True, error_status={"sendMessage": 429})
+    client = _client_for_send(fake)
+    result = await client.send(PeerTarget(connector_id="acc-1", peer_id="peer-9"), "**bold**")
+    assert result.platform_message_id == "999"
+    assert len(fake.sent_messages) == 1
+    assert fake.sent_messages[0] == {"chat_id": "peer-9", "text": "**bold**"}
+    # Three raw HTTP calls: 400 (parse_mode) -> 429 (plain retry) -> 200
+    # (`_api`'s internal 429 retry, still plain).
+    send_calls = [c for c in fake.calls if c[0] == "sendMessage"]
+    assert len(send_calls) == 3
+    assert "parse_mode" in send_calls[0][1]
+    assert "parse_mode" not in send_calls[1][1]
+    assert "parse_mode" not in send_calls[2][1]
+
+
+async def test_send_converter_raises_falls_back_to_original_text_no_parse_mode(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Review HIGH structural guarantee: ANY converter failure degrades to
+    # the original unconverted text with no parse_mode -- and the
+    # parse_mode attempt is never even made (no wasted/rejected call).
+    def _raise(_text: str) -> str:
+        raise ValueError("boom")
+
+    monkeypatch.setattr("the_one.connectors.telegram.plugin.render_telegram_html", _raise)
+    fake = FakeTelegramApi()
+    client = _client_for_send(fake)
+    result = await client.send(PeerTarget(connector_id="acc-1", peer_id="peer-9"), "**bold**")
+    assert result.platform_message_id == "999"
+    assert fake.sent_messages == [{"chat_id": "peer-9", "text": "**bold**"}]
+    send_calls = [c for c in fake.calls if c[0] == "sendMessage"]
+    assert len(send_calls) == 1
+    assert "parse_mode" not in send_calls[0][1]
 
 
 # ── AC-8: Protocol conformance ───────────────────────────────────────────

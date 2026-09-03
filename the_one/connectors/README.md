@@ -397,7 +397,31 @@ at lifespan startup, same block pattern as Discord.
   maps to `chat_id=channel_id` (+ `message_thread_id` when set); a
   `PeerTarget` maps to `chat_id=peer_id` directly — Telegram's DM chat id
   IS the user id, so there is no Create-DM REST step (unlike Discord).
-  Plain text only, no `parse_mode` (no entity-escaping surface).
+- **Formatted rendering (HAT step 8, daily-driver fix promoted through a
+  scoped review)**: `TelegramClient.send()` runs `content` through
+  `_render.render_telegram_html` (a small hand-rolled, dependency-free
+  markdown → Telegram-HTML converter — `<b> <i> <a href> <code> <pre>`
+  only; tables/headings degrade, list markers stay literal text) and
+  sends with `parse_mode="HTML"`. `_api.TelegramApiClient.send_message`
+  gained an **optional** `parse_mode` param, omitted from the payload
+  when `None` (mirrors the existing `message_thread_id` pattern).
+  Two layers of defense, both exercised by `tests/test_telegram_render.py`
+  and `tests/test_telegram_plugin.py`:
+  - **No-raise guarantee**: `send()` wraps the converter call in
+    `try/except Exception` — any converter failure degrades to the
+    original, unconverted text with no `parse_mode` at all (the
+    formatted attempt is never even made).
+  - **Mechanical fallback**: if the formatted attempt itself raises
+    `TelegramApiError` (any 4xx/5xx/`ok:false` — never string-matched;
+    this also heals HTML-inflation past the 4096-char limit), `send()`
+    retries **once** with the original text and no `parse_mode`. A
+    second failure re-raises normally. `_api`'s own one-shot-429 retry
+    stays self-contained inside each of those two attempts, so at most
+    two independent send attempts ever happen — no double-delivery
+    combination exists. Fallback logging records the chat id, the error
+    description, and before/after byte-lengths — **never the message
+    content** (log-hygiene; see squawk 0037 in this same subpackage,
+    about the token itself leaking via httpx's own request-URL logging).
 - **NO `history` hook.** The Bot API has no message-history endpoint —
   the optional-hook pattern (`ConnectorClient.history`, above) working as
   designed: `TelegramClient` simply omits the method, and

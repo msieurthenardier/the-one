@@ -101,6 +101,16 @@ async def test_ordinary_error_status_raises_telegram_api_error_not_permanent():
         await client.aclose()
 
 
+async def test_send_message_parse_mode_included_when_set():
+    fake = FakeTelegramApi()
+    client = _client(fake)
+    try:
+        await client.send_message(chat_id="c1", text="hey", parse_mode="HTML")
+        assert fake.sent_messages[0] == {"chat_id": "c1", "text": "hey", "parse_mode": "HTML"}
+    finally:
+        await client.aclose()
+
+
 async def test_send_message_429_retries_once_then_succeeds():
     fake = FakeTelegramApi(error_status={"sendMessage": 429})
     client = _client(fake)

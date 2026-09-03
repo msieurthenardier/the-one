@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from the_one.connectors import base
-from the_one.connectors.telegram._api import DEFAULT_BASE_URL, TelegramApiClient
+from the_one.connectors.telegram._api import DEFAULT_BASE_URL, TelegramApiClient, TelegramApiError
+from the_one.connectors.telegram._render import render_telegram_html
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor
 
@@ -138,10 +139,50 @@ class TelegramClient:
     async def send(self, target: base.SendTarget, content: str) -> base.SendResult:
         # DD-2: PeerTarget -> chat_id=peer_id (Telegram DM chat id IS the
         # user id, no Create-DM step); ChannelTarget -> chat_id+thread.
+        # HAT step 8 (Mission 23 Flight 4): formatted rendering, with a
+        # structural no-raise guarantee and a mechanical plain-text
+        # fallback -- see the_one/connectors/README.md's Telegram section.
         if isinstance(target, base.PeerTarget):
             chat_id, thread_id = target.peer_id, None
         else:
             chat_id, thread_id = target.channel_id, target.thread_id
+
+        rendered: str | None = None
+        try:
+            rendered = render_telegram_html(content)
+        except Exception:
+            # Review HIGH: converter failure must never surface as a send
+            # failure -- degrade to the original text, no parse_mode, at
+            # all. Code-level defense, not just a test target.
+            logger.warning("telegram send: markdown->HTML conversion failed for chat %s", chat_id)
+
+        if rendered is not None:
+            try:
+                result = await self._api.send_message(
+                    chat_id=chat_id,
+                    text=rendered,
+                    message_thread_id=thread_id,
+                    parse_mode="HTML",
+                )
+                return base.SendResult(platform_message_id=str(result.get("message_id", "")))
+            except TelegramApiError as exc:
+                # Review MEDIUM: ANY TelegramApiError (4xx/5xx/ok:false) on
+                # a parse_mode attempt is treated as a formatting problem
+                # -- never string-match the error text -- and also heals
+                # HTML-inflation past the 4096-char limit. One bounded
+                # plain-text retry; if that also fails it raises normally
+                # (no double-delivery: at most two attempts total, and
+                # `_api`'s own one-shot-429 retry stays self-contained
+                # inside each of those two attempts).
+                logger.warning(
+                    "telegram send: formatted send rejected for chat %s (%s); "
+                    "retrying once as plain text (before=%d bytes, after=%d bytes)",
+                    chat_id,
+                    exc,
+                    len(content.encode("utf-8")),
+                    len(rendered.encode("utf-8")),
+                )
+
         result = await self._api.send_message(
             chat_id=chat_id, text=content, message_thread_id=thread_id
         )
