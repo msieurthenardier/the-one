@@ -1,6 +1,6 @@
 # Mission: Connector Reset
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -69,15 +69,15 @@ when done directly against their APIs.
 
 ## Success Criteria
 
-- [ ] `discord.py` and `aiohttp` are absent from the runtime dependency
+- [x] `discord.py` and `aiohttp` are absent from the runtime dependency
       closure (`uv.lock` resolved from `pyproject.toml` base dependencies),
       and no third-party chat-platform SDK is present in base dependencies.
-- [ ] A Discord peer who DMs or @mentions the bot receives the attached
+- [x] A Discord peer who DMs or @mentions the bot receives the attached
       agent's reply in the same channel, thread, or DM; the agent can send a
       message the peer did not prompt via the single send tool; the bot
       resumes automatically after a gateway disconnect — all observed live
       against a real Discord bot.
-- [ ] A Telegram peer gets the same round-trip through the same contract;
+- [x] A Telegram peer gets the same round-trip through the same contract;
       every shared-code touch the Telegram platform needs is named, minimal,
       and platform-agnostic in the design decision that introduces it.
       *(Reworded 2026-09-02 by the mission owner on the Flight 3 debrief's
@@ -85,42 +85,42 @@ when done directly against their APIs.
       registration site" was disproven by Discord itself, which made four
       legitimate, named shared-code touches; the reworded form is what
       actually held up under review.)*
-- [ ] *(added 2026-09-02, operator-approved during Flight 4 planning)* An
+- [x] *(added 2026-09-02, operator-approved during Flight 4 planning)* An
       agent can address an outbound send by a person's or channel's observed
       name — resolved through a directory the system populates passively as
       it sees names — across multiple connectors, with ambiguity surfaced
       to the agent rather than guessed through.
-- [ ] The Chat UI shows the unified history for a connector-bound session
+- [x] The Chat UI shows the unified history for a connector-bound session
       with operator-only messages distinguished from peer-visible ones, and an
       operator-typed message never reaches the external platform — the
       existing `Message.visibility` semantic, retained not rebuilt.
-- [ ] Connector credentials remain Fernet-encrypted at rest, masked in every
+- [x] Connector credentials remain Fernet-encrypted at rest, masked in every
       response, and enrolled in `POST /api/encryption/rotate`.
-- [ ] Admission is a flat allowlist of peer and channel identifiers plus a
+- [x] Admission is a flat allowlist of peer and channel identifiers plus a
       pairing code for first contact; an unknown sender gets silence and
       nothing is persisted for them. There is no LLM-based engagement gate,
       no per-agent ACL overlay, and no approval queue.
-- [ ] A connector serves one default agent, with an optional flat
+- [x] A connector serves one default agent, with an optional flat
       channel→agent map (a config field, not an engine); there is no routing
       engine, no routing rules, and no routing audit log.
-- [ ] The `pending_approvals` table, the `agents.connector_ids` /
+- [x] The `pending_approvals` table, the `agents.connector_ids` /
       `connector_acls` / `connector_always_listen` columns, and legacy
       connector rows are
       retired by a single new migration; an existing database with legacy
       connector rows and legacy agent JSON upgrades cleanly, and the
       operator re-creates the Discord connector in the new form.
-- [ ] The connector subsystem — `the_one/connectors/` including both platform
+- [x] The connector subsystem — `the_one/connectors/` including both platform
       clients, plus the connector tools — is at most 3,000 Python lines, and
       the connector Studio UI — including both platforms' Studio forms — is
       at most 1,000 JS lines.
-- [ ] `make test-unit` and every browser lane pass; the tests for removed
+- [x] `make test-unit` and every browser lane pass; the tests for removed
       capabilities are deleted, not skipped; the `discord_hat` marker and its
       Makefile target are gone; a new live HAT exists for Discord and Telegram.
-- [ ] `the_one/connectors/README.md`, `the_one/agents.md`, `SECURITY-MODEL.md`,
+- [x] `the_one/connectors/README.md`, `the_one/agents.md`, `SECURITY-MODEL.md`,
       `CLAUDE.md` and `README.md` describe the new contract, with no remaining
       references to routing, ACL axes, peer approvals, slash commands, or the
       engagement gate.
-- [ ] The Windows packaged build (Concourse) still builds and the packaged
+- [x] The Windows packaged build (Concourse) still builds and the packaged
       smoke check passes with the smaller closure.
 
 ## Stakeholders
