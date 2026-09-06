@@ -97,8 +97,8 @@ a self-referential foreign key.
 - [ ] Files in a registered folder index automatically, and additions, modifications, and deletions are reflected without operator action or an app restart *(behavior-test-backed)*
 - [ ] Indexing a large folder runs in the background without blocking the UI, and resumes rather than restarts after an interruption
 - [ ] Operator can inspect a knowledge base's contents and metadata, and retrieve the source material behind any indexed item
-- [ ] Operator chooses which embedding backend a knowledge base uses, and is told plainly when a choice sends file contents off the machine
-- [ ] The default embedding backend works on a fresh install with no account, no network, and no external service running
+- [ ] Operator chooses the app's embedding backend and is told plainly when a choice sends file contents off the machine; the default works on a fresh install with no account, no network, and no external service running
+- [ ] Retrieval combines semantic and keyword matching, so a query naming an exact term finds it even when the embedding model ranks that term poorly
 - [ ] A new file-format handler or a different vector store can be introduced without modifying the indexing pipeline
 - [ ] A knowledge base can be attached to and detached from any agent in Studio *(behavior-test-backed)*
 - [ ] An attached agent can discover and query its knowledge bases during a chat session, and cannot reach one it is not attached to *(behavior-test-backed)*
@@ -130,11 +130,38 @@ spend is a decision on record, not an accident.
   brute-force cosine out as the primary store and rules LanceDB out on weight.
 - **The default embedding backend is bundled and local.** It must work on a
   fresh install with no account, no network, and no external service. The
-  operator accepted the resulting installer weight explicitly: the base
-  `model2vec` install adds five packages (`joblib`, `numpy`, `safetensors`,
-  `tokenizers`, `tqdm`, ~16 MB of wheels on `win_amd64`) plus a model file,
-  against a current dependency payload the PyInstaller spec describes as ~38 MB.
+  operator accepted the resulting installer weight explicitly, and then
+  re-accepted it against a corrected, larger figure. The closure adds roughly a
+  dozen packages absent from `uv.lock` today — `model2vec`, `numpy`, `joblib`,
+  `cloudpickle`, `safetensors`, `tokenizers`, `huggingface-hub`, `fsspec`,
+  `hf-xet`, plus the vector store and its own `numkong` — three of them native
+  extensions, against a current dependency payload the PyInstaller spec
+  describes as ~38 MB. An earlier statement here of "five packages, ~16 MB" was
+  measured too shallowly and understated it.
+- **`huggingface_hub` ships, but is never permitted to fetch.** It arrives
+  transitively via `tokenizers` and so cannot be dropped while the local backend
+  is model2vec-based. Because model2vec's loader silently falls back to
+  downloading a model whose local directory is missing, any code path that loads
+  the bundled model must assert the packaged path exists first and run with
+  `HF_HUB_OFFLINE=1`. Otherwise a model lost during packaging appears to work
+  by fetching over the network — the exact failure the no-network criterion
+  exists to forbid.
 - **A backend that transmits file contents is available but never silent.**
+- **The embedding backend is app-global, not per knowledge base.** Issue #160
+  specified a per-KB `embedding_provider_config_id`, and this mission carried
+  that forward until a survey of the field argued against it: AnythingLLM sets
+  the embedder system-wide and explicitly cannot scope it per workspace, because
+  changing it forces deleting and re-embedding every document. A per-KB choice
+  buys flexibility nobody asked for and costs a dimension-mismatch case in the
+  storage layer plus a per-KB re-index story. One backend, one vector space.
+  Changing it is an explicit, costed, whole-corpus re-index.
+- **Retrieval is hybrid: semantic plus keyword.** SQLite's FTS5 is already
+  compiled into the interpreter the app ships and is entirely unused today, so
+  keyword search costs no dependency and no second storage engine — it indexes
+  the chunk text already living in SQLite under the vectors-only contract above.
+  Hybrid matters more here than it would elsewhere: static embeddings trade
+  quality for size, and keyword matching is what recovers exact terms, rare
+  identifiers, and proper nouns that a small embedding model ranks poorly.
 - **The vector store holds vectors and an id mapping — nothing else.** Chunk
   text and metadata live in SQLite, owned by the app, for every backend. This
   keeps the seam narrow rather than widening it to the union of what each
@@ -183,23 +210,43 @@ spend is a decision on record, not an accident.
       the `collect_data_files` precedent in the PyInstaller spec already covers.
       The single risk is whether `enable_load_extension` survives in the frozen
       CPython 3.11 on the Windows runner. Because the bundled embedding backend
-      drags `numpy` in regardless, **brute-force cosine over SQLite BLOBs is a
-      free fallback** if it does not. Both sit behind the storage seam, so the
-      seam ships with two real implementations rather than one — which is what
-      keeps it from quietly taking the shape of its only backend. LanceDB is out
+      drags `numpy` in regardless, brute-force cosine over SQLite BLOBs remains
+      available as a degraded fallback for small corpora. Either way the seam
+      ships with two real implementations rather than one — which is what keeps
+      it from quietly taking the shape of its only backend. LanceDB is out
       on weight (~145 MB of wheels) and on the missing Intel-Mac wheel.
+
+      **Amended during Flight 1 planning.** `sqlite-vec` performs exhaustive
+      brute-force KNN and has no ANN index — ANN is upstream future work. Its
+      real advantages are that vectors stay disk-backed rather than
+      materialising in RAM, and that they live in the SQLite file the app
+      already backs up; they are not a search-complexity improvement, and an
+      earlier framing here of index-versus-scan was wrong. At 512 dimensions and
+      this corpus ceiling an exhaustive scan is the binding constraint, so
+      `usearch` (2.4 MB, HNSW, wheels on all three platforms, id→vector so it
+      satisfies the vectors-only contract natively) is evaluated as a peer in
+      Flight 1 rather than held in reserve. Its cost is leaving the single
+      SQLite file: a second artifact outside the backup and migration path,
+      needing its own rebuild-from-SQLite and crash-consistency story.
 - [ ] **Which model, and how it reaches the build.** Measured sizes:
       `potion-base-2M` 8.5 MB, `potion-base-8M` 31.1 MB, `potion-base-32M` and
       the retrieval-tuned `potion-retrieval-32M` 131.2 MB each. The
       retrieval-tuned model is the quality choice and is 4× the size of the
-      figure the weight decision was first framed against. Separately: does the
-      model file go into git (no precedent — the largest committed asset today is
-      a 2.7 KB JSON), get fetched at build time, or ship some other way?
+      figure the weight decision was first framed against. **Resolved in Flight
+      1**: `potion-retrieval-32M` at float16, committed as package data. Its
+      published `model.safetensors` is 123.2 MiB, over GitHub's hard 100 MiB
+      per-blob limit, so float32 could not be committed at all without Git LFS;
+      float16 clears the limit at roughly 62 MiB with plain git. For scale, the
+      largest currently tracked file is a 1.7 MB PNG.
 - [ ] Chunking strategy and sizes, and whether they are per-KB configurable.
-- [ ] Changing a knowledge base's embedding backend or model invalidates every
-      stored vector — different dimensionality, different space. Is switching
-      allowed in place with a full re-index, or is the backend immutable after
-      creation?
+- [ ] Changing the embedding backend or model invalidates every stored vector —
+      different dimensionality, different space. With the backend now app-global
+      the blast radius is every knowledge base at once. Is switching offered at
+      all, and if so how is the full re-index surfaced, costed, and made
+      interruptible?
+- [ ] How are semantic and keyword results combined — reciprocal rank fusion, a
+      weighted score, or keyword as a fallback when semantic recall is thin? And
+      is the balance operator-tunable or fixed?
 - [ ] Do `kb__` tools follow the built-in enable/disable whitelist path or the
       MCP-override path? The carve-out at `config.py:166-172` is hardcoded to the
       `mcp__` prefix, so a `kb__` name is currently treated as a built-in — any
@@ -225,15 +272,18 @@ spend is a decision on record, not an accident.
 > discoveries during implementation.
 
 - [ ] Flight 1: Dependency and packaging decision — prove the bundled embedding
-      backend packages and runs in the frozen Windows build, probe whether
-      `sqlite-vec` loads there (falling back to numpy brute-force if not), settle
-      model choice and delivery, and run `pip-audit` against the candidate
+      backend packages and runs in the frozen Windows build, probe whether both
+      vector-store candidates (`sqlite-vec` and `usearch`) load there — the
+      choice between them belongs to Flight 2, where a seam and a real corpus
+      exist to measure against — settle model choice and delivery, and run
+      `pip-audit` against the candidate
       closure rather than discovering findings at release closure. Thin
       dependency change, no user-visible feature; exists so the two
       hard-to-reverse choices are made on measurement.
 - [ ] Flight 2: Storage and embedding foundation — the v40 migration (widen the
-      item-type CHECK via the v37 rebuild template, add per-KB embedding config,
-      add item status/error/hash/timestamp, create the chunk and vector tables),
+      item-type CHECK via the v37 rebuild template, add app-level embedding
+      config, add item status/error/hash/timestamp, create the chunk and vector
+      tables plus the FTS5 index over chunk text),
       the embedding backend seam with both backends, the vector storage seam with
       both of its backends and the vectors-only contract, and the repository and
       route gaps that currently leave no way to move an item out of `pending`.
@@ -247,7 +297,8 @@ spend is a decision on record, not an accident.
       one watch descriptor per directory against a per-user cap, and Windows can
       drop events under buffer overflow, so correctness rests on the walk.
 - [ ] Flight 5: Agent query — the KB tool provider, `AgentFactory` wiring, the
-      `kb:` group in lazy search discovery, and the `is_tool_enabled` prefix fix
-      with its regression tests.
+      `kb:` group in lazy search discovery, the hybrid retrieval path that fuses
+      semantic and FTS5 results, and the `is_tool_enabled` prefix fix with its
+      regression tests.
 - [ ] Flight 6: Studio surfaces — the global knowledge-base inventory and the
       per-agent attach tab, replacing both stubs.
