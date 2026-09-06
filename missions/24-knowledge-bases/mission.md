@@ -1,0 +1,253 @@
+# Mission: Knowledge Bases
+
+**Status**: planning
+
+## Outcome
+
+An operator points the app at a folder on their machine and the documents in it
+become searchable by their agents. Nothing else is asked of them: the folder is
+read, indexed, and kept current as files come and go. An operator attaches a
+knowledge base to whichever agents should have it, the same way they attach an
+MCP server, and those agents can consult it mid-conversation. Agents without the
+attachment cannot reach it at all.
+
+The whole thing works on a fresh install with no account, no API key, and no
+network — and no file contents leave the machine unless the operator
+deliberately chooses a backend that sends them.
+
+## Context
+
+Issue #160 has sat open since 2026-07-20 describing a knowledge-base feature
+whose scaffold already exists in the tree: `KnowledgeBase` and `KBItem` models,
+both tables with cascade delete, two repositories, an `AgentConfig.kb_ids`
+attach field with a working codec, REST CRUD under `/knowledge-bases`, and two
+21-line Studio placeholder panels. All of it inert. This mission fills the
+scaffold in.
+
+The issue is stale in four ways worth recording, because it will mislead anyone
+who reads it as a spec:
+
+- It targets schema **v33**. The schema is now at **v39**; this mission's
+  migration is **v40**.
+- Its line citations have drifted (the KB endpoints are `api.py:1370-1466`, not
+  684-765).
+- It points at "the connector inference config (`db/models.py:585-606`)" as the
+  precedent for KB-level provider selection. Mission 23 removed that machinery;
+  `models.py` is now 360 lines. The precedent no longer exists.
+- Its citation for the double-gating footgun (`config.py:578-588`) is also
+  stale; the live site is `config.py:166-172`.
+
+There is also unratified prior art. `docs/kb-architecture.md` surveys this exact
+feature and recommends a different stack (LanceDB, BGE/Nomic via
+sentence-transformers, LlamaIndex, Crawl4AI). Git history shows it was
+pre-existing and untracked, swept into `ebf694d` incidentally rather than
+adopted — the Mission 05 F3 flight log records it as "pre-existing, unrelated."
+It is a research survey, not a decision, and this mission supersedes it. Its one
+load-bearing claim, a "10s of GB per KB" scale target, has been revised down by
+the operator to the ceiling in Constraints below. The doc should be amended or
+retired to say so.
+
+Three scope decisions separate this mission from the issue as written:
+
+**Web crawling is out.** The issue's recursive same-domain BFS is the largest
+complexity driver in it and is orthogonal to the case that motivates the
+feature — making documents already on the machine searchable. URL items become a
+follow-up mission. The `url` item type stays in the data model, dormant and
+unreachable from the UI, so that mission is additive rather than a rework.
+
+**Embeddings are not an LLM-provider concern.** The issue specifies
+`LLMProvider.embed()`. That abstraction cannot hold a local static-embedding
+model, which is not an `LLMProvider` and cannot be made into one. Delegating to
+a configured provider is *one* backend behind an embedding seam, not the seam
+itself.
+
+**Extraction ships text only, but the seam ships complete.** PDF and Office are
+a later mission. The extractor interface must accept them without the indexing
+pipeline changing.
+
+A fourth option was considered and rejected: operator-installed third-party
+vector-store *packages*, discovered by entry point the way some apps do plugins.
+It does not survive contact with how this app ships. The Windows build is a
+frozen one-dir PyInstaller bundle with no `pip` inside it, so an operator-supplied
+backend would have to be ABI-matched against the bundled CPython 3.11 with every
+transitive dependency resolved by hand — working for a `pip install` dev setup
+and breaking for the installer, which is the worst place for that split to land.
+The connector registry is not a counter-example: it is an in-tree dict
+(`connectors/registry.py`), and the tree contains no entry-point discovery, no
+`importlib.metadata`, and no `sys.path` manipulation anywhere.
+
+What that idea was reaching for is preserved without the loader. The seam is
+real and gets two in-tree implementations from day one, and any future
+backend — a remote store reached over HTTP by URL and API key, mirroring the
+existing `openai-compatible` precedent, or something like LEANN, which discards
+stored embeddings and recomputes them at query time for under 5% storage
+overhead — slots in behind it without touching the pipeline.
+
+What the mission inherits from the codebase is more than the issue credits:
+`watchfiles` already ships transitively via `uvicorn[standard]`;
+`ConnectorManager` is a working template for supervised per-entity background
+tasks; `filesystem.py` already has `canonicalize`, `_is_descendant`,
+`_is_binary`, and `_check_read_size`, which cover most of file-skipping and path
+containment; and schema migration v37 is a rebuild template for a table carrying
+a self-referential foreign key.
+
+## Success Criteria
+
+- [ ] Operator can register a folder on disk as a knowledge base source, and see each discovered item's index status including failures
+- [ ] Files in a registered folder index automatically, and additions, modifications, and deletions are reflected without operator action or an app restart *(behavior-test-backed)*
+- [ ] Indexing a large folder runs in the background without blocking the UI, and resumes rather than restarts after an interruption
+- [ ] Operator can inspect a knowledge base's contents and metadata, and retrieve the source material behind any indexed item
+- [ ] Operator chooses which embedding backend a knowledge base uses, and is told plainly when a choice sends file contents off the machine
+- [ ] The default embedding backend works on a fresh install with no account, no network, and no external service running
+- [ ] A new file-format handler or a different vector store can be introduced without modifying the indexing pipeline
+- [ ] A knowledge base can be attached to and detached from any agent in Studio *(behavior-test-backed)*
+- [ ] An attached agent can discover and query its knowledge bases during a chat session, and cannot reach one it is not attached to *(behavior-test-backed)*
+- [ ] Existing installs upgrade with no data loss, the unit gate stays green, and the frozen Windows installer still builds and runs
+
+## Stakeholders
+
+**The operator** — the person running the app on their own machine. They want
+their own documents answerable by their own agents, and they bear the cost if
+that means shipping personal files to a third party. Every default here is set
+for them.
+
+**The dependency budget** — the app is deliberately framework-free and ships as
+a frozen Windows installer, where every dependency is carried by every install
+forever and `pip-audit` fails the release on any finding in the closure. This
+stakeholder has no voice in the room, so the mission states its interest
+explicitly. This mission knowingly spends against it (see Constraints); that
+spend is a decision on record, not an accident.
+
+## Constraints
+
+- **No web crawling.** URL items remain dormant. Follow-up mission.
+- **Extraction ships text only** — plain text, code, markdown. PDF and Office
+  are a later mission, but the extractor seam must accept them without the
+  indexing pipeline changing. Format coverage is deferred; format
+  *extensibility* is not.
+- **Corpus ceiling: low single-digit GB of raw text per knowledge base.** Not the
+  10s of GB the superseded survey assumed, and not toy scale either. This rules
+  brute-force cosine out as the primary store and rules LanceDB out on weight.
+- **The default embedding backend is bundled and local.** It must work on a
+  fresh install with no account, no network, and no external service. The
+  operator accepted the resulting installer weight explicitly: the base
+  `model2vec` install adds five packages (`joblib`, `numpy`, `safetensors`,
+  `tokenizers`, `tqdm`, ~16 MB of wheels on `win_amd64`) plus a model file,
+  against a current dependency payload the PyInstaller spec describes as ~38 MB.
+- **A backend that transmits file contents is available but never silent.**
+- **The vector store holds vectors and an id mapping — nothing else.** Chunk
+  text and metadata live in SQLite, owned by the app, for every backend. This
+  keeps the seam narrow rather than widening it to the union of what each
+  candidate store wants to own, makes retrieval-by-link behave identically
+  across backends, and means a remote store never receives document text — only
+  embeddings. Stores that *can* own text and metadata are simply not asked to.
+- **Cross-platform: Windows, macOS, and Linux.** Windows is the operator's own
+  environment and the floor; the other two are expected to work. This rules out
+  candidates with platform gaps regardless of their other merits — LanceDB, for
+  instance, ships no Intel-Mac wheel.
+- **The frozen Windows installer must still build and run.** Anything that
+  cannot be packaged is not a candidate.
+- **No frameworks.** Prefer the smallest dependency that meets the capability
+  over the most capable one.
+- **Attachment is authorization, not an adversarial boundary.** Isolation comes
+  from `AgentFactory.create()` building a fresh `ToolRegistry` per agent. This is
+  an operator-trust model and must be documented as such.
+- **KB identity is baked into the tool instance.** One `kb__{name}__search` tool
+  per attached knowledge base, mirroring `mcp__{src}__{tool}`. A single
+  `kb_search(kb_name, query)` tool would dissolve isolation entirely, because
+  the registry gates on tool name and not on arguments. This is an invariant,
+  not a naming preference.
+- **Session-bound attachment.** Attach and detach take effect on the next
+  session, matching the existing MCP contract.
+
+## Environment Requirements
+
+- Host-native development (`make up`, `make test-unit`, `make test-browser`)
+- Playwright for the browser lane; both Studio panels are covered there
+- Ollama available locally to exercise the provider-delegating backend; not
+  required for the default backend or for the unit gate
+- Windows/PyInstaller build reachable — a candidate that passes on Linux but not
+  in the frozen build has not passed. Dev is Python 3.12.3 / SQLite 3.45.1; CI
+  and the installer are Python 3.11.
+- Windows is the operator's primary environment and the support floor; macOS and
+  Linux are expected to work, and a candidate dependency lacking a wheel for any
+  of the three is disqualified
+- No network access required to run or test the default path
+
+## Open Questions
+
+- [ ] **Does `sqlite-vec` load in the frozen build?** No longer an open bet —
+      a probe with a known safety net. `sqlite-vec` is 292 KB with **zero
+      dependencies** and ships wheels for Windows, macOS (x86_64 and arm64), and
+      Linux (x86_64 and aarch64); it delivers `vec0.dll` as package data, which
+      the `collect_data_files` precedent in the PyInstaller spec already covers.
+      The single risk is whether `enable_load_extension` survives in the frozen
+      CPython 3.11 on the Windows runner. Because the bundled embedding backend
+      drags `numpy` in regardless, **brute-force cosine over SQLite BLOBs is a
+      free fallback** if it does not. Both sit behind the storage seam, so the
+      seam ships with two real implementations rather than one — which is what
+      keeps it from quietly taking the shape of its only backend. LanceDB is out
+      on weight (~145 MB of wheels) and on the missing Intel-Mac wheel.
+- [ ] **Which model, and how it reaches the build.** Measured sizes:
+      `potion-base-2M` 8.5 MB, `potion-base-8M` 31.1 MB, `potion-base-32M` and
+      the retrieval-tuned `potion-retrieval-32M` 131.2 MB each. The
+      retrieval-tuned model is the quality choice and is 4× the size of the
+      figure the weight decision was first framed against. Separately: does the
+      model file go into git (no precedent — the largest committed asset today is
+      a 2.7 KB JSON), get fetched at build time, or ship some other way?
+- [ ] Chunking strategy and sizes, and whether they are per-KB configurable.
+- [ ] Changing a knowledge base's embedding backend or model invalidates every
+      stored vector — different dimensionality, different space. Is switching
+      allowed in place with a full re-index, or is the backend immutable after
+      creation?
+- [ ] Do `kb__` tools follow the built-in enable/disable whitelist path or the
+      MCP-override path? The carve-out at `config.py:166-172` is hardcoded to the
+      `mcp__` prefix, so a `kb__` name is currently treated as a built-in — any
+      agent whose built-in tool list has been narrowed in Studio would silently
+      lose every KB tool, with no error and no UI signal. Generalizing the prefix
+      set and registering outside the gate are both viable; pick one deliberately
+      and land the regression test in the same leg.
+- [ ] Should the folder→file relationship use the existing `parent_id` column or
+      a new indexed `folder_item_id`? `parent_id` has zero readers anywhere in
+      the tree today, and the relationship is only ever one level deep.
+- [ ] Which files inside a registered folder are skipped, and by what rule —
+      `_is_binary` and `_check_read_size` cover part of it; dotfiles, VCS
+      metadata, and ignore files are undecided.
+
+## Known Issues
+
+*None yet — populated as flights surface them.*
+
+## Flights
+
+> **Note:** These are tentative suggestions, not commitments. Flights are planned
+> and created one at a time as work progresses. This list will evolve based on
+> discoveries during implementation.
+
+- [ ] Flight 1: Dependency and packaging decision — prove the bundled embedding
+      backend packages and runs in the frozen Windows build, probe whether
+      `sqlite-vec` loads there (falling back to numpy brute-force if not), settle
+      model choice and delivery, and run `pip-audit` against the candidate
+      closure rather than discovering findings at release closure. Thin
+      dependency change, no user-visible feature; exists so the two
+      hard-to-reverse choices are made on measurement.
+- [ ] Flight 2: Storage and embedding foundation — the v40 migration (widen the
+      item-type CHECK via the v37 rebuild template, add per-KB embedding config,
+      add item status/error/hash/timestamp, create the chunk and vector tables),
+      the embedding backend seam with both backends, the vector storage seam with
+      both of its backends and the vectors-only contract, and the repository and
+      route gaps that currently leave no way to move an item out of `pending`.
+- [ ] Flight 3: Folder registration and indexing — the folder item type, path
+      containment on registration, and the walk → filter → extract → chunk →
+      embed → persist pipeline behind the extractor seam, running as a resumable
+      background job with per-file checkpointing.
+- [ ] Flight 4: Change monitoring — a supervised per-folder watcher modelled on
+      `ConnectorManager`, backed by a periodic reconciliation walk. The watcher
+      is a latency optimization, not the source of truth: Linux inotify consumes
+      one watch descriptor per directory against a per-user cap, and Windows can
+      drop events under buffer overflow, so correctness rests on the walk.
+- [ ] Flight 5: Agent query — the KB tool provider, `AgentFactory` wiring, the
+      `kb:` group in lazy search discovery, and the `is_tool_enabled` prefix fix
+      with its regression tests.
+- [ ] Flight 6: Studio surfaces — the global knowledge-base inventory and the
+      per-agent attach tab, replacing both stubs.
