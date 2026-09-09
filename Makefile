@@ -192,6 +192,13 @@ brand-assets: ## Derive favicon + topbar icon PNGs from source mascot via Pillow
 refresh-model-catalog: ## Regenerate the bundled model-catalog seed from models.dev
 	$(PY) scripts/refresh_model_catalog.py
 
+# Downloads ~130 MB from the Hugging Face hub and rewrites a ~62 MiB TRACKED
+# binary. Only run this when the upstream model or the target dtype changes —
+# a needless re-run writes another copy of the weights into git history.
+.PHONY: refresh-embedding-model
+refresh-embedding-model: ## Regenerate the bundled float16 potion-retrieval-32M weights
+	$(PY) scripts/refresh_embedding_model.py
+
 # ── Tests ──────────────────────────────────────────────────────────────
 # All test targets run host-native via the repo .venv (see PY variable above).
 

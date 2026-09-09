@@ -51,3 +51,9 @@ missions/11-discord-connector-depth/flights/07-mentions-aware-response-policy/ev
 # the tree and are committed. Defensive guard kept below in case a future
 # Executor mis-routes a write back into the source tree.
 tests/behavior/*/runs/*/
+
+# Frozen-installer output from `fly execute -o installer=./out` (M24 F01 L02).
+# ~68 MB per run and never committed; anchored so a nested directory named
+# `out` elsewhere in the tree is unaffected. Without this, every
+# `fly execute -i repo=.` uploads the previous run's installer to the worker.
+/out/

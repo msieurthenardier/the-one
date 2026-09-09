@@ -10,6 +10,7 @@ to pass before a frozen binary exists — plus simulated-failure paths.
 from __future__ import annotations
 
 import io
+import sqlite3
 import sys
 import types
 
@@ -18,12 +19,44 @@ import pytest
 from the_one import diagnostics
 from the_one.diagnostics import (
     ProbeResult,
+    _numkong_extension_state,
     _probe_desktop_shell,
     _probe_llm_providers,
     _probe_model_catalog,
+    _probe_sqlite_vec,
+    _probe_usearch,
+    _usearch_acceleration,
     detect_runtimes,
     run_doctor,
 )
+
+
+# The `embedding model` gate is UNCONDITIONAL (M24 F01 DD-7), so without this
+# every ``run_doctor(`` call in this file — there are 16, across 7 classes —
+# would load the 62 MiB bundled potion-retrieval-32M weights. Patching a single
+# "host test" would leave fifteen still paying for it.
+#
+# Function-scoped on purpose. A module-scoped fixture cannot request the
+# function-scoped ``monkeypatch`` (pytest raises ScopeMismatch) and would need a
+# hand-managed ``pytest.MonkeyPatch()``, for which this repo has no precedent.
+# What is being avoided is the model load, not the ``setattr``.
+#
+# pytest offers no opt-out from an autouse fixture, so the dedicated REAL-load
+# test does not live here — it lives in ``tests/test_doctor_embedding_model.py``,
+# which is the only host-side proof that the real asset loads and therefore must
+# never itself be mocked or skipped.
+@pytest.fixture(autouse=True)
+def _stub_embedding_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        diagnostics,
+        "_probe_embedding_model",
+        lambda: ProbeResult(
+            "embedding model",
+            True,
+            "stubbed by the tests/test_doctor.py autouse fixture (real load is "
+            "covered by tests/test_doctor_embedding_model.py)",
+        ),
+    )
 
 
 class TestRunDoctorHost:
@@ -315,3 +348,429 @@ class TestProbeModelCatalog:
         buf = io.StringIO()
         run_doctor(out=buf)
         assert "model catalog:" in buf.getvalue()
+
+
+# ── Vector-store doctor probes (M24 F01 L01) ─────────────────────────────────
+#
+# Both probes are frozen-only gates per DD-7: they ALWAYS attempt the real work,
+# and downgrade only a *failure* to an informational `skipped —` line when the
+# process is not frozen. Each must be incapable of raising — an escaping
+# exception would take down `doctor` entirely and break the CI gate for reasons
+# unrelated to the library under test.
+
+_HAS_LOAD_EXTENSION = hasattr(sqlite3.Connection, "enable_load_extension")
+_needs_load_extension = pytest.mark.skipif(
+    not _HAS_LOAD_EXTENSION,
+    reason="this Python build has sqlite3 extension loading compiled out",
+)
+
+
+class _FakeCursor:
+    """Minimal sqlite3 cursor stand-in returning a canned result set."""
+
+    def __init__(self, rows: list) -> None:
+        self._rows = rows
+
+    def fetchall(self) -> list:
+        return self._rows
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+
+class _NoRowsConnection:
+    """Real sqlite3 connection whose vec0 KNN query yields no rows.
+
+    Simulates the "extension loads but the query silently no-ops" failure —
+    the ``_probe_model_catalog`` lesson applied to a loadable library. Everything
+    except the MATCH query is delegated to the genuine connection so the load
+    path is exercised for real.
+    """
+
+    def __init__(self, real: sqlite3.Connection) -> None:
+        self._real = real
+
+    def __getattr__(self, name: str):
+        return getattr(self._real, name)
+
+    def execute(self, sql: str, params=()):
+        cursor = self._real.execute(sql, params)
+        if "MATCH" in sql:
+            return _FakeCursor([])
+        return cursor
+
+
+class _SpyConnection:
+    """Real sqlite3 connection that records every enable_load_extension call."""
+
+    def __init__(self, real: sqlite3.Connection, states: list) -> None:
+        self._real = real
+        self._states = states
+
+    def __getattr__(self, name: str):
+        return getattr(self._real, name)
+
+    def enable_load_extension(self, flag) -> None:
+        self._states.append(bool(flag))
+        self._real.enable_load_extension(flag)
+
+
+class TestProbeSqliteVec:
+    """Unit tests for the ``sqlite-vec`` doctor line."""
+
+    @_needs_load_extension
+    def test_ok_when_extension_loads_and_round_trips(self) -> None:
+        """Real load + real vec0 KNN round-trip returns the inserted rowid."""
+        result = _probe_sqlite_vec()
+        assert result.ok is True
+        assert "rowid 42" in result.detail
+        assert "vec0" in result.detail
+
+    @_needs_load_extension
+    def test_extension_loading_is_disabled_again_after_the_probe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The probe must not leave extension loading enabled on its connection."""
+        states: list[bool] = []
+        real_connect = sqlite3.connect
+
+        monkeypatch.setattr(
+            diagnostics.sqlite3,
+            "connect",
+            lambda *a, **k: _SpyConnection(real_connect(*a, **k), states),
+        )
+        result = _probe_sqlite_vec()
+        assert result.ok is True
+        assert "skipped" not in result.detail
+        assert states == [True, False]
+
+    def test_frozen_fail_when_the_extension_cannot_load(self) -> None:
+        """Frozen bundle missing vec0 → ok=False, detail names loadable_path."""
+        import sqlite_vec
+
+        def _boom(conn) -> None:
+            raise sqlite3.OperationalError("vec0.dll: cannot open shared object file (simulated)")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr(sqlite_vec, "load", _boom)
+            result = _probe_sqlite_vec()
+        assert result.ok is False
+        assert "loadable_path=" in result.detail
+        assert "OperationalError" in result.detail
+
+    def test_nonfrozen_load_failure_is_informational_skip(self) -> None:
+        """Same failure on a dev host → ok=True with a `skipped —` detail (DD-7)."""
+        import sqlite_vec
+
+        def _boom(conn) -> None:
+            raise sqlite3.OperationalError("simulated missing vec0")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: False)
+            mp.setattr(sqlite_vec, "load", _boom)
+            result = _probe_sqlite_vec()
+        assert result.ok is True
+        assert result.detail.startswith("skipped — ")
+
+    def test_frozen_fail_when_enable_load_extension_is_absent(self) -> None:
+        """A Python build without enable_load_extension fails only when frozen."""
+        # sqlite3.Connection is an immutable C type, so the missing-method build
+        # is simulated by swapping the module reference the probe reads.
+        stripped = types.SimpleNamespace(Connection=type("Connection", (), {}))
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr(diagnostics, "sqlite3", stripped)
+            frozen = _probe_sqlite_vec()
+        assert frozen.ok is False
+        assert "enable_load_extension" in frozen.detail
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: False)
+            mp.setattr(diagnostics, "sqlite3", stripped)
+            host = _probe_sqlite_vec()
+        assert host.ok is True
+        assert "skipped" in host.detail
+
+    @_needs_load_extension
+    def test_frozen_fail_when_the_query_returns_nothing(self) -> None:
+        """Extension loads but vec0 answers nothing → failure, not a pass."""
+        real_connect = sqlite3.connect
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr(
+                diagnostics.sqlite3,
+                "connect",
+                lambda *a, **k: _NoRowsConnection(real_connect(*a, **k)),
+            )
+            result = _probe_sqlite_vec()
+        assert result.ok is False
+        assert "expected rowid 42" in result.detail
+
+    def test_probe_never_raises_and_doctor_still_exits_with_a_code(self) -> None:
+        """A library that raises must surface as a FAIL line, never propagate."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr(
+                diagnostics.sqlite3,
+                "connect",
+                lambda *a, **k: (_ for _ in ()).throw(RuntimeError("simulated")),
+            )
+            buf = io.StringIO()
+            code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert isinstance(code, int)
+        assert code != 0
+        assert "sqlite-vec: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_frozen_fail_promotes_result_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A frozen sqlite-vec failure promotes the whole run to RESULT: FAIL."""
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_sqlite_vec",
+            lambda: ProbeResult("sqlite-vec", False, "vec0 missing from the bundle"),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code != 0
+        assert "sqlite-vec: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_doctor_sqlite_vec_line_present_in_output(self) -> None:
+        """The sqlite-vec line — which both CI lanes grep by name — is emitted."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "sqlite-vec:" in buf.getvalue()
+
+
+class _StubMatches:
+    """usearch ``Matches`` stand-in exposing only what the probe reads."""
+
+    def __init__(self, keys) -> None:
+        self.keys = keys
+
+
+class _StubIndex:
+    """usearch ``Index`` stand-in whose search returns a caller-chosen key set."""
+
+    def __init__(self, keys) -> None:
+        self._keys = keys
+
+    def add(self, key, vector) -> None:  # noqa: D102
+        return None
+
+    def search(self, vector, count) -> _StubMatches:  # noqa: D102
+        return _StubMatches(self._keys)
+
+
+class TestProbeUsearch:
+    """Unit tests for the ``usearch`` doctor line."""
+
+    def test_ok_when_index_round_trips(self) -> None:
+        """Real in-memory HNSW index returns the key it was given."""
+        result = _probe_usearch()
+        assert result.ok is True
+        assert "key 7" in result.detail
+
+    def test_detail_surfaces_numkong_state(self) -> None:
+        """The detail must expose whether numkong loaded — usearch swallows that
+        ImportError, so a degraded bundle would otherwise report a plain OK."""
+        result = _probe_usearch()
+        assert "numkong=" in result.detail
+
+    def test_frozen_fail_when_the_native_core_is_missing(self) -> None:
+        """Frozen bundle where usearch cannot build an index → ok=False."""
+
+        def _boom(*args, **kwargs):
+            raise ImportError("No module named 'usearch.compiled' (simulated)")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr("usearch.index.Index", _boom)
+            result = _probe_usearch()
+        assert result.ok is False
+        assert "ImportError" in result.detail
+
+    def test_nonfrozen_failure_is_informational_skip(self) -> None:
+        """Same failure on a dev host → ok=True with a `skipped —` detail (DD-7)."""
+
+        def _boom(*args, **kwargs):
+            raise ImportError("simulated missing usearch.compiled")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: False)
+            mp.setattr("usearch.index.Index", _boom)
+            result = _probe_usearch()
+        assert result.ok is True
+        assert result.detail.startswith("skipped — ")
+
+    def test_frozen_fail_when_search_misses_the_known_key(self) -> None:
+        """An index that answers with the wrong key is a failure, not a pass."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr("usearch.index.Index", lambda **kwargs: _StubIndex([999]))
+            result = _probe_usearch()
+        assert result.ok is False
+        assert "expected 7" in result.detail
+
+    def test_probe_never_raises_and_doctor_still_exits_with_a_code(self) -> None:
+        """A library that raises must surface as a FAIL line, never propagate."""
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("simulated native crash")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(diagnostics, "is_frozen", lambda: True)
+            mp.setattr("usearch.index.Index", _boom)
+            buf = io.StringIO()
+            code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert isinstance(code, int)
+        assert code != 0
+        assert "usearch: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_frozen_fail_promotes_result_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A frozen usearch failure promotes the whole run to RESULT: FAIL."""
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_usearch",
+            lambda: ProbeResult("usearch", False, "usearch.compiled missing from the bundle"),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code != 0
+        assert "usearch: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_doctor_usearch_line_present_in_output(self) -> None:
+        """The usearch line — which both CI lanes grep by name — is emitted."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "usearch:" in buf.getvalue()
+
+
+class TestUsearchAcceleration:
+    """``_usearch_acceleration`` is a detail-string helper; it must never raise."""
+
+    def test_reports_numkong_and_simd(self) -> None:
+        detail = _usearch_acceleration()
+        assert "numkong=" in detail
+
+    def test_never_raises_when_the_native_module_is_absent(self) -> None:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setitem(sys.modules, "usearch.compiled", None)  # type: ignore[arg-type]
+            detail = _usearch_acceleration()
+        assert "unavailable" in detail
+
+    def test_numkong_no_appends_the_extensions_own_load_state(self) -> None:
+        """``numkong=no`` alone cannot say WHY.
+
+        Two causes look identical through the ``USES_NUMKONG`` flag: a
+        ``_numkong`` extension that will not load here (a packaging defect —
+        on Windows an unresolved dependent DLL, swallowed by usearch's bare
+        ``except ImportError: pass``), and a usearch wheel simply not built
+        against numkong (upstream, unfixable by packaging). The detail must
+        distinguish them.
+        """
+        import usearch.compiled as compiled
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(compiled, "USES_NUMKONG", 0, raising=False)
+            detail = _usearch_acceleration()
+        assert "numkong=no" in detail
+        assert "numkong ext" in detail
+        assert "built without numkong" in detail
+
+    def test_unloadable_numkong_extension_surfaces_the_real_error(self) -> None:
+        """The exception text usearch swallows is the whole point of the line.
+
+        The stub raises the exact shape Windows produces when a ``.pyd``'s
+        dependent DLL cannot be resolved — the message that
+        ``usearch/__init__.py``'s bare ``except ImportError: pass`` discards.
+        """
+        import usearch.compiled as compiled
+
+        boom = ImportError(
+            "DLL load failed while importing _numkong: The specified module could not be found."
+        )
+        stub = types.ModuleType("numkong")
+
+        def _raise(name: str):
+            raise boom
+
+        stub.__getattr__ = _raise  # type: ignore[attr-defined]
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(compiled, "USES_NUMKONG", 0, raising=False)
+            mp.setitem(sys.modules, "numkong", stub)
+            mp.delitem(sys.modules, "numkong._numkong", raising=False)
+            detail = _usearch_acceleration()
+        assert "numkong ext will not load" in detail
+        assert "ImportError" in detail
+        assert "DLL load failed while importing _numkong" in detail
+
+    def test_extension_state_never_raises(self) -> None:
+        """Helper contract: a detail string, never an exception."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setitem(sys.modules, "numkong", None)  # type: ignore[arg-type]
+            mp.delitem(sys.modules, "numkong._numkong", raising=False)
+            assert isinstance(_numkong_extension_state(), str)
+        assert isinstance(_numkong_extension_state(), str)
+
+
+class TestEmbeddingProbeGating:
+    """``embedding model`` is the only NEW gate that fails on a dev host.
+
+    M24 F01 DD-7: the two vector-store probes downgrade an unfrozen failure to a
+    ``skipped`` line because ``enable_load_extension`` genuinely varies across
+    Python builds. This one must not — model2vec is a base dependency and the
+    weights are package data present in every checkout, so a host failure is a
+    real defect (most usefully a missing package-data glob in a non-editable
+    wheel install, which a frozen-only gate would never observe).
+
+    These tests stub the probe deliberately: what is under test is ``run_doctor``'s
+    treatment of its outcome, not the load. The real load is
+    ``tests/test_doctor_embedding_model.py``.
+    """
+
+    def test_line_present_in_output_by_name(self) -> None:
+        """Both CI lanes grep this exact prefix — it must not drift."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "embedding model: OK" in buf.getvalue()
+
+    def test_failure_is_result_fail_on_an_unfrozen_host(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert diagnostics.is_frozen() is False, "this test asserts the UNFROZEN behaviour"
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_embedding_model",
+            lambda: ProbeResult("embedding model", False, "simulated missing package data"),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code != 0
+        assert "embedding model: FAIL" in text
+        assert "RESULT: FAIL" in text
+
+    def test_does_not_use_the_frozen_only_helper(self) -> None:
+        """Regression guard on the DD-7 split.
+
+        ``_vector_probe_outcome`` converts a failure into ``ok=True`` when
+        unfrozen. If a future edit routed the embedding probe through it, the
+        test above would still pass (it stubs the probe) while the real gate
+        went silent on every dev host and wheel install. Assert the source of
+        the probe itself never reaches for that helper.
+        """
+        import inspect
+
+        source = inspect.getsource(diagnostics._probe_embedding_model)
+        assert "_vector_probe_outcome" not in source

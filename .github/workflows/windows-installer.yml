@@ -71,6 +71,18 @@ jobs:
           ./dist/the-one/the-one.exe doctor | tee doctor.out
           grep -q "child spawn: OK" doctor.out
           grep -q "desktop shell: OK" doctor.out
+          # Vector-store probes (M24 F01 L01). Asserted BY NAME, not via the
+          # aggregate: a probe dropped from run_doctor's gates list would still
+          # print RESULT: PASS, which is exactly the silent regression these
+          # permanent probes exist to prevent.
+          grep -q "sqlite-vec: OK" doctor.out
+          grep -q "usearch: OK" doctor.out
+          # Embedding-model probe (M24 F01 L02). Same by-name rule, and the one
+          # gate that also proves a DATA tree survived the freeze: the bundled
+          # float16 potion-retrieval-32M weights must load from the packaged
+          # path. The probe runs with HF_HUB_OFFLINE=1, so this line cannot be
+          # satisfied by a hub download on a networked runner.
+          grep -q "embedding model: OK" doctor.out
           grep -q "RESULT: PASS" doctor.out
       # PROOF (b) — frozen serve answers /api/info. Background the frozen serve and
       # poll with an httpx Python probe (NOT curl — httpx is a runtime dep and the

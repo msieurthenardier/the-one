@@ -1,6 +1,6 @@
 # Flight: Dependency and Packaging Decision
 
-**Status**: planning
+**Status**: landed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
@@ -175,33 +175,36 @@ release closure.
   would produce false failures on some dev hosts.
 - Resolved interaction with the unit gate: `tests/test_doctor.py` asserts
   `run_doctor(...) == 0` on the host, so an unconditional embedding probe would
-  make every `make test-unit` run (~455s baseline) load ~62 MiB. The host test
-  **monkeypatches the embedding probe**, using the patching pattern already
-  present in that file, and a separate dedicated test exercises the real model
-  load once. The gate stays honest — the load is genuinely covered — without
+  make every `make test-unit` run load ~62 MiB. There are **16 `run_doctor(` call
+  sites across 7 classes**, not one, so a **function-scoped `autouse` fixture**
+  in that file patches the embedding probe, and the dedicated real-load test
+  lives in its **own file** — pytest offers no opt-out from an autouse fixture,
+  and a module-scoped fixture cannot take the function-scoped `monkeypatch` at
+  all. The gate stays honest — the real load is genuinely covered — without
   charging every unit run for it.
 - Trade-off: the dedicated load test is the only host-side proof of the real
   asset, so it must not itself be skipped or mocked.
 
 ### Prerequisites
 
-- [ ] **Concourse reachable at `localhost:8080`, team `the-one`** — verified DOWN
-      at planning time and again at design review (`dial tcp 127.0.0.1:8080:
-      i/o timeout`). Must be up before either leg's verification step. This is
-      the flight's only hard external dependency.
-- [ ] A Concourse worker with `platform: windows` registered and healthy
-- [ ] `uv` available locally to regenerate `uv.lock`
-- [ ] The model downloadable once, locally, for conversion and commit
+- [x] **Concourse reachable at `localhost:8080`, team `the-one`** — was verified
+      DOWN at planning time and again at design review (`dial tcp
+      127.0.0.1:8080: i/o timeout`). **Now satisfied**: operator started Docker
+      and authenticated; the API answers and three workers report `running`.
+- [x] A Concourse worker with `platform: windows` registered and healthy —
+      `windows-worker`, `platform: windows`, `state: running`, Concourse 2.5
+- [x] `uv` available locally to regenerate `uv.lock` — uv 0.10.0
+- [x] The model downloadable once, locally, for conversion and commit — *fetched once in Leg 2; the generator's second load reads the hub cache*
 
 *(Deploy-key, MinIO and branch-pipeline prerequisites were dropped with DD-4.)*
 
 ### Pre-Flight Checklist
 
-- [ ] All open questions resolved
-- [ ] Design decisions documented
-- [ ] Prerequisites verified — **Concourse availability is not yet satisfied**
-- [ ] Validation approach defined
-- [ ] Legs defined
+- [x] All open questions resolved
+- [x] Design decisions documented
+- [x] Prerequisites verified — Concourse and the Windows worker confirmed live at flight start
+- [x] Validation approach defined
+- [x] Legs defined
 
 ---
 
@@ -242,15 +245,15 @@ local-path load specifically.
 
 ### Checkpoints
 
-- [ ] Dependency closure resolves; `uv.lock` regenerated; `make test-unit` stays green against its ~455s / 3,910-test baseline
-- [ ] Vector-store probe passes in the frozen Windows bundle; both candidates measured against DD-3's four criteria and the choice recorded with evidence
-- [ ] Model asset converted, committed, and reachable through the packaged path — verified from a **non-editable wheel install** (`pip install .` into a scratch venv), not only from a source checkout
-- [ ] `the-one.exe doctor` returns `RESULT: PASS` in the frozen bundle with both new probes present and gating
-- [ ] Installer size and freeze duration recorded before and after the asset lands — a number the operator agreed to in the abstract but has never seen
-- [ ] Peak RSS recorded during the embedding probe in the frozen bundle — the input Flight 2 needs for the float16/int8 vector-storage decision
-- [ ] **Measured dependency closure recorded** — the actual added-package list and win_amd64 wheel bytes from the regenerated `uv.lock`, against the mission's stated figure. Verified additions absent from the lock today: `model2vec`, `numpy`, `joblib`, `cloudpickle`, `safetensors`, `tokenizers`, `huggingface-hub`, `fsspec`, `hf-xet`, `numkong`, `sqlite-vec`, `usearch`
-- [ ] float16 conversion quality checked by the generator script — cosine drift and recall@k between fp32 and fp16 embeddings over a small fixed sample, reported at conversion time
-- [ ] `pip-audit` clean against the `--extra gui --extra all-llms` release closure
+- [x] Dependency closure resolves; `uv.lock` regenerated; `make test-unit` stays green against its ~455s / 3,910-test baseline — *Leg 2 close: 139 packages, no conflict; 3,948 passed / 10 skipped in 469.35s*
+- [x] Vector-store probe passes in the frozen Windows bundle; both candidates measured against DD-3's four criteria and the choice recorded with evidence — *both probes `OK` on three frozen runs; per DD-3 as amended the choice itself is Flight 2's, with wheel bytes and the `usearch`/`numkong` finding recorded as its input*
+- [x] Model asset converted and reachable through the packaged path — verified from a **non-editable wheel install** (`pip install .` into a scratch venv), not only from a source checkout — *converted, verified, and left untracked; **committed by a human**, see the flight log's terminal handoff*
+- [x] `the-one.exe doctor` returns `RESULT: PASS` in the frozen bundle with both new probes present and gating — *2026-09-09, eight gates `OK`, three by-name assertions in the task*
+- [x] Installer size and freeze duration recorded before and after the asset lands — a number the operator agreed to in the abstract but has never seen — *before: 71,239,095 bytes, Inno 59.1s (Leg 1). After: 141,827,664 bytes (+70,588,569 = +67.32 MiB), Inno 123.3s / 117.0s on two runs*
+- [x] Peak RSS recorded during the embedding probe in the frozen bundle — the input Flight 2 needs for the float16/int8 vector-storage decision — *the probe self-reports it in its detail line; host figures 261.3 MiB (checkout) / 210.8 MiB (wheel). Frozen: **247.1 MiB** on `windows-worker`, after a `ctypes` HANDLE-truncation defect in the Windows branch was found by the first frozen run and fixed*
+- [x] **Measured dependency closure recorded** — the actual added-package list and win_amd64 wheel bytes from the regenerated `uv.lock`, against the mission's stated figure. Verified additions absent from the lock today: `model2vec`, `numpy`, `joblib`, `cloudpickle`, `safetensors`, `tokenizers`, `huggingface-hub`, `fsspec`, `hf-xet`, `numkong`, `sqlite-vec`, `usearch`
+- [x] float16 conversion **correctness** verified by the generator against the reloaded artifact — dtype asserted directly in both `config.json` and the safetensors header, magnitude compared against upstream, and cosine/recall@1 as sanity checks over a committed sample
+- [x] `pip-audit` clean against the `--extra gui --extra all-llms` release closure — *clean at Leg 2 close, including all seven new surfaces*
 
 ### Adaptation Criteria
 
@@ -259,10 +262,28 @@ local-path load specifically.
   on the shelf: `faiss-cpu` (19.5 MB, Windows wheels, real ANN).
 - `pip-audit` reports findings in the new closure that cannot be cleared by
   raising version floors.
-- float16 conversion measurably degrades retrieval quality — measured by the
-  generator script's own cosine-drift and recall@k check, so the trigger has an
-  apparatus rather than being an aspiration. If it fires, DD-1 and DD-2 reopen
-  together, since the full-precision asset cannot be committed without LFS.
+- The float16 conversion is **botched** — wrong dtype, wrong scale, truncated
+  tensor — caught by the generator's direct assertions on `config.json`'s
+  `embedding_dtype` and the safetensors header dtype, a raw-matrix magnitude
+  comparison against upstream, and pinned semantic thresholds (mean cosine
+  ≥ 0.9999, min ≥ 0.999, recall@1 == 1.0), with a non-zero exit on any breach.
+
+  *Amended during Leg 2 design.* This was originally worded as "float16
+  measurably degrades retrieval quality", which implies a failure mode the
+  measurement cannot produce: for a normalising static model, per-text
+  cosine(fp32, fp16) measures 1.000000 to six decimals and recall@3 is 1.0000.
+  Keeping it as a quality-degradation trigger would have made it unfalsifiable
+  theatre. Demoted to a conversion-correctness assertion, which is the failure
+  that can actually occur. If it fires, DD-2 does not reopen — the conversion is
+  simply wrong and gets fixed.
+
+  *Amended again in Leg 2 design review cycle 2.* Cosine and recall alone do not
+  discriminate the failures this trigger names: cosine is scale-invariant and the
+  model applies a `Normalize` module, so a wrong scale scores 1.000000, and a
+  wrong dtype scores ~1.0. The trigger therefore rests on direct dtype assertions
+  and a magnitude comparison, with cosine and recall as sanity checks rather than
+  the mechanism. `recall@1` replaces `recall@10`, which over a 32-string corpus
+  covered ~31% of it and would have passed a badly degraded model.
 
 **Acceptable variations**:
 - The package path the model file lives under
@@ -274,7 +295,7 @@ local-path load specifically.
 > **Note:** These are tentative suggestions, not commitments. Legs are planned
 > and created one at a time as the flight progresses.
 
-- [ ] `vector-store-probe` — add both store candidates, write the store probe
+- [x] `vector-store-probe` — add both store candidates, write the store probe
       with its tests, and verify the full chain in the frozen Windows bundle via
       `fly execute`. Measures both candidates against DD-3's criteria and records
       whether each candidate packages and loads, with its measured wheel-bytes
@@ -282,7 +303,7 @@ local-path load specifically.
       Note both leg deliverables — code and unit tests — are producible on the
       host, but the leg's *acceptance* needs Concourse: the store probe is
       frozen-only-gating per DD-7, so its real signal is the `fly execute` run.
-- [ ] `embedding-model-and-probe` — the float16 generator script, the committed
+- [x] `embedding-model-and-probe` — the float16 generator script, the committed
       asset, `pyproject.toml` and spec wiring, the embedding probe with its
       tests, and frozen verification on the now-proven apparatus. Isolated in its
       own leg because the commit is the one action in this mission that cannot be
@@ -297,12 +318,12 @@ local-path load specifically.
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Mission open questions on model choice, model delivery, and vector store closed with evidence
-- [ ] Documentation updated — the spec's collection-contract comments, `run_doctor`'s stale docstring (it names two gates where five exist), and the three places that enumerate what `doctor` checks: `README.md`, `docs/windows-install.md`, and `the_one/main.py`
-- [ ] `.github/workflows/windows-installer.yml`'s existing `grep -q` smoke assertions extended to name both new probe lines, so the release path asserts their presence rather than only the aggregate result
+- [x] Tests passing
+- [x] Mission open questions on model choice, model delivery, and vector store closed with evidence *(the vector-store *choice* itself is deferred to Flight 2 per DD-3 as amended; this flight closes the questions by supplying the evidence — both probes' frozen results and wheel-byte deltas — that Flight 2's choice will be made on)*
+- [x] Documentation updated — the spec's collection-contract comments, `run_doctor`'s stale docstring (it names two gates where five exist), and the three places that enumerate what `doctor` checks: `README.md`, `docs/windows-install.md`, and `the_one/main.py`
+- [x] `.github/workflows/windows-installer.yml`'s existing `grep -q` smoke assertions extended to name both new probe lines, so the release path asserts their presence rather than only the aggregate result
 
 ### Verification
 

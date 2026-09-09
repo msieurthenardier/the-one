@@ -1,6 +1,6 @@
 # Mission: Knowledge Bases
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 
@@ -271,7 +271,7 @@ spend is a decision on record, not an accident.
 > and created one at a time as work progresses. This list will evolve based on
 > discoveries during implementation.
 
-- [ ] Flight 1: Dependency and packaging decision — prove the bundled embedding
+- [x] Flight 1: Dependency and packaging decision — prove the bundled embedding
       backend packages and runs in the frozen Windows build, probe whether both
       vector-store candidates (`sqlite-vec` and `usearch`) load there — the
       choice between them belongs to Flight 2, where a seam and a real corpus
