@@ -1,6 +1,6 @@
 # Flight: Dependency and Packaging Decision
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
