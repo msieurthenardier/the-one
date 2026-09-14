@@ -1,11 +1,21 @@
 # Knowledge Base Architecture for Personal Agentic System
 
+> **Superseded.** This is a pre-mission research survey, not a decision
+> record. `missions/24-knowledge-bases/mission.md` supersedes it as the
+> source of truth. Its scale target ("10s of GB per KB", below) was revised
+> down by the operator to the mission's Constraints ceiling — low
+> single-digit GB of raw text per KB. The mission adopted this survey's
+> general shape (a bundled local static-embedding model; a vectors-only,
+> disk-first store) but not its specific vendor picks — it chose
+> `potion-retrieval-32M` over Nomic/BGE, and `sqlite-vec`/`usearch` over
+> LanceDB (ruled out on weight at the corrected, lower ceiling).
+
 ## Context
 
 Personal agentic system where users create multiple curated knowledge bases (KBs) — each indexing files and/or crawled websites — and attach them to agents. Agents decide at runtime whether to query a given KB.
 
 **Constraints:**
-- Single user, but corpora reach 10s of GB per KB
+- Single user, but corpora reach low single-digit GB per KB (originally surveyed at 10s of GB; revised down — see Mission 24)
 - Not memory-resident — disk-first storage required
 - One user may maintain dozens of KBs (notebook-style)
 - Audience: regular WFH users / small businesses — runs on laptops, expects offline & private
@@ -92,13 +102,13 @@ Personal agentic system where users create multiple curated knowledge bases (KBs
 
 ## Recommended Stack for This Use Case
 
-Given the constraints (single-user, 10s of GB, multiple isolated curated KBs, agent-as-tool-router), the landscape narrows hard.
+Given the constraints (single-user, multiple isolated curated KBs, agent-as-tool-router, at the originally-assumed 10s-of-GB scale — superseded, see notice above), the landscape narrows hard.
 
 ### Storage: LanceDB
 
 Unambiguous fit:
 - **Embedded** — no server to run on a laptop or SBC
-- **Disk-first** — handles 10s of GB; rules out Chroma and most in-memory options
+- **Disk-first** — handles the originally-assumed 10s-of-GB scale (superseded, see notice above); rules out Chroma and most in-memory options
 - **One table per KB** — perfect isolation, trivial add/drop
 - **Built-in BM25 full-text search** — get hybrid (vector + keyword) without bolting on a second system
 
@@ -107,7 +117,7 @@ pgvector forces every user to run Postgres. Qdrant embedded works but is server-
 ### Embeddings: Nomic Embed v2 (or `bge-small-en-v1.5`)
 
 - Run on CPU at acceptable speed via `sentence-transformers` or HuggingFace's `text-embeddings-inference`
-- Nomic's Matryoshka dims (truncate to 256/384/512) trade recall for disk space — useful at 10s of GB
+- Nomic's Matryoshka dims (truncate to 256/384/512) trade recall for disk space — useful at the originally-assumed 10s-of-GB scale (superseded, see notice above)
 - **Avoid API-based embeddings** for this audience: privacy expectation + offline use + per-token cost on a 10GB corpus
 
 ### Ingestion
