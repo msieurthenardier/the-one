@@ -197,4 +197,4 @@ zero dangling references.
 ## Sign-Off
 **Reviewer**: Reviewer agent (Sonnet), leg-execution crew — two review cycles; cycle 1 raised three blocking factual mismatches on 0047 against `diagnostics.py`/the spec, all fixed and re-verified in cycle 2
 **Verdict**: confirmed — `[HANDOFF:confirmed]` for the batch, 2026-09-14
-**Commit**: squawk/turnaround-2026-09-14 (sha recorded in the PR)
+**Commit**: `2f1cbfd` on `squawk/turnaround-2026-09-14`, PR #196 → `mission/24-knowledge-bases`
