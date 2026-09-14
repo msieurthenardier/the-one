@@ -68,6 +68,29 @@ dependencies = [
     # ConPTY backend for Windows PTY sessions (M15 F3 Leg 2). The env marker
     # ensures this never installs on Linux/macOS — pywinpty is Windows-only.
     "pywinpty>=2.0; sys_platform == \"win32\"",
+    # Vector-store candidates for the knowledge-base mission (M24 F01 DD-3).
+    # Both are carried in the runtime closure while the choice between them is
+    # open, because each must prove it packages and loads in the frozen Windows
+    # bundle before Flight 2 picks one — you do not ship a dependency that
+    # cannot load. The loser is removed from the closure in Flight 2.
+    #  - sqlite-vec: loadable SQLite extension (vec0 virtual tables). Vectors
+    #    stay disk-backed inside the SQLite file the app already backs up and
+    #    migrates; exhaustive brute-force KNN, no ANN index.
+    #  - usearch: standalone HNSW id->vector index (pulls numpy + the native
+    #    numkong). Approximate search, satisfies the mission's
+    #    vectors-and-ids-only constraint natively.
+    # Both are exercised by the frozen-only `doctor` probes in
+    # the_one/diagnostics.py, which are the regression gate for their native
+    # payloads surviving the freeze.
+    "sqlite-vec>=0.1.6",
+    "usearch>=2.16",
+    # Static embedding backend for the knowledge-base mission (M24 F01 DD-1/DD-2).
+    # model2vec loads the float16 `potion-retrieval-32M` weights committed under
+    # the_one/embeddings/data/ — a base dependency, not an extra, because the
+    # model is package data present in every checkout and the doctor's
+    # `embedding model` gate is unconditional (DD-7). Its numpy requirement is
+    # already satisfied: numpy entered the closure transitively via usearch.
+    "model2vec>=0.9",
 ]
 
 [project.optional-dependencies]
@@ -103,7 +126,14 @@ the-one = "the_one.main:cli_entry"
 include = ["the_one*"]
 
 [tool.setuptools.package-data]
-the_one = ["interfaces/web/static/**/*", "llm/data/*.json"]
+# NOTE: globs on the `the_one` key deliberately cross sub-package boundaries —
+# `interfaces/web/static/**/*` is the long-standing proof. The bundled embedding
+# model (M24 F01 L02) is therefore declared here as `embeddings/data/**/*`
+# rather than under a new `the_one.embeddings` key. It must cover all five files
+# save_pretrained emits (README.md, config.json, model.safetensors,
+# modules.json, tokenizer.json) — model2vec's loader validates the layout, so a
+# partial glob fails at load rather than degrading silently.
+the_one = ["interfaces/web/static/**/*", "llm/data/*.json", "embeddings/data/**/*"]
 
 [build-system]
 requires = ["setuptools>=75"]

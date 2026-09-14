@@ -45,8 +45,22 @@ run:
       & $py -m PyInstaller --noconfirm packaging/windows/the-one.spec
       if (!(Test-Path "dist\the-one\the-one.exe")) { throw "freeze produced no exe" }
       Write-Host "=== [4/6] smoke: frozen doctor (build gate) ==="
-      & "dist\the-one\the-one.exe" doctor
-      if ($LASTEXITCODE -ne 0) { throw "frozen doctor failed ($LASTEXITCODE)" }
+      $doctorLines = & "dist\the-one\the-one.exe" doctor
+      $doctorCode = $LASTEXITCODE
+      $doctorText = [string]($doctorLines | Out-String)
+      Write-Host $doctorText
+      if ($doctorCode -ne 0) { throw "frozen doctor failed ($doctorCode)" }
+      # M24 F01 L01/L02: the exit code alone cannot detect a probe silently
+      # dropped from run_doctor's gates list — the aggregate would still read
+      # RESULT: PASS. Assert the vector-store AND embedding-model probe lines BY
+      # NAME so this lane, DD-4's designated apparatus, actually observes them.
+      # The embedding gate additionally proves a DATA tree survived the freeze,
+      # and runs with HF_HUB_OFFLINE=1 so it cannot pass by downloading.
+      foreach ($needle in @("sqlite-vec: OK", "usearch: OK", "embedding model: OK")) {
+        if (-not $doctorText.Contains($needle)) {
+          throw "frozen doctor output missing '$needle'"
+        }
+      }
       Write-Host "=== [5/6] build Inno installer ==="
       $ver = (& $py -c "import the_one; print(the_one.__version__)").Trim()
       $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"

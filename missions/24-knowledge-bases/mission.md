@@ -1,6 +1,6 @@
 # Mission: Knowledge Bases
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 
@@ -228,7 +228,33 @@ spend is a decision on record, not an accident.
       Flight 1 rather than held in reserve. Its cost is leaving the single
       SQLite file: a second artifact outside the backup and migration path,
       needing its own rebuild-from-SQLite and crash-consistency story.
-- [ ] **Which model, and how it reaches the build.** Measured sizes:
+
+      **Amended after Flight 1 (debrief 2026-09-12).** Both candidates package
+      and load in the frozen Windows bundle, each behind a permanent `doctor`
+      probe; the *choice* is Flight 2's, made against a real corpus through the
+      storage seam. Three measured inputs Flight 2 must start from, all in the
+      Flight 1 log and debrief:
+      1. **Every published `usearch` Windows wheel is built without numkong
+         linkage** — `simd=serial`, permanently, verified by reading the
+         binaries (0 `nk_*` symbol refs on Windows against 54 on Linux, across
+         2.16.0–2.26.2). Linux and macOS wheels are accelerated. So on the
+         operator's own platform usearch's margin over `sqlite-vec`'s
+         exhaustive scan is HNSW candidate pruning alone, not SIMD distance
+         kernels. **Flight 2 benchmarks on Windows, or discounts Linux numbers
+         explicitly.** A Linux-only comparison would hand usearch acceleration
+         the shipping product never has.
+      2. The frozen embedding-probe peak working set is **247.1 MiB**, but that
+         is whole-process (`numpy` + `tokenizers` + `safetensors` import weight
+         plus the model, which is roughly a quarter of it). It answers whether
+         the backend can stay warm in-process; the float16-vs-int8 vector
+         *storage* question is arithmetic on dimension × chunk count × dtype
+         width and is computed directly, not read off this figure.
+      3. The installer doubled (71.2 → 141.8 MB). Flight 2 removes the losing
+         store candidate — and `numkong` with it if usearch loses — in the same
+         flight it makes the choice, and picks up the `hf-xet` trim (squawk
+         0049) against the same closure change, since both need a frozen build
+         to verify.
+- [x] **Which model, and how it reaches the build.** Measured sizes:
       `potion-base-2M` 8.5 MB, `potion-base-8M` 31.1 MB, `potion-base-32M` and
       the retrieval-tuned `potion-retrieval-32M` 131.2 MB each. The
       retrieval-tuned model is the quality choice and is 4× the size of the
@@ -263,7 +289,51 @@ spend is a decision on record, not an accident.
 
 ## Known Issues
 
-*None yet — populated as flights surface them.*
+- **`usearch` runs unaccelerated on Windows** (`simd=serial`, no numkong
+  linkage in any published wheel). Upstream characteristic, not a packaging
+  defect; changing it would mean building usearch from source on Windows. The
+  `doctor` probe reports the condition in its detail line so a genuine
+  DLL-resolution failure reads differently from this unlinked-wheel state.
+  Surfaced by Flight 1.
+- **Dead weight in the frozen bundle**: `hf-xet` (4.03 MB, a Hub transfer
+  accelerator the offline-by-construction app never calls — squawk 0049) and
+  numkong's 1.15 MB `.pyd` on Windows (imported unconditionally by usearch,
+  unreachable by it). Surfaced by Flight 1.
+
+## Branch Layout — mission branch, one-off
+
+This mission is carried on a long-running **`mission/24-knowledge-bases`**
+branch, cut from `main`. Each flight branch is cut from the mission branch and
+its PR merges back into the mission branch; the mission merges to `main` once,
+at the end. This is a **deliberate one-off**, not a change to the project's git
+convention in `.flightops/ARTIFACTS.md`, which still describes flight branches
+merging to `main` directly.
+
+Why here and nowhere else: the mission's early flights carry more irreversible
+and cross-cutting risk than any recent mission — a 62 MiB model blob committed
+permanently to history, a dependency closure that doubled the installer, a v40
+schema migration, and a vector-store choice still open at the time of writing.
+Holding the whole mission off `main` until its seams exist and its gates are
+green means `main` never carries a half-landed knowledge-base foundation, and a
+divert or abort can be dropped as one branch rather than unpicked from `main`
+flight by flight.
+
+Operational consequences, recorded so the next flight does not rediscover them:
+
+- Flight PRs target `mission/24-knowledge-bases`, not `main`. Flight 1's PR
+  (#195) was first opened against `main` by mistake and retargeted at debrief.
+- **No CI lane runs on the mission branch or on PRs into it.** Concourse
+  tracks `main`, and `pr-lint.yml` triggers only on `pull_request` to `main`
+  (`branches: [main]`) — so a flight PR targeting the mission branch gets
+  neither lint, `pip-audit`, nor the unit gate. Flight 1's green checks on #195
+  ran while it still targeted `main`; after retargeting it carries none. Until
+  `pr-lint.yml`'s trigger is widened to `mission/**` (a one-line servicing
+  squawk), every flight runs `make lint`, `make test-unit`, the release-closure
+  `pip-audit`, and the frozen-Windows `fly execute` by hand before its PR
+  merges, and records the results in its flight log. The final mission → `main`
+  PR gets the full lane.
+- Keep the mission branch rebased on or merged from `main` at flight
+  boundaries so the final merge is not a mission's worth of drift.
 
 ## Flights
 
@@ -271,7 +341,7 @@ spend is a decision on record, not an accident.
 > and created one at a time as work progresses. This list will evolve based on
 > discoveries during implementation.
 
-- [ ] Flight 1: Dependency and packaging decision — prove the bundled embedding
+- [x] Flight 1: Dependency and packaging decision — prove the bundled embedding
       backend packages and runs in the frozen Windows build, probe whether both
       vector-store candidates (`sqlite-vec` and `usearch`) load there — the
       choice between them belongs to Flight 2, where a seam and a real corpus
@@ -285,8 +355,11 @@ spend is a decision on record, not an accident.
       config, add item status/error/hash/timestamp, create the chunk and vector
       tables plus the FTS5 index over chunk text),
       the embedding backend seam with both backends, the vector storage seam with
-      both of its backends and the vectors-only contract, and the repository and
-      route gaps that currently leave no way to move an item out of `pending`.
+      both of its backends and the vectors-only contract, the `sqlite-vec` vs
+      `usearch` choice measured on Windows per the amended open question above
+      (with the losing candidate removed in the same flight), and the repository
+      and route gaps that currently leave no way to move an item out of
+      `pending`.
 - [ ] Flight 3: Folder registration and indexing — the folder item type, path
       containment on registration, and the walk → filter → extract → chunk →
       embed → persist pipeline behind the extractor seam, running as a resumable
