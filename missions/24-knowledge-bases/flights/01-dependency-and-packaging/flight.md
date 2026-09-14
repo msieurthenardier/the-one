@@ -319,7 +319,7 @@ local-path load specifically.
 ### Completion Checklist
 
 - [x] All legs completed
-- [ ] Code merged
+- [x] Code merged — PR #195 → `mission/24-knowledge-bases`, merge commit `1edff28`, 2026-09-14
 - [x] Tests passing
 - [x] Mission open questions on model choice, model delivery, and vector store closed with evidence *(the vector-store *choice* itself is deferred to Flight 2 per DD-3 as amended; this flight closes the questions by supplying the evidence — both probes' frozen results and wheel-byte deltas — that Flight 2's choice will be made on)*
 - [x] Documentation updated — the spec's collection-contract comments, `run_doctor`'s stale docstring (it names two gates where five exist), and the three places that enumerate what `doctor` checks: `README.md`, `docs/windows-install.md`, and `the_one/main.py`
