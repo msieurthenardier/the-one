@@ -12,8 +12,10 @@ MCP server, and those agents can consult it mid-conversation. Agents without the
 attachment cannot reach it at all.
 
 The whole thing works on a fresh install with no account, no API key, and no
-network — and no file contents leave the machine unless the operator
-deliberately chooses a backend that sends them.
+network — and no file contents leave the machine. *(Amended at Flight 2
+planning, 2026-09-14: an earlier draft allowed an operator to choose a backend
+that sends contents off-machine; that option is out of this mission — see
+Constraints.)*
 
 ## Context
 
@@ -35,7 +37,7 @@ who reads it as a spec:
   precedent for KB-level provider selection. Mission 23 removed that machinery;
   `models.py` is now 360 lines. The precedent no longer exists.
 - Its citation for the double-gating footgun (`config.py:578-588`) is also
-  stale; the live site is `config.py:166-172`.
+  stale; the live site is `the_one/agent/config.py:166-172`.
 
 There is also unratified prior art. `docs/kb-architecture.md` surveys this exact
 feature and recommends a different stack (LanceDB, BGE/Nomic via
@@ -77,8 +79,12 @@ The connector registry is not a counter-example: it is an in-tree dict
 `importlib.metadata`, and no `sys.path` manipulation anywhere.
 
 What that idea was reaching for is preserved without the loader. The seam is
-real and gets two in-tree implementations from day one, and any future
-backend — a remote store reached over HTTP by URL and API key, mirroring the
+real; it ships with the bundled local model as its one production
+implementation and a test-only second implementation in its suite so it cannot
+quietly take the shape of its only backend *(amended at Flight 2 planning —
+an earlier draft promised two production implementations, the second a
+provider-delegating one; the operator settled on non-LLM local embeddings as
+the product)*. Any future backend — a remote store reached over HTTP by URL and API key, mirroring the
 existing `openai-compatible` precedent, or something like LEANN, which discards
 stored embeddings and recomputes them at query time for under 5% storage
 overhead — slots in behind it without touching the pipeline.
@@ -97,7 +103,7 @@ a self-referential foreign key.
 - [ ] Files in a registered folder index automatically, and additions, modifications, and deletions are reflected without operator action or an app restart *(behavior-test-backed)*
 - [ ] Indexing a large folder runs in the background without blocking the UI, and resumes rather than restarts after an interruption
 - [ ] Operator can inspect a knowledge base's contents and metadata, and retrieve the source material behind any indexed item
-- [ ] Operator chooses the app's embedding backend and is told plainly when a choice sends file contents off the machine; the default works on a fresh install with no account, no network, and no external service running
+- [ ] The embedding backend is bundled, local and non-LLM: it works on a fresh install with no account, no network, and no external service running, and no file contents leave the machine *(amended at Flight 2 planning — an earlier draft had the operator choose between backends and be warned when a choice sends contents off-machine; no such backend ships in this mission)*
 - [ ] Retrieval combines semantic and keyword matching, so a query naming an exact term finds it even when the embedding model ranks that term poorly
 - [ ] A new file-format handler or a different vector store can be introduced without modifying the indexing pipeline
 - [ ] A knowledge base can be attached to and detached from any agent in Studio *(behavior-test-backed)*
@@ -146,7 +152,13 @@ spend is a decision on record, not an accident.
   `HF_HUB_OFFLINE=1`. Otherwise a model lost during packaging appears to work
   by fetching over the network — the exact failure the no-network criterion
   exists to forbid.
-- **A backend that transmits file contents is available but never silent.**
+- **No backend that transmits file contents ships in this mission.** *(Amended
+  at Flight 2 planning, 2026-09-14; the earlier constraint read "available but
+  never silent".)* The operator settled on non-LLM local embeddings as the
+  product. A provider-delegating or remote backend remains possible behind the
+  seam as a future mission; if one ever ships, it must never be silent about
+  where contents go. Its absence removes the Ollama environment requirement
+  and the operator-facing backend chooser from this mission's scope.
 - **The embedding backend is app-global, not per knowledge base.** Issue #160
   specified a per-KB `embedding_provider_config_id`, and this mission carried
   that forward until a survey of the field argued against it: AnythingLLM sets
@@ -191,8 +203,8 @@ spend is a decision on record, not an accident.
 
 - Host-native development (`make up`, `make test-unit`, `make test-browser`)
 - Playwright for the browser lane; both Studio panels are covered there
-- Ollama available locally to exercise the provider-delegating backend; not
-  required for the default backend or for the unit gate
+- Ollama is **not** required — no provider-delegating backend ships in this
+  mission *(amended at Flight 2 planning)*
 - Windows/PyInstaller build reachable — a candidate that passes on Linux but not
   in the frozen build has not passed. Dev is Python 3.12.3 / SQLite 3.45.1; CI
   and the installer are Python 3.11.
@@ -264,17 +276,26 @@ spend is a decision on record, not an accident.
       per-blob limit, so float32 could not be committed at all without Git LFS;
       float16 clears the limit at roughly 62 MiB with plain git. For scale, the
       largest currently tracked file is a 1.7 MB PNG.
-- [ ] Chunking strategy and sizes, and whether they are per-KB configurable.
+- [x] Chunking strategy and sizes, and whether they are per-KB configurable.
+      **Resolved at Flight 2 planning (2026-09-14)**: app-wide, never per-KB —
+      a paragraph-aware deterministic chunker with defaults of 1,000 characters
+      and 150 overlap, configurable once under Administration (API in Flight 2,
+      the panel in a later flight). See Flight 2 DD-7.
 - [ ] Changing the embedding backend or model invalidates every stored vector —
       different dimensionality, different space. With the backend now app-global
       the blast radius is every knowledge base at once. Is switching offered at
       all, and if so how is the full re-index surfaced, costed, and made
       interruptible?
+      *Partially answered at Flight 2 planning*: with no second production
+      backend (see the DD-2 amendment above), "switching" means a model change.
+      Flight 2's settings API refuses a `model_id`/`dim` change while any chunk
+      exists (409); the re-index itself is designed with the pipeline in
+      Flight 3.
 - [ ] How are semantic and keyword results combined — reciprocal rank fusion, a
       weighted score, or keyword as a fallback when semantic recall is thin? And
       is the balance operator-tunable or fixed?
 - [ ] Do `kb__` tools follow the built-in enable/disable whitelist path or the
-      MCP-override path? The carve-out at `config.py:166-172` is hardcoded to the
+      MCP-override path? The carve-out at `the_one/agent/config.py:166-172` (`AgentConfig.is_tool_enabled`; an earlier draft cited `config.py`, which is the wrong file) is hardcoded to the
       `mcp__` prefix, so a `kb__` name is currently treated as a built-in — any
       agent whose built-in tool list has been narrowed in Studio would silently
       lose every KB tool, with no error and no UI signal. Generalizing the prefix
@@ -354,7 +375,8 @@ Operational consequences, recorded so the next flight does not rediscover them:
       item-type CHECK via the v37 rebuild template, add app-level embedding
       config, add item status/error/hash/timestamp, create the chunk and vector
       tables plus the FTS5 index over chunk text),
-      the embedding backend seam with both backends, the vector storage seam with
+      the embedding backend seam with the bundled local backend (plus a
+      test-only second implementation), the vector storage seam with
       both of its backends and the vectors-only contract, the `sqlite-vec` vs
       `usearch` choice measured on Windows per the amended open question above
       (with the losing candidate removed in the same flight), and the repository
