@@ -37,7 +37,7 @@ rather than guessing or falling back to the default port.
 ## Crew
 
 ### Executor
-- **Context**: `{target-project}/` — loads the project's CLAUDE.md.
+- **Context**: project root (current working directory) — loads the project's CLAUDE.md.
 - **Model**: Sonnet (override per-project if needed).
 - **Lifetime**: Spawned once at run start; alive across all steps via
   SendMessage continuation.
@@ -49,7 +49,7 @@ rather than guessing or falling back to the default port.
   report structured state → await next step.
 
 ### Validator
-- **Context**: `{target-project}/` — loads the project's CLAUDE.md.
+- **Context**: project root (current working directory) — loads the project's CLAUDE.md.
 - **Model**: Sonnet (default; **NEVER Opus** — mirrors the existing crew
   discipline from `leg-execution.md`). Validator needs judgment + reading
   comprehension, not raw reasoning power.
@@ -64,7 +64,7 @@ rather than guessing or falling back to the default port.
   await next step.
 
 ### Accessibility Validator (optional)
-- **Context**: `{target-project}/`.
+- **Context**: project root (current working directory).
 - **Model**: Sonnet.
 - **Enabled**: false (project opts in by setting `Enabled: true`).
 - **Role**: Same as Validator but reads each step's Expected Results
@@ -75,7 +75,7 @@ rather than guessing or falling back to the default port.
   non-marked rows silently.
 
 ### Visual Validator (optional)
-- **Context**: `{target-project}/`.
+- **Context**: project root (current working directory).
 - **Model**: Sonnet.
 - **Enabled**: false.
 - **Role**: Screenshot-diff comparison against a baseline. Pin: baselines
@@ -167,7 +167,7 @@ The Orchestrator substitutes these in prompts at runtime:
 
 | Variable | Description | Available In |
 |----------|-------------|-------------|
-| `{project-slug}` | Project identifier from projects.md | All prompts |
+| `{project-slug}` | Project identifier — the repository directory name, or the name from the git remote | All prompts |
 | `{test-slug}` | The behavior test being run | All prompts |
 | `{spec-path}` | Path to the spec file | Initial prompts |
 | `{spec-content}` | Verbatim spec markdown | Initial prompts |
