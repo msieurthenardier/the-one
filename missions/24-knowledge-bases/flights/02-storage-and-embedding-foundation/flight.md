@@ -1,6 +1,6 @@
 # Flight: Storage and Embedding Foundation
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
