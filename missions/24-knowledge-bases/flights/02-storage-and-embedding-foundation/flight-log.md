@@ -2340,3 +2340,10 @@ outside Flight 2's surface), R9 (add an FTS5 doctor probe — proposed yes).
   site-packages too; the venv closes that for good. Squawk 0049 is
   verified by this run. Four frozen runs in all (606620 encoding crash;
   606657 masked install failure; 606698 exposed it; 606735 green).
+- **Flight landed (2026-09-15).** Leg 6 committed as `9b4e0fc` (+ `b16582c`
+  recording the ref in squawk 0049's sign-off) after a final unit gate of
+  **4,370 passed / 10 skipped / 499.22 s**; flight `landed`, Flight 2
+  checked off in the mission; branch pushed; PR #197 body updated with
+  all six legs and marked **ready for review**. Next: merge into
+  `mission/24-knowledge-bases`, then `/mission-control:flight-debrief`
+  (which moves the flight to `completed`), then Flight 3 planning.
