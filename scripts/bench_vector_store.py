@@ -1,14 +1,17 @@
-"""Benchmark the four DD-4 vector-store cells through the Leg 4 seam.
+"""Benchmark the two DD-9 ``usearch`` cells through the Leg 4 seam.
 
-Flight 2 Leg 5 (M24 F02 L05, DD-8/DD-9). Produces the numbers the operator's
-store decision (DD-9) rests on: for each of ``sqlite-vec/float32``,
-``sqlite-vec/int8``, ``usearch/f16`` and ``usearch/i8`` — build wall time,
-on-disk bytes, query latency (p50/p95/max at k=10), recall@k against an exact
-float32 brute-force ground truth, peak RSS (a per-cell **process** peak —
-see "Per-cell process isolation" below), and (usearch only) ``save``/
-``restore + one k=10 query`` wall time (usearch loads its index lazily, so
-the first post-restore query's own cost is necessarily folded in — there is
-no pure-restore entry point to time separately).
+Flight 2 Leg 5 (M24 F02 L05, DD-8/DD-9), re-targeted to ``usearch`` only in
+Leg 6 (M24 F02 L06) after the operator's DD-9 decision removed the losing
+candidate from the closure. Produces the numbers the operator's store
+decision rested on and continues to measure the surviving backend: for
+each of
+``usearch/f16`` and ``usearch/i8`` — build wall time, on-disk bytes, query
+latency (p50/p95/max at k=10), recall@k against an exact float32 brute-force
+ground truth, peak RSS (a per-cell **process** peak — see "Per-cell process
+isolation" below), and ``save``/``restore + one k=10 query`` wall time
+(usearch loads its index lazily, so the first post-restore query's own cost
+is necessarily folded in — there is no pure-restore entry point to time
+separately).
 
 **Per-cell process isolation (Leg 5 review fix, BLOCKING 1)**:
 ``peak_rss_MB`` is read via ``resource.getrusage(...).ru_maxrss`` (POSIX) /
@@ -32,19 +35,18 @@ before this fix.
 
 Every cell is exercised **through the landed ``VectorStore`` seam**
 (``the_one/vectors/``) — ``open``/``upsert``/``flush``/``query``/``close`` —
-never through raw ``sqlite_vec``/``usearch`` calls (this module imports no
-symbol from either package directly; their version strings are read via
-``importlib.metadata`` instead, so the only thing this script "knows" about
-them is their PyPI version).
+never through raw ``usearch`` calls (this module imports no symbol from the
+package directly; its version string is read via ``importlib.metadata``
+instead, so the only thing this script "knows" about it is its PyPI
+version).
 
 Two corpora:
 
 - ``--corpus synthetic``: a seeded 64-centroid Gaussian mixture (sigma=0.3),
   512-dim, unit-normalised, generated and inserted in 100k batches so the
   process never holds the full float32 matrix. Recall here is *index/
-  quantisation* recall — how much of the exact top-k an approximate index
-  (usearch HNSW) or a lossy dtype (int8) returns; the sqlite-vec/float32 cell
-  is mechanically 1.0 (exact scan vs exact ground truth).
+  quantisation* recall — how much of the exact top-k an approximate HNSW
+  index returns (or loses to int8 quantisation).
 - ``--corpus real``: the repository's own markdown (``docs/``, ``missions/``,
   ``the_one/agents.md``, ``README.md``), chunked by the DD-7 chunker and
   embedded by the DD-1 backend (``LocalStaticBackend.load()`` — one load,
@@ -53,11 +55,11 @@ Two corpora:
   stub (dim=8) with no injection flag). Recall here is the retrieval-
   relevant figure DD-4's 0.95 floor applies to.
 
-Each cell gets a fresh on-disk DB file and (for usearch) sidecar directory;
-both are deleted as soon as the cell's row is recorded, so a multi-cell
-invocation at the largest N needs the disk space of only one cell, not all
-four — a free-space guard skips (never crashes) a cell whose estimated
-footprint exceeds ``shutil.disk_usage(data_dir).free``.
+Each cell gets a fresh on-disk DB file and sidecar directory; both are
+deleted as soon as the cell's row is recorded, so a multi-cell invocation at
+the largest N needs the disk space of only one cell, not both — a
+free-space guard skips (never crashes) a cell whose estimated footprint
+exceeds ``shutil.disk_usage(data_dir).free``.
 
 Exit code is always 0 on completion — the printed numbers are the
 deliverable, not a pass/fail gate. A per-cell exception is caught, reported
@@ -68,7 +70,7 @@ Usage::
     python scripts/bench_vector_store.py --corpus synthetic --n 20000 --queries 50
     python scripts/bench_vector_store.py --corpus synthetic --n 1000000 --out /tmp/bench/1m.md
     python scripts/bench_vector_store.py --corpus synthetic --n 3000000 \\
-        --cells sqlite-vec:float32,sqlite-vec:int8 --data-dir /tmp/the-one-bench
+        --cells usearch:f16,usearch:i8 --data-dir /tmp/the-one-bench
     python scripts/bench_vector_store.py --corpus real --data-dir /tmp/the-one-bench
 """
 
@@ -101,7 +103,6 @@ from the_one.diagnostics import _peak_rss_bytes, _usearch_acceleration
 from the_one.knowledge.chunking import chunk_text
 from the_one.knowledge.settings import ChunkingSettings
 from the_one.vectors import _reset_for_test as reset_vectors_module
-from the_one.vectors.sqlite_vec_store import SqliteVecStore
 from the_one.vectors.usearch_store import UsearchStore
 
 # ── Constants ────────────────────────────────────────────────────────────
@@ -109,24 +110,17 @@ from the_one.vectors.usearch_store import UsearchStore
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 ALL_CELLS: list[tuple[str, str]] = [
-    ("sqlite-vec", "float32"),
-    ("sqlite-vec", "int8"),
     ("usearch", "f16"),
     ("usearch", "i8"),
 ]
 
-# DD-8/AC-4's free-space guard, seeded from the design review's f32/f16
-# figures (2,048 / 1,024 B/vector). ``usearch/i8``'s base was RAISED from the
-# spec's literal 512 B/vector to 660 B/vector after the Linux 1M run (Leg 5)
-# measured ~660.6 B/vector there — a 1.29x ratio against 512, above the
-# _FREE_SPACE_MARGIN below, exactly the edge case the leg spec flagged
+# DD-8/AC-4's free-space guard. ``usearch/i8``'s base was RAISED from the
+# original spec's literal 512 B/vector to 660 B/vector after the Linux 1M run
+# (Leg 5) measured ~660.6 B/vector there — a 1.29x ratio against 512, above
+# the _FREE_SPACE_MARGIN below, exactly the edge case the leg spec flagged
 # ("if the Linux 1M int8 rows show a ratio above 1.25x, raise the guard's
 # multiplier before the Windows 3M run rather than trust it blindly").
-# ``sqlite-vec/int8`` measured ~536 B/vector at the same run (ratio 1.05,
-# unchanged here).
 _BYTES_PER_VECTOR: dict[tuple[str, str], int] = {
-    ("sqlite-vec", "float32"): 2048,
-    ("sqlite-vec", "int8"): 512,
     ("usearch", "f16"): 1024,
     ("usearch", "i8"): 660,
 }
@@ -148,7 +142,7 @@ _KB_ID = "bench"
 def _package_version(name: str) -> str:
     """Return ``name``'s installed version via ``importlib.metadata`` — never
     ``import``s the package itself (AC-7: this script imports no symbol from
-    ``sqlite_vec``/``usearch`` except a version string)."""
+    ``usearch`` except a version string)."""
     try:
         import importlib.metadata as _md
 
@@ -221,7 +215,6 @@ def host_facts(data_dir: Path) -> dict[str, str]:
         "platform": platform.platform(),
         "python": sys.version.split()[0],
         "sqlite_version": sqlite3.sqlite_version,
-        "sqlite_vec_version": _package_version("sqlite-vec"),
         "usearch_version": _package_version("usearch"),
         "cpu_count": str(os.cpu_count()),
         "ram_total_gb": f"{total_ram / 1e9:.2f}" if total_ram is not None else "unavailable",
@@ -418,27 +411,11 @@ async def time_queries(
     return durations_ns, last_results
 
 
-# ── Disk accounting (AC-4) ────────────────────────────────────────────────
-
-
-async def disk_bytes_sqlite(conn: aiosqlite.Connection, db_path: Path, base_size: int) -> int:
-    """Checkpoint the WAL fully into the main DB file (``PRAGMA
-    wal_checkpoint(TRUNCATE)`` — the connection must already be in
-    ``journal_mode=WAL``, and this must be called outside any
-    ``write_transaction``), then return the size delta from ``base_size``.
-    """
-    cur = await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    await cur.close()
-    return db_path.stat().st_size - base_size
-
-
 # ── Store construction / cleanup ──────────────────────────────────────────
 
 
 def _build_store(backend: str, dtype: str, conn: aiosqlite.Connection, dim: int):
-    if backend == "usearch":
-        return UsearchStore(conn, dtype=dtype, dim=dim)
-    return SqliteVecStore(conn, dtype=dtype, dim=dim)
+    return UsearchStore(conn, dtype=dtype, dim=dim)
 
 
 def _cleanup_cell_files(db_path: Path, vectors_dir: Path, kb_id: str) -> None:
@@ -513,10 +490,6 @@ async def run_cell(
         store = _build_store(backend, dtype, conn, dim)
         await store.open()
 
-        base_size = 0
-        if backend == "sqlite-vec":
-            base_size = await disk_bytes_sqlite(conn, db_path, 0)
-
         t_build0 = time.perf_counter()
         inserted = 0
         for batch_no, (ids, vecs) in enumerate(batch_source()):
@@ -529,31 +502,21 @@ async def run_cell(
         row["build_s"] = time.perf_counter() - t_build0
         row["inserted"] = inserted
 
-        save_ms: float | None = None
-        if backend == "usearch":
-            t0 = time.perf_counter_ns()
-            await store.flush(_KB_ID)
-            save_ms = (time.perf_counter_ns() - t0) / 1e6
-        else:
-            await store.flush(_KB_ID)  # no-op (writes already committed)
+        t0 = time.perf_counter_ns()
+        await store.flush(_KB_ID)
+        save_ms = (time.perf_counter_ns() - t0) / 1e6
 
-        if backend == "sqlite-vec":
-            row["disk_mb"] = (await disk_bytes_sqlite(conn, db_path, base_size)) / 1024 / 1024
-        else:
-            sidecar = vectors_dir / f"{_KB_ID}.usearch"
-            row["disk_mb"] = (sidecar.stat().st_size if sidecar.exists() else 0) / 1024 / 1024
+        sidecar = vectors_dir / f"{_KB_ID}.usearch"
+        row["disk_mb"] = (sidecar.stat().st_size if sidecar.exists() else 0) / 1024 / 1024
 
-        restore_ms: float | None = None
-        query_store = store
-        if backend == "usearch":
-            # Restore timing must load from disk: close the first store
-            # (dropping its in-memory cache) before constructing the second.
-            await store.close()
-            query_store = _build_store(backend, dtype, conn, dim)
-            await query_store.open()
-            t0 = time.perf_counter_ns()
-            await query_store.query(_KB_ID, query_vectors[0], k)
-            restore_ms = (time.perf_counter_ns() - t0) / 1e6
+        # Restore timing must load from disk: close the first store
+        # (dropping its in-memory cache) before constructing the second.
+        await store.close()
+        query_store = _build_store(backend, dtype, conn, dim)
+        await query_store.open()
+        t0 = time.perf_counter_ns()
+        await query_store.query(_KB_ID, query_vectors[0], k)
+        restore_ms = (time.perf_counter_ns() - t0) / 1e6
 
         row["save_ms"] = save_ms
         row["restore_ms"] = restore_ms
@@ -881,7 +844,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--queries", type=int, default=200, help="synthetic query count (ignored for --corpus real)"
     )
     parser.add_argument(
-        "--cells", type=str, default=None, help="comma list of backend:dtype (default: all four)"
+        "--cells", type=str, default=None, help="comma list of backend:dtype (default: both)"
     )
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--seed", type=int, default=2024)

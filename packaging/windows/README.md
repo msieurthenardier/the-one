@@ -232,10 +232,12 @@ freeze on every push in the meantime.
 - **Version**: the spec names the bundle from `the_one.__version__` (`0.2.0`).
   The stale `pyproject.toml` `version = "0.1.0"` is a known discrepancy left for
   a future maintenance reconcile — do not rely on the pyproject string here.
-- **PyNaCl / Discord voice**: `excludes = []` — the nacl exclusion existed only
-  for discord.py's optional voice support; discord.py itself is gone from the
-  dependency closure (Mission 23 Flight 1), so there is nothing left to
-  exclude.
+- **PyNaCl / Discord voice**: the nacl exclusion existed only for discord.py's
+  optional voice support; discord.py itself is gone from the dependency
+  closure (Mission 23 Flight 1), so there was nothing left to exclude on that
+  front. `excludes` is not empty, though — it now carries `["hf_xet"]`, dropped
+  in for an unrelated reason; see the spec's own comment above `excludes =
+  ["hf_xet"]` (squawk 0049 / M24 F02 L06) for why.
 - **pywinpty binaries**: if a build warns that the `_winpty` `.pyd` or
   `winpty.dll` is missing, add an explicit `--add-binary` / `binaries` tuple in
   the spec pointing at the installed `pywinpty` package.

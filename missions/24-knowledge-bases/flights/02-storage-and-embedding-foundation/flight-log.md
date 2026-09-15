@@ -4,15 +4,22 @@
 
 ## Summary
 
-In flight. Legs 1–5 landed (v40 schema + item lifecycle; chunk repository +
-FTS5; embedding seam + knowledge settings + chunker; vector-store seam with
-both backends; the store benchmark). Linux benchmark tables recorded;
-Windows runs complete (sqlite-vec 1M measured; usearch 200k measured with
-1M/3M extrapolated on time grounds; real corpus measured). Flight-end
-review of Legs 1–5 confirmed on cycle 2; Legs 1–5 committed (`c315cf5`),
-draft PR #197. **At the decision checkpoint**: the operator chooses the
-store and dtype against the tables under `## Store Benchmark`; Leg 6
-(closure) is designed after that entry exists.
+Completed. All six legs landed (v40 schema + item lifecycle; chunk
+repository + FTS5; embedding seam + knowledge settings + chunker;
+vector-store seam with both backends; the store benchmark; the DD-9
+closure). Linux and Windows benchmark tables recorded (sqlite-vec 1M
+measured; usearch 200k measured with 1M/3M extrapolated on time grounds;
+real corpus measured); the operator's DD-9 decision at the checkpoint was
+`usearch`, dtype `f16`. Leg 6 closed the flight on that decision —
+`sqlite-vec` and `hf-xet` removed from the dependency closure, the frozen
+bundle and the tree; `usearch`/`f16` the one configured backend; a v41
+migration; the store hardened on the flight-end review's three
+conditions. Four frozen `fly execute` runs on `windows-installer-build.yml`
+(606620 → 606657 → 606698 → **606735**) each fixed a real defect the
+previous run exposed; build 606735 met AC-15 (`RESULT: PASS`, eight
+gates, installer 134,790,292 bytes vs the 141,827,664-byte baseline).
+Final unit gate: **4,370 passed / 10 skipped / 499.22s**. See "Flight
+completion — 2026-09-15" under `## Leg Progress` for the full closeout.
 
 ---
 
@@ -871,6 +878,555 @@ genuinely per-cell figures; the tables below are not retroactively
 corrected and should be read with this caveat rather than re-trusted as
 clean per-cell numbers.
 
+### Leg 6 — store-decision-and-closure — completed
+
+**What landed** (DD-3/DD-9, the operator's "DD-9 decision checkpoint
+(2026-09-15)" entry above): closed the flight on `usearch`/`f16` — removed
+`sqlite-vec` from the dependency closure, the frozen bundle, the `doctor`
+gate list, both CI lanes and the tree; `usearch`/`f16` is now the one
+configured backend (`VectorStoreSettings.backend: Literal["usearch"]`,
+default `usearch`/`f16`; `dtype` validated against `("f16", "i8")`); moved
+`kb_vector_index`'s registry DDL from `UsearchStore.open()` into a new
+**v41** migration block (`CURRENT_VERSION = 41`); hardened
+`UsearchStore` on the three flight-end-review conditions for a `usearch`
+decision (atomic sidecar save, corrupt-sidecar → stale, `delete_kb`
+guard-first); dropped `hf-xet` from the closure (squawk 0049, completed
+against this leg); regenerated `uv.lock`; ran `pip-audit` on the final
+closure; updated every document that enumerated two vector stores or nine
+`doctor` gates.
+
+**Closure** (`pyproject.toml`, `uv.lock`): `sqlite-vec` deleted from the
+dependency list, the candidate comment block rewritten for one backend
+(usearch + numkong, with the numkong-stays rationale). Added `[tool.uv]
+exclude-dependencies = ["hf-xet"]` — `uv` 0.10.0 accepted the key
+directly, so the leg spec's `override-dependencies` fallback was not
+needed. `uv lock` output: `Resolved 137 packages`, `Removed hf-xet
+v1.6.0`, `Removed sqlite-vec v0.1.9` — diffed against the pre-leg lock
+file line-by-line and confirmed **no other package's version moved**
+(only the two removal diffs present). Before starting test work,
+`sqlite-vec` and `hf-xet` were uninstalled from the venv with a targeted
+`.venv/bin/pip uninstall -y sqlite-vec hf-xet` (not `uv sync`, to avoid
+touching the `[gui]`/`[all-llms]` extras already installed) — confirmed
+`import sqlite_vec` fails afterward.
+
+**Tree** (`the_one/vectors/`): `sqlite_vec_store.py` deleted
+(`git rm`); `_store.py` drops `VectorStoreMismatchError`, rewrites the
+module docstring's `vec0`-table-wide-rowid bullet into a disjoint-id-range
+convention stated on its own merits, and reworks the `quantize_int8`
+docstring's cast rationale for `usearch.Index.add` alone (verified
+empirically: an un-cast float array is silently re-scaled a second time by
+`Index.add` rather than raising, corrupting the stored vector — a
+different, more precise claim than the removed `sqlite_vec.serialize_int8`
+one); `__init__.py`'s `_build_store` is one branch, `__all__` drops the
+mismatch error, and the "lazy-importing each backend" docstring line
+becomes "lazy-importing the backend (one today; the seam keeps its shape
+for a future second one)".
+
+**Settings** (`the_one/knowledge/settings.py`): `VectorStoreSettings.backend:
+Literal["usearch"] = "usearch"`, `dtype: str = "f16"`,
+`_VECTOR_STORE_DTYPES = {"usearch": ("f16", "i8")}`.
+
+**v41 migration** (`the_one/db/schema.py`): `CURRENT_VERSION = 41`; the
+block does exactly two things — `CREATE TABLE IF NOT EXISTS
+kb_vector_index (...)` byte-for-byte the column set `UsearchStore.open()`
+created in Leg 4, and `DELETE FROM app_metadata WHERE key =
+'knowledge.vector_store' AND json_extract(value, '$.backend') =
+'sqlite-vec'`. Never touches `kb_vectors` (the `vec0` table cannot be
+dropped without the extension loaded). `UsearchStore.open()` no longer
+issues any DDL. **Deviation from the leg spec's literal Implementation
+Guidance**: the `app_metadata` DELETE is guarded on the table's presence
+(`SELECT name FROM sqlite_master WHERE type='table' AND
+name='app_metadata'`) before running — the same class of hazard Leg 1
+documented for `kb_items`. A hand-built partial-schema test fixture
+(`tests/test_db_migration.py::TestSchemaV32::test_v32_migration_on_v31_fixture_adds_column`)
+stamps `schema_version` rows 1–31 directly without ever running the real
+v31 block that creates `app_metadata`, so it reached the v41 block with no
+`app_metadata` table at all and failed with `OperationalError: no such
+table: app_metadata` before the guard was added. A real database always
+has `app_metadata` from v31 onward; this only ever fires for that class of
+hand-built fixture.
+
+**Store hardening** (`the_one/vectors/usearch_store.py`): `_tmp_path_for`
+(same-directory `.usearch.tmp`, derived from `_path_for`'s validated
+result) and `_save_atomically` (save to tmp, `os.replace(tmp, path)`,
+`finally: tmp.unlink(missing_ok=True)`) — both `flush` and `rebuild_from`
+route through it, only upserting the registry row after it returns.
+`_ensure_loaded` wraps `Index.restore` in `try/except Exception` (three
+different exception types for one corruption condition, verified at leg
+design — must catch the base class), setting `entry.stale = True` and
+raising `VectorStoreStaleError` chained `from` the original. `delete_kb`
+moved its `write_transaction` DELETE to the top of the method, before any
+in-memory pop or sidecar unlink — the re-entry guard now fires before any
+mutation, not after.
+
+**Doctor** (`the_one/diagnostics.py`): `_probe_sqlite_vec` deleted;
+`run_doctor`'s `gates` list has eight entries (`sqlite-vec` removed, order
+otherwise unchanged); docstring says eight gates, four frozen-only
+(desktop shell, llm providers, model catalog, usearch), four
+unconditional; `_vector_probe_outcome` and the surrounding comments no
+longer say "both"/"two vector-store probes".
+
+**Spec + CI** (`packaging/windows/the-one.spec`,
+`ci/tasks/windows-installer-build.yml`,
+`.github/workflows/windows-installer.yml`): `sqlite_vec_bins` collection
+and its `binaries` entry removed, replaced with a two-line general lesson
+about `collect_data_files` silently dropping `.so` files (citing Flight 1,
+not the removed package by name); `upx_exclude` loses `"vec0*"` and
+`"_hf_xet*"` (four entries remain: `compiled*`, `_numkong*`,
+`tokenizers*`, `_safetensors_rust*`). Both CI lanes drop only the
+`sqlite-vec: OK` needle; `usearch: OK`, `fts5: OK`, `embedding model: OK`
+stay.
+
+**Benchmark** (`scripts/bench_vector_store.py`): `ALL_CELLS`/`_BYTES_PER_VECTOR`
+are the two usearch cells; the `SqliteVecStore` import and the script's
+local `_build_store` sqlite-vec branch are gone; both `if backend ==
+"sqlite-vec"` branches and the now-always-true `if backend == "usearch":
+… else:` blocks collapsed to straight-line usearch code (including
+removing the now-fully-dead `disk_bytes_sqlite` helper, unused after the
+collapse); `sqlite_vec_version` host fact gone; module docstring and
+usage examples say two cells; `Makefile`'s target help says two cells.
+`make bench-vector-store` reprinted a real two-row table on this host
+(`--corpus synthetic --n 20000 --queries 50`) to confirm.
+
+**Tests**: `tests/test_vector_store.py` — `CELLS` is the two usearch
+cells, `_build` one branch, `TestProtocolSatisfaction` asserts on
+`UsearchStore` only, `TestSqliteVecOpenBehavior`/`TestMismatchDetection`
+deleted, three new classes added per AC-6/7/8 (`TestAtomicSave` — a
+monkeypatched `usearch.index.Index.save` class-attribute failure on the
+second flush, verified previous sidecar/registry/`.tmp`/`entry.dirty`
+state, then a successful retry; `TestCorruptSidecar` — garbage/truncated/
+empty sidecar cases each raising `VectorStoreStaleError` on every op,
+plus a `rebuild_from` recovery case; `TestDeleteKbGuardFirst` — nested
+`delete_kb` raises before any mutation). Net: 52 → 31 collected tests
+(parametrization dropped from 4 cells to 2 across the shared suite, plus
+the two deleted sqlite-vec-only classes, offset by the three new
+classes — verified exactly via `pytest --collect-only`).
+`tests/test_vectors_dispatch.py`: default-when-absent test asserts
+`UsearchStore`/`f16`; "returns sqlite-vec when the record says so" became
+`test_stored_i8_record_builds_an_i8_store`; unchanged count (7).
+`tests/test_knowledge_settings.py`: `TestVectorStoreSettingsValidation`
+retargeted (default `usearch`/`f16`; `usearch`+`float32`/`int8` rejected;
+`sqlite-vec` as a `backend` value rejected outright by the narrowed
+`Literal`); persistence tests' invalid-record case re-targeted to a
+stored `{"backend": "sqlite-vec", ...}` record. Net 27 → 26.
+`tests/test_db_api.py`: the two `vector_store` default-shape assertions
+and the PUT-rejected-key assertion updated to `usearch`/`f16`; test count
+unchanged (79 — literal-value edits only, no tests added/removed).
+`tests/test_db_migration.py`: new `TestSchemaV41` (5 tests: fresh-DB
+shape/membership, a pre-existing-table-and-row upgrade case, the
+`sqlite-vec` purge, the `usearch` keep, and a `kb_vectors` untouched
+case); `TestSchemaV39`'s and `TestSchemaV40`'s fresh-DB literal
+`CURRENT_VERSION == 40` assertions became `>= 40` (house pattern: the
+newest block's test — now `TestSchemaV41` — pins the exact value). Net
+95 → 100. `tests/test_doctor.py`: `TestProbeSqliteVec` (9 tests) and its
+private fixtures/stub classes deleted; one new test
+(`test_sqlite_vec_gate_is_gone`, the by-name inverse of the line-present
+tests) added. Net 54 → 46. `tests/test_bench_vector_store.py`:
+re-targeted to `usearch:f16`/`usearch:i8` throughout, same test count (13
+— literal-value edits only).
+
+**Deviation — AC-3's grep sweep cannot literally return zero outside the
+three named `agents.md` exceptions.** Three other acceptance criteria in
+this same leg spec, plus the Implementation Guidance's own explicit
+instructions, require the literal strings `sqlite-vec`/`vec0` to appear
+in code and tests outside `agents.md`:
+- AC-5's migration criterion gives the `DELETE ... = 'sqlite-vec'` SQL
+  **verbatim**, and Implementation Guidance step 4 explicitly says to
+  cite "the vec0 fact from Context so nobody adds a `DROP TABLE
+  kb_vectors` later" — both land in `the_one/db/schema.py`.
+- AC-4 explicitly asks for "a stored `{"backend": "sqlite-vec", …}`
+  record raises (the existing invalid-record test re-targeted)" — that
+  literal string lands in `tests/test_knowledge_settings.py`.
+- AC-5c's migration-purge test needs a `sqlite-vec` JSON record as its
+  own test data to exercise the exact `json_extract(...) = 'sqlite-vec'`
+  filter the migration runs — that literal string (and descriptive
+  names/docstrings around it) lands in `tests/test_db_migration.py`.
+- AC-9 explicitly asks for "a new test asserts `"sqlite-vec:"` does
+  **not** appear in `run_doctor` output" — that literal string lands in
+  `tests/test_doctor.py`.
+
+Resolution: implemented AC-4/AC-5/AC-9 exactly as specified (functionally
+necessary, testable, and using the literal strings those ACs' own text
+gives), implemented AC-3's *intent* everywhere else (no live sqlite-vec
+source paths, no dead imports, no dispatcher branch, no doctor probe, no
+benchmark cell, no CI needle, no package dependency), and trimmed every
+avoidable prose mention of `sqlite-vec`/`vec0` in comments/docstrings
+across `pyproject.toml`, `packaging/windows/the-one.spec`,
+`scripts/bench_vector_store.py`, `the_one/diagnostics.py`,
+`the_one/knowledge/settings.py`, and `the_one/db/schema.py`'s prose (the
+SQL literal and the vec0 fact itself are kept, per AC-5 and the
+Implementation Guidance). The full residual `grep -rn -i
+"sqlite.vec|SqliteVec|vec0"` sweep of `the_one/ scripts/ tests/
+packaging/ ci/ .github/ Makefile pyproject.toml` after this leg: zero
+hits in `ci/`, `.github/`, `Makefile`, `pyproject.toml`, `packaging/`,
+`scripts/`; three lines in `the_one/db/schema.py` (the SQL literal + the
+two vec0-fact comment lines); the three `the_one/agents.md` exceptions
+AC-3 names; and the AC-4/AC-5c/AC-9-mandated lines in
+`tests/test_knowledge_settings.py`, `tests/test_db_migration.py`, and
+`tests/test_doctor.py` respectively. No stray/dead reference anywhere.
+
+**Deviation — AC-1's literal `grep -c 'hf-xet' uv.lock` is 1, not 0.**
+The one hit is `[manifest]\nexcludes = ["hf-xet"]` — `uv`'s own record of
+the `exclude-dependencies` directive, not a package entry
+(`grep -c 'name = "hf-xet"' uv.lock` is 0, confirming the package itself
+is gone). This is the expected, correct shape of `uv lock` output under
+`exclude-dependencies` and was not anticipated by the leg spec's literal
+verification command.
+
+**Deviation — AC-2's plain `pip-audit -r <export>` fails with a pip
+resolver error, not a vulnerability finding.** `huggingface-hub`'s own
+wheel metadata still declares `hf-xet` as a hard, platform-gated
+dependency even though `uv`'s `exclude-dependencies` dropped it from the
+lock/export; `pip-audit -r` without `--disable-pip` performs a `pip
+install --dry-run --require-hashes` resolve, and pip tries to satisfy
+that declared dependency from the (unpinned, unhashed) index, raising
+`ERROR: In --require-hashes mode, all requirements must have their
+versions pinned`. This is a resolver artifact of the exclusion, unrelated
+to any CVE — running with `--disable-pip` (auditing the pinned+hashed
+export exactly as written, no resolver) avoids it entirely and is
+**exactly the flag `.github/workflows/pr-lint.yml` already uses** for an
+unrelated reason (the `gui` extra's Linux `pycairo` build dependency) —
+so this leg's `pip-audit --disable-pip -r <export>` command matches CI's
+real invocation precisely, not a looser substitute.
+
+**`uv.lock` diff summary**: two packages removed (`hf-xet` 1.6.0,
+`sqlite-vec` 0.1.9); no other package's version changed.
+
+**`pip-audit` command + summary**:
+```
+uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > /tmp/rel.txt
+.venv/bin/pip-audit --disable-pip -r /tmp/rel.txt
+```
+→ `No known vulnerabilities found`.
+
+**Scoped test runs during the leg** (all foreground,
+`scripts/run-tests.sh`, never `-m live`/port 8484): `tests/test_bench_vector_store.py`
+(13 passed); `tests/test_vector_store.py` (31 passed);
+`tests/test_vectors_dispatch.py` (7 passed);
+`tests/test_knowledge_settings.py tests/test_vectors_dispatch.py
+tests/test_vector_store.py tests/test_db_api.py` (143 passed);
+`tests/test_db_migration.py tests/test_kb_chunks.py
+tests/test_kb_types_consistency.py` (126 passed);
+`tests/test_doctor.py tests/test_doctor_embedding_model.py` (56 passed);
+`tests/test_db_write_lock.py` (7 passed, source-scan guard unaffected by
+`os.replace` — not a `commit()`); a combined 15-file run spanning every
+touched/neighbouring file (777 passed, 169.45s).
+
+**Unit-gate figures**: `make test-unit` run alone, foreground, nothing
+else on the host — **4,369 passed, 10 skipped, 514.62s (8:34)**. Net
+delta from this leg's actual starting point: the pre-leg HEAD state (the
+same commit this leg's Developer started from) collects **4,404** tests
+under the unit-gate's `-m` selection (verified directly via `git stash` +
+`pytest --collect-only` against the untouched tree, then `git stash pop`
+— not merely inferred), i.e. 4,394 passed + 10 skipped. This leg's net
+change is **-25 passed** (10 skipped unchanged), the sum of every touched
+file's precise before/after collected-test delta (each individually
+verified the same way): `test_vector_store.py` 52→31 (-21, parametrization
+dropped from 4 cells to 2, two sqlite-vec-only classes deleted, three new
+hardening classes added), `test_doctor.py` 54→46 (-8, `TestProbeSqliteVec`'s
+9 tests deleted, 1 new by-name-absence test added),
+`test_db_migration.py` 95→100 (+5, the new `TestSchemaV41`),
+`test_knowledge_settings.py` 27→26 (-1, dtype-rejection parametrization
+reshaped), `test_vectors_dispatch.py`/`test_db_api.py`/`test_bench_vector_store.py`
+unchanged (7/79/13 — literal-value edits only, no tests added or
+removed). Note this leg's own baseline (4,404) was never previously
+recorded by a `make test-unit` run — Leg 5's flight-log entry (4,368/10/
+512.29s) predates the flight-end-review-fixes' +12 tests, and that
+section explicitly deferred the unit gate to this leg/the Flight
+Director; 4,368+12=4,380 does not equal the empirically-verified
+4,404, meaning the historical per-leg test-count bookkeeping in this
+flight log has some untracked drift from a source this Developer did not
+chase down (out of this leg's scope) — the 4,404 figure used here is a
+direct, current-tree measurement, not a reconstruction from prior
+entries, so it is trustworthy regardless of that earlier drift. Ran the
+gate exactly once per instruction.
+
+**Closure commit unit-gate figures (final, post-cosmetic-fixes)**:
+`make test-unit` run alone, foreground, nothing else on the host —
+**4,370 passed, 10 skipped, 499.22s (8:19)**. One test more than the
+514.62s in-leg run above: the three reviewer-flagged cosmetic docstring
+fixes (`tests/test_doctor.py`, `the_one/agents.md`) touched no test
+bodies, so the +1 is the encoding-safety test
+(`TestEmitEncodingSafety::test_non_cp1252_detail_does_not_crash_the_run`)
+added by the build-606620 AC-15 fix above landing in the tree between the
+two runs.
+
+**Ruff**: `ruff check the_one/ tests/ scripts/` — all checks passed (no
+fixes needed). `ruff format --check the_one/ tests/ scripts/` required
+one `ruff format` pass (2 files: `tests/test_db_migration.py`,
+`tests/test_vector_store.py`); clean after, and the scoped tests for both
+files were re-run post-format to confirm the reformatting changed nothing
+behavioural.
+
+**Guard-test result**: `tests/test_db_write_lock.py`'s source-scan test
+passed unchanged — `os.replace` (the new atomic-save mechanism) is not a
+`commit()`/`rollback()` call, so it does not trip the guard; no new
+`commit()`/`rollback()` site was introduced outside
+`the_one/db/_write_lock.py` and `the_one/db/schema.py`.
+
+- **Flight-end review fix (non-blocking)**: `TestAtomicSave` in
+  `tests/test_vector_store.py` now records every path `Index.save` is
+  called with (both the failing and the succeeding flush) and asserts
+  each one is the `.usearch.tmp` sibling of the real sidecar, never the
+  real sidecar path itself — the prior version's monkeypatch raised
+  without inspecting its argument, so it would have passed unchanged
+  against a pre-Leg-6 direct `index.save(path)` call.
+
+**What the Flight Director should know for AC-15**: the frozen `fly
+execute` run must show no `sqlite-vec:` line, `usearch: OK`/`fts5:
+OK`/`embedding model: OK` present, `RESULT: PASS`, the installer size
+recorded against the 141,827,664-byte baseline, and the `dist/the-one/`
+listing (or the task's output) showing no `vec0*` and no `_hf_xet*` file.
+Squawk 0049's Sign-Off and commit ref are filled at the review/commit
+step, per this task's instructions (its Status was set `in-progress`
+here, with Corrective Action and Verification filled — not `completed`,
+which the leg spec's own AC-13 text names but which the Flight Director's
+commit-step convention overrides, matching every prior squawk's
+lifecycle in this flight).
+
+**AC-15 fix (build 606620)**: the frozen `the-one.exe doctor` step failed
+with `UnicodeEncodeError: 'charmap' codec can't encode character '→'`
+— root cause was this leg's embedding-probe detail string
+(`the_one/diagnostics.py:705`, introduced in Leg 3) containing U+2192
+(`→`), crashing mid-print because both CI lanes pipe the doctor's stdout
+and the Windows worker resolves that pipe to the cp1252 codec, which
+cannot encode the arrow. Two changes: (1) replaced the arrow with ASCII
+`->` in the detail string, matching the `model catalog` gate's existing
+`->` style, and updated the pinned assertion in
+`tests/test_doctor_embedding_model.py` plus the quoted detail-line format
+in `the_one/agents.md`'s "Diagnostics" section; (2) hardened
+`run_doctor`'s inner `emit` helper to try a plain `print` first (so UTF-8
+streams stay byte-identical) and, only on `UnicodeEncodeError`, re-emit
+the line encoded with the stream's own encoding (`errors="replace"`) —
+so a diagnostic can never die on its own output again, whatever
+character a future probe detail happens to contain. New test:
+`tests/test_doctor.py::TestEmitEncodingSafety::test_non_cp1252_detail_does_not_crash_the_run`
+(stubs a probe with a `→` detail, drives `run_doctor` through a real
+`io.TextIOWrapper` opened with `encoding="cp1252"`, asserts no raise plus
+`RESULT: PASS` and the by-name `"fts5: OK"` grep target survive).
+Verification: `PYTHON=.venv/bin/python bash scripts/run-tests.sh
+tests/test_doctor.py tests/test_doctor_embedding_model.py -x --timeout
+120 -q` — 57 passed; `.venv/bin/the-one doctor` against a scratch
+`THE_ONE_DATA_DIR` — `RESULT: PASS`, embedding line reads `...model ->
+float32 seam...`; `PYTHONIOENCODING=cp1252 .venv/bin/the-one doctor |
+cat` against a second scratch data dir — completes with `RESULT: PASS`,
+no traceback; `ruff check the_one/ tests/` and `ruff format --check
+the_one/ tests/` both clean.
+
+**AC-15 fix (build 606657)**: the doctor gate itself passed (`RESULT:
+PASS`, eight gates, no `sqlite-vec:` line, no `vec0*` in the bundle) but
+AC-15's bundle inspection found `_internal\hf_xet\hf_xet.pyd` still
+present, and the installer measured 141,812,423 bytes — essentially the
+141,827,664-byte pre-squawk-0049 baseline, not the ~4 MB smaller size the
+closure removal should have produced. Diagnosis (Flight Director,
+verified): the dependency closure is correct — `uv export --no-dev
+--no-emit-project --extra gui --extra all-llms --format requirements-txt`
+contains no `hf-xet` line and pins hashes, so `pip install -r` on the
+worker runs in hash-checking mode and cannot re-resolve an unpinned
+package back in. The leak is a build-*environment* one instead: the
+Concourse Windows worker runs tasks uncontainerised, so `C:\Python311`'s
+site-packages persist across builds, and a stale `hf_xet` copy from
+before this leg's closure change was still importable at freeze time —
+`huggingface_hub` carries a guarded `import hf_xet` in its download path,
+and PyInstaller's module graph follows that import whenever the module
+resolves in the build interpreter, independent of what the closure says.
+A persistent build env can equally mask a MISSING dependency, so the
+apparatus itself needed fixing, not just this one symptom. Two changes:
+(1) `packaging/windows/the-one.spec`'s `excludes = []` becomes `excludes
+= ["hf_xet"]`, with a comment recording the build-606657 evidence, so the
+bundle is correct regardless of what else happens to be importable in
+whatever environment runs the freeze; (2) `ci/tasks/windows-installer-build.yml`
+now creates a fresh per-build `venv` right after `Set-Location repo` (`&
+$py -m venv .buildvenv`, then `$py` repointed at
+`.buildvenv\Scripts\python.exe`) and installs the exported closure into
+that throwaway venv instead of the persistent base interpreter — every
+later use of `$py` in the task (pip installs, `uv export`, `pip install
+-e . --no-deps`, `pip install pyinstaller`, `-m PyInstaller`, the `$ver`
+computation) runs through the venv python unchanged. `ci/README.md` and
+`the_one/agents.md`'s packaging notes were updated with the lesson;
+squawk 0049's Corrective Action and Verification sections were extended
+with the same evidence and fix description. The GitHub Actions
+`windows-installer.yml` lane was left alone (a fresh `windows-2022` VM
+per job has no persistent site-packages to leak from) aside from a
+one-line comment explaining why it doesn't need the same venv fix.
+Linux-side verification (a frozen Windows rebuild is out of scope on this
+host — that is the Flight Director's next `fly execute` run): `python -c
+"import ast; ast.parse(open('packaging/windows/the-one.spec').read())"`
+passes; `python -c "import yaml;
+yaml.safe_load(open('ci/tasks/windows-installer-build.yml'))"` loads
+cleanly and the embedded PowerShell block scalar reads correctly by eye
+(every later `& $py` call resolves through the repointed venv path);
+`ruff check the_one/ tests/ scripts/` and `ruff format --check the_one/
+tests/ scripts/` both clean (the `.spec` and `.yml` files sit outside
+ruff's configured paths, unaffected either way); `grep -rn "excludes =
+\[\]"` across the repo found no other code/config reference to the old
+empty-list form — only historical Mission 23 Flight 1 flight-log prose
+(describing that flight's own then-current state, left alone) and one
+now-stale line in `packaging/windows/README.md:235` ("PyNaCl / Discord
+voice" note), which this fix left untouched as out of its stated scope
+and flagged instead for a future maintenance pass.
+
+**AC-15 fix (build 606698)**: run with the build-606657 fix's per-build
+venv already in place, the same step 2 install line failed outright:
+`ERROR: In --require-hashes mode, all requirements must have their
+versions pinned with ==. These do not: hf-xet<2.0.0,>=1.5.2 from
+https://files.pythonhosted.org/.../hf_xet-1.6.0-cp38-abi3-win_amd64.whl
+(from huggingface-hub==1.30.0->-r release-requirements.txt (line 298))`.
+PowerShell does not react to a native executable's exit code (only to
+its own cmdlets/terminating errors — `$ErrorActionPreference = "Stop"`
+does not cover `pip.exe`), so the script kept running with the venv
+completely empty, the freeze proceeded regardless, and the packaged
+`the-one.exe doctor` died with `ModuleNotFoundError: No module named
+'uvicorn'`. Corrected mechanism (the build-606657 paragraph above's
+"`pip install -r` ... runs in hash-checking mode and cannot re-resolve
+an unpinned package back in" was wrong): pip's hash-checking mode
+doesn't quietly drop an unpinned transitive requirement and install
+everything else — it refuses the *entire* install the moment it
+encounters one. `huggingface-hub`'s own wheel metadata still declares
+`hf-xet` as a dependency (`[tool.uv] exclude-dependencies` removes it
+from the lock/export, not from the wheel's declared requirements), so
+pip walks into that declaration mid-resolve and aborts, installing
+nothing. Build 606657 hit this identical pip failure — it just ran
+against the then-persistent `C:\Python311` interpreter, whose
+site-packages already held a full set of packages (a stale `hf_xet`
+included) from earlier builds, so the failed install left that stale
+state in place and the freeze silently proceeded off it; that is how
+`hf_xet.pyd` made it into that build's bundle even though the closure
+correctly excluded it. The real fix is `--no-deps`: a `uv export`
+closure is already complete and hash-pinned, so pip has nothing left to
+resolve, and `--no-deps` stops it from ever consulting
+`huggingface-hub`'s own declared requirements in the first place.
+Changes made: (1) `ci/tasks/windows-installer-build.yml` — `pip install
+-r release-requirements.txt` gained `--no-deps`, and every native step
+from `pip install --upgrade pip` through the `-m PyInstaller` freeze
+(`pip install uv`, the `uv export` redirection — checked for both a
+zero exit code and a non-empty output file — `pip install -r ...
+--no-deps`, `pip install -e . --no-deps`, `pip install pyinstaller`,
+`-m PyInstaller`) now checks `$LASTEXITCODE` and throws a specific
+message on failure, closing the gap that let 606657's failure go
+unnoticed; the per-build venv from the previous fix is unchanged. (2)
+`.github/workflows/windows-installer.yml` — `pip install -r
+release-requirements.txt` also gained `--no-deps`, with a comment
+explaining that lane needs it too (a fresh `windows-2022` runner has no
+persistent site-packages to fall back on, so it would fail exactly like
+606698, not silently like 606657); that lane already runs under bash's
+default `-eo pipefail`, so no separate exit-code checks were needed
+there. (3) `ci/README.md` and `squawks/0049-drop-hf-xet-from-closure.md`
+were corrected to record the right mechanism (install-fails-and-gets-
+masked, not silently-succeeds-without-hf-xet) alongside the existing
+per-build-venv and spec-`excludes` fixes, which remain correct and
+necessary in their own right; `the_one/agents.md`'s packaging bullet
+gained a clause naming the 606698 finding and the `--no-deps` fix.
+
+Local reproduction (Linux; a frozen Windows rebuild is out of scope on
+this host): `uv export --no-dev --no-emit-project --extra gui --extra
+all-llms --format requirements-txt` succeeds (exit 0), produced a
+1,697-line non-empty file, and contains zero `hf-xet`/`hf_xet` lines,
+confirming the closure itself is correct. In a throwaway venv (`python3
+-m venv`, `pip install --upgrade pip`), `pip install --dry-run -r <that
+export>` (no `--no-deps`; `--only-binary :all:` was tried first but
+rejected on an unrelated ground — `proxy-tools` ships only an sdist on
+PyPI, no platform marker involved, so that flag was dropped and the
+sdist path used instead) reproduced the CI failure verbatim: `ERROR: In
+--require-hashes mode, all requirements must have their versions pinned
+with ==. These do not: hf-xet<2.0.0,>=1.5.2 from
+.../hf_xet-1.6.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+(from huggingface-hub==1.30.0->...)` (exit 1) — the Linux wheel for
+`hf-xet` rather than Windows's, but the identical hash-mode refusal. The
+same command with `--no-deps` added exited 0 and printed a clean `Would
+install ...` list (86 packages) with no `hf-xet` anywhere. The throwaway
+venv was deleted afterward. `python3 -c "import yaml;
+yaml.safe_load(open('ci/tasks/windows-installer-build.yml'))"` and the
+same for `.github/workflows/windows-installer.yml` both load cleanly;
+`ruff check the_one/ tests/ scripts/` and `ruff format --check the_one/
+tests/ scripts/` both clean. Verification against a real frozen build —
+the Flight Director's next `fly execute` run — is out of scope for this
+fix pass, same as build 606657's fix before it.
+
+### Flight completion — 2026-09-15
+
+All six legs completed. **DD-9 outcome**: `usearch`, dtype `f16` — the
+only backend that clears the operator's p95 ≤ 250 ms bar at k = 10 on
+Windows at the largest measured N (f16 ~27 ms at 1M, ~41 ms at 3M
+extrapolated, 5.9 ms on the real 31k-chunk corpus), chosen over `i8` for
+recall margin (real-corpus recall@10 0.98 vs the 0.95 floor, where `i8`
+sits at 0.9465–0.953, within noise of the floor); `sqlite-vec` cleared
+the bar only below ~30k vectors on this platform.
+
+**What the flight delivered**: a v40 schema + item lifecycle (Leg 1); a
+chunk repository + FTS5 (Leg 2); an embedding seam + knowledge settings +
+chunker (Leg 3); a vector-store seam with both backends, then narrowed to
+one (Leg 4, then Leg 6); the DD-8/DD-9 store benchmark across both
+backends and dtypes on Linux and Windows (Leg 5); and the closure change
+(Leg 6) — `sqlite-vec` removed from the dependency closure, the frozen
+bundle, the `doctor` gate list, both CI lanes and the tree; `usearch`/
+`f16` the one configured backend; the `kb_vector_index` registry DDL
+moved from store-owned `open()` DDL into a **v41** migration block
+(`CURRENT_VERSION = 41`); `UsearchStore` hardened on the three flight-end-
+review conditions for a `usearch` decision — atomic sidecar save (tmp +
+`os.replace`), a corrupt sidecar surfacing as `VectorStoreStaleError`
+instead of the library's raw error, and `delete_kb`'s re-entry guard
+firing before any mutation; `hf-xet` dropped from the closure (squawk
+0049, completed against this leg's commit).
+
+**Four frozen `fly execute` runs** on `windows-installer-build.yml`
+proved AC-15, each fixing a real defect the previous run exposed rather
+than being repeated for its own sake: build 606620 failed on a
+`UnicodeEncodeError` printing the embedding-model gate's arrow (`→`) on
+the worker's cp1252-piped stdout — fixed with an ASCII `->` detail string
+and an encode-safe `emit` fallback that can no longer die on its own
+output; build 606657 succeeded but left a stale `hf_xet.pyd` in the
+bundle (the Windows worker's uncontainerised, persistent
+`C:\Python311` site-packages masked a closure that was already correct)
+— fixed with the spec's `excludes=["hf_xet"]` belt and a fresh per-build
+venv; build 606698 then failed outright once the venv was empty,
+exposing that pip's hash-checking install refuses the whole install the
+moment it meets `huggingface-hub`'s still-declared (though excluded from
+the lock) `hf-xet` requirement, and that PowerShell doesn't react to a
+native exit code — fixed with `--no-deps` on the install plus
+`$LASTEXITCODE` checks after every native step in both CI lanes; build
+**606735 succeeded and met AC-15**: frozen doctor `RESULT: PASS`, eight
+gates (`usearch: OK`, `fts5: OK`, `embedding model: OK`, no
+`sqlite-vec:` line), the bundle free of `hf_xet*`/`vec0*`, installer
+`the-one-setup-0.8.1.exe` = 134,790,292 bytes against the 141,827,664-byte
+baseline (−7,037,372 bytes).
+
+**Final unit-gate figures**: `make test-unit` run alone, foreground,
+nothing else on the host, at the closure commit — **4,370 passed, 10
+skipped, 499.22s (8:19)**.
+
+**Deferred items** (out of this flight's scope, not forgotten):
+- Squawk candidates recorded at the "flight-end review, cycle 1" note
+  above: the encryption-rotation endpoint's `except Exception` narrower
+  than the write-lock guard's `BaseException`; the commit-guard test is a
+  substring scan; nested unknown keys inside `embedding`/`chunking`
+  settings are silently dropped rather than refused
+  (`extra="forbid"`); the benchmark tests assert only on the `| OK |`
+  table cell, not the numbers inside it; the vector-store live-DDL check
+  is a substring match on the `vec0` DDL text (now moot for the removed
+  backend, but the pattern may recur); no `shape[-1] == dim` guard on
+  `upsert`/`query`.
+- `TestAtomicSave`'s original monkeypatch asserted no I/O detail, so it
+  would have passed against a pre-Leg-6 direct `index.save(path)` call
+  with no tmp/replace at all — the review-cycle fix (assert the save path
+  is the `.usearch.tmp` sibling, never the real sidecar) is the lesson:
+  a raising mock that never inspects its own call arguments can silently
+  stop testing the thing it was written to test.
+- The doctor's `UnicodeEncodeError` at build 606620 is a general lesson,
+  not just this leg's fix: any future probe `detail` string containing a
+  non-ASCII character is one `fly execute` away from taking the whole
+  diagnostic down on a cp1252-piped Windows lane, because a real
+  interactive console (PEP 528 UTF-8) never surfaces the bug locally —
+  the `emit` encode-safe fallback added here is the general guard, but a
+  new probe should still prefer ASCII in its detail string.
+- The persistent-Windows-build-environment lesson (build 606657): a
+  worker that reuses a base interpreter's site-packages across builds can
+  mask a **missing** dependency exactly as easily as it masked this
+  leg's stale `hf_xet` — the fresh per-build venv fix in
+  `ci/tasks/windows-installer-build.yml` is the general fix, but any
+  future Windows CI change should treat a persistent build env as
+  untrusted by default.
+
 ---
 
 ## Store Benchmark
@@ -1626,3 +2182,161 @@ outside Flight 2's surface), R9 (add an FTS5 doctor probe — proposed yes).
   sidecar must surface as `VectorStoreStaleError` rather than the library's
   raw error, and `delete_kb` must guard re-entry before mutating.
 - `faiss-cpu` divert: not triggered; Flight 1's shelf stays shelved.
+
+### Flight Director Notes — Leg 6 design (2026-09-15)
+
+- Leg 6 `store-decision-and-closure` designed from the decision entry
+  above; artifact at `legs/06-store-decision-and-closure.md`. Ground truth
+  gathered on this host during design: `Index.save` → `os.replace` over an
+  existing sidecar works and `restore` holds no file handle; a corrupt
+  sidecar raises three different exception types (`ValueError` garbage /
+  `RuntimeError` truncated / `ValueError` empty) so the store must catch
+  `Exception`; a `vec0` virtual table **cannot be dropped once the
+  extension is gone** (`no such module: vec0`) — the v41 block must leave
+  `kb_vectors` alone; `save_vector_store_settings` has no production
+  caller, so the v41 purge of a stored `sqlite-vec` record is belt-and-
+  braces for dev databases only; `uv` 0.10.0 carries
+  `exclude-dependencies`, the cleaner mechanism for squawk 0049.
+- **Risk tier: HIGH** — a schema migration (v41), a shared-interface change
+  (`VectorStoreSettings.backend` narrows; `VectorStoreMismatchError`
+  deleted; the dispatcher loses a branch), the dependency closure and both
+  CI lanes' by-name assertions, and the frozen bundle. Design review by a
+  Developer (Sonnet) follows before `ready`.
+- `i8` kept as a valid non-default usearch dtype (Flight Director's call):
+  the store supports it natively and the benchmark's two surviving cells
+  measure it; deleting a working path buys nothing. The operator's `f16`
+  is the default and the value a fresh install runs with.
+- **Design review cycle 1 (Sonnet): approve with changes.** Two mediums
+  (AC-3's grep exceptions incomplete; `docs/kb-architecture.md:10`
+  unaddressed) and two questions (pip-audit bar; `dirty` after a failed
+  save) — all folded into the artifact; one suggestion (collapse the
+  benchmark's vestigial branches) applied. Clarifications only, so no
+  second cycle. Leg set `ready`; implementation Developer spawned.
+
+### Flight Director Notes — Leg 6 implementation, review, frozen run
+
+- Developer (Sonnet) landed AC-1–AC-14; four documented deviations, all
+  accepted: (1) `grep -c 'hf-xet' uv.lock` is 1, the hit being uv's own
+  `[manifest] excludes` line, not a package; (2) `pip-audit -r` needs
+  `--disable-pip` (huggingface-hub's wheel metadata still names `hf-xet`,
+  which the exclusion leaves unpinned for pip's dry-run resolver) — the
+  same flag `pr-lint.yml` already passes; (3) AC-3's grep cannot reach
+  zero because AC-4/AC-5/AC-9 mandate the literals in tests and the v41
+  block; (4) an `app_metadata`-presence guard in the v41 block, forced by
+  the hand-built `TestSchemaV32` fixture that stamps past v31 without the
+  table. Unit gate: **4,369 passed / 10 skipped / 514.62 s** — net −25
+  from the pre-leg 4,394, the removed sqlite-vec parametrisation and
+  probe tests outweighing the new hardening tests. `uv.lock` diff: only
+  `hf-xet` 1.6.0 and `sqlite-vec` 0.1.9 removed; nothing else moved.
+- **Reviewer tier: Sonnet** — the diff touches the dependency closure, the
+  frozen bundle and a schema migration. **Verdict: confirmed**, 327 scoped
+  tests green, doctor prints eight gates, `make bench-vector-store` a
+  two-row table. One non-blocking finding: `TestAtomicSave`'s raising
+  mock never performs I/O, so it would also pass against the old direct
+  `index.save(path)`. Fixed in a Developer pass (assert the save path is
+  the `.usearch.tmp` sibling, never the real sidecar) rather than deferred
+  — cheap, test-only, and the reviewer specified the fix. The v41
+  `app_metadata` guard was independently judged necessary by the reviewer.
+- **AC-15 frozen run launched** as Concourse **build 606620** on
+  `windows-worker` (`fly -t the-one execute -c
+  ci/tasks/windows-installer-build.yml -i repo=. -o installer=./out`),
+  detached via `setsid nohup … & disown` per the Windows-run-1 lesson,
+  output in a session scratch log; retrievable with `fly -t the-one watch
+  -b 606620`. Launched on the reviewed tree; the test-only fix above does
+  not enter the bundle.
+- **Build 606620: `failed` at step 4/6 — not a gate, an encoding crash.**
+  Six gates printed `OK` (child spawn, python interpreter, desktop shell,
+  llm providers, model catalog, `usearch`, `fts5`; no `sqlite-vec:` line),
+  then `run_doctor`'s `emit` raised `UnicodeEncodeError: 'charmap' codec
+  can't encode character '→'` printing the **embedding model** line —
+  Leg 3's DD-11 detail string `"… model → float32 seam …"`
+  (`diagnostics.py:705`) carries a U+2192 arrow, and the task's piped
+  stdout on `windows-worker` is cp1252. Root cause is Leg 3, first
+  observable only on a frozen piped run (the flight PR has no CI lane; Leg
+  5's Windows runs were unfrozen benchmark invocations that never called
+  `doctor`). A real interactive console would not crash (PEP 528 UTF-8
+  console I/O) — but both CI lanes pipe (`| tee`, PowerShell capture), so
+  this is the lane's real behaviour, and a diagnostic that dies on its own
+  output defeats itself. **Flight Director decision**: a grounding defect
+  in this flight's own path, fixed inside Leg 6's review loop (an
+  AC-15 acceptance failure), not squawked: ASCII `->` in the detail (the
+  `model catalog` line's existing style), plus an encode-safe `emit` so no
+  future non-ASCII detail can take the doctor down, with a test that
+  drives `run_doctor` through a cp1252 stream. Re-run follows.
+- **Review cycle 2 (Sonnet, scoped to the two fix passes): confirmed.**
+  The strengthened `TestAtomicSave` would fail against a direct
+  `index.save(path)`; the `emit` fallback cannot itself raise
+  (`errors="replace"` then decode with the same codec) and leaves the
+  by-name `"{name}: OK"` substrings intact; the reviewer's scan of every
+  non-ASCII character in `diagnostics.py` finds only cp1252-encodable
+  em-dashes/ellipses in runtime strings (box-drawing only in comments), so
+  nothing else can crash a cp1252 lane. 88 scoped tests green, ruff clean,
+  a cp1252-piped `the-one doctor` completes with `RESULT: PASS`. One
+  cosmetic drift (the `run_doctor(` call-site count quoted in `agents.md`
+  and in `tests/test_doctor.py`'s module docstring) goes to the commit
+  step. **Build 606657** launched on the fixed tree.
+- **Build 606657: `succeeded`, doctor `RESULT: PASS`** — eight gates OK
+  (`usearch`, `fts5`, `embedding model` by name; embedding line now
+  `-> float32 seam`), no `sqlite-vec:` line, no `vec0*` in the bundle.
+  **But `_internal\hf_xet\hf_xet.pyd` is still in the bundle** and the
+  installer is 141,812,423 bytes — 15 KB under the 141,827,664 baseline,
+  not the ~4 MB squawk 0049 expects. Diagnosis: the closure is right (the
+  local `uv export` has no `hf-xet`, and the export pins hashes, so pip's
+  hash-checking mode on the worker cannot have re-resolved it). The
+  Windows worker runs tasks uncontainerised — `C:\Python311` and its
+  site-packages persist across builds (`choco` reports "already
+  installed") — so a stale `hf_xet` from an earlier build was importable,
+  and PyInstaller followed `huggingface_hub`'s guarded `import hf_xet`.
+  A persistent build environment can also mask a *missing* dependency,
+  which is the more dangerous direction. **Flight Director decision**: an
+  apparatus defect surfaced by AC-15, fixed in Leg 6's loop: (1) the spec
+  gains `excludes=["hf_xet"]` so the bundle is correct regardless of the
+  build env; (2) `ci/tasks/windows-installer-build.yml` builds in a fresh
+  per-build venv so the frozen closure is exactly the lock. Third frozen
+  run follows; installer size is the check.
+- **Build 606698: `failed` — and it corrects the 606657 diagnosis.** With
+  the fresh per-build venv, step 2 printed `ERROR: In --require-hashes
+  mode, all requirements must have their versions pinned with ==. These
+  do not: hf-xet<2.0.0,>=1.5.2 … (from huggingface-hub==1.30.0)`, so pip
+  installed **nothing**; PowerShell does not stop on a native exit code,
+  the freeze ran against an empty venv, and the frozen doctor died with
+  `No module named 'uvicorn'`. So pip *does* walk the exported closure's
+  transitive requirements even in hash mode — the previous note's "cannot
+  have re-resolved it" was wrong in mechanism though right in effect: in
+  606657 this same install failed silently and the persistent
+  `C:\Python311` (already holding every package, `hf-xet` included, from
+  earlier builds) masked the failure completely. That is the
+  missing-dependency hazard made concrete. **Fix**: install the export
+  with `--no-deps` (a `uv export` is a complete closure, so pip has
+  nothing to resolve), and make the task throw on any non-zero pip/uv/
+  PyInstaller exit code so an install failure can never again be hidden;
+  the GitHub `windows-installer.yml` lane gets the same `--no-deps` — a
+  fresh runner would fail exactly like 606698 without it. The spec's
+  `excludes=["hf_xet"]` stays as the belt. Fourth run follows.
+- **Review cycles 3 and 4 (Sonnet, scoped).** Cycle 3 (spec `excludes` +
+  per-build venv) found the code sound — `excludes` reaches both
+  `Analysis()` calls, `hf_xet` is the right import name, the frozen app's
+  download path gates on `is_xet_available()` so the exclusion cannot
+  crash it — and one blocking artifact item: two squawk 0049 passages
+  contradicted its own build-606698 correction (Flight Director
+  reconciled them). Cycle 4 (`--no-deps` + exit-code checks) confirmed
+  every `$LASTEXITCODE` check sits directly after its native command,
+  the `uv export` redirection keeps uv's exit code, and — reproduced on
+  this host — the export is a complete closure: a dry-run install
+  without `--no-deps` fails on `hf-xet` and nothing else; with
+  `--no-deps` it resolves cleanly. One non-blocking nit
+  (`ci/README.md` overclaimed "every native step") narrowed by the
+  Flight Director. Blocking items: none. **Build 606735** running.
+- **Build 606735: `succeeded` — AC-15 met.** Frozen doctor `RESULT: PASS`
+  with exactly eight gate lines, `usearch: OK`, `fts5: OK`, `embedding
+  model: OK` (ASCII `->`), no `sqlite-vec:` line; the build ran in the
+  per-build venv (`.buildvenv\Scripts\python.exe`, CPython 3.11.9) and the
+  install step passed with `--no-deps`; the bundle listing contains no
+  `hf_xet*`, `vec0*` or `sqlite_vec*` file (the log's only mentions are
+  the task script's own comments). Installer
+  `the-one-setup-0.8.1.exe` = **134,790,292 bytes**, −7,037,372 against
+  the 141,827,664 baseline — more than squawk 0049's 4.03 MB `hf-xet`
+  alone because the persistent-worker leak had been shipping other stale
+  site-packages too; the venv closes that for good. Squawk 0049 is
+  verified by this run. Four frozen runs in all (606620 encoding crash;
+  606657 masked install failure; 606698 exposed it; 606735 green).

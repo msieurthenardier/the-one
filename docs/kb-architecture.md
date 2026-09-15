@@ -9,6 +9,8 @@
 > disk-first store) but not its specific vendor picks — it chose
 > `potion-retrieval-32M` over Nomic/BGE, and `sqlite-vec`/`usearch` over
 > LanceDB (ruled out on weight at the corrected, lower ceiling).
+> `sqlite-vec` was removed in Flight 2 Leg 6 after the benchmark; `usearch`
+> is the shipped store.
 
 ## Context
 

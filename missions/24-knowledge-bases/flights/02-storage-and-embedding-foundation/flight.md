@@ -1,6 +1,6 @@
 # Flight: Storage and Embedding Foundation
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
@@ -770,7 +770,7 @@ Files affected (planning estimate; legs cite exactly): `the_one/db/schema.py`,
       (AC-1 smoke, N=1M, N=3M all four cells, real corpus) landed by the
       Developer; `windows-worker` runs are the Flight Director's, not yet
       run.
-- [ ] `store-decision-and-closure` — designed only after the decision entry
+- [x] `store-decision-and-closure` — designed only after the decision entry
       exists. Remove the loser and its probe/spec/CI lines, v41 for
       `kb_vector_index` if `usearch` won, `hf-xet` override (squawk 0049),
       lock regeneration, docs, `pip-audit`, one frozen run. **HIGH risk**
@@ -785,11 +785,11 @@ planning).
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged *(PR into `mission/24-knowledge-bases` — no CI lane runs on it; gates run by hand and recorded in the flight log)*
-- [ ] Tests passing
-- [ ] Documentation updated — `CLAUDE.md` (settings routes, write-lock rule, `fts5` gate), `SECURITY-MODEL.md` (DD-10), `README.md` / `docs/windows-install.md` / `the_one/main.py` doctor enumerations, `the_one/agents.md` Diagnostics section, the new `db-writes-hold-the-write-lock` convention, and a new "Knowledge storage" subsystem contract (seams, settings keys, the FTS sync rule, the write ordering, the no-vec0-in-migrations rule)
-- [ ] Squawk 0049 completed; squawk 0051 (stale aiosqlite comment at `api.py:4642-4647`) logged at planning; mission open questions on chunking and on backend switching annotated *(done at planning)*
+- [x] Tests passing
+- [x] Documentation updated — `CLAUDE.md` (settings routes, write-lock rule, `fts5` gate), `SECURITY-MODEL.md` (DD-10), `README.md` / `docs/windows-install.md` / `the_one/main.py` doctor enumerations, `the_one/agents.md` Diagnostics section, the new `db-writes-hold-the-write-lock` convention, and a new "Knowledge storage" subsystem contract (seams, settings keys, the FTS sync rule, the write ordering, the no-vec0-in-migrations rule)
+- [x] Squawk 0049 completed; squawk 0051 (stale aiosqlite comment at `api.py:4642-4647`) logged at planning; mission open questions on chunking and on backend switching annotated *(done at planning)*
 
 ### Verification
 

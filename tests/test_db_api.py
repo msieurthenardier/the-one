@@ -967,8 +967,8 @@ class TestKnowledgeSettingsAPI:
         # Flight 2 Leg 4, AC-12: `vector_store` is now present (read-only,
         # store-written) alongside the pre-existing `notes` list.
         assert body["vector_store"] == {
-            "backend": "sqlite-vec",
-            "dtype": "float32",
+            "backend": "usearch",
+            "dtype": "f16",
             "dim": 512,
             "model_id": "potion-retrieval-32M",
         }
@@ -986,8 +986,8 @@ class TestKnowledgeSettingsAPI:
         assert resp.status_code == 200
         body = resp.json()
         assert body["vector_store"] == {
-            "backend": "sqlite-vec",
-            "dtype": "float32",
+            "backend": "usearch",
+            "dtype": "f16",
             "dim": 512,
             "model_id": "potion-retrieval-32M",
         }
@@ -1004,7 +1004,7 @@ class TestKnowledgeSettingsAPI:
         assert resp.status_code == 422
 
         get_resp = await client.get("/api/knowledge-settings")
-        assert get_resp.json()["vector_store"]["backend"] == "sqlite-vec"
+        assert get_resp.json()["vector_store"]["backend"] == "usearch"
 
     @pytest.mark.parametrize("bad_value", ["not-a-dict", ["a", "list"], 42, None])
     async def test_put_non_dict_embedding_or_chunking_value_422s_not_500(

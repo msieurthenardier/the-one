@@ -49,7 +49,7 @@ pip install -e ".[all-llms,dev]"
 cp .env.example .env  # optional — only needed to change operational tunables; see "Supported LLMs" below to configure a provider
 the-one chat          # CLI
 the-one serve         # web UI at http://localhost:8484
-the-one doctor        # diagnose the runtime seam (child spawn, interpreter, desktop shell, LLM providers, model catalog, vector stores, FTS5, bundled embedding model, node/uv/python on PATH)
+the-one doctor        # diagnose the runtime seam (child spawn, interpreter, desktop shell, LLM providers, model catalog, vector store, FTS5, bundled embedding model, node/uv/python on PATH)
 ```
 
 > **Docker fully removed (M15 F1 / M16 F3):** the Docker deployment path was retired for the

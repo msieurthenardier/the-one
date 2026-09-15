@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 40
+CURRENT_VERSION = 41
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -2543,3 +2543,73 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (40,))
         await conn.commit()
         version = 40
+
+    if version < 41:
+        # Flight 2 ("Storage and Embedding Foundation") Leg 6, DD-3/DD-9
+        # (missions/24-knowledge-bases/flights/02-storage-and-embedding-
+        # foundation/flight.md) — the operator chose `usearch` as the one
+        # vector store at the DD-9 decision checkpoint (flight-log.md,
+        # "DD-9 decision checkpoint (2026-09-15)"). DD-3 kept
+        # `kb_vector_index` store-owned (created by `UsearchStore.open()`)
+        # until the choice was made — store-owned until the decision,
+        # migration-owned after — specifically so a losing backend would
+        # never leave a dead table in a frozen migration forever; now that
+        # `usearch` has won, the DDL moves here so the fresh-DB shape tests
+        # own it, and `UsearchStore.open()` no longer issues any DDL.
+        #
+        # Column set is byte-for-byte what `UsearchStore.open()` created in
+        # Leg 4, so a database where the store already made this table
+        # (any Leg 4/5 dev database) passes through unchanged via
+        # `IF NOT EXISTS`.
+        #
+        # This block must NOT touch `kb_vectors` (the removed candidate
+        # backend's virtual table, a `vec0` type): a `vec0` table cannot be
+        # dropped without its extension module loaded (`DROP TABLE` raises
+        # `OperationalError: no such module: vec0`), verified at Leg 6
+        # design — do not add a `DROP TABLE kb_vectors` here or to any
+        # later migration. A dev database that opened the removed backend
+        # between Leg 4 and Leg 6 keeps an inert `kb_vectors` table
+        # forever — no release ever shipped it, and every other statement
+        # on the connection (including this migration) works fine with the
+        # table present and the extension absent.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS kb_vector_index ("
+            "kb_id TEXT PRIMARY KEY, "
+            "path TEXT NOT NULL, "
+            "count INTEGER NOT NULL, "
+            "generation INTEGER NOT NULL, "
+            "dtype TEXT NOT NULL, "
+            "dim INTEGER NOT NULL, "
+            "updated_at TEXT NOT NULL)"
+        )
+
+        # Belt-and-braces purge of a stale `knowledge.vector_store` record
+        # naming the removed backend: `save_vector_store_settings` has no
+        # production caller (verified at Leg 6 design — only a test or the
+        # benchmark script could have written one), so this only ever
+        # fires against a dev database. A `usearch` record — or any other
+        # backend value — is left untouched. `json_extract` is available
+        # on this host's SQLite (3.45.1) and JSON1 is built into every
+        # SQLite >= 3.38, so no LIKE-based fallback is needed.
+        #
+        # `app_metadata` is guarded on presence (the same class of hazard
+        # Leg 1 documented for `kb_items`): a hand-built partial-schema test
+        # fixture that stamps `schema_version` rows directly up through 31
+        # without ever running the real v31 block (`schema.py`'s
+        # `app_metadata` CREATE) reaches this point with no `app_metadata`
+        # table at all (`tests/test_db_migration.py::TestSchemaV32`'s v31
+        # fixture is exactly this shape) — a real database always has it
+        # from v31 onward.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='app_metadata'"
+        ) as cursor:
+            app_metadata_exists = await cursor.fetchone() is not None
+        if app_metadata_exists:
+            await conn.execute(
+                "DELETE FROM app_metadata WHERE key = 'knowledge.vector_store' "
+                "AND json_extract(value, '$.backend') = 'sqlite-vec'"
+            )
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (41,))
+        await conn.commit()
+        version = 41

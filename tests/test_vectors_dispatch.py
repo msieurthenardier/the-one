@@ -21,7 +21,6 @@ from the_one.db.repositories import AppMetadataRepository
 from the_one.db.schema import ensure_schema
 from the_one.knowledge.settings import VECTOR_STORE_KEY, VectorStoreSettings
 from the_one.vectors import _build_store, _reset_for_test, get_vector_store
-from the_one.vectors.sqlite_vec_store import SqliteVecStore
 from the_one.vectors.usearch_store import UsearchStore
 
 
@@ -55,24 +54,23 @@ def _isolate_singleton(conn, monkeypatch):
 
 
 class TestDispatch:
-    async def test_defaults_to_sqlite_vec_when_record_absent(self, tmp_path, monkeypatch) -> None:
+    async def test_defaults_to_usearch_when_record_absent(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         built = await get_vector_store()
-        assert isinstance(built, SqliteVecStore)
-        assert built.backend == "sqlite-vec"
+        assert isinstance(built, UsearchStore)
+        assert built.backend == "usearch"
+        assert built.dtype == "f16"
 
-    async def test_returns_sqlite_vec_when_record_says_so(
-        self, conn, tmp_path, monkeypatch
-    ) -> None:
+    async def test_stored_i8_record_builds_an_i8_store(self, conn, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(settings, "data_dir", tmp_path)
         repo = AppMetadataRepository(conn)
         await repo.set(
             VECTOR_STORE_KEY,
-            VectorStoreSettings(backend="sqlite-vec", dtype="int8").model_dump_json(),
+            VectorStoreSettings(backend="usearch", dtype="i8").model_dump_json(),
         )
         built = await get_vector_store()
-        assert isinstance(built, SqliteVecStore)
-        assert built.dtype == "int8"
+        assert isinstance(built, UsearchStore)
+        assert built.dtype == "i8"
 
     async def test_returns_usearch_when_record_says_so(self, conn, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(settings, "data_dir", tmp_path)

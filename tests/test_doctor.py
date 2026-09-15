@@ -24,7 +24,6 @@ from the_one.diagnostics import (
     _probe_fts5,
     _probe_llm_providers,
     _probe_model_catalog,
-    _probe_sqlite_vec,
     _probe_usearch,
     _usearch_acceleration,
     detect_runtimes,
@@ -33,9 +32,9 @@ from the_one.diagnostics import (
 
 
 # The `embedding model` gate is UNCONDITIONAL (M24 F01 DD-7), so without this
-# every ``run_doctor(`` call in this file — there are 16, across 7 classes —
+# every ``run_doctor(`` call in this file — there are 19, across 9 classes —
 # would load the 62 MiB bundled potion-retrieval-32M weights. Patching a single
-# "host test" would leave fifteen still paying for it.
+# "host test" would leave eighteen still paying for it.
 #
 # Function-scoped on purpose. A module-scoped fixture cannot request the
 # function-scoped ``monkeypatch`` (pytest raises ScopeMismatch) and would need a
@@ -70,6 +69,14 @@ class TestRunDoctorHost:
         assert "RESULT: PASS" in text
         # Runtime-detection summary is present.
         assert "runtimes:" in text
+
+    def test_sqlite_vec_gate_is_gone(self) -> None:
+        """M24 F02 L06 (DD-9): `sqlite-vec` was removed from the closure —
+        the by-name inverse of the `usearch:`/`fts5:` line-present tests,
+        so a stray re-add of the removed gate is caught."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "sqlite-vec:" not in buf.getvalue()
 
     def test_no_llm_or_network_import(self) -> None:
         # The module must not require an agent loop. Smoke: importing and running
@@ -351,201 +358,14 @@ class TestProbeModelCatalog:
         assert "model catalog:" in buf.getvalue()
 
 
-# ── Vector-store doctor probes (M24 F01 L01) ─────────────────────────────────
+# ── Vector-store doctor probe (M24 F01 L01; usearch-only since M24 F02 L06,
+# DD-9) ───────────────────────────────────────────────────────────────────
 #
-# Both probes are frozen-only gates per DD-7: they ALWAYS attempt the real work,
-# and downgrade only a *failure* to an informational `skipped —` line when the
-# process is not frozen. Each must be incapable of raising — an escaping
-# exception would take down `doctor` entirely and break the CI gate for reasons
-# unrelated to the library under test.
-
-_HAS_LOAD_EXTENSION = hasattr(sqlite3.Connection, "enable_load_extension")
-_needs_load_extension = pytest.mark.skipif(
-    not _HAS_LOAD_EXTENSION,
-    reason="this Python build has sqlite3 extension loading compiled out",
-)
-
-
-class _FakeCursor:
-    """Minimal sqlite3 cursor stand-in returning a canned result set."""
-
-    def __init__(self, rows: list) -> None:
-        self._rows = rows
-
-    def fetchall(self) -> list:
-        return self._rows
-
-    def fetchone(self):
-        return self._rows[0] if self._rows else None
-
-
-class _NoRowsConnection:
-    """Real sqlite3 connection whose vec0 KNN query yields no rows.
-
-    Simulates the "extension loads but the query silently no-ops" failure —
-    the ``_probe_model_catalog`` lesson applied to a loadable library. Everything
-    except the MATCH query is delegated to the genuine connection so the load
-    path is exercised for real.
-    """
-
-    def __init__(self, real: sqlite3.Connection) -> None:
-        self._real = real
-
-    def __getattr__(self, name: str):
-        return getattr(self._real, name)
-
-    def execute(self, sql: str, params=()):
-        cursor = self._real.execute(sql, params)
-        if "MATCH" in sql:
-            return _FakeCursor([])
-        return cursor
-
-
-class _SpyConnection:
-    """Real sqlite3 connection that records every enable_load_extension call."""
-
-    def __init__(self, real: sqlite3.Connection, states: list) -> None:
-        self._real = real
-        self._states = states
-
-    def __getattr__(self, name: str):
-        return getattr(self._real, name)
-
-    def enable_load_extension(self, flag) -> None:
-        self._states.append(bool(flag))
-        self._real.enable_load_extension(flag)
-
-
-class TestProbeSqliteVec:
-    """Unit tests for the ``sqlite-vec`` doctor line."""
-
-    @_needs_load_extension
-    def test_ok_when_extension_loads_and_round_trips(self) -> None:
-        """Real load + real vec0 KNN round-trip returns the inserted rowid."""
-        result = _probe_sqlite_vec()
-        assert result.ok is True
-        assert "rowid 42" in result.detail
-        assert "vec0" in result.detail
-
-    @_needs_load_extension
-    def test_extension_loading_is_disabled_again_after_the_probe(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The probe must not leave extension loading enabled on its connection."""
-        states: list[bool] = []
-        real_connect = sqlite3.connect
-
-        monkeypatch.setattr(
-            diagnostics.sqlite3,
-            "connect",
-            lambda *a, **k: _SpyConnection(real_connect(*a, **k), states),
-        )
-        result = _probe_sqlite_vec()
-        assert result.ok is True
-        assert "skipped" not in result.detail
-        assert states == [True, False]
-
-    def test_frozen_fail_when_the_extension_cannot_load(self) -> None:
-        """Frozen bundle missing vec0 → ok=False, detail names loadable_path."""
-        import sqlite_vec
-
-        def _boom(conn) -> None:
-            raise sqlite3.OperationalError("vec0.dll: cannot open shared object file (simulated)")
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(diagnostics, "is_frozen", lambda: True)
-            mp.setattr(sqlite_vec, "load", _boom)
-            result = _probe_sqlite_vec()
-        assert result.ok is False
-        assert "loadable_path=" in result.detail
-        assert "OperationalError" in result.detail
-
-    def test_nonfrozen_load_failure_is_informational_skip(self) -> None:
-        """Same failure on a dev host → ok=True with a `skipped —` detail (DD-7)."""
-        import sqlite_vec
-
-        def _boom(conn) -> None:
-            raise sqlite3.OperationalError("simulated missing vec0")
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(diagnostics, "is_frozen", lambda: False)
-            mp.setattr(sqlite_vec, "load", _boom)
-            result = _probe_sqlite_vec()
-        assert result.ok is True
-        assert result.detail.startswith("skipped — ")
-
-    def test_frozen_fail_when_enable_load_extension_is_absent(self) -> None:
-        """A Python build without enable_load_extension fails only when frozen."""
-        # sqlite3.Connection is an immutable C type, so the missing-method build
-        # is simulated by swapping the module reference the probe reads.
-        stripped = types.SimpleNamespace(Connection=type("Connection", (), {}))
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(diagnostics, "is_frozen", lambda: True)
-            mp.setattr(diagnostics, "sqlite3", stripped)
-            frozen = _probe_sqlite_vec()
-        assert frozen.ok is False
-        assert "enable_load_extension" in frozen.detail
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(diagnostics, "is_frozen", lambda: False)
-            mp.setattr(diagnostics, "sqlite3", stripped)
-            host = _probe_sqlite_vec()
-        assert host.ok is True
-        assert "skipped" in host.detail
-
-    @_needs_load_extension
-    def test_frozen_fail_when_the_query_returns_nothing(self) -> None:
-        """Extension loads but vec0 answers nothing → failure, not a pass."""
-        real_connect = sqlite3.connect
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(diagnostics, "is_frozen", lambda: True)
-            mp.setattr(
-                diagnostics.sqlite3,
-                "connect",
-                lambda *a, **k: _NoRowsConnection(real_connect(*a, **k)),
-            )
-            result = _probe_sqlite_vec()
-        assert result.ok is False
-        assert "expected rowid 42" in result.detail
-
-    def test_probe_never_raises_and_doctor_still_exits_with_a_code(self) -> None:
-        """A library that raises must surface as a FAIL line, never propagate."""
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(diagnostics, "is_frozen", lambda: True)
-            mp.setattr(
-                diagnostics.sqlite3,
-                "connect",
-                lambda *a, **k: (_ for _ in ()).throw(RuntimeError("simulated")),
-            )
-            buf = io.StringIO()
-            code = run_doctor(out=buf)
-        text = buf.getvalue()
-        assert isinstance(code, int)
-        assert code != 0
-        assert "sqlite-vec: FAIL" in text
-        assert "RESULT: FAIL" in text
-
-    def test_frozen_fail_promotes_result_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A frozen sqlite-vec failure promotes the whole run to RESULT: FAIL."""
-        monkeypatch.setattr(
-            diagnostics,
-            "_probe_sqlite_vec",
-            lambda: ProbeResult("sqlite-vec", False, "vec0 missing from the bundle"),
-        )
-        buf = io.StringIO()
-        code = run_doctor(out=buf)
-        text = buf.getvalue()
-        assert code != 0
-        assert "sqlite-vec: FAIL" in text
-        assert "RESULT: FAIL" in text
-
-    def test_doctor_sqlite_vec_line_present_in_output(self) -> None:
-        """The sqlite-vec line — which both CI lanes grep by name — is emitted."""
-        buf = io.StringIO()
-        run_doctor(out=buf)
-        assert "sqlite-vec:" in buf.getvalue()
+# Frozen-only gate per DD-7: it ALWAYS attempts the real work, and downgrades
+# only a *failure* to an informational `skipped —` line when the process is
+# not frozen. Must be incapable of raising — an escaping exception would take
+# down `doctor` entirely and break the CI gate for reasons unrelated to the
+# library under test.
 
 
 class _StubMatches:
@@ -659,7 +479,8 @@ class TestProbeUsearch:
 class _Fts5UnavailableConnection:
     """Real sqlite3 connection whose ``CREATE VIRTUAL TABLE ... fts5(...)``
     call raises, simulating a SQLite build compiled without FTS5 support.
-    Mirrors ``_NoRowsConnection``/``_SpyConnection`` above."""
+    A connection-wrapping technique in the same style as the stub classes
+    ``TestProbeUsearch`` uses above."""
 
     def __init__(self, real: sqlite3.Connection) -> None:
         self._real = real
@@ -676,7 +497,7 @@ class _Fts5UnavailableConnection:
 class TestProbeFts5:
     """Unit tests for the ``fts5`` doctor line (Flight 2 Leg 2, DD-11).
 
-    Unlike the two vector-store probes, ``_probe_fts5`` gates
+    Unlike the vector-store probe, ``_probe_fts5`` gates
     UNCONDITIONALLY — it never routes through ``_vector_probe_outcome`` and
     never consults ``is_frozen()`` (FTS5 is a mission constraint in every
     build, not an optional extra).
@@ -816,8 +637,8 @@ class TestUsearchAcceleration:
 class TestEmbeddingProbeGating:
     """``embedding model`` is the only NEW gate that fails on a dev host.
 
-    M24 F01 DD-7: the two vector-store probes downgrade an unfrozen failure to a
-    ``skipped`` line because ``enable_load_extension`` genuinely varies across
+    M24 F01 DD-7: the vector-store probe downgrades an unfrozen failure to a
+    ``skipped`` line because native extension loading genuinely varies across
     Python builds. This one must not — model2vec is a base dependency and the
     weights are package data present in every checkout, so a host failure is a
     real defect (most usefully a missing package-data glob in a non-editable
@@ -863,3 +684,36 @@ class TestEmbeddingProbeGating:
 
         source = inspect.getsource(diagnostics._probe_embedding_model)
         assert "_vector_probe_outcome" not in source
+
+
+class TestEmitEncodingSafety:
+    """AC-15 / build 606620: the frozen Windows doctor died mid-run.
+
+    Both CI lanes pipe ``the-one.exe doctor``'s stdout, which Windows resolves
+    to the cp1252 codec, and a probe detail containing U+2192 (the old
+    embedding-probe arrow) raised ``UnicodeEncodeError`` from inside ``emit``
+    and killed the process before ``RESULT:`` could print. ``run_doctor`` must
+    never raise on its own output — this drives a stubbed probe with a
+    non-cp1252 character through a real cp1252-encoded stream.
+    """
+
+    def test_non_cp1252_detail_does_not_crash_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_fts5",
+            lambda: ProbeResult("fts5", True, "arrow example → still ok"),
+        )
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1252")
+        try:
+            code = run_doctor(out=stream)
+        finally:
+            stream.flush()
+        text = raw.getvalue().decode("cp1252")
+
+        assert code == 0
+        # The by-name substring both CI lanes grep must survive the replace.
+        assert "fts5: OK" in text
+        assert "RESULT: PASS" in text

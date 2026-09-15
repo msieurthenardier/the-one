@@ -137,25 +137,26 @@ class TestVectorStoreSettingsValidation:
 
     def test_default_is_valid(self) -> None:
         settings = VectorStoreSettings()
-        assert settings.backend == "sqlite-vec"
-        assert settings.dtype == "float32"
+        assert settings.backend == "usearch"
+        assert settings.dtype == "f16"
         assert settings.dim == 512
-
-    @pytest.mark.parametrize("dtype", ["float32", "int8"])
-    def test_sqlite_vec_valid_dtypes(self, dtype: str) -> None:
-        VectorStoreSettings(backend="sqlite-vec", dtype=dtype)
 
     @pytest.mark.parametrize("dtype", ["f16", "i8"])
     def test_usearch_valid_dtypes(self, dtype: str) -> None:
         VectorStoreSettings(backend="usearch", dtype=dtype)
 
-    def test_sqlite_vec_with_f16_rejected(self) -> None:
+    @pytest.mark.parametrize("dtype", ["float32", "int8"])
+    def test_usearch_with_removed_sqlite_vec_dtypes_rejected(self, dtype: str) -> None:
+        """`float32`/`int8` were sqlite-vec's dtypes (removed in Leg 6) —
+        neither is valid for usearch."""
         with pytest.raises(ValidationError):
-            VectorStoreSettings(backend="sqlite-vec", dtype="f16")
+            VectorStoreSettings(backend="usearch", dtype=dtype)
 
-    def test_usearch_with_float32_rejected(self) -> None:
+    def test_sqlite_vec_backend_rejected(self) -> None:
+        """`backend` narrowed to `Literal["usearch"]` in Leg 6 — the
+        removed backend name no longer validates at all."""
         with pytest.raises(ValidationError):
-            VectorStoreSettings(backend="usearch", dtype="float32")
+            VectorStoreSettings(backend="sqlite-vec", dtype="float32")
 
 
 class TestVectorStoreSettingsPersistence:
@@ -185,8 +186,10 @@ class TestVectorStoreSettingsPersistence:
         from the_one.db.repositories import AppMetadataRepository
 
         repo = AppMetadataRepository(conn)
-        # A drifted/corrupt combination — usearch never accepts float32.
-        await repo.set(VECTOR_STORE_KEY, '{"backend": "usearch", "dtype": "float32"}')
+        # A stale `sqlite-vec` record — the backend Leg 6 removed. `backend`
+        # is now `Literal["usearch"]`, so this raises on the Literal check
+        # before the dtype validator ever runs.
+        await repo.set(VECTOR_STORE_KEY, '{"backend": "sqlite-vec", "dtype": "float32"}')
 
         with pytest.raises(ValidationError):
             await load_vector_store_settings(conn)

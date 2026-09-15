@@ -1,23 +1,23 @@
-"""Shared ``VectorStore`` Protocol test suite (Flight 2 Leg 4, DD-3/DD-4/DD-10).
+"""Shared ``VectorStore`` Protocol test suite (Flight 2 Leg 4, DD-3/DD-4/DD-10;
+``usearch``-only since Leg 6, DD-9).
 
-Parametrised over the four backend x dtype cells (sqlite-vec float32/int8,
-usearch f16/i8) via the ``store`` fixture so the two concrete backends
-cannot diverge on the shared contract. Backend-specific behaviour
-(extension-loading discipline, DDL mismatch detection, usearch sidecar
-staleness) gets its own dedicated test class below the shared suite.
+Parametrised over the two usearch dtype cells (f16/i8) via the ``store``
+fixture — the seam keeps its parametrised shape for a future second
+backend. Backend-specific behaviour (sidecar staleness, atomic save,
+delete_kb guard ordering) gets its own dedicated test class below the
+shared suite.
 
-Per the leg spec's disjoint-id-range edge case: ``vec0`` rowids are unique
-TABLE-WIDE, not per partition, so any test exercising two knowledge bases
+Ids are disjoint across knowledge bases by convention, not by a
+per-partition namespace: every id comes from one global ``kb_chunks.id``
+(``AUTOINCREMENT``) sequence, so any test exercising two knowledge bases
 in the same store uses disjoint id ranges (e.g. ``kb_a`` 1-50, ``kb_b``
-101-150) — reusing an id across two KBs would raise ``UNIQUE constraint
-failed`` for the sqlite-vec cells while the usearch cells (keyed per-KB
-index, not table-wide) pass, silently masking the difference.
+101-150) to mirror production, even though a per-KB ``usearch`` index
+would not itself raise on a repeated id across two different KBs.
 """
 
 from __future__ import annotations
 
-import asyncio
-import types
+from pathlib import Path
 
 import aiosqlite
 import numpy as np
@@ -31,10 +31,8 @@ from the_one.vectors import _reset_for_test as reset_vectors_module
 from the_one.vectors._store import (
     VectorStore,
     VectorStoreError,
-    VectorStoreMismatchError,
     VectorStoreStaleError,
 )
-from the_one.vectors.sqlite_vec_store import SqliteVecStore
 from the_one.vectors.usearch_store import UsearchStore
 
 DIM = 512
@@ -71,17 +69,13 @@ async def conn(tmp_path):
 
 
 CELLS = [
-    ("sqlite-vec", "float32"),
-    ("sqlite-vec", "int8"),
     ("usearch", "f16"),
     ("usearch", "i8"),
 ]
 
 
 def _build(backend: str, dtype: str, conn, dim: int = DIM):
-    if backend == "usearch":
-        return UsearchStore(conn, dtype=dtype, dim=dim)
-    return SqliteVecStore(conn, dtype=dtype, dim=dim)
+    return UsearchStore(conn, dtype=dtype, dim=dim)
 
 
 @pytest.fixture(params=CELLS, ids=[f"{b}-{d}" for b, d in CELLS])
@@ -97,11 +91,6 @@ async def store(request, conn, tmp_path, monkeypatch):
 
 
 class TestProtocolSatisfaction:
-    def test_sqlite_vec_satisfies_protocol_structurally(self) -> None:
-        built = SqliteVecStore(object(), dtype="float32")
-        assert isinstance(built, VectorStore)
-        assert VectorStore not in SqliteVecStore.__bases__
-
     def test_usearch_satisfies_protocol_structurally(self) -> None:
         built = UsearchStore(object(), dtype="f16")
         assert isinstance(built, VectorStore)
@@ -225,108 +214,6 @@ class TestReopen:
             assert row["count"] == 5
 
 
-# ── AC-6: SqliteVecStore.open() extension-loading discipline ─────────────
-
-
-class TestSqliteVecOpenBehavior:
-    async def test_open_loads_vec0_on_the_connection(self, conn, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        built = SqliteVecStore(conn, dtype="float32", dim=8)
-        await built.open()
-        async with conn.execute("SELECT vec_version()") as cur:
-            row = await cur.fetchone()
-        assert row is not None
-
-    async def test_extension_loading_is_disabled_after_open(
-        self, conn, tmp_path, monkeypatch
-    ) -> None:
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        built = SqliteVecStore(conn, dtype="float32", dim=8)
-        await built.open()
-
-        import sqlite_vec
-
-        with pytest.raises(Exception):  # noqa: B017 — sqlite3.OperationalError via aiosqlite
-            await conn.load_extension(str(sqlite_vec.loadable_path()))
-
-    async def test_open_is_idempotent(self, conn, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        built = SqliteVecStore(conn, dtype="float32", dim=8)
-        await built.open()
-        await built.open()  # must not raise, must not reload the extension
-
-    async def test_two_concurrent_opens_load_the_extension_once(
-        self, conn, tmp_path, monkeypatch
-    ) -> None:
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        built = SqliteVecStore(conn, dtype="float32", dim=8)
-        calls: list[bool] = []
-        real_enable = conn.enable_load_extension
-
-        async def _counting_enable(flag: bool):
-            calls.append(flag)
-            return await real_enable(flag)
-
-        monkeypatch.setattr(conn, "enable_load_extension", _counting_enable)
-        await asyncio.gather(built.open(), built.open())
-        assert calls.count(True) == 1
-
-    async def test_missing_enable_load_extension_raises_vector_store_error(
-        self, conn, tmp_path, monkeypatch
-    ) -> None:
-        # Same module-swap technique as
-        # tests/test_doctor.py::TestProbeSqliteVec — sqlite3.Connection is
-        # an immutable C type, so the missing-method build is simulated by
-        # swapping the module reference the store reads.
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        stripped = types.SimpleNamespace(Connection=type("Connection", (), {}))
-        monkeypatch.setattr("the_one.vectors.sqlite_vec_store.sqlite3", stripped)
-
-        built = SqliteVecStore(conn, dtype="float32", dim=8)
-        with pytest.raises(VectorStoreError, match="knowledge.vector_store"):
-            await built.open()
-
-
-# ── AC-7: mismatch detection ───────────────────────────────────────────────
-
-
-class TestMismatchDetection:
-    async def test_dtype_mismatch_raises(self, conn, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        first = SqliteVecStore(conn, dtype="float32", dim=8)
-        await first.open()
-
-        second = SqliteVecStore(conn, dtype="int8", dim=8)
-        with pytest.raises(VectorStoreMismatchError) as exc_info:
-            await second.open()
-        assert "knowledge.vector_store" in str(exc_info.value)
-
-    async def test_dim_mismatch_raises(self, conn, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        first = SqliteVecStore(conn, dtype="float32", dim=8)
-        await first.open()
-
-        second = SqliteVecStore(conn, dtype="float32", dim=16)
-        with pytest.raises(VectorStoreMismatchError):
-            await second.open()
-
-    async def test_mismatch_message_names_both_shapes_from_live_ddl(
-        self, conn, tmp_path, monkeypatch
-    ) -> None:
-        """The check reads `sqlite_master`, not just the constructor args —
-        verified by asserting the live DDL text appears in the error."""
-        monkeypatch.setattr(settings, "data_dir", tmp_path)
-        first = SqliteVecStore(conn, dtype="float32", dim=8)
-        await first.open()
-
-        second = SqliteVecStore(conn, dtype="int8", dim=8)
-        with pytest.raises(VectorStoreMismatchError) as exc_info:
-            await second.open()
-        message = str(exc_info.value)
-        assert "embedding float[8]" in message  # the LIVE ddl (first store's)
-        assert "int8" in message  # the configured (second store's) dtype
-
-
 # ── Leg 5 review fix (BLOCKING 2): usearch path-traversal guard ───────────
 
 
@@ -443,6 +330,211 @@ class TestUsearchStaleness:
             row2 = await cur.fetchone()
         assert row2["count"] == 3
         assert row2["generation"] == 2
+
+
+# ── AC-6: atomic sidecar save ────────────────────────────────────────────
+
+
+class TestAtomicSave:
+    async def test_failed_save_leaves_previous_sidecar_and_registry_intact_then_retries(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        from usearch.index import Index
+
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        store = UsearchStore(conn, dtype="f16", dim=8)
+        await store.open()
+        vecs = _unit_vectors(4, dim=8)
+
+        await store.upsert("kb", [1, 2, 3], vecs[:3])
+        await store.flush("kb")  # succeeds — the "previous good" sidecar/registry
+
+        sidecar = tmp_path / "vectors" / "kb.usearch"
+        assert sidecar.exists()
+        previous_bytes = sidecar.read_bytes()
+
+        async with conn.execute(
+            "SELECT count, generation FROM kb_vector_index WHERE kb_id = ?", ("kb",)
+        ) as cur:
+            row_before = await cur.fetchone()
+        assert row_before["count"] == 3
+        assert row_before["generation"] == 1
+
+        await store.upsert("kb", [4], vecs[3:4])
+        entry = store._entry("kb")
+        assert entry.dirty is True
+
+        # Record every path `Index.save` is actually invoked with, for both
+        # the failing and the succeeding flush below — a review fix
+        # (flight-end review, Leg 6): asserting these are the
+        # `.usearch.tmp` sidecar path, never the real sidecar path, is what
+        # actually proves `_save_atomically`'s write-then-replace shape.
+        # The prior version of this test raised from a `Index.save` stand-in
+        # that performed no I/O and never inspected its argument, so it
+        # would have passed unchanged against a pre-Leg-6 implementation
+        # that called `index.save(path)` directly on the real sidecar path.
+        recorded_save_paths: list[str] = []
+        real_save = Index.save
+
+        def _boom_save(self, path_or_buffer=None, *args, **kwargs):
+            recorded_save_paths.append(path_or_buffer)
+            raise RuntimeError("disk full (simulated)")
+
+        def _spy_save(self, path_or_buffer=None, *args, **kwargs):
+            recorded_save_paths.append(path_or_buffer)
+            return real_save(self, path_or_buffer, *args, **kwargs)
+
+        with monkeypatch.context() as m:
+            m.setattr(Index, "save", _boom_save)
+            with pytest.raises(RuntimeError, match="disk full"):
+                await store.flush("kb")
+
+        # Previous sidecar untouched; no .tmp file left behind.
+        assert sidecar.read_bytes() == previous_bytes
+        assert list((tmp_path / "vectors").glob("*.usearch.tmp")) == []
+
+        # Registry row unchanged at its previous generation.
+        async with conn.execute(
+            "SELECT count, generation FROM kb_vector_index WHERE kb_id = ?", ("kb",)
+        ) as cur:
+            row_after = await cur.fetchone()
+        assert row_after["count"] == 3
+        assert row_after["generation"] == 1
+
+        # `entry.dirty` stays True so the next flush retries.
+        assert entry.dirty is True
+
+        # A second flush, with the failing monkeypatch swapped for a spy
+        # that still calls through to the real `Index.save`, succeeds and
+        # advances the registry.
+        with monkeypatch.context() as m:
+            m.setattr(Index, "save", _spy_save)
+            await store.flush("kb")
+        assert entry.dirty is False
+        async with conn.execute(
+            "SELECT count, generation FROM kb_vector_index WHERE kb_id = ?", ("kb",)
+        ) as cur:
+            row_final = await cur.fetchone()
+        assert row_final["count"] == 4
+        assert row_final["generation"] == 2
+
+        # The discriminating assertions: every recorded `Index.save` call
+        # (failing flush + succeeding flush) targeted the same-directory
+        # `.usearch.tmp` sidecar, and the real sidecar path was never
+        # passed to `Index.save` directly — only true under
+        # `_save_atomically`'s write-then-`os.replace` shape, not a direct
+        # `index.save(path)` call on the real sidecar path.
+        assert len(recorded_save_paths) == 2
+        for recorded in recorded_save_paths:
+            recorded_path = Path(recorded)
+            assert recorded_path.name == "kb.usearch.tmp"
+            assert recorded_path.parent == sidecar.parent
+            assert recorded_path != sidecar
+        assert str(sidecar) not in recorded_save_paths
+
+
+# ── AC-7: corrupt sidecar -> stale ────────────────────────────────────────
+
+
+class TestCorruptSidecar:
+    async def _flush_real_sidecar(
+        self, conn, tmp_path, monkeypatch
+    ) -> tuple[UsearchStore, np.ndarray]:
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        store = UsearchStore(conn, dtype="f16", dim=8)
+        await store.open()
+        vecs = _unit_vectors(3, dim=8)
+        await store.upsert("kb", [1, 2, 3], vecs)
+        await store.flush("kb")
+        return store, vecs
+
+    async def test_garbage_bytes_raise_stale_on_every_read_and_write(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        await self._flush_real_sidecar(conn, tmp_path, monkeypatch)
+        sidecar = tmp_path / "vectors" / "kb.usearch"
+        sidecar.write_bytes(b"not a usearch index, just garbage bytes" * 4)
+
+        second = UsearchStore(conn, dtype="f16", dim=8)
+        await second.open()
+        with pytest.raises(VectorStoreStaleError):
+            await second.count("kb")
+        with pytest.raises(VectorStoreStaleError):
+            await second.query("kb", _unit_vectors(1, dim=8)[0], 1)
+        with pytest.raises(VectorStoreStaleError):
+            await second.upsert("kb", [4], _unit_vectors(1, dim=8))
+
+    async def test_truncated_file_raises_stale(self, conn, tmp_path, monkeypatch) -> None:
+        await self._flush_real_sidecar(conn, tmp_path, monkeypatch)
+        sidecar = tmp_path / "vectors" / "kb.usearch"
+        original = sidecar.read_bytes()
+        sidecar.write_bytes(original[: len(original) // 2])
+
+        second = UsearchStore(conn, dtype="f16", dim=8)
+        await second.open()
+        with pytest.raises(VectorStoreStaleError):
+            await second.count("kb")
+
+    async def test_empty_file_raises_stale(self, conn, tmp_path, monkeypatch) -> None:
+        await self._flush_real_sidecar(conn, tmp_path, monkeypatch)
+        sidecar = tmp_path / "vectors" / "kb.usearch"
+        sidecar.write_bytes(b"")
+
+        second = UsearchStore(conn, dtype="f16", dim=8)
+        await second.open()
+        with pytest.raises(VectorStoreStaleError):
+            await second.count("kb")
+
+    async def test_rebuild_from_recovers_after_corruption(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        _, vecs = await self._flush_real_sidecar(conn, tmp_path, monkeypatch)
+        sidecar = tmp_path / "vectors" / "kb.usearch"
+        sidecar.write_bytes(b"garbage")
+
+        second = UsearchStore(conn, dtype="f16", dim=8)
+        await second.open()
+        with pytest.raises(VectorStoreStaleError):
+            await second.count("kb")
+
+        await second.rebuild_from("kb", [([1, 2, 3], vecs)])
+        results = await second.query("kb", vecs[0], 1)
+        assert results[0][0] == 1
+        async with conn.execute(
+            "SELECT count FROM kb_vector_index WHERE kb_id = ?", ("kb",)
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["count"] == 3
+
+
+# ── AC-8: delete_kb guard-first ───────────────────────────────────────────
+
+
+class TestDeleteKbGuardFirst:
+    async def test_nested_delete_kb_raises_before_any_mutation(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        store = UsearchStore(conn, dtype="f16", dim=8)
+        await store.open()
+        vecs = _unit_vectors(2, dim=8)
+        await store.upsert("kb", [1, 2], vecs)
+        await store.flush("kb")
+
+        sidecar = tmp_path / "vectors" / "kb.usearch"
+        assert sidecar.exists()
+
+        with pytest.raises(RuntimeError):
+            async with write_transaction(conn):
+                await store.delete_kb("kb")
+
+        # Nothing mutated: sidecar still exists, registry row still
+        # present, count still answers through the same store instance.
+        assert sidecar.exists()
+        async with conn.execute("SELECT * FROM kb_vector_index WHERE kb_id = ?", ("kb",)) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert await store.count("kb") == 2
 
 
 # ── AC-10: write-lock re-entry ─────────────────────────────────────────────

@@ -1,19 +1,19 @@
-"""Vector-store seam (Flight 2 Leg 4, DD-3/DD-4/DD-10/DD-13).
+"""Vector-store seam (Flight 2 Leg 4, DD-3/DD-4/DD-10/DD-13; ``usearch``-only
+since Leg 6, DD-9).
 
 ``VectorStore`` is a vectors-and-integer-ids-only Protocol: every id
 crossing the seam is a ``kb_chunks.id`` value (``AUTOINCREMENT``, never
-recycled — Leg 1, DD-5), and no chunk text or metadata ever crosses. Both
-concrete backends (``SqliteVecStore``, ``UsearchStore``) satisfy this
-Protocol STRUCTURALLY (``structural-Protocol-satisfaction`` — no
-inheritance); ``isinstance(store, VectorStore)`` works because
-``runtime_checkable`` checks member presence at call time.
+recycled — Leg 1, DD-5), and no chunk text or metadata ever crosses.
+``UsearchStore`` satisfies this Protocol STRUCTURALLY
+(``structural-Protocol-satisfaction`` — no inheritance);
+``isinstance(store, VectorStore)`` works because ``runtime_checkable``
+checks member presence at call time.
 
 **Contract**
 
 - ``upsert(kb_id, ids, vectors)`` means "remove any of ``ids`` already
-  present, then insert" — neither backend has a native upsert (an
-  ``INSERT OR REPLACE`` into ``vec0`` fails its primary-key constraint;
-  ``usearch.Index.add`` raises on a duplicate key).
+  present, then insert" — ``usearch.Index.add`` raises on a duplicate key
+  (no native upsert).
 - **Write ordering (DD-3)**: chunks + their FTS rows commit first (the
   chunk repository, Leg 2); vectors are written after, via this seam; an
   item's status flips to ``indexed`` only once the vectors have *landed*
@@ -23,27 +23,27 @@ inheritance); ``isinstance(store, VectorStore)`` works because
 - **``flush`` rule**: ``usearch`` cannot save its HNSW index on every
   ``upsert`` at scale (a save is O(N)), so "vectors landed" means
   *flushed*, not merely upserted — Flight 3's pipeline calls
-  ``flush(kb_id)`` before it moves an item to ``indexed``.
-  ``SqliteVecStore.flush`` is a no-op; its writes commit on ``upsert``.
-  An ``upsert`` without a following ``flush``, observed through a FRESH
-  ``UsearchStore`` instance (a process restart, or a second store built
-  over the same connection), does not see the new vectors — documented
-  behaviour, not a bug.
-- **Both stores acquire the shared write lock themselves**
-  (``the_one/db/_write_lock.py``, DD-13) for every one of their own
-  writes. A caller must NEVER wrap a store call inside its own
+  ``flush(kb_id)`` before it moves an item to ``indexed``. An ``upsert``
+  without a following ``flush``, observed through a FRESH ``UsearchStore``
+  instance (a process restart, or a second store built over the same
+  connection), does not see the new vectors — documented behaviour, not a
+  bug.
+- **The store acquires the shared write lock itself**
+  (``the_one/db/_write_lock.py``, DD-13) for every one of its own writes.
+  A caller must NEVER wrap a store call inside its own
   ``write_transaction`` block — the guard is not re-entrant and raises
   ``RuntimeError`` on same-task re-entry. This is also why the write
   ordering above is always two transactions, never one.
 - ``query(kb_id, vector, k)`` returns ``(id, cosine_distance)`` pairs,
   best (smallest distance) first.
-- **``vec0`` rowids are unique TABLE-WIDE, not per partition** (verified):
-  a shared test suite exercising both ``kb_a`` and ``kb_b`` must use
-  disjoint id ranges, exactly as production does (every id comes from one
-  global ``kb_chunks.id`` sequence) — reusing an id across two KBs in a
-  test raises ``UNIQUE constraint failed`` for the sqlite-vec cells while
-  the usearch cells (keyed per-KB-index, not table-wide) pass, silently
-  masking the difference.
+- **Ids are disjoint across knowledge bases by convention, not by a
+  per-partition namespace**: every id comes from one global
+  ``kb_chunks.id`` (``AUTOINCREMENT``) sequence, so two knowledge bases
+  never share an id even though each ``usearch`` index is a separate
+  per-KB sidecar file. A shared test suite exercising both ``kb_a`` and
+  ``kb_b`` must still use disjoint id ranges to mirror production, even
+  though a per-KB index would not itself raise on a repeated id across
+  two different KBs.
 """
 
 from __future__ import annotations
@@ -59,12 +59,6 @@ class VectorStoreError(Exception):
     the host's ``sqlite3`` build lacks ``enable_load_extension``)."""
 
 
-class VectorStoreMismatchError(VectorStoreError):
-    """Raised from ``open()`` when the live on-disk shape (the
-    ``kb_vectors`` DDL, or a usearch registry row) disagrees with the
-    configured ``knowledge.vector_store`` setting — dtype or dimension."""
-
-
 class VectorStoreStaleError(VectorStoreError):
     """Raised by ``UsearchStore`` when a knowledge base's sidecar index
     file is missing, or disagrees with its registry row (count/dtype/dim)
@@ -74,10 +68,11 @@ class VectorStoreStaleError(VectorStoreError):
 
 @runtime_checkable
 class VectorStore(Protocol):
-    """Structural contract both ``SqliteVecStore`` and ``UsearchStore``
-    satisfy without inheriting from this class. See the module docstring
-    for the full contract (write ordering, ``flush``, the write-lock rule,
-    the disjoint-id-range rule for tests)."""
+    """Structural contract ``UsearchStore`` satisfies without inheriting
+    from this class — the seam keeps this shape for a future second
+    backend. See the module docstring for the full contract (write
+    ordering, ``flush``, the write-lock rule, the disjoint-id-range rule
+    for tests)."""
 
     backend: str
     dtype: str
@@ -102,15 +97,16 @@ class VectorStore(Protocol):
 
 def quantize_int8(vectors: np.ndarray) -> np.ndarray:
     """Quantize (approximately) unit-norm float vectors to the int8 range
-    both int8 cells share (sqlite-vec's ``int8`` column, usearch's ``i8``
-    dtype) — shared here so the two backends quantise identically.
+    ``UsearchStore``'s ``i8`` dtype cell uses.
 
     ``np.clip(np.rint(v * 127), -127, 127).astype(np.int8)`` — the
-    ``.astype(np.int8)`` cast is load-bearing: without it the array stays
-    float and ``sqlite_vec.serialize_int8(q.tolist())`` raises
-    ``struct.error`` (its ``pack("%sb", ...)`` format needs Python
-    ``int``s, and a numpy float array's ``.tolist()`` yields Python
-    floats, not ints, until the array itself is integer-typed).
+    ``.astype(np.int8)`` cast is load-bearing: ``usearch.Index.add`` does
+    NOT raise on a float array holding already-quantised integer values —
+    it silently re-scales a float input into the index's ``i8`` range a
+    second time, corrupting the stored vector (verified: an un-cast float
+    array and its ``.astype(np.int8)`` twin land as visibly different
+    stored values through ``Index.get``). Passing an already-``int8``
+    array skips that second scaling.
 
     Input is documented to be (approximately) unit-norm; a non-unit-norm
     vector is clipped to +/-127 rather than re-normalized.

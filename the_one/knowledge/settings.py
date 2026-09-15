@@ -32,10 +32,10 @@ EMBEDDING_KEY = "knowledge.embedding"
 CHUNKING_KEY = "knowledge.chunking"
 VECTOR_STORE_KEY = "knowledge.vector_store"
 
-# DD-4: sqlite-vec has no float16 column type (`float[N]` is float32,
-# `int8[N]` the only quantized option); usearch offers `f16`/`i8` natively.
+# DD-9: usearch, the operator's Flight 2 decision-checkpoint choice
+# (flight-log.md, "DD-9 decision checkpoint (2026-09-15)"), offers `f16`/`i8`
+# natively.
 _VECTOR_STORE_DTYPES: dict[str, tuple[str, ...]] = {
-    "sqlite-vec": ("float32", "int8"),
     "usearch": ("f16", "i8"),
 }
 
@@ -96,7 +96,8 @@ class ChunkingSettings(BaseModel):
 
 
 class VectorStoreSettings(BaseModel):
-    """The vector-store backend/dtype/model choice (Leg 4, DD-3/DD-4).
+    """The vector-store backend/dtype/model choice (Leg 4, DD-3/DD-4; the
+    record is the DD-9 outcome since Leg 6).
 
     **Store-written, not operator-configurable**: ``update_knowledge_settings``
     already 422s any top-level key outside ``{"embedding", "chunking"}``
@@ -105,12 +106,16 @@ class VectorStoreSettings(BaseModel):
     message is added here. ``GET /api/knowledge-settings`` surfaces this
     record read-only under ``"vector_store"``.
 
-    The default during Legs 4-5 is ``sqlite-vec``/``float32``; Leg 6 records
-    the operator's benchmark-driven choice here once made (DD-9).
+    The default is ``usearch``/``f16`` — the operator's DD-9 choice at the
+    Flight 2 decision checkpoint (flight-log.md, "DD-9 decision checkpoint
+    (2026-09-15)"): only usearch clears the operator's p95 <= 250ms bar at
+    the corpus ceiling on Windows, and f16 is chosen over i8 for the
+    recall margin (0.98 vs 0.9465-0.953 against the 0.95 floor). The other
+    benchmarked candidate was removed from the closure in Leg 6.
     """
 
-    backend: Literal["sqlite-vec", "usearch"] = "sqlite-vec"
-    dtype: str = "float32"
+    backend: Literal["usearch"] = "usearch"
+    dtype: str = "f16"
     dim: int = EMBEDDING_DIM
     model_id: str = EMBEDDING_MODEL_DIRNAME
 
@@ -183,8 +188,8 @@ async def load_vector_store_settings(conn) -> VectorStoreSettings:
     a corrupt or drifted vector-store record is the one setting that must
     not silently fall back, because the wrong backend would read the
     wrong on-disk data with no error at all. An ABSENT record (never
-    configured) is not an error — it returns the Legs 4-5 default
-    (``sqlite-vec``/``float32``).
+    configured) is not an error — it returns the default
+    (``usearch``/``f16``).
     """
     repo = AppMetadataRepository(conn)
     raw = await repo.get(VECTOR_STORE_KEY)

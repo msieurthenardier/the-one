@@ -47,10 +47,27 @@ jobs:
         # 0.96.0 whose messages.stream() dropped `temperature`, crashing the first
         # chat turn). Export the same closure the pr-lint workflow audits
         # (pr-lint.yml:61), install it, then install the project itself --no-deps.
+        # No per-build venv here (contrast ci/tasks/windows-installer-build.yml,
+        # M24 F02 L06): this runner is a fresh `windows-2022` VM per job, so
+        # there's no persistent site-packages directory for a stale package to
+        # hide behind the way build 606657's on the Concourse worker did.
+        # AC-15 fix (build 606698): the closure install ALSO needs --no-deps here,
+        # persistent env or not. `uv export` emits a complete, hash-pinned closure
+        # with nothing left for pip to resolve; without --no-deps, pip still walks
+        # each listed package's own declared requirements, and huggingface-hub's
+        # wheel metadata still declares `hf-xet` even though `[tool.uv]
+        # exclude-dependencies` correctly dropped it from this closure — in
+        # --require-hashes mode (implied by the hashes `uv export` emits) pip then
+        # refuses to install ANYTHING rather than installing everything except
+        # hf-xet. A fresh `windows-2022` runner has no stale site-packages to fall
+        # back on, so it would fail exactly like build 606698 without this flag.
+        # This lane runs under `set -eo pipefail` (below), so a failed install
+        # already fails the job — no separate exit-code checks are needed here the
+        # way ci/tasks/windows-installer-build.yml's PowerShell needed them added.
         run: |
           pip install uv
           uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
-          pip install -r release-requirements.txt
+          pip install -r release-requirements.txt --no-deps
           pip install -e . --no-deps
           pip install pyinstaller
       # Build the frozen one-dir from the checked-in spec. `test -f` fails fast if the
@@ -71,11 +88,11 @@ jobs:
           ./dist/the-one/the-one.exe doctor | tee doctor.out
           grep -q "child spawn: OK" doctor.out
           grep -q "desktop shell: OK" doctor.out
-          # Vector-store probes (M24 F01 L01). Asserted BY NAME, not via the
-          # aggregate: a probe dropped from run_doctor's gates list would still
-          # print RESULT: PASS, which is exactly the silent regression these
-          # permanent probes exist to prevent.
-          grep -q "sqlite-vec: OK" doctor.out
+          # Vector-store probe (M24 F01 L01; usearch-only since M24 F02 L06,
+          # DD-9). Asserted BY NAME, not via the aggregate: a probe dropped
+          # from run_doctor's gates list would still print RESULT: PASS,
+          # which is exactly the silent regression this permanent probe
+          # exists to prevent.
           grep -q "usearch: OK" doctor.out
           # FTS5 probe (Flight 2 Leg 2, DD-11) — unconditional, not frozen-only,
           # but asserted here BY NAME for the same reason as the others: a probe

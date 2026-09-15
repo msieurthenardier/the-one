@@ -4388,12 +4388,13 @@ class TestSchemaV39:
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
         # A fresh DB runs the ENTIRE migration chain, so ``MAX(version)``
-        # (and CURRENT_VERSION) now lands at 40, not 39 — v40 (Flight 2 Leg
-        # 1) added a step after this one. This assertion is a sanity pin on
-        # the module constant, not a claim that this test only exercises
-        # v39; TestSchemaV40 below is the v40-specific shape/CHECK/
-        # AUTOINCREMENT coverage.
-        assert CURRENT_VERSION == 40
+        # (and CURRENT_VERSION) now lands at least at 40 — v40 (Flight 2 Leg
+        # 1) added a step after this one, and later legs may add more. This
+        # assertion is a sanity pin on the module constant, not a claim that
+        # this test only exercises v39; TestSchemaV40/TestSchemaV41 below
+        # are the version-specific shape/CHECK/AUTOINCREMENT coverage — the
+        # newest block's test pins the exact value (house pattern).
+        assert CURRENT_VERSION >= 40
 
         await conn.close()
 
@@ -4633,7 +4634,7 @@ class TestSchemaV40:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 40
+        assert CURRENT_VERSION >= 40
 
         await conn.close()
 
@@ -4849,5 +4850,180 @@ class TestSchemaV40:
             f"new id {ids_after[-1]} did not exceed every prior id {ids_before} "
             "— AUTOINCREMENT is not taking effect"
         )
+
+        await conn.close()
+
+
+class TestSchemaV41:
+    """Tests for the v41 migration (Flight 2 "Storage and Embedding
+    Foundation", Leg 6, DD-3/DD-9) — the operator's DD-9 decision
+    (``usearch``, dtype ``f16``) moved ``kb_vector_index`` from store-owned
+    DDL (``UsearchStore.open()``, Legs 4-5) into a versioned migration, and
+    purges any stale ``sqlite-vec`` ``knowledge.vector_store`` record.
+    """
+
+    async def test_v41_upgrade_from_fresh_db(self, tmp_path) -> None:
+        """AC-5a: a fresh DB lands v41 with ``kb_vector_index`` in
+        ``sqlite_master`` and exactly the column set
+        ``UsearchStore.open()`` created in Leg 4 (byte-for-byte, so a
+        database where the store already made the table passes through
+        unchanged)."""
+        db_path = tmp_path / "v41-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cur:
+            names = {r["name"] for r in await cur.fetchall()}
+        assert "kb_vector_index" in names, f"kb_vector_index missing from sqlite_master: {names}"
+
+        async with conn.execute("PRAGMA table_info(kb_vector_index)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert cols == {
+            "kb_id",
+            "path",
+            "count",
+            "generation",
+            "dtype",
+            "dim",
+            "updated_at",
+        }, cols
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+        assert CURRENT_VERSION == 41
+
+        await conn.close()
+
+    async def test_v41_upgrade_preserves_existing_kb_vector_index_row(self, tmp_path) -> None:
+        """AC-5b: a v40 database in which the store already created
+        ``kb_vector_index`` (the Leg 4-5 store-owned DDL, ``CREATE TABLE
+        IF NOT EXISTS``) with a row upgrades to v41 with the row intact —
+        the migration's ``IF NOT EXISTS`` is a no-op against an
+        already-present table."""
+        db_path = tmp_path / "v41-preexisting-table.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Rewind to v40, as if the v41 migration had never run (the table
+        # still exists from the ensure_schema call above via IF NOT
+        # EXISTS — simulating a Leg 4/5 dev database where
+        # UsearchStore.open() had already created it independently).
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        await conn.execute(
+            "INSERT INTO kb_vector_index (kb_id, path, count, generation, dtype, dim, updated_at) "
+            "VALUES ('kb1', '/tmp/kb1.usearch', 5, 2, 'f16', 512, 'ts-1')"
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)  # v41 re-fires; CREATE TABLE IF NOT EXISTS no-ops
+
+        async with conn.execute("SELECT * FROM kb_vector_index WHERE kb_id = 'kb1'") as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["count"] == 5
+        assert row["generation"] == 2
+        assert row["dtype"] == "f16"
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v41_purges_stale_sqlite_vec_vector_store_record(self, tmp_path) -> None:
+        """AC-5c: a v40 database whose ``app_metadata`` holds a
+        ``sqlite-vec`` ``knowledge.vector_store`` record (only a test or
+        the benchmark script could have written one — ``save_vector_store_
+        settings`` has no production caller) has the row removed after
+        ``ensure_schema``."""
+        db_path = tmp_path / "v41-purge-sqlite-vec.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+            (
+                "knowledge.vector_store",
+                '{"backend": "sqlite-vec", "dtype": "float32", "dim": 512, '
+                '"model_id": "potion-retrieval-32M"}',
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT value FROM app_metadata WHERE key = 'knowledge.vector_store'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is None
+
+        await conn.close()
+
+    async def test_v41_keeps_usearch_vector_store_record(self, tmp_path) -> None:
+        """AC-5c (the other half): a ``usearch`` ``knowledge.vector_store``
+        record is untouched by the purge."""
+        db_path = tmp_path / "v41-keep-usearch.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        record = (
+            '{"backend": "usearch", "dtype": "f16", "dim": 512, "model_id": "potion-retrieval-32M"}'
+        )
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+            ("knowledge.vector_store", record),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT value FROM app_metadata WHERE key = 'knowledge.vector_store'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["value"] == record
+
+        await conn.close()
+
+    async def test_v41_does_not_touch_kb_vectors_vec0_table(self, tmp_path) -> None:
+        """The v41 block must never attempt to drop or alter ``kb_vectors``
+        (the losing ``sqlite-vec`` backend's ``vec0`` virtual table) — a
+        ``vec0`` table cannot be dropped without the extension loaded.
+        Simulated here with a plain table of the same name (this host's
+        `sqlite3` build does not load `vec0` for this test) — the point is
+        that the migration source contains no `kb_vectors` statement, so
+        any pre-existing table of that name survives ``ensure_schema``
+        untouched regardless of its real shape."""
+        db_path = tmp_path / "v41-kb-vectors-survives.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        await conn.execute("CREATE TABLE IF NOT EXISTS kb_vectors (rowid INTEGER PRIMARY KEY)")
+        await conn.execute("INSERT INTO kb_vectors (rowid) VALUES (1)")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT COUNT(*) FROM kb_vectors") as cur:
+            assert (await cur.fetchone())[0] == 1
 
         await conn.close()

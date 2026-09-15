@@ -49,7 +49,7 @@ def cli_entry() -> None:
         print("  app    - Open the desktop window (native web view)")
         print("  version - Show version")
         print("  doctor - Diagnose the frozen-runtime seam (child spawn, interpreter,")
-        print("           desktop shell, LLM providers, model catalog, vector stores,")
+        print("           desktop shell, LLM providers, model catalog, vector store,")
         print("           FTS5, bundled embedding model, external runtimes); exits")
         print("           non-zero on failure")
         print("  rotate-api-credential - Replace the persisted local API credential")

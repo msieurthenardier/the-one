@@ -316,10 +316,11 @@ spend is a decision on record, not an accident.
   `doctor` probe reports the condition in its detail line so a genuine
   DLL-resolution failure reads differently from this unlinked-wheel state.
   Surfaced by Flight 1.
-- **Dead weight in the frozen bundle**: `hf-xet` (4.03 MB, a Hub transfer
-  accelerator the offline-by-construction app never calls — squawk 0049) and
-  numkong's 1.15 MB `.pyd` on Windows (imported unconditionally by usearch,
-  unreachable by it). Surfaced by Flight 1.
+- **Dead weight in the frozen bundle**: numkong's 1.15 MB `.pyd` on Windows
+  (imported unconditionally by usearch, unreachable by it — unchanged
+  reason). `hf-xet` (4.03 MB, a Hub transfer accelerator the
+  offline-by-construction app never calls) was removed from the closure in
+  Flight 2 Leg 6 (squawk 0049, completed). Surfaced by Flight 1.
 
 ## Branch Layout — mission branch, one-off
 
@@ -371,7 +372,7 @@ Operational consequences, recorded so the next flight does not rediscover them:
       closure rather than discovering findings at release closure. Thin
       dependency change, no user-visible feature; exists so the two
       hard-to-reverse choices are made on measurement.
-- [ ] Flight 2: Storage and embedding foundation — the v40 migration (widen the
+- [x] Flight 2: Storage and embedding foundation — the v40 migration (widen the
       item-type CHECK via the v37 rebuild template, add app-level embedding
       config, add item status/error/hash/timestamp, create the chunk and vector
       tables plus the FTS5 index over chunk text),

@@ -1,4 +1,5 @@
-"""Vector-store dispatch + process-wide singleton (Flight 2 Leg 4, DD-3).
+"""Vector-store dispatch + process-wide singleton (Flight 2 Leg 4, DD-3;
+``usearch``-only since Leg 6, DD-9).
 
 Mirrors ``the_one/embeddings/__init__.py``'s ``get_embedding_backend()``
 double-checked-locking shape, but ``get_vector_store()`` is ASYNC — a
@@ -8,11 +9,11 @@ a DB record (``knowledge.vector_store``) that can only be read with an
 ``await``.
 
 ``_build_store()`` is a named seam: it constructs (but does not open) the
-backend named by a ``VectorStoreSettings``, lazy-importing each backend
-module so an install that only ever uses one backend never imports the
-other's dependencies. Tests targeting the delete-route wiring (AC-11)
-monkeypatch this exact function to inject a recording stub store that
-satisfies ``VectorStore`` structurally.
+backend named by a ``VectorStoreSettings``, lazy-importing the backend
+module (one today; the seam keeps its shape for a future second one).
+Tests targeting the delete-route wiring (AC-11) monkeypatch this exact
+function to inject a recording stub store that satisfies ``VectorStore``
+structurally.
 
 ``get_vector_store()`` reads the setting, builds the store, ``open()``s
 it, and caches the result — callers never need to call ``open()``
@@ -34,7 +35,6 @@ from the_one.knowledge.settings import VectorStoreSettings, load_vector_store_se
 from the_one.vectors._store import (
     VectorStore,
     VectorStoreError,
-    VectorStoreMismatchError,
     VectorStoreStaleError,
     quantize_int8,
 )
@@ -42,7 +42,6 @@ from the_one.vectors._store import (
 __all__ = [
     "VectorStore",
     "VectorStoreError",
-    "VectorStoreMismatchError",
     "VectorStoreStaleError",
     "quantize_int8",
     "get_vector_store",
@@ -57,17 +56,13 @@ def _build_store(
 ) -> VectorStore:
     """Construct (but do not open) the backend named by ``vector_store_settings``.
 
-    Lazy-imported per backend, the ``create_pty_session`` dispatch shape.
-    This is the named seam AC-11's test monkeypatches to inject a
-    recording stub store.
+    Lazy-imported, the ``create_pty_session`` dispatch shape. This is the
+    named seam AC-11's test monkeypatches to inject a recording stub
+    store.
     """
-    if vector_store_settings.backend == "usearch":
-        from the_one.vectors.usearch_store import UsearchStore
+    from the_one.vectors.usearch_store import UsearchStore
 
-        return UsearchStore(conn, dtype=vector_store_settings.dtype, dim=vector_store_settings.dim)
-    from the_one.vectors.sqlite_vec_store import SqliteVecStore
-
-    return SqliteVecStore(conn, dtype=vector_store_settings.dtype, dim=vector_store_settings.dim)
+    return UsearchStore(conn, dtype=vector_store_settings.dtype, dim=vector_store_settings.dim)
 
 
 async def get_vector_store() -> VectorStore:

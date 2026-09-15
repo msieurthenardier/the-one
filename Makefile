@@ -203,7 +203,7 @@ refresh-embedding-model: ## Regenerate the bundled float16 potion-retrieval-32M 
 # manual, foreground, long-running invocation; see the flight log's "Store
 # Benchmark" section for those commands.
 .PHONY: bench-vector-store
-bench-vector-store: ## Benchmark the four DD-4 vector-store cells (smoke size)
+bench-vector-store: ## Benchmark the two DD-9 usearch vector-store cells (smoke size)
 	$(PY) scripts/bench_vector_store.py --corpus synthetic --n 20000 --queries 50
 
 # ── Tests ──────────────────────────────────────────────────────────────

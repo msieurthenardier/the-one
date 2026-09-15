@@ -19,13 +19,13 @@ import pytest
 
 from scripts import bench_vector_store
 
-# ── AC-7: no raw sqlite_vec/usearch imports ──────────────────────────────
+# ── AC-7: no raw usearch imports ──────────────────────────────────────────
 
 
 def test_script_imports_no_raw_backend_symbols() -> None:
-    """The script must exercise every cell through the Leg 4 stores — never
-    import a symbol from ``sqlite_vec``/``usearch`` directly (version
-    strings are read via ``importlib.metadata`` instead)."""
+    """The script must exercise every cell through the Leg 4 store — never
+    import a symbol from ``usearch`` directly (its version string is read
+    via ``importlib.metadata`` instead)."""
     source = Path(bench_vector_store.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
     banned: set[str] = set()
@@ -33,11 +33,11 @@ def test_script_imports_no_raw_backend_symbols() -> None:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 top = alias.name.split(".")[0]
-                if top in ("sqlite_vec", "usearch"):
+                if top in ("usearch",):
                     banned.add(alias.name)
         elif isinstance(node, ast.ImportFrom):
             top = (node.module or "").split(".")[0]
-            if top in ("sqlite_vec", "usearch"):
+            if top in ("usearch",):
                 banned.add(node.module or "")
     assert not banned, f"script must not import backend symbols directly: {banned}"
 
@@ -147,7 +147,7 @@ async def test_time_queries_times_only_the_query_call() -> None:
 # ── AC-1: synthetic end-to-end smoke ──────────────────────────────────────
 
 
-def test_end_to_end_synthetic_sqlite_vec_float32(tmp_path, capsys) -> None:
+def test_end_to_end_synthetic_usearch_f16(tmp_path, capsys) -> None:
     out_file = tmp_path / "out.md"
     argv = [
         "--corpus",
@@ -159,7 +159,7 @@ def test_end_to_end_synthetic_sqlite_vec_float32(tmp_path, capsys) -> None:
         "--k",
         "5",
         "--cells",
-        "sqlite-vec:float32",
+        "usearch:f16",
         "--data-dir",
         str(tmp_path / "data"),
         "--out",
@@ -169,10 +169,10 @@ def test_end_to_end_synthetic_sqlite_vec_float32(tmp_path, capsys) -> None:
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert "sqlite-vec" in captured.out
+    assert "usearch" in captured.out
     assert "| OK |" in captured.out or " OK |" in captured.out
     assert out_file.exists()
-    assert "sqlite-vec" in out_file.read_text(encoding="utf-8")
+    assert "usearch" in out_file.read_text(encoding="utf-8")
 
 
 # ── AC-6: real-corpus end-to-end under the suite-wide stub backend ────────
@@ -196,7 +196,7 @@ def test_child_mode_emits_exactly_one_row_on_stdout(tmp_path, capsys) -> None:
         "--k",
         "3",
         "--cells",
-        "sqlite-vec:float32",
+        "usearch:f16",
         "--data-dir",
         str(tmp_path / "data"),
         "--child",
@@ -207,7 +207,7 @@ def test_child_mode_emits_exactly_one_row_on_stdout(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     stdout_lines = [ln for ln in captured.out.splitlines() if ln.strip()]
     assert len(stdout_lines) == 1, f"expected exactly one stdout line, got: {stdout_lines!r}"
-    assert stdout_lines[0].startswith("| sqlite-vec | float32 |")
+    assert stdout_lines[0].startswith("| usearch | f16 |")
     assert stdout_lines[0].rstrip().endswith("| OK |")
 
 
@@ -218,7 +218,7 @@ def test_child_mode_requires_exactly_one_cell(tmp_path) -> None:
         "--n",
         "300",
         "--cells",
-        "sqlite-vec:float32,usearch:f16",
+        "usearch:f16,usearch:i8",
         "--data-dir",
         str(tmp_path / "data"),
         "--child",
@@ -241,7 +241,7 @@ def test_multi_cell_run_dispatches_one_subprocess_per_cell_with_two_rows(tmp_pat
         "--k",
         "3",
         "--cells",
-        "sqlite-vec:float32,usearch:f16",
+        "usearch:f16,usearch:i8",
         "--data-dir",
         str(tmp_path / "data"),
     ]
@@ -249,11 +249,7 @@ def test_multi_cell_run_dispatches_one_subprocess_per_cell_with_two_rows(tmp_pat
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    row_lines = [
-        ln
-        for ln in captured.out.splitlines()
-        if ln.startswith("| sqlite-vec") or ln.startswith("| usearch")
-    ]
+    row_lines = [ln for ln in captured.out.splitlines() if ln.startswith("| usearch")]
     assert len(row_lines) == 2, f"expected two data rows, got: {row_lines!r}"
 
     def _peak_rss(line: str) -> str:
@@ -283,13 +279,13 @@ def test_multi_cell_run_preserves_distinct_per_cell_rss_unforced(
     per-cell dispatch keeps this test deterministic while still exercising
     the exact code path the bug lived in.)"""
     fake_rows = {
-        ("sqlite-vec", "float32"): (
-            "| sqlite-vec | float32 | 300 | 0.02 | 2.01 | 0.46 | 0.53 | 0.54 "
-            "| 1.0000 | 111.11 | - | - | OK |"
-        ),
         ("usearch", "f16"): (
             "| usearch | f16 | 300 | 0.01 | 0.34 | 0.21 | 0.29 | 0.31 "
-            "| 1.0000 | 222.22 | 11.60 | 1.68 | OK |"
+            "| 1.0000 | 111.11 | 11.60 | 1.68 | OK |"
+        ),
+        ("usearch", "i8"): (
+            "| usearch | i8 | 300 | 0.01 | 0.17 | 0.15 | 0.20 | 0.22 "
+            "| 1.0000 | 222.22 | 8.02 | 1.16 | OK |"
         ),
     }
 
@@ -308,7 +304,7 @@ def test_multi_cell_run_preserves_distinct_per_cell_rss_unforced(
         "--k",
         "3",
         "--cells",
-        "sqlite-vec:float32,usearch:f16",
+        "usearch:f16,usearch:i8",
         "--data-dir",
         str(tmp_path / "data"),
     ]
@@ -316,8 +312,8 @@ def test_multi_cell_run_preserves_distinct_per_cell_rss_unforced(
     assert exit_code == 0
 
     captured = capsys.readouterr()
-    assert fake_rows[("sqlite-vec", "float32")] in captured.out
     assert fake_rows[("usearch", "f16")] in captured.out
+    assert fake_rows[("usearch", "i8")] in captured.out
 
 
 def test_run_cell_pre_cleanup_failure_yields_error_row_not_a_crash(tmp_path, monkeypatch) -> None:
@@ -335,8 +331,8 @@ def test_run_cell_pre_cleanup_failure_yields_error_row_not_a_crash(tmp_path, mon
 
     row = asyncio.run(
         bench_vector_store.run_cell(
-            "sqlite-vec",
-            "float32",
+            "usearch",
+            "f16",
             dim=8,
             n=10,
             batch_source=lambda: [(ids, vecs)],
@@ -367,7 +363,7 @@ def test_end_to_end_real_corpus_under_stub_backend(tmp_path, capsys) -> None:
         "--k",
         "3",
         "--cells",
-        "sqlite-vec:float32",
+        "usearch:f16",
         "--data-dir",
         str(tmp_path / "data"),
         "--real-corpus-root",
@@ -378,4 +374,4 @@ def test_end_to_end_real_corpus_under_stub_backend(tmp_path, capsys) -> None:
 
     captured = capsys.readouterr()
     assert "real corpus: 3 files" in captured.out
-    assert "sqlite-vec" in captured.out
+    assert "usearch" in captured.out

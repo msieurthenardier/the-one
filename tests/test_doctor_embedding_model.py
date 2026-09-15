@@ -69,7 +69,7 @@ class TestRealLoad:
         assert f"{EMBEDDING_DIM}-dim" in result.detail
         # DD-11's rewritten shape: native dtype AND the float32 seam it's
         # upcast through, plus the truncation count for the probe text.
-        assert "float16 model → float32 seam" in result.detail
+        assert "float16 model -> float32 seam" in result.detail
         assert "truncated=0" in result.detail
         assert "norm " in result.detail
         # The truncated-file / LFS-pointer tell: the byte size is in the line.

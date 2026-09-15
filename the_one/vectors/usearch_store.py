@@ -1,12 +1,15 @@
 """``UsearchStore`` — the ``usearch``-HNSW-backed ``VectorStore`` (Flight 2
-Leg 4, DD-3/DD-4).
+Leg 4, DD-3/DD-4; the operator's DD-9 choice, closed out by Leg 6).
 
 One HNSW index per knowledge base, persisted as a sidecar file
-``{data_dir}/vectors/{kb_id}.usearch``, with a store-owned registry table
-``kb_vector_index`` created by ``open()`` (store-owned rather than
-migration-owned — Leg 6 moves the DDL into a versioned migration only if
-this backend wins DD-9's benchmark comparison). ``kb_chunks`` is the source
-of truth; the sidecar is a cache. ``generation`` is bumped after every
+``{data_dir}/vectors/{kb_id}.usearch``, with a registry table
+``kb_vector_index``. The table was store-owned (created inside ``open()``)
+through Legs 4-5 while the backend choice was still open, so a losing
+backend would never leave a dead table in a frozen migration forever; now
+that ``usearch`` has won DD-9's benchmark comparison, Leg 6 moved the DDL
+into the v41 migration block (``the_one/db/schema.py``) and ``open()``
+issues no DDL at all. ``kb_chunks`` is the source of truth; the sidecar
+is a cache. ``generation`` is bumped after every
 successful ``flush``; a mismatch between the registry row and the restored
 index (missing file, wrong count, wrong dtype/dim) marks the knowledge base
 stale — every read/write except ``rebuild_from`` and ``delete_kb`` then
@@ -34,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import os
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Literal
@@ -89,20 +93,12 @@ class UsearchStore:
     async def open(self) -> None:
         # `data_dir` is resolved HERE, not at construction (DD-3) — a
         # test's `settings.data_dir` monkeypatch applied after
-        # `get_vector_store()` but before `open()` must be honoured.
+        # `get_vector_store()` but before `open()` must be honoured. No DDL
+        # here since Leg 6: `kb_vector_index` moved into the v41 migration
+        # block once `usearch` won DD-9's benchmark comparison — see
+        # `the_one/db/schema.py`'s v41 block.
         self._data_dir = settings.data_dir / "vectors"
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        async with write_transaction(self.conn):
-            await self.conn.execute(
-                "CREATE TABLE IF NOT EXISTS kb_vector_index ("
-                "kb_id TEXT PRIMARY KEY, "
-                "path TEXT NOT NULL, "
-                "count INTEGER NOT NULL, "
-                "generation INTEGER NOT NULL, "
-                "dtype TEXT NOT NULL, "
-                "dim INTEGER NOT NULL, "
-                "updated_at TEXT NOT NULL)"
-            )
 
     def _path_for(self, kb_id: str) -> Path:
         assert self._data_dir is not None, "UsearchStore.open() was never called"
@@ -120,6 +116,38 @@ class UsearchStore:
                 f"for kb_id={kb_id!r}"
             )
         return candidate
+
+    def _tmp_path_for(self, kb_id: str) -> Path:
+        """Same-directory temp path for ``_save_atomically``'s
+        write-then-replace. Containment is already enforced by
+        ``_path_for``'s resolved-path assert, since this is derived from
+        its validated result."""
+        return self._path_for(kb_id).with_suffix(".usearch.tmp")
+
+    async def _save_atomically(self, index: Index, kb_id: str) -> tuple[Path, int]:
+        """Save ``index`` to ``kb_id``'s sidecar path atomically.
+
+        Writes to a temporary file in the same directory, then
+        ``os.replace``s it over the real path — a crash or exception
+        mid-save never corrupts or truncates the previous sidecar, since
+        the replace is the only step that touches the real path and it is
+        atomic on both POSIX and Windows (verified: ``Index.restore``
+        never memory-maps, so nothing keeps the destination file open for
+        ``os.replace`` to fail against). On any failure before the
+        replace, the temporary file is removed on a best-effort basis (a
+        crash before this line leaves a ``.usearch.tmp`` file the next
+        successful save simply overwrites — no cleanup pass needed) and
+        the previous sidecar is left untouched. Returns the real path and
+        the index length, for the caller's registry-row upsert.
+        """
+        path = self._path_for(kb_id)
+        tmp = self._tmp_path_for(kb_id)
+        try:
+            await asyncio.to_thread(index.save, str(tmp))
+            await asyncio.to_thread(os.replace, tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return path, len(index)
 
     def _entry(self, kb_id: str) -> _KbIndex:
         """Get-or-create the in-memory entry for ``kb_id``.
@@ -166,7 +194,20 @@ class UsearchStore:
             entry.stale = True
             raise VectorStoreStaleError(self._stale_message(kb_id, f"sidecar file missing: {path}"))
 
-        index = await asyncio.to_thread(Index.restore, str(path))
+        try:
+            index = await asyncio.to_thread(Index.restore, str(path))
+        except Exception as exc:
+            # `Index.restore` raises three different exception types for
+            # one condition depending on how the sidecar is corrupt
+            # (`ValueError` on garbage bytes or an empty file, `RuntimeError`
+            # on a truncated file — verified at Leg 6 design), so this must
+            # catch the base `Exception`, not a specific class.
+            entry.stale = True
+            raise VectorStoreStaleError(
+                self._stale_message(
+                    kb_id, f"sidecar unreadable ({exc.__class__.__name__}: {exc}) at {path}"
+                )
+            ) from exc
         if len(index) != row["count"]:
             entry.stale = True
             raise VectorStoreStaleError(
@@ -244,6 +285,16 @@ class UsearchStore:
             entry.dirty = True
 
     async def delete_kb(self, kb_id: str) -> None:
+        # Guard-first (Leg 6, flight-end review condition #3): the
+        # write_transaction that removes the registry row runs BEFORE any
+        # in-memory or filesystem mutation. A caller who nests this call
+        # inside their own `write_transaction` gets the re-entry
+        # `RuntimeError` here, before anything has changed — not after the
+        # in-memory entry was already popped and the sidecar already
+        # unlinked (the pre-Leg-6 ordering, where the guard fired only
+        # after the mutation had happened).
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM kb_vector_index WHERE kb_id = ?", (kb_id,))
         entry = self._kbs.get(kb_id)
         if entry is not None:
             async with entry.lock:
@@ -251,8 +302,6 @@ class UsearchStore:
         path = self._path_for(kb_id)
         if path.exists():
             path.unlink()
-        async with write_transaction(self.conn):
-            await self.conn.execute("DELETE FROM kb_vector_index WHERE kb_id = ?", (kb_id,))
 
     async def query(self, kb_id: str, vector: np.ndarray, k: int) -> list[tuple[int, float]]:
         entry = self._entry(kb_id)
@@ -276,6 +325,22 @@ class UsearchStore:
             return len(entry.index)
 
     async def flush(self, kb_id: str) -> None:
+        """Persist ``kb_id``'s in-memory index if dirty: an atomic save
+        (``_save_atomically``) followed by a registry-row upsert.
+
+        These are two separate steps, by design (DD-3): the registry write
+        happens only after the sidecar replace succeeds. A crash between
+        the two leaves the sidecar one generation ahead of the registry,
+        which ``_ensure_loaded``'s count check reports as stale — this is
+        a fail-safe window, recoverable by ``rebuild_from``, not a defect.
+
+        On any failure inside ``_save_atomically`` (the save itself, or the
+        ``os.replace``), the exception propagates out of this method, the
+        previous sidecar is left untouched, and ``entry.dirty`` stays
+        ``True`` — the ``= False`` line below is reached only after the
+        registry row has landed — so the next ``flush()`` or ``close()``
+        retries the save.
+        """
         entry = self._kbs.get(kb_id)
         if entry is None or not entry.dirty:
             return
@@ -283,9 +348,7 @@ class UsearchStore:
             if not entry.dirty or entry.index is None:
                 entry.dirty = False
                 return
-            path = self._path_for(kb_id)
-            await asyncio.to_thread(entry.index.save, str(path))
-            count = len(entry.index)
+            path, count = await self._save_atomically(entry.index, kb_id)
             await self._upsert_registry_row(kb_id, path, count)
             entry.dirty = False
 
@@ -324,9 +387,7 @@ class UsearchStore:
                 vecs = self._maybe_quantize(np.asarray(vectors))
                 await asyncio.to_thread(index.add, keys, vecs)
 
-            path = self._path_for(kb_id)
-            await asyncio.to_thread(index.save, str(path))
-            count = len(index)
+            path, count = await self._save_atomically(index, kb_id)
             await self._upsert_registry_row(kb_id, path, count)
             entry.index = index
             entry.dirty = False
