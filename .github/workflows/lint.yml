@@ -21,6 +21,6 @@ jobs:
       - name: Install ruff
         run: pip install ruff==0.15.15
       - name: Ruff check
-        run: ruff check the_one/ tests/
+        run: ruff check the_one/ tests/ scripts/
       - name: Ruff format check
-        run: ruff format --check the_one/ tests/
+        run: ruff format --check the_one/ tests/ scripts/

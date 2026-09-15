@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -703,6 +704,61 @@ class TestEncryptionRotation:
             await direct_conn.close()
         assert row is not None
         assert Fernet(key_before).decrypt(row["api_key"].encode()).decode() == "sk-failuretest9999"
+
+    async def test_rotate_discards_pending_key_on_cancellation(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """A BaseException (CancelledError) inside write_transaction must
+        still discard the staged sidecar key.
+
+        Mirrors test_rotate_preserves_key_on_db_failure above, but the
+        simulated failure is `asyncio.CancelledError` — a BaseException,
+        not an Exception subclass — raised from `commit()` (the same seam
+        the sibling test patches). `write_transaction`'s guard
+        (the_one/db/_write_lock.py:73) rolls back on BaseException; before
+        squawk 0057's fix, the endpoint's `except Exception` clause around
+        the transaction block would NOT catch this, so
+        `encryptor.discard_pending_key()` would never run and the staged
+        `.next` sidecar would be left on disk despite the rollback. This
+        test fails without that fix.
+        """
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "CancelTest",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-canceltest9999",
+            },
+        )
+        assert create_resp.status_code in (200, 201)
+        provider_id = create_resp.json()["id"]
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+
+        with (
+            patch(
+                "aiosqlite.Connection.commit",
+                side_effect=asyncio.CancelledError(),
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        # (i) Key file byte-identical to its pre-rotation contents.
+        assert key_path.read_bytes() == key_before
+
+        # (i-b) The staged sidecar is discarded despite the BaseException
+        # (the fix under test — squawk 0057).
+        from the_one.encryption import next_key_path
+
+        assert not next_key_path(key_path).exists()
+
+        # (ii) Masked tail still works (cached encryptor untouched).
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["api_key"] == "***...9999"
 
     async def test_rotate_mcp_source_secrets(self, client: AsyncClient) -> None:
         """After rotation, MCP source secrets still decrypt under the new key."""

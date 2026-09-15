@@ -93,6 +93,31 @@ class TestInvalidStoredValue:
         assert settings.chunking == ChunkingSettings()
         assert any(CHUNKING_KEY in record.message for record in caplog.records)
 
+    async def test_stored_record_with_extra_key_falls_back_to_default_with_warning(
+        self, conn, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Squawk 0056: ``extra="forbid"`` makes a stored record carrying an
+        unknown key (e.g. left over from an old shape) fail validation —
+        but ``load_knowledge_settings`` must still degrade to defaults
+        rather than raising, same as any other invalid stored record."""
+        from the_one.db.repositories import AppMetadataRepository
+
+        repo = AppMetadataRepository(conn)
+        await repo.set(
+            EMBEDDING_KEY,
+            '{"backend": "local", "model_id": "potion-retrieval-32M", '
+            '"dim": 512, "bogus_key": "x"}',
+        )
+        await repo.set(CHUNKING_KEY, '{"size_chars": 1000, "overlap_chars": 150, "bogus_key": "x"}')
+
+        with caplog.at_level("WARNING"):
+            settings = await load_knowledge_settings(conn)
+
+        assert settings.embedding == EmbeddingSettings()
+        assert settings.chunking == ChunkingSettings()
+        assert any(EMBEDDING_KEY in record.message for record in caplog.records)
+        assert any(CHUNKING_KEY in record.message for record in caplog.records)
+
 
 class TestEmbeddingSettingsValidation:
     def test_default_is_valid(self) -> None:

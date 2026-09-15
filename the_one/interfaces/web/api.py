@@ -56,7 +56,7 @@ from the_one.db.repositories import (
     _encrypt_overrides_column,
     _encrypt_secrets_blob,
 )
-from the_one.embeddings import warm_up as _warm_up_embedding_backend
+from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
 from the_one.knowledge.settings import (
@@ -1422,7 +1422,9 @@ async def create_knowledge_base(request: Request) -> dict[str, Any]:
     # M24 F02 L03, DD-1: kick the embedding warm-up on the operator's first
     # KB after a cold start, so they don't pay the model load inside their
     # first indexing request either. Idempotent — no bookkeeping needed.
-    asyncio.create_task(_warm_up_embedding_backend())
+    # Squawk 0055: the task handle is held inside ``the_one.embeddings``
+    # (not discarded here) so it can't be garbage-collected mid-flight.
+    _schedule_embedding_warm_up()
     return kb.model_dump()
 
 
@@ -5042,7 +5044,12 @@ async def rotate_encryption_key() -> dict[str, str]:
                     "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
                     (ct, identifier),
                 )
-    except Exception:
+    except BaseException:
+        # BaseException (not Exception): write_transaction's guard
+        # (the_one/db/_write_lock.py:73) rolls back on BaseException, so a
+        # CancelledError/KeyboardInterrupt mid-block would skip this
+        # discard under a narrower catch, leaving a pending key staged
+        # (squawk 0057).
         encryptor.discard_pending_key()
         raise
 

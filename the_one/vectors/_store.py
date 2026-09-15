@@ -36,6 +36,10 @@ checks member presence at call time.
   ordering above is always two transactions, never one.
 - ``query(kb_id, vector, k)`` returns ``(id, cosine_distance)`` pairs,
   best (smallest distance) first.
+- **Dimension guard (squawk 0054)**: a vector whose last dimension
+  != ``dim`` raises ``ValueError`` naming the expected/actual dim and the
+  ``kb_id`` — checked in ``upsert``, ``query``, and ``rebuild_from``,
+  before quantisation.
 - **Ids are disjoint across knowledge bases by convention, not by a
   per-partition namespace**: every id comes from one global
   ``kb_chunks.id`` (``AUTOINCREMENT``) sequence, so two knowledge bases

@@ -12,12 +12,110 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import math
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from scripts import bench_vector_store
+
+# ── Squawk 0060: bench row parser + range assertions ──────────────────────
+#
+# The end-to-end tests below previously checked only that a data row existed
+# and ended in ``| OK |`` — a regression that printed ``nan`` or swapped two
+# columns still passed. ``_parse_bench_row`` splits a rendered markdown row
+# into a dict keyed by the script's own ``_TABLE_HEADERS`` (imported, never
+# duplicated, so a column reorder in the script is caught here too) and
+# ``_assert_row_sane`` checks the numeric cells are well-formed and in range.
+
+
+def _parse_bench_row(line: str) -> dict[str, str]:
+    """Parse one rendered markdown table row (as produced by
+    ``bench_vector_store.render_row``) into a dict keyed by column name."""
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    headers = bench_vector_store._TABLE_HEADERS
+    assert len(cells) == len(headers), (
+        f"row has {len(cells)} cells, expected {len(headers)} (headers: {headers}): {line!r}"
+    )
+    return dict(zip(headers, cells, strict=True))
+
+
+def _assert_non_negative_float_cell(row: dict[str, str], key: str) -> float | None:
+    """Assert ``row[key]`` is either ``"-"`` (legitimately not applicable —
+    e.g. a build/latency/save/restore cell on a row where that measurement
+    was never taken) or a finite, non-negative float. Returns the parsed
+    float, or ``None`` for ``"-"``."""
+    raw = row[key]
+    if raw == "-":
+        return None
+    value = float(raw)
+    assert not math.isnan(value), f"{key} is NaN: {row!r}"
+    assert not math.isinf(value), f"{key} is infinite: {row!r}"
+    assert value >= 0, f"{key} is negative ({value}): {row!r}"
+    return value
+
+
+def _assert_row_sane(row: dict[str, str]) -> None:
+    """Assert a parsed bench row's numeric cells are well-formed and in
+    range (Squawk 0060)."""
+    assert row["status"] == "OK", f"expected status OK, got: {row!r}"
+
+    build_s = _assert_non_negative_float_cell(row, "build_s")
+    assert build_s is not None, f"build_s must not be '-' on an OK row: {row!r}"
+    save_ms = _assert_non_negative_float_cell(row, "save_ms")
+    assert save_ms is not None, f"save_ms must not be '-' on an OK row: {row!r}"
+    restore_ms = _assert_non_negative_float_cell(row, "restore_ms")
+    assert restore_ms is not None, f"restore_ms must not be '-' on an OK row: {row!r}"
+    p50 = _assert_non_negative_float_cell(row, "p50_ms")
+    assert p50 is not None, f"p50_ms must not be '-' on an OK row: {row!r}"
+    p95 = _assert_non_negative_float_cell(row, "p95_ms")
+    assert p95 is not None, f"p95_ms must not be '-' on an OK row: {row!r}"
+    max_ms = _assert_non_negative_float_cell(row, "max_ms")
+    assert max_ms is not None, f"max_ms must not be '-' on an OK row: {row!r}"
+
+    assert p50 <= p95, f"p50 > p95: {row!r}"
+    assert p95 <= max_ms, f"p95 > max: {row!r}"
+
+    recall = float(row["recall@k"])
+    assert not math.isnan(recall), f"recall is NaN: {row!r}"
+    assert 0.0 <= recall <= 1.0, f"recall out of [0, 1] ({recall}): {row!r}"
+
+    disk_mb = float(row["disk_MB"])
+    assert not math.isnan(disk_mb), f"disk_MB is NaN: {row!r}"
+    assert disk_mb > 0, f"disk_MB not positive ({disk_mb}): {row!r}"
+
+    peak_rss = float(row["peak_rss_MB"])
+    assert not math.isnan(peak_rss), f"peak_rss_MB is NaN: {row!r}"
+    assert peak_rss > 0, f"peak_rss_MB not positive ({peak_rss}): {row!r}"
+
+
+_GOOD_ROW_LINE = (
+    "| usearch | f16 | 300 | 0.01 | 0.34 | 0.21 | 0.29 | 0.31 "
+    "| 1.0000 | 111.11 | 11.60 | 1.68 | OK |"
+)
+
+
+def test_assert_row_sane_accepts_a_well_formed_row() -> None:
+    _assert_row_sane(_parse_bench_row(_GOOD_ROW_LINE))  # must not raise
+
+
+def test_assert_row_sane_rejects_nan_cell() -> None:
+    corrupted = _GOOD_ROW_LINE.replace("| 0.29 |", "| nan |")
+    assert corrupted != _GOOD_ROW_LINE
+    with pytest.raises(AssertionError):
+        _assert_row_sane(_parse_bench_row(corrupted))
+
+
+def test_assert_row_sane_rejects_p50_greater_than_p95() -> None:
+    # Swap p50_ms (0.21) and p95_ms (0.29) so p50 > p95.
+    corrupted = (
+        "| usearch | f16 | 300 | 0.01 | 0.34 | 0.29 | 0.21 | 0.31 "
+        "| 1.0000 | 111.11 | 11.60 | 1.68 | OK |"
+    )
+    with pytest.raises(AssertionError):
+        _assert_row_sane(_parse_bench_row(corrupted))
+
 
 # ── AC-7: no raw usearch imports ──────────────────────────────────────────
 
@@ -170,7 +268,9 @@ def test_end_to_end_synthetic_usearch_f16(tmp_path, capsys) -> None:
 
     captured = capsys.readouterr()
     assert "usearch" in captured.out
-    assert "| OK |" in captured.out or " OK |" in captured.out
+    row_lines = [ln for ln in captured.out.splitlines() if ln.startswith("| usearch")]
+    assert len(row_lines) == 1, f"expected exactly one data row, got: {row_lines!r}"
+    _assert_row_sane(_parse_bench_row(row_lines[0]))
     assert out_file.exists()
     assert "usearch" in out_file.read_text(encoding="utf-8")
 
@@ -208,7 +308,7 @@ def test_child_mode_emits_exactly_one_row_on_stdout(tmp_path, capsys) -> None:
     stdout_lines = [ln for ln in captured.out.splitlines() if ln.strip()]
     assert len(stdout_lines) == 1, f"expected exactly one stdout line, got: {stdout_lines!r}"
     assert stdout_lines[0].startswith("| usearch | f16 |")
-    assert stdout_lines[0].rstrip().endswith("| OK |")
+    _assert_row_sane(_parse_bench_row(stdout_lines[0]))
 
 
 def test_child_mode_requires_exactly_one_cell(tmp_path) -> None:
@@ -252,13 +352,9 @@ def test_multi_cell_run_dispatches_one_subprocess_per_cell_with_two_rows(tmp_pat
     row_lines = [ln for ln in captured.out.splitlines() if ln.startswith("| usearch")]
     assert len(row_lines) == 2, f"expected two data rows, got: {row_lines!r}"
 
-    def _peak_rss(line: str) -> str:
-        # Column order: backend | dtype | n | build_s | disk_MB | p50_ms |
-        # p95_ms | max_ms | recall@k | peak_rss_MB | save_ms | restore_ms | status
-        return [c.strip() for c in line.strip("|").split("|")][9]
-
-    rss_values = [_peak_rss(ln) for ln in row_lines]
-    assert all(v != "-" for v in rss_values), f"expected real RSS values, got: {rss_values!r}"
+    parsed_rows = [_parse_bench_row(ln) for ln in row_lines]
+    for row in parsed_rows:
+        _assert_row_sane(row)  # covers "expected real (non '-') RSS values"
 
 
 def test_multi_cell_run_preserves_distinct_per_cell_rss_unforced(

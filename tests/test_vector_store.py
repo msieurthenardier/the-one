@@ -124,6 +124,51 @@ class TestSharedProtocolSuite:
         await store.upsert("kb", ids, vecs)
         assert await store.count("kb") == 50
 
+    async def test_query_top_hit_distance_matches_independent_cosine_distance(self, store) -> None:
+        """Squawk 0058(c): ``query()``'s distances were only ever asserted
+        non-decreasing, never against an independently computed cosine
+        distance. For unit-norm vectors, cosine distance is
+        ``1 - dot(query, vector)``; this computes that independently in
+        float32 (never through the store) and compares it to the top
+        hit's returned distance.
+
+        Query vectors are drawn from a SEPARATE seed than the stored set
+        (never a stored vector itself) so the comparison is never the
+        degenerate self-distance case (~0 regardless of dtype, since a
+        vector always matches itself best even after quantisation).
+
+        Tolerance is dtype-dependent (empirically measured across several
+        seed pairs, 512-dim, 10 stored x 10 query vectors):
+
+        - ``f16``: usearch stores/searches in IEEE half precision;
+          observed top-hit error topped out ~3e-5. ``1e-3`` is ~30x that
+          margin.
+        - ``i8``: ``quantize_int8`` rounds each component to one of 254
+          signed-byte levels spanning [-1, 1] — for 512-dim unit vectors
+          (component magnitude ~1/sqrt(512) ~= 0.044) this is much
+          coarser than f16. Observed top-hit error topped out ~7e-3.
+          ``2e-2`` is ~3x that margin — tight enough to catch a
+          materially wrong distance computation (e.g. a wrong ``metric``
+          or a broken quantisation scale, empirically produces errors
+          ~0.9) while tolerating i8's real quantisation noise.
+        """
+        tolerance = {"f16": 1e-3, "i8": 2e-2}[store.dtype]
+        stored = _unit_vectors(10, seed=4242)
+        ids = list(range(1, 11))
+        await store.upsert("kb", ids, stored)
+
+        queries = _unit_vectors(10, seed=7373)
+        for q in queries:
+            results = await store.query("kb", q, 1)
+            assert len(results) == 1
+            top_id, top_dist = results[0]
+            top_vec = stored[top_id - 1]
+            expected_dist = 1.0 - float(np.dot(q, top_vec))
+            assert top_dist == pytest.approx(expected_dist, abs=tolerance), (
+                f"returned distance {top_dist} vs independently computed cosine "
+                f"distance {expected_dist} (dtype={store.dtype})"
+            )
+
 
 # ── AC-3: upsert-replaces, delete, delete_kb ──────────────────────────────
 
@@ -275,6 +320,57 @@ class TestUsearchStaleness:
         await first.flush("kb")
 
         await conn.execute("UPDATE kb_vector_index SET count = count + 1 WHERE kb_id = ?", ("kb",))
+        await conn.commit()
+
+        second = UsearchStore(conn, dtype="f16", dim=8)
+        await second.open()
+        with pytest.raises(VectorStoreStaleError):
+            await second.query("kb", vecs[0], 1)
+
+        # rebuild_from clears the staleness and answers correctly again.
+        await second.rebuild_from("kb", [([1, 2, 3], vecs)])
+        results = await second.query("kb", vecs[0], 1)
+        assert results[0][0] == 1
+
+    async def test_tampered_registry_dtype_raises_stale(self, conn, tmp_path, monkeypatch) -> None:
+        """AC-8/squawk 0058(b): a registry row whose ``dtype`` disagrees
+        with the store's configuration raises ``VectorStoreStaleError`` on
+        the next read (``_ensure_loaded``'s
+        ``row["dtype"] != self.dtype`` branch), and ``rebuild_from``
+        recovers."""
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        first = UsearchStore(conn, dtype="f16", dim=8)
+        await first.open()
+        vecs = _unit_vectors(3, dim=8)
+        await first.upsert("kb", [1, 2, 3], vecs)
+        await first.flush("kb")
+
+        await conn.execute("UPDATE kb_vector_index SET dtype = 'i8' WHERE kb_id = ?", ("kb",))
+        await conn.commit()
+
+        second = UsearchStore(conn, dtype="f16", dim=8)
+        await second.open()
+        with pytest.raises(VectorStoreStaleError):
+            await second.query("kb", vecs[0], 1)
+
+        # rebuild_from clears the staleness and answers correctly again.
+        await second.rebuild_from("kb", [([1, 2, 3], vecs)])
+        results = await second.query("kb", vecs[0], 1)
+        assert results[0][0] == 1
+
+    async def test_tampered_registry_dim_raises_stale(self, conn, tmp_path, monkeypatch) -> None:
+        """AC-8/squawk 0058(b): a registry row whose ``dim`` disagrees
+        with the store's configuration raises ``VectorStoreStaleError`` on
+        the next read (``_ensure_loaded``'s ``row["dim"] != self.dim``
+        branch), and ``rebuild_from`` recovers."""
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        first = UsearchStore(conn, dtype="f16", dim=8)
+        await first.open()
+        vecs = _unit_vectors(3, dim=8)
+        await first.upsert("kb", [1, 2, 3], vecs)
+        await first.flush("kb")
+
+        await conn.execute("UPDATE kb_vector_index SET dim = dim + 1 WHERE kb_id = ?", ("kb",))
         await conn.commit()
 
         second = UsearchStore(conn, dtype="f16", dim=8)
@@ -546,3 +642,46 @@ class TestNoReentry:
         with pytest.raises(RuntimeError):
             async with write_transaction(store.conn):
                 await store.upsert("kb", [1], vecs)
+
+
+# ── Squawk 0054: vector-dimension guard ────────────────────────────────────
+
+
+class TestDimensionGuard:
+    """``upsert``/``query``/``rebuild_from`` must reject a vector whose
+    last axis differs from ``self.dim`` with ``ValueError`` naming both
+    the expected and actual dim plus the ``kb_id``, checked before
+    quantisation ever runs. Parametrised over both usearch dtype cells via
+    the ``store`` fixture (``dim=DIM=512``).
+
+    Without the added ``_check_dim`` guard, each of these calls would
+    either reach ``usearch``'s C extension with mismatched data (silent
+    garbage) or fail with whatever unrelated low-level exception the
+    extension happens to raise for a shape it rejects — not a
+    ``ValueError`` naming the dims — so every test below fails without the
+    fix.
+    """
+
+    async def test_upsert_wrong_width_raises_naming_both_dims(self, store) -> None:
+        wrong = _unit_vectors(2, dim=8)
+        with pytest.raises(ValueError, match=str(DIM)) as exc_info:
+            await store.upsert("kb", [1, 2], wrong)
+        message = str(exc_info.value)
+        assert "8" in message
+        assert "kb" in message
+
+    async def test_query_wrong_width_raises_naming_both_dims(self, store) -> None:
+        wrong = _unit_vectors(1, dim=8)[0]
+        with pytest.raises(ValueError, match=str(DIM)) as exc_info:
+            await store.query("kb", wrong, 1)
+        message = str(exc_info.value)
+        assert "8" in message
+        assert "kb" in message
+
+    async def test_rebuild_from_wrong_width_raises_naming_both_dims(self, store) -> None:
+        wrong = _unit_vectors(2, dim=8)
+        with pytest.raises(ValueError, match=str(DIM)) as exc_info:
+            await store.rebuild_from("kb", [([1, 2], wrong)])
+        message = str(exc_info.value)
+        assert "8" in message
+        assert "kb" in message

@@ -239,10 +239,24 @@ class UsearchStore:
             return quantize_int8(vectors)
         return vectors
 
+    def _check_dim(self, vectors: np.ndarray, kb_id: str) -> None:
+        """Squawk 0054: cheap shape-only guard (a ``.shape`` read, no copy)
+        that ``vectors``' last axis matches ``self.dim``, called before
+        quantisation/index insertion in ``upsert``, ``query``, and
+        ``rebuild_from``. A wrong-width vector would otherwise reach
+        ``usearch`` silently (or fail deep inside the C extension with an
+        opaque error) instead of raising a clear, actionable ``ValueError``
+        naming the expected/actual dim and the offending ``kb_id``.
+        """
+        width = vectors.shape[-1]
+        if width != self.dim:
+            raise ValueError(f"vector width {width} != expected dim {self.dim} for kb_id={kb_id!r}")
+
     async def upsert(self, kb_id: str, ids: Sequence[int], vectors: np.ndarray) -> None:
         id_list = list(ids)
         if not id_list:
             return
+        self._check_dim(vectors, kb_id)
         # Acquire-and-release (DD-13): this enforces the no-nesting rule
         # (a caller who wraps this call in its OWN `write_transaction` gets
         # the `RuntimeError` re-entry guard, never a silent bypass) without
@@ -300,10 +314,10 @@ class UsearchStore:
             async with entry.lock:
                 self._kbs.pop(kb_id, None)
         path = self._path_for(kb_id)
-        if path.exists():
-            path.unlink()
+        path.unlink(missing_ok=True)
 
     async def query(self, kb_id: str, vector: np.ndarray, k: int) -> list[tuple[int, float]]:
+        self._check_dim(vector, kb_id)
         entry = self._entry(kb_id)
         async with entry.lock:
             await self._ensure_loaded(entry, kb_id, create=False)
@@ -383,6 +397,7 @@ class UsearchStore:
                 id_list = list(ids)
                 if not id_list:
                     continue
+                self._check_dim(vectors, kb_id)
                 keys = np.asarray(id_list, dtype=np.uint64)
                 vecs = self._maybe_quantize(np.asarray(vectors))
                 await asyncio.to_thread(index.add, keys, vecs)

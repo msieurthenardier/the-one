@@ -246,15 +246,15 @@ smoke-runtimes: ## Verify uvx / pipx / npx + their host caches populate and are 
 
 .PHONY: lint
 lint: ## Ruff check host-native (read-only)
-	$(PY) -m ruff check the_one/ tests/
+	$(PY) -m ruff check the_one/ tests/ scripts/
 
 .PHONY: format
 format: ## Ruff format host-native (writes changes)
-	$(PY) -m ruff format the_one/ tests/
+	$(PY) -m ruff format the_one/ tests/ scripts/
 
 .PHONY: format-check
 format-check: ## Ruff format check host-native (read-only)
-	$(PY) -m ruff format --check the_one/ tests/
+	$(PY) -m ruff format --check the_one/ tests/ scripts/
 
 # ── Drift detection (host-side) ────────────────────────────────────────
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from the_one.db.repositories import AppMetadataRepository
 from the_one.embeddings.local import EMBEDDING_DIM, EMBEDDING_MODEL_DIRNAME
@@ -49,7 +49,13 @@ class EmbeddingSettings(BaseModel):
     """The embedding backend/model choice. Exactly one valid combination
     exists today (DD-2); a future second bundled model would widen the
     validators below rather than switch to a ``Literal``.
+
+    ``extra="forbid"`` (squawk 0056): a nested unknown key merged into this
+    section by ``update_knowledge_settings`` must surface as a 422, not be
+    silently dropped by pydantic's default ``extra="ignore"``.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     backend: str = "local"
     model_id: str = EMBEDDING_MODEL_DIRNAME
@@ -80,7 +86,12 @@ class EmbeddingSettings(BaseModel):
 class ChunkingSettings(BaseModel):
     """Chunking policy (DD-7). App-wide, not per-KB; changes apply to future
     indexing only — existing chunks are never re-chunked in place.
+
+    ``extra="forbid"`` (squawk 0056): see ``EmbeddingSettings`` above — the
+    same nested-unknown-key rationale applies here.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     size_chars: int = Field(1000, ge=200, le=2000)
     overlap_chars: int = Field(150, ge=0)
@@ -112,7 +123,19 @@ class VectorStoreSettings(BaseModel):
     the corpus ceiling on Windows, and f16 is chosen over i8 for the
     recall margin (0.98 vs 0.9465-0.953 against the 0.95 floor). The other
     benchmarked candidate was removed from the closure in Leg 6.
+
+    ``extra="forbid"`` (squawk 0056, for consistency with ``EmbeddingSettings``
+    /``ChunkingSettings`` above): this record is never operator-written
+    through the PUT route (the top-level-key guard already refuses a
+    ``vector_store`` key), so this only tightens ``load_vector_store_settings``
+    against a corrupted/drifted stored record — which DD-3/DD-9 already
+    requires to raise rather than degrade. The only writer,
+    ``save_vector_store_settings``, always writes exactly this model's
+    fields via ``model_dump_json()``, so no current writer can produce an
+    extra key.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     backend: Literal["usearch"] = "usearch"
     dtype: str = "f16"
