@@ -580,6 +580,17 @@ Flight 2)". The security-relevant invariants are:
   `vec0`, via `enable_load_extension`) was benchmarked in Flight 2 Legs
   4-5 and removed from the closure in Leg 6 after the operator's DD-9
   decision; this paragraph is retired along with it.
+- **Knowledge-base indexing (M24 F3)**: registering a folder or file as a
+  knowledge-base source is operator-only through the API — no agent-facing
+  route creates `kb_items` (Flight 5's tools are read-only search). Once
+  registered, the app reads a folder's contents with its own process
+  privileges and no allowlist applies: the operator is choosing what their
+  agents may read, the same trust boundary as everything else under the
+  single-user, local-only model. The walk (`the_one/knowledge/walk.py`)
+  skips dot-prefixed entries and the `SKIPPED_DIRS` set by construction —
+  not a security boundary, a scope-of-indexing default. Extracted chunk
+  text is stored in plaintext in the SQLite database, like every other
+  record under this model.
 
 ## Boxed Execution Mode (M14 F4)
 

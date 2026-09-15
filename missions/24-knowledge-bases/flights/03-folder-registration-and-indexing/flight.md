@@ -463,12 +463,15 @@ Studio surface (Flight 6).
   fails per item): an unexpected exception escaping the pass is logged
   with the traceback, the entry's state becomes `stopped`, and the next
   `request_index` restarts it.
-- Lifespan: the manager is constructed and published via
-  `_set_module_indexing_manager` **before** its guarded `start_all` block
-  (the `global _connector_manager` shape at `app.py:319-325`), so `drain`
-  runs at shutdown even when startup failed — and so the drain-order test,
-  whose `MagicMock` connection makes any repository call raise, still
-  reaches the drain step (Architect, medium). `start_all()` runs after the
+- Lifespan: the manager is constructed (and assigned to the lifespan's
+  `global _indexing_manager`, the `app.py:319-325` connector shape)
+  **before** its guarded `start_all` block, so the shutdown drain — which
+  reads that local global, not the module accessor — runs even when
+  startup failed, and so the drain-order test, whose `MagicMock`
+  connection makes any repository call raise, still reaches the drain
+  step (Architect, medium; wording corrected at Leg 3 design review: the
+  accessor publication is for the routes, the local global is what the
+  drain reads). `start_all()` runs after the
   embedding warm-up scheduling (`app.py:328-341`): `requeue_stranded()` across all knowledge bases
   (one bulk UPDATE — the DD-5 of Flight 2 requeue edge, the resume-not-
   restart primitive), write the vector-store record if absent (DD-5),
@@ -791,19 +794,19 @@ re-measure; Flight 3 checked off at landing).
 > **Note:** These are tentative suggestions, not commitments. Legs are planned
 > and created one at a time as the flight progresses.
 
-- [ ] `folder-registration-and-walk` — repository widening (descendant
+- [x] `folder-registration-and-walk` — repository widening (descendant
       cleanup in `delete`, bulk create, children/folders listing, bulk
       requeues, chunk paging and KB iteration), `walk.py` with the filter
       rules and pure reconcile planner, folder registration validation,
       `SECURITY-MODEL.md`. **HIGH risk** (shared repository method behaviour
       change; the filesystem rules).
-- [ ] `extractor-seam-and-indexer` — extractor Protocol + registry +
+- [x] `extractor-seam-and-indexer` — extractor Protocol + registry +
       `TextExtractor` + test stub, `index_item`, the flush policy,
       `rebuild_kb`, `rebuild_from` widened and on the Protocol, the DD-12
       measurement, `agents.md` indexing contract. **HIGH risk**
       (shared-interface change on the vector-store Protocol; first
       implementation of the write-ordering invariant).
-- [ ] `indexing-manager-and-routes` — `IndexingManager`, lifespan start/
+- [x] `indexing-manager-and-routes` — `IndexingManager`, lifespan start/
       drain with the drain-order test, the four routes, delete-route
       integration, first-index settings record, `CLAUDE.md` and `agents.md`.
       **HIGH risk** (lifecycle; lifespan ordering).

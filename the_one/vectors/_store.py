@@ -52,7 +52,7 @@ checks member presence at call time.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterable, Sequence
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -95,6 +95,23 @@ class VectorStore(Protocol):
     async def count(self, kb_id: str) -> int: ...
 
     async def flush(self, kb_id: str) -> None: ...
+
+    async def rebuild_from(
+        self, kb_id: str, ids_and_vectors: AsyncIterable[tuple[Sequence[int], np.ndarray]]
+    ) -> None:
+        """Rebuild ``kb_id``'s index from scratch, streamed, and clear any
+        staleness (Flight 3 DD-6's ``VectorStoreStaleError`` recovery — the
+        pipeline cannot pre-embed a whole knowledge base into memory).
+
+        **No-call-back invariant**: the store iterates ``ids_and_vectors``
+        (an ``async for``) while holding its per-KB lock, so the caller's
+        generator may only READ ``kb_chunks`` and embed — it must never
+        call back into this store (``count``, ``flush``, another
+        ``upsert``, …), which would deadlock against the very lock this
+        method holds. A backend that needs no rebuild may implement this
+        as a no-op that clears staleness.
+        """
+        ...
 
     async def close(self) -> None: ...
 

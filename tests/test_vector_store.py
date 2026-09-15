@@ -17,7 +17,10 @@ would not itself raise on a repeated id across two different KBs.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import TypeVar
 
 import aiosqlite
 import numpy as np
@@ -36,6 +39,17 @@ from the_one.vectors._store import (
 from the_one.vectors.usearch_store import UsearchStore
 
 DIM = 512
+
+
+_T = TypeVar("_T")
+
+
+async def _aiter(items: list[_T]) -> AsyncIterator[_T]:
+    """Wrap a plain list as an async generator — AC-9: ``rebuild_from``
+    widened to an ``AsyncIterable`` input; every existing synchronous test
+    call site wraps its list through this helper."""
+    for item in items:
+        yield item
 
 
 def _unit_vectors(n: int, *, dim: int = DIM, seed: int = 2024) -> np.ndarray:
@@ -328,7 +342,7 @@ class TestUsearchStaleness:
             await second.query("kb", vecs[0], 1)
 
         # rebuild_from clears the staleness and answers correctly again.
-        await second.rebuild_from("kb", [([1, 2, 3], vecs)])
+        await second.rebuild_from("kb", _aiter([([1, 2, 3], vecs)]))
         results = await second.query("kb", vecs[0], 1)
         assert results[0][0] == 1
 
@@ -354,7 +368,7 @@ class TestUsearchStaleness:
             await second.query("kb", vecs[0], 1)
 
         # rebuild_from clears the staleness and answers correctly again.
-        await second.rebuild_from("kb", [([1, 2, 3], vecs)])
+        await second.rebuild_from("kb", _aiter([([1, 2, 3], vecs)]))
         results = await second.query("kb", vecs[0], 1)
         assert results[0][0] == 1
 
@@ -379,7 +393,7 @@ class TestUsearchStaleness:
             await second.query("kb", vecs[0], 1)
 
         # rebuild_from clears the staleness and answers correctly again.
-        await second.rebuild_from("kb", [([1, 2, 3], vecs)])
+        await second.rebuild_from("kb", _aiter([([1, 2, 3], vecs)]))
         results = await second.query("kb", vecs[0], 1)
         assert results[0][0] == 1
 
@@ -593,7 +607,7 @@ class TestCorruptSidecar:
         with pytest.raises(VectorStoreStaleError):
             await second.count("kb")
 
-        await second.rebuild_from("kb", [([1, 2, 3], vecs)])
+        await second.rebuild_from("kb", _aiter([([1, 2, 3], vecs)]))
         results = await second.query("kb", vecs[0], 1)
         assert results[0][0] == 1
         async with conn.execute(
@@ -681,7 +695,96 @@ class TestDimensionGuard:
     async def test_rebuild_from_wrong_width_raises_naming_both_dims(self, store) -> None:
         wrong = _unit_vectors(2, dim=8)
         with pytest.raises(ValueError, match=str(DIM)) as exc_info:
-            await store.rebuild_from("kb", [([1, 2], wrong)])
+            await store.rebuild_from("kb", _aiter([([1, 2], wrong)]))
         message = str(exc_info.value)
         assert "8" in message
         assert "kb" in message
+
+
+# ── AC-9: rebuild_from widened to an AsyncIterable ─────────────────────────
+
+
+class TestRebuildFromAsyncIterable:
+    async def test_generator_that_awaits_between_pages_works(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        """The whole point of widening to ``AsyncIterable`` (DD-6): a
+        caller's generator that does real async work (e.g. ``await
+        asyncio.to_thread(embed, ...)``) between pages must work — not
+        just a trivial wrapper around an already-built list."""
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        store = UsearchStore(conn, dtype="f16", dim=8)
+        await store.open()
+
+        pages = [
+            ([1, 2], _unit_vectors(2, dim=8, seed=1)),
+            ([3, 4], _unit_vectors(2, dim=8, seed=2)),
+            ([5], _unit_vectors(1, dim=8, seed=3)),
+        ]
+
+        async def _pages():
+            for ids, vecs in pages:
+                await asyncio.sleep(0)  # real async work between pages
+                yield ids, vecs
+
+        await store.rebuild_from("kb", _pages())
+        assert await store.count("kb") == 5
+
+    async def test_rebuild_from_still_satisfies_protocol_with_async_signature(self) -> None:
+        assert isinstance(UsearchStore(object(), dtype="f16"), VectorStore)
+
+
+# ── AC-11: entry.dirty set before the to_thread mutation ──────────────────
+
+
+class TestDirtyReorder:
+    async def test_upsert_to_thread_failure_after_mutation_still_leaves_dirty_true(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        """DD-7: ``entry.dirty`` is set BEFORE the ``to_thread`` mutation
+        in ``upsert``, so a mutation that raises partway through (here,
+        simulated by a failing ``Index.add`` called after ``Index.remove``
+        already ran) still leaves the index marked dirty for the next
+        ``flush`` to save — never silently `dirty=False` over an index
+        that was actually mutated."""
+        from usearch.index import Index
+
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        store = UsearchStore(conn, dtype="f16", dim=8)
+        await store.open()
+
+        entry = store._entry("kb")
+
+        def _boom_add(self, *args, **kwargs):
+            raise RuntimeError("simulated mutation failure")
+
+        with monkeypatch.context() as m:
+            m.setattr(Index, "add", _boom_add)
+            with pytest.raises(RuntimeError, match="simulated mutation failure"):
+                await store.upsert("kb", [1], _unit_vectors(1, dim=8))
+
+        assert entry.dirty is True
+
+    async def test_delete_to_thread_failure_still_leaves_dirty_true(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        from usearch.index import Index
+
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        store = UsearchStore(conn, dtype="f16", dim=8)
+        await store.open()
+        await store.upsert("kb", [1, 2], _unit_vectors(2, dim=8))
+        await store.flush("kb")
+
+        entry = store._entry("kb")
+        assert entry.dirty is False
+
+        def _boom_remove(self, *args, **kwargs):
+            raise RuntimeError("simulated mutation failure")
+
+        with monkeypatch.context() as m:
+            m.setattr(Index, "remove", _boom_remove)
+            with pytest.raises(RuntimeError, match="simulated mutation failure"):
+                await store.delete("kb", [1])
+
+        assert entry.dirty is True

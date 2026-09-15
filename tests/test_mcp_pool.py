@@ -695,6 +695,19 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
 
     monkeypatch.setattr(app_mod, "ConnectorManager", _FakeConnectorManager)
 
+    # M24 F03 L03: indexing-manager spy, mirroring the connector-manager
+    # spy immediately above. `start_all` records "indexing_start" (no
+    # args — unlike ConnectorManager.start_all, IndexingManager.start_all
+    # takes none); `drain` records "indexing_drain".
+    class _FakeIndexingManager:
+        async def start_all(self):
+            calls.append("indexing_start")
+
+        async def drain(self):
+            calls.append("indexing_drain")
+
+    monkeypatch.setattr(app_mod, "IndexingManager", _FakeIndexingManager)
+
     # Squawk 0025: fake source repository whose ``list()`` returns one row
     # the REAL ``is_surface_row`` predicate recognizes as a self-configuration
     # surface row — so the shutdown branch's eviction loop actually calls
@@ -768,10 +781,23 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     drain_steps = [
         c
         for c in calls
-        if c in ("connector_start", "pty", "evict", "mcp", "oauth", "connector_drain", "db")
+        if c
+        in (
+            "connector_start",
+            "indexing_start",
+            "indexing_drain",
+            "pty",
+            "evict",
+            "mcp",
+            "oauth",
+            "connector_drain",
+            "db",
+        )
     ]
     assert drain_steps == [
         "connector_start",
+        "indexing_start",
+        "indexing_drain",
         "pty",
         "evict",
         "mcp",
