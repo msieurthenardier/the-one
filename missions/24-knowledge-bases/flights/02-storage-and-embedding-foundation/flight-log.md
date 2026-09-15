@@ -7,11 +7,12 @@
 In flight. Legs 1–5 landed (v40 schema + item lifecycle; chunk repository +
 FTS5; embedding seam + knowledge settings + chunker; vector-store seam with
 both backends; the store benchmark). Linux benchmark tables recorded;
-Windows runs in progress on `windows-worker`. Flight-end review of Legs 1–5:
-cycle 1 raised two blocking findings (per-cell peak-RSS isolation in the
-benchmark; KB-id sanitisation before it becomes a sidecar path), fix pass in
-progress. Next: re-review, commit Legs 1–5, then the operator's store and
-dtype decision at the checkpoint, then Leg 6 (closure).
+Windows runs complete (sqlite-vec 1M measured; usearch 200k measured with
+1M/3M extrapolated on time grounds; real corpus measured). Flight-end
+review of Legs 1–5 confirmed on cycle 2; Legs 1–5 committed (`c315cf5`),
+draft PR #197. **At the decision checkpoint**: the operator chooses the
+store and dtype against the tables under `## Store Benchmark`; Leg 6
+(closure) is designed after that entry exists.
 
 ---
 
@@ -1060,6 +1061,117 @@ recall column is an index-recall figure for a pathological distribution,
 real-corpus column only, exactly as AC-6b states. The synthetic tables'
 decision-grade columns are latency, build time, disk and RSS.
 
+**Run 1 — build 60 (2026-09-15 01:48–03:19 UTC, 1 h 31 min wall, detached
+client), fixed script (per-cell subprocess), `--corpus synthetic --n
+1000000 --queries 200 --cells sqlite-vec:float32,sqlite-vec:int8`.** Free
+disk at data dir 462.97 GB. Fingerprint `5c25c9f8…65e5b` — identical to
+the Linux 1M fingerprint (same vectors). Build 59, the first attempt, was
+aborted at 44 min when the host-side client was killed (see Flight
+Director Notes); no rows had printed.
+
+| backend | dtype | n | build_s | disk_MB | p50_ms | p95_ms | max_ms | recall@k | peak_rss_MB | save_ms | restore_ms | status |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sqlite-vec | float32 | 1000000 | 267.30 | 1980.08 | 7590.033 | 8332.508 | 9094.250 | 1.0000 | 1271.95 | - | - | OK |
+| sqlite-vec | int8 | 1000000 | 177.72 | 511.30 | 4787.222 | 4867.738 | 5244.406 | 0.8630 | 1272.18 | - | - | OK |
+
+Windows / Linux at 1M: float32 p95 **14.8×** (8,333 vs 564 ms), int8 p95
+**8.2×** (4,868 vs 595 ms), build 7.0× / 5.8×. Disk and recall identical.
+`peak_rss_MB` here is per-cell (fixed script) — both cells ~1.27 GB.
+
+**Early-read verdict by the leg's rule**: both sqlite-vec cells miss the
+p95 ≤ 250 ms bar at 1M by 19× (int8) and 33× (float32) on the operator's
+platform, so the **3M sqlite-vec cells are skipped on Windows** as wasted
+worker time. Labelled extrapolation for the record, applying the Linux
+3M/1M ratio (float32 2.99×, int8 3.00× — an exhaustive scan is linear in
+N): **~24.9 s (float32) and ~14.6 s (int8) p95 at 3M on Windows**. The
+extrapolation assumes the per-distance cost is N-independent, which it is
+for a linear scan.
+
+**Run 2 — build 61 (2026-09-15 03:20–03:49 UTC, 29 min wall), `--corpus
+synthetic --n 200000 --queries 200 --cells usearch:f16,usearch:i8`.** Free
+disk 459.53 GB. Fingerprint `5c25c9f8…65e5b` (same vectors as Linux). A
+matching **Linux 200k** run was made by the Flight Director on the dev host
+for the ratio (`--data-dir /tmp/the-one-bench-fd`, fixed script):
+
+| platform | backend | dtype | n | build_s | disk_MB | p50_ms | p95_ms | max_ms | recall@k | peak_rss_MB | save_ms | restore_ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Windows | usearch | f16 | 200000 | 1155.97 | 223.67 | 13.604 | 17.968 | 22.608 | 0.1500 | 1271.04 | 1907.855 | 1008.386 |
+| Windows | usearch | i8 | 200000 | 497.12 | 126.01 | 6.627 | 8.458 | 10.369 | 0.1155 | 1271.71 | 1028.898 | 517.824 |
+| Linux | usearch | f16 | 200000 | 34.01 | 223.64 | 0.712 | 0.909 | 1.111 | 0.1425 | 1281.09 | 130.338 | 146.979 |
+| Linux | usearch | i8 | 200000 | 20.69 | 125.98 | 0.569 | 0.692 | 0.806 | 0.1390 | 1281.11 | 81.372 | 103.084 |
+
+Windows / Linux at 200k: f16 p95 **19.8×**, build **34.0×**, restore
+6.9×; i8 p95 **12.2×**, build 24.0×, restore 5.0×. Disk within 0.03 MB;
+recall within noise (the synthetic-recall caveat above applies).
+
+**Windows usearch at 1M and 3M — EXTRAPOLATED, not measured** (time was
+the binding constraint: a measured 1M f16 build on this worker is ~2 h and
+3M ~7 h; DD-8's fallback rule applied with the 200k ratios, which assume
+the platform penalty — serial-SIMD distance kernels — is N-independent):
+
+| cell | N | p95 (extrap.) | build (extrap.) | restore (extrap.) |
+|---|---|---|---|---|
+| usearch f16 | 1M | ~27 ms (Linux 1.37 × 19.8) | ~2.0 h (216 s × 34) | ~5.3 s (0.76 s × 6.9) |
+| usearch f16 | 3M | ~41 ms (Linux 2.07 × 19.8) | ~7.2 h (761 s × 34) | ~24 s (3.5 s × 6.9) |
+| usearch i8 | 1M | ~15 ms (Linux 1.22 × 12.2) | ~54 min (134 s × 24) | ~2.4 s |
+| usearch i8 | 3M | ~17 ms (Linux 1.37 × 12.2) | ~3.2 h (476 s × 24) | ~7.7 s |
+
+The p95 extrapolations sit two orders of magnitude under the 250 ms bar
+even if the ratio were off by several times; the build-time
+extrapolations are the material figure — they price DD-3's
+rebuild-from-SQLite story on the operator's platform.
+
+**Run 3 — build 62 (2026-09-15 03:49–03:58 UTC, 8 min wall), `--corpus
+real`, all four cells.** Free disk 459.42 GB. 31,679 chunks embedded (Linux
+embedded 31,638 — the `missions/` tree gained flight-log text between the
+two runs; the 200 held-out queries are drawn by the same rule, so the
+corpora are near-identical, not byte-identical).
+
+| backend | dtype | n | build_s | disk_MB | p50_ms | p95_ms | max_ms | recall@k | peak_rss_MB | save_ms | restore_ms | status |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sqlite-vec | float32 | 31679 | 10.20 | 62.79 | 217.349 | 246.389 | 257.747 | 0.9950 | 430.97 | - | - | OK |
+| sqlite-vec | int8 | 31679 | 2.37 | 16.18 | 139.571 | 158.329 | 171.220 | 0.9645 | 422.99 | - | - | OK |
+| usearch | f16 | 31679 | 41.62 | 35.42 | 3.426 | 5.874 | 9.406 | 0.9800 | 456.62 | 336.636 | 144.314 | OK |
+| usearch | i8 | 31679 | 17.71 | 19.95 | 1.770 | 4.463 | 8.643 | 0.9530 | 438.00 | 124.153 | 108.663 | OK |
+
+Windows / Linux on the real corpus: sqlite-vec float32 p95 12.5× (246 vs
+19.7 ms), usearch f16 p95 13.2× (5.9 vs 0.44 ms). Recall on the two
+platforms: usearch i8 **0.9530 here vs 0.9465 on Linux** — the two runs
+straddle DD-4's 0.95 floor on near-identical corpora, so that cell's
+recall is *at* the floor within noise, not clearly above it.
+
+### Reading the tables (Flight Director; no recommendation)
+
+- **Bar**: p95 ≤ 250 ms for one k = 10 query on Windows at the largest
+  measured N (DD-9 #1, set at planning). Latency columns are the second,
+  cache-warm pass — steady-state interactive search; cold start is the
+  `restore_ms` column (usearch) and ~0 for sqlite-vec.
+- **sqlite-vec, both dtypes**: at today's real corpus (32k chunks) float32
+  sits *on* the bar (246 ms) and int8 under it (158 ms); at 1M vectors on
+  Windows they are 8.3 s and 4.9 s — 33× and 19× over — and ~25 s / ~15 s
+  at the 3M ceiling (extrapolated, linear scan). The exhaustive scan is
+  exact (recall 1.0 / 0.9995 synthetic; 0.995 / 0.9645 real) and keeps the
+  single-file property. It clears the bar only below roughly 30k vectors
+  on this platform.
+- **usearch, both dtypes**: p95 5.9 / 4.5 ms real, ~27 / ~15 ms at 1M and
+  ~41 / ~17 ms at 3M (extrapolated) — two orders of magnitude under the
+  bar. Real-corpus recall f16 **0.98** (clears the 0.95 floor), i8 0.9465–
+  0.953 (at the floor within noise). Costs: a per-KB sidecar outside the
+  SQLite file; **build time on Windows** is the material figure — ~34×
+  Linux, i.e. ~2 h for 1M and ~7 h for 3M f16 vectors (extrapolated),
+  which is what a full rebuild-from-SQLite would cost at the ceiling;
+  `restore` ~24 s at 3M (extrapolated). Disk: f16 1,024 B/vector (3.35 GB
+  at 3M measured on Linux), i8 512 B/vector.
+- **The synthetic recall column** for usearch (0.15 at 200k, 0.04 at 3M) is
+  index recall on a pathologically clustered corpus and is not a
+  retrieval-quality figure — see the caveat above; the real-corpus column
+  is the one DD-4's floor applies to.
+- **faiss-cpu divert**: not triggered — two cells clear the bar.
+- **Conditions recorded for a usearch decision** (flight-end review
+  findings): sidecar `save` is not atomic; a corrupt sidecar raises the
+  library's raw error; `delete_kb` mutates before the re-entry guard. Leg 6
+  would carry all three.
+
 
 Not run by this leg (Developer scope ends at the Linux runs and a working
 script) — the Flight Director runs the Windows one-off `fly execute` task
@@ -1473,3 +1585,13 @@ outside Flight 2's surface), R9 (add an FTS5 doctor probe — proposed yes).
   it again; output retrievable with `fly watch -b 60` regardless of the
   client. Lesson recorded: never run a multi-hour one-off build from a
   harness-managed foreground/background command.
+- Committed as `c315cf5`; draft PR **#197** → `mission/24-knowledge-bases`.
+- **Windows plan revised on time, not RAM.** At 20k the Windows/Linux
+  ratios were 11.6× (sqlite-vec p95) and 65× (usearch build). Scaled, a
+  usearch 1M build on `windows-worker` is ~4 h and 3M ~14 h — not a
+  flight-time apparatus. So: build 60 (sqlite-vec 1M) runs to completion as
+  the definitive early read; usearch runs on Windows at **200k** (build ~15
+  min) and on the **real corpus** (31k chunks), and the 1M/3M usearch
+  Windows figures are **extrapolated** from the measured Windows/Linux
+  ratios at 200k, labelled, per DD-8's fallback rule with "time" substituted
+  for "RAM" as the binding constraint and stated as such.
