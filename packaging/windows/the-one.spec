@@ -242,15 +242,18 @@ hiddenimports = [
     # aiosqlite + the stdlib sqlite3 C-extension backing it.
     "aiosqlite",
     "sqlite3",
-    # M24 F01 L02 — NOTHING imports `the_one.embeddings` as a module. It is
-    # reached only by NAME, as the string argument to
-    # importlib.resources.files("the_one.embeddings") in
-    # the_one/diagnostics.py:_probe_embedding_model, which PyInstaller's static
-    # analysis cannot see. Without this entry the package is tree-shaken out of
-    # the PYZ and files() raises ModuleNotFoundError — while embedding_datas
-    # above has faithfully shipped all 62 MiB of weights, which then sit in the
-    # bundle unreachable. `the_one.llm` avoids the same trap only incidentally,
-    # via its collect_submodules entry below.
+    # M24 F01 L02 (updated M24 F02 L03) — `the_one.embeddings` IS now
+    # imported as a module (`the_one.diagnostics` and `the_one.knowledge.settings`
+    # both import from `the_one.embeddings.local` at module load time), so
+    # PyInstaller's static analysis DOES see this package today. The entry
+    # stays anyway: `the_one.embeddings.local.resolve_model_dir` still
+    # reaches the packaged weights only by NAME, via
+    # importlib.resources.files("the_one.embeddings").joinpath("data", ...) —
+    # a string argument PyInstaller's import-graph walk cannot follow.
+    # Without this entry the package's `data/` payload would still ship
+    # (embedding_datas above ships it independently) but a build that ever
+    # dropped the module import above would silently tree-shake the package
+    # itself back out, so the explicit entry remains the load-bearing one.
     "the_one.embeddings",
     # pystray Windows backend — the collect_submodules walk covers the package
     # tree but a redundant explicit entry ensures the win32 backend is present.

@@ -50,7 +50,7 @@ def cli_entry() -> None:
         print("  version - Show version")
         print("  doctor - Diagnose the frozen-runtime seam (child spawn, interpreter,")
         print("           desktop shell, LLM providers, model catalog, vector stores,")
-        print("           bundled embedding model, external runtimes); exits")
+        print("           FTS5, bundled embedding model, external runtimes); exits")
         print("           non-zero on failure")
         print("  rotate-api-credential - Replace the persisted local API credential")
         print("           (does not print the secret)")

@@ -21,6 +21,7 @@ from the_one.diagnostics import (
     ProbeResult,
     _numkong_extension_state,
     _probe_desktop_shell,
+    _probe_fts5,
     _probe_llm_providers,
     _probe_model_catalog,
     _probe_sqlite_vec,
@@ -653,6 +654,94 @@ class TestProbeUsearch:
         buf = io.StringIO()
         run_doctor(out=buf)
         assert "usearch:" in buf.getvalue()
+
+
+class _Fts5UnavailableConnection:
+    """Real sqlite3 connection whose ``CREATE VIRTUAL TABLE ... fts5(...)``
+    call raises, simulating a SQLite build compiled without FTS5 support.
+    Mirrors ``_NoRowsConnection``/``_SpyConnection`` above."""
+
+    def __init__(self, real: sqlite3.Connection) -> None:
+        self._real = real
+
+    def __getattr__(self, name: str):
+        return getattr(self._real, name)
+
+    def execute(self, sql: str, params=()):
+        if "VIRTUAL TABLE" in sql:
+            raise sqlite3.OperationalError("no such module: fts5 (simulated)")
+        return self._real.execute(sql, params)
+
+
+class TestProbeFts5:
+    """Unit tests for the ``fts5`` doctor line (Flight 2 Leg 2, DD-11).
+
+    Unlike the two vector-store probes, ``_probe_fts5`` gates
+    UNCONDITIONALLY — it never routes through ``_vector_probe_outcome`` and
+    never consults ``is_frozen()`` (FTS5 is a mission constraint in every
+    build, not an optional extra).
+    """
+
+    def test_ok_with_sqlite_version_and_matched_rowid_in_detail(self) -> None:
+        result = _probe_fts5()
+        assert result.ok is True
+        assert "rowid 1" in result.detail
+        assert f"SQLite {sqlite3.sqlite_version}" in result.detail
+
+    def test_fails_when_the_connection_cannot_create_the_virtual_table(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_connect = sqlite3.connect
+        fake_module = types.SimpleNamespace(
+            connect=lambda *a, **k: _Fts5UnavailableConnection(real_connect(*a, **k)),
+            sqlite_version=sqlite3.sqlite_version,
+        )
+        monkeypatch.setattr(diagnostics, "sqlite3", fake_module)
+        result = _probe_fts5()
+        assert result.ok is False
+        assert "OperationalError" in result.detail
+
+    def test_failure_is_unconditional_regardless_of_is_frozen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_connect = sqlite3.connect
+        fake_module = types.SimpleNamespace(
+            connect=lambda *a, **k: _Fts5UnavailableConnection(real_connect(*a, **k)),
+            sqlite_version=sqlite3.sqlite_version,
+        )
+        monkeypatch.setattr(diagnostics, "sqlite3", fake_module)
+        for frozen in (True, False):
+            monkeypatch.setattr(diagnostics, "is_frozen", lambda f=frozen: f)
+            result = _probe_fts5()
+            assert result.ok is False, f"is_frozen()={frozen} must still fail"
+
+    def test_does_not_use_the_frozen_only_helper_or_is_frozen(self) -> None:
+        """Regression guard on the DD-11 split — same technique as
+        ``TestEmbeddingProbeGating::test_does_not_use_the_frozen_only_helper``."""
+        import inspect
+
+        source = inspect.getsource(diagnostics._probe_fts5)
+        assert "_vector_probe_outcome" not in source
+        assert "is_frozen" not in source
+
+    def test_line_present_in_output_by_name(self) -> None:
+        """Both CI lanes grep this exact prefix — it must not drift."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "fts5: OK" in buf.getvalue()
+
+    def test_failure_promotes_result_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            diagnostics,
+            "_probe_fts5",
+            lambda: ProbeResult("fts5", False, "simulated fts5 unavailable"),
+        )
+        buf = io.StringIO()
+        code = run_doctor(out=buf)
+        text = buf.getvalue()
+        assert code != 0
+        assert "fts5: FAIL" in text
+        assert "RESULT: FAIL" in text
 
 
 class TestUsearchAcceleration:

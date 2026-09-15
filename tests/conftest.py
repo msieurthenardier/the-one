@@ -377,3 +377,48 @@ def reset_lifespan_singletons():
         await _clear_mcp_pool()
 
     _asyncio.run(_reset())
+
+
+# Modules that own the ONLY sanctioned real embedding-model load
+# (``tests.test_doctor_embedding_model`` — see that file's docstring) or
+# that need to control ``LocalStaticBackend.load`` themselves to test the
+# process singleton (``tests.test_embeddings`` does NOT perform a real
+# load — it stubs ``model2vec.StaticModel`` itself, one layer below
+# ``load``, so it needs this fixture to leave ``LocalStaticBackend.load``
+# alone rather than replacing it wholesale with a ``StubEmbeddingBackend``)
+# (M24 F02 L03). Every other test gets a fast stub instead — without this,
+# ``create_knowledge_base`` (which now kicks ``embeddings.warm_up()`` on
+# every call) would race a real ~250 MiB model load into the background of
+# any test that creates a knowledge base.
+_EMBEDDING_REAL_LOAD_MODULES = frozenset(
+    {"tests.test_doctor_embedding_model", "tests.test_embeddings"}
+)
+
+
+@pytest.fixture(autouse=True)
+def _stub_embedding_backend_by_default(request: pytest.FixtureRequest, monkeypatch):
+    """Keep the real bundled model load confined to the two modules above.
+
+    Patches ``LocalStaticBackend.load`` (the one seam both
+    ``get_embedding_backend()`` and the ``doctor`` probe call through) to
+    return a ``StubEmbeddingBackend`` instead, and resets the process
+    singleton before and after each test so no test observes another
+    test's stubbed instance. ``tests/test_doctor.py`` additionally stubs
+    ``_probe_embedding_model`` itself (its own autouse fixture), so this
+    fixture never even needs to fire for that module's probe calls to stay
+    fast — it is here for the seam's OTHER callers (``warm_up()``,
+    ``create_knowledge_base``, any future consumer).
+    """
+    module_name = request.module.__name__ if request.module is not None else ""
+    if module_name in _EMBEDDING_REAL_LOAD_MODULES:
+        yield
+        return
+
+    from tests._embedding_stub import StubEmbeddingBackend
+    from the_one import embeddings
+    from the_one.embeddings.local import LocalStaticBackend
+
+    monkeypatch.setattr(LocalStaticBackend, "load", staticmethod(lambda: StubEmbeddingBackend()))
+    embeddings._reset_for_test()
+    yield
+    embeddings._reset_for_test()

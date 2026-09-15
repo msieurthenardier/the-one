@@ -77,6 +77,10 @@ jobs:
           # permanent probes exist to prevent.
           grep -q "sqlite-vec: OK" doctor.out
           grep -q "usearch: OK" doctor.out
+          # FTS5 probe (Flight 2 Leg 2, DD-11) — unconditional, not frozen-only,
+          # but asserted here BY NAME for the same reason as the others: a probe
+          # dropped from run_doctor's gates list would still print RESULT: PASS.
+          grep -q "fts5: OK" doctor.out
           # Embedding-model probe (M24 F01 L02). Same by-name rule, and the one
           # gate that also proves a DATA tree survived the freeze: the bundled
           # float16 potion-retrieval-32M weights must load from the packaged

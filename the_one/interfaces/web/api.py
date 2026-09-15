@@ -27,6 +27,8 @@ from the_one.connectors import registry as connector_registry
 from the_one.connectors.base import ConnectorClientError, DoctorReport, InboundEnvelope
 from the_one.connectors.manager import PAIRING_TTL_SECONDS
 from the_one.connectors.manager import get_manager as get_connector_manager
+from the_one.db._kb_types import KBItemTransitionError
+from the_one.db._write_lock import write_transaction
 from the_one.db.connection import get_connection
 from the_one.db.models import (
     ChatSession,
@@ -54,13 +56,23 @@ from the_one.db.repositories import (
     _encrypt_overrides_column,
     _encrypt_secrets_blob,
 )
+from the_one.embeddings import warm_up as _warm_up_embedding_backend
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
+from the_one.knowledge.settings import (
+    ChunkingSettings,
+    EmbeddingSettings,
+    KnowledgeSettings,
+    load_knowledge_settings,
+    load_vector_store_settings,
+    save_knowledge_settings,
+)
 from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
+from the_one.vectors import get_vector_store
 
 if TYPE_CHECKING:
     # `AgentConfig` is intentionally NOT imported at module load time —
@@ -249,6 +261,14 @@ async def _kb_repo() -> KnowledgeBaseRepository:
 async def _kb_item_repo() -> KBItemRepository:
     conn = await get_connection()
     return KBItemRepository(conn)
+
+
+async def _vector_store():
+    """The process-wide vector store (Flight 2 Leg 4). A thin named
+    wrapper around ``get_vector_store()`` — the delete routes' recording-
+    stub tests monkeypatch the dispatcher's own ``_build_store`` seam, not
+    this helper, so it stays a plain pass-through."""
+    return await get_vector_store()
 
 
 async def _mcp_repo() -> MCPSourceRepository:
@@ -1389,9 +1409,20 @@ async def create_knowledge_base(request: Request) -> dict[str, Any]:
     data = await request.json()
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
-    kb = KnowledgeBase.model_validate(data)
+    try:
+        kb = KnowledgeBase.model_validate(data)
+    except ValidationError as e:
+        # Leg 5 review fix (BLOCKING 2): a client-supplied `id` (e.g.
+        # "../../../evil") must 422 via the model's charset validator, not
+        # crash as an unhandled 500 — `KnowledgeBase.id` is used verbatim
+        # to build a filesystem path in `UsearchStore._path_for`.
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     repo = await _kb_repo()
     await repo.create(kb)
+    # M24 F02 L03, DD-1: kick the embedding warm-up on the operator's first
+    # KB after a cold start, so they don't pay the model load inside their
+    # first indexing request either. Idempotent — no bookkeeping needed.
+    asyncio.create_task(_warm_up_embedding_backend())
     return kb.model_dump()
 
 
@@ -1427,6 +1458,16 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
         await repo.delete(kb_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+    # Flight 2 Leg 4: vector-store cleanup happens AFTER the repository
+    # transaction has committed, never inside it (both stores acquire the
+    # write lock themselves — DD-13 forbids nesting). The DB row is truth;
+    # a store failure here is logged and swallowed rather than surfaced —
+    # a stale vector row for a never-recycled id is harmless.
+    try:
+        store = await _vector_store()
+        await store.delete_kb(kb_id)
+    except Exception:
+        logger.exception("vector store delete_kb failed for knowledge base %s", kb_id)
     return {"status": "ok"}
 
 
@@ -1442,6 +1483,15 @@ async def list_kb_items(kb_id: str) -> list[dict[str, Any]]:
 
 @router.post("/knowledge-bases/{kb_id}/items", status_code=201)
 async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
+    # R8: check the KB exists BEFORE validating/inserting the body, so an
+    # unknown kb_id surfaces as 404 rather than leaking the FK violation
+    # as an unhandled 500 IntegrityError.
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
     data = await request.json()
     data["kb_id"] = kb_id
     if "id" not in data:
@@ -1452,14 +1502,153 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
     return item.model_dump()
 
 
+@router.get("/knowledge-bases/{kb_id}/items/{item_id}")
+async def get_kb_item(kb_id: str, item_id: str) -> dict[str, Any]:
+    repo = await _kb_item_repo()
+    try:
+        item = await repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    # Scoping rule (R8): an id that exists but belongs to another KB reads
+    # as unknown — same message and status as a truly-missing id, so ids
+    # never leak across KBs.
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    return item.model_dump()
+
+
+@router.post("/knowledge-bases/{kb_id}/items/{item_id}/retry")
+async def retry_kb_item(kb_id: str, item_id: str) -> dict[str, Any]:
+    """Move a stranded item back to ``pending``.
+
+    Accepts both ``failed`` (operator retry) and ``indexing`` (a process
+    killed mid-index, DD-5) — the same operator intent, and until Flight
+    3's startup reconciliation exists this is the only way out for an item
+    stranded by a kill. Any other current status is rejected 409 with the
+    current status in the detail.
+    """
+    repo = await _kb_item_repo()
+    try:
+        item = await repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    # Retry's operator intent is narrower than the full DD-5 transition
+    # table's ``pending: {indexing, failed, indexed}`` — an ``indexed``
+    # item can also reach ``pending`` (re-index), but that is a DIFFERENT
+    # operation from retry; only a stranded item (``failed`` or mid-kill
+    # ``indexing``) is a valid retry target.
+    if item.status not in ("failed", "indexing"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot retry item in status '{item.status}'",
+        )
+    try:
+        updated = await repo.update_status(item_id, "pending")
+    except KBItemTransitionError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot retry item in status '{item.status}'",
+        )
+    return updated.model_dump()
+
+
 @router.delete("/knowledge-bases/{kb_id}/items/{item_id}")
 async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
     repo = await _kb_item_repo()
     try:
-        await repo.delete(item_id)
+        item = await repo.get(item_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    # Scoping rule (R8): deleting item X through a KB path it does not
+    # belong to now 404s instead of succeeding.
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    ids = await repo.delete(item_id)
+    # Flight 2 Leg 4: same after-the-repository-transaction, log-and-
+    # continue shape as delete_knowledge_base above.
+    if ids:
+        try:
+            store = await _vector_store()
+            await store.delete(kb_id, ids)
+        except Exception:
+            logger.exception("vector store delete failed for kb item %s", item_id)
     return {"status": "ok"}
+
+
+# ── Knowledge settings ───────────────────────────────────────────────────
+
+_KNOWLEDGE_SETTINGS_NOTES = [
+    "Chunking changes apply to items indexed after the change; existing chunks are not re-chunked.",
+    "The embedding backend is fixed to the bundled local model in this release.",
+]
+
+
+async def _knowledge_settings_conn():
+    return await get_connection()
+
+
+async def _knowledge_settings_response(conn, current: KnowledgeSettings) -> dict[str, Any]:
+    # Flight 2 Leg 4: `vector_store` is store-written (DD-3/DD-6, never
+    # accepted by the PUT route below — the existing top-level-key guard
+    # already 422s it) and read fresh on every response since it is
+    # independent of `current`'s embedding/chunking values.
+    vector_store = await load_vector_store_settings(conn)
+    return {
+        "embedding": current.embedding.model_dump(),
+        "chunking": current.chunking.model_dump(),
+        "vector_store": vector_store.model_dump(),
+        "notes": list(_KNOWLEDGE_SETTINGS_NOTES),
+    }
+
+
+@router.get("/knowledge-settings")
+async def get_knowledge_settings() -> dict[str, Any]:
+    conn = await _knowledge_settings_conn()
+    current = await load_knowledge_settings(conn)
+    return await _knowledge_settings_response(conn, current)
+
+
+@router.put("/knowledge-settings")
+async def update_knowledge_settings(request: Request) -> dict[str, Any]:
+    data = await request.json()
+    if not isinstance(data, dict) or set(data) - {"embedding", "chunking"}:
+        raise HTTPException(
+            status_code=422,
+            detail="body must contain only 'embedding' and/or 'chunking' keys",
+        )
+
+    # Leg 5 review fix-now: a non-dict `embedding`/`chunking` value (e.g. a
+    # string or list) must 422, not raise an uncaught TypeError out of
+    # `dict.update()` below and surface as an unhandled 500.
+    for key in ("embedding", "chunking"):
+        if key in data and not isinstance(data[key], dict):
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{key}' must be an object, got {type(data[key]).__name__}",
+            )
+
+    conn = await _knowledge_settings_conn()
+    current = await load_knowledge_settings(conn)
+
+    merged_embedding = current.embedding.model_dump()
+    if "embedding" in data:
+        merged_embedding.update(data["embedding"])
+    merged_chunking = current.chunking.model_dump()
+    if "chunking" in data:
+        merged_chunking.update(data["chunking"])
+
+    try:
+        updated = KnowledgeSettings(
+            embedding=EmbeddingSettings.model_validate(merged_embedding),
+            chunking=ChunkingSettings.model_validate(merged_chunking),
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+
+    await save_knowledge_settings(conn, updated)
+    return await _knowledge_settings_response(conn, updated)
 
 
 # ── MCP Sources ───────────────────────────────────────────────────────────
@@ -4640,11 +4829,15 @@ async def rotate_encryption_key() -> dict[str, str]:
     conn = await get_connection()
 
     # 1. Decrypt existing rows with the current encryptor. NOTE: Between this
-    #    first SELECT and the final commit() below, this function MUST issue
-    #    only DML statements (SELECT/UPDATE). Per the schema.py v8 docstring,
-    #    aiosqlite silently COMMITs before any non-DML statement (PRAGMA,
+    #    first SELECT and the write_transaction() block below (whose exit is
+    #    the commit), this function MUST issue only DML statements
+    #    (SELECT/UPDATE). Per the schema.py v8 docstring, aiosqlite silently
+    #    COMMITs before any non-DML statement (PRAGMA,
     #    DDL, BEGIN), which would split the rotation into two separately-
-    #    committed transactions and break the atomicity contract.
+    #    committed transactions and break the atomicity contract. (Squawk
+    #    0051: this claim is stale per DD-13's measured rule — see the
+    #    corrected comment at schema.py's v8 migration block — and is out
+    #    of scope for this leg.)
     async with conn.execute(
         "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
     ) as cur:
@@ -4800,56 +4993,56 @@ async def rotate_encryption_key() -> dict[str, str]:
         )
         raise HTTPException(status_code=500, detail="could not stage new encryption key") from None
 
-    # 4. Write all rows in a single transaction and commit. If anything in
-    #    this block raises, roll the transaction back, discard the staged
-    #    sidecar, and re-raise so the connection cache does not surface
+    # 4. Write all rows inside one write_transaction() (DD-13, Flight 2 Leg
+    #    1) and commit. If anything in this block raises, the guard rolls
+    #    the transaction back on exit; we additionally discard the staged
+    #    sidecar and re-raise so the connection cache does not surface
     #    uncommitted ciphertext encrypted with the new (not-yet-on-disk)
     #    key. The key file is untouched at this point, so re-raising
-    #    leaves the system fully recoverable. The single commit() covers
+    #    leaves the system fully recoverable. The single transaction covers
     #    ALL SEVEN surfaces (llm_providers.api_key, llm_providers.secrets,
     #    mcp_sources.secrets, connectors.secrets, agents.tool_overrides /
     #    agents.mcp_overrides, tool_configs.secrets,
     #    agent_external_credentials.secret) — a failure in any UPDATE loop
     #    rolls back all of them atomically.
     try:
-        for pid, ct in reencrypted:
-            await conn.execute(
-                "UPDATE llm_providers SET api_key = ? WHERE id = ?",
-                (ct, pid),
-            )
-        for pid, ct in reencrypted_provider_secrets:
-            await conn.execute(
-                "UPDATE llm_providers SET secrets = ? WHERE id = ?",
-                (ct, pid),
-            )
-        for sid, ct in reencrypted_mcps:
-            await conn.execute(
-                "UPDATE mcp_sources SET secrets = ? WHERE id = ?",
-                (ct, sid),
-            )
-        for aid, ct in reencrypted_connectors:
-            await conn.execute(
-                "UPDATE connectors SET secrets = ? WHERE id = ?",
-                (ct, aid),
-            )
-        for agent_name, tool_ct, mcp_ct in reencrypted_agents:
-            await conn.execute(
-                "UPDATE agents SET tool_overrides = ?, mcp_overrides = ? WHERE name = ?",
-                (tool_ct, mcp_ct, agent_name),
-            )
-        for tool_name, ct in reencrypted_tool_configs:
-            await conn.execute(
-                "UPDATE tool_configs SET secrets = ? WHERE name = ?",
-                (ct, tool_name),
-            )
-        for identifier, ct in reencrypted_ext_credentials:
-            await conn.execute(
-                "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
-                (ct, identifier),
-            )
-        await conn.commit()
+        async with write_transaction(conn):
+            for pid, ct in reencrypted:
+                await conn.execute(
+                    "UPDATE llm_providers SET api_key = ? WHERE id = ?",
+                    (ct, pid),
+                )
+            for pid, ct in reencrypted_provider_secrets:
+                await conn.execute(
+                    "UPDATE llm_providers SET secrets = ? WHERE id = ?",
+                    (ct, pid),
+                )
+            for sid, ct in reencrypted_mcps:
+                await conn.execute(
+                    "UPDATE mcp_sources SET secrets = ? WHERE id = ?",
+                    (ct, sid),
+                )
+            for aid, ct in reencrypted_connectors:
+                await conn.execute(
+                    "UPDATE connectors SET secrets = ? WHERE id = ?",
+                    (ct, aid),
+                )
+            for agent_name, tool_ct, mcp_ct in reencrypted_agents:
+                await conn.execute(
+                    "UPDATE agents SET tool_overrides = ?, mcp_overrides = ? WHERE name = ?",
+                    (tool_ct, mcp_ct, agent_name),
+                )
+            for tool_name, ct in reencrypted_tool_configs:
+                await conn.execute(
+                    "UPDATE tool_configs SET secrets = ? WHERE name = ?",
+                    (ct, tool_name),
+                )
+            for identifier, ct in reencrypted_ext_credentials:
+                await conn.execute(
+                    "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
+                    (ct, identifier),
+                )
     except Exception:
-        await conn.rollback()
         encryptor.discard_pending_key()
         raise
 

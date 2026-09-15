@@ -570,6 +570,22 @@ Flight 2)". The security-relevant invariants are:
   `_clean_npx`, raises `ValueError` before any path operation.
   Established in F1 M09 Leg 3 after a design-review catch (the original
   draft used the broken char-class allowlist).
+- **Native SQLite extension loading (M24 F2 L04, DD-10)**: the vector-store
+  seam's `sqlite-vec` backend (`the_one/vectors/sqlite_vec_store.py`) loads
+  exactly one native SQLite extension — `sqlite-vec`'s `vec0`, a wheel
+  dependency shipped alongside the app and collected into the frozen
+  build by `packaging/windows/the-one.spec` — on the connection's first
+  vector-store use. Extension loading is enabled only for the three
+  `await`s this takes (`enable_load_extension(True)` →
+  `load_extension(str(sqlite_vec.loadable_path()))` →
+  `enable_load_extension(False)` in a `finally`), then disabled again for
+  the remaining life of the connection; a subsequent
+  `load_extension(...)` call raises. No other extension is ever loaded,
+  and the operator has no configuration surface that reaches this path
+  (the loaded path is a fixed, code-controlled constant, never an
+  operator-supplied string). Once loaded, the extension's registered
+  virtual-table module (`vec0`) stays available for the process's
+  lifetime, like any other imported C extension.
 
 ## Boxed Execution Mode (M14 F4)
 

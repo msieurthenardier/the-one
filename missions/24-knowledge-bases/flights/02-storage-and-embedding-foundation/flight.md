@@ -1,6 +1,6 @@
 # Flight: Storage and Embedding Foundation
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
@@ -295,8 +295,12 @@ indexing pipeline: those are Flights 3–6.
   and the vector store's `delete`/`delete_kb` explicitly, and a raw
   `DELETE FROM kb_items` anywhere else is a defect by convention; (b) the
   symptom of a miss is not stale results but `DatabaseError: database disk
-  image is malformed` on the next MATCH, which reads to an operator like
-  corruption. So the repository also ships `rebuild_fts()` (`INSERT INTO
+  image is malformed` on the next MATCH **that selects the FTS `text`
+  column**, which reads to an operator like corruption — `search_keyword`'s
+  own query selects only rowid and score and joins `kb_chunks`, so it
+  silently filters an orphaned index row instead (Leg 2 design review); the
+  desync is therefore invisible until `check_fts()` (the two-argument
+  `integrity-check`) is run. So the repository also ships `rebuild_fts()` (`INSERT INTO
   kb_chunks_fts(kb_chunks_fts) VALUES('rebuild')`, verified to recover) and
   `check_fts()` (`'integrity-check'`), and a test proves a KB delete leaves
   zero orphan FTS rows and zero vector rows.
@@ -414,9 +418,14 @@ indexing pipeline: those are Flights 3–6.
 - Observability premise checked: everything asserted is a number the script
   computes and prints; no state under test lives anywhere the script cannot
   read. Feasibility premise checked on this host for the small case.
-- Trade-off: a synthetic corpus at 3M measures latency, not retrieval quality
-  at scale — recall is measured only on the ~15k real corpus. Accepted; the
-  alternative is embedding gigabytes of text nobody has.
+- Trade-off: a synthetic corpus at 3M measures latency and *index recall*
+  (how much of the exact top-10 an approximate index or a lossy dtype
+  returns), not retrieval quality; retrieval-relevant recall — the figure
+  DD-4's 0.95 floor applies to — is measured only on the ~25k real corpus.
+  *(Clarified at Leg 5 design review: both tables carry a recall column,
+  with different meanings; the earlier wording said synthetic recall was
+  not measured at all.)* Accepted; the alternative is embedding gigabytes
+  of text nobody has.
 
 **DD-9 — The store choice is the operator's, made at a leg boundary against a bar set in advance; Leg 6 removes the loser and closes squawk 0049**
 - Decision inputs, in priority order: (1) p95 single-query latency at the
@@ -565,9 +574,10 @@ indexing pipeline: those are Flights 3–6.
 
 - [ ] Concourse at `localhost:8080`, team `the-one`, `fly` token valid (it
       expired mid-Flight 1; re-verify at flight start, not at Leg 5)
-- [ ] `windows-worker` registered and healthy, **and its available RAM
-      recorded** — determines whether the 3M cells run there or DD-8's
-      extrapolation applies
+- [x] `windows-worker` registered and healthy, **and its available RAM
+      recorded** — measured 2026-09-14 by a one-off task: 31.71 GB total,
+      14.22 GB free, 20 CPUs. The 3M cells run there directly; DD-8's
+      extrapolation is not needed
 - [x] **Operator's latency bar recorded**: p95 ≤ 250 ms (set at planning,
       2026-09-14; DD-9 input #1)
 - [ ] `uv` on PATH for Leg 6's lock regeneration (uv 0.10.0 at Flight 1)
@@ -729,34 +739,37 @@ Files affected (planning estimate; legs cite exactly): `the_one/db/schema.py`,
 > **Note:** These are tentative suggestions, not commitments. Legs are planned
 > and created one at a time as the flight progresses.
 
-- [ ] `v40-schema-and-item-lifecycle` — the migration, `CURRENT_VERSION = 40`,
+- [x] `v40-schema-and-item-lifecycle` — the migration, `CURRENT_VERSION = 40`,
       `_kb_types.py`, item status vocabulary and conditional-UPDATE
       transitions, `_write_lock.py` + every repository write wrapped + the
       commit-guard test, the stale-comment fix, the item routes and two route
       fixes, migration and repository tests. **HIGH risk** (schema; a
       mechanical change across every repository's write path).
-- [ ] `chunk-repository-and-fts` — `KBChunkRepository` with locked
+- [x] `chunk-repository-and-fts` — `KBChunkRepository` with locked
       transactional FTS sync, keyword search, `rebuild_fts`/`check_fts`,
       cascade-cleanup hooks, atomicity and orphan tests, `_probe_fts5` with
       both lanes' assertions and the doctor enumerations, the write-lock
       convention in `agents.md`. **HIGH risk** (shared-interface change to
       `run_doctor`'s gate list read by four consumers; transaction semantics on
       the singleton).
-- [ ] `embedding-seam-and-settings` — `EmbeddingBackend`, `EmbedResult`,
+- [x] `embedding-seam-and-settings` — `EmbeddingBackend`, `EmbedResult`,
       `LocalStaticBackend` carrying the DD-5 guards, singleton + reset + KB-
       gated warm-up, probe rewrite with its test changes, stub backend,
       `knowledge/settings.py` + `chunking.py`, the two settings routes, the
       `__init__` docstring and spec comment rewrites, `agents.md` Diagnostics
       update. Risk tier at leg design; the probe rewrite touches a gate four
       consumers read.
-- [ ] `vector-store-seam` — `VectorStore` Protocol, both backends, DD-10
+- [x] `vector-store-seam` — `VectorStore` Protocol, both backends, DD-10
       loading in `open()`, live-DDL mismatch check, sidecar registry and
       generation check, the shared Protocol test suite, the "Knowledge
       storage" contract in `agents.md`, the `SECURITY-MODEL.md` paragraph.
       **HIGH risk** (native extension on the app connection).
-- [ ] `store-benchmark` — the script, the latency-bar prerequisite checked,
+- [x] `store-benchmark` — the script, the latency-bar prerequisite checked,
       Linux runs, `windows-worker` runs or the labelled extrapolation, numbers
-      in the log. **Ends at the operator's decision checkpoint.**
+      in the log. **Ends at the operator's decision checkpoint.** Linux runs
+      (AC-1 smoke, N=1M, N=3M all four cells, real corpus) landed by the
+      Developer; `windows-worker` runs are the Flight Director's, not yet
+      run.
 - [ ] `store-decision-and-closure` — designed only after the decision entry
       exists. Remove the loser and its probe/spec/CI lines, v41 for
       `kb_vector_index` if `usearch` won, `hf-xet` override (squawk 0049),
