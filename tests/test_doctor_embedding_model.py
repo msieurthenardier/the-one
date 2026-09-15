@@ -1,4 +1,5 @@
-"""Real-load tests for the ``embedding model`` doctor probe (M24 F01 L02).
+"""Real-load tests for the ``embedding model`` doctor probe (M24 F01 L02,
+rewritten M24 F02 L03).
 
 **This file exists because of an autouse fixture.** ``tests/test_doctor.py``
 patches ``_probe_embedding_model`` for every test in that module, so the 16
@@ -15,6 +16,16 @@ first one loads the committed weights for real.
 Note the asset is untracked until a human stages it (the leg's terminal
 handoff), so on a machine that has not run ``make refresh-embedding-model``
 these tests fail — which is the correct signal, not a reason to skip.
+
+M24 F02 L03 (DD-11): the probe now constructs a fresh
+``the_one.embeddings.local.LocalStaticBackend`` rather than loading
+``model2vec`` directly, and the two DD-5 offline-load guards now live in
+``the_one.embeddings.local.resolve_model_dir`` / ``force_hf_offline`` — the
+monkeypatch targets below retarget accordingly (the constants moved out of
+``diagnostics.py`` entirely; nothing outside this file and ``diagnostics.py``
+imports the underscored names, and now ``diagnostics.py`` itself imports only
+the plain ``EMBEDDING_DIM`` / ``EMBEDDING_WEIGHTS_FILENAME`` names it still
+needs).
 """
 
 from __future__ import annotations
@@ -25,7 +36,9 @@ from pathlib import Path
 import pytest
 
 from the_one import diagnostics
-from the_one.diagnostics import _EMBEDDING_DIM, _probe_embedding_model
+from the_one.diagnostics import _probe_embedding_model
+from the_one.embeddings import local as embeddings_local
+from the_one.embeddings.local import EMBEDDING_DIM
 
 
 def _packaged_model_dir() -> Path:
@@ -34,8 +47,8 @@ def _packaged_model_dir() -> Path:
 
     return Path(
         str(
-            files(diagnostics._EMBEDDING_PACKAGE).joinpath(
-                "data", diagnostics._EMBEDDING_MODEL_DIRNAME
+            files(embeddings_local.EMBEDDING_PACKAGE).joinpath(
+                "data", embeddings_local.EMBEDDING_MODEL_DIRNAME
             )
         )
     )
@@ -53,20 +66,22 @@ class TestRealLoad:
         result = _probe_embedding_model()
         assert result.ok is True, result.detail
         assert result.name == "embedding model"
-        assert f"{_EMBEDDING_DIM}-dim" in result.detail
-        # DD-1's dtype, read off the returned array by the probe itself.
-        assert "float16 vector" in result.detail
+        assert f"{EMBEDDING_DIM}-dim" in result.detail
+        # DD-11's rewritten shape: native dtype AND the float32 seam it's
+        # upcast through, plus the truncation count for the probe text.
+        assert "float16 model -> float32 seam" in result.detail
+        assert "truncated=0" in result.detail
         assert "norm " in result.detail
         # The truncated-file / LFS-pointer tell: the byte size is in the line.
         assert "model.safetensors=" in result.detail
         # DD-4 read path — Flight 2 needs this figure for the float16-vs-int8
         # vector-storage decision, and no CI task measures memory.
         assert "peak RSS" in result.detail
-        assert diagnostics._EMBEDDING_MODEL_DIRNAME in result.detail
+        assert embeddings_local.EMBEDDING_MODEL_DIRNAME in result.detail
 
     def test_reported_weights_size_matches_the_file_on_disk(self) -> None:
         """The size in the detail line is read, not hardcoded."""
-        weights = _packaged_model_dir() / diagnostics._EMBEDDING_WEIGHTS_FILENAME
+        weights = _packaged_model_dir() / embeddings_local.EMBEDDING_WEIGHTS_FILENAME
         result = _probe_embedding_model()
         assert f"model.safetensors={weights.stat().st_size:,} bytes" in result.detail
 
@@ -77,7 +92,7 @@ class TestRealLoad:
         cannot be performed after the fact — once the blob is pushed it is in
         history permanently.
         """
-        weights = _packaged_model_dir() / diagnostics._EMBEDDING_WEIGHTS_FILENAME
+        weights = _packaged_model_dir() / embeddings_local.EMBEDDING_WEIGHTS_FILENAME
         assert weights.stat().st_size < 100 * 1024 * 1024
 
 
@@ -109,7 +124,7 @@ class TestOfflineInvariant:
         ``from_pretrained`` is never reached at all.
         """
         sentinel = "definitely-not-a-real-model-directory"
-        monkeypatch.setattr(diagnostics, "_EMBEDDING_MODEL_DIRNAME", sentinel)
+        monkeypatch.setattr(embeddings_local, "EMBEDDING_MODEL_DIRNAME", sentinel)
 
         def _explode(*args: object, **kwargs: object) -> None:
             raise AssertionError("from_pretrained must not be reached — this is the DD-5 breach")
@@ -123,6 +138,39 @@ class TestOfflineInvariant:
         assert "packaged model directory not found" in result.detail
         assert sentinel in result.detail
 
+    def test_missing_weights_file_fails_rather_than_downloading(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Guard #2: the directory exists but ``model.safetensors`` is absent.
+
+        Design review found this guard had no test anywhere in the tree —
+        only guard #1 (directory absence) was covered. Builds a real
+        ``tmp_path/data/fake-model`` directory holding stand-ins for the
+        other four files but never the weights file, points
+        ``_resource_files`` at ``tmp_path`` (mirroring what
+        ``importlib.resources.files(...)`` would return for the real
+        package) and ``EMBEDDING_MODEL_DIRNAME`` at ``fake-model``, and
+        proves ``from_pretrained`` is never reached.
+        """
+        fake_model_dir = tmp_path / "data" / "fake-model"
+        fake_model_dir.mkdir(parents=True)
+        for name in ("config.json", "tokenizer.json", "tokenizer_config.json", "modules.json"):
+            (fake_model_dir / name).write_text("{}")
+
+        monkeypatch.setattr(embeddings_local, "_resource_files", lambda pkg: tmp_path)
+        monkeypatch.setattr(embeddings_local, "EMBEDDING_MODEL_DIRNAME", "fake-model")
+
+        def _explode(*args: object, **kwargs: object) -> None:
+            raise AssertionError("from_pretrained must not be reached — this is the DD-5 breach")
+
+        import model2vec
+
+        monkeypatch.setattr(model2vec.StaticModel, "from_pretrained", _explode)
+
+        result = _probe_embedding_model()
+        assert result.ok is False
+        assert "model.safetensors missing from" in result.detail
+
     def test_hf_hub_offline_is_set_before_the_load(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The env var does the real work; the path check is defence in depth.
 
@@ -132,10 +180,21 @@ class TestOfflineInvariant:
         monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
         seen: dict[str, str | None] = {}
 
+        import numpy as np
+
         class _StubModel:
+            dim = EMBEDDING_DIM
+            embedding = np.zeros((1, EMBEDDING_DIM), dtype=np.float16)
+
             @staticmethod
-            def encode(text: str) -> list[float]:
-                return [0.5] * _EMBEDDING_DIM
+            def tokenize(sentences: list[str], max_length: int | None = None) -> list[list[int]]:
+                return [[1, 2, 3] for _ in sentences]
+
+            @staticmethod
+            def encode(sentences: list[str], **kwargs: object) -> "np.ndarray":
+                unit = np.zeros(EMBEDDING_DIM, dtype=np.float16)
+                unit[0] = 1.0
+                return np.tile(unit, (len(sentences), 1))
 
         def _capture(path: str, *args: object, **kwargs: object) -> _StubModel:
             seen["offline"] = os.environ.get("HF_HUB_OFFLINE")
@@ -150,10 +209,10 @@ class TestOfflineInvariant:
         # Assert on the emitted detail too, not just ok — a stub the probe's
         # broad `except` swallowed would leave `seen` empty and `ok` False.
         assert result.ok is True, result.detail
-        assert f"{_EMBEDDING_DIM}-dim" in result.detail
+        assert f"{EMBEDDING_DIM}-dim" in result.detail
         assert seen["offline"] == "1"
         # It loaded from the packaged path, not from a repo id.
-        assert str(seen["path"]).endswith(diagnostics._EMBEDDING_MODEL_DIRNAME)
+        assert str(seen["path"]).endswith(embeddings_local.EMBEDDING_MODEL_DIRNAME)
         assert os.path.isabs(str(seen["path"]))
 
     def test_huggingface_hub_constant_is_forced_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,7 +220,7 @@ class TestOfflineInvariant:
 
         Setting the environment variable after the package is already imported
         is too late for ``huggingface_hub.constants.HF_HUB_OFFLINE``, which is
-        the value the hub code actually consults. ``_force_hf_offline`` sets
+        the value the hub code actually consults. ``force_hf_offline`` sets
         both; this covers the second.
         """
         import huggingface_hub.constants as hf_constants
@@ -169,7 +228,7 @@ class TestOfflineInvariant:
         monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
         monkeypatch.setattr(hf_constants, "HF_HUB_OFFLINE", False, raising=False)
 
-        diagnostics._force_hf_offline()
+        embeddings_local.force_hf_offline()
 
         assert os.environ["HF_HUB_OFFLINE"] == "1"
         assert hf_constants.HF_HUB_OFFLINE is True

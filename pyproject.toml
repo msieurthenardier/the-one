@@ -68,21 +68,18 @@ dependencies = [
     # ConPTY backend for Windows PTY sessions (M15 F3 Leg 2). The env marker
     # ensures this never installs on Linux/macOS — pywinpty is Windows-only.
     "pywinpty>=2.0; sys_platform == \"win32\"",
-    # Vector-store candidates for the knowledge-base mission (M24 F01 DD-3).
-    # Both are carried in the runtime closure while the choice between them is
-    # open, because each must prove it packages and loads in the frozen Windows
-    # bundle before Flight 2 picks one — you do not ship a dependency that
-    # cannot load. The loser is removed from the closure in Flight 2.
-    #  - sqlite-vec: loadable SQLite extension (vec0 virtual tables). Vectors
-    #    stay disk-backed inside the SQLite file the app already backs up and
-    #    migrates; exhaustive brute-force KNN, no ANN index.
-    #  - usearch: standalone HNSW id->vector index (pulls numpy + the native
-    #    numkong). Approximate search, satisfies the mission's
-    #    vectors-and-ids-only constraint natively.
-    # Both are exercised by the frozen-only `doctor` probes in
-    # the_one/diagnostics.py, which are the regression gate for their native
-    # payloads surviving the freeze.
-    "sqlite-vec>=0.1.6",
+    # Vector store for the knowledge-base mission (M24 F02 L06 / DD-9). The
+    # operator chose usearch at the Flight 2 decision checkpoint
+    # (flight-log.md, "DD-9 decision checkpoint (2026-09-15)"): it was the
+    # only benchmarked candidate to clear the p95 <= 250ms bar at the
+    # corpus ceiling on Windows. usearch is a standalone HNSW id->vector
+    # index (pulls numpy +
+    # the native numkong extension unconditionally, per
+    # usearch/__init__.py — numkong stays even though it never loads on the
+    # frozen Windows build, Known Issues); it satisfies the mission's
+    # vectors-and-ids-only constraint natively. It is exercised by the
+    # frozen-only `usearch` doctor probe in the_one/diagnostics.py, which is
+    # the regression gate for the native payload surviving the freeze.
     "usearch>=2.16",
     # Static embedding backend for the knowledge-base mission (M24 F01 DD-1/DD-2).
     # model2vec loads the float16 `potion-retrieval-32M` weights committed under
@@ -121,6 +118,14 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-timeout>=2.4", "ruff==0.15
 
 [project.scripts]
 the-one = "the_one.main:cli_entry"
+
+[tool.uv]
+# Squawk 0049 / M24 F02 L06: huggingface-hub pulls hf-xet (a Rust Hub
+# transfer accelerator) on x86_64/arm64. The app never downloads from the
+# Hub — the embedding model is package data and HF_HUB_OFFLINE=1 is
+# forced — and huggingface_hub imports hf_xet lazily inside its download
+# path only, so excluding it is safe and trims ~4 MB from the bundle.
+exclude-dependencies = ["hf-xet"]
 
 [tool.setuptools.packages.find]
 include = ["the_one*"]

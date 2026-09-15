@@ -62,10 +62,12 @@ from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     ChatSessionRepository,
     ConnectorRepository,
+    KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
     SQLiteAgentStore,
 )
+from the_one.embeddings import warm_up as _warm_up_embedding_backend
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM, mint_handoff_credential
@@ -323,6 +325,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _set_module_connector_manager(_connector_manager)
         except Exception:
             logger.exception("connector manager startup failed")
+
+        # M24 F02 L03, DD-1: kick the embedding warm-up AFTER the connector
+        # manager start above, gated on at least one knowledge base already
+        # existing — an operator who never creates a KB never pays the
+        # ~250 MiB model load. Own try/except (a scheduling failure must not
+        # kill app startup, mirroring the other startup blocks); `warm_up()`
+        # itself also never raises (it logs a loader failure internally), so
+        # this only guards the `count()` read and the `create_task` call.
+        try:
+            if await KnowledgeBaseRepository(await get_connection()).count() > 0:
+                asyncio.create_task(_warm_up_embedding_backend())
+        except Exception:
+            logger.exception("embedding warm-up scheduling failed")
         yield
         # Drain the PTY session registry on shutdown — cancels the idle
         # reaper task and closes any live sessions. Wrapped in

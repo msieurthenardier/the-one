@@ -570,6 +570,16 @@ Flight 2)". The security-relevant invariants are:
   `_clean_npx`, raises `ValueError` before any path operation.
   Established in F1 M09 Leg 3 after a design-review catch (the original
   draft used the broken char-class allowlist).
+- **No native SQLite extension is loaded anywhere in the app (M24 F2 L06,
+  DD-10)**: the vector-store seam's only backend (`the_one/vectors/usearch_store.py`,
+  DD-9) is `usearch` — an ordinary imported Python extension module, not a
+  SQLite extension, and it never touches the app's SQLite connection at
+  all (its HNSW index lives in a separate sidecar file, per DD-3). The app
+  never calls `sqlite3.Connection.enable_load_extension` anywhere. A
+  candidate backend that loaded a native SQLite extension (`sqlite-vec`'s
+  `vec0`, via `enable_load_extension`) was benchmarked in Flight 2 Legs
+  4-5 and removed from the closure in Leg 6 after the operator's DD-9
+  decision; this paragraph is retired along with it.
 
 ## Boxed Execution Mode (M14 F4)
 

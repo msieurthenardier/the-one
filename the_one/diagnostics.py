@@ -28,6 +28,10 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+import numpy as np
+
+from the_one.embeddings._backend import NORM_TOLERANCE, EmbeddingModelMissingError
+from the_one.embeddings.local import EMBEDDING_DIM, EMBEDDING_WEIGHTS_FILENAME, LocalStaticBackend
 from the_one.platform.env import _build_subprocess_env, is_frozen
 
 # Probe marker echoed by the child and checked on the way back. Distinctive so a
@@ -290,19 +294,19 @@ def _probe_interpreter() -> ProbeResult:
     return ProbeResult("python interpreter", True, f"resolved to {interp}")
 
 
-# ── Vector-store probes (M24 F01 L01, DD-3/DD-5/DD-6/DD-7) ──────────────────
+# ── Vector-store probe (M24 F01 L01, DD-3/DD-5/DD-6/DD-7; usearch-only since
+# M24 F02 L06, DD-9) ──────────────────────────────────────────────────────
 #
-# Both vector-store candidates are in the runtime closure while the choice
-# between them is open (see pyproject.toml). Each probe loads its library
-# directly — there is deliberately NO storage abstraction here (DD-6); the seam
-# is Flight 2's work. What these probes gate is the packaging question: does the
-# candidate's NATIVE payload survive the PyInstaller freeze and still answer a
-# real query? That is the same hazard class as the tree-shaken model-catalog
-# seed above, one layer down at a loadable binary.
+# usearch is the operator's DD-9 choice (flight-log.md, "DD-9 decision
+# checkpoint (2026-09-15)") — the losing candidate's probe was removed in
+# Leg 6. The probe loads the library directly — there is deliberately NO storage
+# abstraction here (DD-6); the seam is Flight 2's work. What it gates is the
+# packaging question: does usearch's NATIVE payload survive the PyInstaller
+# freeze and still answer a real query? That is the same hazard class as the
+# tree-shaken model-catalog seed above, one layer down at a loadable binary.
 #
-# Both are frozen-only gates (DD-7): `enable_load_extension` genuinely varies
-# across Python builds, so a dev-host failure would be a false alarm. They still
-# always ATTEMPT the real work — only the failure is downgraded when unfrozen.
+# Frozen-only gate (DD-7): the probe still always ATTEMPTS the real work —
+# only the failure is downgraded when unfrozen.
 
 # Tiny throwaway vector for the round-trips. Deliberately unrelated to the
 # mission's real embedding width — these probes prove a library loads and
@@ -314,7 +318,7 @@ _VECTOR_PROBE_KEY = 7
 
 
 def _vector_probe_outcome(name: str, reason: str) -> ProbeResult:
-    """Frozen-only gating for the vector-store probes.
+    """Frozen-only gating for the vector-store probe.
 
     Frozen → hard failure (``RESULT: FAIL``, read by both CI lanes). Not frozen
     → ``ok=True`` with a ``skipped —`` detail, matching the house pattern used by
@@ -323,102 +327,6 @@ def _vector_probe_outcome(name: str, reason: str) -> ProbeResult:
     if is_frozen():
         return ProbeResult(name, False, reason)
     return ProbeResult(name, True, f"skipped — {reason}")
-
-
-def _probe_sqlite_vec() -> ProbeResult:
-    """Load the ``vec0`` SQLite extension and complete a real KNN round-trip.
-
-    Opens a **bare** ``sqlite3`` connection rather than ``aiosqlite`` or the
-    app's connection factory: every doctor probe is synchronous while the app's
-    DB layer is async, ``aiosqlite``'s extension methods are thin proxies onto
-    the same ``sqlite3.Connection`` (so this tests the identical C-level
-    capability), and the app's factory would create directories and WAL sidecars
-    in the operator's data dir as a side effect of running a diagnostic.
-
-    It is not enough to import ``sqlite_vec`` or to load the extension without
-    error — the ``_probe_model_catalog`` lesson is that a capability which
-    silently no-ops is exactly the failure a probe exists to catch. So this
-    inserts a vector and asserts the nearest-neighbour query hands back the
-    concrete rowid it was stored under.
-
-    Note for Flight 2: the app's real connection factory never enables extension
-    loading, so this proves *capability*, not *integration*. Wiring the load into
-    the app's own connections is Flight 2's work.
-
-    Never raises — all exceptions are caught.
-    """
-    name = "sqlite-vec"
-
-    # `enable_load_extension` is compiled out of some CPython builds. Its
-    # absence is a legitimate dev-host condition and a hard failure in a freeze
-    # we control.
-    if not hasattr(sqlite3.Connection, "enable_load_extension"):
-        return _vector_probe_outcome(
-            name,
-            "this Python build has no sqlite3.Connection.enable_load_extension "
-            "(compiled out) — the vec0 extension cannot be loaded",
-        )
-
-    conn: sqlite3.Connection | None = None
-    loadable = "<unresolved>"
-    try:
-        import sqlite_vec
-
-        # NOTE: loadable_path() is EXTENSIONLESS (``<pkgdir>/vec0``) — SQLite
-        # appends .dll/.so/.dylib itself. Never os.path.exists() it; it always
-        # reports missing. Report it alongside the OperationalError, which names
-        # the file SQLite actually tried to open.
-        loadable = str(sqlite_vec.loadable_path())
-
-        conn = sqlite3.connect(":memory:")
-        conn.enable_load_extension(True)
-        try:
-            sqlite_vec.load(conn)
-        finally:
-            # Re-disable immediately: extension loading stays off for the rest
-            # of this connection's life, including the round-trip below.
-            conn.enable_load_extension(False)
-
-        (version,) = conn.execute("SELECT vec_version()").fetchone()
-        conn.execute(f"CREATE VIRTUAL TABLE vt USING vec0(embedding float[{_VECTOR_PROBE_DIM}])")
-        # Bind via serialize_float32 — a plain Python list raises
-        # ProgrammingError ("type 'list' is not supported").
-        blob = sqlite_vec.serialize_float32(list(_VECTOR_PROBE_VECTOR))
-        conn.execute(
-            "INSERT INTO vt(rowid, embedding) VALUES (?, ?)",
-            (_VECTOR_PROBE_ROWID, blob),
-        )
-        # vec0 KNN requires an explicit `k = ?` (or LIMIT, which needs SQLite
-        # >= 3.41); `distance` must be selected explicitly — SELECT * returns
-        # only rowid and the vector column.
-        rows = conn.execute(
-            "SELECT rowid, distance FROM vt WHERE embedding MATCH ? AND k = ?",
-            (blob, 1),
-        ).fetchall()
-    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
-        return _vector_probe_outcome(
-            name,
-            f"{exc.__class__.__name__}: {exc} (loadable_path={loadable})",
-        )
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001 — best-effort cleanup
-                pass
-
-    if not rows or rows[0][0] != _VECTOR_PROBE_ROWID:
-        return _vector_probe_outcome(
-            name,
-            f"vec0 loaded from {loadable} but the KNN query returned {rows!r}, "
-            f"expected rowid {_VECTOR_PROBE_ROWID} — the extension is present "
-            "but not answering queries",
-        )
-    return ProbeResult(
-        name,
-        True,
-        f"vec0 {version} loaded from {loadable}; KNN round-trip returned rowid {rows[0][0]}",
-    )
 
 
 def _numkong_extension_state() -> str:
@@ -544,6 +452,53 @@ def _probe_usearch() -> ProbeResult:
     )
 
 
+# ── FTS5 probe (Flight 2 Leg 2, DD-11) ───────────────────────────────────
+#
+# Unlike the vector-store probe above, this one gates UNCONDITIONALLY:
+# FTS5 is a mission constraint in every build (DD-11), not an optional extra
+# whose presence legitimately varies by Python build the way
+# `enable_load_extension` does — so it must never route through
+# `_vector_probe_outcome`, and it never consults `is_frozen()`.
+
+_FTS5_PROBE_TOKEN = "zq7xkdoctor"
+
+
+def _probe_fts5() -> ProbeResult:
+    """Build an in-memory FTS5 table, insert one row, and MATCH it back.
+
+    Asserts the CONCRETE resolved rowid (1) rather than merely "no
+    exception" — the ``report-what-you-got`` convention. Never raises; any
+    failure (including a SQLite build compiled without FTS5 support) is
+    reported as ``ok=False``, unconditionally, on every host.
+    """
+    name = "fts5"
+    try:
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute("CREATE VIRTUAL TABLE t USING fts5(x, tokenize='porter unicode61')")
+            conn.execute("INSERT INTO t (rowid, x) VALUES (1, ?)", (_FTS5_PROBE_TOKEN,))
+            cur = conn.execute("SELECT rowid, bm25(t) FROM t WHERE t MATCH ?", (_FTS5_PROBE_TOKEN,))
+            row = cur.fetchone()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        return ProbeResult(name, False, f"{exc.__class__.__name__}: {exc}")
+
+    if row is None or row[0] != 1:
+        return ProbeResult(
+            name,
+            False,
+            f"index built but MATCH query returned {row!r}, expected rowid 1 "
+            "— FTS5 is present but not answering queries",
+        )
+    return ProbeResult(
+        name,
+        True,
+        f"fts5 available (SQLite {sqlite3.sqlite_version}); porter+unicode61 "
+        f"MATCH round-trip returned rowid {row[0]}",
+    )
+
+
 # ── Embedding-model probe (M24 F01 L02, DD-1/DD-2/DD-5/DD-6/DD-7) ───────────
 #
 # The bundled float16 `potion-retrieval-32M` weights (the_one/embeddings/data/)
@@ -553,11 +508,14 @@ def _probe_usearch() -> ProbeResult:
 # or dropped by an incomplete package-data glob, fails silently at the point of
 # use rather than at build time.
 #
-# There is deliberately NO embedding abstraction between this probe and
-# model2vec (DD-6). The seam is Flight 2's work; this probe rewrites lightly
-# then to call through it rather than around it.
+# M24 F02 L03: the embedding seam (`the_one.embeddings`) now sits between
+# this probe and model2vec — the two DD-5 offline-load guards below moved
+# into `the_one.embeddings.local.resolve_model_dir` so they protect every
+# production load, not only this probe. This probe constructs a FRESH
+# `LocalStaticBackend` (never the process singleton) and calls through the
+# seam rather than around it.
 #
-# Unlike the two vector-store probes, this one gates UNCONDITIONALLY (DD-7):
+# Unlike the vector-store probe above, this one gates UNCONDITIONALLY (DD-7):
 # `model2vec` is a base dependency and the model is package data present in
 # every checkout, so an unfrozen failure is a real defect — most usefully a
 # missing package-data glob in a NON-EDITABLE wheel install, which a frozen-only
@@ -572,13 +530,11 @@ def _probe_usearch() -> ProbeResult:
 # `HF_HUB_OFFLINE=1` is set in-process first so the hub fetch cannot succeed
 # even if the path check were somehow bypassed.
 
-_EMBEDDING_PACKAGE = "the_one.embeddings"
-_EMBEDDING_MODEL_DIRNAME = "potion-retrieval-32M"
-_EMBEDDING_WEIGHTS_FILENAME = "model.safetensors"
-# DD-1: potion-retrieval-32M is a 512-dimension model. Asserting the resolved
-# width (rather than merely "no exception") is what makes a wrong or truncated
-# model a FAIL instead of a pass.
-_EMBEDDING_DIM = 512
+# M24 F02 L03: the five underscored constants and `_force_hf_offline` that
+# used to live here moved to `the_one.embeddings.local` (plain names,
+# `EMBEDDING_DIM`, `EMBEDDING_WEIGHTS_FILENAME`, etc.) so production loads
+# carry the same DD-5 offline guards this probe pioneered — this module now
+# imports the plain names it still needs rather than owning them.
 _EMBEDDING_PROBE_TEXT = "the-one doctor embedding probe"
 
 
@@ -662,29 +618,18 @@ def _peak_rss_bytes() -> tuple[int | None, str | None]:
     return peak_bytes, None
 
 
-def _force_hf_offline() -> None:
-    """Make a Hugging Face hub fetch impossible for the rest of this process.
-
-    Setting the environment variable is not sufficient on its own:
-    ``huggingface_hub.constants.HF_HUB_OFFLINE`` is evaluated ONCE at import
-    time, so if anything has already imported the package the variable is read
-    too late. Both are therefore set — the env var for the not-yet-imported
-    case (which is the normal one, since model2vec is imported lazily inside the
-    probe), and the already-bound constant for the case where it is not.
-    """
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    constants = sys.modules.get("huggingface_hub.constants")
-    if constants is not None:
-        constants.HF_HUB_OFFLINE = True
-
-
 def _probe_embedding_model() -> ProbeResult:
-    """Load the bundled float16 model from its packaged path and embed a string.
+    """Construct a FRESH ``LocalStaticBackend`` and embed a probe string.
 
-    Asserts CONCRETE resolved values — a 512-wide vector with a non-zero norm —
-    rather than mere absence of exception, for the `_probe_model_catalog`
-    reason: a capability that silently degrades is exactly what a probe exists
-    to catch.
+    Never calls ``get_embedding_backend()`` — the process-wide singleton
+    (M24 F02 L03): the offline test that monkeypatches
+    ``the_one.embeddings.local.EMBEDDING_MODEL_DIRNAME`` would otherwise
+    race the singleton and pass or fail depending on test execution order.
+
+    Asserts CONCRETE resolved values — dim, native dtype, norm, truncated
+    count, weights byte size — rather than mere absence of exception, for
+    the `_probe_model_catalog` reason: a capability that silently degrades
+    is exactly what a probe exists to catch (``report-what-you-got``).
 
     The detail line carries the resolved directory AND ``model.safetensors``'s
     byte size, so a truncated file or a Git-LFS pointer left in place of the
@@ -696,68 +641,29 @@ def _probe_embedding_model() -> ProbeResult:
     ``_vector_probe_outcome``.
 
     Never raises — an escaping exception would take down `doctor` and both CI
-    gates for reasons unrelated to the model.
+    gates for reasons unrelated to the model. The two DD-5 offline-load
+    guards now live in ``LocalStaticBackend.load()`` /
+    ``the_one.embeddings.local.resolve_model_dir`` — this probe calls
+    through them rather than duplicating them.
     """
     name = "embedding model"
-    resolved = "<unresolved>"
     try:
-        from importlib.resources import files
+        backend = LocalStaticBackend.load()
+    except EmbeddingModelMissingError as exc:
+        return ProbeResult(name, False, str(exc))
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        return ProbeResult(name, False, f"{exc.__class__.__name__}: {exc}")
 
-        model_dir = files(_EMBEDDING_PACKAGE).joinpath("data", _EMBEDDING_MODEL_DIRNAME)
-        resolved = str(model_dir)
+    try:
+        result = backend.embed([_EMBEDDING_PROBE_TEXT])
+        vector = result.vectors[0]
+        norm = float(np.linalg.norm(vector))
     except Exception as exc:  # noqa: BLE001 — report, never crash doctor
         return ProbeResult(
             name,
             False,
-            f"could not resolve the packaged model directory via "
-            f"importlib.resources.files({_EMBEDDING_PACKAGE!r}): "
-            f"{exc.__class__.__name__}: {exc}",
-        )
-
-    # DD-5 guard #1 — assert the packaged path EXISTS before from_pretrained is
-    # allowed anywhere near it. Without this, a missing directory is a hub fetch.
-    if not model_dir.is_dir():
-        return ProbeResult(
-            name,
-            False,
-            f"packaged model directory not found at {resolved} — the "
-            f"embeddings/data/**/* package-data glob (pyproject.toml) or the "
-            f"collect_data_files entry (the-one.spec) did not ship it",
-        )
-    weights = model_dir.joinpath(_EMBEDDING_WEIGHTS_FILENAME)
-    if not weights.is_file():
-        return ProbeResult(
-            name,
-            False,
-            f"{_EMBEDDING_WEIGHTS_FILENAME} missing from {resolved} — model2vec's "
-            "loader validates the five-file layout, so a partial glob fails here",
-        )
-    try:
-        weights_bytes = weights.stat().st_size
-    except Exception:  # noqa: BLE001 — size is diagnostic, not load-bearing
-        weights_bytes = -1
-
-    # DD-5 guard #2 — offline BEFORE the import, so huggingface_hub binds its
-    # constant with the variable already set.
-    _force_hf_offline()
-
-    try:
-        from model2vec import StaticModel
-
-        model = StaticModel.from_pretrained(resolved)
-        vector = model.encode(_EMBEDDING_PROBE_TEXT)
-        length = len(vector)
-        # Read the dtype off the returned array rather than asserting "float16"
-        # in the message: a model whose quantization was silently skipped would
-        # otherwise be described as float16 by a line that never looked.
-        dtype = getattr(vector, "dtype", "unknown")
-        norm = float(sum(float(v) * float(v) for v in vector)) ** 0.5
-    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
-        return ProbeResult(
-            name,
-            False,
-            f"{exc.__class__.__name__}: {exc} (path={resolved}, "
-            f"{_EMBEDDING_WEIGHTS_FILENAME}={weights_bytes:,} bytes)",
+            f"{exc.__class__.__name__}: {exc} (path={backend.model_dir}, "
+            f"{EMBEDDING_WEIGHTS_FILENAME}={backend.weights_bytes:,} bytes)",
         )
 
     peak, peak_unavailable_reason = _peak_rss_bytes()
@@ -766,27 +672,38 @@ def _probe_embedding_model() -> ProbeResult:
     else:
         rss = f"unavailable ({peak_unavailable_reason})"
     suffix = (
-        f"({_EMBEDDING_WEIGHTS_FILENAME}={weights_bytes:,} bytes, peak RSS {rss}) from {resolved}"
+        f"({EMBEDDING_WEIGHTS_FILENAME}={backend.weights_bytes:,} bytes, "
+        f"peak RSS {rss}) from {backend.model_dir}"
     )
 
-    if length != _EMBEDDING_DIM:
+    if backend.dim != EMBEDDING_DIM:
         return ProbeResult(
             name,
             False,
-            f"embedded vector has {length} dimensions, expected {_EMBEDDING_DIM} "
+            f"embedded vector has {backend.dim} dimensions, expected {EMBEDDING_DIM} "
             f"— the packaged weights are not potion-retrieval-32M {suffix}",
         )
-    if not norm > 0.0:
+    # DD-1's measured float16-upcast tolerance — "unit-norm" here means
+    # within NORM_TOLERANCE, never exact. This also catches the all-zeros
+    # failure mode the previous line handled separately: a zero vector's
+    # norm is trivially outside tolerance of 1.0.
+    if abs(norm - 1.0) > NORM_TOLERANCE:
         return ProbeResult(
             name,
             False,
-            f"embedded vector is all zeros (norm {norm}) — the model loaded but "
-            f"is not producing embeddings {suffix}",
+            f"model output is not unit-norm (norm {norm:.4f}) {suffix}",
+        )
+    if result.vectors.dtype != np.float32:
+        return ProbeResult(
+            name,
+            False,
+            f"embedding seam dtype is {result.vectors.dtype}, expected float32 {suffix}",
         )
     return ProbeResult(
         name,
         True,
-        f"{length}-dim {dtype} vector, norm {norm:.4f} {suffix}",
+        f"{backend.dim}-dim {backend.native_dtype} model -> float32 seam, norm "
+        f"{norm:.4f}, truncated={result.truncated} {suffix}",
     )
 
 
@@ -794,23 +711,38 @@ def run_doctor(out=None) -> int:
     """Run all diagnostics, print a structured report, return an exit code.
 
     Returns 0 when every gate passes — child spawn, python interpreter, desktop
-    shell, llm providers, model catalog, sqlite-vec, usearch and embedding model
-    — and non-zero otherwise. Of those **eight**, five are frozen-only (desktop
-    shell, llm providers, model catalog, sqlite-vec, usearch): on a dev host they
-    downgrade a failure to an informational ``skipped`` line rather than failing
-    the run. The other three — child spawn, python interpreter and **embedding
-    model** — gate unconditionally. The embedding gate is unconditional by
-    design (M24 F01 DD-7): model2vec is a base dependency and the weights are
-    package data present in every checkout, so a host failure is a real defect
-    — most usefully a missing package-data glob in a non-editable wheel install,
-    which a frozen-only gate would never catch. Runtime detection lines are
-    advisory and never by themselves fail the run. ``out`` defaults to
-    ``sys.stdout``; tests pass a buffer.
+    shell, llm providers, model catalog, usearch, fts5 and embedding
+    model — and non-zero otherwise. Of those **eight**, four are frozen-only
+    (desktop shell, llm providers, model catalog, usearch): on a dev
+    host they downgrade a failure to an informational ``skipped`` line rather
+    than failing the run. The other four — child spawn, python interpreter,
+    **fts5**, and **embedding model** — gate unconditionally. fts5 gates
+    unconditionally per DD-11 (a mission constraint in every build, not an
+    optional extra). The embedding gate is unconditional by design (M24 F01
+    DD-7): model2vec is a base dependency and the weights are package data
+    present in every checkout, so a host failure is a real defect — most
+    usefully a missing package-data glob in a non-editable wheel install, which
+    a frozen-only gate would never catch. Runtime detection lines are advisory
+    and never by themselves fail the run. ``out`` defaults to ``sys.stdout``;
+    tests pass a buffer.
     """
     stream = out if out is not None else sys.stdout
 
     def emit(line: str) -> None:
-        print(line, file=stream)
+        # A diagnostic must never die on its own output. Build 606620 (M24 F02
+        # L06, AC-15) crashed the frozen Windows doctor mid-run: both CI lanes
+        # pipe stdout, which Windows resolves to the cp1252 codec, and a probe
+        # detail containing a non-cp1252 character (U+2192 "→") raised
+        # UnicodeEncodeError and killed the process before RESULT could print.
+        # Try the plain print first so UTF-8 streams (tests, real consoles)
+        # stay byte-identical to today; only fall back to a replaced re-emit
+        # when the stream's encoding can't represent the line.
+        try:
+            print(line, file=stream)
+        except UnicodeEncodeError:
+            encoding = getattr(stream, "encoding", None) or "ascii"
+            safe_line = line.encode(encoding, errors="replace").decode(encoding)
+            print(safe_line, file=stream)
 
     env = _build_subprocess_env()
 
@@ -831,14 +763,17 @@ def run_doctor(out=None) -> int:
     # Model-catalog gate: like the provider gate, only hard when frozen — the
     # freeze must bundle the seed data file, not just the llm modules.
     model_catalog = _probe_model_catalog()
-    # Vector-store gates (M24 F01 L01): frozen-only per DD-7 — each candidate's
-    # native payload must survive the freeze and still answer a real query. Both
-    # CI lanes grep these names verbatim, so keep them stable.
-    sqlite_vec_probe = _probe_sqlite_vec()
+    # Vector-store gate (M24 F01 L01; usearch-only since M24 F02 L06, DD-9):
+    # frozen-only per DD-7 — usearch's native payload must survive the freeze
+    # and still answer a real query. Both CI lanes grep this name verbatim.
     usearch_probe = _probe_usearch()
-    # Embedding-model gate (M24 F01 L02): UNCONDITIONAL per DD-7 — unlike the two
-    # vector-store gates above, this one fails the run on a dev host too. Both CI
-    # lanes grep this name verbatim, so keep it stable.
+    # FTS5 gate (Flight 2 Leg 2, DD-11): UNCONDITIONAL — FTS5 is a mission
+    # constraint in every build, not an optional extra like the vector-store
+    # gate above. Both CI lanes grep this name verbatim.
+    fts5_probe = _probe_fts5()
+    # Embedding-model gate (M24 F01 L02): UNCONDITIONAL per DD-7 — unlike the
+    # vector-store gate above, this one fails the run on a dev host too. Both
+    # CI lanes grep this name verbatim, so keep it stable.
     embedding_model = _probe_embedding_model()
     gates = [
         spawn,
@@ -846,8 +781,8 @@ def run_doctor(out=None) -> int:
         desktop,
         llm_providers,
         model_catalog,
-        sqlite_vec_probe,
         usearch_probe,
+        fts5_probe,
         embedding_model,
     ]
 

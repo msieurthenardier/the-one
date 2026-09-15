@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator
 
+from the_one.db._kb_types import KB_ITEM_STATUSES, KB_ITEM_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
 
@@ -84,16 +86,76 @@ class KnowledgeBase(BaseModel):
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
+    @field_validator("id", mode="after")
+    @classmethod
+    def _validate_id(cls, value: str) -> str:
+        """Leg 5 review fix (BLOCKING 2): ``id`` is used verbatim to build a
+        filesystem path (``UsearchStore._path_for`` — ``{data_dir}/vectors/
+        {kb_id}.usearch``), and ``create_knowledge_base`` (``api.py``)
+        accepts a client-supplied ``id`` unchanged, so an unvalidated value
+        like ``"../../../evil"`` would escape the vectors directory.
+        Restricting to a small, filename-safe charset closes that off at
+        the model layer — the API-generated ids (``uuid4().hex[:12]``) and
+        every existing test id (``kb1``, ``kb-1``, ``a``, ``b``, ...) already
+        conform. ``UsearchStore._path_for`` also asserts the resolved path
+        stays under its data dir as defence in depth.
+        """
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+            raise ValueError(f"KnowledgeBase.id must match ^[A-Za-z0-9_-]{{1,64}}$ (got {value!r})")
+        return value
+
 
 class KBItem(BaseModel):
-    """An item within a knowledge base (file or URL)."""
+    """An item within a knowledge base (file, URL, or folder).
+
+    ``type`` and ``status`` are pinned to ``the_one.db._kb_types`` by the
+    import-time asserts below (the ``PROVIDER_TYPES`` pattern) — see that
+    module's docstring for why the SQL CHECK constraints are NOT derived
+    from the same tuples.
+    """
 
     id: str
     kb_id: str
     parent_id: str | None = None
-    type: Literal["file", "url"]
+    type: Literal["file", "url", "folder"]
     path_or_url: str
-    status: str = "pending"
+    status: Literal["pending", "indexing", "indexed", "failed"] = "pending"
+    error: str | None = None
+    content_hash: str | None = None
+    size_bytes: int | None = None
+    mtime: float | None = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+    indexed_at: str | None = None
+
+
+# Pin the explicit ``Literal`` arg-sets to ``_kb_types.py`` at import time so
+# any future drift trips immediately rather than at first DB write. Mirrors
+# the ``LLMProviderConfig.type`` assert above.
+assert set(get_args(KBItem.model_fields["type"].annotation)) == set(KB_ITEM_TYPES), (
+    "KBItem.type Literal drifted from KB_ITEM_TYPES — update both in lockstep."
+)
+assert set(get_args(KBItem.model_fields["status"].annotation)) == set(KB_ITEM_STATUSES), (
+    "KBItem.status Literal drifted from KB_ITEM_STATUSES — update both in lockstep."
+)
+
+
+class KBChunk(BaseModel):
+    """A chunk of extracted text from a ``KBItem``, row of ``kb_chunks``.
+
+    Flight 2 Leg 2. ``id`` is the ``kb_chunks.id`` AUTOINCREMENT primary key
+    — also the ``kb_chunks_fts`` external-content ``rowid`` (DD-5). Written
+    and read only through ``KBChunkRepository``; never constructed directly
+    by callers outside that repository.
+    """
+
+    id: int
+    item_id: str
+    kb_id: str
+    seq: int
+    text: str
+    char_start: int
+    char_end: int
     created_at: str = Field(default_factory=now_iso)
 
 

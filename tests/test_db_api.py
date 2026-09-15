@@ -584,6 +584,19 @@ class TestKnowledgeBaseAPI:
         assert resp.status_code == 200
         assert resp.json()["name"] == "Updated KB"
 
+    async def test_create_with_path_traversal_id_returns_422(self, client: AsyncClient) -> None:
+        """Leg 5 review fix (BLOCKING 2): a client-supplied ``id`` reaches
+        ``KnowledgeBase`` verbatim and is later used to build a filesystem
+        path (``UsearchStore._path_for``) — a path-traversal-shaped id must
+        422, not silently be stored (and later crash or escape the vectors
+        directory)."""
+        resp = await client.post("/api/knowledge-bases", json={"id": "../x", "name": "Evil KB"})
+        assert resp.status_code == 422
+
+        # Nothing was created under that id.
+        resp = await client.get("/api/knowledge-bases")
+        assert resp.json() == []
+
     async def test_kb_items(self, client: AsyncClient) -> None:
         # Create KB
         resp = await client.post("/api/knowledge-bases", json={"name": "KB"})
@@ -604,6 +617,452 @@ class TestKnowledgeBaseAPI:
         # Delete item
         resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
         assert resp.status_code == 200
+
+    async def test_create_item_unknown_kb_returns_404_not_500(self, client: AsyncClient) -> None:
+        """R8: an unknown ``kb_id`` on item create must 404, not surface the
+        FK IntegrityError as an unhandled 500."""
+        resp = await client.post(
+            "/api/knowledge-bases/no-such-kb/items",
+            json={"type": "file", "path_or_url": "/tmp/x.txt"},
+        )
+        assert resp.status_code == 404
+
+    async def test_get_item(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "KB"})
+        kb_id = kb_resp.json()["id"]
+        item_resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": "/tmp/x.txt"},
+        )
+        item_id = item_resp.json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
+        assert resp.status_code == 200
+        assert resp.json()["id"] == item_id
+        assert resp.json()["path_or_url"] == "/tmp/x.txt"
+
+    async def test_get_item_unknown_id_404(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "KB"})
+        kb_id = kb_resp.json()["id"]
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/no-such-item")
+        assert resp.status_code == 404
+
+    async def test_get_item_other_kb_404(self, client: AsyncClient) -> None:
+        """R8 scoping: an id that belongs to a DIFFERENT KB reads as
+        unknown — same status/shape as a truly-missing id."""
+        kb1 = (await client.post("/api/knowledge-bases", json={"name": "KB1"})).json()["id"]
+        kb2 = (await client.post("/api/knowledge-bases", json={"name": "KB2"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb1}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb2}/items/{item_id}")
+        assert resp.status_code == 404
+
+    async def test_delete_item_other_kb_404(self, client: AsyncClient) -> None:
+        kb1 = (await client.post("/api/knowledge-bases", json={"name": "KB1"})).json()["id"]
+        kb2 = (await client.post("/api/knowledge-bases", json={"name": "KB2"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb1}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb2}/items/{item_id}")
+        assert resp.status_code == 404
+
+        # The item survives — the cross-KB delete must not have succeeded.
+        resp = await client.get(f"/api/knowledge-bases/{kb1}/items/{item_id}")
+        assert resp.status_code == 200
+
+    async def test_retry_moves_failed_to_pending(self, client: AsyncClient) -> None:
+        from the_one.db._write_lock import write_transaction
+        from the_one.db.repositories import KBItemRepository
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        # Drive the item to 'failed' directly via the repository (no route
+        # exists to do this yet — Leg 2/3 territory) using the SAME patched
+        # connection the test client's app uses.
+        from the_one.interfaces.web import api as api_module
+
+        conn = await api_module.get_connection()
+        repo = KBItemRepository(conn)
+        async with write_transaction(conn):
+            await conn.execute("UPDATE kb_items SET status='indexing' WHERE id=?", (item_id,))
+        await repo.update_status(item_id, "failed", error="boom")
+
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/items/{item_id}/retry")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"
+        assert resp.json()["error"] is None
+
+    async def test_retry_moves_indexing_to_pending(self, client: AsyncClient) -> None:
+        from the_one.db._write_lock import write_transaction
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        conn = await api_module.get_connection()
+        async with write_transaction(conn):
+            await conn.execute("UPDATE kb_items SET status='indexing' WHERE id=?", (item_id,))
+
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/items/{item_id}/retry")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"
+
+    async def test_retry_other_status_409(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+        # Fresh item is 'pending' — not a valid retry source.
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/items/{item_id}/retry")
+        assert resp.status_code == 409
+
+    async def test_retry_unknown_id_404(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/items/no-such-item/retry")
+        assert resp.status_code == 404
+
+    async def test_retry_other_kb_404(self, client: AsyncClient) -> None:
+        kb1 = (await client.post("/api/knowledge-bases", json={"name": "KB1"})).json()["id"]
+        kb2 = (await client.post("/api/knowledge-bases", json={"name": "KB2"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb1}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+        resp = await client.post(f"/api/knowledge-bases/{kb2}/items/{item_id}/retry")
+        assert resp.status_code == 404
+
+
+class TestKnowledgeBaseCreateWarmsUpEmbeddingBackend:
+    """M24 F02 L03, DD-1, AC-5: creating a KB kicks the embedding warm-up
+    exactly once on a cold process; a second creation does not kick it
+    again. The loader is monkeypatched throughout — no real model load.
+    """
+
+    async def test_create_kicks_warm_up_once_and_second_create_does_not(
+        self, client: AsyncClient
+    ) -> None:
+        import asyncio
+
+        from tests._embedding_stub import StubEmbeddingBackend
+        from the_one import embeddings
+
+        calls = {"n": 0}
+
+        def _fake_load() -> StubEmbeddingBackend:
+            calls["n"] += 1
+            return StubEmbeddingBackend()
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(embeddings.LocalStaticBackend, "load", staticmethod(_fake_load))
+            embeddings._reset_for_test()
+
+            resp = await client.post("/api/knowledge-bases", json={"name": "KB"})
+            assert resp.status_code == 201
+            for _ in range(50):
+                if calls["n"]:
+                    break
+                await asyncio.sleep(0.01)
+            assert calls["n"] == 1
+
+            resp2 = await client.post("/api/knowledge-bases", json={"name": "KB2"})
+            assert resp2.status_code == 201
+            await asyncio.sleep(0.05)
+            assert calls["n"] == 1
+
+        embeddings._reset_for_test()
+
+
+class TestKnowledgeBaseDeleteCallsVectorStore:
+    """Flight 2 Leg 4, AC-11: the delete routes call the vector store's
+    ``delete_kb`` / ``delete`` methods after the repository transaction,
+    via a recording stub store injected through ``_reset_for_test()`` plus
+    a monkeypatched ``_build_store`` seam — never a real backend."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_vector_store(self, client: AsyncClient, monkeypatch):
+        """Route the dispatcher's own ``get_connection()`` to the SAME
+        connection the test client's app uses. ``the_one.vectors`` imports
+        its own ``get_connection`` reference, independent of the
+        ``client`` fixture's patch on
+        ``the_one.interfaces.web.api.get_connection`` — without this, the
+        first vector-store call would build (and open) a connection to
+        the real production database as a side effect of this test."""
+        from the_one import vectors as vectors_module
+        from the_one.interfaces.web import api as api_module
+
+        monkeypatch.setattr(vectors_module, "get_connection", api_module.get_connection)
+        vectors_module._reset_for_test()
+        yield
+        vectors_module._reset_for_test()
+
+    @staticmethod
+    def _recording_store():
+        calls: list[tuple] = []
+
+        class _RecordingStore:
+            backend = "stub"
+            dtype = "float32"
+            dim = 512
+
+            async def open(self) -> None:
+                return None
+
+            async def upsert(self, kb_id, ids, vectors) -> None:
+                calls.append(("upsert", kb_id, list(ids)))
+
+            async def delete(self, kb_id, ids) -> None:
+                calls.append(("delete", kb_id, list(ids)))
+
+            async def delete_kb(self, kb_id) -> None:
+                calls.append(("delete_kb", kb_id))
+
+            async def query(self, kb_id, vector, k):
+                return []
+
+            async def count(self, kb_id) -> int:
+                return 0
+
+            async def flush(self, kb_id) -> None:
+                return None
+
+            async def close(self) -> None:
+                return None
+
+        return _RecordingStore(), calls
+
+    async def test_delete_knowledge_base_calls_delete_kb(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one import vectors as vectors_module
+
+        store, calls = self._recording_store()
+        monkeypatch.setattr(vectors_module, "_build_store", lambda settings, conn: store)
+        vectors_module._reset_for_test()
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}")
+
+        assert resp.status_code == 200
+        assert ("delete_kb", kb_id) in calls
+
+    async def test_delete_kb_item_calls_delete_with_the_chunk_ids(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one import vectors as vectors_module
+        from the_one.db._kb_types import ChunkRecord
+        from the_one.db.repositories import KBChunkRepository
+        from the_one.interfaces.web import api as api_module
+
+        store, calls = self._recording_store()
+        monkeypatch.setattr(vectors_module, "_build_store", lambda settings, conn: store)
+        vectors_module._reset_for_test()
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        conn = await api_module.get_connection()
+        chunk_repo = KBChunkRepository(conn)
+        ids = await chunk_repo.replace_item_chunks(
+            item_id,
+            kb_id,
+            [ChunkRecord(seq=0, text="hello world", char_start=0, char_end=11)],
+        )
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
+
+        assert resp.status_code == 200
+        assert ("delete", kb_id, ids) in calls
+
+    async def test_store_failure_is_logged_and_the_route_still_returns_200(
+        self, client: AsyncClient, monkeypatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from the_one import vectors as vectors_module
+
+        class _BoomStore:
+            backend = "stub"
+            dtype = "float32"
+            dim = 512
+
+            async def open(self) -> None:
+                return None
+
+            async def upsert(self, kb_id, ids, vectors) -> None:
+                return None
+
+            async def delete(self, kb_id, ids) -> None:
+                return None
+
+            async def delete_kb(self, kb_id) -> None:
+                raise RuntimeError("simulated store failure")
+
+            async def query(self, kb_id, vector, k):
+                return []
+
+            async def count(self, kb_id) -> int:
+                return 0
+
+            async def flush(self, kb_id) -> None:
+                return None
+
+            async def close(self) -> None:
+                return None
+
+        monkeypatch.setattr(vectors_module, "_build_store", lambda settings, conn: _BoomStore())
+        vectors_module._reset_for_test()
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        with caplog.at_level("ERROR"):
+            resp = await client.delete(f"/api/knowledge-bases/{kb_id}")
+
+        assert resp.status_code == 200
+        assert any("vector store" in record.message.lower() for record in caplog.records)
+
+
+# ── Knowledge settings endpoints ─────────────────────────────────────────
+
+
+class TestKnowledgeSettingsAPI:
+    """M24 F02 L03, DD-6, AC-9."""
+
+    async def test_get_returns_defaults_on_fresh_db(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/knowledge-settings")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["embedding"] == {
+            "backend": "local",
+            "model_id": "potion-retrieval-32M",
+            "dim": 512,
+        }
+        assert body["chunking"] == {"size_chars": 1000, "overlap_chars": 150}
+        # Flight 2 Leg 4, AC-12: `vector_store` is now present (read-only,
+        # store-written) alongside the pre-existing `notes` list.
+        assert body["vector_store"] == {
+            "backend": "usearch",
+            "dtype": "f16",
+            "dim": 512,
+            "model_id": "potion-retrieval-32M",
+        }
+        assert isinstance(body["notes"], list) and body["notes"]
+
+    async def test_put_updates_chunking_and_still_returns_vector_store_and_notes(
+        self, client: AsyncClient
+    ) -> None:
+        """AC-12: a PUT that changes chunking must not lose `vector_store`
+        or `notes` from the response shape."""
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"chunking": {"size_chars": 900, "overlap_chars": 100}},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["vector_store"] == {
+            "backend": "usearch",
+            "dtype": "f16",
+            "dim": 512,
+            "model_id": "potion-retrieval-32M",
+        }
+        assert isinstance(body["notes"], list) and body["notes"]
+
+    async def test_put_with_vector_store_key_rejected(self, client: AsyncClient) -> None:
+        """AC-12: `vector_store` is store-written (DD-3/DD-6) — the
+        existing generic top-level-key guard already 422s it; no new
+        message is added for this key specifically."""
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"vector_store": {"backend": "usearch"}},
+        )
+        assert resp.status_code == 422
+
+        get_resp = await client.get("/api/knowledge-settings")
+        assert get_resp.json()["vector_store"]["backend"] == "usearch"
+
+    @pytest.mark.parametrize("bad_value", ["not-a-dict", ["a", "list"], 42, None])
+    async def test_put_non_dict_embedding_or_chunking_value_422s_not_500(
+        self, client: AsyncClient, bad_value
+    ) -> None:
+        """Leg 5 review fix-now: a non-dict ``embedding``/``chunking`` value
+        must 422 (a malformed request), not raise an uncaught
+        ``dict.update()`` TypeError as an unhandled 500."""
+        resp = await client.put("/api/knowledge-settings", json={"embedding": bad_value})
+        assert resp.status_code == 422
+
+        resp = await client.put("/api/knowledge-settings", json={"chunking": bad_value})
+        assert resp.status_code == 422
+
+        get_resp = await client.get("/api/knowledge-settings")
+        assert get_resp.json()["chunking"] == {"size_chars": 1000, "overlap_chars": 150}
+
+    async def test_put_updates_chunking_only(self, client: AsyncClient) -> None:
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"chunking": {"size_chars": 800, "overlap_chars": 100}},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["chunking"] == {"size_chars": 800, "overlap_chars": 100}
+        assert body["embedding"] == {
+            "backend": "local",
+            "model_id": "potion-retrieval-32M",
+            "dim": 512,
+        }
+
+        get_resp = await client.get("/api/knowledge-settings")
+        assert get_resp.json()["chunking"] == {"size_chars": 800, "overlap_chars": 100}
+
+    async def test_put_invalid_value_422_and_changes_nothing(self, client: AsyncClient) -> None:
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"chunking": {"size_chars": 50}},
+        )
+        assert resp.status_code == 422
+
+        get_resp = await client.get("/api/knowledge-settings")
+        assert get_resp.json()["chunking"] == {"size_chars": 1000, "overlap_chars": 150}
+
+    async def test_put_non_local_backend_422_names_the_amendment(self, client: AsyncClient) -> None:
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"embedding": {"backend": "ollama"}},
+        )
+        assert resp.status_code == 422
+        assert "Mission 24" in resp.text
+
+    async def test_put_unknown_top_level_key_rejected(self, client: AsyncClient) -> None:
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"bogus": {}},
+        )
+        assert resp.status_code == 422
 
 
 # ── MCP source endpoints ─────────────────────────────────────────────────

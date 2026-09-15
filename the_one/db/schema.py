@@ -11,7 +11,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 39
+CURRENT_VERSION = 41
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -316,9 +316,18 @@ PRAGMA foreign_keys=ON;
         # narrowing / substitution overrides. Both surfaces are read by
         # the F2 resolver; F2 itself does not populate them.
         #
-        # Atomicity: aiosqlite's default isolation_level="" mode silently
-        # COMMITs before any non-DML statement (CREATE/ALTER/DROP), so
-        # each DDL effectively runs in its own auto-commit. Idempotency
+        # Atomicity (corrected — Flight 2 Leg 1, DD-13): under aiosqlite's
+        # default isolation_level="" mode, the first DML statement opens a
+        # transaction that stays open until an explicit `commit()` or
+        # `rollback()` — DDL and PRAGMA do NOT auto-commit (that behavior was
+        # removed in Python 3.6). What actually splits a migration block's
+        # statements across transactions is a *different* coroutine's
+        # `commit()` landing on the same shared connection in the gap between
+        # two of this block's statements. `write_transaction`
+        # (`the_one/db/_write_lock.py`) is what prevents that for every write
+        # outside `ensure_schema` itself; migrations are exempt because they
+        # run at `init_db()` before any request or background task exists, so
+        # there is no other committer to race. Idempotency
         # is provided by `IF NOT EXISTS` + the `PRAGMA table_info` guard;
         # the `INSERT INTO schema_version` goes LAST so a partial apply
         # leaves version=7 and `ensure_schema` retries cleanly on the
@@ -2368,3 +2377,239 @@ CREATE TABLE IF NOT EXISTS connector_directory (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (39,))
         await conn.commit()
         version = 39
+
+    if version < 40:
+        # Flight 2 ("Storage and Embedding Foundation") Leg 1, DD-5/DD-13
+        # (missions/24-knowledge-bases/flights/02-storage-and-embedding-
+        # foundation/flight.md) — the flight's one hard-to-reverse step.
+        #
+        # Segment 1 — ``kb_items`` rebuild: adds a constrained lifecycle
+        # (``status`` CHECK), a ``folder`` type, and identity/error-tracking
+        # columns (``error``, ``content_hash``, ``size_bytes``, ``mtime``,
+        # ``updated_at``, ``indexed_at``). Follows the v37 same-name rebuild
+        # template: ``DROP TABLE IF EXISTS kb_items_new`` defensive prelude,
+        # guarded on column absence (``"content_hash" not in PRAGMA
+        # table_info(kb_items)`` — the v37 guard shape, not v39's
+        # unconditional-rewrite shape, because a rewind-rerun should not
+        # re-copy the table every time). Both CHECKs (``type``, ``status``)
+        # are FROZEN INLINE LITERALS, never derived from
+        # ``the_one/db/_kb_types.py`` — see the comment at this module's
+        # v8 migration block (schema.py:22-28's sibling rule for CHECKs:
+        # schema history is append-only, so a CHECK must never change out
+        # from under a database that already ran it). ``_kb_types.py``'s
+        # tuples pin the Pydantic ``Literal``s and the transition table
+        # only. Existing rows migrate with a ``CASE`` mapping any
+        # non-vocabulary ``status`` (including legacy NULL — the old column
+        # was unconstrained) to ``'pending'``. ``parent_id`` is carried
+        # through unchanged, self-referential against ``kb_items_new``
+        # exactly as the v37 rebuild declares ``restored_from`` — the
+        # ``RENAME`` rewrites the reference. Columns are named explicitly
+        # on both sides of the INSERT-SELECT, never positional.
+        #
+        # ``PRAGMA foreign_keys=OFF`` takes effect only within the same
+        # script as the DROP/RENAME (``executescript`` commits any open
+        # transaction first); the matching ``PRAGMA foreign_keys=ON`` is
+        # re-issued as its OWN ``execute`` after the script, for
+        # consistency with the v37 comment (schema.py's v37 block) — this
+        # is load-bearing: forgetting it leaves the singleton connection
+        # with FKs off for the rest of the process. The ``executescript``
+        # here also requires no open transaction touching the FTS table —
+        # true today because every migration block commits before the
+        # next runs.
+        #
+        # Segment 2 — ``kb_chunks``: a brand-new table, so it follows the
+        # v36 new-table template (``CREATE TABLE IF NOT EXISTS``, plain
+        # ``execute``, idempotent on any re-run). ``id INTEGER PRIMARY KEY
+        # AUTOINCREMENT`` is LOAD-BEARING (DD-5, Architect, high): a plain
+        # ``INTEGER PRIMARY KEY`` recycles the highest deleted rowid, and
+        # the chunk repository (Leg 2) deletes-and-reinserts a chunk set on
+        # every re-index, so a sidecar vector store one generation behind
+        # (or a missed delete) could map a recycled id to different chunk
+        # text — a silent wrong answer no generation check could catch.
+        # With ``AUTOINCREMENT``, a stale id can only ever be a deleted
+        # one. Cost: one ``sqlite_sequence`` row. Integer ids are
+        # deliberate: FTS5 external-content tables and both candidate
+        # vector backends key on integer rowids.
+        #
+        # Segment 3 — ``kb_chunks_fts``: an EXTERNAL-CONTENT FTS5 index
+        # (``content='kb_chunks', content_rowid='id'``) so chunk text is
+        # stored once. Sync is EXPLICIT in the chunk repository (Leg 2),
+        # never via triggers — a dangling FTS trigger makes ``ALTER TABLE …
+        # RENAME`` fail on ANY unrelated table, so one orphaned trigger
+        # would break every future migration's rebuild ceremony, not only
+        # a rebuild touching this table (DD-5, Architect S1).
+        #
+        # Ordering: the ``kb_items`` rebuild script first, then
+        # ``kb_chunks``, then the FTS table, then the three indexes, then
+        # the version stamp LAST (``INSERT OR IGNORE``, partial-apply-safe
+        # like every migration since v8).
+        await conn.execute("DROP TABLE IF EXISTS kb_items_new")
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='kb_items'"
+        ) as cursor:
+            kb_items_present = (await cursor.fetchone()) is not None
+        if not kb_items_present:
+            # Defensive branch, not a real-chain path: every real database
+            # reaches this block via version 0 -> `if version < 1:
+            # SCHEMA_V1`, which always creates `kb_items` (schema.py:72-80).
+            # The only way to arrive here with `kb_items` absent is a test
+            # fixture that hand-builds a partial schema and stamps
+            # `schema_version` directly at some version > 0 without ever
+            # running SCHEMA_V1 (the same class of fixture the v39 block's
+            # `connectors`-table-presence comment documents) — for that
+            # case, create the table fresh in its v40 shape rather than
+            # rebuilding from a v39 shape there is nothing to preserve of.
+            await conn.execute("""\
+CREATE TABLE kb_items (
+    id TEXT PRIMARY KEY,
+    kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES kb_items(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('file', 'url', 'folder')),
+    path_or_url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'indexing', 'indexed', 'failed')),
+    error TEXT,
+    content_hash TEXT,
+    size_bytes INTEGER,
+    mtime REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    indexed_at TEXT
+)""")
+            kb_items_needs_rebuild = False
+        else:
+            async with conn.execute("PRAGMA table_info(kb_items)") as cursor:
+                kb_items_cols = {row[1] for row in await cursor.fetchall()}
+            kb_items_needs_rebuild = "content_hash" not in kb_items_cols
+        if kb_items_needs_rebuild:
+            await conn.executescript("""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE kb_items_new (
+    id TEXT PRIMARY KEY,
+    kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES kb_items_new(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('file', 'url', 'folder')),
+    path_or_url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'indexing', 'indexed', 'failed')),
+    error TEXT,
+    content_hash TEXT,
+    size_bytes INTEGER,
+    mtime REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    indexed_at TEXT
+);
+
+INSERT INTO kb_items_new (id, kb_id, parent_id, type, path_or_url, status, created_at, updated_at)
+    SELECT id, kb_id, parent_id, type, path_or_url,
+           CASE WHEN status IN ('pending', 'indexing', 'indexed', 'failed')
+                THEN status ELSE 'pending' END,
+           created_at, created_at
+    FROM kb_items;
+
+DROP TABLE kb_items;
+
+ALTER TABLE kb_items_new RENAME TO kb_items;
+""")
+            await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute("""\
+CREATE TABLE IF NOT EXISTS kb_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id TEXT NOT NULL REFERENCES kb_items(id) ON DELETE CASCADE,
+    kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    char_start INTEGER NOT NULL,
+    char_end INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (item_id, seq)
+)""")
+
+        await conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5("
+            "text, content='kb_chunks', content_rowid='id', "
+            "tokenize='porter unicode61')"
+        )
+
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_kb_items_kb_id ON kb_items (kb_id)")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_kb_items_kb_status ON kb_items (kb_id, status)"
+        )
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb_id ON kb_chunks (kb_id)")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (40,))
+        await conn.commit()
+        version = 40
+
+    if version < 41:
+        # Flight 2 ("Storage and Embedding Foundation") Leg 6, DD-3/DD-9
+        # (missions/24-knowledge-bases/flights/02-storage-and-embedding-
+        # foundation/flight.md) — the operator chose `usearch` as the one
+        # vector store at the DD-9 decision checkpoint (flight-log.md,
+        # "DD-9 decision checkpoint (2026-09-15)"). DD-3 kept
+        # `kb_vector_index` store-owned (created by `UsearchStore.open()`)
+        # until the choice was made — store-owned until the decision,
+        # migration-owned after — specifically so a losing backend would
+        # never leave a dead table in a frozen migration forever; now that
+        # `usearch` has won, the DDL moves here so the fresh-DB shape tests
+        # own it, and `UsearchStore.open()` no longer issues any DDL.
+        #
+        # Column set is byte-for-byte what `UsearchStore.open()` created in
+        # Leg 4, so a database where the store already made this table
+        # (any Leg 4/5 dev database) passes through unchanged via
+        # `IF NOT EXISTS`.
+        #
+        # This block must NOT touch `kb_vectors` (the removed candidate
+        # backend's virtual table, a `vec0` type): a `vec0` table cannot be
+        # dropped without its extension module loaded (`DROP TABLE` raises
+        # `OperationalError: no such module: vec0`), verified at Leg 6
+        # design — do not add a `DROP TABLE kb_vectors` here or to any
+        # later migration. A dev database that opened the removed backend
+        # between Leg 4 and Leg 6 keeps an inert `kb_vectors` table
+        # forever — no release ever shipped it, and every other statement
+        # on the connection (including this migration) works fine with the
+        # table present and the extension absent.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS kb_vector_index ("
+            "kb_id TEXT PRIMARY KEY, "
+            "path TEXT NOT NULL, "
+            "count INTEGER NOT NULL, "
+            "generation INTEGER NOT NULL, "
+            "dtype TEXT NOT NULL, "
+            "dim INTEGER NOT NULL, "
+            "updated_at TEXT NOT NULL)"
+        )
+
+        # Belt-and-braces purge of a stale `knowledge.vector_store` record
+        # naming the removed backend: `save_vector_store_settings` has no
+        # production caller (verified at Leg 6 design — only a test or the
+        # benchmark script could have written one), so this only ever
+        # fires against a dev database. A `usearch` record — or any other
+        # backend value — is left untouched. `json_extract` is available
+        # on this host's SQLite (3.45.1) and JSON1 is built into every
+        # SQLite >= 3.38, so no LIKE-based fallback is needed.
+        #
+        # `app_metadata` is guarded on presence (the same class of hazard
+        # Leg 1 documented for `kb_items`): a hand-built partial-schema test
+        # fixture that stamps `schema_version` rows directly up through 31
+        # without ever running the real v31 block (`schema.py`'s
+        # `app_metadata` CREATE) reaches this point with no `app_metadata`
+        # table at all (`tests/test_db_migration.py::TestSchemaV32`'s v31
+        # fixture is exactly this shape) — a real database always has it
+        # from v31 onward.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='app_metadata'"
+        ) as cursor:
+            app_metadata_exists = await cursor.fetchone() is not None
+        if app_metadata_exists:
+            await conn.execute(
+                "DELETE FROM app_metadata WHERE key = 'knowledge.vector_store' "
+                "AND json_extract(value, '$.backend') = 'sqlite-vec'"
+            )
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (41,))
+        await conn.commit()
+        version = 41
