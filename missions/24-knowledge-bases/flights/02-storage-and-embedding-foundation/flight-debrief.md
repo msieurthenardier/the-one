@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-15
 **Flight**: [Storage and Embedding Foundation](flight.md)
-**Status**: landed
+**Status**: landed → completed at debrief
 **Duration**: 2026-09-14 (planning + Legs 1–5) – 2026-09-15 (decision checkpoint, Leg 6, four frozen runs)
 **Legs Completed**: 6 of 6
 
@@ -300,14 +300,14 @@ two-subprocess test at 1.22 s, by design.
 
 ## Action Items
 
-- [ ] Bound `search_keyword`'s `k` and add the `shape[-1] == dim` guard on `VectorStore.upsert`/`query` — squawk candidate (defect, routine; required before Flight 5).
-- [ ] Hold the two warm-up `create_task` handles (`app.py:338`, `api.py:1425`) like every other background task — squawk candidate (defect, routine).
-- [ ] `PUT /api/knowledge-settings`: refuse nested unknown keys inside `embedding`/`chunking` (`extra="forbid"`) instead of dropping them — squawk candidate (defect, routine).
-- [ ] Encryption-rotation endpoint: catch `BaseException` to match the write-lock guard — squawk candidate (defect, routine).
-- [ ] Tests: `TestSchemaV41` idempotency + full rewind + a dedicated `app_metadata`-absent guard test; `UsearchStore` dtype/dim-mismatch staleness test; a cosine-distance value test for `query()`; `delete_kb` `missing_ok=True` — squawk candidate (servicing, routine).
-- [ ] Commit-guard test: AST walk instead of a substring scan; benchmark tests assert on the numeric cells, not only `| OK |` — squawk candidate (servicing, routine).
-- [ ] CI `lint.yml` / `ci/tasks/lint.yml` do not cover `scripts/` (parked at Leg 5 design review) — squawk candidate (servicing, routine).
-- [ ] `the_one/agents.md`: the four named conventions and the recall sentence (Recommendation 3) — squawk candidate (servicing, routine).
+- [ ] Bound `search_keyword`'s `k` and add the `shape[-1] == dim` guard on `VectorStore.upsert`/`query` — **squawk 0054** (defect, routine; required before Flight 5).
+- [ ] Hold the two warm-up `create_task` handles (`app.py:338`, `api.py:1425`) like every other background task — **squawk 0055** (defect, routine).
+- [ ] `PUT /api/knowledge-settings`: refuse nested unknown keys inside `embedding`/`chunking` (`extra="forbid"`) instead of dropping them — **squawk 0056** (defect, routine).
+- [ ] Encryption-rotation endpoint: catch `BaseException` to match the write-lock guard — **squawk 0057** (credential surface: Sonnet-tier review at completion) (defect, routine).
+- [ ] Tests: `TestSchemaV41` idempotency + full rewind + a dedicated `app_metadata`-absent guard test; `UsearchStore` dtype/dim-mismatch staleness test; a cosine-distance value test for `query()`; `delete_kb` `missing_ok=True` — **squawk 0058** (servicing, routine).
+- [ ] Commit-guard test: AST walk instead of a substring scan; benchmark tests assert on the numeric cells, not only `| OK |` — **squawks 0059, 0060** (servicing, routine).
+- [ ] CI `lint.yml` / `ci/tasks/lint.yml` do not cover `scripts/` (parked at Leg 5 design review) — **squawk 0061** (servicing, routine).
+- [ ] `the_one/agents.md`: the four named conventions and the recall sentence (Recommendation 3) — **squawk 0062** (servicing, routine).
 - [ ] Carry into Flight 3 planning: Recommendation 1's four contracts, the empty-transaction cost measurement, and the provisional Windows build-time figures.
 - [ ] Decide the `.flightops/ARTIFACTS.md` mission-branch question (still open from Flight 1's debrief).
 - [ ] Merge PR #197 into `mission/24-knowledge-bases`.
