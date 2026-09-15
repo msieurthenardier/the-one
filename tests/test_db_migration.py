@@ -5027,3 +5027,131 @@ class TestSchemaV41:
             assert (await cur.fetchone())[0] == 1
 
         await conn.close()
+
+    async def test_v41_idempotent_on_double_ensure(self, tmp_path) -> None:
+        """ensure_schema twice on a fresh DB: v41 stamped exactly once
+        (mirrors ``TestSchemaV40.test_v40_idempotent_on_double_ensure``)."""
+        db_path = tmp_path / "v41-double.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(41) == 1, f"v41 row should appear exactly once: {versions}"
+
+        await conn.close()
+
+    async def test_v41_tolerant_of_rewind_rerun(self, tmp_path) -> None:
+        """The ``>= 7`` rewind-rerun pattern: deleting every schema_version
+        row from 7 upward and re-running ensure_schema re-fires the entire
+        chain incl. v41 (mirrors ``TestSchemaV40.test_v40_tolerant_of_
+        rewind_rerun``). Asserts on both halves of the v41 migration: the
+        ``kb_vector_index`` shape is present and a pre-existing row
+        survives, and the sqlite-vec ``app_metadata`` purge still fires
+        (a stale sqlite-vec record inserted before the rewind is gone
+        afterward) while a non-sqlite-vec record is untouched."""
+        db_path = tmp_path / "v41-rewind.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute(
+            "INSERT INTO kb_vector_index (kb_id, path, count, generation, dtype, dim, updated_at) "
+            "VALUES ('kb1', '/tmp/kb1.usearch', 5, 2, 'f16', 512, 'ts-1')"
+        )
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+            (
+                "knowledge.vector_store",
+                '{"backend": "sqlite-vec", "dtype": "float32", "dim": 512, '
+                '"model_id": "potion-retrieval-32M"}',
+            ),
+        )
+        await conn.commit()
+
+        await conn.execute("DELETE FROM schema_version WHERE version >= 7")
+        await conn.commit()
+
+        await ensure_schema(conn)  # must not raise
+
+        async with conn.execute("PRAGMA table_info(kb_vector_index)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert cols == {
+            "kb_id",
+            "path",
+            "count",
+            "generation",
+            "dtype",
+            "dim",
+            "updated_at",
+        }, cols
+
+        async with conn.execute("SELECT * FROM kb_vector_index WHERE kb_id = 'kb1'") as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["count"] == 5
+        assert row["generation"] == 2
+        assert row["dtype"] == "f16"
+
+        async with conn.execute(
+            "SELECT value FROM app_metadata WHERE key = 'knowledge.vector_store'"
+        ) as cur:
+            purged_row = await cur.fetchone()
+        assert purged_row is None, "stale sqlite-vec record should have been purged on rewind-rerun"
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v41_app_metadata_absent_guard(self, tmp_path) -> None:
+        """AC-5c's guard (``the_one/db/schema.py`` ~2603-2611): a hand-built
+        fixture stamped past v31 with no ``app_metadata`` table at all must
+        run ``ensure_schema`` through to v41 without raising. Without the
+        ``app_metadata_exists`` guard, the unconditional ``DELETE FROM
+        app_metadata ...`` raises ``sqlite3.OperationalError: no such
+        table: app_metadata`` (verified by hand against a patched copy of
+        the migration with the guard removed — reproduced separately, not
+        exercised in-repo). ``TestSchemaV32``'s v31 fixture only covers
+        this incidentally (it happens to omit ``app_metadata`` too, as a
+        side effect of testing something else); this test targets the
+        guard directly."""
+        db_path = tmp_path / "v41-no-app-metadata.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-built fixture: only schema_version, stamped 1..31, with no
+        # other table at all — in particular no app_metadata (created by
+        # the real v31 block, which this fixture bypasses entirely by
+        # stamping directly).
+        await conn.executescript("""
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        """)
+        for v in range(1, 32):
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
+        await conn.commit()
+
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='app_metadata'"
+        ) as cur:
+            assert (await cur.fetchone()) is None  # precondition: table absent
+
+        await ensure_schema(conn)  # must not raise
+
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
+            names = {r["name"] for r in await cur.fetchall()}
+        assert "kb_vector_index" in names
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()

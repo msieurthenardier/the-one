@@ -67,7 +67,7 @@ from the_one.db.repositories import (
     MCPSourceRepository,
     SQLiteAgentStore,
 )
-from the_one.embeddings import warm_up as _warm_up_embedding_backend
+from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM, mint_handoff_credential
@@ -333,9 +333,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # kill app startup, mirroring the other startup blocks); `warm_up()`
         # itself also never raises (it logs a loader failure internally), so
         # this only guards the `count()` read and the `create_task` call.
+        # Squawk 0055: the task handle is held inside
+        # ``the_one.embeddings`` (not discarded here) so it can't be
+        # garbage-collected mid-flight.
         try:
             if await KnowledgeBaseRepository(await get_connection()).count() > 0:
-                asyncio.create_task(_warm_up_embedding_backend())
+                _schedule_embedding_warm_up()
         except Exception:
             logger.exception("embedding warm-up scheduling failed")
         yield

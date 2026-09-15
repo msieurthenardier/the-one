@@ -16,7 +16,7 @@ import pytest
 
 from tests._embedding_stub import StubEmbeddingBackend
 from the_one import embeddings
-from the_one.embeddings import get_embedding_backend, warm_up
+from the_one.embeddings import get_embedding_backend, schedule_warm_up, warm_up
 from the_one.embeddings._backend import EmbeddingBackend, EmbeddingModelMissingError
 from the_one.embeddings.local import EMBEDDING_DIM, LocalStaticBackend
 from the_one.embeddings.local import force_hf_offline as _force_hf_offline
@@ -400,3 +400,27 @@ class TestSingleton:
 
         with pytest.raises(EmbeddingModelMissingError):
             get_embedding_backend()
+
+    async def test_schedule_warm_up_holds_the_task_handle(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Squawk 0055: ``schedule_warm_up()`` must hold a reference to the
+        task it creates (in ``embeddings._tasks``) until it completes, and
+        discard it once done — an unreferenced ``asyncio.create_task()``
+        result can be garbage-collected mid-flight per the stdlib docs.
+        """
+        calls = {"n": 0}
+
+        def _fake_load() -> StubEmbeddingBackend:
+            calls["n"] += 1
+            return StubEmbeddingBackend()
+
+        monkeypatch.setattr(LocalStaticBackend, "load", staticmethod(_fake_load))
+
+        task = schedule_warm_up()
+        assert task in embeddings._tasks
+
+        await task
+
+        assert calls["n"] == 1
+        assert task not in embeddings._tasks

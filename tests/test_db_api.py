@@ -1064,6 +1064,32 @@ class TestKnowledgeSettingsAPI:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.parametrize(
+        ("section", "unknown_key"),
+        [("embedding", "backend_typo"), ("chunking", "overlap_chras")],
+    )
+    async def test_put_nested_unknown_key_422s_and_names_the_key(
+        self, client: AsyncClient, section: str, unknown_key: str
+    ) -> None:
+        """Squawk 0056: a nested unknown key inside ``embedding``/
+        ``chunking`` must 422 (naming the offending key) rather than being
+        silently merged-then-dropped by pydantic's default
+        ``extra="ignore"``, and the stored record must be unchanged."""
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={section: {unknown_key: "x"}},
+        )
+        assert resp.status_code == 422
+        assert unknown_key in resp.text
+
+        get_resp = await client.get("/api/knowledge-settings")
+        assert get_resp.json()["embedding"] == {
+            "backend": "local",
+            "model_id": "potion-retrieval-32M",
+            "dim": 512,
+        }
+        assert get_resp.json()["chunking"] == {"size_chars": 1000, "overlap_chars": 150}
+
 
 # ── MCP source endpoints ─────────────────────────────────────────────────
 

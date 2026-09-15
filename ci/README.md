@@ -41,7 +41,7 @@ Concourse.
 `.github/workflows/pr-lint.yml` triggers `on: pull_request` (branches: `[main]`) and
 runs two jobs, both fail-on-nonzero:
 
-- **lint** — `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/`,
+- **lint** — `ruff check the_one/ tests/ scripts/` + `ruff format --check the_one/ tests/ scripts/`,
   pinned to the same `ruff==0.15.15` version as `ci/tasks/lint.yml` (parity with the
   Concourse lane).
 - **pip-audit** — audits the **release dependency closure**: `uv export --no-dev

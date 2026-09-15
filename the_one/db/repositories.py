@@ -654,6 +654,13 @@ class KBItemRepository:
 # so ``get_many`` always chunks the placeholder list regardless of host.
 _GET_MANY_BATCH_SIZE = 500
 
+# Squawk 0054: ceiling for ``search_keyword``'s ``k``. Flight 5 exposes this
+# path to an agent-controlled tool argument, where an unbounded ``k`` is a
+# resource-exhaustion vector (an unreasonably large ``LIMIT`` still forces
+# SQLite to materialise/sort that many FTS matches). 1000 is generously above
+# any realistic result-set size a caller would ever consume.
+MAX_SEARCH_K = 1000
+
 
 class KBChunkRepository:
     """Async CRUD for ``kb_chunks`` plus the ``kb_chunks_fts`` keyword-search,
@@ -796,7 +803,15 @@ class KBChunkRepository:
         ``no such column: f`` even though the rowid select aliases the FTS
         table ``f``. The KB scope is a join (not a WHERE on the FTS table
         itself) because the FTS table carries no ``kb_id`` column.
+
+        ``k`` is bounded to ``1 <= k <= MAX_SEARCH_K`` (squawk 0054) —
+        rejected with ``ValueError`` outside that range, not clamped, to
+        match this repository's existing convention of raising on invalid
+        input (e.g. ``replace_item_chunks``'s illegal-field guard) rather
+        than silently coercing it.
         """
+        if k < 1 or k > MAX_SEARCH_K:
+            raise ValueError(f"k must be between 1 and {MAX_SEARCH_K}, got {k}")
         terms = query.split()
         if not terms:
             return []

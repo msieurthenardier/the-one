@@ -7,6 +7,7 @@ the guard itself and to ``schema.py``'s migrations.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 from pathlib import Path
 
@@ -161,18 +162,31 @@ def test_commit_and_rollback_confined_to_write_lock_and_schema():
     the full argument). Every other write path in ``the_one/`` must go
     through ``write_transaction`` (DD-13) — this is the guard that keeps
     that true as the codebase grows (the rule decays silently otherwise).
+
+    Walks the AST (not a text/substring scan) so a comment or docstring
+    that merely mentions ``.commit()`` cannot trip the guard, and an
+    aliased call (``c = self.conn; c.commit()``) is still caught, since
+    it matches on the ``Call`` node's ``Attribute`` shape rather than on
+    the receiver's spelling.
     """
     allowed = {
         Path("the_one") / "db" / "_write_lock.py",
         Path("the_one") / "db" / "schema.py",
     }
+    watched_attrs = {"commit", "rollback"}
     offenders: list[str] = []
     for path in Path("the_one").rglob("*.py"):
         if path in allowed:
             continue
-        text = path.read_text(encoding="utf-8")
-        if ".commit()" in text or ".rollback()" in text:
-            offenders.append(str(path))
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in watched_attrs
+            ):
+                offenders.append(f"{path}:{node.lineno}")
     assert offenders == [], (
         f"commit()/rollback() found outside the write-lock guard: {offenders} "
         "— every write must go through write_transaction() (DD-13)"

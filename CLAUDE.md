@@ -33,11 +33,11 @@ pytest -m live tests/test_aiat.py                   # AIAT (needs running instan
 pytest -m browser tests/browser/                    # Browser tests (needs THE_ONE_DEV_MODE=true)
 
 # Lint & format
-ruff check the_one/ tests/
-ruff format the_one/ tests/
+ruff check the_one/ tests/ scripts/
+ruff format the_one/ tests/ scripts/
 ```
 
-**Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/` run in CI on every push to `main` (Concourse, `ci/tasks/lint.yml`). The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence. CI now runs on local Concourse; the GitHub Actions `lint.yml` and `test.yml` are `workflow_dispatch`-only break-glass fallbacks — see `ci/README.md` for the full topology.
+**Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/ scripts/` + `ruff format --check the_one/ tests/ scripts/` run in CI on every push to `main` (Concourse, `ci/tasks/lint.yml`). The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence. CI now runs on local Concourse; the GitHub Actions `lint.yml` and `test.yml` are `workflow_dispatch`-only break-glass fallbacks — see `ci/README.md` for the full topology.
 
 ## Local dev (host-native)
 

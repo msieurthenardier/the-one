@@ -46,6 +46,7 @@ __all__ = [
     "EmbeddingModelMissingError",
     "LocalStaticBackend",
     "get_embedding_backend",
+    "schedule_warm_up",
     "warm_up",
 ]
 
@@ -54,6 +55,18 @@ logger = logging.getLogger(__name__)
 _backend: EmbeddingBackend | None = None
 _lock = threading.Lock()
 _warming = False
+
+# Squawk 0055: the stdlib warns that a `create_task()` result with no
+# reference held anywhere can be garbage-collected mid-flight, silently
+# dropping the task
+# (https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task).
+# Both warm-up call sites (the lifespan, and `create_knowledge_base`) are
+# fire-and-forget, so the handle is held here rather than by either
+# caller — a set because the KB-create call site can fire more than once
+# per process. Mirrors ``_inflight_tasks`` in
+# ``the_one/interfaces/web/app.py``: the done-callback discards the task
+# once it completes.
+_tasks: set[asyncio.Task[None]] = set()
 
 
 def get_embedding_backend() -> EmbeddingBackend:
@@ -93,6 +106,23 @@ async def warm_up() -> None:
         logger.exception("embedding backend warm-up failed")
     finally:
         _warming = False
+
+
+def schedule_warm_up() -> asyncio.Task[None]:
+    """Fire ``warm_up()`` as a background task, holding its handle.
+
+    Squawk 0055: both call sites (the web app lifespan and
+    ``create_knowledge_base``) used to call
+    ``asyncio.create_task(warm_up())`` directly and discard the result,
+    which the stdlib docs warn can let the task be garbage-collected
+    mid-flight. This helper centralizes the fix so the handle-holding
+    logic lives once: the task is added to the module-level ``_tasks``
+    set and removed via a done-callback once it completes.
+    """
+    task = asyncio.create_task(warm_up())
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+    return task
 
 
 def _reset_for_test() -> None:

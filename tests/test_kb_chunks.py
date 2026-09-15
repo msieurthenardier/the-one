@@ -18,7 +18,12 @@ import pytest
 from the_one.db._kb_types import ChunkRecord
 from the_one.db._write_lock import reset_for_test
 from the_one.db.models import KBItem, KnowledgeBase
-from the_one.db.repositories import KBChunkRepository, KBItemRepository, KnowledgeBaseRepository
+from the_one.db.repositories import (
+    MAX_SEARCH_K,
+    KBChunkRepository,
+    KBItemRepository,
+    KnowledgeBaseRepository,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -302,6 +307,26 @@ class TestSearchKeyword:
         await _make_kb_and_item(kb_repo, kb_item_repo)
         assert await chunk_repo.search_keyword("kb1", "", 10) == []
         assert await chunk_repo.search_keyword("kb1", "   ", 10) == []
+
+    async def test_k_below_one_raises(self, conn, kb_repo, kb_item_repo, chunk_repo) -> None:
+        # Squawk 0054: `k` is bounded at the repository so every caller
+        # inherits the guard. Without it, `k=0`/negative `k` reaches SQLite
+        # as `LIMIT 0`/`LIMIT -1` (silently empty/unbounded) instead of
+        # raising — this test fails without the added `k < 1` guard.
+        await _make_kb_and_item(kb_repo, kb_item_repo)
+        with pytest.raises(ValueError, match="k must be between"):
+            await chunk_repo.search_keyword("kb1", "zq7xkmany", 0)
+        with pytest.raises(ValueError, match="k must be between"):
+            await chunk_repo.search_keyword("kb1", "zq7xkmany", -1)
+
+    async def test_k_above_ceiling_raises(self, conn, kb_repo, kb_item_repo, chunk_repo) -> None:
+        # Squawk 0054: an unbounded `k` is a resource-exhaustion vector
+        # once this path is agent-controlled (Flight 5) — without the
+        # `k > MAX_SEARCH_K` guard this call would reach SQLite unbounded
+        # instead of raising, so this test fails without the fix.
+        await _make_kb_and_item(kb_repo, kb_item_repo)
+        with pytest.raises(ValueError, match="k must be between"):
+            await chunk_repo.search_keyword("kb1", "zq7xkmany", MAX_SEARCH_K + 1)
 
 
 # ── AC-6: KB and item delete cascade the FTS side too ──────────────────────
