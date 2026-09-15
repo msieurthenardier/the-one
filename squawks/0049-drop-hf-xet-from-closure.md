@@ -183,4 +183,4 @@ a future maintenance pass.
 *(written at completion)*
 **Reviewer**: Sonnet (flight-end review cycles 3–4 of M24 F02 L06)
 **Verdict**: confirmed
-**Commit**: _(recorded in the follow-up commit)_
+**Commit**: `9b4e0fc`
