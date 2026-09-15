@@ -43,4 +43,4 @@ Logged from the Mission 24 Flight 2 debrief (2026-09-15).
 *(written at completion)*
 **Reviewer**: Sonnet, batch review of squawk/turnaround-2026-09-15
 **Verdict**: confirmed
-**Commit**: _(recorded in the follow-up commit)_
+**Commit**: ba46d62

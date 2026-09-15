@@ -71,4 +71,4 @@ strings (no benchmark run needed):
 *(written at completion)*
 **Reviewer**: Sonnet, batch review of squawk/turnaround-2026-09-15
 **Verdict**: confirmed
-**Commit**: _(recorded in the follow-up commit)_
+**Commit**: ba46d62
