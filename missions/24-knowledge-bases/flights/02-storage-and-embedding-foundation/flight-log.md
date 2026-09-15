@@ -1595,3 +1595,34 @@ outside Flight 2's surface), R9 (add an FTS5 doctor probe — proposed yes).
   Windows figures are **extrapolated** from the measured Windows/Linux
   ratios at 200k, labelled, per DD-8's fallback rule with "time" substituted
   for "RAM" as the binding constraint and stated as such.
+
+### Flight Director Notes — DD-9 decision checkpoint (2026-09-15)
+
+- **Operator decision: `usearch`, dtype `f16`.** Recorded here per DD-9
+  before Leg 6 is designed. The operator's reasoning, restated from the
+  checkpoint conversation: the bar was p95 ≤ 250 ms per k = 10 query on
+  Windows at the largest measured N; only the two `usearch` cells clear it
+  (f16 ~27 ms at 1M, ~41 ms at 3M, extrapolated; 5.9 ms on the real
+  corpus), whereas `sqlite-vec` clears it only below roughly 30k vectors on
+  this platform and would cap knowledge bases at about today's corpus size.
+  Between the `usearch` dtypes, f16 is chosen for accuracy margin: real-
+  corpus recall@10 0.98 against DD-4's 0.95 floor, where i8 sits at the
+  floor within noise (0.9465–0.953). The i8 disk saving (512 vs 1,024
+  B/vector) is not worth the recall risk at this stage.
+- **Accepted costs**: the per-KB sidecar outside the SQLite file (DD-3's
+  rebuild-from-SQLite path, ~2 h for 1M f16 vectors on `windows-worker`,
+  extrapolated); `restore` ~24 s at 3M (extrapolated); f16 on-disk 1,024
+  B/vector (3.35 GB at 3M, measured on Linux).
+- **Consequences for Leg 6** (`store-decision-and-closure`), per DD-9:
+  `sqlite-vec` is the loser — remove the package from `pyproject.toml`,
+  regenerate `uv.lock`, drop its `doctor` probe and by-name CI assertions in
+  both lanes, its `upx_exclude` / `binaries` spec entries, its store backend
+  module and tests; move the `kb_vector_index` DDL into a v41 block (DD-3);
+  `numkong` stays (usearch won); add the `[tool.uv] override-dependencies`
+  that drops `hf-xet` (squawk 0049 completed against Leg 6's commit); one
+  `fly execute` frozen run proves `RESULT: PASS`. Leg 6 also carries the
+  three conditions recorded at the flight-end review for a `usearch`
+  decision: sidecar `save` must become atomic (tmp + replace), a corrupt
+  sidecar must surface as `VectorStoreStaleError` rather than the library's
+  raw error, and `delete_kb` must guard re-entry before mutating.
+- `faiss-cpu` divert: not triggered; Flight 1's shelf stays shelved.
