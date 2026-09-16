@@ -62,6 +62,7 @@ from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
 from the_one.knowledge.extractors import ExtractionError, extractor_for
+from the_one.knowledge.indexer import MAX_FILE_BYTES
 from the_one.knowledge.manager import get_manager as get_indexing_manager
 from the_one.knowledge.settings import (
     ChunkingSettings,
@@ -1755,10 +1756,12 @@ async def get_kb_item_source(kb_id: str, item_id: str) -> dict[str, Any]:
     re-run through the item's extractor on demand (never stored; chunks
     are the stored form and their offsets index into exactly this text).
     404 if the item or the file is missing; 422 for a ``folder``/``url``
-    item or a ``file`` item with no registered extractor. The DD-5 size
-    cap bounds the response indirectly (no separate read-back cap — the
-    file size cap is the cap; a file the indexer already failed on is
-    still readable here)."""
+    item or a ``file`` item with no registered extractor; 413 if the file
+    exceeds ``MAX_FILE_BYTES`` — the route enforces the same 10 MiB cap
+    the indexer does, checked independently here (not inherited from the
+    indexer's own rejection; a file the indexer already failed on for a
+    different reason is still readable here as long as it is under the
+    cap)."""
     item_repo = await _kb_item_repo()
     try:
         item = await item_repo.get(item_id)
@@ -1780,6 +1783,12 @@ async def get_kb_item_source(kb_id: str, item_id: str) -> dict[str, Any]:
         st = await asyncio.to_thread(path.stat)
     except (FileNotFoundError, NotADirectoryError):
         raise HTTPException(status_code=404, detail=f"file not found: {path}")
+
+    if st.st_size > MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(f"file exceeds the 10 MiB read-back cap ({st.st_size} bytes)"),
+        )
 
     try:
         text = await asyncio.to_thread(extractor.extract, path)

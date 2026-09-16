@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import queue
+import threading
 import time
 
 import aiosqlite
@@ -894,3 +895,155 @@ class TestStartAll:
         manager = _make_manager(conn, store, backend)
         await manager.start_all()
         assert manager.state(kb.id) == "idle"
+
+
+# ── AC-8: two real workers share the manager-wide embed_lock ───────────────
+
+
+class _TrackingLock:
+    """A spy around a real ``asyncio.Lock`` — full mutual exclusion is kept
+    (this is a wrapper, not a fake), so a positive result here exercises
+    the manager's actual serialisation, not a stand-in for it. It also
+    flags ``second_waiter`` (a ``threading.Event``) the instant a SECOND
+    coroutine's ``__aenter__`` finds the lock already held: the
+    deterministic signal that kbB's worker reached the lock while kbA's
+    batch was still inside it, proving the two workers were genuinely
+    contending for it at the same wall-clock moment rather than running
+    one after the other with the second never actually starting."""
+
+    def __init__(self, second_waiter: threading.Event) -> None:
+        self._lock = asyncio.Lock()
+        self._second_waiter = second_waiter
+
+    async def __aenter__(self) -> "_TrackingLock":
+        if self._lock.locked():
+            self._second_waiter.set()
+        await self._lock.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self._lock.release()
+
+
+class _ConcurrencyTrackingBackend:
+    """Wraps ``StubEmbeddingBackend``. Every ``embed`` call records which
+    KB's batch is running (identified by a marker substring each KB's
+    fixture text carries) into ``sequence``, under a ``threading.Lock``-
+    guarded in-flight counter that must never exceed 1 — that ceiling is
+    the embed_lock's whole job. A small per-call ``time.sleep`` means two
+    calls WOULD overlap if nothing serialised them (the mechanism AC-8's
+    lock-removed negative check trips). The very first call additionally
+    blocks — bounded, never a bare sleep used *as* the synchronisation —
+    on ``second_waiter``, which ``_TrackingLock`` sets the moment the
+    OTHER kb's worker reaches the lock; this is what gives that other
+    worker a deterministic window to arrive, rather than hoping a sleep
+    duration happens to be long enough."""
+
+    dim = 8
+
+    def __init__(
+        self,
+        markers: dict[str, str],
+        second_waiter: threading.Event,
+        *,
+        delay: float = 0.05,
+        first_call_wait: float = 1.0,
+    ) -> None:
+        self.model_id = "concurrency-tracking-stub"
+        self._stub = StubEmbeddingBackend(dim=8)
+        self._markers = markers
+        self._second_waiter = second_waiter
+        self._delay = delay
+        self._first_call_wait = first_call_wait
+        self._state_lock = threading.Lock()
+        self._in_flight = 0
+        self.max_in_flight = 0
+        self.sequence: list[str] = []
+        self._first_call_done = False
+
+    def _label_for(self, texts) -> str:
+        first_text = texts[0] if texts else ""
+        for marker, label in self._markers.items():
+            if marker in first_text:
+                return label
+        return "?"
+
+    def embed(self, texts):
+        label = self._label_for(texts)
+        with self._state_lock:
+            self._in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self._in_flight)
+            self.sequence.append(label)
+            is_first = not self._first_call_done
+            self._first_call_done = True
+
+        if is_first:
+            self._second_waiter.wait(timeout=self._first_call_wait)
+        time.sleep(self._delay)
+        result = self._stub.embed(texts)
+
+        with self._state_lock:
+            self._in_flight -= 1
+        return result
+
+
+class TestConcurrentWorkers:
+    async def test_two_kbs_index_concurrently_through_the_shared_embed_lock(
+        self, conn, kb_repo, item_repo, chunk_repo, store, tmp_path
+    ) -> None:
+        """Two real workers, two real KBs, started at the same time
+        through one manager. Proves: (1) both KBs fully index despite
+        sharing one embed_lock; (2) the lock actually serialises — the
+        in-flight counter never exceeds 1; (3) the two workers really ran
+        concurrently — kbB's worker reached the lock while kbA's batch
+        was still inside it, not "the second worker never started"."""
+        kb_a = await _make_kb(kb_repo, "kb-a")
+        kb_b = await _make_kb(kb_repo, "kb-b")
+
+        folder_a = tmp_path / "docs_a"
+        folder_a.mkdir()
+        folder_b = tmp_path / "docs_b"
+        folder_b.mkdir()
+        for name in ("one", "two"):
+            (folder_a / f"{name}.txt").write_text(f"KBA_MARKER short content {name}")
+            (folder_b / f"{name}.txt").write_text(f"KBB_MARKER short content {name}")
+
+        await item_repo.create(
+            KBItem(id="folder-a", kb_id=kb_a.id, type="folder", path_or_url=str(folder_a))
+        )
+        await item_repo.create(
+            KBItem(id="folder-b", kb_id=kb_b.id, type="folder", path_or_url=str(folder_b))
+        )
+
+        second_waiter = threading.Event()
+        backend = _ConcurrencyTrackingBackend(
+            markers={"KBA_MARKER": "kb-a", "KBB_MARKER": "kb-b"},
+            second_waiter=second_waiter,
+        )
+        manager = _make_manager(conn, store, backend)
+        manager._embed_lock = _TrackingLock(second_waiter)  # test-only spy swap
+
+        manager.request_index(kb_a.id)
+        manager.request_index(kb_b.id)
+        await manager.wait_until_idle(kb_a.id, timeout=10.0)
+        await manager.wait_until_idle(kb_b.id, timeout=10.0)
+
+        assert manager.state(kb_a.id) == "idle"
+        assert manager.state(kb_b.id) == "idle"
+
+        for folder_id, kb in (("folder-a", kb_a), ("folder-b", kb_b)):
+            children = await item_repo.list_children(folder_id)
+            assert len(children) == 2
+            for child in children:
+                assert child.status == "indexed"
+            expected_chunks = await chunk_repo.count_for_kb(kb.id)
+            assert await store.count(kb.id) == expected_chunks
+
+        assert backend.max_in_flight <= 1, "embed_lock let two batches run concurrently"
+        assert "kb-a" in backend.sequence
+        assert "kb-b" in backend.sequence
+        assert second_waiter.is_set(), (
+            "the second kb's worker never reached the lock while the first "
+            "batch was in flight -- the two workers did not genuinely run "
+            "concurrently"
+        )

@@ -1,10 +1,10 @@
 # Squawk 0063: `GET …/items/{item_id}/source` reads the file whole with no size cap
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-16
-**Completed**: —
+**Completed**: 2026-09-16
 
 ## Report
 
@@ -31,10 +31,42 @@ same call to the behavior spec's Step 5 at its next re-author.
 - Flight 3 debrief, "Technical — Important"
 
 ## Corrective Action
-*(written at completion)*
+
+`the_one/interfaces/web/api.py::get_kb_item_source` now imports
+`MAX_FILE_BYTES` from `the_one.knowledge.indexer` and, immediately after
+the existing `stat` call and before the extractor runs, refuses
+`st.st_size > MAX_FILE_BYTES` with `HTTPException(413, detail=...)`
+naming the cap and the file's actual size (e.g. "file exceeds the 10 MiB
+read-back cap (10485761 bytes)"). This closes the gap directly: the route
+now enforces the same cap the indexer does, independently, rather than
+merely relying on (or claiming to rely on) the indexer having already
+rejected an over-cap file. The docstring's inaccurate "no separate
+read-back cap — the file size cap is the cap" claim is corrected to state
+the route enforces `MAX_FILE_BYTES` itself with a 413. `the_one/agents.md`'s
+DD-8 route-wiring paragraph gained one clause noting the same. (`CLAUDE.md`'s
+`/source` description doesn't make any cap claim, so it needed no change.)
 
 ## Verification
-Unit: `tests/test_db_api.py` — a `file` item whose path is an 11 MiB text fixture → `GET …/source` 413 with the cap in `detail`; a 1 KiB file still 200. Existing `/source` tests unchanged.
+
+Added `TestKnowledgeBaseSourceRoute::test_over_cap_file_413` (a sparse
+file truncated to `MAX_FILE_BYTES + 1` via `f.truncate(...)` — avoids
+actually writing 10 MiB since only `stat().st_size` is exercised before
+extraction — asserts 413 with "10 MiB" and the byte count in `detail`)
+and `test_small_file_under_cap_200` (a small file still returns 200 with
+its extracted text) to `tests/test_db_api.py`. Existing `/source` tests
+unchanged and still pass.
+
+Ran:
+```
+PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_db_api.py -x --timeout 60 -q -k "source or KnowledgeBase"
+```
+Result: `78 passed, 45 deselected in 36.14s`.
+
+Ran `make lint` (`ruff check the_one/ tests/ scripts/`) → `All checks
+passed!`; also confirmed `ruff format --check the_one/ tests/ scripts/`
+→ `437 files already formatted` (CI's full lint-gate shape).
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Sonnet (batch review, squawk turnaround 2026-09-16; Sonnet tier — 0063 touches the route reading operator-registered paths)
+**Verdict**: confirmed
+**Commit**: `16222c4`
