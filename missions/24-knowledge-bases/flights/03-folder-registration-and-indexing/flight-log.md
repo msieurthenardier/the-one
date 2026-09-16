@@ -863,6 +863,19 @@ design review during execution covers them next.
   the spec's Preconditions (mint before the first `make up` on a fresh
   scratch dir), not a defect.
 
+### Flight Director Notes — Leg 4 close, HAT pending (2026-09-16)
+
+- Leg 4 completed and committed at `5a2fcec` (pushed; PR #200 checklist
+  shows Legs 1–4). Every gate the mission's branch layout requires was run
+  by hand and recorded in the Leg 4 entry.
+- Leg 5 `hat-and-alignment` (optional, operator's call at planning)
+  designed as a lightweight artifact at `ready`; **not started** — it is
+  an operator-present leg, so the Flight Director stops here and hands
+  over. The flight does not land until the HAT is completed or the
+  operator waives it. The optional live-kill variant of the behavior
+  test is also available if the operator wants to see a mid-flight
+  transition rather than the seeded resume.
+
 ---
 
 ## Reconnaissance Report
