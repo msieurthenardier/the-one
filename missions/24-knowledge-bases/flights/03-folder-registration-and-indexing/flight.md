@@ -1,6 +1,6 @@
 # Flight: Folder Registration and Indexing
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria

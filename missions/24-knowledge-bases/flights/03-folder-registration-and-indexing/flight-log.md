@@ -4,7 +4,7 @@
 
 ## Summary
 
-Landed (2026-09-16). Legs 1–4 completed; Leg 5 (HAT) waived by the operator and folded into Flight 6. Behavior test 8/8, unit gate 4,547, pip-audit clean, frozen build 608700 PASS. PR #200 ready for review against `mission/24-knowledge-bases`. Reconnaissance, three Architect design-review cycles and the operator interview are recorded below; `flight.md` is at `ready`, the behavior-test draft `kb-folder-index-round-trip` is filed, no code has changed.
+Completed (debrief 2026-09-16). Legs 1–4 completed; Leg 5 (HAT) waived by the operator and folded into Flight 6. Behavior test 8/8, unit gate 4,547, pip-audit clean, frozen build 608700 PASS. PR #200 ready for review against `mission/24-knowledge-bases`. Reconnaissance, three Architect design-review cycles and the operator interview are recorded below; `flight.md` is at `ready`, the behavior-test draft `kb-folder-index-round-trip` is filed, no code has changed.
 
 ---
 
@@ -912,6 +912,24 @@ design review during execution covers them next.
   documentation verified at Leg 4 AC-8. Flight status → **`landed`**;
   Flight 3 checked off in `mission.md`; PR #200 marked ready for review.
   `[COMPLETE:flight]`. Next: `/mission-control:flight-debrief`.
+
+### Flight Director Notes — debrief (2026-09-16)
+
+- `/mission-control:flight-debrief` run: Developer interview (Sonnet; an
+  independent `make test-unit` — 4,547 / 10 / 638.25 s, no flakes) and
+  Architect design review (Sonnet), plus a three-question human interview
+  (HAT only where there is a screen; checkpoints came at the right
+  moments with enough context; no blockers). The Developer found one
+  real defect the three Architect cycles, the flight-end Reviewer and the
+  behavior test all missed: `/source` never enforces the size cap its
+  docstring claims. Verified by the Flight Director (`MAX_FILE_BYTES` is
+  not imported in `api.py`).
+- Debrief written; four squawks logged — **0063** (`/source` cap, defect),
+  **0064** (`CLAUDE.md` PID-file name), **0065** (`agents.md` conventions
+  + the negative-test rule), **0066** (two-worker `embed_lock` test); ids
+  recorded in the debrief's Action Items. Flight status → **`completed`**.
+- Next: merge PR #200 into `mission/24-knowledge-bases` (operator's
+  stated intent), then the squawks on a turnaround or Flight 4 planning.
 
 ---
 
