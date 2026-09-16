@@ -79,6 +79,8 @@ from the_one.interfaces.web.middleware import (
 )
 from the_one.knowledge.manager import IndexingManager
 from the_one.knowledge.manager import set_manager as _set_module_indexing_manager
+from the_one.knowledge.watcher import WatchManager
+from the_one.knowledge.watcher import set_manager as _set_module_watch_manager
 from the_one.llm.base import (
     OPERATOR_VISIBILITY,
     ContentBlock,
@@ -360,6 +362,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await _indexing_manager.start_all()
         except Exception:
             logger.exception("indexing manager startup failed")
+
+        # M24 F04 L03, DD-7: construct the watch manager and publish it via
+        # the module accessor BEFORE its own guarded start_all runs — the
+        # same shape as the indexing-manager block above. Own try/except
+        # around start_all only (a subscribe/settings-load failure must not
+        # kill app startup); an operator with no folders pays one sleeping
+        # reconcile-loop task.
+        global _watch_manager
+        _watch_manager = WatchManager(index_manager=_indexing_manager)
+        _set_module_watch_manager(_watch_manager)
+        try:
+            await _watch_manager.start_all()
+        except Exception:
+            logger.exception("watch manager startup failed")
         yield
         # Drain the PTY session registry on shutdown — cancels the idle
         # reaper task and closes any live sessions. Wrapped in
@@ -383,6 +399,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if _inflight_resume_tasks:
             with contextlib.suppress(Exception):
                 await asyncio.gather(*list(_inflight_resume_tasks), return_exceptions=True)
+        # M24 F04 L03, DD-7: drain the watch manager immediately before the
+        # indexing manager's own drain below — no `request_index` can land
+        # on an indexing manager that is stopping workers. Own try/except
+        # (a subscription that hangs must not kill the rest of shutdown);
+        # the two cleanup lines sit outside the try/except, mirroring the
+        # indexing-manager block below, so the accessor is cleared even
+        # when `drain()` raises.
+        if _watch_manager is not None:
+            try:
+                await _watch_manager.drain()
+            except Exception:
+                logger.exception("watch manager shutdown failed")
+            _set_module_watch_manager(None)
+            _watch_manager = None
         # M24 F03 L03, DD-7: drain the indexing manager right after the
         # in-flight/resume task gathers and before the reaper drain — a KB
         # worker mid-item gets its cooperative-stop-then-flush budget
@@ -552,6 +582,13 @@ _connector_manager: ConnectorManager | None = None
 # alongside the module-level accessor (`_set_module_indexing_manager`,
 # what routes reach via `the_one.knowledge.manager.get_manager`).
 _indexing_manager: IndexingManager | None = None
+
+# M24 F04 L03, DD-7: the running watch manager. Same shape as
+# `_indexing_manager` above — the lifespan's own local global (what
+# shutdown's drain reads) alongside the module-level accessor
+# (`_set_module_watch_manager`, what routes reach via
+# `the_one.knowledge.watcher.get_manager`).
+_watch_manager: WatchManager | None = None
 
 # Mission 23 Flight 2 Leg 2: True for the lifetime of a lifespan cycle iff
 # THIS process's dual-gated startup hook registered the "stub" connector

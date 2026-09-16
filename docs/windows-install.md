@@ -128,8 +128,10 @@ cd "C:\Program Files\GleepGlorp AI"
 interpreter, load the desktop shell, import every LLM provider, resolve the bundled
 model catalog, load the bundled vector index (`usearch`), confirm FTS5 support, load the
 bundled embedding model (offline, from inside the installed app — it never
-downloads), and find any external runtimes on your `PATH`. It prints `PASS` or
-`FAIL` for each check and exits non-zero if anything is wrong.
+downloads), confirm the file-watcher extension that powers automatic knowledge-base
+change monitoring loads and answers a real native change-notification round-trip, and
+find any external runtimes on your `PATH`. It prints `PASS` or `FAIL` for each check
+and exits non-zero if anything is wrong.
 
 ### MCP tools needing `node` or `uv`
 

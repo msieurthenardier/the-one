@@ -2652,6 +2652,7 @@ dependencies = [
     { name = "starlette" },
     { name = "usearch" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "watchfiles" },
     { name = "websockets" },
 ]
 
@@ -2733,6 +2734,7 @@ requires-dist = [
     { name = "urllib3", marker = "extra == 'dev'", specifier = ">=2.7.0" },
     { name = "usearch", specifier = ">=2.16" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+    { name = "watchfiles", specifier = ">=1.0" },
     { name = "websockets", specifier = ">=13.0" },
 ]
 provides-extras = ["openai", "anthropic", "all-llms", "gui", "dev"]

@@ -39,8 +39,20 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
   `<scratch>/the-one.db` while the instance is stopped). Verify: `sqlite3
   --version` exits 0.
 - A writable scratch folder for the fixture, outside the repository and
-  outside `<scratch>`: `<fixture>` (e.g. `/tmp/kb-round-trip-fixture`). If
-  it exists from a prior run, delete it before Step 1.
+  outside `<scratch>`: `<fixture>`, nested one level under its own parent —
+  e.g. `/tmp/kb-round-trip/fixture` (parent `/tmp/kb-round-trip`), **not**
+  a bare `/tmp/kb-round-trip-fixture`. If it exists from a prior run,
+  delete it before Step 1.
+  **Amended 2026-09-16 (Flight 4 Leg 1, DD-6)**: registration now refuses
+  (422) a folder that equals, contains, or lies inside the application
+  data directory, so `<parent of fixture>` — the directory Step 6 registers
+  to prove the existing sibling-containment 409 — **must contain neither
+  `<scratch>` nor the repository**; a bare `/tmp` parent (this spec's
+  original fixture) would now read 422 (data directory) before the
+  containment scan Step 6 exercises ever ran, since `<scratch>` commonly
+  lives directly under `/tmp` too. The nested-fixture layout above keeps
+  `<parent of fixture>` (`/tmp/kb-round-trip`) disjoint from both, so
+  Step 6's 409 still stands.
 - No knowledge base named `KBRT-test` exists (`GET /api/knowledge-bases`);
   delete any leftover before Step 1.
 

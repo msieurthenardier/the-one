@@ -699,7 +699,12 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     # spy immediately above. `start_all` records "indexing_start" (no
     # args — unlike ConnectorManager.start_all, IndexingManager.start_all
     # takes none); `drain` records "indexing_drain".
+    _indexing_manager_instances: list["_FakeIndexingManager"] = []
+
     class _FakeIndexingManager:
+        def __init__(self):
+            _indexing_manager_instances.append(self)
+
         async def start_all(self):
             calls.append("indexing_start")
 
@@ -707,6 +712,27 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
             calls.append("indexing_drain")
 
     monkeypatch.setattr(app_mod, "IndexingManager", _FakeIndexingManager)
+
+    # M24 F04 L03, DD-7: watch-manager spy, mirroring the indexing-manager
+    # spy immediately above. Records the `index_manager` it was constructed
+    # with (asserted below to be the `_FakeIndexingManager` instance
+    # `app.py` passes it, proving construction happens after the indexing
+    # manager's own `start_all`). `start_all` records "watch_start";
+    # `drain` records "watch_drain".
+    _watch_manager_instances: list["_FakeWatchManager"] = []
+
+    class _FakeWatchManager:
+        def __init__(self, *, index_manager):
+            self.index_manager = index_manager
+            _watch_manager_instances.append(self)
+
+        async def start_all(self):
+            calls.append("watch_start")
+
+        async def drain(self):
+            calls.append("watch_drain")
+
+    monkeypatch.setattr(app_mod, "WatchManager", _FakeWatchManager)
 
     # Squawk 0025: fake source repository whose ``list()`` returns one row
     # the REAL ``is_surface_row`` predicate recognizes as a self-configuration
@@ -785,6 +811,8 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
         in (
             "connector_start",
             "indexing_start",
+            "watch_start",
+            "watch_drain",
             "indexing_drain",
             "pty",
             "evict",
@@ -797,6 +825,8 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     assert drain_steps == [
         "connector_start",
         "indexing_start",
+        "watch_start",
+        "watch_drain",
         "indexing_drain",
         "pty",
         "evict",
@@ -805,6 +835,110 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
         "connector_drain",
         "db",
     ]
+    # M24 F04 L03, DD-7: the watch manager was constructed with the SAME
+    # indexing-manager instance app.py's startup block built — proof
+    # construction happens after (not instead of) the indexing manager's
+    # own start_all.
+    assert len(_watch_manager_instances) == 1
+    assert len(_indexing_manager_instances) == 1
+    assert _watch_manager_instances[0].index_manager is _indexing_manager_instances[0]
+
+
+async def test_lifespan_watch_manager_drain_runs_even_when_start_all_raises(monkeypatch):
+    """M24 F04 L03, DD-7 (AC-1's behavioural variant): the watch manager's
+    startup block wraps `start_all()` in its own try/except (mirroring the
+    indexing-manager block), so a startup failure there still leaves the
+    accessor holding a real instance and shutdown still drains it — and
+    still reaches the indexing-manager drain right after. A leaner
+    version of `test_lifespan_shutdown_drain_order`'s full setup, since
+    only the watch/indexing pair's behavior is under test here."""
+    from the_one.interfaces.web import app as app_mod
+    from the_one.mcp import oauth as oauth_mod
+
+    calls: list[str] = []
+
+    async def _fake_init_db():
+        pass
+
+    _fake_conn = MagicMock()
+
+    async def _fake_get_connection():
+        return _fake_conn
+
+    async def _fake_migrate_json_to_sqlite(store):
+        pass
+
+    monkeypatch.setattr(app_mod, "init_db", _fake_init_db)
+    monkeypatch.setattr(app_mod, "get_connection", _fake_get_connection)
+    monkeypatch.setattr(app_mod, "migrate_json_to_sqlite", _fake_migrate_json_to_sqlite)
+    monkeypatch.setattr(app_mod, "SQLiteAgentStore", MagicMock())
+    monkeypatch.setattr(app_mod, "AgentFactory", MagicMock())
+    monkeypatch.setattr(oauth_mod, "start_periodic_sweep", lambda: None)
+
+    class _FakeConnectorManager:
+        async def start_all(self, repo, encryptor):
+            pass
+
+        async def drain(self):
+            pass
+
+    monkeypatch.setattr(app_mod, "ConnectorManager", _FakeConnectorManager)
+
+    class _FakeIndexingManager:
+        async def start_all(self):
+            calls.append("indexing_start")
+
+        async def drain(self):
+            calls.append("indexing_drain")
+
+    monkeypatch.setattr(app_mod, "IndexingManager", _FakeIndexingManager)
+
+    class _FakeWatchManager:
+        def __init__(self, *, index_manager):
+            self.index_manager = index_manager
+
+        async def start_all(self):
+            calls.append("watch_start_attempted")
+            raise RuntimeError("boom")
+
+        async def drain(self):
+            calls.append("watch_drain")
+
+    monkeypatch.setattr(app_mod, "WatchManager", _FakeWatchManager)
+
+    class _FakeMCPSourceRepository:
+        def __init__(self, conn, encryptor):
+            pass
+
+        async def list(self):
+            return []
+
+    monkeypatch.setattr(app_mod, "MCPSourceRepository", _FakeMCPSourceRepository)
+
+    async def _fake_pty_drain():
+        pass
+
+    async def _fake_mcp_drain():
+        pass
+
+    async def _fake_oauth_sweep_stop():
+        pass
+
+    async def _fake_close_conn():
+        pass
+
+    monkeypatch.setattr(app_mod, "_session_registry_shutdown_drain", _fake_pty_drain)
+    monkeypatch.setattr(app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain)
+    monkeypatch.setattr(oauth_mod, "stop_periodic_sweep", _fake_oauth_sweep_stop)
+    monkeypatch.setattr(app_mod, "close_connection", _fake_close_conn)
+
+    from fastapi import FastAPI
+
+    fake_app = FastAPI()
+    async with app_mod.lifespan(fake_app):
+        pass
+
+    assert calls == ["indexing_start", "watch_start_attempted", "watch_drain", "indexing_drain"]
 
 
 async def test_drain_timeout_handles_stuck_worker(monkeypatch):

@@ -1,9 +1,11 @@
-"""App-wide knowledge-base settings: embedding + chunking (M24 F02 L03, DD-6).
+"""App-wide knowledge-base settings: embedding + chunking + monitoring
+(M24 F02 L03, DD-6; monitoring added M24 F04 L01, DD-5).
 
-Two ``app_metadata`` JSON records, defaults applied on read. Nothing here is
-a credential (DD-2 removed the only case that would have been), so plaintext
-JSON via the existing ``AppMetadataRepository`` is correct — no encryptor, no
-new table.
+Three ``app_metadata`` JSON records (``load_knowledge_settings`` /
+``save_knowledge_settings``), defaults applied on read, plus the separate
+store-written ``vector_store`` record below. Nothing here is a credential
+(DD-2 removed the only case that would have been), so plaintext JSON via the
+existing ``AppMetadataRepository`` is correct — no encryptor, no new table.
 
 The embedding record has exactly one valid value per DD-2 (non-LLM local
 embeddings are the product; a provider-delegating backend was amended out of
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 EMBEDDING_KEY = "knowledge.embedding"
 CHUNKING_KEY = "knowledge.chunking"
 VECTOR_STORE_KEY = "knowledge.vector_store"
+MONITORING_KEY = "knowledge.monitoring"
 
 # DD-9: usearch, the operator's Flight 2 decision-checkpoint choice
 # (flight-log.md, "DD-9 decision checkpoint (2026-09-15)"), offers `f16`/`i8`
@@ -153,12 +156,33 @@ class VectorStoreSettings(BaseModel):
         return self
 
 
+class MonitoringSettings(BaseModel):
+    """Change-monitoring configuration (Flight 4 M24 F04, DD-5): whether the
+    per-folder filesystem watcher is on, and how often the periodic
+    reconciliation walk runs for every knowledge base that has a folder.
+
+    Operator-configurable through ``PUT /api/knowledge-settings`` (over env
+    vars, DD-5) and applied live: a change reaches the watch manager through
+    an awaited hook on the same request, not only on the next indexing pass
+    (unlike ``ChunkingSettings``, which is future-indexing-only).
+
+    ``extra="forbid"`` (squawk 0056): see ``EmbeddingSettings`` above — the
+    same nested-unknown-key rationale applies here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    watch_enabled: bool = True
+    reconcile_interval_seconds: int = Field(300, ge=10, le=86400)
+
+
 class KnowledgeSettings(BaseModel):
     """The full app-wide knowledge configuration returned by
     ``GET /api/knowledge-settings``."""
 
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
+    monitoring: MonitoringSettings = Field(default_factory=MonitoringSettings)
 
 
 async def load_knowledge_settings(conn) -> KnowledgeSettings:
@@ -192,15 +216,26 @@ async def load_knowledge_settings(conn) -> KnowledgeSettings:
                 "invalid stored value for %r — using defaults", CHUNKING_KEY, exc_info=True
             )
 
-    return KnowledgeSettings(embedding=embedding, chunking=chunking)
+    monitoring = MonitoringSettings()
+    raw_monitoring = await repo.get(MONITORING_KEY)
+    if raw_monitoring is not None:
+        try:
+            monitoring = MonitoringSettings.model_validate_json(raw_monitoring)
+        except (ValidationError, ValueError):
+            logger.warning(
+                "invalid stored value for %r — using defaults", MONITORING_KEY, exc_info=True
+            )
+
+    return KnowledgeSettings(embedding=embedding, chunking=chunking, monitoring=monitoring)
 
 
 async def save_knowledge_settings(conn, settings: KnowledgeSettings) -> None:
-    """Write both records. Two independent ``set()`` calls (two
-    transactions) — the two records are independent by DD-6."""
+    """Write all three records. Three independent ``set()`` calls (three
+    transactions) — the records are independent by DD-6."""
     repo = AppMetadataRepository(conn)
     await repo.set(EMBEDDING_KEY, settings.embedding.model_dump_json())
     await repo.set(CHUNKING_KEY, settings.chunking.model_dump_json())
+    await repo.set(MONITORING_KEY, settings.monitoring.model_dump_json())
 
 
 async def load_vector_store_settings(conn) -> VectorStoreSettings:

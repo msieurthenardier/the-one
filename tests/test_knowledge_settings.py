@@ -8,10 +8,12 @@ from pydantic import ValidationError
 from the_one.knowledge.settings import (
     CHUNKING_KEY,
     EMBEDDING_KEY,
+    MONITORING_KEY,
     VECTOR_STORE_KEY,
     ChunkingSettings,
     EmbeddingSettings,
     KnowledgeSettings,
+    MonitoringSettings,
     VectorStoreSettings,
     load_knowledge_settings,
     load_vector_store_settings,
@@ -36,6 +38,9 @@ async def conn(tmp_path):
 
 
 class TestDefaults:
+    def test_knowledge_settings_default_monitoring(self) -> None:
+        assert KnowledgeSettings().monitoring == MonitoringSettings()
+
     async def test_defaults_on_empty_app_metadata(self, conn) -> None:
         settings = await load_knowledge_settings(conn)
         assert settings.embedding.backend == "local"
@@ -43,6 +48,9 @@ class TestDefaults:
         assert settings.embedding.dim == 512
         assert settings.chunking.size_chars == 1000
         assert settings.chunking.overlap_chars == 150
+        assert settings.monitoring == MonitoringSettings()
+        assert settings.monitoring.watch_enabled is True
+        assert settings.monitoring.reconcile_interval_seconds == 300
 
 
 class TestRoundTrip:
@@ -50,18 +58,20 @@ class TestRoundTrip:
         original = KnowledgeSettings(
             embedding=EmbeddingSettings(),
             chunking=ChunkingSettings(size_chars=800, overlap_chars=100),
+            monitoring=MonitoringSettings(watch_enabled=False, reconcile_interval_seconds=60),
         )
         await save_knowledge_settings(conn, original)
         loaded = await load_knowledge_settings(conn)
         assert loaded == original
 
-    async def test_save_writes_both_keys(self, conn) -> None:
+    async def test_save_writes_three_keys(self, conn) -> None:
         from the_one.db.repositories import AppMetadataRepository
 
         await save_knowledge_settings(conn, KnowledgeSettings())
         repo = AppMetadataRepository(conn)
         assert await repo.get(EMBEDDING_KEY) is not None
         assert await repo.get(CHUNKING_KEY) is not None
+        assert await repo.get(MONITORING_KEY) is not None
 
 
 class TestInvalidStoredValue:
@@ -118,6 +128,54 @@ class TestInvalidStoredValue:
         assert any(EMBEDDING_KEY in record.message for record in caplog.records)
         assert any(CHUNKING_KEY in record.message for record in caplog.records)
 
+    async def test_invalid_monitoring_json_falls_back_to_default_with_warning(
+        self, conn, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from the_one.db.repositories import AppMetadataRepository
+
+        repo = AppMetadataRepository(conn)
+        await repo.set(MONITORING_KEY, "not valid json{{{")
+
+        with caplog.at_level("WARNING"):
+            settings = await load_knowledge_settings(conn)
+
+        assert settings.monitoring == MonitoringSettings()
+        assert any(MONITORING_KEY in record.message for record in caplog.records)
+
+    async def test_monitoring_out_of_bounds_interval_falls_back_to_default_with_warning(
+        self, conn, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from the_one.db.repositories import AppMetadataRepository
+
+        repo = AppMetadataRepository(conn)
+        await repo.set(MONITORING_KEY, '{"watch_enabled": true, "reconcile_interval_seconds": 5}')
+
+        with caplog.at_level("WARNING"):
+            settings = await load_knowledge_settings(conn)
+
+        assert settings.monitoring == MonitoringSettings()
+        assert any(MONITORING_KEY in record.message for record in caplog.records)
+
+    async def test_monitoring_extra_key_falls_back_to_default_with_warning(
+        self, conn, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Squawk 0056: ``extra="forbid"`` on ``MonitoringSettings`` too —
+        an old stored record carrying an unknown key must degrade to
+        defaults, never raise."""
+        from the_one.db.repositories import AppMetadataRepository
+
+        repo = AppMetadataRepository(conn)
+        await repo.set(
+            MONITORING_KEY,
+            '{"watch_enabled": true, "reconcile_interval_seconds": 300, "bogus_key": "x"}',
+        )
+
+        with caplog.at_level("WARNING"):
+            settings = await load_knowledge_settings(conn)
+
+        assert settings.monitoring == MonitoringSettings()
+        assert any(MONITORING_KEY in record.message for record in caplog.records)
+
 
 class TestEmbeddingSettingsValidation:
     def test_default_is_valid(self) -> None:
@@ -155,6 +213,28 @@ class TestChunkingSettingsValidation:
 
     def test_overlap_at_half_size_is_valid(self) -> None:
         ChunkingSettings(size_chars=1000, overlap_chars=500)
+
+
+class TestMonitoringSettingsValidation:
+    """M24 F04 L01, DD-5, AC-1."""
+
+    def test_default_is_valid(self) -> None:
+        settings = MonitoringSettings()
+        assert settings.watch_enabled is True
+        assert settings.reconcile_interval_seconds == 300
+
+    @pytest.mark.parametrize("reconcile_interval_seconds", [9, 86_401])
+    def test_interval_out_of_bounds_rejected(self, reconcile_interval_seconds: int) -> None:
+        with pytest.raises(ValidationError):
+            MonitoringSettings(reconcile_interval_seconds=reconcile_interval_seconds)
+
+    @pytest.mark.parametrize("reconcile_interval_seconds", [10, 86_400])
+    def test_interval_bounds_are_inclusive(self, reconcile_interval_seconds: int) -> None:
+        MonitoringSettings(reconcile_interval_seconds=reconcile_interval_seconds)
+
+    def test_extra_key_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MonitoringSettings.model_validate({"watch_enabled": True, "bogus_key": "x"})
 
 
 class TestVectorStoreSettingsValidation:

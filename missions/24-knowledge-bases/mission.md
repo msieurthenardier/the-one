@@ -326,6 +326,11 @@ spend is a decision on record, not an accident.
       Flight 3's flush cadence was sized against them (save overhead ~9 %
       at 1M, Leg 2 measurement) and should be re-checked when the number
       is real.
+      **Vehicle decided at Flight 4 planning (operator, 2026-09-16; Flight
+      4 DD-12)**: folded into Flight 6 / mission close — a synthetic
+      1M-chunk corpus generated at mission close and measured on the
+      Windows worker, with Flight 3's flush constants re-checked against
+      the number. Flight 4 added nothing to the measurement.
 
 ## Known Issues
 
@@ -340,6 +345,13 @@ spend is a decision on record, not an accident.
   reason). `hf-xet` (4.03 MB, a Hub transfer accelerator the
   offline-by-construction app never calls) was removed from the closure in
   Flight 2 Leg 6 (squawk 0049, completed). Surfaced by Flight 1.
+
+- **`get_vector_store()` has no shutdown hook** — the indexing manager's
+  drain is where dirty indexes get saved; a knowledge base with a store but
+  no worker has no flush path at shutdown. Recorded at the Flight 3 debrief,
+  unchanged by Flight 4 (the watcher never touches the store). **Resolution
+  point: Flight 6 / mission close**, alongside the Windows 1M re-measure —
+  not deferred again (Flight 4 debrief Recommendation 5).
 
 ## Branch Layout — mission branch, one-off
 
@@ -406,7 +418,7 @@ Operational consequences, recorded so the next flight does not rediscover them:
       containment on registration, and the walk → filter → extract → chunk →
       embed → persist pipeline behind the extractor seam, running as a resumable
       background job with per-file checkpointing.
-- [ ] Flight 4: Change monitoring — a supervised per-folder watcher modelled on
+- [x] Flight 4: Change monitoring — a supervised per-folder watcher modelled on
       `ConnectorManager`, backed by a periodic reconciliation walk. The watcher
       is a latency optimization, not the source of truth: Linux inotify consumes
       one watch descriptor per directory against a per-user cap, and Windows can
@@ -419,3 +431,6 @@ Operational consequences, recorded so the next flight does not rediscover them:
       per-agent attach tab, replacing both stubs. Carries Flight 3's waived HAT
       (register a folder, watch status, read chunks/source, re-index, read a
       failure, concurrent delete, restart-resume) as the seed of its HAT.
+      Also carries the Windows 1M `usearch` re-measure (open question above;
+      Flight 4 DD-12) and, from Flight 4, rendering `folders[].watch` /
+      `watch_error` and the `monitoring` toggle.

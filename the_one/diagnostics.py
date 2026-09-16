@@ -26,7 +26,10 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
+import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -318,11 +321,18 @@ _VECTOR_PROBE_KEY = 7
 
 
 def _vector_probe_outcome(name: str, reason: str) -> ProbeResult:
-    """Frozen-only gating for the vector-store probe.
+    """Frozen-only gating, shared by every probe (or probe half) that only
+    hard-fails when frozen.
 
     Frozen → hard failure (``RESULT: FAIL``, read by both CI lanes). Not frozen
     → ``ok=True`` with a ``skipped —`` detail, matching the house pattern used by
-    ``_probe_desktop_shell`` / ``_probe_llm_providers`` / ``_probe_model_catalog``.
+    ``_probe_desktop_shell`` / ``_probe_llm_providers`` / ``_probe_model_catalog``
+    / the vector-store probe (``_probe_usearch``) and, since Flight 4, the
+    native round-trip half of ``_probe_file_watcher`` — whose import half
+    does NOT route through here (it is unconditional on every host; see
+    DD-9). The signature is already name-agnostic (``name``, ``reason``),
+    which is what let this helper widen to a second caller with no shape
+    change.
     """
     if is_frozen():
         return ProbeResult(name, False, reason)
@@ -707,24 +717,156 @@ def _probe_embedding_model() -> ProbeResult:
     )
 
 
+# ── File-watcher probe (Flight 4 M24 F04 L01, DD-0/DD-9) ────────────────
+#
+# The Rust extension (`watchfiles._rust_notify`) is reached in the app
+# today only through `uvicorn`'s reload supervisor, which `the-one serve`
+# never uses, so no frozen build to date has proven it loads.
+# `pyproject.toml` now declares `watchfiles` directly (DD-11); this probe
+# proves the import AND, when frozen, a real round-trip:
+#
+# (1) `import watchfiles` and reference `watchfiles.watch` — a failure
+#     here is `ok=False` on EVERY host, never routed through
+#     `_vector_probe_outcome` (which always downgrades an unfrozen
+#     failure to `ok=True`): from this flight the app imports the module
+#     at startup everywhere, so a missing or unloadable extension is a
+#     defect wherever it happens.
+# (2) a real native change-notification round-trip on a fresh temporary
+#     directory — frozen-only per DD-9 (the house "always attempt,
+#     downgrade only the failure" rule, via `_vector_probe_outcome`).
+#
+# Every `watchfiles.watch` keyword below is passed explicitly (DD-0) — no
+# library or environment default is inherited. `force_polling=False` and
+# `ignore_permission_denied=False` are pinned; this probe never needs
+# DD-0's two-step subscribe (a fresh `TemporaryDirectory` is always
+# readable by the process that created it).
+
+_FILE_WATCHER_DEADLINE_FROZEN_SECONDS = 10.0
+_FILE_WATCHER_DEADLINE_UNFROZEN_SECONDS = 2.0
+
+
+def _import_watchfiles():
+    """Seam the tests monkeypatch to simulate an import failure without
+    uninstalling the real package.
+
+    `tests/test_doctor.py`'s targeted probe tests call THIS module's
+    top-level `_probe_file_watcher` directly (the `_probe_usearch`
+    precedent) — `run_doctor`'s autouse stub applies only when `doctor`
+    resolves its own module global, which the targeted tests bypass by
+    importing the symbol.
+    """
+    import watchfiles
+
+    return watchfiles
+
+
+def _probe_file_watcher() -> ProbeResult:
+    """Import `watchfiles` (unconditional gate) and, when frozen, prove a
+    real native change-notification round-trip on a fresh temporary
+    directory.
+
+    Writes a fresh file named `probe-<n>.txt` (`n` incrementing) after
+    EACH timeout yield inside the loop that consumes them (Architect,
+    cycle 2) — the generator body, and so the Rust notifier, does not
+    exist until the first `next()`, so a single early write from a helper
+    thread would be lost. Iterates until a non-empty change set arrives or
+    an overall deadline passes (`_FILE_WATCHER_DEADLINE_FROZEN_SECONDS` /
+    `_FILE_WATCHER_DEADLINE_UNFROZEN_SECONDS`) — never "the first yield
+    must be non-empty", which on a loaded frozen CI runner would fail the
+    installer build for a scheduling hiccup; `watch`'s own default
+    `debounce` alone would put the first real yield up to 1.6 s after the
+    write, so this probe pins a 200 ms `debounce` and `rust_timeout=250`.
+    The generator is closed explicitly in a `finally`.
+
+    A round-trip failure (exception, or the deadline passing with nothing
+    delivered) is routed through `_vector_probe_outcome` with
+    `f"import OK; round-trip: {reason}"` as the reason — `skipped — `
+    unfrozen, a hard `FAIL` frozen.
+
+    Never raises.
+    """
+    name = "file watcher"
+    try:
+        watchfiles = _import_watchfiles()
+        # Reference `.watch` explicitly — AC-6: a partially-broken module
+        # object (the extension present but the attribute missing) must
+        # surface here, not only at the first call below.
+        _ = watchfiles.watch
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        return ProbeResult(
+            name, False, f"watchfiles import failed: {exc.__class__.__name__}: {exc}"
+        )
+
+    deadline_seconds = (
+        _FILE_WATCHER_DEADLINE_FROZEN_SECONDS
+        if is_frozen()
+        else _FILE_WATCHER_DEADLINE_UNFROZEN_SECONDS
+    )
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            gen = watchfiles.watch(
+                tmp,
+                watch_filter=None,
+                debounce=200,
+                step=50,
+                rust_timeout=250,
+                yield_on_timeout=True,
+                force_polling=False,
+                ignore_permission_denied=False,
+                raise_interrupt=False,
+                debug=False,
+                poll_delay_ms=300,
+                recursive=True,
+            )
+            start = time.monotonic()
+            n = 0
+            try:
+                for changes in gen:
+                    if changes:
+                        return ProbeResult(name, True, "native change notification round-trip OK")
+                    if time.monotonic() - start > deadline_seconds:
+                        return _vector_probe_outcome(
+                            name,
+                            "import OK; round-trip: no change delivered within "
+                            f"{deadline_seconds:.0f}s",
+                        )
+                    n += 1
+                    (Path(tmp) / f"probe-{n}.txt").write_text("x")
+            finally:
+                gen.close()
+    except Exception as exc:  # noqa: BLE001 — report, never crash doctor
+        return _vector_probe_outcome(
+            name, f"import OK; round-trip: {exc.__class__.__name__}: {exc}"
+        )
+
+    # The consuming loop itself checks the deadline on every iteration, so
+    # this is unreachable in practice — kept as a defensive fallback.
+    return _vector_probe_outcome(name, "import OK; round-trip: no change delivered")
+
+
 def run_doctor(out=None) -> int:
     """Run all diagnostics, print a structured report, return an exit code.
 
     Returns 0 when every gate passes — child spawn, python interpreter, desktop
-    shell, llm providers, model catalog, usearch, fts5 and embedding
-    model — and non-zero otherwise. Of those **eight**, four are frozen-only
-    (desktop shell, llm providers, model catalog, usearch): on a dev
-    host they downgrade a failure to an informational ``skipped`` line rather
-    than failing the run. The other four — child spawn, python interpreter,
-    **fts5**, and **embedding model** — gate unconditionally. fts5 gates
-    unconditionally per DD-11 (a mission constraint in every build, not an
-    optional extra). The embedding gate is unconditional by design (M24 F01
-    DD-7): model2vec is a base dependency and the weights are package data
-    present in every checkout, so a host failure is a real defect — most
-    usefully a missing package-data glob in a non-editable wheel install, which
-    a frozen-only gate would never catch. Runtime detection lines are advisory
-    and never by themselves fail the run. ``out`` defaults to ``sys.stdout``;
-    tests pass a buffer.
+    shell, llm providers, model catalog, usearch, fts5, embedding
+    model and file watcher — and non-zero otherwise. Of those **nine**, four
+    are frozen-only (desktop shell, llm providers, model catalog, usearch): on
+    a dev host they downgrade a failure to an informational ``skipped`` line
+    rather than failing the run. The other five — child spawn, python
+    interpreter, **fts5**, **embedding model**, and **file watcher**'s import
+    check — gate unconditionally; file watcher is the one hybrid gate (Flight
+    4 DD-9): its import half gates unconditionally, on every host, but its
+    native round-trip half gates only when frozen, downgrading through the
+    same ``_vector_probe_outcome`` helper the four frozen-only gates use.
+    fts5 gates unconditionally per DD-11 (a mission constraint in every
+    build, not an optional extra). The embedding gate is unconditional by
+    design (M24 F01 DD-7): model2vec is a base dependency and the weights are
+    package data present in every checkout, so a host failure is a real
+    defect — most usefully a missing package-data glob in a non-editable
+    wheel install, which a frozen-only gate would never catch. Runtime
+    detection lines are advisory and never by themselves fail the run.
+    ``out`` defaults to ``sys.stdout``; tests pass a buffer.
     """
     stream = out if out is not None else sys.stdout
 
@@ -775,6 +917,11 @@ def run_doctor(out=None) -> int:
     # vector-store gate above, this one fails the run on a dev host too. Both
     # CI lanes grep this name verbatim, so keep it stable.
     embedding_model = _probe_embedding_model()
+    # File-watcher gate (Flight 4 M24 F04 L01, DD-0/DD-9): the one hybrid
+    # gate — its `import watchfiles` half is UNCONDITIONAL (every host), its
+    # native round-trip half is frozen-only. Both CI lanes grep this name
+    # verbatim.
+    file_watcher = _probe_file_watcher()
     gates = [
         spawn,
         interp,
@@ -784,6 +931,7 @@ def run_doctor(out=None) -> int:
         usearch_probe,
         fts5_probe,
         embedding_model,
+        file_watcher,
     ]
 
     for res in gates:
