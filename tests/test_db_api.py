@@ -1578,6 +1578,49 @@ class TestKnowledgeBaseSourceRoute:
         resp = await client.get(f"/api/knowledge-bases/{kb2}/items/{item_id}/source")
         assert resp.status_code == 404
 
+    async def test_over_cap_file_413(self, client: AsyncClient, tmp_path) -> None:
+        """Squawk 0063: a file over the indexer's ``MAX_FILE_BYTES`` (10 MiB)
+        cap is refused with 413 before extraction, rather than read whole
+        into memory. Uses a sparse file (``truncate``) since only the
+        ``stat`` size is exercised — no need to actually write 10 MiB."""
+        from the_one.knowledge.indexer import MAX_FILE_BYTES
+
+        path = tmp_path / "huge.txt"
+        with path.open("wb") as f:
+            f.truncate(MAX_FILE_BYTES + 1)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": str(path)},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 413
+        detail = resp.json()["detail"]
+        assert "10 MiB" in detail
+        assert str(MAX_FILE_BYTES + 1) in detail
+
+    async def test_small_file_under_cap_200(self, client: AsyncClient, tmp_path) -> None:
+        """Squawk 0063 companion: a small file is unaffected by the new cap
+        check and still returns 200."""
+        path = tmp_path / "small.txt"
+        path.write_text("small enough")
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": str(path)},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 200
+        assert resp.json()["text"] == "small enough"
+
 
 class TestKnowledgeBaseIndexingManagerRouteIntegration:
     """Flight 3 Leg 3, AC-10: the ``_after_folder_registered`` hook and the

@@ -41,13 +41,13 @@ ruff format the_one/ tests/ scripts/
 
 ## Local dev (host-native)
 
-The app runs host-native via `the-one serve` (console script → `uvicorn.run(app, settings.host, settings.port)`, no `--reload`). For day-to-day dev use `make up` to launch it backgrounded against the repo venv (writes `.the-one.pid` + `.the-one.log`, both gitignored). Because `serve` has no `--reload`, **source edits take effect on `make restart`** — there is no live hot-reload. The test suite spawns its own uvicorn subprocess; that path is independent of the `make up` server at port 8484.
+The app runs host-native via `the-one serve` (console script → `uvicorn.run(app, settings.host, settings.port)`, no `--reload`). For day-to-day dev use `make up` to launch it backgrounded against the repo venv (writes `.the-one.$(THE_ONE_PORT).pid` + `.the-one.$(THE_ONE_PORT).log`, both gitignored — so the default instance writes `.the-one.8484.pid` and `.the-one.8484.log`). A dev instance started on another port (e.g. `THE_ONE_PORT=8485`) keeps its own PID/log files, which is what makes `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=<scratch> make down` safe against the default instance. Because `serve` has no `--reload`, **source edits take effect on `make restart`** — there is no live hot-reload. The test suite spawns its own uvicorn subprocess; that path is independent of the `make up` server at port 8484.
 
 ```bash
 make up                     # start the-one host-native in the background (PID + log) + verify
 make restart                # restart to pick up source edits (no --reload) + verify
 make down                   # stop (by PID)
-make logs                   # tail the host log file (.the-one.log)
+make logs                   # tail the host log file (.the-one.$(THE_ONE_PORT).log, e.g. .the-one.8484.log)
 make reset-db CONFIRM=1     # wipe the host data dir + restart. Gated to prevent accidental data loss.
 make test                   # run all default tests (host-native)
 make test-unit              # unit tests only
