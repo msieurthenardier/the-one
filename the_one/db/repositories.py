@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 import aiosqlite
@@ -531,26 +531,142 @@ class KBItemRepository:
             )
 
     async def delete(self, item_id: str) -> list[int]:
-        """Delete an item and, via FK cascade, its chunks. Returns the
-        removed chunk ids.
+        """Delete an item and, via FK cascade, its chunks (and, for a
+        ``folder`` item, its children's chunks too). Returns every removed
+        chunk id.
 
-        Flight 2 Leg 2: same shape as ``KnowledgeBaseRepository.delete`` —
-        select the about-to-be-cascaded chunks' ``(id, text)``, issue their
-        FTS deletes via ``_fts_delete_rows`` inside this same
-        ``write_transaction``, then delete the item (FK cascade removes the
-        `kb_chunks` rows).
+        Flight 2 Leg 2 / Flight 3 Leg 1 (DD-2): same shape as
+        ``KnowledgeBaseRepository.delete`` — select the about-to-be-cascaded
+        chunks' ``(id, text)``, issue their FTS deletes via
+        ``_fts_delete_rows`` inside this same ``write_transaction``, then
+        delete the item. FK cascade (``kb_items.parent_id ... ON DELETE
+        CASCADE``, then ``kb_chunks.item_id ... ON DELETE CASCADE``) removes
+        any children and all the chunks — the item's own and every child's —
+        after the FTS rows for all of them are already gone, so a folder
+        delete can never desync ``kb_chunks_fts`` the way a select scoped to
+        only ``item_id`` would.
         """
         async with self.conn.execute("SELECT 1 FROM kb_items WHERE id = ?", (item_id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"KB item not found: {item_id}")
         async with write_transaction(self.conn):
             async with self.conn.execute(
-                "SELECT id, text FROM kb_chunks WHERE item_id = ?", (item_id,)
+                "SELECT id, text FROM kb_chunks WHERE item_id = ? "
+                "OR item_id IN (SELECT id FROM kb_items WHERE parent_id = ?)",
+                (item_id, item_id),
             ) as cur:
                 chunk_rows = [(row[0], row[1]) for row in await cur.fetchall()]
             await _fts_delete_rows(self.conn, chunk_rows)
             await self.conn.execute("DELETE FROM kb_items WHERE id = ?", (item_id,))
         return [row[0] for row in chunk_rows]
+
+    async def create_many(self, items: Sequence[KBItem]) -> None:
+        """Bulk-insert ``items`` in one ``write_transaction`` via
+        ``executemany`` — the same 13-column statement as :meth:`create`.
+        A no-op for an empty ``items``. A duplicate id inside the batch
+        raises ``sqlite3.IntegrityError``; the ``write_transaction`` guard
+        rolls back the whole batch on any exception, so none of it lands.
+        """
+        if not items:
+            return
+        async with write_transaction(self.conn):
+            await self.conn.executemany(
+                "INSERT INTO kb_items ("
+                "    id, kb_id, parent_id, type, path_or_url, status, error,"
+                "    content_hash, size_bytes, mtime, created_at, updated_at, indexed_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        item.id,
+                        item.kb_id,
+                        item.parent_id,
+                        item.type,
+                        item.path_or_url,
+                        item.status,
+                        item.error,
+                        item.content_hash,
+                        item.size_bytes,
+                        item.mtime,
+                        item.created_at,
+                        item.updated_at,
+                        item.indexed_at,
+                    )
+                    for item in items
+                ],
+            )
+
+    async def list_children(self, folder_item_id: str) -> list[KBItem]:
+        """Items whose ``parent_id`` equals ``folder_item_id``, oldest
+        first. ``[]`` for an unknown id (no existence check — an unknown
+        parent simply has no children)."""
+        async with self.conn.execute(
+            "SELECT * FROM kb_items WHERE parent_id = ? ORDER BY created_at",
+            (folder_item_id,),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def list_folders(self, kb_id: str) -> list[KBItem]:
+        """``kb_id``'s ``folder`` items, oldest first."""
+        async with self.conn.execute(
+            "SELECT * FROM kb_items WHERE kb_id = ? AND type = 'folder' ORDER BY created_at",
+            (kb_id,),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def requeue_stranded(self, kb_id: str | None = None) -> int:
+        """Move every ``indexing`` item (any type) back to ``pending``,
+        scoped to ``kb_id`` when given. Clears ``error``, stamps
+        ``updated_at``, returns the row count.
+
+        The resume-not-restart primitive (Flight 3 DD-7): a worker killed
+        or crashed mid-item leaves rows stranded at ``indexing``; the next
+        pass (or startup) requeues them in one conditional ``UPDATE``. The
+        assertion below pins the bulk ``UPDATE``'s hardcoded ``'indexing'``
+        / ``'pending'`` literals to ``KB_ITEM_TRANSITIONS`` so a future
+        change to that table cannot silently desync from this method.
+        """
+        assert "indexing" in KB_ITEM_TRANSITIONS["pending"], (
+            "requeue_stranded's bulk UPDATE assumes indexing->pending is a "
+            "legal transition — KB_ITEM_TRANSITIONS drifted"
+        )
+        sql = (
+            "UPDATE kb_items SET status = 'pending', error = NULL, updated_at = ? "
+            "WHERE status = 'indexing'"
+        )
+        params: list[Any] = [now_iso()]
+        if kb_id is not None:
+            sql += " AND kb_id = ?"
+            params.append(kb_id)
+        async with write_transaction(self.conn):
+            async with self.conn.execute(sql, params) as cur:
+                rowcount = cur.rowcount
+        return rowcount
+
+    async def requeue_for_reindex(self, kb_id: str) -> int:
+        """Move ``kb_id``'s ``indexed``/``failed`` **``file``** items back to
+        ``pending``. Leaves ``indexing`` items, ``folder`` items and other
+        KBs untouched. Clears ``error``, returns the row count.
+
+        Both source statuses' transition into ``pending`` are asserted
+        against ``KB_ITEM_TRANSITIONS`` for the same reason as
+        :meth:`requeue_stranded`.
+        """
+        assert "indexed" in KB_ITEM_TRANSITIONS["pending"], (
+            "requeue_for_reindex's bulk UPDATE assumes indexed->pending is a "
+            "legal transition — KB_ITEM_TRANSITIONS drifted"
+        )
+        assert "failed" in KB_ITEM_TRANSITIONS["pending"], (
+            "requeue_for_reindex's bulk UPDATE assumes failed->pending is a "
+            "legal transition — KB_ITEM_TRANSITIONS drifted"
+        )
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "UPDATE kb_items SET status = 'pending', error = NULL, updated_at = ? "
+                "WHERE kb_id = ? AND type = 'file' AND status IN ('indexed', 'failed')",
+                (now_iso(), kb_id),
+            ) as cur:
+                rowcount = cur.rowcount
+        return rowcount
 
     async def update_status(self, item_id: str, status: str, *, error: str | None = None) -> KBItem:
         """Move ``item_id`` to ``status`` as one conditional ``UPDATE``.
@@ -604,24 +720,43 @@ class KBItemRepository:
                 (content_hash, size_bytes, mtime, now_iso(), item_id),
             )
 
-    async def list_by_status(self, kb_id: str, status: str) -> list[KBItem]:
+    async def list_by_status(
+        self,
+        kb_id: str,
+        status: str,
+        *,
+        limit: int | None = None,
+        type: str | None = None,
+    ) -> list[KBItem]:
         """Items in ``kb_id`` at ``status``, oldest first. Uses the
-        ``(kb_id, status)`` index."""
-        async with self.conn.execute(
-            "SELECT * FROM kb_items WHERE kb_id = ? AND status = ? ORDER BY created_at",
-            (kb_id, status),
-        ) as cur:
+        ``(kb_id, status)`` index. Additive keywords, byte-for-byte the old
+        behaviour when omitted: ``type`` filters to that item type (the
+        worker drains ``type="file"`` only), ``limit`` caps the page."""
+        sql = "SELECT * FROM kb_items WHERE kb_id = ? AND status = ?"
+        params: list[Any] = [kb_id, status]
+        if type is not None:
+            sql += " AND type = ?"
+            params.append(type)
+        sql += " ORDER BY created_at"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        async with self.conn.execute(sql, params) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
-    async def count_by_status(self, kb_id: str) -> dict[str, int]:
+    async def count_by_status(self, kb_id: str, *, type: str | None = None) -> dict[str, int]:
         """Per-status item counts for ``kb_id`` — every status in
         ``KB_ITEM_STATUSES`` present, zeros included for statuses with no
-        rows."""
+        rows. ``type`` (additive keyword) filters to that item type (DD-8
+        counts ``file`` items only)."""
         counts = {status: 0 for status in KB_ITEM_STATUSES}
-        async with self.conn.execute(
-            "SELECT status, COUNT(*) FROM kb_items WHERE kb_id = ? GROUP BY status",
-            (kb_id,),
-        ) as cur:
+        sql = "SELECT status, COUNT(*) FROM kb_items WHERE kb_id = ?"
+        params: list[Any] = [kb_id]
+        if type is not None:
+            sql += " AND type = ?"
+            params.append(type)
+        sql += " GROUP BY status"
+        async with self.conn.execute(sql, params) as cur:
             rows = await cur.fetchall()
         for row in rows:
             counts[row[0]] = row[1]
@@ -746,11 +881,56 @@ class KBChunkRepository:
             await self.conn.execute("DELETE FROM kb_chunks WHERE kb_id = ?", (kb_id,))
         return [row[0] for row in rows]
 
-    async def list_for_item(self, item_id: str) -> list[KBChunk]:
-        async with self.conn.execute(
-            "SELECT * FROM kb_chunks WHERE item_id = ? ORDER BY seq", (item_id,)
-        ) as cur:
+    async def list_for_item(
+        self, item_id: str, *, limit: int | None = None, offset: int = 0
+    ) -> list[KBChunk]:
+        """Chunks of ``item_id`` in ``seq`` order. Unchanged when called
+        positionally (just ``item_id``). ``limit``/``offset`` page the
+        result — SQLite requires a ``LIMIT`` for ``OFFSET``, so an
+        ``offset`` with no ``limit`` uses ``LIMIT -1`` (SQLite's
+        unbounded-limit sentinel)."""
+        sql = "SELECT * FROM kb_chunks WHERE item_id = ? ORDER BY seq"
+        params: list[Any] = [item_id]
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+        elif offset:
+            sql += " LIMIT -1 OFFSET ?"
+            params.append(offset)
+        async with self.conn.execute(sql, params) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def ids_for_item(self, item_id: str) -> list[int]:
+        """Chunk ids of ``item_id`` in ``seq`` order — never selects
+        ``text`` (a large file's chunk count must not force materialising
+        its text just to delete the matching vectors)."""
+        async with self.conn.execute(
+            "SELECT id FROM kb_chunks WHERE item_id = ? ORDER BY seq", (item_id,)
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
+
+    async def iter_for_kb(self, kb_id: str, batch_size: int = 1000) -> AsyncIterator[list[KBChunk]]:
+        """Async-iterate ``kb_id``'s chunks in ascending ``id`` order via
+        keyset pagination (``WHERE kb_id = ? AND id > ? ORDER BY id LIMIT
+        ?``) — DD-6's rebuild stream. Yields nothing for an empty KB. Holds
+        no transaction between pages: a chunk inserted mid-iteration with a
+        higher id is seen by a later page; one deleted is simply absent —
+        the caller (the rebuild) tolerates both.
+        """
+        last_id = 0
+        while True:
+            async with self.conn.execute(
+                "SELECT * FROM kb_chunks WHERE kb_id = ? AND id > ? ORDER BY id LIMIT ?",
+                (kb_id, last_id, batch_size),
+            ) as cur:
+                rows = await cur.fetchall()
+            if not rows:
+                return
+            page = [self._row_to_model(r) for r in rows]
+            yield page
+            if len(page) < batch_size:
+                return
+            last_id = page[-1].id
 
     async def get_many(self, ids: Sequence[int]) -> list[KBChunk]:
         """Fetch chunks by id, preserving ``ids``'s order (not SQL's).

@@ -301,12 +301,31 @@ spend is a decision on record, not an accident.
       lose every KB tool, with no error and no UI signal. Generalizing the prefix
       set and registering outside the gate are both viable; pick one deliberately
       and land the regression test in the same leg.
-- [ ] Should the folder→file relationship use the existing `parent_id` column or
+- [x] Should the folder→file relationship use the existing `parent_id` column or
       a new indexed `folder_item_id`? `parent_id` has zero readers anywhere in
       the tree today, and the relationship is only ever one level deep.
-- [ ] Which files inside a registered folder are skipped, and by what rule —
+      **Resolved in Flight 3 (DD-2, 2026-09-15)**: `parent_id` is the link —
+      folder deletion cleans descendants' chunks, FTS rows and vectors
+      through the widened `KBItemRepository.delete`; no new column, no
+      migration; `parent_id` stays unindexed (recorded).
+- [x] Which files inside a registered folder are skipped, and by what rule —
       `_is_binary` and `_check_read_size` cover part of it; dotfiles, VCS
       metadata, and ignore files are undecided.
+      **Resolved in Flight 3 (DD-3/DD-4/DD-5, 2026-09-15)**: a stat-only
+      walk skips dot-prefixed names, `node_modules`/`__pycache__`/`venv`/
+      `site-packages`, every symlink, and any suffix outside the extractor
+      registry's allowlist (`.html`/`.log` deliberately absent; `.gitignore`
+      not honoured — no `pathspec` dependency); a supported file over 10 MiB
+      or with a null byte in its first 8 KiB becomes a `failed` item with a
+      visible error, never a silent skip.
+- [ ] Re-measure `usearch` build and incremental-upsert cost on Windows at
+      1M vectors once a real corpus of that size exists (Flight 2 debrief
+      Recommendation 5; Flight 3 reconnaissance R6). Flight 2's Windows 1M/3M
+      figures (~2 h / ~7 h build, ~10–12 s / ~24 s save) are extrapolations
+      from 200k measurements assuming an N-independent platform penalty;
+      Flight 3's flush cadence was sized against them (save overhead ~9 %
+      at 1M, Leg 2 measurement) and should be re-checked when the number
+      is real.
 
 ## Known Issues
 
@@ -383,7 +402,7 @@ Operational consequences, recorded so the next flight does not rediscover them:
       (with the losing candidate removed in the same flight), and the repository
       and route gaps that currently leave no way to move an item out of
       `pending`.
-- [ ] Flight 3: Folder registration and indexing — the folder item type, path
+- [x] Flight 3: Folder registration and indexing — the folder item type, path
       containment on registration, and the walk → filter → extract → chunk →
       embed → persist pipeline behind the extractor seam, running as a resumable
       background job with per-file checkpointing.
@@ -397,4 +416,6 @@ Operational consequences, recorded so the next flight does not rediscover them:
       semantic and FTS5 results, and the `is_tool_enabled` prefix fix with its
       regression tests.
 - [ ] Flight 6: Studio surfaces — the global knowledge-base inventory and the
-      per-agent attach tab, replacing both stubs.
+      per-agent attach tab, replacing both stubs. Carries Flight 3's waived HAT
+      (register a folder, watch status, read chunks/source, re-index, read a
+      failure, concurrent delete, restart-resume) as the seed of its HAT.

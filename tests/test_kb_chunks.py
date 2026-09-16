@@ -463,3 +463,120 @@ class TestGetManyAndCounts:
         assert len(removed) == 2
         assert await chunk_repo.count_for_kb("kb1") == 0
         assert await chunk_repo.check_fts() is True
+
+
+# ── list_for_item paging / ids_for_item / iter_for_kb (Flight 3 Leg 1, AC-5) ──
+
+
+class TestChunkReadsPagingAndKeysetIteration:
+    async def test_list_for_item_unchanged_when_called_positionally(
+        self, conn, kb_repo, kb_item_repo, chunk_repo
+    ) -> None:
+        await _make_kb_and_item(kb_repo, kb_item_repo)
+        await chunk_repo.replace_item_chunks(
+            "item1",
+            "kb1",
+            [
+                ChunkRecord(seq=0, text="zq7xkone text", char_start=0, char_end=10),
+                ChunkRecord(seq=1, text="zq7xktwo text", char_start=10, char_end=20),
+            ],
+        )
+        chunks = await chunk_repo.list_for_item("item1")
+        assert [c.seq for c in chunks] == [0, 1]
+
+    async def test_list_for_item_limit_and_offset_page(
+        self, conn, kb_repo, kb_item_repo, chunk_repo
+    ) -> None:
+        await _make_kb_and_item(kb_repo, kb_item_repo)
+        await chunk_repo.replace_item_chunks(
+            "item1",
+            "kb1",
+            [
+                ChunkRecord(seq=n, text=f"zq7xkchunk{n} text", char_start=n, char_end=n + 1)
+                for n in range(5)
+            ],
+        )
+        page1 = await chunk_repo.list_for_item("item1", limit=2)
+        assert [c.seq for c in page1] == [0, 1]
+        page2 = await chunk_repo.list_for_item("item1", limit=2, offset=2)
+        assert [c.seq for c in page2] == [2, 3]
+        rest = await chunk_repo.list_for_item("item1", offset=3)
+        assert [c.seq for c in rest] == [3, 4]
+
+    async def test_ids_for_item_seq_order_matches_replace_result(
+        self, conn, kb_repo, kb_item_repo, chunk_repo
+    ) -> None:
+        await _make_kb_and_item(kb_repo, kb_item_repo)
+        ids = await chunk_repo.replace_item_chunks(
+            "item1",
+            "kb1",
+            [
+                ChunkRecord(seq=0, text="zq7xkone text", char_start=0, char_end=10),
+                ChunkRecord(seq=1, text="zq7xktwo text", char_start=10, char_end=20),
+            ],
+        )
+        assert await chunk_repo.ids_for_item("item1") == ids
+
+    async def test_iter_for_kb_yields_pages_across_multiple_items_ascending_id(
+        self, conn, kb_repo, kb_item_repo, chunk_repo
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="kb1"))
+        await kb_item_repo.create(KBItem(id="item1", kb_id="kb1", type="file", path_or_url="/a"))
+        await kb_item_repo.create(KBItem(id="item2", kb_id="kb1", type="file", path_or_url="/b"))
+        ids1 = await chunk_repo.replace_item_chunks(
+            "item1",
+            "kb1",
+            [
+                ChunkRecord(seq=n, text=f"zq7xkitemonec{n} text", char_start=n, char_end=n + 1)
+                for n in range(3)
+            ],
+        )
+        ids2 = await chunk_repo.replace_item_chunks(
+            "item2",
+            "kb1",
+            [
+                ChunkRecord(seq=n, text=f"zq7xkitemtwoc{n} text", char_start=n, char_end=n + 1)
+                for n in range(3)
+            ],
+        )
+
+        pages = []
+        async for page in chunk_repo.iter_for_kb("kb1", batch_size=2):
+            pages.append([c.id for c in page])
+
+        flat = [cid for page in pages for cid in page]
+        assert flat == sorted(ids1 + ids2)
+        assert all(len(p) <= 2 for p in pages)
+
+    async def test_iter_for_kb_empty_kb_yields_nothing(self, conn, kb_repo, chunk_repo) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="kb1"))
+        pages = [p async for p in chunk_repo.iter_for_kb("kb1")]
+        assert pages == []
+
+    async def test_iter_for_kb_holds_no_transaction_between_pages(
+        self, conn, kb_repo, kb_item_repo, chunk_repo
+    ) -> None:
+        """No transaction is held between pages — a write issued between
+        two ``__anext__`` calls must succeed, proving the generator does
+        not hold the write lock across a `yield`."""
+        await kb_repo.create(KnowledgeBase(id="kb1", name="kb1"))
+        await kb_item_repo.create(KBItem(id="item1", kb_id="kb1", type="file", path_or_url="/a"))
+        await chunk_repo.replace_item_chunks(
+            "item1",
+            "kb1",
+            [
+                ChunkRecord(seq=n, text=f"zq7xkiterc{n} text", char_start=n, char_end=n + 1)
+                for n in range(3)
+            ],
+        )
+
+        it = chunk_repo.iter_for_kb("kb1", batch_size=2)
+        first_page = await it.__anext__()
+        assert len(first_page) == 2
+
+        await kb_item_repo.create(KBItem(id="item2", kb_id="kb1", type="file", path_or_url="/b"))
+
+        second_page = await it.__anext__()
+        assert len(second_page) == 1
+        with pytest.raises(StopAsyncIteration):
+            await it.__anext__()

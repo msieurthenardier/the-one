@@ -11,12 +11,13 @@ import os
 import re
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
 
@@ -45,6 +46,7 @@ from the_one.db.repositories import (
     ChatSessionRepository,
     ConnectorDirectoryRepository,
     ConnectorRepository,
+    KBChunkRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
@@ -59,6 +61,8 @@ from the_one.db.repositories import (
 from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
+from the_one.knowledge.extractors import ExtractionError, extractor_for
+from the_one.knowledge.manager import get_manager as get_indexing_manager
 from the_one.knowledge.settings import (
     ChunkingSettings,
     EmbeddingSettings,
@@ -67,8 +71,10 @@ from the_one.knowledge.settings import (
     load_vector_store_settings,
     save_knowledge_settings,
 )
+from the_one.knowledge.walk import content_hash, is_filesystem_root
 from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+from the_one.platform.paths import canonicalize, is_within
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
@@ -261,6 +267,11 @@ async def _kb_repo() -> KnowledgeBaseRepository:
 async def _kb_item_repo() -> KBItemRepository:
     conn = await get_connection()
     return KBItemRepository(conn)
+
+
+async def _kb_chunk_repo() -> KBChunkRepository:
+    conn = await get_connection()
+    return KBChunkRepository(conn)
 
 
 async def _vector_store():
@@ -1456,6 +1467,12 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
 @router.delete("/knowledge-bases/{kb_id}")
 async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
     repo = await _kb_repo()
+    # Flight 3 Leg 3, AC-10: stop kb_id's worker (if a manager is
+    # installed) BEFORE the repository delete, so no worker is mid-item
+    # on rows about to be cascaded. A no-op for an untracked kb_id.
+    manager = get_indexing_manager()
+    if manager is not None:
+        await manager.stop(kb_id)
     try:
         await repo.delete(kb_id)
     except KeyError:
@@ -1498,10 +1515,51 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
     data["kb_id"] = kb_id
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
-    item = KBItem.model_validate(data)
+    try:
+        item = KBItem.model_validate(data)
+    except ValidationError as e:
+        # Flight 3 Leg 1: the create_knowledge_base 422 shape (:1414-1420)
+        # — a malformed item body used to 500 unhandled.
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+
     repo = await _kb_item_repo()
+    if item.type == "folder":
+        # DD-1: existence -> root -> containment, in that exact order, so
+        # a non-existent path under a registered folder is 422, not 409.
+        canonical = canonicalize(item.path_or_url)
+        if not await asyncio.to_thread(canonical.is_dir):
+            raise HTTPException(
+                status_code=422,
+                detail=f"folder does not exist or is not a directory: {item.path_or_url}",
+            )
+        if is_filesystem_root(canonical):
+            raise HTTPException(
+                status_code=422, detail=f"cannot register the filesystem root: {canonical}"
+            )
+        for existing in await repo.list_folders(kb_id):
+            if is_within(canonical, existing.path_or_url) or is_within(
+                existing.path_or_url, canonical
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"folder overlaps registered folder {existing.id}: {existing.path_or_url}"
+                    ),
+                )
+        item = item.model_copy(update={"path_or_url": str(canonical)})
+
     await repo.create(item)
+    if item.type == "folder":
+        _after_folder_registered(kb_id)
     return item.model_dump()
+
+
+def _after_folder_registered(kb_id: str) -> None:
+    """Kick kb_id's indexing worker (Flight 3 Leg 3) — a no-op when no
+    manager is installed (pre-lifespan, or a test with none injected)."""
+    manager = get_indexing_manager()
+    if manager is not None:
+        manager.request_index(kb_id)
 
 
 @router.get("/knowledge-bases/{kb_id}/items/{item_id}")
@@ -1524,10 +1582,14 @@ async def retry_kb_item(kb_id: str, item_id: str) -> dict[str, Any]:
     """Move a stranded item back to ``pending``.
 
     Accepts both ``failed`` (operator retry) and ``indexing`` (a process
-    killed mid-index, DD-5) — the same operator intent, and until Flight
-    3's startup reconciliation exists this is the only way out for an item
-    stranded by a kill. Any other current status is rejected 409 with the
-    current status in the detail.
+    killed mid-index, DD-5) — the same operator intent. Flight 3 Leg 3
+    added two automatic paths that also clear a stranded ``indexing``
+    row — ``IndexingManager.start_all``'s startup ``requeue_stranded()``
+    and the per-pass ``requeue_stranded(kb_id)`` at the top of every
+    worker pass — so this route is no longer the *only* way out, just the
+    operator-immediate one (no restart or re-index request needed). Any
+    other current status is rejected 409 with the current status in the
+    detail.
     """
     repo = await _kb_item_repo()
     try:
@@ -1567,6 +1629,16 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
     # belong to now 404s instead of succeeding.
     if item.kb_id != kb_id:
         raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+
+    # Flight 3 Leg 3, AC-10: a folder delete stops kb_id's worker first
+    # (no worker mid-item on rows about to be cascaded) and re-kicks it
+    # after (the remaining folders re-walk). A standalone file delete
+    # needs neither — the worker's own per-item catch handles a vanished
+    # row.
+    manager = get_indexing_manager()
+    if item.type == "folder" and manager is not None:
+        await manager.stop(kb_id)
+
     ids = await repo.delete(item_id)
     # Flight 2 Leg 4: same after-the-repository-transaction, log-and-
     # continue shape as delete_knowledge_base above.
@@ -1576,7 +1648,154 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
             await store.delete(kb_id, ids)
         except Exception:
             logger.exception("vector store delete failed for kb item %s", item_id)
+
+    if item.type == "folder" and manager is not None:
+        manager.request_index(kb_id)
+
     return {"status": "ok"}
+
+
+@router.get("/knowledge-bases/{kb_id}/status")
+async def get_kb_status(kb_id: str) -> dict[str, Any]:
+    """Flight 3 Leg 3, DD-8: the per-KB status projection — file-item
+    counts (folders excluded, so Flight 6's inventory never renders a
+    folder as a document), each folder's own walk status, the chunk
+    count, and the indexer's current state word."""
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
+    item_repo = await _kb_item_repo()
+    chunk_repo = await _kb_chunk_repo()
+    folders = await item_repo.list_folders(kb_id)
+    manager = get_indexing_manager()
+
+    return {
+        "items": await item_repo.count_by_status(kb_id, type="file"),
+        "folders": [
+            {
+                "id": f.id,
+                "path": f.path_or_url,
+                "status": f.status,
+                "indexed_at": f.indexed_at,
+                "error": f.error,
+            }
+            for f in folders
+        ],
+        "chunks": await chunk_repo.count_for_kb(kb_id),
+        "indexer": manager.state(kb_id) if manager is not None else "idle",
+    }
+
+
+@router.post("/knowledge-bases/{kb_id}/reindex", status_code=202)
+async def reindex_knowledge_base(
+    kb_id: str, scope: Literal["changed", "all"] = "changed"
+) -> dict[str, Any]:
+    """Flight 3 Leg 3, DD-8: ``changed`` (default) is a plain reconcile
+    pass — ``request_index`` alone, so the next walk picks up new/edited/
+    deleted files and unchanged content is not re-embedded. ``all`` is
+    the recovery hammer — ``requeue_for_reindex`` (every ``indexed``/
+    ``failed`` **file** item back to ``pending``; folders and ``indexing``
+    items untouched) before ``request_index``, so every file is
+    re-extracted and re-embedded."""
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
+    requeued = 0
+    if scope == "all":
+        item_repo = await _kb_item_repo()
+        requeued = await item_repo.requeue_for_reindex(kb_id)
+
+    manager = get_indexing_manager()
+    if manager is not None:
+        manager.request_index(kb_id)
+
+    return {"scope": scope, "requeued": requeued}
+
+
+@router.get("/knowledge-bases/{kb_id}/items/{item_id}/chunks")
+async def get_kb_item_chunks(
+    kb_id: str,
+    item_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+) -> list[dict[str, Any]]:
+    """Flight 3 Leg 3, DD-8: an item's chunks in ``seq`` order, paged.
+    R8 scoping: an item of another KB reads as 404."""
+    item_repo = await _kb_item_repo()
+    try:
+        item = await item_repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+
+    chunk_repo = await _kb_chunk_repo()
+    chunks = await chunk_repo.list_for_item(item_id, limit=limit, offset=offset)
+    return [
+        {
+            "id": c.id,
+            "seq": c.seq,
+            "char_start": c.char_start,
+            "char_end": c.char_end,
+            "text": c.text,
+        }
+        for c in chunks
+    ]
+
+
+@router.get("/knowledge-bases/{kb_id}/items/{item_id}/source")
+async def get_kb_item_source(kb_id: str, item_id: str) -> dict[str, Any]:
+    """Flight 3 Leg 3, DD-8: the source read-back — the extracted text
+    re-run through the item's extractor on demand (never stored; chunks
+    are the stored form and their offsets index into exactly this text).
+    404 if the item or the file is missing; 422 for a ``folder``/``url``
+    item or a ``file`` item with no registered extractor. The DD-5 size
+    cap bounds the response indirectly (no separate read-back cap — the
+    file size cap is the cap; a file the indexer already failed on is
+    still readable here)."""
+    item_repo = await _kb_item_repo()
+    try:
+        item = await item_repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.type != "file":
+        raise HTTPException(status_code=422, detail=f"item type {item.type!r} has no source text")
+
+    path = Path(item.path_or_url)
+    extractor = extractor_for(path)
+    if extractor is None:
+        raise HTTPException(
+            status_code=422, detail=f"no extractor registered for suffix {path.suffix!r}"
+        )
+
+    try:
+        st = await asyncio.to_thread(path.stat)
+    except (FileNotFoundError, NotADirectoryError):
+        raise HTTPException(status_code=404, detail=f"file not found: {path}")
+
+    try:
+        text = await asyncio.to_thread(extractor.extract, path)
+    except ExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    digest = await asyncio.to_thread(content_hash, path)
+    stale = item.content_hash is None or digest != item.content_hash
+
+    return {
+        "path": str(path),
+        "size_bytes": st.st_size,
+        "content_hash": item.content_hash,
+        "stale": stale,
+        "text": text,
+    }
 
 
 # ── Knowledge settings ───────────────────────────────────────────────────

@@ -38,7 +38,7 @@ import asyncio
 import dataclasses
 import logging
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import AsyncIterable, Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -279,8 +279,15 @@ class UsearchStore:
                 index.remove(keys)
                 index.add(keys, vecs)
 
-            await asyncio.to_thread(_do_upsert, entry.index)
+            # DD-7 (Flight 3 Leg 2): `dirty` is set BEFORE the mutation,
+            # not after — a `to_thread` call that raises partway through
+            # (e.g. after `remove` but during `add`) must still leave the
+            # in-memory index marked dirty, since it may already have been
+            # partially mutated. Setting `dirty` only after a successful
+            # `to_thread` would let such a failure leave `dirty` False
+            # with a silently-mutated index that the next `flush` skips.
             entry.dirty = True
+            await asyncio.to_thread(_do_upsert, entry.index)
 
     async def delete(self, kb_id: str, ids: Sequence[int]) -> None:
         id_list = list(ids)
@@ -295,8 +302,12 @@ class UsearchStore:
             if entry.index is None:
                 return
             keys = np.asarray(id_list, dtype=np.uint64)
-            await asyncio.to_thread(entry.index.remove, keys)
+            # DD-7: same reordering rationale as `upsert` above — `dirty`
+            # is set before the `to_thread` mutation, after the
+            # `entry.index is None` early return (nothing to mark dirty
+            # for an index that was never loaded).
             entry.dirty = True
+            await asyncio.to_thread(entry.index.remove, keys)
 
     async def delete_kb(self, kb_id: str) -> None:
         # Guard-first (Leg 6, flight-end review condition #3): the
@@ -381,7 +392,7 @@ class UsearchStore:
             )
 
     async def rebuild_from(
-        self, kb_id: str, ids_and_vectors: Iterable[tuple[Sequence[int], np.ndarray]]
+        self, kb_id: str, ids_and_vectors: AsyncIterable[tuple[Sequence[int], np.ndarray]]
     ) -> None:
         """Rebuild ``kb_id``'s index from scratch and clear any staleness.
 
@@ -389,11 +400,20 @@ class UsearchStore:
         ``_ensure_loaded`` marked stale. Builds a brand new index (never
         reuses a stale in-memory one), saves it, and upserts the registry
         row — clearing ``entry.stale`` on success.
+
+        ``ids_and_vectors`` is an ``AsyncIterable`` (Flight 3 DD-6): a 3M-
+        chunk knowledge base cannot be pre-embedded into memory (3M x 512 x
+        4 bytes is 6 GB), so this iterates the caller's async generator
+        (``async for``) while holding ``entry.lock`` for the whole rebuild.
+        See the ``VectorStore`` Protocol docstring's no-call-back
+        invariant: the generator may only read ``kb_chunks`` and embed —
+        never call back into this store, which would deadlock against the
+        lock held here.
         """
         entry = self._entry(kb_id)
         async with entry.lock:
             index = Index(ndim=self.dim, metric="cos", dtype=self.dtype)
-            for ids, vectors in ids_and_vectors:
+            async for ids, vectors in ids_and_vectors:
                 id_list = list(ids)
                 if not id_list:
                     continue

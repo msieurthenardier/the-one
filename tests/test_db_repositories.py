@@ -735,6 +735,295 @@ class TestKBItemRepository:
         assert loaded.created_at
         assert loaded.updated_at
 
+    async def test_delete_folder_cleans_descendant_chunks_and_fts(
+        self,
+        conn,
+        kb_repo: KnowledgeBaseRepository,
+        kb_item_repo: KBItemRepository,
+        kb_chunk_repo: KBChunkRepository,
+    ) -> None:
+        """Flight 3 Leg 1, AC-1: ``KBItemRepository.delete(folder_id)``
+        returns every descendant chunk id, leaves zero ``kb_chunks``/
+        ``kb_chunks_fts`` rows for the folder and both children, and
+        ``check_fts()`` stays ``True``."""
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(
+            KBItem(id="folder1", kb_id="kb1", type="folder", path_or_url="/root")
+        )
+        await kb_item_repo.create(
+            KBItem(
+                id="child1",
+                kb_id="kb1",
+                parent_id="folder1",
+                type="file",
+                path_or_url="/root/a.txt",
+            )
+        )
+        await kb_item_repo.create(
+            KBItem(
+                id="child2",
+                kb_id="kb1",
+                parent_id="folder1",
+                type="file",
+                path_or_url="/root/b.txt",
+            )
+        )
+        ids1 = await kb_chunk_repo.replace_item_chunks(
+            "child1",
+            "kb1",
+            [ChunkRecord(seq=0, text="zq9folderchildone text", char_start=0, char_end=10)],
+        )
+        ids2 = await kb_chunk_repo.replace_item_chunks(
+            "child2",
+            "kb1",
+            [ChunkRecord(seq=0, text="zq9folderchildtwo text", char_start=0, char_end=10)],
+        )
+
+        removed = await kb_item_repo.delete("folder1")
+
+        assert set(removed) == set(ids1) | set(ids2)
+        async with conn.execute("SELECT COUNT(*) FROM kb_chunks") as cur:
+            assert (await cur.fetchone())[0] == 0
+        async with conn.execute(
+            "SELECT COUNT(*) FROM kb_chunks_fts WHERE kb_chunks_fts MATCH 'zq9folderchildone'"
+        ) as cur:
+            assert (await cur.fetchone())[0] == 0
+        async with conn.execute(
+            "SELECT COUNT(*) FROM kb_chunks_fts WHERE kb_chunks_fts MATCH 'zq9folderchildtwo'"
+        ) as cur:
+            assert (await cur.fetchone())[0] == 0
+        assert await kb_chunk_repo.check_fts() is True
+        assert await kb_item_repo.list("kb1") == []
+
+
+# ── KB Item Repository bulk/listing/requeue surface (Flight 3 Leg 1) ──────
+
+
+class TestKBItemRepositoryBulkAndListings:
+    """AC-2 through AC-4: ``create_many``, ``list_children``,
+    ``list_folders``, ``list_by_status``/``count_by_status`` keyword
+    filters, ``requeue_stranded``, ``requeue_for_reindex``. Every method's
+    first production consumer is Leg 3, so each is unit-tested directly
+    here."""
+
+    async def test_create_many_inserts_all_in_one_transaction(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        items = [
+            KBItem(id=f"i{n}", kb_id="kb1", type="file", path_or_url=f"/f{n}") for n in range(5)
+        ]
+        await kb_item_repo.create_many(items)
+        listed = await kb_item_repo.list("kb1")
+        assert {i.id for i in listed} == {f"i{n}" for n in range(5)}
+
+    async def test_create_many_empty_is_noop(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create_many([])
+        assert await kb_item_repo.list("kb1") == []
+
+    async def test_create_many_duplicate_id_rolls_back_whole_batch(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        import sqlite3
+
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(KBItem(id="dup", kb_id="kb1", type="file", path_or_url="/x"))
+        items = [
+            KBItem(id="new1", kb_id="kb1", type="file", path_or_url="/y"),
+            KBItem(id="dup", kb_id="kb1", type="file", path_or_url="/z"),
+        ]
+        with pytest.raises(sqlite3.IntegrityError):
+            await kb_item_repo.create_many(items)
+        listed = await kb_item_repo.list("kb1")
+        assert {i.id for i in listed} == {"dup"}
+
+    async def test_create_many_is_a_single_write_transaction(
+        self, monkeypatch, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        """A commit-count spy on ``write_transaction`` proves ``create_many``
+        opens exactly one transaction for the whole batch, not one per
+        item."""
+        import contextlib
+
+        from the_one.db import repositories as repo_module
+
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        calls = {"n": 0}
+        real_write_transaction = repo_module.write_transaction
+
+        @contextlib.asynccontextmanager
+        async def _spy(conn):
+            calls["n"] += 1
+            async with real_write_transaction(conn):
+                yield
+
+        monkeypatch.setattr(repo_module, "write_transaction", _spy)
+        items = [
+            KBItem(id=f"i{n}", kb_id="kb1", type="file", path_or_url=f"/f{n}") for n in range(10)
+        ]
+        await kb_item_repo.create_many(items)
+        assert calls["n"] == 1
+
+    async def test_list_children_returns_items_with_parent_oldest_first(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(
+            KBItem(id="folder1", kb_id="kb1", type="folder", path_or_url="/root")
+        )
+        await kb_item_repo.create(
+            KBItem(id="c1", kb_id="kb1", parent_id="folder1", type="file", path_or_url="/root/a")
+        )
+        await kb_item_repo.create(
+            KBItem(id="c2", kb_id="kb1", parent_id="folder1", type="file", path_or_url="/root/b")
+        )
+        await kb_item_repo.create(KBItem(id="other", kb_id="kb1", type="file", path_or_url="/z"))
+        children = await kb_item_repo.list_children("folder1")
+        assert [c.id for c in children] == ["c1", "c2"]
+
+    async def test_list_children_unknown_id_returns_empty(
+        self, kb_item_repo: KBItemRepository
+    ) -> None:
+        assert await kb_item_repo.list_children("nope") == []
+
+    async def test_list_folders_returns_only_folder_type_oldest_first(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(KBItem(id="f1", kb_id="kb1", type="folder", path_or_url="/a"))
+        await kb_item_repo.create(KBItem(id="file1", kb_id="kb1", type="file", path_or_url="/a/x"))
+        await kb_item_repo.create(KBItem(id="f2", kb_id="kb1", type="folder", path_or_url="/b"))
+        folders = await kb_item_repo.list_folders("kb1")
+        assert [f.id for f in folders] == ["f1", "f2"]
+
+    async def test_list_by_status_type_filter_and_limit(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(
+            KBItem(id="folder1", kb_id="kb1", type="folder", path_or_url="/root", status="pending")
+        )
+        await kb_item_repo.create(
+            KBItem(id="f1", kb_id="kb1", type="file", path_or_url="/a", status="pending")
+        )
+        await kb_item_repo.create(
+            KBItem(id="f2", kb_id="kb1", type="file", path_or_url="/b", status="pending")
+        )
+        all_pending = await kb_item_repo.list_by_status("kb1", "pending")
+        assert {i.id for i in all_pending} == {"folder1", "f1", "f2"}
+        only_files = await kb_item_repo.list_by_status("kb1", "pending", type="file")
+        assert {i.id for i in only_files} == {"f1", "f2"}
+        limited = await kb_item_repo.list_by_status("kb1", "pending", type="file", limit=1)
+        assert [i.id for i in limited] == ["f1"]
+
+    async def test_list_by_status_positional_call_unchanged(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(
+            KBItem(id="a", kb_id="kb1", type="file", path_or_url="/a", status="pending")
+        )
+        assert [i.id for i in await kb_item_repo.list_by_status("kb1", "pending")] == ["a"]
+
+    async def test_count_by_status_type_filter(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(
+            KBItem(id="folder1", kb_id="kb1", type="folder", path_or_url="/root", status="pending")
+        )
+        await kb_item_repo.create(
+            KBItem(id="f1", kb_id="kb1", type="file", path_or_url="/a", status="pending")
+        )
+        counts_all = await kb_item_repo.count_by_status("kb1")
+        assert counts_all["pending"] == 2
+        counts_files = await kb_item_repo.count_by_status("kb1", type="file")
+        assert counts_files["pending"] == 1
+
+    async def test_requeue_stranded_scoped_and_unscoped(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_repo.create(KnowledgeBase(id="kb2", name="KB2"))
+        await kb_item_repo.create(
+            KBItem(
+                id="a",
+                kb_id="kb1",
+                type="file",
+                path_or_url="/a",
+                status="indexing",
+                error="boom",
+            )
+        )
+        await kb_item_repo.create(
+            KBItem(id="b", kb_id="kb1", type="folder", path_or_url="/b", status="indexing")
+        )
+        await kb_item_repo.create(
+            KBItem(id="c", kb_id="kb2", type="file", path_or_url="/c", status="indexing")
+        )
+        await kb_item_repo.create(
+            KBItem(id="d", kb_id="kb1", type="file", path_or_url="/d", status="pending")
+        )
+
+        n = await kb_item_repo.requeue_stranded(kb_id="kb1")
+        assert n == 2
+        a = await kb_item_repo.get("a")
+        assert a.status == "pending"
+        assert a.error is None
+        assert (await kb_item_repo.get("b")).status == "pending"
+        assert (await kb_item_repo.get("c")).status == "indexing"  # different KB, untouched
+
+        n_all = await kb_item_repo.requeue_stranded()
+        assert n_all == 1
+        assert (await kb_item_repo.get("c")).status == "pending"
+
+    async def test_requeue_for_reindex_moves_indexed_and_failed_file_only(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_repo.create(KnowledgeBase(id="kb2", name="KB2"))
+        await kb_item_repo.create(
+            KBItem(id="a", kb_id="kb1", type="file", path_or_url="/a", status="indexed")
+        )
+        await kb_item_repo.create(
+            KBItem(
+                id="b",
+                kb_id="kb1",
+                type="file",
+                path_or_url="/b",
+                status="failed",
+                error="boom",
+            )
+        )
+        await kb_item_repo.create(
+            KBItem(id="c", kb_id="kb1", type="file", path_or_url="/c", status="indexing")
+        )
+        await kb_item_repo.create(
+            KBItem(id="d", kb_id="kb1", type="folder", path_or_url="/d", status="indexed")
+        )
+        await kb_item_repo.create(
+            KBItem(id="e", kb_id="kb2", type="file", path_or_url="/e", status="indexed")
+        )
+
+        n = await kb_item_repo.requeue_for_reindex("kb1")
+        assert n == 2
+        assert (await kb_item_repo.get("a")).status == "pending"
+        b = await kb_item_repo.get("b")
+        assert b.status == "pending"
+        assert b.error is None
+        assert (await kb_item_repo.get("c")).status == "indexing"
+        assert (await kb_item_repo.get("d")).status == "indexed"
+        assert (await kb_item_repo.get("e")).status == "indexed"
+
+    async def test_requeue_for_reindex_zero_items_returns_zero_and_commits(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        assert await kb_item_repo.requeue_for_reindex("kb1") == 0
+
 
 # ── KB Item Repository lifecycle (Flight 2 Leg 1, DD-5) ───────────────────
 

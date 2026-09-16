@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import aiosqlite
@@ -757,6 +758,231 @@ class TestKnowledgeBaseAPI:
         assert resp.status_code == 404
 
 
+class TestKnowledgeBaseFolderRegistration:
+    """Flight 3 Leg 1, AC-10: ``POST .../items`` with ``type: "folder"`` —
+    the DD-1 validation order (existence -> root -> containment),
+    canonicalisation, the ``ValidationError`` -> 422 handler, and the
+    ``_after_folder_registered`` no-op seam."""
+
+    async def test_valid_folder_registers_201_with_canonical_path(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["path_or_url"] == str(folder.resolve())
+
+    async def test_relative_path_is_canonicalised(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "relative-docs"
+        folder.mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": "relative-docs"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["path_or_url"] == str(folder.resolve())
+
+    async def test_tilde_path_is_canonicalised(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "home-docs"
+        folder.mkdir()
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": "~/home-docs"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["path_or_url"] == str(folder.resolve())
+
+    async def test_symlinked_path_resolves_to_target(self, client: AsyncClient, tmp_path) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        target = tmp_path / "target"
+        target.mkdir()
+        link = tmp_path / "link"
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError) as e:
+            pytest.skip(f"os.symlink not supported on this platform: {e}")
+
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(link)},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["path_or_url"] == str(target.resolve())
+
+    async def test_nonexistent_path_422(self, client: AsyncClient, tmp_path) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(tmp_path / "nope")},
+        )
+        assert resp.status_code == 422
+
+    async def test_existing_file_path_422(self, client: AsyncClient, tmp_path) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        f = tmp_path / "afile.txt"
+        f.write_text("x")
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(f)},
+        )
+        assert resp.status_code == 422
+
+    async def test_filesystem_root_422(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": "/"},
+        )
+        assert resp.status_code == 422
+
+    async def test_overlapping_folder_same_kb_409_with_conflicting_item_id(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        root_folder = tmp_path / "root"
+        root_folder.mkdir()
+        first = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(root_folder)},
+        )
+        assert first.status_code == 201
+        first_id = first.json()["id"]
+
+        # Equal path.
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(root_folder)},
+        )
+        assert resp.status_code == 409
+        assert first_id in resp.json()["detail"]
+
+        # Inside the registered folder.
+        inner = root_folder / "inner"
+        inner.mkdir()
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(inner)},
+        )
+        assert resp.status_code == 409
+        assert first_id in resp.json()["detail"]
+
+        # Containing the registered folder.
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(tmp_path)},
+        )
+        assert resp.status_code == 409
+        assert first_id in resp.json()["detail"]
+
+    async def test_same_folder_different_kb_201(self, client: AsyncClient, tmp_path) -> None:
+        kb1 = (await client.post("/api/knowledge-bases", json={"name": "KB1"})).json()["id"]
+        kb2 = (await client.post("/api/knowledge-bases", json={"name": "KB2"})).json()["id"]
+        folder = tmp_path / "shared"
+        folder.mkdir()
+
+        resp1 = await client.post(
+            f"/api/knowledge-bases/{kb1}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        assert resp1.status_code == 201
+        resp2 = await client.post(
+            f"/api/knowledge-bases/{kb2}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        assert resp2.status_code == 201
+
+    async def test_check_order_nonexistent_path_under_registered_folder_is_422_not_409(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        root_folder = tmp_path / "root"
+        root_folder.mkdir()
+        first = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(root_folder)},
+        )
+        assert first.status_code == 201
+
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(root_folder / "does-not-exist")},
+        )
+        assert resp.status_code == 422
+
+    async def test_file_and_url_items_unchanged(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": "/tmp/nonexistent-does-not-matter.txt"},
+        )
+        assert resp.status_code == 201
+        resp2 = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "url", "path_or_url": "http://example.com"},
+        )
+        assert resp2.status_code == 201
+
+    async def test_malformed_body_422_via_validation_error_handler(
+        self, client: AsyncClient
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "not-a-real-type", "path_or_url": "/x"},
+        )
+        assert resp.status_code == 422
+
+    async def test_after_folder_registered_called_once_with_kb_id(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.interfaces.web import api as api_module
+
+        calls = []
+        monkeypatch.setattr(api_module, "_after_folder_registered", calls.append)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        assert resp.status_code == 201
+        assert calls == [kb_id]
+
+    async def test_after_folder_registered_not_called_for_file_item(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.interfaces.web import api as api_module
+
+        calls = []
+        monkeypatch.setattr(api_module, "_after_folder_registered", calls.append)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": "/tmp/x.txt"},
+        )
+        assert resp.status_code == 201
+        assert calls == []
+
+
 class TestKnowledgeBaseCreateWarmsUpEmbeddingBackend:
     """M24 F02 L03, DD-1, AC-5: creating a KB kicks the embedding warm-up
     exactly once on a cold process; a second creation does not kick it
@@ -903,6 +1129,50 @@ class TestKnowledgeBaseDeleteCallsVectorStore:
         assert resp.status_code == 200
         assert ("delete", kb_id, ids) in calls
 
+    async def test_delete_folder_item_calls_delete_with_every_descendant_chunk_id(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Flight 3 Leg 1, AC-11: no route change was needed —
+        ``delete_kb_item`` already forwards whatever ``repo.delete``
+        returns; the widened repository method is the whole fix."""
+        from the_one import vectors as vectors_module
+        from the_one.db._kb_types import ChunkRecord
+        from the_one.db.models import KBItem
+        from the_one.db.repositories import KBChunkRepository, KBItemRepository
+        from the_one.interfaces.web import api as api_module
+
+        store, calls = self._recording_store()
+        monkeypatch.setattr(vectors_module, "_build_store", lambda settings, conn: store)
+        vectors_module._reset_for_test()
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+
+        conn = await api_module.get_connection()
+        item_repo = KBItemRepository(conn)
+        chunk_repo = KBChunkRepository(conn)
+        await item_repo.create(
+            KBItem(id="folder1", kb_id=kb_id, type="folder", path_or_url="/tmp/root")
+        )
+        await item_repo.create(
+            KBItem(
+                id="child1",
+                kb_id=kb_id,
+                parent_id="folder1",
+                type="file",
+                path_or_url="/tmp/root/a",
+            )
+        )
+        ids = await chunk_repo.replace_item_chunks(
+            "child1",
+            kb_id,
+            [ChunkRecord(seq=0, text="hello folder world", char_start=0, char_end=11)],
+        )
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/folder1")
+
+        assert resp.status_code == 200
+        assert ("delete", kb_id, ids) in calls
+
     async def test_store_failure_is_logged_and_the_route_still_returns_200(
         self, client: AsyncClient, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -946,6 +1216,449 @@ class TestKnowledgeBaseDeleteCallsVectorStore:
 
         assert resp.status_code == 200
         assert any("vector store" in record.message.lower() for record in caplog.records)
+
+
+class _FakeIndexingManager:
+    """Flight 3 Leg 3: records ``request_index``/``stop`` calls in order
+    and returns a scripted ``state()`` — installed via
+    ``monkeypatch.setattr(manager_mod, "_manager", fake)`` (the same
+    accessor ``get_indexing_manager()`` reads)."""
+
+    def __init__(self, state: str = "idle") -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._state = state
+
+    def request_index(self, kb_id: str) -> None:
+        self.calls.append(("request_index", kb_id))
+
+    async def stop(self, kb_id: str) -> None:
+        self.calls.append(("stop", kb_id))
+
+    def state(self, kb_id: str) -> str:
+        return self._state
+
+
+class TestKnowledgeBaseStatusRoute:
+    """Flight 3 Leg 3, AC-9: ``GET /knowledge-bases/{kb_id}/status``."""
+
+    async def test_unknown_kb_404(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/knowledge-bases/no-such-kb/status")
+        assert resp.status_code == 404
+
+    async def test_reports_counts_folders_chunks_and_idle_with_no_manager(
+        self, client: AsyncClient
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": "/tmp/a.txt"},
+        )
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["items"] == {"pending": 1, "indexing": 0, "indexed": 0, "failed": 0}
+        assert body["folders"] == []
+        assert body["chunks"] == 0
+        assert body["indexer"] == "idle"
+
+    async def test_reports_folder_projection_and_manager_state(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.knowledge import manager as manager_mod
+
+        fake = _FakeIndexingManager(state="running")
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        folder_resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        folder_item = folder_resp.json()
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["indexer"] == "running"
+        assert body["folders"] == [
+            {
+                "id": folder_item["id"],
+                "path": folder_item["path_or_url"],
+                "status": folder_item["status"],
+                "indexed_at": folder_item["indexed_at"],
+                "error": folder_item["error"],
+            }
+        ]
+
+    async def test_chunks_count_reflects_stored_chunks(self, client: AsyncClient) -> None:
+        from the_one.db._kb_types import ChunkRecord
+        from the_one.db.repositories import KBChunkRepository
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        conn = await api_module.get_connection()
+        chunk_repo = KBChunkRepository(conn)
+        await chunk_repo.replace_item_chunks(
+            item_id,
+            kb_id,
+            [
+                ChunkRecord(seq=0, text="hello", char_start=0, char_end=5),
+                ChunkRecord(seq=1, text="world", char_start=5, char_end=10),
+            ],
+        )
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        assert resp.json()["chunks"] == 2
+
+
+class TestKnowledgeBaseReindexRoute:
+    """Flight 3 Leg 3, AC-9: ``POST /knowledge-bases/{kb_id}/reindex``."""
+
+    async def test_unknown_kb_404(self, client: AsyncClient) -> None:
+        resp = await client.post("/api/knowledge-bases/no-such-kb/reindex")
+        assert resp.status_code == 404
+
+    async def test_invalid_scope_422(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/reindex?scope=bogus")
+        assert resp.status_code == 422
+
+    async def test_default_scope_changed_requests_index_and_requeues_nothing(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.knowledge import manager as manager_mod
+
+        fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/reindex")
+
+        assert resp.status_code == 202
+        assert resp.json() == {"scope": "changed", "requeued": 0}
+        assert fake.calls == [("request_index", kb_id)]
+
+    async def test_scope_all_requeues_indexed_and_failed_file_items(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.db._write_lock import write_transaction
+        from the_one.interfaces.web import api as api_module
+        from the_one.knowledge import manager as manager_mod
+
+        fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        conn = await api_module.get_connection()
+        async with write_transaction(conn):
+            await conn.execute("UPDATE kb_items SET status='indexed' WHERE id=?", (item_id,))
+
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/reindex?scope=all")
+
+        assert resp.status_code == 202
+        assert resp.json() == {"scope": "all", "requeued": 1}
+        assert fake.calls == [("request_index", kb_id)]
+
+        item_resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
+        assert item_resp.json()["status"] == "pending"
+
+    async def test_no_manager_installed_still_returns_202(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(f"/api/knowledge-bases/{kb_id}/reindex")
+        assert resp.status_code == 202
+
+
+class TestKnowledgeBaseChunksRoute:
+    """Flight 3 Leg 3, AC-9: ``GET …/items/{item_id}/chunks``."""
+
+    async def _seed_item_and_chunks(self, client: AsyncClient) -> tuple[str, str]:
+        from the_one.db._kb_types import ChunkRecord
+        from the_one.db.repositories import KBChunkRepository
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        conn = await api_module.get_connection()
+        chunk_repo = KBChunkRepository(conn)
+        await chunk_repo.replace_item_chunks(
+            item_id,
+            kb_id,
+            [
+                ChunkRecord(seq=1, text="second", char_start=5, char_end=11),
+                ChunkRecord(seq=0, text="first", char_start=0, char_end=5),
+            ],
+        )
+        return kb_id, item_id
+
+    async def test_chunks_paginated_in_seq_order(self, client: AsyncClient) -> None:
+        kb_id, item_id = await self._seed_item_and_chunks(client)
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/chunks")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert [c["seq"] for c in body] == [0, 1]
+        assert body[0] == {
+            "id": body[0]["id"],
+            "seq": 0,
+            "char_start": 0,
+            "char_end": 5,
+            "text": "first",
+        }
+
+    async def test_limit_below_range_422(self, client: AsyncClient) -> None:
+        kb_id, item_id = await self._seed_item_and_chunks(client)
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/chunks?limit=0")
+        assert resp.status_code == 422
+
+    async def test_limit_above_range_422(self, client: AsyncClient) -> None:
+        kb_id, item_id = await self._seed_item_and_chunks(client)
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/chunks?limit=1001")
+        assert resp.status_code == 422
+
+    async def test_negative_offset_422(self, client: AsyncClient) -> None:
+        kb_id, item_id = await self._seed_item_and_chunks(client)
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/chunks?offset=-1")
+        assert resp.status_code == 422
+
+    async def test_other_kb_404(self, client: AsyncClient) -> None:
+        _, item_id = await self._seed_item_and_chunks(client)
+        kb2 = (await client.post("/api/knowledge-bases", json={"name": "KB2"})).json()["id"]
+        resp = await client.get(f"/api/knowledge-bases/{kb2}/items/{item_id}/chunks")
+        assert resp.status_code == 404
+
+
+class TestKnowledgeBaseSourceRoute:
+    """Flight 3 Leg 3, AC-9: ``GET …/items/{item_id}/source``."""
+
+    async def test_returns_extracted_text_and_fresh_hash_is_not_stale(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        from the_one.knowledge.walk import content_hash
+
+        path = tmp_path / "doc.txt"
+        path.write_text("hello world")
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": str(path)},
+            )
+        ).json()["id"]
+
+        from the_one.interfaces.web import api as api_module
+
+        conn = await api_module.get_connection()
+        from the_one.db.repositories import KBItemRepository
+
+        await KBItemRepository(conn).set_content_identity(
+            item_id,
+            content_hash=content_hash(path),
+            size_bytes=path.stat().st_size,
+            mtime=path.stat().st_mtime,
+        )
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["path"] == str(path)
+        assert body["text"] == "hello world"
+        assert body["stale"] is False
+        assert body["content_hash"] == content_hash(path)
+
+    async def test_no_stored_hash_reads_as_stale(self, client: AsyncClient, tmp_path) -> None:
+        path = tmp_path / "doc.txt"
+        path.write_text("hello world")
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": str(path)},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 200
+        assert resp.json()["stale"] is True
+        assert resp.json()["content_hash"] is None
+
+    async def test_missing_file_404(self, client: AsyncClient, tmp_path) -> None:
+        path = tmp_path / "gone.txt"
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": str(path)},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 404
+
+    async def test_folder_item_422(self, client: AsyncClient, tmp_path) -> None:
+        folder = tmp_path / "docs"
+        folder.mkdir()
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "folder", "path_or_url": str(folder)},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 422
+
+    async def test_url_item_422(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "url", "path_or_url": "https://example.com"},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 422
+
+    async def test_no_extractor_for_suffix_422(self, client: AsyncClient, tmp_path) -> None:
+        path = tmp_path / "image.png"
+        path.write_bytes(b"\x89PNG\r\n")
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": str(path)},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
+        assert resp.status_code == 422
+
+    async def test_other_kb_404(self, client: AsyncClient, tmp_path) -> None:
+        path = tmp_path / "doc.txt"
+        path.write_text("hi")
+
+        kb1 = (await client.post("/api/knowledge-bases", json={"name": "KB1"})).json()["id"]
+        kb2 = (await client.post("/api/knowledge-bases", json={"name": "KB2"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb1}/items",
+                json={"type": "file", "path_or_url": str(path)},
+            )
+        ).json()["id"]
+
+        resp = await client.get(f"/api/knowledge-bases/{kb2}/items/{item_id}/source")
+        assert resp.status_code == 404
+
+
+class TestKnowledgeBaseIndexingManagerRouteIntegration:
+    """Flight 3 Leg 3, AC-10: the ``_after_folder_registered`` hook and the
+    delete routes' ``stop``/``request_index`` integration."""
+
+    async def test_after_folder_registered_calls_request_index(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.knowledge import manager as manager_mod
+
+        fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        assert resp.status_code == 201
+        assert fake.calls == [("request_index", kb_id)]
+
+    async def test_delete_knowledge_base_stops_before_delete(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.knowledge import manager as manager_mod
+
+        fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}")
+
+        assert resp.status_code == 200
+        assert fake.calls == [("stop", kb_id)]
+
+    async def test_delete_folder_item_stops_before_and_requests_index_after(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.knowledge import manager as manager_mod
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        # Register the folder BEFORE the fake is installed so the
+        # registration's own request_index call isn't recorded — only the
+        # delete route's stop/request_index pair is under test.
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "folder", "path_or_url": str(folder)},
+            )
+        ).json()["id"]
+
+        fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
+
+        assert resp.status_code == 200
+        assert fake.calls == [("stop", kb_id), ("request_index", kb_id)]
+
+    async def test_delete_file_item_calls_neither(self, client: AsyncClient, monkeypatch) -> None:
+        from the_one.knowledge import manager as manager_mod
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+
+        fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", fake)
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
+
+        assert resp.status_code == 200
+        assert fake.calls == []
 
 
 # ── Knowledge settings endpoints ─────────────────────────────────────────

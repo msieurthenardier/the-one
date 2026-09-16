@@ -77,6 +77,8 @@ from the_one.interfaces.web.middleware import (
     OriginAllowlistMiddleware,
     build_default_allowlist,
 )
+from the_one.knowledge.manager import IndexingManager
+from the_one.knowledge.manager import set_manager as _set_module_indexing_manager
 from the_one.llm.base import (
     OPERATOR_VISIBILITY,
     ContentBlock,
@@ -341,6 +343,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 _schedule_embedding_warm_up()
         except Exception:
             logger.exception("embedding warm-up scheduling failed")
+
+        # M24 F03 L03, DD-7: construct the indexing manager and publish it
+        # via the module accessor BEFORE start_all runs (not after, unlike
+        # the connector-manager block above) — the shutdown drain below
+        # reads the local `_indexing_manager` global, not the accessor, so
+        # publishing early just means a route reaching the manager mid-
+        # startup sees a real (if not yet fully started) instance rather
+        # than None. Own try/except around start_all only, mirroring the
+        # other startup blocks (a requeue/settings-write failure must not
+        # kill app startup).
+        global _indexing_manager
+        _indexing_manager = IndexingManager()
+        _set_module_indexing_manager(_indexing_manager)
+        try:
+            await _indexing_manager.start_all()
+        except Exception:
+            logger.exception("indexing manager startup failed")
         yield
         # Drain the PTY session registry on shutdown — cancels the idle
         # reaper task and closes any live sessions. Wrapped in
@@ -364,6 +383,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if _inflight_resume_tasks:
             with contextlib.suppress(Exception):
                 await asyncio.gather(*list(_inflight_resume_tasks), return_exceptions=True)
+        # M24 F03 L03, DD-7: drain the indexing manager right after the
+        # in-flight/resume task gathers and before the reaper drain — a KB
+        # worker mid-item gets its cooperative-stop-then-flush budget
+        # before any other shutdown work begins. Concurrent per-KB stop
+        # inside `drain()` bounds this to 20s + 20s regardless of KB count.
+        if _indexing_manager is not None:
+            try:
+                await _indexing_manager.drain()
+            except Exception:
+                logger.exception("indexing manager shutdown failed")
+            _set_module_indexing_manager(None)
+            _indexing_manager = None
         # F05 L01: drain the web-session idle reaper after in-flight task drains
         # and before the PTY session registry drain. Cancels the reaper task and
         # closes all remaining in-memory sessions.
@@ -515,6 +546,12 @@ _state: dict[str, Any] = {}
 # accessor (`_set_module_connector_manager`) for non-web-layer consumers
 # (the send/history tools; ``the_one.connectors.manager.get_manager``).
 _connector_manager: ConnectorManager | None = None
+
+# M24 F03 L03: the running indexing manager. Mirrors `_connector_manager`
+# above — the lifespan's own local global (what shutdown's drain reads)
+# alongside the module-level accessor (`_set_module_indexing_manager`,
+# what routes reach via `the_one.knowledge.manager.get_manager`).
+_indexing_manager: IndexingManager | None = None
 
 # Mission 23 Flight 2 Leg 2: True for the lifetime of a lifespan cycle iff
 # THIS process's dual-gated startup hook registered the "stub" connector
