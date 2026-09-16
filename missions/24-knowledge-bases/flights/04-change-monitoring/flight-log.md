@@ -4,7 +4,7 @@
 
 ## Summary
 
-Planning complete (2026-09-16). `flight.md` at `ready` after three Architect cycles (needs rework → needs rework → approve with changes; the third pass at the operator's request past the max-2 rule); operator interview and two checkpoints recorded below; twenty planning premise probes against `watchfiles`, four of them corrected after cycle 1 found the WSL polling default; the behavior-test draft `kb-folder-watch-round-trip` is filed. No code has changed.
+Landed (2026-09-16). Legs 1–4 completed; behavior test 9/9 (live mode, one rerun); unit gate 4,649 / 10 skipped; pip-audit clean; frozen build 612549 PASS with the ninth gate; PR #202 ready for review against `mission/24-knowledge-bases`. Planning record: `flight.md` reached `ready` after three Architect cycles (needs rework → needs rework → approve with changes; the third pass at the operator's request past the max-2 rule); operator interview and two checkpoints recorded below; twenty planning premise probes against `watchfiles`, four of them corrected after cycle 1 found the WSL polling default; the behavior-test draft `kb-folder-watch-round-trip` is filed. No code has changed.
 
 ---
 
@@ -477,6 +477,36 @@ Planning complete (2026-09-16). `flight.md` at `ready` after three Architect cyc
 
 ---
 
+### Leg 4 — verify-integration — completed (2026-09-16)
+
+**Status**: completed  
+**Started**: 2026-09-16 (after PR #202 opened)  
+**Completed**: 2026-09-16
+
+#### Changes Made
+
+- No source change. `tests/behavior/kb-folder-watch-round-trip.md`: status `draft → active`, `Last Run` set; two measurement conventions added to the Row conventions after the run (single-script measurement for "within N s of an API call"; every `curl` captures its HTTP status). Run log `tests/behavior/kb-folder-watch-round-trip/runs/2026-09-16-21-49-20.md` (committed; evidence outside the tree). `mission.md`: the 1M re-measure open question amended with the DD-12 vehicle; the Flight 6 bullet carries it plus the watch fields and the monitoring toggle; the Flight 4 bullet checked.
+
+#### Verification
+
+| Gate | Result |
+|---|---|
+| AC-1 premise audit | Developer (Sonnet): every premise confirmed against the landed code; no spec edits |
+| AC-2 dev instance | `rotate-api-credential` → `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-watch-scratch make up`; `/api/live` 200; 8484 untouched throughout; `make down` after the run (pid file gone) |
+| AC-3 behavior test | **pass — 9/9 judged checkpoints**, live two-agent mode; Step 4 INCONCLUSIVE on its first attempt (the Executor's 1 s poll loop started ~9 s after the PUT as a separate tool call — an apparatus gap), operator decision rerun-checkpoint → PASS with the first sample 4 ms after the response. Observed latencies: event path 9 s (bound 30), periodic path 12 s (30), restart 10.6 s from the live probe (60), root removal 9 s (30), recovery 11.2 s (40) |
+| AC-4 gates | `make lint` clean; `make test-unit` **4,649 passed / 10 skipped / 653.19 s** (alone, foreground, before the instance) |
+| AC-5 release closure | `pip-audit` → No known vulnerabilities found; `watchfiles==1.1.1` once; no `hf-xet`, no `sqlite-vec` |
+| AC-6 frozen run | build **612549**, first attempt: `RESULT: PASS`, nine gates OK incl. **`file watcher: OK — native change notification round-trip OK`**, `BUILD OK`, task `succeeded`; installer **134,938,414 bytes** (+52,257 / +0.04 % vs 134,886,157) |
+| AC-7 mission artifact | amended as above |
+| AC-8 documentation | verified by the flight-end Reviewer against the landed code (`CLAUDE.md`, `agents.md`, `SECURITY-MODEL.md`, `README.md`, `docs/windows-install.md`); no rewrite needed |
+
+#### Notes
+
+- The behavior test's four load-bearing rows (3 event path, 6 periodic path, 9 degrade, 10 recovery) all passed with wide margin; the `starting` allowance and the `idle`/`running` tolerance were never needed on this fixture — the spec's "Large-folder settle" variant is the way to exercise them (Validator closing).
+- Step 9's `watch_error` read `FileNotFoundError: No path was found.` — the re-subscribe attempt's error, as DD-0's two-step rule intends (a swallowed error would have read `watching`).
+
+---
+
 ## Decisions
 
 ### Flight Director Notes — flight start (2026-09-16)
@@ -652,6 +682,21 @@ Flight marked **ready** after these edits; no fourth cycle (the Architect's own 
 - Fix Developer: both review items fixed (shared interleaved `calls` trace with repository-delete recording for the three AC-3 tests; the AC-12 forbidden set derived by regex over `repositories.py`, ten forbidden classes); targeted 185 passed; lint clean. The Reviewer's background full suite finished clean meanwhile: **4,649 passed / 10 skipped / 682 s**.
 - Re-review of the fix diff (Haiku tier — test-only change): satisfactory on every point (opt-in shared list, call-through helpers, whole-list `==` assertions, correct sequences against the routes, non-empty derived set, no `api.py` change, no identity leak). The report omitted the literal `[HANDOFF:confirmed]` token; the verdict is unambiguous and is taken as confirmed. Total review cycles: 1 fix loop.
 - Committed as `560b7dd` (code + legs 1–2 `completed`); the artifact script stopped on Leg 3's pre-ticked checklist before writing Leg 3, `flight.md` and this note, but the commit ran anyway — Flight Director error, not amended since already pushed; the remaining artifact edits follow in `flight/4: artifacts — legs 1-3 completed`. Draft PR opened against `mission/24-knowledge-bases`. Leg 4 design next.
+
+### Flight Director Notes — Leg 4 design and gates (2026-09-16)
+
+- Draft PR #202 opened against `mission/24-knowledge-bases` with the leg checklist. Leg 4 `verify-integration` designed on the Flight 3 Leg 4 template. **Risk tier: low** — no source change; the leg is verification and artifact edits; no design review. Execution order: premise-audit Developer, the detached frozen run and `pip-audit` launched in parallel (independent of the instance), then the dev instance and the behavior test in live mode (`SendMessage` present), then `make lint` and `make test-unit` alone.
+- Frozen run launched at `abc555c` into the session scratchpad; log watched with anchored greps.
+- **AC-1 premise audit** (Developer, Sonnet): every premise confirmed, **no spec edits** — routes and bodies (`api.py:1421-1580`, `:1698-1735`, `:1884-1957`), the three Step 4 422s verified live under pydantic 2.13 (`bool_parsing`, `greater_than_equal`, `extra_forbidden`), the merge preserving the interval, the state words and `"root removed"` reason (`watcher.py:62-68`, `:497-502`), the constants (`:142-143`), the loop's per-iteration interval read and wake, `apply_settings(False)` popping entries so `state()` reads `off`, the walk's missing-root path leaving children untouched (`manager.py:388-404`), `alpha_id` stability by exact path (`walk.py:180-217`), full chunk replacement (`indexer.py:174-181`), the credential/`make up`/`make down` mechanics (`main.py:34-42`, `Makefile:34-145`). Soft spot noted: Step 2's `starting` allowance has no cap of its own beyond the 60 s budget — intentional.
+- **AC-5 release closure**: `uv export … --format requirements-txt` → `pip-audit --disable-pip -r` → **No known vulnerabilities found**; `watchfiles==1.1.1` listed once; no `hf-xet`, no `sqlite-vec`.
+- **AC-4 gates** (alone, foreground, before the dev instance): `make lint` → All checks passed; `make test-unit` → **4,649 passed / 10 skipped / 653.19 s** (wall 656.62 s).
+- **AC-6 frozen run — build 612549, first attempt**: `RESULT: PASS`; nine doctor gates `OK` (`usearch: OK` numkong=no/simd=serial as before; `fts5: OK`; `embedding model: OK`, peak RSS 246.8 MiB; **`file watcher: OK — native change notification round-trip OK`** on the Windows worker); `BUILD OK: the-one-setup-0.8.1.exe`; task `succeeded`; installer **134,938,414 bytes** against the Flight 3 baseline of 134,886,157 — **+52,257 bytes (+0.04 %)**, consistent with one pure-Python module and an already-bundled extension. No `hiddenimports` iteration needed. The output directory listed empty at the terminal line and populated seconds later (the Flight 3 lesson, again).
+- **AC-2 dev instance**: `rotate-api-credential` then `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-watch-scratch make up` → verify-serving green, `/api/live` 200, nothing on 8484, `monitoring` at defaults. Behavior test next (live mode).
+
+### Flight Director Notes — Leg 4 close, flight landed (2026-09-16)
+
+- Behavior test run in live mode: 9/9 judged checkpoints, one operator-authorised rerun (Step 4, apparatus gap). Run log committed; evidence outside the tree. Dev instance torn down.
+- Phase 3: all four legs `completed`; flight log entries for each; documentation verified by the flight-end Reviewer (AC-8); flight `landed`; Flight 4 checked in `mission.md`. PR #202 marked ready for review against `mission/24-knowledge-bases`. `[COMPLETE:flight]`.
 
 ---
 

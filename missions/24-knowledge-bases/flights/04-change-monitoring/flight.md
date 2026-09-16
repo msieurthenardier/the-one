@@ -1,6 +1,6 @@
 # Flight: Change Monitoring
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
@@ -640,7 +640,7 @@ on the path-handling surface; the flight-end Reviewer covers all code.
 - [x] Leg 1 landed: settings round-trip with three records, `PUT` refusals, data-dir 422 in all three shapes, predicate tests including a dotted root and an out-of-root path, `doctor` prints nine gates locally with `file watcher` OK-or-skipped-round-trip, `watchfiles` declared in `pyproject.toml` with `uv.lock` unchanged, both CI needle files carry `file watcher: OK`, the Flight 3 spec's Preconditions amended with the nested fixture and the explicit constraint that `<parent of fixture>` contains neither `<scratch>` nor the repository
 - [x] Leg 2 landed: N synthetic events inside one window → exactly one `request_index`; `{(modified, root)}` survives; a run of empty yields → zero `request_index`; `{(deleted, root)}` → one trigger then `unavailable`; factory raising `FileNotFoundError` / `OSError(ENOSPC)` / `RuntimeError` at construction, and one raising after a first yield → `unavailable` and retry on tick; the real `watch` against a missing root → `unavailable`, never `watching`; a root the process cannot read → `unavailable`, never `watching`; a successful (re)subscribe fires one `request_index`; every `stop` returns without waiting for the timeout (sentinel); `stop`/`drain` on a cap-created entry with no task return without error; the 65th folder → `unavailable` (cap); `suppress` silences the timer and the tick; `apply_settings` on/off/interval; `drain` under budget; the real-`watch` integration test on `tmp_path`
 - [x] Leg 3 landed: drain order pinned; `/status` carries the watch fields; delete routes hold suppression; hook tests updated; docs
-- [ ] Leg 4: behavior test passes every step; gates recorded; frozen run `RESULT: PASS` with `file watcher: OK`
+- [x] Leg 4: behavior test passes every step; gates recorded; frozen run `RESULT: PASS` with `file watcher: OK`
 
 ### Adaptation Criteria
 
@@ -664,17 +664,17 @@ on the path-handling surface; the flight-end Reviewer covers all code.
 - [x] `settings-guard-and-gate` - `MonitoringSettings` record + routes + async no-op live-apply hook (DD-5); data-directory refusal (DD-6); `is_hidden_name` / `is_watch_candidate` in `walk.py` (DD-2); `watchfiles` declared; `file watcher` doctor gate with pinned knobs, CI needles, gate docs (DD-0, DD-9); the Flight 3 behavior spec's Preconditions amended for the nested fixture (DD-6). Tests for all of it. *(high-risk: shared settings interface with consumers; security-sensitive path check → Sonnet Reviewer)*
 - [x] `watch-manager` - `the_one/knowledge/watcher.py` complete: dedicated-thread subscriptions with pinned knobs, filter application, root-removed and error-record handling, the cap, settle trigger with clamp and suppression, reconcile loop with re-subscribe, `apply_settings`, `start_all` / `drain`, accessor pair; `tests/test_kb_watcher.py` through the factory seam plus one real-`watch` test. No app wiring. *(high-risk: lifecycle)*
 - [x] `wiring-routes-and-docs` - lifespan start/drain + drain-order test (DD-7); route hooks under suppression, `/status` fields, hook tests (DD-8); settings hook filled (DD-5); docs (`CLAUDE.md`, `agents.md` Knowledge indexing + the convention's third citation + the nine gates + the WSL note, `SECURITY-MODEL.md`). *(high-risk: lifespan wiring)*
-- [ ] `verify-integration` - premise audit + `/mission-control:behavior-test kb-folder-watch-round-trip` on 8485; `make lint`; `make test-unit`; `pip-audit`; frozen `fly execute` with the new needle; `mission.md` open-question amendment (DD-12) and Flight 6 bullet. *(no HAT leg — no screen; the walk folds into Flight 6's HAT)*
+- [x] `verify-integration` - premise audit + `/mission-control:behavior-test kb-folder-watch-round-trip` on 8485; `make lint`; `make test-unit`; `pip-audit`; frozen `fly execute` with the new needle; `mission.md` open-question amendment (DD-12) and Flight 6 bullet. *(no HAT leg — no screen; the walk folds into Flight 6's HAT)*
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged (PR into `mission/24-knowledge-bases`)
-- [ ] Tests passing (`make lint`, `make test-unit` verbatim, `pip-audit`, frozen run — by hand, recorded in the flight log)
-- [ ] Documentation updated (`CLAUDE.md` Knowledge bases paragraph; `the_one/agents.md` Knowledge indexing, the nine gates, the convention citation; `SECURITY-MODEL.md`'s Knowledge-base indexing bullet gains: the data-directory refusal, and that operating-system watches are registered on operator-chosen trees and read with the app's own privileges, the same trust boundary as the walk; `README.md` doctor line; `docs/windows-install.md`)
+- [x] Tests passing (`make lint`, `make test-unit` verbatim, `pip-audit`, frozen run — by hand, recorded in the flight log)
+- [x] Documentation updated (`CLAUDE.md` Knowledge bases paragraph; `the_one/agents.md` Knowledge indexing, the nine gates, the convention citation; `SECURITY-MODEL.md`'s Knowledge-base indexing bullet gains: the data-directory refusal, and that operating-system watches are registered on operator-chosen trees and read with the app's own privileges, the same trust boundary as the walk; `README.md` doctor line; `docs/windows-install.md`)
 
 ### Verification
 

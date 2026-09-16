@@ -1,9 +1,9 @@
 # Behavior Test: Knowledge base folder changes are reflected without operator action
 
 **Slug**: `kb-folder-watch-round-trip`
-**Status**: draft
+**Status**: active
 **Created**: 2026-09-16
-**Last Run**: never
+**Last Run**: 2026-09-16-21-49-20 (pass, 9/9 judged checkpoints, Step 4 on an operator-authorised rerun — first run, Mission 24 Flight 4 Leg 4; see `kb-folder-watch-round-trip/runs/2026-09-16-21-49-20.md`)
 
 ## Intent
 
@@ -85,7 +85,15 @@ assertion instead. For the same reason a folder's `status` may momentarily
 read `pending` or `indexing` on one poll in Steps 8 through 10; allow one
 re-poll before judging that field. While the root is absent (Step 9) the
 instance log records one re-subscribe warning per tick for that folder;
-that is the designed retry, not a failure. `alpha_id` is stable across Steps 9 and 10: a failed walk
+that is the designed retry, not a failure.
+
+**Measurement conventions (adopted after the first run):** any Expected
+Result of the form "within N s of <an API call>" is measured by a single
+shell script that issues the call and begins polling in the same process,
+so the first sample lands within a second of the response — issuing them
+as separate commands left Step 4's first attempt with no sample inside
+its 5 s window. Every `curl` call captures its HTTP status into the
+evidence (`-w`), not only the body. `alpha_id` is stable across Steps 9 and 10: a failed walk
 leaves the folder's children exactly as they were.
 
 ## Out of Scope
