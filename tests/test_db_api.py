@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from unittest.mock import patch
 
@@ -954,7 +955,9 @@ class TestKnowledgeBaseFolderRegistration:
         from the_one.interfaces.web import api as api_module
 
         calls = []
-        monkeypatch.setattr(api_module, "_after_folder_registered", calls.append)
+        monkeypatch.setattr(
+            api_module, "_after_folder_registered", lambda kb_id, item: calls.append((kb_id, item))
+        )
 
         kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
         folder = tmp_path / "docs"
@@ -964,7 +967,10 @@ class TestKnowledgeBaseFolderRegistration:
             json={"type": "folder", "path_or_url": str(folder)},
         )
         assert resp.status_code == 201
-        assert calls == [kb_id]
+        assert len(calls) == 1
+        called_kb_id, called_item = calls[0]
+        assert called_kb_id == kb_id
+        assert called_item.id == resp.json()["id"]
 
     async def test_after_folder_registered_not_called_for_file_item(
         self, client: AsyncClient, monkeypatch
@@ -972,7 +978,9 @@ class TestKnowledgeBaseFolderRegistration:
         from the_one.interfaces.web import api as api_module
 
         calls = []
-        monkeypatch.setattr(api_module, "_after_folder_registered", calls.append)
+        monkeypatch.setattr(
+            api_module, "_after_folder_registered", lambda kb_id, item: calls.append((kb_id, item))
+        )
 
         kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
         resp = await client.post(
@@ -981,6 +989,120 @@ class TestKnowledgeBaseFolderRegistration:
         )
         assert resp.status_code == 201
         assert calls == []
+
+
+class TestKnowledgeBaseFolderRegistrationDataDirRefusal:
+    """Flight 4 Leg 1, DD-6, AC-3: registering a folder that equals,
+    contains, or lies inside the application data directory is refused
+    with 422 before the sibling-containment scan; the check runs after
+    the existence check (a non-existent path inside the data directory
+    still reads the non-existence message, never the data-dir one)."""
+
+    async def test_equal_to_data_dir_422(self, client: AsyncClient, tmp_path, monkeypatch) -> None:
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(data_dir)},
+        )
+        assert resp.status_code == 422
+        assert "data directory" in resp.json()["detail"]
+
+    async def test_contains_data_dir_422(self, client: AsyncClient, tmp_path, monkeypatch) -> None:
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(tmp_path)},
+        )
+        assert resp.status_code == 422
+        assert "data directory" in resp.json()["detail"]
+
+    async def test_contains_nonexistent_data_dir_422(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        """Edge Case: a fresh install, before anything has written to
+        ``data_dir`` yet — ``is_within`` resolves with ``strict=False``, so
+        the "contains" refusal must still fire even though ``data_dir``
+        does not exist on disk."""
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"  # deliberately never created
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(tmp_path)},
+        )
+        assert resp.status_code == 422
+        assert "data directory" in resp.json()["detail"]
+
+    async def test_inside_data_dir_422(self, client: AsyncClient, tmp_path, monkeypatch) -> None:
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+        inner = data_dir / "vectors"
+        inner.mkdir()
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(inner)},
+        )
+        assert resp.status_code == 422
+        assert "data directory" in resp.json()["detail"]
+
+    async def test_nonexistent_path_inside_data_dir_422_for_nonexistence(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        """Check order: existence first, so a missing path inside the data
+        directory still reports the non-existence detail, not the
+        data-dir one."""
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(data_dir / "missing")},
+        )
+        assert resp.status_code == 422
+        assert "data directory" not in resp.json()["detail"]
+        assert "does not exist" in resp.json()["detail"]
+
+    async def test_sibling_of_data_dir_registers_201(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+        docs = tmp_path / "docs"
+        docs.mkdir()
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(docs)},
+        )
+        assert resp.status_code == 201
 
 
 class TestKnowledgeBaseCreateWarmsUpEmbeddingBackend:
@@ -1222,10 +1344,18 @@ class _FakeIndexingManager:
     """Flight 3 Leg 3: records ``request_index``/``stop`` calls in order
     and returns a scripted ``state()`` — installed via
     ``monkeypatch.setattr(manager_mod, "_manager", fake)`` (the same
-    accessor ``get_indexing_manager()`` reads)."""
+    accessor ``get_indexing_manager()`` reads).
 
-    def __init__(self, state: str = "idle") -> None:
-        self.calls: list[tuple[str, str]] = []
+    Flight 4 Leg 3 review fix: ``calls`` accepts an existing list so a
+    cross-manager ordering test can share one sequence between this fake
+    and ``_FakeWatchManager`` (and a patched repository delete) — proving
+    the actual interleaving, not just each manager's own internal order.
+    Defaults to a fresh list so existing single-manager tests are
+    unaffected.
+    """
+
+    def __init__(self, state: str = "idle", calls: list[tuple] | None = None) -> None:
+        self.calls: list[tuple] = calls if calls is not None else []
         self._state = state
 
     def request_index(self, kb_id: str) -> None:
@@ -1236,6 +1366,86 @@ class _FakeIndexingManager:
 
     def state(self, kb_id: str) -> str:
         return self._state
+
+
+class _FakeWatchManager:
+    """Flight 4 Leg 3: records ``start``/``stop``/``stop_kb``/
+    ``suppress``/``apply_settings`` calls in order and returns scripted
+    ``state()``/``error()`` — installed via ``monkeypatch.setattr(
+    watcher_mod, "_manager", fake)`` (the same accessor ``get_watch_
+    manager()`` reads)."""
+
+    def __init__(
+        self,
+        state: str = "off",
+        error: str | None = None,
+        calls: list[tuple] | None = None,
+    ) -> None:
+        # Flight 4 Leg 3 review fix: opt-in shared ``calls`` list (see
+        # ``_FakeIndexingManager`` docstring above) — defaults to a fresh
+        # list for every other Leg 3 test.
+        self.calls: list[tuple] = calls if calls is not None else []
+        self._state = state
+        self._error = error
+
+    def start(self, kb_id: str, folder) -> None:
+        self.calls.append(("start", kb_id, folder))
+
+    async def stop(self, folder_id: str) -> None:
+        self.calls.append(("watch_stop", folder_id))
+
+    async def stop_kb(self, kb_id: str) -> None:
+        self.calls.append(("stop_kb", kb_id))
+
+    def state(self, folder_id: str) -> str:
+        return self._state
+
+    def error(self, folder_id: str) -> str | None:
+        return self._error
+
+    async def apply_settings(self, m) -> None:
+        self.calls.append(("apply_settings", m))
+
+    @contextlib.asynccontextmanager
+    async def suppress(self, kb_id: str):
+        self.calls.append(("suppress_enter", kb_id))
+        try:
+            yield
+        finally:
+            self.calls.append(("suppress_exit", kb_id))
+
+
+def _patch_kb_delete_records(monkeypatch: pytest.MonkeyPatch, calls: list[tuple]) -> None:
+    """Flight 4 Leg 3 review fix: wrap ``KnowledgeBaseRepository.delete``
+    so the repository delete step itself lands on the shared ``calls``
+    list at the point it actually runs — AC-3's cross-manager ordering
+    tests need this to prove ``delete`` falls between the manager
+    stop calls and ``suppress_exit``, not just that the two managers'
+    own calls are internally ordered. Calls through to the real
+    implementation (or its ``KeyError`` on an unknown id) unchanged.
+    """
+    from the_one.db import repositories as repositories_mod
+
+    original = repositories_mod.KnowledgeBaseRepository.delete
+
+    async def _patched(self, kb_id: str) -> None:
+        calls.append(("delete", kb_id))
+        await original(self, kb_id)
+
+    monkeypatch.setattr(repositories_mod.KnowledgeBaseRepository, "delete", _patched)
+
+
+def _patch_kb_item_delete_records(monkeypatch: pytest.MonkeyPatch, calls: list[tuple]) -> None:
+    """Same as :func:`_patch_kb_delete_records`, for ``KBItemRepository.delete``."""
+    from the_one.db import repositories as repositories_mod
+
+    original = repositories_mod.KBItemRepository.delete
+
+    async def _patched(self, item_id: str) -> list[int]:
+        calls.append(("delete", item_id))
+        return await original(self, item_id)
+
+    monkeypatch.setattr(repositories_mod.KBItemRepository, "delete", _patched)
 
 
 class TestKnowledgeBaseStatusRoute:
@@ -1290,6 +1500,42 @@ class TestKnowledgeBaseStatusRoute:
                 "status": folder_item["status"],
                 "indexed_at": folder_item["indexed_at"],
                 "error": folder_item["error"],
+                "watch": "off",
+                "watch_error": None,
+            }
+        ]
+
+    async def test_reports_watch_state_from_manager(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        """Flight 4 Leg 3, AC-4: with a watch manager installed, the
+        folder's `watch`/`watch_error` fields come from it."""
+        from the_one.knowledge import watcher as watcher_mod
+
+        fake = _FakeWatchManager(state="unavailable", error="root removed")
+        monkeypatch.setattr(watcher_mod, "_manager", fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        folder_resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        folder_item = folder_resp.json()
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["folders"] == [
+            {
+                "id": folder_item["id"],
+                "path": folder_item["path_or_url"],
+                "status": folder_item["status"],
+                "indexed_at": folder_item["indexed_at"],
+                "error": folder_item["error"],
+                "watch": "unavailable",
+                "watch_error": "root removed",
             }
         ]
 
@@ -1644,6 +1890,50 @@ class TestKnowledgeBaseIndexingManagerRouteIntegration:
         assert resp.status_code == 201
         assert fake.calls == [("request_index", kb_id)]
 
+    async def test_after_folder_registered_starts_watch_after_request_index(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        """Flight 4 Leg 3, AC-2: request_index then watch.start, in that
+        order, with the created folder's item passed through."""
+        from the_one.knowledge import manager as manager_mod
+        from the_one.knowledge import watcher as watcher_mod
+
+        indexing_fake = _FakeIndexingManager()
+        monkeypatch.setattr(manager_mod, "_manager", indexing_fake)
+        watch_fake = _FakeWatchManager()
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        assert resp.status_code == 201
+        assert indexing_fake.calls == [("request_index", kb_id)]
+        assert len(watch_fake.calls) == 1
+        call_name, call_kb_id, call_item = watch_fake.calls[0]
+        assert call_name == "start"
+        assert call_kb_id == kb_id
+        assert call_item.id == resp.json()["id"]
+
+    async def test_after_folder_registered_does_not_start_watch_for_file_item(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.knowledge import watcher as watcher_mod
+
+        watch_fake = _FakeWatchManager()
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": "/tmp/x.txt"},
+        )
+        assert resp.status_code == 201
+        assert watch_fake.calls == []
+
     async def test_delete_knowledge_base_stops_before_delete(
         self, client: AsyncClient, monkeypatch
     ) -> None:
@@ -1657,6 +1947,59 @@ class TestKnowledgeBaseIndexingManagerRouteIntegration:
 
         assert resp.status_code == 200
         assert fake.calls == [("stop", kb_id)]
+
+    async def test_delete_knowledge_base_under_watch_suppression_ordering(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Flight 4 Leg 3, AC-3: suppress_enter, stop_kb, indexing_stop,
+        delete, suppress_exit, in that order — proved with ONE shared
+        call list across both fakes plus the patched repository delete
+        (review fix: two disjoint per-manager lists don't prove the
+        cross-manager interleaving)."""
+        from the_one.knowledge import manager as manager_mod
+        from the_one.knowledge import watcher as watcher_mod
+
+        calls: list[tuple] = []
+        indexing_fake = _FakeIndexingManager(calls=calls)
+        monkeypatch.setattr(manager_mod, "_manager", indexing_fake)
+        watch_fake = _FakeWatchManager(calls=calls)
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+        _patch_kb_delete_records(monkeypatch, calls)
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}")
+
+        assert resp.status_code == 200
+        assert calls == [
+            ("suppress_enter", kb_id),
+            ("stop_kb", kb_id),
+            ("stop", kb_id),
+            ("delete", kb_id),
+            ("suppress_exit", kb_id),
+        ]
+
+    async def test_delete_knowledge_base_unknown_kb_exits_suppression(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Flight 4 Leg 3, AC-3: an unknown kb_id still 404s, and
+        suppress_exit is recorded after the repository delete's KeyError
+        — released on the exception path, not skipped by it."""
+        from the_one.knowledge import watcher as watcher_mod
+
+        calls: list[tuple] = []
+        watch_fake = _FakeWatchManager(calls=calls)
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+        _patch_kb_delete_records(monkeypatch, calls)
+
+        resp = await client.delete("/api/knowledge-bases/no-such-kb")
+
+        assert resp.status_code == 404
+        assert calls == [
+            ("suppress_enter", "no-such-kb"),
+            ("stop_kb", "no-such-kb"),
+            ("delete", "no-such-kb"),
+            ("suppress_exit", "no-such-kb"),
+        ]
 
     async def test_delete_folder_item_stops_before_and_requests_index_after(
         self, client: AsyncClient, tmp_path, monkeypatch
@@ -1684,8 +2027,49 @@ class TestKnowledgeBaseIndexingManagerRouteIntegration:
         assert resp.status_code == 200
         assert fake.calls == [("stop", kb_id), ("request_index", kb_id)]
 
+    async def test_delete_folder_item_under_watch_suppression_ordering(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        """Flight 4 Leg 3, AC-3: suppress_enter, watch_stop, indexing_stop,
+        delete, request_index, suppress_exit, in that order — proved with
+        ONE shared call list across both fakes plus the patched repository
+        delete (review fix: two disjoint per-manager lists don't prove the
+        cross-manager interleaving)."""
+        from the_one.knowledge import manager as manager_mod
+        from the_one.knowledge import watcher as watcher_mod
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "folder", "path_or_url": str(folder)},
+            )
+        ).json()["id"]
+
+        calls: list[tuple] = []
+        indexing_fake = _FakeIndexingManager(calls=calls)
+        monkeypatch.setattr(manager_mod, "_manager", indexing_fake)
+        watch_fake = _FakeWatchManager(calls=calls)
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+        _patch_kb_item_delete_records(monkeypatch, calls)
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
+
+        assert resp.status_code == 200
+        assert calls == [
+            ("suppress_enter", kb_id),
+            ("watch_stop", item_id),
+            ("stop", kb_id),
+            ("delete", item_id),
+            ("request_index", kb_id),
+            ("suppress_exit", kb_id),
+        ]
+
     async def test_delete_file_item_calls_neither(self, client: AsyncClient, monkeypatch) -> None:
         from the_one.knowledge import manager as manager_mod
+        from the_one.knowledge import watcher as watcher_mod
 
         kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
         item_id = (
@@ -1697,11 +2081,14 @@ class TestKnowledgeBaseIndexingManagerRouteIntegration:
 
         fake = _FakeIndexingManager()
         monkeypatch.setattr(manager_mod, "_manager", fake)
+        watch_fake = _FakeWatchManager()
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
 
         resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
 
         assert resp.status_code == 200
         assert fake.calls == []
+        assert watch_fake.calls == []
 
 
 # ── Knowledge settings endpoints ─────────────────────────────────────────
@@ -1720,6 +2107,9 @@ class TestKnowledgeSettingsAPI:
             "dim": 512,
         }
         assert body["chunking"] == {"size_chars": 1000, "overlap_chars": 150}
+        # Flight 4 Leg 1, DD-5, AC-2: `monitoring` defaults beside the
+        # existing keys.
+        assert body["monitoring"] == {"watch_enabled": True, "reconcile_interval_seconds": 300}
         # Flight 2 Leg 4, AC-12: `vector_store` is now present (read-only,
         # store-written) alongside the pre-existing `notes` list.
         assert body["vector_store"] == {
@@ -1741,6 +2131,7 @@ class TestKnowledgeSettingsAPI:
         )
         assert resp.status_code == 200
         body = resp.json()
+        assert body["monitoring"] == {"watch_enabled": True, "reconcile_interval_seconds": 300}
         assert body["vector_store"] == {
             "backend": "usearch",
             "dtype": "f16",
@@ -1845,6 +2236,171 @@ class TestKnowledgeSettingsAPI:
             "dim": 512,
         }
         assert get_resp.json()["chunking"] == {"size_chars": 1000, "overlap_chars": 150}
+
+
+class TestKnowledgeSettingsMonitoringAPI:
+    """Flight 4 Leg 1, DD-5, AC-2: the third `monitoring` section on the
+    existing knowledge-settings routes, its merge-then-revalidate shape,
+    and the awaited live-apply hook (a documented no-op in this leg)."""
+
+    async def test_put_updates_monitoring_leaves_others_unchanged(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"monitoring": {"watch_enabled": False, "reconcile_interval_seconds": 10}},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["monitoring"] == {"watch_enabled": False, "reconcile_interval_seconds": 10}
+        assert body["embedding"] == {
+            "backend": "local",
+            "model_id": "potion-retrieval-32M",
+            "dim": 512,
+        }
+        assert body["chunking"] == {"size_chars": 1000, "overlap_chars": 150}
+        assert body["vector_store"] == {
+            "backend": "usearch",
+            "dtype": "f16",
+            "dim": 512,
+            "model_id": "potion-retrieval-32M",
+        }
+
+    async def test_put_monitoring_merges_preserving_interval(self, client: AsyncClient) -> None:
+        first = await client.put(
+            "/api/knowledge-settings",
+            json={"monitoring": {"watch_enabled": False, "reconcile_interval_seconds": 10}},
+        )
+        assert first.status_code == 200
+
+        second = await client.put(
+            "/api/knowledge-settings",
+            json={"monitoring": {"watch_enabled": True}},
+        )
+        assert second.status_code == 200
+        assert second.json()["monitoring"] == {
+            "watch_enabled": True,
+            "reconcile_interval_seconds": 10,
+        }
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"monitoring": {"reconcile_interval_seconds": 5}},
+            {"monitoring": {"watch_enabled": "maybe"}},
+            {"monitoring": {"bogus": 1}},
+            {"monitoring": "off"},
+        ],
+    )
+    async def test_put_invalid_monitoring_422_and_changes_nothing(
+        self, client: AsyncClient, body
+    ) -> None:
+        resp = await client.put("/api/knowledge-settings", json=body)
+        assert resp.status_code == 422
+
+        get_resp = await client.get("/api/knowledge-settings")
+        assert get_resp.json()["monitoring"] == {
+            "watch_enabled": True,
+            "reconcile_interval_seconds": 300,
+        }
+
+    async def test_hook_is_async_and_awaited_once_with_saved_monitoring(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        import inspect
+
+        from the_one.interfaces.web import api as api_module
+        from the_one.knowledge.settings import MonitoringSettings
+
+        assert inspect.iscoroutinefunction(api_module._after_monitoring_settings_changed)
+
+        calls = []
+
+        async def _fake_hook(monitoring: MonitoringSettings) -> None:
+            calls.append(monitoring)
+
+        monkeypatch.setattr(api_module, "_after_monitoring_settings_changed", _fake_hook)
+
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"monitoring": {"watch_enabled": False, "reconcile_interval_seconds": 15}},
+        )
+        assert resp.status_code == 200
+        assert calls == [MonitoringSettings(watch_enabled=False, reconcile_interval_seconds=15)]
+
+    async def test_hook_not_awaited_on_422(self, client: AsyncClient, monkeypatch) -> None:
+        from the_one.interfaces.web import api as api_module
+        from the_one.knowledge.settings import MonitoringSettings
+
+        calls = []
+
+        async def _fake_hook(monitoring: MonitoringSettings) -> None:
+            calls.append(monitoring)
+
+        monkeypatch.setattr(api_module, "_after_monitoring_settings_changed", _fake_hook)
+
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"monitoring": {"reconcile_interval_seconds": 5}},
+        )
+        assert resp.status_code == 422
+        assert calls == []
+
+    async def test_put_calls_watch_manager_apply_settings_with_saved_monitoring(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Flight 4 Leg 3, AC-5: a successful PUT calls the installed watch
+        manager's `apply_settings` once with the saved `MonitoringSettings`
+        — even when only `chunking` changed (the hook is unconditional on
+        success; `apply_settings` is itself idempotent)."""
+        from the_one.knowledge import watcher as watcher_mod
+        from the_one.knowledge.settings import MonitoringSettings
+
+        watch_fake = _FakeWatchManager()
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"monitoring": {"watch_enabled": False, "reconcile_interval_seconds": 15}},
+        )
+        assert resp.status_code == 200
+        assert watch_fake.calls == [
+            (
+                "apply_settings",
+                MonitoringSettings(watch_enabled=False, reconcile_interval_seconds=15),
+            )
+        ]
+
+    async def test_put_touching_only_chunking_still_calls_apply_settings(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.knowledge import watcher as watcher_mod
+        from the_one.knowledge.settings import MonitoringSettings
+
+        watch_fake = _FakeWatchManager()
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"chunking": {"size_chars": 900, "overlap_chars": 100}},
+        )
+        assert resp.status_code == 200
+        assert watch_fake.calls == [("apply_settings", MonitoringSettings())]
+
+    async def test_put_422_does_not_call_apply_settings(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.knowledge import watcher as watcher_mod
+
+        watch_fake = _FakeWatchManager()
+        monkeypatch.setattr(watcher_mod, "_manager", watch_fake)
+
+        resp = await client.put(
+            "/api/knowledge-settings",
+            json={"monitoring": {"reconcile_interval_seconds": 5}},
+        )
+        assert resp.status_code == 422
+        assert watch_fake.calls == []
 
 
 # ── MCP source endpoints ─────────────────────────────────────────────────

@@ -23,7 +23,7 @@ import hashlib
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from the_one.db.models import KBItem
 
@@ -57,6 +57,16 @@ class WalkResult:
     files: list[DiscoveredFile]
     skipped_dirs: int
     skipped_entries: int
+
+
+def is_hidden_name(name: str) -> bool:
+    """True for a dot-prefixed name (``.git``, ``.hidden``). Extracted from
+    ``walk_folder``'s inline check (Flight 4 Leg 1, DD-2) so the watcher's
+    ``is_watch_candidate`` can apply the identical rule — used at exactly
+    ``walk_folder``'s existing site, replacing only the boolean expression
+    there; the by-design, uncounted-skip semantics of ``WalkResult`` are
+    unchanged."""
+    return name.startswith(".")
 
 
 def walk_folder(root: Path, *, extensions: frozenset[str]) -> WalkResult:
@@ -98,7 +108,7 @@ def walk_folder(root: Path, *, extensions: frozenset[str]) -> WalkResult:
 
         for entry in entries:
             name = entry.name
-            if name.startswith("."):
+            if is_hidden_name(name):
                 # By-design filter — never counted.
                 continue
 
@@ -205,6 +215,88 @@ def plan_reconcile(
 
     removed = [item for item in existing if item.path_or_url not in seen_paths]
     return ReconcilePlan(new=new, removed=removed, changed=changed, unchanged=unchanged)
+
+
+def is_watch_candidate(
+    path: str,
+    *,
+    root: Path,
+    extensions: frozenset[str],
+    excluded_roots: tuple[Path, ...],
+) -> bool:
+    """The watcher-side composite predicate (Flight 4 Leg 1, DD-2): a
+    *trigger* filter, never a subscription filter — it decides whether an
+    event's path should cause a ``request_index``, not what the native
+    notifier watches. **Never raises.** All string and ``PurePath`` work —
+    no ``stat``, no ``resolve``: ``root`` is expected already canonical
+    (registration canonicalises it) and ``watchfiles`` reports paths as the
+    subscribed root plus a relative part.
+
+    Clause order (Architect-reviewed; do not reorder):
+
+    1. ``path`` equals ``root`` itself, compared as
+       ``PurePath(os.path.normcase(path)) == PurePath(os.path.normcase(str(root)))``
+       — never a raw string compare, which a trailing or doubled separator
+       would defeat, and never ``==`` on the raw strings, which a
+       drive-letter case difference or a ``\\\\?\\`` prefix would defeat on
+       Windows. Always **True** — the root's own deletion must reach the
+       watcher even when the root's name carries a dotted suffix (e.g.
+       ``notes.d``).
+    2. Relativise ``path`` against ``root`` with the same normalisation,
+       inside a ``try``: a ``ValueError`` (a path outside ``root`` — macOS
+       reporting ``/private/var…`` for ``/var…``, a Windows drive-letter
+       case difference, any future backend) returns **False** rather than
+       propagating out of the generator and killing the subscription.
+    3. Any relative path component that :func:`is_hidden_name` or is in
+       :data:`SKIPPED_DIRS` → **False**. (Two recorded, latency-only
+       divergences from :func:`walk_folder`: a directory rename or removal
+       emits only directory-level events, so renaming or deleting a
+       directory whose *name* carries an unsupported suffix produces no
+       trigger until the periodic reconcile walk; and this clause tests
+       ``normcase``\\ d components, so ``SKIPPED_DIRS`` matching is
+       case-insensitive on Windows where the walk's is case-sensitive. The
+       walk remains correctness in both cases — this predicate only ever
+       decides whether an event *triggers* a pass.)
+    4. The path under any of ``excluded_roots`` (``PurePath.is_relative_to``,
+       also normalised) → **False** — the app's own data directory (and its
+       database, WAL and vector sidecar) must never feed indexing writes
+       back into the watcher as a new pass.
+    5. The final path component's suffix, ``os.path.splitext`` **lower-cased**
+       (``NOTES.MD`` is an ordinary filename on Windows and macOS) —
+       outside ``extensions`` → **False**. A final component **without** a
+       suffix → **True** (it may be a directory being created or removed;
+       the walk is the one that finds out).
+    """
+    if not path:
+        return False
+
+    try:
+        normalized_path = PurePath(os.path.normcase(path))
+        normalized_root = PurePath(os.path.normcase(str(root)))
+    except (TypeError, ValueError):
+        return False
+
+    if normalized_path == normalized_root:
+        return True
+
+    try:
+        relative = normalized_path.relative_to(normalized_root)
+    except ValueError:
+        return False
+
+    for part in relative.parts:
+        if is_hidden_name(part) or part in SKIPPED_DIRS:
+            return False
+
+    for excluded in excluded_roots:
+        normalized_excluded = PurePath(os.path.normcase(str(excluded)))
+        if normalized_path.is_relative_to(normalized_excluded):
+            return False
+
+    suffix = os.path.splitext(str(normalized_path))[1].lower()
+    if not suffix:
+        return True
+    return suffix in extensions
 
 
 def content_hash(path: Path) -> str:

@@ -71,8 +71,10 @@ behavior test on a dedicated dev instance.
   the subscription is down, with `error` saying why. Constructor keywords
   override the settle and hold-cap seconds, the subscription cap, the
   excluded roots (DD-2), and — the test seam — the **watch factory**
-  (`Callable[[Path, filter, threading.Event], Iterator[set[tuple[Change,
-  str]]]]`, defaulting to `watchfiles.watch` with the DD-0 kwargs), so
+  (`Callable[[Path, filter, threading.Event, bool], Iterator[set[tuple[
+  Change, str]]]]` — the fourth argument is `ignore_permission_denied`, so
+  the two-step rule is observable through the seam; widened at Leg 2
+  design — defaulting to `watchfiles.watch` with the DD-0 kwargs), so
   unit tests feed synthetic change sets through a generator reading a
   thread-safe `queue.Queue`, exercising the same thread hop as production,
   and one integration test runs the real `watch` against a `tmp_path`

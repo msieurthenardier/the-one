@@ -104,6 +104,11 @@ jobs:
           # path. The probe runs with HF_HUB_OFFLINE=1, so this line cannot be
           # satisfied by a hub download on a networked runner.
           grep -q "embedding model: OK" doctor.out
+          # File-watcher probe (Flight 4 M24 F04 L01, DD-0/DD-9). Same
+          # by-name rule; the round-trip half also proves the watchfiles
+          # Rust extension survived the freeze and answers a real native
+          # change-notification round-trip.
+          grep -q "file watcher: OK" doctor.out
           grep -q "RESULT: PASS" doctor.out
       # PROOF (b) — frozen serve answers /api/info. Background the frozen serve and
       # poll with an httpx Python probe (NOT curl — httpx is a runtime dep and the

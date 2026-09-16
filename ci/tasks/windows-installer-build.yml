@@ -102,12 +102,15 @@ run:
       if ($doctorCode -ne 0) { throw "frozen doctor failed ($doctorCode)" }
       # M24 F01 L01/L02, Flight 2 Leg 2: the exit code alone cannot detect a
       # probe silently dropped from run_doctor's gates list — the aggregate
-      # would still read RESULT: PASS. Assert the vector-store, fts5, and
-      # embedding-model probe lines BY NAME so this lane, DD-4's designated
-      # apparatus, actually observes them. The embedding gate additionally
-      # proves a DATA tree survived the freeze, and runs with
-      # HF_HUB_OFFLINE=1 so it cannot pass by downloading.
-      foreach ($needle in @("usearch: OK", "fts5: OK", "embedding model: OK")) {
+      # would still read RESULT: PASS. Assert the vector-store, fts5,
+      # embedding-model, and file-watcher probe lines BY NAME so this lane,
+      # DD-4's designated apparatus, actually observes them. The embedding
+      # gate additionally proves a DATA tree survived the freeze, and runs
+      # with HF_HUB_OFFLINE=1 so it cannot pass by downloading. The
+      # file-watcher gate (Flight 4 M24 F04 L01, DD-9) additionally proves
+      # the watchfiles Rust extension survived the freeze and answers a real
+      # native change-notification round-trip.
+      foreach ($needle in @("usearch: OK", "fts5: OK", "embedding model: OK", "file watcher: OK")) {
         if (-not $doctorText.Contains($needle)) {
           throw "frozen doctor output missing '$needle'"
         }

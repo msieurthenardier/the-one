@@ -10,8 +10,10 @@ to pass before a frozen binary exists — plus simulated-failure paths.
 from __future__ import annotations
 
 import io
+import re
 import sqlite3
 import sys
+import time
 import types
 
 import pytest
@@ -21,6 +23,7 @@ from the_one.diagnostics import (
     ProbeResult,
     _numkong_extension_state,
     _probe_desktop_shell,
+    _probe_file_watcher,
     _probe_fts5,
     _probe_llm_providers,
     _probe_model_catalog,
@@ -55,6 +58,30 @@ def _stub_embedding_probe(monkeypatch: pytest.MonkeyPatch) -> None:
             True,
             "stubbed by the tests/test_doctor.py autouse fixture (real load is "
             "covered by tests/test_doctor_embedding_model.py)",
+        ),
+    )
+
+
+# The `file watcher` gate's round-trip half costs up to
+# `_FILE_WATCHER_DEADLINE_UNFROZEN_SECONDS` (2 s) per call on a host where the
+# self-probe doesn't deliver quickly — and there are 19 `run_doctor(` call
+# sites in this file (the same count the embedding-probe fixture above cites).
+# Stubbed here for the same reason: a single "host test" stub would leave the
+# other eighteen paying for it. `TestProbeFileWatcher`'s targeted tests below
+# call the module-top-imported `_probe_file_watcher` directly (the
+# `_probe_usearch` precedent — `monkeypatch.setattr(diagnostics, …)` does not
+# rebind a name a test file already imported by value), so this autouse stub
+# does not apply to them.
+@pytest.fixture(autouse=True)
+def _stub_file_watcher_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        diagnostics,
+        "_probe_file_watcher",
+        lambda: ProbeResult(
+            "file watcher",
+            True,
+            "stubbed by the tests/test_doctor.py autouse fixture (real "
+            "round-trip covered by TestProbeFileWatcher below)",
         ),
     )
 
@@ -717,3 +744,176 @@ class TestEmitEncodingSafety:
         # The by-name substring both CI lanes grep must survive the replace.
         assert "fts5: OK" in text
         assert "RESULT: PASS" in text
+
+
+class TestProbeFileWatcher:
+    """Flight 4 M24 F04 L01, DD-0/DD-9, AC-6: the ``file watcher`` gate.
+
+    Unlike every other probe in this file, ``_probe_file_watcher`` is
+    stubbed by an autouse fixture (``_stub_file_watcher_probe`` above, the
+    ``_stub_embedding_probe`` precedent) — its round-trip half costs real
+    wall-clock time. These tests call the module-top-imported
+    ``_probe_file_watcher`` directly, which the stub (a
+    ``monkeypatch.setattr(diagnostics, …)`` rebind of the module attribute)
+    does not affect, per DD-9 and the ``_probe_usearch`` precedent.
+    """
+
+    def test_real_round_trip_on_tmp_path(self, tmp_path) -> None:
+        """The real round-trip through the real ``watchfiles.watch`` (AC-6's
+        "one AC through the real ``watch``" rule — the factory-seam
+        equivalent the watcher module uses would pass green against a
+        library that swallowed the error, which this test does not use).
+
+        Skips when a short self-probe shows this host/filesystem does not
+        deliver native change events at all (a drvfs-mounted ``TMPDIR``, a
+        container without inotify) — there ``_probe_file_watcher`` itself
+        legitimately reads ``skipped —`` (Edge Cases), which is not what
+        this test is built to assert.
+        """
+        import watchfiles
+
+        gen = watchfiles.watch(
+            str(tmp_path),
+            watch_filter=None,
+            debounce=50,
+            step=25,
+            rust_timeout=200,
+            yield_on_timeout=True,
+            force_polling=False,
+            ignore_permission_denied=False,
+            raise_interrupt=False,
+            debug=False,
+            poll_delay_ms=300,
+            recursive=True,
+        )
+        delivered = False
+        n = 0
+        try:
+            start = time.monotonic()
+            for changes in gen:
+                if changes:
+                    delivered = True
+                    break
+                if time.monotonic() - start > 1.0:
+                    break
+                n += 1
+                (tmp_path / f"self-probe-{n}.txt").write_text("x")
+        finally:
+            gen.close()
+
+        if not delivered:
+            pytest.skip(
+                "this host/filesystem does not deliver native change "
+                "notification events within the self-probe deadline"
+            )
+
+        result = _probe_file_watcher()
+        assert result.ok is True
+        assert result.detail == "native change notification round-trip OK"
+
+    def test_import_failure_is_ok_false_when_unfrozen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(diagnostics, "is_frozen", lambda: False)
+
+        def _boom():
+            raise ImportError("simulated missing watchfiles")
+
+        monkeypatch.setattr(diagnostics, "_import_watchfiles", _boom)
+        result = _probe_file_watcher()
+        assert result.ok is False
+        assert "watchfiles import failed" in result.detail
+
+    def test_import_failure_is_ok_false_when_frozen(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(diagnostics, "is_frozen", lambda: True)
+
+        def _boom():
+            raise ImportError("simulated missing watchfiles")
+
+        monkeypatch.setattr(diagnostics, "_import_watchfiles", _boom)
+        result = _probe_file_watcher()
+        assert result.ok is False
+        assert "watchfiles import failed" in result.detail
+
+    def test_round_trip_failure_unfrozen_is_informational_skip(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(diagnostics, "is_frozen", lambda: False)
+
+        class _BoomWatchfiles:
+            @staticmethod
+            def watch(*args, **kwargs):
+                raise RuntimeError("simulated watch failure")
+
+        monkeypatch.setattr(diagnostics, "_import_watchfiles", lambda: _BoomWatchfiles())
+        result = _probe_file_watcher()
+        assert result.ok is True
+        assert result.detail.startswith("skipped — ")
+        assert "import OK; round-trip:" in result.detail
+
+    def test_round_trip_failure_frozen_is_hard_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(diagnostics, "is_frozen", lambda: True)
+
+        class _BoomWatchfiles:
+            @staticmethod
+            def watch(*args, **kwargs):
+                raise RuntimeError("simulated watch failure")
+
+        monkeypatch.setattr(diagnostics, "_import_watchfiles", lambda: _BoomWatchfiles())
+        result = _probe_file_watcher()
+        assert result.ok is False
+        assert "import OK; round-trip:" in result.detail
+
+    def test_gates_list_has_nine_names_ending_with_file_watcher(self) -> None:
+        """The full gate line-up, in order, both CI lanes' needle depends on
+        being present and last."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        text = buf.getvalue()
+        gate_names = re.findall(r"(?m)^  ([^:]+): (?:OK|FAIL)", text)
+        assert gate_names == [
+            "child spawn",
+            "python interpreter",
+            "desktop shell",
+            "llm providers",
+            "model catalog",
+            "usearch",
+            "fts5",
+            "embedding model",
+            "file watcher",
+        ]
+
+    def test_source_names_every_dd0_knob(self) -> None:
+        """Source-level guard (the ``_probe_usearch``/embedding-probe
+        precedent's discipline, applied to DD-0): every ``watchfiles.watch``
+        knob DD-0 requires pinned explicitly must appear, by name, in the
+        probe's source — a future edit that drops one silently
+        reintroduces an inherited library or environment default."""
+        import inspect
+
+        # The module-top-imported name, not `diagnostics._probe_file_watcher`
+        # — the autouse stub above rebinds the module attribute, but this
+        # name was captured at import time and is unaffected (the same
+        # mechanism that lets the round-trip tests above bypass the stub).
+        source = inspect.getsource(_probe_file_watcher)
+        for knob in (
+            "force_polling",
+            "raise_interrupt",
+            "debug",
+            "poll_delay_ms",
+            "recursive",
+            "debounce",
+            "step",
+            "rust_timeout",
+            "yield_on_timeout",
+            "ignore_permission_denied",
+        ):
+            assert knob in source, f"missing DD-0 knob {knob!r} from _probe_file_watcher source"
+
+    def test_line_present_in_output_by_name(self) -> None:
+        """Both CI lanes grep this exact prefix — it must not drift. Uses
+        the autouse-stubbed probe, same as the other by-name presence
+        tests in this file."""
+        buf = io.StringIO()
+        run_doctor(out=buf)
+        assert "file watcher: OK" in buf.getvalue()

@@ -68,11 +68,13 @@ from the_one.knowledge.settings import (
     ChunkingSettings,
     EmbeddingSettings,
     KnowledgeSettings,
+    MonitoringSettings,
     load_knowledge_settings,
     load_vector_store_settings,
     save_knowledge_settings,
 )
 from the_one.knowledge.walk import content_hash, is_filesystem_root
+from the_one.knowledge.watcher import get_manager as get_watch_manager
 from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
 from the_one.platform.paths import canonicalize, is_within
@@ -1472,22 +1474,31 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
     # installed) BEFORE the repository delete, so no worker is mid-item
     # on rows about to be cascaded. A no-op for an untracked kb_id.
     manager = get_indexing_manager()
-    if manager is not None:
-        await manager.stop(kb_id)
-    try:
-        await repo.delete(kb_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
-    # Flight 2 Leg 4: vector-store cleanup happens AFTER the repository
-    # transaction has committed, never inside it (both stores acquire the
-    # write lock themselves — DD-13 forbids nesting). The DB row is truth;
-    # a store failure here is logged and swallowed rather than surfaced —
-    # a stale vector row for a never-recycled id is harmless.
-    try:
-        store = await _vector_store()
-        await store.delete_kb(kb_id)
-    except Exception:
-        logger.exception("vector store delete_kb failed for knowledge base %s", kb_id)
+    # Flight 4 Leg 3, DD-3/DD-8: suppress kb_id's watch timer for the
+    # whole stop -> delete -> store-delete sequence, closing the same race
+    # AC-10 closed for indexing alone (a reconcile tick or a sibling
+    # folder's timer restarting the worker between `manager.stop` and the
+    # repository delete). A `None` manager is `contextlib.nullcontext()`.
+    watch = get_watch_manager()
+    async with watch.suppress(kb_id) if watch is not None else contextlib.nullcontext():
+        if watch is not None:
+            await watch.stop_kb(kb_id)
+        if manager is not None:
+            await manager.stop(kb_id)
+        try:
+            await repo.delete(kb_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+        # Flight 2 Leg 4: vector-store cleanup happens AFTER the repository
+        # transaction has committed, never inside it (both stores acquire
+        # the write lock themselves — DD-13 forbids nesting). The DB row is
+        # truth; a store failure here is logged and swallowed rather than
+        # surfaced — a stale vector row for a never-recycled id is harmless.
+        try:
+            store = await _vector_store()
+            await store.delete_kb(kb_id)
+        except Exception:
+            logger.exception("vector store delete_kb failed for knowledge base %s", kb_id)
     return {"status": "ok"}
 
 
@@ -1537,6 +1548,20 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
             raise HTTPException(
                 status_code=422, detail=f"cannot register the filesystem root: {canonical}"
             )
+        # DD-6: a folder that equals, contains, or lies inside the data
+        # directory is refused before the containment scan — the app's own
+        # database, WAL and vector sidecar live there, and registering it
+        # (or an ancestor of it) would feed every indexing write back into
+        # the watcher as a new pass forever (Flight 4).
+        if is_within(settings.data_dir, canonical) or is_within(canonical, settings.data_dir):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"folder overlaps the application data directory ({settings.data_dir}); "
+                    "the app's own database and index live there — register a folder that "
+                    "does not contain it"
+                ),
+            )
         for existing in await repo.list_folders(kb_id):
             if is_within(canonical, existing.path_or_url) or is_within(
                 existing.path_or_url, canonical
@@ -1551,16 +1576,20 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
 
     await repo.create(item)
     if item.type == "folder":
-        _after_folder_registered(kb_id)
+        _after_folder_registered(kb_id, item)
     return item.model_dump()
 
 
-def _after_folder_registered(kb_id: str) -> None:
-    """Kick kb_id's indexing worker (Flight 3 Leg 3) — a no-op when no
-    manager is installed (pre-lifespan, or a test with none injected)."""
+def _after_folder_registered(kb_id: str, item: KBItem) -> None:
+    """Kick kb_id's indexing worker (Flight 3 Leg 3) and start watching
+    the folder (Flight 4 Leg 3) — a no-op for either manager not
+    installed (pre-lifespan, or a test with none injected)."""
     manager = get_indexing_manager()
     if manager is not None:
         manager.request_index(kb_id)
+    watch = get_watch_manager()
+    if watch is not None:
+        watch.start(kb_id, item)
 
 
 @router.get("/knowledge-bases/{kb_id}/items/{item_id}")
@@ -1637,21 +1666,31 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
     # needs neither — the worker's own per-item catch handles a vanished
     # row.
     manager = get_indexing_manager()
-    if item.type == "folder" and manager is not None:
-        await manager.stop(kb_id)
+    # Flight 4 Leg 3, DD-3/DD-8: a folder delete also stops the item's
+    # watch entry, under the same kb_id suppression as
+    # delete_knowledge_base — a folder delete only (the standalone-file
+    # branch below needs neither watch nor suppression: there is nothing
+    # watching a lone file). The two 404s above fire before this block, so
+    # no suppression is entered or exited on those paths.
+    watch = get_watch_manager() if item.type == "folder" else None
+    async with watch.suppress(kb_id) if watch is not None else contextlib.nullcontext():
+        if watch is not None:
+            await watch.stop(item_id)
+        if item.type == "folder" and manager is not None:
+            await manager.stop(kb_id)
 
-    ids = await repo.delete(item_id)
-    # Flight 2 Leg 4: same after-the-repository-transaction, log-and-
-    # continue shape as delete_knowledge_base above.
-    if ids:
-        try:
-            store = await _vector_store()
-            await store.delete(kb_id, ids)
-        except Exception:
-            logger.exception("vector store delete failed for kb item %s", item_id)
+        ids = await repo.delete(item_id)
+        # Flight 2 Leg 4: same after-the-repository-transaction, log-and-
+        # continue shape as delete_knowledge_base above.
+        if ids:
+            try:
+                store = await _vector_store()
+                await store.delete(kb_id, ids)
+            except Exception:
+                logger.exception("vector store delete failed for kb item %s", item_id)
 
-    if item.type == "folder" and manager is not None:
-        manager.request_index(kb_id)
+        if item.type == "folder" and manager is not None:
+            manager.request_index(kb_id)
 
     return {"status": "ok"}
 
@@ -1672,6 +1711,10 @@ async def get_kb_status(kb_id: str) -> dict[str, Any]:
     chunk_repo = await _kb_chunk_repo()
     folders = await item_repo.list_folders(kb_id)
     manager = get_indexing_manager()
+    # Flight 4 Leg 3, DD-8: each folder's watch state and reason, additive
+    # to Flight 3's projection. "off" / `None` with no watch manager
+    # installed, matching `_after_folder_registered`'s no-op shape.
+    watch = get_watch_manager()
 
     return {
         "items": await item_repo.count_by_status(kb_id, type="file"),
@@ -1682,6 +1725,8 @@ async def get_kb_status(kb_id: str) -> dict[str, Any]:
                 "status": f.status,
                 "indexed_at": f.indexed_at,
                 "error": f.error,
+                "watch": watch.state(f.id) if watch is not None else "off",
+                "watch_error": watch.error(f.id) if watch is not None else None,
             }
             for f in folders
         ],
@@ -1812,6 +1857,8 @@ async def get_kb_item_source(kb_id: str, item_id: str) -> dict[str, Any]:
 _KNOWLEDGE_SETTINGS_NOTES = [
     "Chunking changes apply to items indexed after the change; existing chunks are not re-chunked.",
     "The embedding backend is fixed to the bundled local model in this release.",
+    "Monitoring changes (the watcher on/off switch and the reconciliation "
+    "interval) apply immediately.",
 ]
 
 
@@ -1828,6 +1875,7 @@ async def _knowledge_settings_response(conn, current: KnowledgeSettings) -> dict
     return {
         "embedding": current.embedding.model_dump(),
         "chunking": current.chunking.model_dump(),
+        "monitoring": current.monitoring.model_dump(),
         "vector_store": vector_store.model_dump(),
         "notes": list(_KNOWLEDGE_SETTINGS_NOTES),
     }
@@ -1843,16 +1891,17 @@ async def get_knowledge_settings() -> dict[str, Any]:
 @router.put("/knowledge-settings")
 async def update_knowledge_settings(request: Request) -> dict[str, Any]:
     data = await request.json()
-    if not isinstance(data, dict) or set(data) - {"embedding", "chunking"}:
+    if not isinstance(data, dict) or set(data) - {"embedding", "chunking", "monitoring"}:
         raise HTTPException(
             status_code=422,
-            detail="body must contain only 'embedding' and/or 'chunking' keys",
+            detail="body must contain only 'embedding', 'chunking' and/or 'monitoring' keys",
         )
 
-    # Leg 5 review fix-now: a non-dict `embedding`/`chunking` value (e.g. a
-    # string or list) must 422, not raise an uncaught TypeError out of
-    # `dict.update()` below and surface as an unhandled 500.
-    for key in ("embedding", "chunking"):
+    # Leg 5 review fix-now: a non-dict `embedding`/`chunking`/`monitoring`
+    # value (e.g. a string or list) must 422, not raise an uncaught
+    # TypeError out of `dict.update()` below and surface as an unhandled
+    # 500.
+    for key in ("embedding", "chunking", "monitoring"):
         if key in data and not isinstance(data[key], dict):
             raise HTTPException(
                 status_code=422,
@@ -1868,17 +1917,44 @@ async def update_knowledge_settings(request: Request) -> dict[str, Any]:
     merged_chunking = current.chunking.model_dump()
     if "chunking" in data:
         merged_chunking.update(data["chunking"])
+    merged_monitoring = current.monitoring.model_dump()
+    if "monitoring" in data:
+        merged_monitoring.update(data["monitoring"])
 
     try:
         updated = KnowledgeSettings(
             embedding=EmbeddingSettings.model_validate(merged_embedding),
             chunking=ChunkingSettings.model_validate(merged_chunking),
+            monitoring=MonitoringSettings.model_validate(merged_monitoring),
         )
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
 
     await save_knowledge_settings(conn, updated)
+    # DD-5: applied live, not only on the next indexing pass (unlike
+    # chunking) — the operator chose settings over env vars precisely so
+    # the on/off switch and the interval are switches. This is the
+    # `leg-staged-hook-seam` (agents.md): a documented no-op here, filled
+    # by Leg 3 with `get_watch_manager().apply_settings(...)`.
+    await _after_monitoring_settings_changed(updated.monitoring)
     return await _knowledge_settings_response(conn, updated)
+
+
+async def _after_monitoring_settings_changed(monitoring: MonitoringSettings) -> None:
+    """Apply a saved `MonitoringSettings` change live (Flight 4 DD-5).
+
+    Filled in by Leg 3: `await get_watch_manager().apply_settings(
+    monitoring)` — a `None` manager (pre-lifespan, or a test with none
+    injected) is a no-op, the `_after_folder_registered` shape.
+    `apply_settings` is itself idempotent (disabled -> stop and forget
+    every entry; enabled -> re-subscribe every folder of every knowledge
+    base; either way the reconcile loop wakes so a changed interval
+    applies immediately). Awaited by the route only after a successful
+    `save_knowledge_settings`, never on a 422 path.
+    """
+    watch = get_watch_manager()
+    if watch is not None:
+        await watch.apply_settings(monitoring)
 
 
 # ── MCP Sources ───────────────────────────────────────────────────────────

@@ -590,7 +590,15 @@ Flight 2)". The security-relevant invariants are:
   skips dot-prefixed entries and the `SKIPPED_DIRS` set by construction —
   not a security boundary, a scope-of-indexing default. Extracted chunk
   text is stored in plaintext in the SQLite database, like every other
-  record under this model.
+  record under this model. Registration refuses (422) a folder that
+  equals, contains, or lies inside the application data directory (M24
+  F4) — the app's own database, WAL and vector sidecar live there, so
+  this keeps the app's own files out of the index and keeps indexing
+  writes from feeding a change-monitoring watcher back into itself. That
+  same watcher (`the_one/knowledge/watcher.py`) registers operating-system
+  change notifications on the operator-chosen folder trees and reads them
+  with the app's own process privileges — the same trust boundary as the
+  walk above, no new one introduced.
 
 ## Boxed Execution Mode (M14 F4)
 

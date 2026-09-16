@@ -340,3 +340,108 @@ class TestContentHashAndIsFilesystemRoot:
 
     def test_is_filesystem_root_false_for_a_non_root_path(self, tmp_path: Path) -> None:
         assert is_filesystem_root(tmp_path) is False
+
+
+# ── Flight 4 Leg 1, DD-2, AC-4: is_hidden_name / is_watch_candidate ────
+
+
+class TestWatchPredicates:
+    """The two shared filter predicates the watcher (Flight 4) reuses from
+    the walk: ``is_hidden_name`` (extracted verbatim from ``walk_folder``'s
+    existing dot-prefix check, exercised indirectly above via the
+    unchanged filter-rule tests) and ``is_watch_candidate`` (new, the
+    watcher-side composite trigger filter). This class only adds tests —
+    every test above stays byte-identical (AC-4)."""
+
+    def test_is_hidden_name_true_for_dot_prefixed(self) -> None:
+        from the_one.knowledge.walk import is_hidden_name
+
+        assert is_hidden_name(".git") is True
+
+    def test_is_hidden_name_false_for_plain_name(self) -> None:
+        from the_one.knowledge.walk import is_hidden_name
+
+        assert is_hidden_name("git") is False
+
+    def _candidate(self, path: str, *, root=None, extensions=None, excluded_roots=()) -> bool:
+        from the_one.knowledge.walk import is_watch_candidate
+
+        return is_watch_candidate(
+            path,
+            root=root if root is not None else Path("/r"),
+            extensions=extensions if extensions is not None else frozenset({".md", ".txt"}),
+            excluded_roots=excluded_roots,
+        )
+
+    def test_root_itself_is_a_candidate(self) -> None:
+        assert self._candidate("/r") is True
+
+    def test_root_with_trailing_slash_is_a_candidate(self) -> None:
+        # PurePath normalises a trailing slash on POSIX — no raw string
+        # compare would tolerate this without the PurePath form (DD-2
+        # clause 1).
+        assert self._candidate("/r/") is True
+
+    def test_root_with_doubled_separator_relative_part_is_normalised(self) -> None:
+        # A doubled separator inside a relative part is normalised by
+        # PurePath before the relative-component checks run; "sub" has no
+        # suffix, so it is still a candidate.
+        assert self._candidate("/r//sub") is True
+
+    def test_supported_extension_file_is_a_candidate(self) -> None:
+        assert self._candidate("/r/a.md") is True
+
+    def test_upper_cased_supported_extension_is_a_candidate(self) -> None:
+        assert self._candidate("/r/A.MD") is True
+
+    def test_unsupported_extension_file_is_not_a_candidate(self) -> None:
+        assert self._candidate("/r/a.png") is False
+
+    def test_no_suffix_file_is_a_candidate(self) -> None:
+        # No suffix: may be a directory being created or removed; the walk
+        # is the one that finds out (DD-2 clause 5).
+        assert self._candidate("/r/README") is True
+
+    def test_bare_subdirectory_is_a_candidate(self) -> None:
+        assert self._candidate("/r/sub") is True
+
+    def test_dot_prefixed_directory_at_any_depth_is_not_a_candidate(self) -> None:
+        assert self._candidate("/r/.git/x.md") is False
+
+    def test_skipped_dirs_name_at_any_depth_is_not_a_candidate(self) -> None:
+        assert self._candidate("/r/x/node_modules/y.txt") is False
+
+    def test_dot_prefixed_top_level_entry_is_not_a_candidate(self) -> None:
+        assert self._candidate("/r/.hidden") is False
+
+    def test_excluded_root_is_not_a_candidate(self) -> None:
+        assert self._candidate("/r/data/x.md", excluded_roots=(Path("/r/data"),)) is False
+
+    def test_path_outside_root_is_not_a_candidate(self) -> None:
+        assert self._candidate("/elsewhere/a.md") is False
+
+    def test_empty_path_is_not_a_candidate_and_never_raises(self) -> None:
+        assert self._candidate("") is False
+
+    def test_dotted_root_name_itself_is_still_a_candidate(self) -> None:
+        # A root whose own name carries a dotted suffix (e.g. "notes.d")
+        # must still pass clause 1 unconditionally — otherwise the root's
+        # own deletion event would never reach the watcher's task (DD-1).
+        assert self._candidate("/r/notes.d", root=Path("/r/notes.d")) is True
+
+    def test_root_case_variant_via_normcase(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Assert the PurePath(normcase(...)) form is actually used, not a
+        # raw string compare: force normcase to fold case (simulating a
+        # case-insensitive platform) and confirm a case-differing path
+        # still equals the root.
+        import os as _os
+
+        from the_one.knowledge import walk as walk_module
+
+        monkeypatch.setattr(_os.path, "normcase", lambda p: str(p).lower())
+        assert (
+            walk_module.is_watch_candidate(
+                "/R", root=Path("/r"), extensions=frozenset({".md"}), excluded_roots=()
+            )
+            is True
+        )
