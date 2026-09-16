@@ -55,4 +55,4 @@ per-port isolation sentence.
 ## Sign-Off
 **Reviewer**: Sonnet (batch review, squawk turnaround 2026-09-16; Sonnet tier — 0063 touches the route reading operator-registered paths)
 **Verdict**: confirmed
-**Commit**: (recorded in the follow-up commit)
+**Commit**: `16222c4`
