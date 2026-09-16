@@ -1,9 +1,9 @@
 # Behavior Test: Knowledge base folder registration indexes, reflects changes, and resumes
 
 **Slug**: `kb-folder-index-round-trip`
-**Status**: draft
+**Status**: active
 **Created**: 2026-09-15
-**Last Run**: never
+**Last Run**: 2026-09-15-23-55-26 (pass, 8/8 — first run, Mission 24 Flight 3 Leg 4; see `kb-folder-index-round-trip/runs/2026-09-15-23-55-26.md`)
 
 ## Intent
 
@@ -31,6 +31,10 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
   — read `<scratch>/api-credential` verbatim and attach `Authorization:
   Bearer <credential>` to every `curl` call (shell-only apparatus; no
   handoff mint needed).
+  A **fresh** scratch data directory has no credential file yet and
+  `make up`'s verify step fails without one: run `THE_ONE_DATA_DIR=
+  <scratch> the-one rotate-api-credential` once before the first `make up`
+  (learned on the first run).
 - The `sqlite3` CLI is on PATH (the seeded-resume step writes one row into
   `<scratch>/the-one.db` while the instance is stopped). Verify: `sqlite3
   --version` exits 0.
@@ -50,7 +54,7 @@ instance proves they are wired together. Mission 24 Flight 3, DD-9.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | (Setup, no judgment) Probe `GET /api/live` for 200. Create `<fixture>/` with: `notes/alpha.md` (three paragraphs of distinct prose containing the exact token `zebrafish-alpha`), `code/beta.py` (a 60-line Python file containing the identifier `gamma_delta_handler`), `.hidden/secret.txt` (any text), `.env` (any text), `data/big.txt` (11 MiB of text), `image.png` (200 bytes of binary), and a symlink `link.md` → `notes/alpha.md`. | (empty) |
+| 1 | (Setup, no judgment) Probe `GET /api/live` for 200. Create `<fixture>/` with: `notes/alpha.md` (three paragraphs of distinct prose containing the exact token `zebrafish-alpha`), `code/beta.py` (a 60-line Python file containing the identifier `gamma_delta_handler`), `.hidden/secret.txt` (any text), `.env` (any text), `data/big.txt` (11 MiB of text), `image.png` (200 bytes of binary containing at least one NUL byte — verify with a Python byte check, not `grep`, which misreports NULs), and a symlink `link.md` → `notes/alpha.md`. | (empty) |
 | 2 | `POST /api/knowledge-bases` with `{"name": "KBRT-test"}`; record `kb_id`. `POST /api/knowledge-bases/{kb_id}/items` with `{"type": "folder", "path_or_url": "<fixture>"}`; record `folder_id`. | The KB create responds 201. The folder registration responds 201 and its body's `path_or_url` is the canonical absolute path of `<fixture>` and `type` is `folder`. |
 | 3 | (Wait point, no actions) Poll `GET /api/knowledge-bases/{kb_id}/status` every 2 s. | Within 60 s the body shows `items.pending` = 0, `items.indexing` = 0, `indexer` = `idle`, `items.indexed` = 2 (`alpha.md`, `beta.py`), `items.failed` = 1 (`big.txt`), `chunks` ≥ 2, and `folders` is a one-element list whose entry has `id` = `folder_id`, `status` = `indexed` and a non-null `indexed_at`. (Item counts are file items only; the folder's own walk status lives in `folders`.) |
 | 4 | `GET /api/knowledge-bases/{kb_id}/items`; record `alpha_id` (the `notes/alpha.md` item) and `alpha_indexed_at_initial` (its `indexed_at`). | Exactly four items: the folder (`indexed`), `notes/alpha.md` (`indexed`), `code/beta.py` (`indexed`), `data/big.txt` (`failed`, `error` mentions the 10 MiB cap) — and no item for `.hidden/secret.txt`, `.env`, `image.png` or `link.md`. Every `file` item's `parent_id` equals `folder_id`. |

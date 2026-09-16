@@ -810,7 +810,7 @@ re-measure; Flight 3 checked off at landing).
       drain with the drain-order test, the four routes, delete-route
       integration, first-index settings record, `CLAUDE.md` and `agents.md`.
       **HIGH risk** (lifecycle; lifespan ordering).
-- [ ] `verify-integration` — dev-instance probes, behavior-test premise
+- [x] `verify-integration` — dev-instance probes, behavior-test premise
       audit and run, by-hand gates, frozen run, mission open question.
 - [ ] `hat-and-alignment` *(optional)* — guided API walk on the dev instance
       per DD-10.
@@ -823,8 +823,8 @@ re-measure; Flight 3 checked off at landing).
 
 - [ ] All legs completed
 - [ ] Code merged *(PR into `mission/24-knowledge-bases` — no CI lane runs on it; gates run by hand and recorded in the flight log)*
-- [ ] Tests passing
-- [ ] Documentation updated — `CLAUDE.md` (the four routes, folder registration is operator-only, the resume behaviour), `SECURITY-MODEL.md` (knowledge-base indexing paragraph), `the_one/agents.md` (Knowledge indexing contract: walk rules, extractor registry, pipeline stages and ordering, flush rule, stale recovery, manager lifecycle), `missions/24-knowledge-bases/mission.md` (Windows 1M re-measure open question; `parent_id` and file-skip open questions resolved)
+- [x] Tests passing
+- [x] Documentation updated — `CLAUDE.md` (the four routes, folder registration is operator-only, the resume behaviour), `SECURITY-MODEL.md` (knowledge-base indexing paragraph), `the_one/agents.md` (Knowledge indexing contract: walk rules, extractor registry, pipeline stages and ordering, flush rule, stale recovery, manager lifecycle), `missions/24-knowledge-bases/mission.md` (Windows 1M re-measure open question; `parent_id` and file-skip open questions resolved)
 
 ### Verification
 

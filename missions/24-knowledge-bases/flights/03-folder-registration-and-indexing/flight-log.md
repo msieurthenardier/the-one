@@ -4,7 +4,7 @@
 
 ## Summary
 
-In flight. Legs 1–3 landed, reviewed and committed; Leg 4 (verify-integration) next, then the optional HAT. Reconnaissance, three Architect design-review cycles and the operator interview are recorded below; `flight.md` is at `ready`, the behavior-test draft `kb-folder-index-round-trip` is filed, no code has changed.
+In flight. Legs 1–4 completed and committed (PR #200); the optional HAT leg (`hat-and-alignment`) is the only leg outstanding — it needs the operator present. Reconnaissance, three Architect design-review cycles and the operator interview are recorded below; `flight.md` is at `ready`, the behavior-test draft `kb-folder-index-round-trip` is filed, no code has changed.
 
 ---
 
@@ -444,6 +444,52 @@ scale):
 
 ---
 
+### Leg 4 — verify-integration — completed (2026-09-15/16)
+
+**Status**: completed
+**Started**: 2026-09-15 (design at `e39da94`)
+**Completed**: 2026-09-16T00:09Z
+
+#### Changes Made
+- No source change. `tests/behavior/kb-folder-index-round-trip.md`:
+  `draft` → `active`, `Last Run` set; two apparatus notes added to
+  Preconditions/Step 1 (mint the credential before the first `make up`
+  on a fresh scratch dir; verify NUL bytes with Python, not `grep`).
+  Run log `tests/behavior/kb-folder-index-round-trip/runs/
+  2026-09-15-23-55-26.md` (committed; evidence ephemeral under
+  `/tmp/behavior-tests/…`, 36 files, not committed).
+- `missions/24-knowledge-bases/mission.md`: `parent_id` and skipped-files
+  open questions resolved (DD-2, DD-3/4/5); the Windows 1M re-measure
+  added as an open question.
+
+#### Gates (all at `e39da94`)
+| Gate | Result |
+|---|---|
+| AC-1 premise audit | every premise confirmed, zero spec edits (Developer, Sonnet) |
+| AC-2 dev instance | 8485 + scratch data dir; `/api/live` 200; 8484 never listening |
+| AC-3 behavior test | **pass, 8/8 checkpoints**, live two-agent mode, cold cache; every verdict evidence-backed; every wait point resolved on poll 1 |
+| AC-4 lint / unit | `make lint` clean; `make test-unit` **4,547 passed / 10 skipped / 578.08 s** |
+| AC-5 closure | `uv export` 1,697 lines, 0 `hf-xet`/`sqlite-vec`; `pip-audit --disable-pip` → No known vulnerabilities found |
+| AC-6 frozen run | build **608700**, first attempt: `RESULT: PASS`, eight gates OK, `BUILD OK`; installer **134,886,157 bytes** (+95,865 / +0.07 % vs 134,790,292) |
+| AC-7 mission artifact | done |
+| AC-8 docs | CLAUDE.md / agents.md / SECURITY-MODEL.md verified; README and windows-install unchanged (no new gate or command) |
+
+#### Notes
+- Behavior-run observations worth carrying: this fixture indexes faster
+  than the 2 s poll interval, so the run saw terminal states only — the
+  live-kill variant is how to watch a transition; on this WSL2 host a
+  stopped port reads as a curl timeout, not connection-refused; `make
+  up`'s own boot-wait absorbs the restart latency; registering `/tmp`
+  itself was refused 409 before any walk (the parent-containment rule
+  protecting the host's own `/tmp`, evidence directory included).
+- Candidate spec tightenings recorded in the run log's Operator Notes
+  (realpath tiebreaker; "old chunk ids replaced" assertion) — not
+  applied, each is a re-authored premise.
+- Squawk candidate carried to the debrief: `CLAUDE.md` says `make up`
+  writes `.the-one.pid`; the Makefile scopes it by port.
+
+---
+
 ## Decisions
 
 *(runtime decisions not in the original plan)*
@@ -757,6 +803,66 @@ design review during execution covers them next.
   committed as one flight commit; draft PR opened against
   `mission/24-knowledge-bases` with Legs 4–5 unchecked.
 
+- Flight commit `e39da94` (Legs 1–3, pre-commit ruff hook passed); branch
+  pushed; draft PR **#200** opened against `mission/24-knowledge-bases`
+  with Legs 4–5 unchecked. Leg 4 (`verify-integration`) runs against this
+  commit: behavior-test premise audit and run, by-hand gates, frozen run.
+
+### Flight Director Notes — Leg 4 design and gates (2026-09-15)
+
+- Leg 4 artifact `legs/04-verify-integration.md` written at `e39da94`.
+  **Risk tier: LOW** — no source change; a verification leg (behavior test,
+  by-hand gates, frozen run) plus two artifact edits. No design review.
+- Prerequisite probes: `sqlite3` 3.44.4, `uv` 0.10.0, `pip-audit` 2.10.0,
+  port 8485 free, nothing on 8484, `fly` logged in, `windows-worker`
+  running, no stale client.
+- Launched in parallel: the frozen `fly execute` (run 1, detached, log
+  `fly-f3-run1.log` in the session scratchpad, installer output outside
+  the repo) and the release-closure audit — `uv export … --format
+  requirements-txt` → 1,697 lines, 0 `hf-xet`/`sqlite-vec` lines;
+  `pip-audit --disable-pip -r` → **No known vulnerabilities found**
+  (AC-5 met). Behavior-spec premise audit spawned (Developer, Sonnet,
+  AC-1). `make test-unit` is held until the audit Developer is done so
+  the metric runs alone.
+
+- Behavior-spec premise audit (Developer, Sonnet, Leg 4 AC-1): **every
+  premise confirmed, zero edits** — route paths and codes, the file-only
+  status counts and `folders` keys, both `reindex` scopes and the 422 for
+  an invalid one, the chunk and source body keys and the `stale` rule,
+  the validation order (existence before containment, so the missing
+  nested path is 422), the walk's skips for the fixture's dot-entries /
+  `.png` / symlink, the exact 10 MiB error text, the `requeued: 3`
+  arithmetic, `parent_id` on children, the seeded-resume table and
+  column, the credential and DB paths, the port-scoped PID file, and the
+  registration kick reaching a lifespan-constructed manager. Ordering
+  review: Steps 3, 8 and 10 have no race; the one external assumption is
+  uvicorn serving no request before lifespan startup completes (standard
+  uvicorn behaviour; noted, not verified from uvicorn source). Verdict:
+  spec ready for first run. `make lint` clean (AC-4, lint half).
+
+- **Unit gate (Leg 4 AC-4)**: `make test-unit` verbatim, alone, foreground
+  at `e39da94`: **4,547 passed / 10 skipped / 557 deselected / 578.08 s**
+  (pytest wall; 623.74 s including collection and teardown), exit 0 — the
+  same count as Leg 3's close. Flight series: Flight 2 close 4,370 →
+  squawk turnaround 4,431 → Leg 1 4,452 → Leg 2 4,499 → Leg 3 4,547
+  (+116 tests for the flight, +154 over Flight 2's close).
+- **Frozen run 1 (Leg 4 AC-6) — build 608700, succeeded on the first
+  attempt**: `RESULT: PASS`; all eight doctor gates `OK` (`usearch: OK`
+  with `numkong=no, simd=serial` as Flight 1 recorded; `fts5: OK`, SQLite
+  3.45.1; `embedding model: OK`, peak RSS 247.2 MiB); `BUILD OK:
+  the-one-setup-0.8.1.exe`; installer **134,886,157 bytes** against the
+  Flight 2 baseline of 134,790,292 — **+95,865 bytes (+0.07 %)**,
+  consistent with the flight adding only pure-Python modules under
+  `the_one/knowledge/` and no dependency. The DD-11 iteration budget was
+  not needed.
+- Dev instance for the behavior test: first `make up` on 8485 with a
+  scratch data dir failed its `verify-serving` step because no
+  `api-credential` existed yet in the fresh data dir (the Makefile's own
+  message prescribes `rotate-api-credential` first); brought down, the
+  credential minted, brought up again. Recorded as an apparatus note for
+  the spec's Preconditions (mint before the first `make up` on a fresh
+  scratch dir), not a defect.
+
 ---
 
 ## Reconnaissance Report
@@ -805,6 +911,7 @@ confirmation before Phase 2 proceeds to spec design.
 ## Session Notes
 
 - 2026-09-15 — Flight 3 planning opened; reconnaissance walked against `0f79f9c`.
+- 2026-09-16 — Leg 4 completed: behavior test 8/8, unit gate 4,547, pip-audit clean, frozen build 608700 PASS.
 - 2026-09-15 — Leg 1 (`folder-registration-and-walk`) implemented: repository widening, `the_one/knowledge/walk.py`, folder registration validation, `SECURITY-MODEL.md` bullet, 59 new tests across four files. `make test-unit` 4452 passed / 10 skipped / 523.20s; `make lint` and `ruff format --check` clean. `[HANDOFF:review-needed]`.
 - 2026-09-15 — Leg 2 (`extractor-seam-and-indexer`) implemented: extractor seam + registry, `the_one/knowledge/indexer.py` (`index_item`, `FlushPolicy`, `rebuild_kb`), `rebuild_from` widened to an `AsyncIterable` on the `VectorStore` Protocol, the `entry.dirty` reorder, the DD-12 1M-Windows extrapolation (9.09% overhead, under the 15% Divert threshold), `agents.md`'s "Knowledge indexing" block, 47 new tests across three files. `make test-unit` 4499 passed / 10 skipped / 517.29s; `make lint` and `ruff format --check` clean. `[HANDOFF:review-needed]`.
 - 2026-09-15 — Leg 3 (`indexing-manager-and-routes`) implemented: `the_one/knowledge/manager.py` (`IndexingManager` — worker pass, cooperative stop + cancel fallback, manager-owned flush, stale-sidecar rebuild + restart, bounded-fallback drain), lifespan `start_all`/`drain` wiring with the drain-order test extended, the four DD-8 routes, the `_after_folder_registered` hook filled, both delete routes' `stop`/`request_index` integration, `CLAUDE.md` and `agents.md` documentation, 48 new tests across two files (plus a real `request_index`-idle race found and fixed via this leg's own first test failure). `make test-unit` 4547 passed / 10 skipped / 557 deselected / 548.53s; `make lint` and `make format-check` clean. `[HANDOFF:review-needed]`.
