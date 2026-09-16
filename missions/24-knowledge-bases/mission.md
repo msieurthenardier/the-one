@@ -346,6 +346,13 @@ spend is a decision on record, not an accident.
   offline-by-construction app never calls) was removed from the closure in
   Flight 2 Leg 6 (squawk 0049, completed). Surfaced by Flight 1.
 
+- **`get_vector_store()` has no shutdown hook** — the indexing manager's
+  drain is where dirty indexes get saved; a knowledge base with a store but
+  no worker has no flush path at shutdown. Recorded at the Flight 3 debrief,
+  unchanged by Flight 4 (the watcher never touches the store). **Resolution
+  point: Flight 6 / mission close**, alongside the Windows 1M re-measure —
+  not deferred again (Flight 4 debrief Recommendation 5).
+
 ## Branch Layout — mission branch, one-off
 
 This mission is carried on a long-running **`mission/24-knowledge-bases`**

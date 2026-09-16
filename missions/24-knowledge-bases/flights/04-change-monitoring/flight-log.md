@@ -698,6 +698,11 @@ Flight marked **ready** after these edits; no fourth cycle (the Architect's own 
 - Behavior test run in live mode: 9/9 judged checkpoints, one operator-authorised rerun (Step 4, apparatus gap). Run log committed; evidence outside the tree. Dev instance torn down.
 - Phase 3: all four legs `completed`; flight log entries for each; documentation verified by the flight-end Reviewer (AC-8); flight `landed`; Flight 4 checked in `mission.md`. PR #202 marked ready for review against `mission/24-knowledge-bases`. `[COMPLETE:flight]`.
 
+### Flight Director Notes — debrief (2026-09-16)
+
+- Debrief interviews: Developer (Sonnet; full suite 4,649 / 10 / 636.62 s, reproduced 633.32 s; no leaks; stub coverage confirmed; one stale comment count) and Architect (Sonnet; spec-to-code fidelity verbatim; each review cycle found a different real defect; six ranked recommendations). Human interview: keep the max-2 rule and ask each time; the checkpoint-4 rerun decision was presented well; nothing notable beyond the log.
+- Debrief written; `mission.md` Known Issues gains the `get_vector_store()` shutdown hook with a resolution point (Flight 6 / mission close). Squawks **0067–0070** logged (servicing, routine). Flight `landed → completed`. PR #202 merged into `mission/24-knowledge-bases` next.
+
 ---
 
 ## Reconnaissance Report
