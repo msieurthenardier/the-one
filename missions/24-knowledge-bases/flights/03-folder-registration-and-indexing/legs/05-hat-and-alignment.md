@@ -1,6 +1,6 @@
 # Leg: hat-and-alignment
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Folder Registration and Indexing](../flight.md)
 
 ## Objective
@@ -41,10 +41,12 @@ At every step, say what surprised you. Look-and-feel fixes (a message, a key nam
 
 ## Acceptance Criteria
 
-- [ ] Every step above performed by the operator with the result reported
-- [ ] Every issue raised either fixed inline (with its own review when it spans more than one surface) or recorded as a squawk / follow-up
-- [ ] Operator states they are satisfied, or waives the remaining steps
-- [ ] Flight log entry; any code change committed with review
+**Waived by the operator on 2026-09-16 at Step 2**: the flight has no UI surface, so the walk is folded into Flight 6's HAT, where the same actions happen on a screen. Step 1 (apparatus) was performed; Steps 2–8 were not.
+
+- [x] Every step above performed by the operator with the result reported — *waived (see above)*
+- [x] Every issue raised either fixed inline or recorded — *none raised*
+- [x] Operator states they are satisfied, or waives the remaining steps — *waived*
+- [x] Flight log entry; any code change committed with review — *no code change*
 
 ## Files Affected
 
@@ -54,12 +56,12 @@ At every step, say what surprised you. Look-and-feel fixes (a message, a key nam
 
 ## Post-Completion Checklist
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight:
-  - [ ] Update flight.md status to `landed`
-  - [ ] Check off flight in mission.md
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight:
+  - [x] Update flight.md status to `landed`
+  - [x] Check off flight in mission.md
+- [x] Commit all changes together (code + artifacts)

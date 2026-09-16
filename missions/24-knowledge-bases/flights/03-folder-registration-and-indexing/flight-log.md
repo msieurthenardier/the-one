@@ -4,7 +4,7 @@
 
 ## Summary
 
-In flight. Legs 1–4 completed and committed (PR #200); the optional HAT leg (`hat-and-alignment`) is the only leg outstanding — it needs the operator present. Reconnaissance, three Architect design-review cycles and the operator interview are recorded below; `flight.md` is at `ready`, the behavior-test draft `kb-folder-index-round-trip` is filed, no code has changed.
+Landed (2026-09-16). Legs 1–4 completed; Leg 5 (HAT) waived by the operator and folded into Flight 6. Behavior test 8/8, unit gate 4,547, pip-audit clean, frozen build 608700 PASS. PR #200 ready for review against `mission/24-knowledge-bases`. Reconnaissance, three Architect design-review cycles and the operator interview are recorded below; `flight.md` is at `ready`, the behavior-test draft `kb-folder-index-round-trip` is filed, no code has changed.
 
 ---
 
@@ -490,6 +490,25 @@ scale):
 
 ---
 
+### Leg 5 — hat-and-alignment — completed (waived, 2026-09-16)
+
+**Status**: completed (waived)
+**Started**: 2026-09-16 (Step 1 apparatus)
+**Completed**: 2026-09-16
+
+#### Notes
+- At Step 2 the operator observed that nothing in this flight is visible in
+  the UI (Studio's knowledge-base panels are Flight 6) and chose to waive
+  the API-driven walk and fold it into Flight 6's HAT, where the same
+  actions — register a folder, watch status, read chunks and source,
+  re-index, read a failure, the concurrent-delete and restart cases — can
+  be judged on a screen. No issues raised; no code changed. The dev
+  instance was stopped.
+- Carried to Flight 6 planning: the eight HAT steps in this leg's artifact
+  as the seed of Flight 6's HAT.
+
+---
+
 ## Decisions
 
 *(runtime decisions not in the original plan)*
@@ -875,6 +894,24 @@ design review during execution covers them next.
   operator waives it. The optional live-kill variant of the behavior
   test is also available if the operator wants to see a mid-flight
   transition rather than the seeded resume.
+
+### Flight Director Notes — HAT start (2026-09-16)
+
+- Operator: "run the hat". Leg 5 → `in-flight`. Step 1 performed by the
+  Flight Director as apparatus: fresh scratch data dir `devdata-hat`,
+  credential minted, `make up` on 8485, `/api/live` 200, KB list empty,
+  nothing on 8484. Steps 2–8 are presented one at a time; the operator
+  performs and reports.
+
+### Flight Director Notes — HAT waived, flight landed (2026-09-16)
+
+- Operator waived the HAT at Step 2 ("waive the hat until the next flight
+  with the UI"). Leg 5 → `completed` via its own waiver criterion; the
+  walk is carried into Flight 6's HAT.
+- Phase 3 checks: five legs `completed`; flight-log entries for all five;
+  documentation verified at Leg 4 AC-8. Flight status → **`landed`**;
+  Flight 3 checked off in `mission.md`; PR #200 marked ready for review.
+  `[COMPLETE:flight]`. Next: `/mission-control:flight-debrief`.
 
 ---
 

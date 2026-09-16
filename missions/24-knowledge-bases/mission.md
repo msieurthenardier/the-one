@@ -402,7 +402,7 @@ Operational consequences, recorded so the next flight does not rediscover them:
       (with the losing candidate removed in the same flight), and the repository
       and route gaps that currently leave no way to move an item out of
       `pending`.
-- [ ] Flight 3: Folder registration and indexing — the folder item type, path
+- [x] Flight 3: Folder registration and indexing — the folder item type, path
       containment on registration, and the walk → filter → extract → chunk →
       embed → persist pipeline behind the extractor seam, running as a resumable
       background job with per-file checkpointing.
@@ -416,4 +416,6 @@ Operational consequences, recorded so the next flight does not rediscover them:
       semantic and FTS5 results, and the `is_tool_enabled` prefix fix with its
       regression tests.
 - [ ] Flight 6: Studio surfaces — the global knowledge-base inventory and the
-      per-agent attach tab, replacing both stubs.
+      per-agent attach tab, replacing both stubs. Carries Flight 3's waived HAT
+      (register a folder, watch status, read chunks/source, re-index, read a
+      failure, concurrent delete, restart-resume) as the seed of its HAT.
