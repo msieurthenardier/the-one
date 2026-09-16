@@ -1,6 +1,6 @@
 # Leg: wiring-routes-and-docs
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Change Monitoring](../flight.md)
 
 ## Objective
@@ -271,9 +271,9 @@ Checked at the Leg 2 working tree on 2026-09-16: `app.py:80-81`,
 - [x] All acceptance criteria verified
 - [x] Tests passing
 - [x] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header) — set to `landed` instead per the Developer task instructions; flight-end review handles `completed`
-- [ ] Check off this leg in flight.md — deferred per task instructions (not the final leg; flight-end review handles this)
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
 - [ ] If final leg of flight:
   - [ ] Update flight.md status to `landed`
   - [ ] Check off flight in mission.md
-- [ ] Commit all changes together (code + artifacts) — deferred per task instructions (do not commit)
+- [x] Commit all changes together (code + artifacts)
