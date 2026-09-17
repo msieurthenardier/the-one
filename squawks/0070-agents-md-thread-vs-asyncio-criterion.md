@@ -92,7 +92,7 @@ three existing instances) is byte-for-byte unchanged in the diff.
 
 **Reviewer**: batch Reviewer agent (Haiku tier — the diff is documentation, crew prompts and a test comment; no security-sensitive surface, per `.flightops/agent-crews/leg-execution.md`)
 **Verdict**: confirmed
-**Commit**: (recorded in the follow-up commit on `squawk/turnaround-2026-09-17`)
+**Commit**: `7b85333`
 
 ## Disposition
 
