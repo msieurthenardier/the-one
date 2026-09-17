@@ -14,7 +14,7 @@ Planning (2026-09-17). `flight.md` drafted from the mission's Flight 5 bullet, t
 |---|---|---|
 | 01 `retrieval-and-fusion` | landed | Risk tier **high**. Design reviewed (Sonnet Developer): approve with changes, two medium + one low, all incorporated; no second cycle (one added AC plus a widened assertion, not substantive). Implemented: all 32 ACs met, 31 new tests in `tests/test_kb_retrieval.py` plus 3 in `tests/test_vector_store.py` and 4 in `tests/test_config.py`/`tests/test_factory_disable_enforcement.py`; `make lint` and the scoped suites all green. |
 | 02 `kb-tools-gate-and-discovery` | landed | Risk tier **high**. Two design-review cycles pre-implementation (see "Design Review Cycles" below): cycle 1 found three highs and produced the DD-7 amendment dropping the `source_index` entry entirely; cycle 2 found the amendment had not been fully back-ported and fixed the last stale references. Implemented against the amended, `ready` leg spec: all 34 ACs met, 35 new tests in `tests/test_kb_tool_provider.py`, 5 new tests in `tests/test_factory.py::TestKBToolWiring`, 4 new tests in `tests/test_search_tools.py`; `make lint` and the scoped suites all green. |
-| 03 `verify-integration` | not started | |
+| 03 `verify-integration` | completed | Risk tier **low** (no source change), per-leg design review skipped. Premise audit found no spec correction needed. Behavior test 8/8. All gates green; `pip-audit`'s 6 advisories verified as upstream, not this flight's, and escalated. |
 
 ---
 
@@ -472,6 +472,73 @@ rebuild), and that `kb_id`/`kb_name` are constructor arguments absent from
 is unforgeable by the model.
 
 Scoped suites 248 passed; `ruff check` and `ruff format --check` clean.
+
+### Flight Director Notes — Leg 3 verify-integration (2026-09-17)
+
+**Risk tier: low** — changes no source file. Per-leg design review skipped;
+the code it verifies had already cleared the flight-end review with zero
+findings, and the behavior spec it executes had been through three Architect
+cycles plus two revisions. Recorded here as the tiering call.
+
+**Premise audit (AC-1) — all premises re-verified against current code, no
+spec correction needed.** `/ws` authorizes on the bearer credential
+(`_handle_websocket` resolves the cookie then falls back to `_resolve_header`;
+the Origin allowlist rejects only an upgrade that *carries* a disallowed
+Origin, and a Python `websockets` client sends none). Protocol confirmed:
+`action`/`join` → `session_joined`; the message key is **`message`**, not
+`content`; the turn ends on `{"type":"done"}`. `MockProvider` requires `id`
+and `name` on each scripted call. `max_iterations: 1` still dispatches the
+tool (budget consumed at the top of the iteration body). `GET /api/chat/
+sessions/{id}` carries `tool_calls` and `tool_result{content, is_error}`.
+And the one that mattered most: **`api.py` has no `kb_ids` handling at all**,
+so the spec's "re-send `kb_ids` on every PUT" instruction is necessary rather
+than belt-and-braces.
+
+**Behavior test: 8/8 checkpoints PASS.** Run log:
+`tests/behavior/kb-agent-query-round-trip/runs/2026-09-17-22-08-29.md`. Live
+two-agent mode. Spec moved `draft` → `active`.
+
+The run's most valuable output was not the pass. The Validator found a
+**false-pass hazard in the spec itself**: Step 9 asserts only the shape of
+the tool result, but a silent `kb_ids` wipe during the full-replace `PUT`
+produces a byte-identical "unknown tool" error to a correctly-applied
+blacklist. The disambiguating post-update readback was supplied mid-run by
+the Flight Director, not required by the spec. Note the asymmetry it drew
+out: Step 8 carries the same hazard but there it is self-revealing (a wiped
+attachment makes the tool vanish and the row fails visibly); only Step 9
+converts the same mistake into silence. Four further evidence requirements
+this run depended on are likewise unwritten — Step 2's timestamps, Step 7's
+session-identity confirmation, the byte-counted complete captures behind both
+absence claims, and two API shapes the Executor had to infer. Without them,
+three of the eight verdicts would have been INCONCLUSIVE. All carried to the
+debrief as squawk candidates against the spec.
+
+**Gates, all by hand (no CI lane on mission-branch PRs):**
+
+| Gate | Result |
+|---|---|
+| `make lint` | clean (`ruff check` + `ruff format --check`) |
+| `make test-unit` (verbatim) | **4,732 passed, 10 skipped, exit 0**, 654 s |
+| `pip-audit` | **6 advisories — not this flight's**; see below |
+| Frozen Windows (`fly execute`) | `RESULT: PASS`, `succeeded`, **nine** doctor gates `OK` incl. `file watcher` |
+| Installer size | 134,986,037 bytes vs Flight 4's 134,938,414 — **+47,623 (+0.035%)** |
+
+**The installer delta is fully accounted for.** The three new modules
+(`retrieval.py`, `tool.py`, `tool_provider.py`) total 36,817 bytes of source;
+with bytecode that is ~47,900, against an observed +47,623. Nothing
+unexplained — which is the point of recording the baseline rather than
+eyeballing it.
+
+**`pip-audit`: escalated, not absorbed.** Flight 4 closed clean; this run
+reports 6 advisories across `pip` 26.1.1 and `soupsieve` 2.8.4. **Verified
+this flight changed no dependency manifest** (`git diff` touches no
+`pyproject.toml`, `requirements*.txt`, `setup.py` or `setup.cfg`), so these
+are upstream advisories published since — "upstream news, not this flight's"
+per DD-11. `pip` is build tooling and not in the shipped closure;
+`soupsieve` **is** a runtime dependency (via `beautifulsoup4`) and does ship,
+with a patch-level fix at 2.9.0. Raised to the operator per the standing
+Flight 2/3/4 rule rather than folded into this flight as an unreviewed
+dependency bump.
 
 ## Reconnaissance Report
 

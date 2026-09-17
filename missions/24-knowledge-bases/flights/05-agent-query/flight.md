@@ -1,14 +1,14 @@
 # Flight: Agent Query
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Retrieval combines semantic and keyword matching, so a query naming an exact term finds it even when the embedding model ranks that term poorly *(met in full here: one retrieval module fusing the vector store and FTS5 by reciprocal rank, with the exact-term guarantee pinned by targeted tests)*
-- [ ] An attached agent can discover and query its knowledge bases during a chat session, and cannot reach one it is not attached to *(met here; behavior-test-backed — `kb-agent-query-round-trip`)*
-- [ ] A knowledge base can be attached to and detached from any agent in Studio *(the functional half lands here — `AgentConfig.kb_ids` stops being inert and builds tools; the Studio surface is Flight 6)*
-- [ ] Existing installs upgrade with no data loss, the unit gate stays green, and the frozen Windows installer still builds and runs *(no schema change, no dependency change; one frozen run at flight close as a diagnostic)*
+- [x] Retrieval combines semantic and keyword matching, so a query naming an exact term finds it even when the embedding model ranks that term poorly *(met in full here: one retrieval module fusing the vector store and FTS5 by reciprocal rank, with the exact-term guarantee pinned by targeted tests)*
+- [x] An attached agent can discover and query its knowledge bases during a chat session, and cannot reach one it is not attached to *(met here; behavior-test-backed — `kb-agent-query-round-trip`)*
+- [x] A knowledge base can be attached to and detached from any agent in Studio *(the functional half lands here — `AgentConfig.kb_ids` stops being inert and builds tools; the Studio surface is Flight 6)*
+- [x] Existing installs upgrade with no data loss, the unit gate stays green, and the frozen Windows installer still builds and runs *(no schema change, no dependency change; one frozen run at flight close as a diagnostic)*
 
 ---
 
@@ -765,7 +765,7 @@ knowledge-base tool. No schema change, no new dependency, no UI.
 - [x] The mock provider emits scripted `tool_calls` (`the_one/llm/mock.py`) and is admitted under `THE_ONE_DEV_MODE=true`
 - [x] `GET /api/chat/sessions/{id}` returns the persisted `messages` list; the WebSocket lives at `/ws`
 - [x] Port 8485 free, nothing on 8484, no stale `fly execute` client; `pip-audit` 2.10.0; `uv` 0.10.0; `/tmp` native ext4
-- [ ] **Re-verify on the day of the leg that needs it**: `fly -t the-one status` logged in and `windows-worker` running (the external-session check squawk 0068 added to the design-review prompt — the token expired mid-flight during Flight 4)
+- [x] **Re-verified on the day of Leg 3** (2026-09-17): `fly -t the-one status` logged in, `windows-worker` `running`. Squawk 0068's rule earned its keep — the operator had to log in fresh before the leg. Noted at the same check: both Linux workers (`de5299cf212d`, `worker2`) are `stalled`; the Windows installer task runs on `windows-worker` so this flight was unaffected, but anything needing a Linux worker would fail
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
@@ -805,7 +805,7 @@ per-leg design review; the flight-end Reviewer covers all code.
 ### Checkpoints
 - [x] Leg 1 landed: fusion returns a keyword-only hit the semantic side ranks outside its window; **at `candidate_k=25`, `limit=5`, with five both-list chunks ahead of it, the exact-term hit is still within the returned five** (DD-3 test 4 — the reserved slot's reason for existing); at `limit=1` a tied keyword hit wins; a query queued behind a held per-KB lock raises `VectorStoreBusyError` from the acquisition bound without cancelling in-lock work; a stale store degrades to keyword-only with `degraded` set; an unexpected exception in the semantic slot degrades as `semantic index unavailable` rather than reaching fusion as a value; an exception in the keyword slot degrades as `keyword index unavailable` with semantic-only hits; a vector id with no chunk row shortens the list instead of raising; an empty query touches neither backend; `enabled_tools=[]` keeps a `kb__` name and `disabled_tools=["kb__x__search"]` still removes exactly that one
 - [x] Leg 2 landed: an attached agent's registry contains exactly one `kb__{slug}__search` per attached knowledge base; an unattached agent's contains none; two knowledge bases with the same name both get the hash discriminator regardless of `kb_ids` order, and a pair whose names collide *and* whose ids share a prefix still produce unique names no longer than 64 characters; an over-long name truncates rather than dropping the tool; `search_tools` matching the knowledge base's description returns its tool under a `kb:` group
-- [ ] Leg 3: behavior test passes every checkpoint; gates recorded; frozen run `RESULT: PASS` with nine gates
+- [x] Leg 3: behavior test passes every checkpoint (8/8); gates recorded; frozen run `RESULT: PASS` with nine gates
 
 ### Adaptation Criteria
 
@@ -824,17 +824,17 @@ per-leg design review; the flight-end Reviewer covers all code.
 
 - [x] `retrieval-and-fusion` - `the_one/knowledge/retrieval.py`: `SearchResult`/`SearchHit`, `search`, RRF with its named constants, the keyword-first tie-break and the **reserved keyword slot**, concurrent semantic + keyword under `return_exceptions=True` with all four degrade causes specified, crash-window tolerance. **`the_one/vectors/`** (`usearch_store.py`, `_store.py`, `__init__.py`): the keyword-only acquisition `timeout` on `query`, `VectorStoreBusyError(VectorStoreError)`, the Protocol signature + contract, and the re-export (DD-1's corrected bound; the one scope widening, DD-11). **`is_tool_enabled`'s prefix set with its regression tests (DD-6)** against `tests/test_config.py` and `tests/test_factory_disable_enforcement.py`. Unit tests: the five exact-term/fusion cases incl. test 4's strict bar and the `limit=1` tie. **Docs, all four and none optional**: `retrieval.py`'s docstring (the no-lock rule + the discounted Linux measurement), `the_one/embeddings/_backend.py::EmbeddingBackend` (the concurrency sentence), `the_one/vectors/usearch_store.py` (the new timeout's contract), and `the_one/agents.md` (the per-KB-lock consequence beside the two crash windows — the durable record of this review's highest-value correction). No agent wiring. *(high-risk: the mission criterion's correctness rests on this)*
 - [x] `kb-tools-gate-and-discovery` - `KBSearchTool` + `KBToolProvider` (DD-4, DD-5); `AgentFactory` wiring with its factory-level gate regression; the `kb:` group as one branch in `_format_result`'s prefix parse, with **no** `source_index` entry (DD-7 as amended); the result format (DD-8); `BASE_PROMPT`, `CLAUDE.md`, `the_one/agents.md`, `SECURITY-MODEL.md`. *(high-risk: factory wiring, a new per-agent tool surface)*
-- [ ] `verify-integration` - premise audit + `/mission-control:behavior-test kb-agent-query-round-trip` on a dev instance; `make lint`; `make test-unit`; `pip-audit`; frozen `fly execute`; mission artifact updates. *(no HAT leg — no screen; the walk folds into Flight 6's HAT)*
+- [x] `verify-integration` - premise audit + `/mission-control:behavior-test kb-agent-query-round-trip` on a dev instance; `make lint`; `make test-unit`; `pip-audit`; frozen `fly execute`; mission artifact updates. *(no HAT leg — no screen; the walk folds into Flight 6's HAT)*
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged (PR into `mission/24-knowledge-bases`)
-- [ ] Tests passing (`make lint`, `make test-unit` verbatim, `pip-audit`, frozen run — by hand, recorded in the flight log)
-- [ ] Documentation updated (`the_one/agent/config.py::BASE_PROMPT` — it currently tells the model its catalog covers "BOTH built-in tools … AND tools from any MCP servers" and that results group as `built-in:` / `mcp:<server>:`, which a third group makes factually wrong about the model's own catalog; `CLAUDE.md`'s Knowledge bases paragraph gains the agent-facing half; `the_one/agents.md` gains a Knowledge retrieval section, the `kb__` prefix rule beside the existing tool-registry material, and the per-KB-lock consequence beside the two crash windows; `SECURITY-MODEL.md`'s Knowledge-base indexing bullet gains the attachment-is-authorization statement)
+- [x] All legs completed
+- [x] Code merged (PR into `mission/24-knowledge-bases`)
+- [x] Tests passing (`make lint`, `make test-unit` verbatim, `pip-audit`, frozen run — by hand, recorded in the flight log)
+- [x] Documentation updated (`the_one/agent/config.py::BASE_PROMPT` — it currently tells the model its catalog covers "BOTH built-in tools … AND tools from any MCP servers" and that results group as `built-in:` / `mcp:<server>:`, which a third group makes factually wrong about the model's own catalog; `CLAUDE.md`'s Knowledge bases paragraph gains the agent-facing half; `the_one/agents.md` gains a Knowledge retrieval section, the `kb__` prefix rule beside the existing tool-registry material, and the per-KB-lock consequence beside the two crash windows; `SECURITY-MODEL.md`'s Knowledge-base indexing bullet gains the attachment-is-authorization statement)
 
 ### Verification
 

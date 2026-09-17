@@ -1,9 +1,9 @@
 # Behavior Test: An attached agent queries its knowledge base; an unattached one cannot
 
 **Slug**: `kb-agent-query-round-trip`
-**Status**: draft
+**Status**: active
 **Created**: 2026-09-17
-**Last Run**: never
+**Last Run**: 2026-09-17-22-08-29 (8/8 checkpoints passed)
 
 ## Intent
 
