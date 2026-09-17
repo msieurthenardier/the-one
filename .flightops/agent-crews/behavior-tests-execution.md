@@ -256,12 +256,31 @@ available; shell observables: Bash; http observables: via Bash + curl;
 filesystem observables: native"). I'll abort the run if any required
 observable has no matching apparatus.
 
+MEASURING A TIME BOUND
+When a step's Expected Results include a clause of the form "within N
+seconds of <a specific action>", issue the triggering action and begin
+polling from **one** shell invocation — a single script that performs
+the action, records the response time, and immediately starts sampling.
+Issuing the action and the first poll as separate tool calls leaves an
+unsampled gap between them (ordinary tool-call turnaround can run to
+several seconds) that can straddle the bound with no sample ever
+falling inside the window — the clause then becomes unjudgeable and the
+Validator has to return INCONCLUSIVE rather than a real verdict, not
+because anything was slow. Record the wall-clock timestamp of the
+triggering action's response and of every poll sample in the evidence:
+the Validator judges the bound from those timestamps, not from
+elapsed-time prose in your report.
+
 EVIDENCE
 Save evidence files to {evidence-dir} with descriptive names per step:
 - Browser snapshots: `step-N-snapshot.txt`
 - Screenshots: `step-N-screenshot.png`
 - API responses: `step-N-api-{endpoint-slug}.json`
 - File captures: `step-N-{file-basename}`
+Every HTTP call captures its status code into the evidence alongside
+the body (for `curl`, add `-w` to log the status line) — not the body
+alone. The Validator should be able to cite the status directly from
+evidence, not take it on your word.
 
 YOU ARE NOT THE JUDGE
 Do NOT decide pass/fail. Your job is to perform and report. The

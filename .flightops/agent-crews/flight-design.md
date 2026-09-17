@@ -56,6 +56,8 @@ Evaluate:
 5. Codebase state — does the spec account for current working tree, existing tooling,
    and conventions that might affect implementation?
 6. Architecture — does the approach maintain or improve system structure?
+7. Environment-derived defaults — for each planning premise probe against a library or tool, does its behavior depend on something the environment or platform supplies (a kernel release, an env var, an OS check)? If so, does the spec show that default pinned explicitly before the probe's result is trusted, rather than measured under whatever backend the probing host happened to select?
+8. External-session prerequisites — for each prerequisite that depends on a session external to this planning pass (a login, a worker, a token), does the spec call for a per-leg re-verify at implementation time rather than relying on a one-time check made during planning?
 
 Provide structured output:
 

@@ -35,9 +35,9 @@ from the_one.diagnostics import (
 
 
 # The `embedding model` gate is UNCONDITIONAL (M24 F01 DD-7), so without this
-# every ``run_doctor(`` call in this file — there are 19, across 9 classes —
+# every ``run_doctor(`` call in this file — there are 21, across 10 classes —
 # would load the 62 MiB bundled potion-retrieval-32M weights. Patching a single
-# "host test" would leave eighteen still paying for it.
+# "host test" would leave twenty still paying for it.
 #
 # Function-scoped on purpose. A module-scoped fixture cannot request the
 # function-scoped ``monkeypatch`` (pytest raises ScopeMismatch) and would need a
@@ -64,10 +64,10 @@ def _stub_embedding_probe(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # The `file watcher` gate's round-trip half costs up to
 # `_FILE_WATCHER_DEADLINE_UNFROZEN_SECONDS` (2 s) per call on a host where the
-# self-probe doesn't deliver quickly — and there are 19 `run_doctor(` call
+# self-probe doesn't deliver quickly — and there are 21 `run_doctor(` call
 # sites in this file (the same count the embedding-probe fixture above cites).
 # Stubbed here for the same reason: a single "host test" stub would leave the
-# other eighteen paying for it. `TestProbeFileWatcher`'s targeted tests below
+# other twenty paying for it. `TestProbeFileWatcher`'s targeted tests below
 # call the module-top-imported `_probe_file_watcher` directly (the
 # `_probe_usearch` precedent — `monkeypatch.setattr(diagnostics, …)` does not
 # rebind a name a test file already imported by value), so this autouse stub
