@@ -15,6 +15,7 @@ from the_one.agent.config import (
 from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import LLMProviderConfig, ToolConfig
+from the_one.knowledge.tool import KBSearchTool
 from the_one.llm.base import Message
 from the_one.tools.base import Tool
 from the_one.tools.builtins import BuiltinToolProvider
@@ -339,6 +340,123 @@ class TestToolFiltering:
             agent = await factory.create("mcp-blacklist")
         assert "mcp__github__delete_repo" not in agent.tools.tool_names
         assert "mcp__github__list_repos" in agent.tools.tool_names
+
+
+class StubKBProvider:
+    """Minimal KBToolProvider stand-in — builds one real ``KBSearchTool``
+    per ``config.kb_ids`` entry, named deterministically from the id, with
+    no DB access. Flight 5 Leg 2 (AC-29/AC-30): tests substitute this at
+    ``factory.kb_provider`` the same way ``TestToolFiltering`` substitutes
+    ``StubMCPProvider`` at ``factory.mcp_provider`` above.
+    """
+
+    async def get_tools_for_agent(self, config: AgentConfig, *, agent_name: str) -> list[Tool]:
+        return [
+            KBSearchTool(
+                name=f"kb__{kb_id}__search",
+                kb_id=kb_id,
+                kb_name=kb_id,
+                description=f"Search the {kb_id!r} knowledge base.",
+                agent_name=agent_name,
+            )
+            for kb_id in config.kb_ids
+        ]
+
+
+class TestKBToolWiring:
+    """Flight 5 Leg 2 (DD-5 AC-15/AC-16, AC-29/AC-30): factory-level
+    knowledge-base tool attach, isolation, and the DD-6 gate regression
+    proven end to end with a real ``kb__`` tool registered.
+    """
+
+    async def test_attached_kb_produces_exactly_one_tool(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        factory.kb_provider = StubKBProvider()
+        cfg = AgentConfig(
+            name="kb-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            kb_ids=["kb1"],
+        )
+        await store.save(cfg)
+        agent = await factory.create("kb-agent")
+        kb_tool_names = [n for n in agent.tools.tool_names if n.startswith("kb__")]
+        assert kb_tool_names == ["kb__kb1__search"]
+
+    async def test_no_kb_ids_produces_no_kb_tool(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        factory.kb_provider = StubKBProvider()
+        cfg = AgentConfig(
+            name="no-kb-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+        )
+        await store.save(cfg)
+        agent = await factory.create("no-kb-agent")
+        assert not [n for n in agent.tools.tool_names if n.startswith("kb__")]
+
+    async def test_two_agents_do_not_see_each_others_kb_tools(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        factory.kb_provider = StubKBProvider()
+        await store.save(
+            AgentConfig(
+                name="kb-agent-a",
+                provider_config_id="test-provider",
+                llm_model="stub-model",
+                kb_ids=["kb-a"],
+            )
+        )
+        await store.save(
+            AgentConfig(
+                name="kb-agent-b",
+                provider_config_id="test-provider",
+                llm_model="stub-model",
+                kb_ids=["kb-b"],
+            )
+        )
+        agent_a = await factory.create("kb-agent-a")
+        agent_b = await factory.create("kb-agent-b")
+        assert "kb__kb-a__search" in agent_a.tools.tool_names
+        assert "kb__kb-b__search" not in agent_a.tools.tool_names
+        assert "kb__kb-b__search" in agent_b.tools.tool_names
+        assert "kb__kb-a__search" not in agent_b.tools.tool_names
+
+    async def test_narrow_builtin_whitelist_keeps_kb_tool(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        # DD-6 regression, factory-level: a narrow built-in `enabled_tools`
+        # whitelist must not silently strip the knowledge-base tool.
+        factory.kb_provider = StubKBProvider()
+        cfg = AgentConfig(
+            name="kb-narrow-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            enabled_tools=["tool_a"],
+            kb_ids=["kb1"],
+        )
+        await store.save(cfg)
+        agent = await factory.create("kb-narrow-agent")
+        assert "kb__kb1__search" in agent.tools.tool_names
+        assert "tool_b" not in agent.tools.tool_names
+
+    async def test_disabled_tools_removes_exactly_the_named_kb_tool(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        factory.kb_provider = StubKBProvider()
+        cfg = AgentConfig(
+            name="kb-disabled-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            disabled_tools=["kb__kb1__search"],
+            kb_ids=["kb1", "kb2"],
+        )
+        await store.save(cfg)
+        agent = await factory.create("kb-disabled-agent")
+        assert "kb__kb1__search" not in agent.tools.tool_names
+        assert "kb__kb2__search" in agent.tools.tool_names
 
 
 class TestResolverWiring:

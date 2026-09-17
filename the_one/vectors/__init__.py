@@ -34,6 +34,7 @@ from the_one.db.connection import get_connection
 from the_one.knowledge.settings import VectorStoreSettings, load_vector_store_settings
 from the_one.vectors._store import (
     VectorStore,
+    VectorStoreBusyError,
     VectorStoreError,
     VectorStoreStaleError,
     quantize_int8,
@@ -41,6 +42,7 @@ from the_one.vectors._store import (
 
 __all__ = [
     "VectorStore",
+    "VectorStoreBusyError",
     "VectorStoreError",
     "VectorStoreStaleError",
     "quantize_int8",

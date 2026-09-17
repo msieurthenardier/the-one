@@ -599,6 +599,17 @@ Flight 2)". The security-relevant invariants are:
   change notifications on the operator-chosen folder trees and reads them
   with the app's own process privileges — the same trust boundary as the
   walk above, no new one introduced.
+- **Agent-facing retrieval is attachment-scoped (M24 F5)**: an agent reaches
+  exactly the knowledge bases the operator attached to it
+  (`AgentConfig.kb_ids`) — one `kb__{slug}__search` tool is built per
+  attachment, and the tool instance carries its `kb_id` as a constructor
+  argument, never a value the model supplies as a tool-call argument, so it
+  is not forgeable through the LLM's tool-call interface (`ToolRegistry`
+  gates on tool *name*, and the registry only ever contains tools for
+  knowledge bases actually in `kb_ids`). There is no agent-facing route that
+  creates or attaches a knowledge base — attachment is operator-only through
+  the API, the same boundary as registering a folder above — so the set of
+  knowledge bases an agent can search is entirely operator-determined.
 
 ## Boxed Execution Mode (M14 F4)
 

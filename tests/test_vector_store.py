@@ -33,6 +33,7 @@ from the_one.db.schema import ensure_schema
 from the_one.vectors import _reset_for_test as reset_vectors_module
 from the_one.vectors._store import (
     VectorStore,
+    VectorStoreBusyError,
     VectorStoreError,
     VectorStoreStaleError,
 )
@@ -788,3 +789,105 @@ class TestDirtyReorder:
                 await store.delete("kb", [1])
 
         assert entry.dirty is True
+
+
+# ── Flight 5 Leg 1, DD-1: `query`'s keyword-only bounded acquisition ───────
+
+
+class TestQueryBoundedAcquisition:
+    """``UsearchStore.query`` gains a keyword-only ``timeout`` that bounds
+    ONLY the wait to acquire the per-KB lock, never the work done while
+    holding it. See ``the_one/knowledge/retrieval.py`` and
+    ``UsearchStore.query``'s own docstring for the measured hazard (a lock
+    released out from under a live search thread) that rules out bounding
+    the call itself instead.
+
+    These tests lean on the private ``store._entry(kb_id)`` attribute —
+    deliberately: there is no public seam for observing the lock's own
+    state, and that lock's state IS the invariant under test.
+    """
+
+    async def test_positional_call_without_timeout_still_works(self, store) -> None:
+        # AC-18: existing positional calls like `store.query("kb", vec, 1)`
+        # must keep working — `timeout` is keyword-only.
+        vecs = _unit_vectors(2)
+        await store.upsert("kb", [1, 2], vecs)
+        results = await store.query("kb", vecs[0], 1)
+        assert results[0][0] == 1
+
+    async def test_timeout_expiry_raises_busy_without_cancelling_in_lock_work(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        # AC-21: with the per-KB lock held by another task, a bounded
+        # `query` raises `VectorStoreBusyError` — and the lock is still
+        # held by the ORIGINAL holder afterwards (nothing was released out
+        # from under it).
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        built = UsearchStore(conn, dtype="f16", dim=8)
+        await built.open()
+        await built.upsert("kb", [1, 2], _unit_vectors(2, dim=8))
+        await built.flush("kb")
+
+        entry = built._entry("kb")
+        holder_acquired = asyncio.Event()
+        release_holder = asyncio.Event()
+
+        async def _hold_lock() -> None:
+            await entry.lock.acquire()
+            holder_acquired.set()
+            await release_holder.wait()
+            entry.lock.release()
+
+        holder_task = asyncio.create_task(_hold_lock())
+        try:
+            await holder_acquired.wait()
+            assert entry.lock.locked() is True
+
+            vec = _unit_vectors(1, dim=8)[0]
+            with pytest.raises(VectorStoreBusyError, match="kb"):
+                await built.query("kb", vec, 1, timeout=0.05)
+
+            # The lock is still held by the ORIGINAL holder — the timeout
+            # never touched it.
+            assert entry.lock.locked() is True
+        finally:
+            release_holder.set()
+            await holder_task
+
+        # The original holder released cleanly; a fresh query now succeeds.
+        assert entry.lock.locked() is False
+        vec = _unit_vectors(1, dim=8)[0]
+        results = await built.query("kb", vec, 1, timeout=1.0)
+        assert len(results) == 1
+
+    async def test_every_exit_path_still_releases_the_lock(
+        self, conn, tmp_path, monkeypatch
+    ) -> None:
+        # AC-22: the early `return []` (empty index), a
+        # `VectorStoreStaleError` from `_ensure_loaded`, and normal
+        # completion must all release the lock — proven by a fresh query
+        # succeeding immediately afterward each time (no deadlock left
+        # behind).
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+        built = UsearchStore(conn, dtype="f16", dim=8)
+        await built.open()
+        entry = built._entry("kb")
+        vec = _unit_vectors(1, dim=8)[0]
+
+        # Early return: no index yet (empty KB).
+        assert await built.query("kb", vec, 1, timeout=1.0) == []
+        assert entry.lock.locked() is False
+
+        # Stale path.
+        entry.stale = True
+        with pytest.raises(VectorStoreStaleError):
+            await built.query("kb", vec, 1, timeout=1.0)
+        assert entry.lock.locked() is False
+        entry.stale = False
+
+        # Normal completion.
+        await built.upsert("kb", [1], _unit_vectors(1, dim=8))
+        await built.flush("kb")
+        results = await built.query("kb", vec, 1, timeout=1.0)
+        assert len(results) == 1
+        assert entry.lock.locked() is False

@@ -38,6 +38,7 @@ import asyncio
 import dataclasses
 import logging
 import os
+import time
 from collections.abc import AsyncIterable, Sequence
 from pathlib import Path
 from typing import Literal
@@ -49,7 +50,12 @@ from usearch.index import Index
 from the_one.config import settings
 from the_one.db._write_lock import write_transaction
 from the_one.db.models import now_iso
-from the_one.vectors._store import VectorStoreError, VectorStoreStaleError, quantize_int8
+from the_one.vectors._store import (
+    VectorStoreBusyError,
+    VectorStoreError,
+    VectorStoreStaleError,
+    quantize_int8,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -327,15 +333,64 @@ class UsearchStore:
         path = self._path_for(kb_id)
         path.unlink(missing_ok=True)
 
-    async def query(self, kb_id: str, vector: np.ndarray, k: int) -> list[tuple[int, float]]:
+    async def query(
+        self, kb_id: str, vector: np.ndarray, k: int, *, timeout: float | None = None
+    ) -> list[tuple[int, float]]:
+        """Query ``kb_id``'s index for ``vector``'s ``k`` nearest neighbours.
+
+        ``timeout`` is **keyword-only** (so an existing positional call like
+        ``store.query("kb", vec, 1)`` keeps working, and no future caller
+        can confuse it with ``k``) and bounds ONLY the wait to acquire
+        ``entry.lock`` — never the work done while holding it (Flight 5
+        Leg 1, DD-1). **This is a corrected design**: an earlier draft
+        wrapped the whole call in ``asyncio.wait_for``, and a probe proved
+        that wrong before it shipped — ``async with entry.lock: await
+        asyncio.to_thread(entry.index.search, ...)`` means cancelling the
+        outer await releases the caller AND the lock while the pool thread
+        is still executing against ``entry.index``; the next holder
+        (``upsert``, ``flush``, ``rebuild_from``) then mutates an index a
+        live thread is reading. Measured: caller released and lock free at
+        0.302s, next holder acquired at 0.302s, escaped thread still
+        running until 1.502s. So the bound covers only the waiter: the
+        timed acquire sits OUTSIDE the ``try`` below, and ``finally:
+        entry.lock.release()`` therefore runs only when the lock was
+        actually acquired — an acquire placed inside the ``try`` would
+        raise ``RuntimeError: Lock is not acquired`` from the ``finally``
+        on every timeout, masking the real ``VectorStoreBusyError``.
+        Nothing in-lock is ever cancelled; a cold-start
+        ``_ensure_loaded``/``Index.restore`` remains unbounded even with a
+        ``timeout`` set, because it runs after the lock is already held.
+        """
         self._check_dim(vector, kb_id)
         entry = self._entry(kb_id)
-        async with entry.lock:
+        if timeout is None:
+            await entry.lock.acquire()
+        else:
+            start = time.monotonic()
+            try:
+                await asyncio.wait_for(entry.lock.acquire(), timeout=timeout)
+            except TimeoutError:
+                elapsed = time.monotonic() - start
+                logger.warning(
+                    "kb %s: query timed out waiting for the per-KB lock after "
+                    "%.3fs (timeout=%.3fs) — a genuine deadlock now degrades "
+                    "quietly, so treat this as the operator-visible signal",
+                    kb_id,
+                    elapsed,
+                    timeout,
+                )
+                raise VectorStoreBusyError(
+                    f"vector store busy for kb_id={kb_id!r}: could not acquire "
+                    f"the per-KB lock within {timeout}s"
+                ) from None
+        try:
             await self._ensure_loaded(entry, kb_id, create=False)
             if entry.index is None or len(entry.index) == 0:
                 return []
             vec = self._maybe_quantize(np.asarray(vector))
             matches = await asyncio.to_thread(entry.index.search, vec, k)
+        finally:
+            entry.lock.release()
         return [
             (int(key), float(dist))
             for key, dist in zip(matches.keys, matches.distances, strict=True)
