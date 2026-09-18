@@ -192,6 +192,38 @@ class TestIsToolEnabled:
         assert cfg.is_tool_enabled("read_file") is True
         assert cfg.is_tool_enabled("mcp__github__list_repos") is True
 
+    # --- Flight 5 Leg 1, DD-6: UNGATED_TOOL_PREFIXES generalizes the
+    # carve-out from `mcp__` alone to `("mcp__", "kb__")`. -----------------
+
+    def test_empty_whitelist_keeps_kb_and_mcp_names(self):
+        # A `kb__` name must survive an empty (non-null) built-in whitelist
+        # exactly like an `mcp__` name does — the F09-08 fix generalized,
+        # not narrowed, by Flight 5's knowledge-base tool prefix.
+        cfg = AgentConfig(name="t", enabled_tools=[])
+        assert cfg.is_tool_enabled("anything") is False
+        assert cfg.is_tool_enabled("kb__docs__search") is True
+        assert cfg.is_tool_enabled("mcp__github__list_repos") is True
+
+    def test_builtin_whitelist_does_not_disable_kb_tools(self):
+        # A built-ins-only whitelist (no `kb__` names, as the agent editor
+        # emits) must not filter out knowledge-base tools either.
+        cfg = AgentConfig(name="t", enabled_tools=["web_search"])
+        assert cfg.is_tool_enabled("kb__docs__search") is True
+        assert cfg.is_tool_enabled("web_search") is True
+        assert cfg.is_tool_enabled("run_shell") is False
+
+    def test_disabled_tools_still_removes_exactly_one_kb_tool(self):
+        # `disabled_tools` stays a UNIVERSAL blacklist: it removes exactly
+        # the named `kb__` tool and leaves every other ungated-prefix name
+        # untouched.
+        cfg = AgentConfig(
+            name="t",
+            disabled_tools=["kb__x__search"],
+        )
+        assert cfg.is_tool_enabled("kb__x__search") is False
+        assert cfg.is_tool_enabled("kb__y__search") is True
+        assert cfg.is_tool_enabled("mcp__github__list_repos") is True
+
 
 # ===================================================================
 # get_system_prompt

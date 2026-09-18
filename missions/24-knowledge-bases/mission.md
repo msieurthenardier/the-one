@@ -104,10 +104,10 @@ a self-referential foreign key.
 - [ ] Indexing a large folder runs in the background without blocking the UI, and resumes rather than restarts after an interruption
 - [ ] Operator can inspect a knowledge base's contents and metadata, and retrieve the source material behind any indexed item
 - [ ] The embedding backend is bundled, local and non-LLM: it works on a fresh install with no account, no network, and no external service running, and no file contents leave the machine *(amended at Flight 2 planning — an earlier draft had the operator choose between backends and be warned when a choice sends contents off-machine; no such backend ships in this mission)*
-- [ ] Retrieval combines semantic and keyword matching, so a query naming an exact term finds it even when the embedding model ranks that term poorly
+- [x] Retrieval combines semantic and keyword matching, so a query naming an exact term finds it even when the embedding model ranks that term poorly *(Flight 5: `the_one/knowledge/retrieval.py` fuses the vector store and FTS5 by reciprocal rank, with one slot reserved for a keyword-only hit so the exact-term guarantee holds at every `limit`; pinned by five targeted tests including the crowding case that fails without the reserved slot)*
 - [ ] A new file-format handler or a different vector store can be introduced without modifying the indexing pipeline
 - [ ] A knowledge base can be attached to and detached from any agent in Studio *(behavior-test-backed)*
-- [ ] An attached agent can discover and query its knowledge bases during a chat session, and cannot reach one it is not attached to *(behavior-test-backed)*
+- [x] An attached agent can discover and query its knowledge bases during a chat session, and cannot reach one it is not attached to *(Flight 5; behavior-test-backed — `kb-agent-query-round-trip` 8/8 on 2026-09-17: an attached agent's tool result carried fixture prose retrieved from disk; an unattached agent got `Unknown tool` with no knowledge-base content; a narrowed built-in whitelist kept the tool and an explicit blacklist still removed it by name)*
 - [ ] Existing installs upgrade with no data loss, the unit gate stays green, and the frozen Windows installer still builds and runs
 
 ## Stakeholders
@@ -423,10 +423,17 @@ Operational consequences, recorded so the next flight does not rediscover them:
       is a latency optimization, not the source of truth: Linux inotify consumes
       one watch descriptor per directory against a per-user cap, and Windows can
       drop events under buffer overflow, so correctness rests on the walk.
-- [ ] Flight 5: Agent query — the KB tool provider, `AgentFactory` wiring, the
+- [x] Flight 5: Agent query — the KB tool provider, `AgentFactory` wiring, the
       `kb:` group in lazy search discovery, the hybrid retrieval path that fuses
       semantic and FTS5 results, and the `is_tool_enabled` prefix fix with its
-      regression tests.
+      regression tests. *(landed 2026-09-17; behavior test
+      `kb-agent-query-round-trip` 8/8. Fusion reserves one result slot for a
+      keyword-only hit — plain reciprocal rank fusion cannot satisfy the
+      exact-term criterion at the chosen candidate depth. `UsearchStore.query`
+      gained a bounded lock **acquisition** so a query concurrent with a flush
+      or rebuild degrades to keyword-only instead of waiting; the earlier
+      bound-the-work design was measured to free the lock under a live
+      reader.)*
 - [ ] Flight 6: Studio surfaces — the global knowledge-base inventory and the
       per-agent attach tab, replacing both stubs. Carries Flight 3's waived HAT
       (register a folder, watch status, read chunks/source, re-index, read a

@@ -73,6 +73,26 @@ class StubProvider:
         ]
 
 
+class StubProviderWithKbTool(StubProvider):
+    """Same fixed built-in set, plus one `kb__`-prefixed name — stands in
+    for a registered knowledge-base tool (Flight 5 Leg 2 builds the real
+    `KBToolProvider`; this factory-composition test only needs a name with
+    the right prefix reaching `is_tool_enabled`'s gate)."""
+
+    def get_tools(
+        self,
+        tool_configs: dict[str, dict] | None = None,
+        agent_overrides: dict[str, dict] | None = None,
+        agent_name: str | None = None,
+    ) -> list[Tool]:
+        from conftest import StubTool
+
+        return [
+            *super().get_tools(tool_configs, agent_overrides, agent_name),
+            StubTool("kb__docs__search", agent_name=agent_name),
+        ]
+
+
 def _fake_get_provider(name: str, **kwargs: Any) -> Any:
     from conftest import FakeLLM
 
@@ -274,6 +294,25 @@ class TestDisableEnforcement:
             "factory must feed the REAL decrypted brave_api_key to "
             f"build_search_backend; got backend={backend!r}"
         )
+
+    async def test_narrowed_builtin_whitelist_keeps_kb_tool(
+        self, db_conn, store: InMemoryStore, tool_encryptor
+    ) -> None:
+        """Flight 5 Leg 1, DD-6: a built-ins-only `enabled_tools` whitelist
+        (no `kb__` name in it, as the agent editor emits) must not strip a
+        registered knowledge-base tool at the factory composition level —
+        the regression `UNGATED_TOOL_PREFIXES` exists to prevent."""
+        cfg = AgentConfig(
+            name="agent-a",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            enabled_tools=["web_search"],
+        )
+        agent = await _build_factory(db_conn, store, cfg, StubProviderWithKbTool(), tool_encryptor)
+        names = agent.tools.tool_names
+        assert "kb__docs__search" in names
+        assert "web_search" in names
+        assert "fetch_url" not in names
 
     async def test_factory_does_not_call_list_all(
         self, db_conn, store: InMemoryStore, tool_encryptor

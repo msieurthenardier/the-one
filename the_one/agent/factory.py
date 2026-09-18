@@ -19,10 +19,15 @@ from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 from the_one.tools.provider import ToolProvider
 
 if TYPE_CHECKING:
-    # Type-only import — ``MCPToolProvider`` is lazy-imported at __init__
-    # call time (see comment in ``AgentFactory.__init__``). This block
-    # only runs under static type checkers; no runtime cost. Without
-    # this, ruff F821 flags the string-quoted annotation as undefined.
+    # Type-only imports — both ``KBToolProvider`` and ``MCPToolProvider``
+    # are lazy-imported at __init__ call time (see comments in
+    # ``AgentFactory.__init__``) to avoid the circular import cycle
+    # ``agent.__init__ -> agent.factory -> db.repositories -> agent.config
+    # -> agent.__init__`` that ``_build_source_index``'s docstring records.
+    # This block only runs under static type checkers; no runtime cost.
+    # Without it, ruff F821 flags the string-quoted annotations as
+    # undefined.
+    from the_one.knowledge.tool_provider import KBToolProvider
     from the_one.mcp._tool_provider import MCPToolProvider
 
 logger = logging.getLogger(__name__)
@@ -218,6 +223,7 @@ class AgentFactory:
         store: AgentConfigStore | None = None,
         tool_providers: list[ToolProvider] | None = None,
         mcp_provider: "MCPToolProvider | None" = None,
+        kb_provider: "KBToolProvider | None" = None,
     ) -> None:
         self.store = store
         self.tool_providers = tool_providers or [BuiltinToolProvider()]
@@ -229,6 +235,14 @@ class AgentFactory:
         from the_one.mcp._tool_provider import MCPToolProvider as _MCPToolProvider
 
         self.mcp_provider = mcp_provider if mcp_provider is not None else _MCPToolProvider()
+
+        # Flight 5 Leg 2 (DD-5, AC-14): KBToolProvider injected the same
+        # way, for the same testability reason — tests pass None to
+        # disable KB wiring. Lazy import for the same cycle-avoidance
+        # reason as MCPToolProvider above.
+        from the_one.knowledge.tool_provider import KBToolProvider as _KBToolProvider
+
+        self.kb_provider = kb_provider if kb_provider is not None else _KBToolProvider()
 
     async def create(self, name: str = "default") -> Agent:
         """Create an Agent instance from a named config."""
@@ -388,6 +402,24 @@ class AgentFactory:
         if self.mcp_provider is not None and config.mcp_source_ids:
             mcp_tools = await self.mcp_provider.get_tools_for_agent(config, agent_name=name)
             for tool in mcp_tools:
+                if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
+                    registry.register(tool)
+
+        # Flight 5 Leg 2 (DD-5 AC-15/AC-16): knowledge-base tool attach,
+        # immediately after the MCP block, behind the SAME filter. Guarded
+        # only by `self.kb_provider is not None` (mirroring the MCP idiom
+        # above) even though `get_tools_for_agent` already returns `[]`
+        # cheaply for an empty `config.kb_ids` (AC-12) — a reader expects
+        # the same structural shape as the MCP block. No ordering
+        # constraint relative to `SearchTools`'s registration above: DD-7's
+        # amendment removed the `source_index` entries that used to create
+        # one. Registering last does NOT make these tools shadow-proof in
+        # general (`ToolRegistry.register` is `self._tools[name] = tool` —
+        # last-write-wins) — it is safe here only because the `kb__` prefix
+        # makes a name collision with a built-in or MCP tool impossible.
+        if self.kb_provider is not None:
+            kb_tools = await self.kb_provider.get_tools_for_agent(config, agent_name=name)
+            for tool in kb_tools:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
 

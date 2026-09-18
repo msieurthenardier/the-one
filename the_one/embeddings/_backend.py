@@ -58,7 +58,17 @@ class EmbeddingBackend(Protocol):
     - ``model_id``: a stable identifier for the loaded model.
     - ``dim``: the embedding width.
     - ``embed(texts)``: synchronous and CPU-bound — callers run it under
-      ``asyncio.to_thread``, never await it directly. Returns an
+      ``asyncio.to_thread``, never await it directly. **Must be safe to
+      call concurrently from multiple threads** (Flight 5 Leg 1, DD-2): the
+      indexing pipeline and the agent-facing retrieval path (Flight 5) both
+      call ``embed`` from separate ``to_thread`` workers with no lock
+      between them, on the premise that a read-only encode needs no mutual
+      exclusion. Verified bit-identical for the bundled
+      ``LocalStaticBackend`` (eight concurrent callers vs. a serial
+      baseline, zero deviation); this sentence turns that measurement of
+      one implementation into a contract every future backend author must
+      honour, since a non-reentrant ONNX/torch/remote backend would
+      silently violate DD-2's no-lock rule otherwise. Returns an
       :class:`EmbedResult` whose ``vectors`` are ``float32``, shape
       ``(len(texts), dim)``, and unit-norm within :data:`NORM_TOLERANCE`
       for any input that yields at least one token. A text that tokenises

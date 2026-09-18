@@ -393,6 +393,83 @@ async def test_unified_query_mixes_builtin_and_mcp() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Knowledge-base (`kb__`) group tests (Mission 24 Flight 5 Leg 2, DD-7 as
+# amended / AC-20 / AC-21). No `source_index` entry exists for a knowledge
+# base — matching runs entirely through the tool's own name + description.
+# ---------------------------------------------------------------------------
+
+
+async def test_kb_tool_matches_via_description_not_name() -> None:
+    """AC-20: a query matching the knowledge base's DESCRIPTION (not its
+    tool name) still returns the tool, via the per-tool matching path —
+    the only path there is after the DD-7 amendment (no `source_index`
+    entry is ever built for a knowledge base)."""
+    registry = ToolRegistry()
+    registry.register(
+        _MockTool(
+            "kb__docs__search",
+            "Search the 'Docs' knowledge base. Internal engineering runbooks and postmortems.",
+        )
+    )
+    st, ls, _ = _make_search_tools(registry=registry, source_index={})
+
+    result = await st.execute("runbooks")
+
+    assert ls[0]["name"] == "kb__docs__search"
+    assert "kb__docs__search" in result
+
+
+async def test_kb_group_label_is_kb_colon_slug() -> None:
+    """AC-20: the rendered group label is `kb:{slug}:`."""
+    registry = ToolRegistry()
+    registry.register(_MockTool("kb__docs__search", "Search the 'Docs' knowledge base."))
+    st, _, _ = _make_search_tools(registry=registry, source_index={})
+
+    result = await st.execute("docs")
+
+    assert "kb:docs: kb__docs__search" in result
+
+
+async def test_kb_slug_containing_double_underscore_mis_renders() -> None:
+    """AC-21: the recorded latent flaw, pinned. A slug normalized from a
+    name containing internal whitespace collisions (e.g. `"My  Notes"` ->
+    `"My__Notes"`) produces `kb__My__Notes__search`, whose
+    `split("__", 2)[1]` is `"My"` — not the full slug. Same flaw as the
+    MCP path; recorded, not fixed."""
+    registry = ToolRegistry()
+    registry.register(_MockTool("kb__My__Notes__search", "Search the notes knowledge base."))
+    st, _, _ = _make_search_tools(registry=registry, source_index={})
+
+    result = await st.execute("notes")
+
+    assert "kb:My: kb__My__Notes__search" in result
+
+
+async def test_kb_and_mcp_and_builtin_groups_coexist() -> None:
+    registry = ToolRegistry()
+    registry.register(_MockTool("read_file", "Read a file"))
+    registry.register(_MockTool("mcp__store__read_object", "Read an object"))
+    registry.register(_MockTool("kb__docs__search", "Read the docs knowledge base"))
+    source_index = {
+        "store": {
+            "synthetic_description": "store: read_object (1 tools)",
+            "tool_names_prefixed": ["mcp__store__read_object"],
+        }
+    }
+    st, ls, _ = _make_search_tools(registry=registry, source_index=source_index)
+
+    result = await st.execute("read")
+
+    loaded_names = {s["name"] for s in ls}
+    assert "read_file" in loaded_names
+    assert "mcp__store__read_object" in loaded_names
+    assert "kb__docs__search" in loaded_names
+    assert "built-in: read_file" in result
+    assert "mcp:store: mcp__store__read_object" in result
+    assert "kb:docs: kb__docs__search" in result
+
+
+# ---------------------------------------------------------------------------
 # _filter_candidates pure-function tests
 # ---------------------------------------------------------------------------
 

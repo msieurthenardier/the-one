@@ -6,6 +6,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+# Flight 5 Leg 1, DD-6: prefixes exempt from the `enabled_tools` built-in
+# whitelist (`str.startswith` accepts a tuple). Generalized from a single
+# hardcoded `"mcp__"` carve-out so a knowledge-base tool (`kb__…`, Flight 5
+# Leg 2) is not silently stripped by an agent whose built-in whitelist was
+# narrowed in Studio — `disabled_tools` still applies to both prefixes
+# UNIVERSALLY, checked after this gate in `is_tool_enabled` below.
+UNGATED_TOOL_PREFIXES = ("mcp__", "kb__")
+
 BASE_PROMPT = """\
 You are an AI agent with access to a set of tools. Use them to accomplish what the \
 operator asks.
@@ -14,14 +22,15 @@ Tool discovery:
 - At the start of each conversation, you have only `search_tools` and `continue` \
 available.
 - To use any other capability, call `search_tools` with a query describing what you \
-need. The catalog covers BOTH built-in tools (shell, file operations, web fetch, \
-etc.) AND tools from any MCP servers attached to this agent — they all surface \
-through this one tool. Empty query lists everything; a specific query narrows \
-results.
+need. The catalog covers built-in tools (shell, file operations, web fetch, etc.), \
+tools from any MCP servers attached to this agent, AND search tools for any \
+knowledge bases attached to this agent — they all surface through this one tool. \
+Empty query lists everything; a specific query narrows results.
 - Results are grouped by source: `built-in: …` for built-in tools, `mcp:<server>: …` \
-for MCP server tools. Don't second-guess which catalog has what — just search by \
-intent ("issue tracker", "read a file", "http request") and the right tools will \
-surface regardless of where they come from.
+for MCP server tools, `kb:<name>: …` for knowledge-base search tools. Don't \
+second-guess which catalog has what — just search by intent ("issue tracker", "read \
+a file", "http request", "internal docs") and the right tools will surface \
+regardless of where they come from.
 - Matched tools are automatically added to your available toolset for the rest of \
 this conversation. Once you've searched for a tool, you can call it by name on \
 subsequent turns; no need to search again.
@@ -147,25 +156,35 @@ class AgentConfig(BaseModel):
         """Check if a specific tool should be available to this agent.
 
         The ``enabled_tools`` whitelist governs **built-in tools only**.
+        Names prefixed by :data:`UNGATED_TOOL_PREFIXES` are exempt from it:
         MCP tools — canonically prefixed ``mcp__`` at registration
         (``mcp/_tool.py:101``; cf. ``_MCP_PREFIX`` in
         ``tools/_search_tools.py``) — are governed by ``mcp_overrides``,
         applied upstream at agent build via
         ``MCPToolProvider.get_tools_for_agent`` /
-        ``filter_mcp_tools_by_override``. Applying the built-ins-only
-        whitelist to MCP names too would double-gate them: the agent
-        editor populates ``enabled_tools`` from built-in checkboxes only,
-        so any non-null whitelist it emits excludes every ``mcp__`` name
-        and would silently strip all MCP tools (F09-08). Decoupling here
-        stops that; ``disabled_tools`` stays a UNIVERSAL explicit
-        blacklist (an ``mcp__…`` name listed there is still disabled).
+        ``filter_mcp_tools_by_override``; knowledge-base tools — prefixed
+        ``kb__`` (Flight 5 Leg 2) — have no per-tool override surface at
+        all and are governed solely by whether their knowledge base is
+        attached (``AgentConfig.kb_ids``). Applying the built-ins-only
+        whitelist to either would double-gate them: the agent editor
+        populates ``enabled_tools`` from built-in checkboxes only, so any
+        non-null whitelist it emits excludes every ungated-prefix name and
+        would silently strip all of them (F09-08, generalized at Flight 5
+        Leg 1 DD-6 from a single hardcoded ``mcp__`` carve-out). Decoupling
+        here stops that; ``disabled_tools`` stays a UNIVERSAL explicit
+        blacklist (an ungated-prefix name listed there is still disabled).
 
         ``enabled_tools == []`` (empty whitelist) blocks all **built-in**
-        tools but does NOT block MCP tools, consistent with the decouple
-        (MCP enablement is governed solely by ``mcp_overrides``).
+        tools but does NOT block MCP or knowledge-base tools, consistent
+        with the decouple (their enablement is governed by
+        ``mcp_overrides`` / attachment, not this whitelist).
         """
-        is_mcp = tool_name.startswith("mcp__")
-        if not is_mcp and self.enabled_tools is not None and tool_name not in self.enabled_tools:
+        is_ungated = tool_name.startswith(UNGATED_TOOL_PREFIXES)
+        if (
+            not is_ungated
+            and self.enabled_tools is not None
+            and tool_name not in self.enabled_tools
+        ):
             return False
         if tool_name in self.disabled_tools:
             return False

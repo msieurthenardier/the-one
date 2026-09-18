@@ -34,8 +34,18 @@ checks member presence at call time.
   ``write_transaction`` block — the guard is not re-entrant and raises
   ``RuntimeError`` on same-task re-entry. This is also why the write
   ordering above is always two transactions, never one.
-- ``query(kb_id, vector, k)`` returns ``(id, cosine_distance)`` pairs,
-  best (smallest distance) first.
+- ``query(kb_id, vector, k, *, timeout=None)`` returns ``(id,
+  cosine_distance)`` pairs, best (smallest distance) first. ``timeout`` is
+  **keyword-only** and bounds ONLY the wait to acquire the per-KB lock — the
+  waiter, never the holder (Flight 5 Leg 1, DD-1). It does NOT bound the
+  search work itself: a cold-start acquisition that then blocks inside
+  ``_ensure_loaded``'s ``Index.restore`` is unbounded, because that work
+  runs in-lock and cancelling it would release the lock out from under a
+  pool thread still reading the index (see ``UsearchStore.query``'s
+  docstring for the measured hazard this avoids). Expiry raises
+  ``VectorStoreBusyError``, never silently returns partial results.
+  ``timeout=None`` (the default) waits for the lock unboundedly, matching
+  every pre-Flight-5 caller.
 - **Dimension guard (squawk 0054)**: a vector whose last dimension
   != ``dim`` raises ``ValueError`` naming the expected/actual dim and the
   ``kb_id`` — checked in ``upsert``, ``query``, and ``rebuild_from``,
@@ -70,6 +80,20 @@ class VectorStoreStaleError(VectorStoreError):
     until the KB is rebuilt."""
 
 
+class VectorStoreBusyError(VectorStoreError):
+    """Raised by ``UsearchStore.query`` when a caller-supplied ``timeout``
+    expires while waiting to acquire the per-KB lock (Flight 5 Leg 1,
+    DD-1) — a query queued behind a long ``upsert``/``flush``/
+    ``rebuild_from``. Deliberately a **sibling** of ``VectorStoreStaleError``,
+    never a subclass: ``the_one/knowledge/manager.py`` catches
+    ``VectorStoreStaleError`` and responds with a full ``rebuild_kb``
+    re-embed — inheriting from it would turn a transient busy query into a
+    rebuild storm. Transient by nature: the lock the caller was waiting on
+    is still healthy and held by its rightful owner, nothing was
+    cancelled in-lock, and a later query against the same KB may succeed
+    immediately once that holder releases it."""
+
+
 @runtime_checkable
 class VectorStore(Protocol):
     """Structural contract ``UsearchStore`` satisfies without inheriting
@@ -90,7 +114,9 @@ class VectorStore(Protocol):
 
     async def delete_kb(self, kb_id: str) -> None: ...
 
-    async def query(self, kb_id: str, vector: np.ndarray, k: int) -> list[tuple[int, float]]: ...
+    async def query(
+        self, kb_id: str, vector: np.ndarray, k: int, *, timeout: float | None = None
+    ) -> list[tuple[int, float]]: ...
 
     async def count(self, kb_id: str) -> int: ...
 
