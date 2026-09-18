@@ -823,6 +823,56 @@ class TestKnowledgeBaseRenameRewrite:
         assert resp.json()["name"] == "Docs Renamed"
         assert any("fails-agent" in r.message for r in caplog.records)
 
+    async def test_rename_agent_store_acquisition_failure_does_not_raise_and_warns(
+        self,
+        client: AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # Phase 2d review fix: `_agent_store()` runs BEFORE
+        # `rename_kb_tool_references` is even entered, so a failure there
+        # used to raise past this endpoint as an unhandled 500 *after* the
+        # knowledge-base row had already been renamed, with no WARNING at
+        # all (the per-agent try/except never got a chance to run). The
+        # endpoint must instead log a WARNING and complete the rename.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        agent_resp = await client.post(
+            "/api/agents", json={"name": "store-acquire-fail-agent", "kb_ids": [kb_id]}
+        )
+        old_name = agent_resp.json()["kb_tool_names"][kb_id]
+        await client.put(
+            "/api/agents/store-acquire-fail-agent",
+            json={
+                "name": "store-acquire-fail-agent",
+                "kb_ids": [kb_id],
+                "disabled_tools": [old_name],
+            },
+        )
+
+        from the_one.interfaces.web import api as api_module
+
+        original_agent_store = api_module._agent_store
+
+        async def _flaky_agent_store():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(api_module, "_agent_store", _flaky_agent_store)
+
+        with caplog.at_level(logging.WARNING):
+            resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "Docs Renamed"})
+        assert resp.status_code == 200
+        # The knowledge base itself was renamed despite the acquisition failure.
+        assert resp.json()["name"] == "Docs Renamed"
+        assert any(kb_id in r.message and "acquire" in r.message for r in caplog.records)
+
+        # The agent was never examined (the store never got acquired), so
+        # its disabled_tools entry is still the stale, un-rewritten name —
+        # confirmed by re-reading through the real (unpatched) store.
+        monkeypatch.setattr(api_module, "_agent_store", original_agent_store)
+        agent_after = await client.get("/api/agents/store-acquire-fail-agent")
+        assert agent_after.json()["disabled_tools"] == [old_name]
+
 
 # ── Knowledge base endpoints ─────────────────────────────────────────────
 

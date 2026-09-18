@@ -194,6 +194,44 @@ class TestRenameKbToolReferences:
         )
         assert failed == []
 
+    async def test_enumeration_failure_does_not_raise_and_warns(
+        self,
+        agent_store: SQLiteAgentStore,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # Phase 2d review fix: `store.list_by_kb` runs before the per-agent
+        # try/except (AC-12) even starts, so a failure there used to
+        # propagate unhandled past this function — after the knowledge-base
+        # row had already been renamed by the caller. It must instead log
+        # a WARNING and return without raising, same as a per-agent
+        # failure does.
+        await agent_store.save(
+            AgentConfig(
+                name="a1",
+                kb_ids=["kb1"],
+                disabled_tools=["kb__Docs_old__search"],
+            )
+        )
+
+        async def _flaky_list_by_kb(kb_id):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(agent_store, "list_by_kb", _flaky_list_by_kb)
+
+        with caplog.at_level(logging.WARNING):
+            failed = await rename_kb_tool_references(
+                agent_store, "kb1", "kb__Docs_old__search", "kb__Docs_new__search"
+            )
+        assert failed == []
+        assert any("kb1" in r.message and "enumerate" in r.message for r in caplog.records)
+
+        # The caller is unaffected: nothing else raised, and the agent's
+        # disabled_tools entry is untouched since it was never examined
+        # (load() is unpatched, so this reads the real stored value).
+        loaded = await agent_store.load("a1")
+        assert loaded.disabled_tools == ["kb__Docs_old__search"]
+
     async def test_enabled_tools_is_never_touched(self, agent_store: SQLiteAgentStore) -> None:
         # AC-9: a `kb__` name placed in enabled_tools is inert and must
         # survive a rename untouched.

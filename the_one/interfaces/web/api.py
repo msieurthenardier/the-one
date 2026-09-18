@@ -1546,8 +1546,30 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
         # both -> `My_Notes`) — skip the agent rewrite when nothing
         # actually moved.
         if old_tool_name != new_tool_name:
-            agent_store = await _agent_store()
-            await rename_kb_tool_references(agent_store, kb_id, old_tool_name, new_tool_name)
+            # Phase 2d review fix: acquiring the agent store is the one
+            # step in this path that happens BEFORE `rename_kb_tool_references`
+            # is even entered, so its own try/except (AC-12) can't cover a
+            # failure here — without this guard, a DB error at this line
+            # would raise past this endpoint as an unhandled 500 *after*
+            # the knowledge-base row above has already committed, with no
+            # WARNING at all. Match the same fail-open shape: log and
+            # move on rather than raise.
+            try:
+                agent_store = await _agent_store()
+            except Exception:
+                logger.warning(
+                    "knowledge base %r rename: failed to acquire the agent "
+                    "store to rewrite disabled_tools entry %r -> %r; the "
+                    "knowledge base has already been renamed, but no agent "
+                    "could be examined, so disabled_tools entries may still "
+                    "reference the old tool name",
+                    kb_id,
+                    old_tool_name,
+                    new_tool_name,
+                    exc_info=True,
+                )
+            else:
+                await rename_kb_tool_references(agent_store, kb_id, old_tool_name, new_tool_name)
     return updated.model_dump()
 
 

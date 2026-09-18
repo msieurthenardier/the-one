@@ -2107,3 +2107,127 @@ marked green, and the checklist item is left unticked with the squawk named.
 This is the manual-gate cost the mission's branch layout accepted: no CI lane runs
 on `mission/24-knowledge-bases`, so the release-closure audit is a by-hand gate on
 every flight, and it caught a real advisory that a green checkbox would have hidden.
+
+#### Phase 2d — AMENDED review, and a process lesson
+
+The Reviewer signalled `[HANDOFF:confirmed]`, I committed on that signal
+(`189a23a`), and it then **amended its report** — six parallel sub-reviews it had
+dispatched were still outstanding when it confirmed, and one found real issues.
+
+**The process lesson is mine as much as its.** The methodology's rule is "commit
+after review passes", and I followed it; but the first report mentioned a
+sub-review that "returned independently", which implied others might not have.
+I did not notice. **A `[HANDOFF:confirmed]` should mean the reviewer's own
+delegated work has returned** — that belongs in the crew file, and the Flight
+Director should ask when a report hints at outstanding fan-out.
+
+**On the claimed working-tree race — checked, and the attribution is wrong.** The
+amended report states one of its Sonnet review forks edited `CLAUDE.md`
+("see DD-7 below" → an explicit path) and that this fork's edit "is exactly what
+landed" in the commit. Verified: `git show 189a23a -- CLAUDE.md` is
+**+2 insertions, 0 deletions** — an entirely new M24 F6 paragraph written by the
+Leg 4 Developer, not a modification of an existing line. The `see DD-7 in
+missions/…/flight.md` wording inside it is **the Flight Director's own
+bookkeeping edit**, made to the Developer's paragraph: my script guarded on
+`if "see DD-7 below" in t` and reported replacing it, which it could only have
+done if the phrase was still present. No fork edit landed. Working tree is clean
+(0 files) after the commit, so nothing was written afterwards either.
+
+The underlying concern is still sound and worth acting on regardless of this
+instance: **a review task's sub-agents should be structurally unable to write to
+the working tree**, not merely instructed not to. The Reviewer noted it had not
+relayed the "review only" constraint to its own forks. That is a crew-file fix.
+
+#### Two real findings from the amended review
+
+**(1) `kb_rename.py` — two calls sit outside the per-agent guard, and the
+docstring overclaims.** Confirmed in source: `agent_names = await
+store.list_by_kb(kb_id)` executes **before** the `for`/`try`, as does
+`_agent_store()` at the call site. A database failure at either point raises past
+`update_knowledge_base` as an unhandled **500 after the knowledge-base rename has
+already committed**, with no per-agent WARNING because no agent loop was entered.
+That is precisely the failure shape **AC-12 and L2-D7 exist to prevent**, and the
+module docstring claims propagation is impossible without qualification.
+**Fixing in this flight** — it is this flight's own new file contradicting its own
+acceptance criterion, not a deferred defect.
+
+**(2) RESIDUAL — detach → rename → reattach silently re-enables a disabled
+tool.** `list_by_kb` returns only **currently attached** agents (a `json_each`
+membership test over `kb_ids`). So: disable a knowledge base's tool on an agent →
+detach the knowledge base → rename it → reattach it. The rename's rewrite never
+saw that agent, so its `disabled_tools` still carries the **old** derived name,
+which no longer matches the tool's new name — and the tool comes back **enabled**.
+
+This is the same fail-open class DD-5 exists to close, reached through a gap
+DD-5/DD-17's framing did not consider: *"only rename can still move a name"*
+implicitly assumed the agent stays attached throughout. No test exercises the
+sequence.
+
+**Not a squawk** — qualified out loud: one item ✅, verifiable ✅, **no design
+decisions ❌** (the fix is either "scan every agent on every rename", changing
+rename's cost and semantics, or the `kb_id`-keyed flag the next mission owns),
+**bounded blast radius ❌**. It is **subsumed by the flight's own recorded
+limitation** — that `disabled_tools` keyed by a derived name is the wrong shape
+and a per-attachment flag keyed by `kb_id` would be immune — but **that write-up
+never names this trigger**. Added there, and carried to the mission debrief.
+
+### Follow-up commit: fix Finding (1) — enumeration/acquisition calls outside the guard
+
+**Date**: 2026-09-18
+
+Fixed both calls the Phase 2d review found sitting outside AC-12's failure
+discipline:
+
+- `the_one/knowledge/kb_rename.py::rename_kb_tool_references` — the
+  `store.list_by_kb(kb_id)` enumeration call, which ran before the per-agent
+  `for`/`try` even starts, is now itself wrapped in `try/except Exception`. A
+  failure logs a WARNING (same shape/level as the per-agent one, naming the
+  knowledge base and both derived tool names since no agent list was ever
+  obtained to name individually) and returns `[]` rather than raising.
+- `the_one/interfaces/web/api.py::update_knowledge_base` — the `agent_store =
+  await _agent_store()` call-site acquisition, which runs before
+  `rename_kb_tool_references` is even entered, is now wrapped the same way:
+  a failure logs a WARNING and the function returns normally (the
+  knowledge-base row stays renamed; no agent rewrite is attempted).
+- Corrected both the function docstring and the module header docstring in
+  `kb_rename.py`: the "nothing propagates out of this function" claim is now
+  scoped explicitly to what the function does with a `store` it has already
+  been handed — acquiring that `store` is the caller's job, and the caller
+  now carries the matching discipline for its own step.
+- Added regression tests: `tests/test_kb_rename.py::
+  test_enumeration_failure_does_not_raise_and_warns` (store spy pattern,
+  matching the file's existing 8 tests) and `tests/test_db_api.py::
+  TestKnowledgeBaseRenameRewrite::
+  test_rename_agent_store_acquisition_failure_does_not_raise_and_warns`
+  (monkeypatches `api_module._agent_store`, asserts the PUT still returns
+  200 with the KB renamed, a WARNING is logged, and the untouched agent's
+  `disabled_tools` is unaffected).
+
+**Judgment on moving `_agent_store()` acquisition inside the helper (fix
+task point 4): left it at the call site, not moved.** `kb_rename.py`
+deliberately takes an already-built `store` as a parameter — the module's
+own header docstring cites this as the seam that lets `list_by_kb` be
+exercised directly with a spy, and all 9 tests in `tests/test_kb_rename.py`
+rely on constructing a `SQLiteAgentStore` (or a monkeypatched stand-in) and
+passing it in directly, no DB-layer patching required. Moving acquisition
+inside would mean importing `get_connection`/`get_encryptor`/`settings`
+from `interfaces/web/api.py` into `the_one/knowledge/kb_rename.py` — the
+exact repositories↔knowledge-web coupling the existing "untyped to avoid a
+repositories<->knowledge cycle" comment on the `store` parameter says this
+module avoids — and would force every existing test to patch module-level
+DB-connection functions instead of passing a store, for no behavioral gain:
+the two failure sites (enumeration, acquisition) are already symmetric in
+effect (rename commits, no agent examined, WARNING logged, no raise) even
+living in two different functions. Kept the acquisition where it is and
+gave it the same fail-open discipline in place, which achieves AC-12's
+actual requirement — the knowledge base's own rewrite step never raises to
+the caller — without changing the module's dependency shape or its tests'
+established pattern.
+
+**Gates run**: `make lint` (ruff check + `ruff format --check`, latter
+required one file — the new test — to be reformatted, done) clean;
+`PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_kb_rename.py
+tests/test_db_api.py -x --timeout 30` — 179 passed; `make test-unit`
+verbatim — 4768 passed, 10 skipped, 588 deselected.
+
+Not committed — left for review per this task's instructions.

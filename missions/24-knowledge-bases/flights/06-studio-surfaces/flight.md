@@ -678,6 +678,15 @@ is out of scope here and is deliberately not attempted in a mission's last
 flight, but it is the shape to reach for rather than letting DD-5's rewrite
 become permanently load-bearing.
 
+*(Amended at Phase 2d, 2026-09-18, with a trigger this note did not originally
+name: **detach → rename → reattach**. `SQLiteAgentStore.list_by_kb` returns only
+**currently attached** agents, so a rename performed while a knowledge base is
+detached never rewrites the entry of an agent that later reattaches — and on
+reattachment the stale name matches nothing, silently re-enabling a tool the
+operator disabled. DD-5/DD-17's framing that "only rename can still move a name"
+implicitly assumed the agent stays attached throughout. A `kb_id`-keyed flag is
+immune to this too, which strengthens rather than changes the recommendation.)*
+
 The search route (DD-6) is additive and read-only; it reuses the dependency
 wiring the agent-side tool already uses to obtain a chunk repository, item
 repository, vector store and embedding backend.
