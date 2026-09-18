@@ -5136,14 +5136,17 @@ async def rotate_encryption_key() -> dict[str, str]:
 
     # 1. Decrypt existing rows with the current encryptor. NOTE: Between this
     #    first SELECT and the write_transaction() block below (whose exit is
-    #    the commit), this function MUST issue only DML statements
-    #    (SELECT/UPDATE). Per the schema.py v8 docstring, aiosqlite silently
-    #    COMMITs before any non-DML statement (PRAGMA,
-    #    DDL, BEGIN), which would split the rotation into two separately-
-    #    committed transactions and break the atomicity contract. (Squawk
-    #    0051: this claim is stale per DD-13's measured rule — see the
-    #    corrected comment at schema.py's v8 migration block — and is out
-    #    of scope for this leg.)
+    #    the commit), this function issues only SELECT statements — no
+    #    PRAGMA/DDL/BEGIN. Under aiosqlite's default isolation_level="" mode,
+    #    a transaction is opened by the first DML statement and stays open
+    #    only until an explicit commit()/rollback() — DDL and PRAGMA do NOT
+    #    auto-commit (that behavior was removed in Python 3.6). What
+    #    actually splits a transaction is *another coroutine's* commit() on
+    #    the shared connection landing between two of this function's
+    #    statements; write_transaction() (the_one/db/_write_lock.py) is what
+    #    prevents that for the write below by holding the write lock across
+    #    it (Squawk 0051; see Flight 2 DD-13 and the corrected comment at
+    #    schema.py's v8 migration block for the measured rule).
     async with conn.execute(
         "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
     ) as cur:

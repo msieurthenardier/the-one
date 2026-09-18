@@ -181,6 +181,12 @@ def _fuse(semantic_ids: list[int], keyword_ids: list[int], limit: int) -> list[_
     fires, the reserved hit takes the displaced hit's position — last —
     since that is the lowest-scoring hit by construction and the context
     governor truncates from the head.
+
+    The reserved slot is structurally necessary, not merely prudent:
+    ``2/(60+r) > 1/61`` holds for every rank ``r <= 61``, so at
+    ``candidate_k = 25`` any chunk appearing in both result lists
+    outranks a keyword-only rank-1 hit, and five such both-list chunks
+    are enough to displace an exact-term hit past a five-result window.
     """
     scores: dict[int, float] = {}
     in_keyword: set[int] = set()

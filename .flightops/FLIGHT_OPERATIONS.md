@@ -164,6 +164,34 @@ When reviewing a mission, flight, or leg:
 5. Describe any changes made
 6. Signal `[HANDOFF:confirmed]` if no issues, or describe changes for validation
 
+### Correcting a Rule (Supersession Sweep)
+
+When a review finds a rule wrong and you fix it in place, the superseded
+version routinely survives upstream of the fix — a Developer reading
+top-to-bottom meets the stale text *first* and implements that instead. This
+has produced repeat findings across multiple flights, so treat it as a
+standing step of every correction, not a one-off judgment call:
+
+1. **Name the superseded literal token.** Not "the old approach" — the exact
+   string that no longer applies (a function name, a constant, a field
+   expression: `asyncio.wait_for`, `kb_id[:6]`).
+2. **Grep it to zero.** Search the token across the full artifact set — flight
+   spec, all leg specs, all behavior specs. The correction is not complete
+   until that grep returns nothing. Optionally, log a short "Superseded
+   Rules" ledger at the foot of the spec (old token → new rule → swept) so
+   the next reviewer can audit it in seconds instead of re-deriving it.
+3. **One normative home per rule.** A rule that has already produced a review
+   finding gets exactly one code-shaped authoritative statement (pseudocode
+   or a literal snippet, not prose) somewhere in the spec; every other
+   mention of that rule is a pointer to it ("see DD-3"), never a paraphrase.
+   Paraphrases are where drift hides.
+4. **Precedence clauses are only safe when the block they crown is the sole
+   statement of the rule.** A clause like "this numbered list is
+   authoritative" is often added specifically to kill ambiguity — but if a
+   stale duplicate still exists elsewhere, the clause elevates that stale
+   text instead of resolving it. Add a precedence clause only after step 2's
+   sweep confirms there is nothing left to out-rank.
+
 ---
 
 ## Code Review Gate

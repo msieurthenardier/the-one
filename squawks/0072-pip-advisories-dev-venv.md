@@ -1,10 +1,10 @@
 # Squawk 0072: Upgrade `pip` in the dev venv to clear two advisories from the audit gate
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-17
-**Completed**: —
+**Completed**: 2026-09-18
 
 ## Report
 
@@ -52,14 +52,18 @@ no dependency entry for `pip` itself.
 
 ## Corrective Action
 
-*(written at completion)*
+Ran `.venv/bin/python -m pip install -U pip` against the repo virtualenv.
+`pip` went from `26.1.1` to `26.2.1`. No repository file changed — `pip` is
+declared in no manifest, as the Report notes, so there is nothing to commit
+for this squawk beyond the squawk record itself.
 
 ## Verification
 
-*(written at completion — expected: `.venv/bin/pip-audit` no longer reports
-`pip`; `make test-unit` stays green, since nothing the application imports
-has changed)*
+- `.venv/bin/pip-audit` (post-upgrade): no `pip` finding (see combined output below).
+- Nothing the application imports changed, so no test run is implicated; `make lint` (run as part of this batch) stayed clean.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: batch Reviewer agent (**Sonnet** tier — the diff touches the encryption-rotation endpoint and a dependency floor for a package inside the shipped frozen closure, both security-sensitive surfaces per `.flightops/agent-crews/leg-execution.md`, even though every change is comment-, doc- or version-only)
+**Verdict**: confirmed
+**Commit**: `d76d173`

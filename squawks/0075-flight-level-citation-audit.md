@@ -1,10 +1,10 @@
 # Squawk 0075: Require a Citation Audit in the flight spec, not only in leg specs
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-17
-**Completed**: —
+**Completed**: 2026-09-18
 
 ## Report
 
@@ -49,13 +49,63 @@ Audit`; `.../flight.md` does not.
 
 ## Corrective Action
 
-*(written at completion)*
+Checked how the leg-spec format documents its Citation Audit before mirroring
+it, as instructed. Finding: `.flightops/ARTIFACTS.md`'s Leg format template
+does **not** itself document a Citation Audit section — the convention exists
+only in practice, consistently, across actual leg spec files (e.g.
+`missions/24-knowledge-bases/flights/05-agent-query/legs/01-retrieval-and-fusion.md`'s
+`## Citation Audit`: an intro line naming the working-tree commit, then a
+`| Citation | Status |` table with `file:symbol` rows). Mirrored that observed
+shape rather than inventing a new one, since it's the real, working
+convention this project already uses.
+
+Changes:
+
+1. `.flightops/ARTIFACTS.md` — added a `### Citation Audit` subsection to the
+   Flight format's Pre-Flight block, directly after Design Decisions and
+   before Prerequisites (the audit covers the Design Decisions above it, and
+   needs to be filled before the flight moves toward Prerequisites/legs). Same
+   table shape as the leg convention: intro line pinning the verified
+   working-tree commit, then `| Citation | Status |` with `file:symbol` rows
+   and a `verified | unverified` mark, scoped explicitly to design decisions
+   asserting a code mechanism (signature, control flow, exception type,
+   mutability, cardinality) per the squawk's wording. Added a matching line to
+   the Pre-Flight Checklist so it's gated the same way the other
+   pre-Architect-cycle items are.
+2. `.flightops/agent-crews/flight-design.md` — added item 9 to the Architect's
+   "Review Flight Design" Evaluate list: spot-check a sample of Citation Audit
+   rows against the real codebase rather than trusting the `verified` marks,
+   naming the same mechanism categories (signature/control-flow/exception
+   type/mutability/cardinality) so the spot-check has a checklist rather than
+   being vague.
+
+Did not add a Citation Audit section to the Leg format template itself — that
+gap (real leg files use the convention, the documented template doesn't) is
+real but is not what this squawk asked for; fixing it would be a second,
+unrequested doc change outside the reported surface, so it's left as a
+documentation gap to raise separately rather than folded in here.
 
 ## Verification
 
-*(written at completion — expected: the next flight spec carries the table
-and its design review cites having checked it)*
+- Confirmed via `grep -rln "## Citation Audit" missions/` that the mirrored
+  shape is the actual, widely-used convention (present in dozens of existing
+  leg specs across multiple missions), not a one-off.
+- Confirmed via `grep -n -i citation .flightops/ARTIFACTS.md
+  .flightops/agent-crews/*.md` (before editing) that no prior documentation of
+  the shape existed anywhere in `.flightops/`, which is why the shape was
+  sourced from real leg files rather than from `ARTIFACTS.md`'s own Leg
+  section.
+- `git diff --stat -- .flightops` shows only the two intended files changed,
+  additive only.
+- Grepped the diff for machine usernames / absolute home paths — none
+  introduced.
+- Expected effect (observable on the next flight): the flight spec produced
+  during `/mission-control:flight` carries a `### Citation Audit` table
+  before the first Architect cycle, and the Architect's review output cites
+  spot-checking specific rows rather than accepting the table at face value.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: batch Reviewer agent (**Sonnet** tier — the diff touches the encryption-rotation endpoint and a dependency floor for a package inside the shipped frozen closure, both security-sensitive surfaces per `.flightops/agent-crews/leg-execution.md`, even though every change is comment-, doc- or version-only)
+**Verdict**: confirmed
+**Commit**: `d76d173`

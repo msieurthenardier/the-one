@@ -1,10 +1,10 @@
 # Squawk 0076: Name the waiter-bound lock-timeout shape in `agents.md` conventions
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-17
-**Completed**: —
+**Completed**: 2026-09-18
 
 ## Report
 
@@ -53,13 +53,49 @@ timed-out waiter backs off.
 
 ## Corrective Action
 
-*(written at completion)*
+Added `### \`waiter-bound-lock-timeout\`` to `the_one/agents.md`'s Project
+Conventions (`### Project-wide` block), immediately after
+`remote-cap-needs-a-negative-test` and before `### Mission-specific (M16)` —
+matching that entry's density (rule paragraph, then a residual/scope
+paragraph, then a citation paragraph naming files and tests). The convention
+states the rule (bound only the wait to acquire a lock, never the work held
+under it) and the three parts an "obvious" refactor would break: the bound
+wraps `lock.acquire()` only; the acquire sits outside the `try` whose
+`finally` releases; the resulting error is a sibling of the staleness error,
+not a subclass. The residual paragraph states the protection is textual and
+test-based, scoped to `retrieval.py` only, per the Report.
+
+Also updated two existing agents.md passages that already described this
+instance so they point at the new convention name rather than leaving the
+rule unnamed nearby: the "Knowledge storage" section's `SEMANTIC_QUERY_TIMEOUT`
+sentence now names `waiter-bound-lock-timeout` inline, and the "Knowledge
+retrieval" crash-window sentence cross-references the new
+`multi-await-reads-are-not-snapshots` convention (squawk 0078, same spawn) —
+kept together since both squawks touch the same paragraphs.
+
+Did not touch `the_one/vectors/usearch_store.py`, `_store.py`, or the test
+file — the squawk's ask is a naming/documentation change in Project
+Conventions, not a code change; the existing docstring and test already
+carry the design and the probe numbers, and are now cited by name from the
+new convention entry rather than duplicated.
 
 ## Verification
 
-*(written at completion — expected: the convention appears in `agents.md`'s
-Project Conventions with a name, the rule, and a pointer to the instance)*
+`the_one/agents.md` Project Conventions now contains `### \`waiter-bound-lock-timeout\``
+with the rule, the three-part shape, the residual, and citations to
+`UsearchStore.query`, `VectorStoreBusyError`/`VectorStoreStaleError`'s
+sibling (not subclass) relationship, and
+`tests/test_vector_store.py::test_timeout_expiry_raises_busy_without_cancelling_in_lock_work`
+plus `tests/test_kb_retrieval.py::test_no_wait_for_anywhere_in_the_module` (the
+residual's textual guard, confirmed scoped to `the_one/knowledge/retrieval.py`
+only). `make lint` (`ruff check` + `ruff format --check` via
+`.venv/bin/python -m ruff`) is clean. No code changed, so no behavioral test
+run was required; `tests/test_kb_retrieval.py` (31 tests) still passes as a
+sanity check for the same-spawn 0077/0078 doc edits touching adjacent
+paragraphs.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: batch Reviewer agent (**Sonnet** tier — the diff touches the encryption-rotation endpoint and a dependency floor for a package inside the shipped frozen closure, both security-sensitive surfaces per `.flightops/agent-crews/leg-execution.md`, even though every change is comment-, doc- or version-only)
+**Verdict**: confirmed
+**Commit**: `d76d173`
