@@ -92,6 +92,13 @@ action: review-leg-design
 Read the leg artifact at {leg-artifact-path}. Cross-reference its acceptance
 criteria, implementation guidance, and file references against the actual codebase.
 
+**Read in Developer order first.** Before evaluating rationale in Context, read
+the numbered Acceptance Criteria and the Implementation Guidance steps top to
+bottom, implementing each mentally as you go — the order a Developer would
+encounter them. This is what surfaces a criterion or step that a later one
+silently superseded but whose stale text is still sitting upstream: it reads
+fine in isolation and is invisible to a review that jumps straight to rationale.
+
 Evaluate:
 1. Acceptance criteria — specific, verifiable, complete?
 2. Implementation guidance — complete and correctly ordered?

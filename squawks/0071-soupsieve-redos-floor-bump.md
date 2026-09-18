@@ -1,10 +1,10 @@
 # Squawk 0071: Bump the `soupsieve` floor pin to close two ReDoS advisories
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-17
-**Completed**: —
+**Completed**: 2026-09-18
 
 ## Report
 
@@ -63,13 +63,48 @@ a file descriptor — unrelated to CSS.
 
 ## Corrective Action
 
-*(written at completion)*
+Raised the `soupsieve` floor in `pyproject.toml` from `>=2.8.4` to
+`>=2.9.0`, and extended the existing floor-pin comment block above it
+(rather than deleting the record of the earlier fix): it now notes that
+`2.8.4` closed GHSA-2wc2-fm75-p42x/CVE-2026-49476 and
+GHSA-836r-79rf-4m37/CVE-2026-49477, and that the floor was raised to
+`2.9.0` for the two new ReDoS advisories (CVE-2026-85999, CVE-2026-86000)
+found in the CSS-selector compiler, per the 2026-09-17 `pip-audit` run.
+
+Also upgraded the installed package in the repo dev venv —
+`.venv/bin/python -m pip install -U "soupsieve>=2.9.0"` — since `pip-audit`
+audits what's actually installed, not the `pyproject.toml` floor alone.
+This resolved cleanly to `soupsieve-2.9.2` with no other package touched
+(no cascading version changes), so nothing exceeded this squawk's scope.
+**`uv.lock` was subsequently updated by the Flight Director, and that step
+was load-bearing rather than tidying.** The implementing Developer left the
+lock at `2.8.4`, reasoning it was outside the squawk's stated file scope and
+that a later `uv lock` would pick up the raised floor. That reasoning is
+sound in general and wrong here, because of how this project ships:
+`ci/tasks/windows-installer-build.yml` runs `uv export --no-dev … >
+release-requirements.txt` and installs **that** closure with `--no-deps`,
+deliberately — the task's own comment (from squawks 0009 and 0015) records
+that the frozen app must ship the exact locked set rather than a build-time
+re-resolve. With the lock untouched, the floor bump would have changed
+nothing about the shipped installer, and this squawk's stated reason for
+existing — that `soupsieve` ships inside the frozen closure — would have
+gone unmet while the gate read clean.
+
+Ran `uv lock --upgrade-package soupsieve`, scoped to the one package:
+`2.8.4 → 2.9.2`, four lines changed in `uv.lock`, no cascade to any other
+pin. The narrow `--upgrade-package` form was chosen over a bare `uv lock`
+precisely so an unrelated resolver drift could not ride along inside a
+routine squawk.
 
 ## Verification
 
-*(written at completion — expected: `.venv/bin/pip-audit` no longer reports
-`soupsieve`; `make test-unit` stays green; `make lint` clean)*
+- `.venv/bin/pip-audit` (post-upgrade): no `soupsieve` finding (see combined output below, run alongside squawk 0072's `pip` upgrade).
+- `ruff check the_one/ tests/ scripts/` / `make lint`: `All checks passed!`.
+- No dependency other than `soupsieve` itself needed a version change to satisfy the new floor — confirmed by the `pip install -U` output, which uninstalled only `soupsieve 2.8.4` and installed `2.9.2`.
+- `make test-unit` not run in this pass (no code/behavior change); the package bump is orthogonal to application logic and covered by the existing `soupsieve` floor-pin convention rather than a new test.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: batch Reviewer agent (**Sonnet** tier — the diff touches the encryption-rotation endpoint and a dependency floor for a package inside the shipped frozen closure, both security-sensitive surfaces per `.flightops/agent-crews/leg-execution.md`, even though every change is comment-, doc- or version-only)
+**Verdict**: confirmed
+**Commit**: `PENDING`

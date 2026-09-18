@@ -1,10 +1,10 @@
 # Squawk 0074: Make the supersession sweep a standing instruction, not a per-flight rediscovery
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-17
-**Completed**: —
+**Completed**: 2026-09-18
 
 ## Report
 
@@ -61,13 +61,61 @@ Leg 2 cycle 2 finding 1.
 
 ## Corrective Action
 
-*(written at completion)*
+Three changes, split by kind rather than co-located, per the squawk's own
+framing (authoring/correction rule vs. reviewer instruction):
+
+1. **Supersession sweep + one normative home per rule** — added as a new
+   "Correcting a Rule (Supersession Sweep)" subsection under `.flightops/
+   FLIGHT_OPERATIONS.md`'s existing "Reviewing Artifacts" section (right
+   after its numbered steps, before "Code Review Gate"). That section is
+   already the standing instruction for *making a correction to an
+   artifact*, which is exactly when this discipline applies — so it
+   extends an existing home rather than creating a new top-level section.
+   Four numbered points: name the superseded literal token; grep it to
+   zero across the artifact set (flight spec + leg specs + behavior
+   specs); one code-shaped authoritative statement per already-corrected
+   rule, everything else a pointer; and the precedence-clause caution from
+   Flight 5 (a "this list is authoritative" clause is only safe once the
+   sweep confirms no stale duplicate remains to be elevated).
+2. **Read in Developer order** — added as a named pass at the top of both
+   design-review prompts, since that's where Flight 5's two catches
+   actually happened (DD-1 at flight review, Leg 2's AC-7 at leg review):
+   `.flightops/agent-crews/flight-design.md`'s Architect "Review Flight
+   Design" prompt (read the numbered Design Decisions + Legs list top to
+   bottom before the rationale) and `.flightops/agent-crews/
+   leg-execution.md`'s Developer "Review Leg Design" prompt (read the
+   numbered Acceptance Criteria + Implementation Guidance steps top to
+   bottom before Context). Left the post-implementation code-review
+   prompts (`Reviewer: Review`, `Accessibility Reviewer`) untouched — the
+   evidence is specifically about spec review catching stale text before
+   implementation starts, not about reviewing a diff.
+
+`.flightops/ARTIFACTS.md` was read as a candidate but not touched for this
+squawk — its "Conventions" section documents artifact-format rules, not
+review-time behavior, so the correction-workflow addition belongs in
+FLIGHT_OPERATIONS.md instead.
 
 ## Verification
 
-*(written at completion — expected: the next flight's design review can cite
-the sweep as performed, with the superseded token named and grepped to zero)*
+- Confirmed the destination sections exist and are the right shape by
+  reading all four candidate files in full before editing (`FLIGHT_OPERATIONS.md`,
+  `ARTIFACTS.md`, `agent-crews/flight-design.md`, `agent-crews/leg-execution.md`).
+- `git diff --stat -- .flightops` shows only additive changes to the three
+  targeted files (no other file touched).
+- Grepped the diff for machine usernames / absolute home paths — none
+  introduced.
+- The new text is itself an instance of the rule it states: the
+  superseded tokens from Flight 5 (`asyncio.wait_for`, `kb_id[:6]`) are
+  used only as illustrative examples of "a literal token," not restated
+  as live guidance anywhere else in `.flightops/`.
+- Expected effect (observable on the next flight): the Architect and
+  Developer design-review prompts now name "Read in Developer order" as
+  an explicit first pass, and a correction made during "Reviewing
+  Artifacts" is expected to cite the token it swept and the grep that
+  returned zero.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: batch Reviewer agent (**Sonnet** tier — the diff touches the encryption-rotation endpoint and a dependency floor for a package inside the shipped frozen closure, both security-sensitive surfaces per `.flightops/agent-crews/leg-execution.md`, even though every change is comment-, doc- or version-only)
+**Verdict**: confirmed
+**Commit**: `PENDING`
