@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from unittest.mock import patch
 
@@ -536,6 +537,291 @@ class TestAgentAPI:
     # test_detaching_a_connector_does_not_clear_orphaned_overrides is
     # deleted: Mission 23 Flight 1 (DD-1) removes
     # DELETE /api/agents/{agent_name}/connectors/{account_id} outright.
+
+
+# ── Mission 24 Flight 6 Leg 2: tool-name integrity (DD-17) ───────────────
+
+
+class TestAgentKbToolNames:
+    """AC-6: `kb_tool_names` on the four single-agent routes, absent from
+    the list route. AC-7: `kb_ids` keep-on-omit."""
+
+    async def test_get_agent_includes_kb_tool_names(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "kb-agent-get", "kb_ids": [kb_id]})
+        resp = await client.get("/api/agents/kb-agent-get")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body["kb_tool_names"].keys()) == {kb_id}
+        name = body["kb_tool_names"][kb_id]
+        assert name.startswith("kb__Docs_")
+        assert name.endswith("__search")
+
+    async def test_create_agent_includes_kb_tool_names(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        resp = await client.post("/api/agents", json={"name": "kb-agent-create", "kb_ids": [kb_id]})
+        assert resp.status_code == 201
+        assert kb_id in resp.json()["kb_tool_names"]
+
+    async def test_update_agent_includes_kb_tool_names(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "kb-agent-put"})
+        resp = await client.put(
+            "/api/agents/kb-agent-put",
+            json={"name": "kb-agent-put", "kb_ids": [kb_id]},
+        )
+        assert resp.status_code == 200
+        assert kb_id in resp.json()["kb_tool_names"]
+
+    async def test_rename_agent_includes_kb_tool_names(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "kb-agent-rn", "kb_ids": [kb_id]})
+        resp = await client.post(
+            "/api/agents/kb-agent-rn/rename", json={"new_name": "kb-agent-rn-2"}
+        )
+        assert resp.status_code == 200
+        assert kb_id in resp.json()["kb_tool_names"]
+
+    async def test_list_agents_does_not_include_kb_tool_names(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "kb-agent-list", "kb_ids": [kb_id]})
+        resp = await client.get("/api/agents")
+        assert resp.status_code == 200
+        body = next(a for a in resp.json() if a["name"] == "kb-agent-list")
+        assert "kb_tool_names" not in body
+
+    async def test_dangling_kb_id_contributes_no_entry_and_does_not_fail(
+        self, client: AsyncClient
+    ) -> None:
+        # DD-14: `kb_ids` keeps a dangling id after its knowledge base is
+        # deleted (out of this leg's scope to change) — the response must
+        # still succeed, just with no entry for it.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Ghost"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "kb-agent-ghost", "kb_ids": [kb_id]})
+        await client.delete(f"/api/knowledge-bases/{kb_id}")
+        resp = await client.get("/api/agents/kb-agent-ghost")
+        assert resp.status_code == 200
+        assert resp.json()["kb_tool_names"] == {}
+
+    async def test_put_omitting_kb_ids_preserves_stored_value(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "kb-preserve-agent", "kb_ids": [kb_id]})
+        resp = await client.put(
+            "/api/agents/kb-preserve-agent",
+            json={"name": "kb-preserve-agent", "description": "updated"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["kb_ids"] == [kb_id]
+
+    async def test_put_explicit_empty_kb_ids_clears_it(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "kb-clear-agent", "kb_ids": [kb_id]})
+        resp = await client.put(
+            "/api/agents/kb-clear-agent",
+            json={"name": "kb-clear-agent", "kb_ids": []},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["kb_ids"] == []
+
+    async def test_put_omitting_both_kb_ids_and_mcp_overrides_preserves_both(
+        self, client: AsyncClient
+    ) -> None:
+        # Edge Case: the two preserves are independent — neither may
+        # clobber the other when both are omitted from the same PUT.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        secret_overrides = {"github": {"bearer_token": "bearer-realsecretvalue"}}
+        await client.post(
+            "/api/agents",
+            json={
+                "name": "kb-and-mcp-preserve-agent",
+                "kb_ids": [kb_id],
+                "mcp_overrides": secret_overrides,
+            },
+        )
+        resp = await client.put(
+            "/api/agents/kb-and-mcp-preserve-agent",
+            json={"name": "kb-and-mcp-preserve-agent", "description": "updated"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["kb_ids"] == [kb_id]
+
+        from the_one.interfaces.web import api as api_module
+
+        conn = api_module.get_connection.return_value
+        encryptor = api_module.get_encryptor.return_value
+        store = SQLiteAgentStore(conn, encryptor)
+        loaded = await store.load("kb-and-mcp-preserve-agent")
+        assert loaded.kb_ids == [kb_id]
+        assert loaded.mcp_overrides["github"]["bearer_token"] == "bearer-realsecretvalue"
+
+
+class TestKnowledgeBaseRenameRewrite:
+    """AC-8, AC-9, AC-10, AC-12: renaming a knowledge base rewrites
+    `disabled_tools` across attached agents (L2-D7/L2-D9)."""
+
+    async def test_rename_rewrites_disabled_tools_entry(self, client: AsyncClient) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        agent_resp = await client.post(
+            "/api/agents", json={"name": "renamed-kb-agent", "kb_ids": [kb_id]}
+        )
+        old_name = agent_resp.json()["kb_tool_names"][kb_id]
+        await client.put(
+            "/api/agents/renamed-kb-agent",
+            json={
+                "name": "renamed-kb-agent",
+                "kb_ids": [kb_id],
+                "disabled_tools": [old_name],
+            },
+        )
+
+        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "Docs Renamed"})
+        assert resp.status_code == 200
+
+        agent_after = await client.get("/api/agents/renamed-kb-agent")
+        new_name = agent_after.json()["kb_tool_names"][kb_id]
+        assert new_name != old_name
+        assert agent_after.json()["disabled_tools"] == [new_name]
+
+    async def test_rename_leaves_non_matching_entries_and_unattached_agent_untouched(
+        self, client: AsyncClient
+    ) -> None:
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post(
+            "/api/agents",
+            json={"name": "no-match-agent", "kb_ids": [kb_id], "disabled_tools": ["shell"]},
+        )
+        await client.post("/api/agents", json={"name": "unattached-agent"})
+
+        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "Docs Renamed"})
+        assert resp.status_code == 200
+
+        no_match = await client.get("/api/agents/no-match-agent")
+        assert no_match.json()["disabled_tools"] == ["shell"]
+        unattached = await client.get("/api/agents/unattached-agent")
+        assert unattached.json()["disabled_tools"] == []
+
+    async def test_rename_does_not_touch_enabled_tools(self, client: AsyncClient) -> None:
+        # AC-9: a `kb__` name placed in enabled_tools is inert
+        # (UNGATED_TOOL_PREFIXES) and must survive a rename untouched —
+        # the v7 migration precedent rewrites both columns; this
+        # deliberately does not.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        agent_resp = await client.post(
+            "/api/agents", json={"name": "enabled-kb-agent", "kb_ids": [kb_id]}
+        )
+        old_name = agent_resp.json()["kb_tool_names"][kb_id]
+        await client.put(
+            "/api/agents/enabled-kb-agent",
+            json={
+                "name": "enabled-kb-agent",
+                "kb_ids": [kb_id],
+                "disabled_tools": [old_name],
+                "enabled_tools": [old_name, "shell"],
+            },
+        )
+
+        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "Docs Renamed"})
+        assert resp.status_code == 200
+
+        agent_after = await client.get("/api/agents/enabled-kb-agent")
+        assert agent_after.json()["enabled_tools"] == [old_name, "shell"]
+
+    async def _track_agent_store_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        calls: list[str] = []
+        original_load = SQLiteAgentStore.load
+        original_save = SQLiteAgentStore.save
+
+        async def _tracked_load(self, name):
+            calls.append(f"load:{name}")
+            return await original_load(self, name)
+
+        async def _tracked_save(self, cfg):
+            calls.append(f"save:{cfg.name}")
+            return await original_save(self, cfg)
+
+        monkeypatch.setattr(SQLiteAgentStore, "load", _tracked_load)
+        monkeypatch.setattr(SQLiteAgentStore, "save", _tracked_save)
+        return calls
+
+    async def test_rename_to_identical_name_touches_no_agent(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AC-10, case 1: the raw `name` field is unchanged — a PUT that
+        # only touches e.g. `description` must not load/save any agent.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "noop-rename-agent", "kb_ids": [kb_id]})
+
+        calls = await self._track_agent_store_calls(monkeypatch)
+        resp = await client.put(
+            f"/api/knowledge-bases/{kb_id}", json={"name": "Docs", "description": "updated"}
+        )
+        assert resp.status_code == 200
+        assert calls == []
+
+    async def test_rename_normalizing_to_same_slug_touches_no_agent(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AC-10, case 2: "My Notes" and "My/Notes" both normalize to the
+        # same "My_Notes" slug — the raw name differs but the derived
+        # tool name does not, so no agent should be touched either.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "My Notes"})
+        kb_id = kb_resp.json()["id"]
+        await client.post("/api/agents", json={"name": "slug-noop-agent", "kb_ids": [kb_id]})
+
+        calls = await self._track_agent_store_calls(monkeypatch)
+        resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "My/Notes"})
+        assert resp.status_code == 200
+        assert calls == []
+
+    async def test_rename_partial_failure_does_not_raise_and_warns(
+        self,
+        client: AsyncClient,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # AC-12: one agent's save() failing (encryptor round-trip,
+        # constraint, anything) must not propagate as an unhandled 500
+        # after the knowledge-base row has already been renamed, and the
+        # failed agent must be named in a WARNING.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        agent_resp = await client.post(
+            "/api/agents", json={"name": "fails-agent", "kb_ids": [kb_id]}
+        )
+        old_name = agent_resp.json()["kb_tool_names"][kb_id]
+        await client.put(
+            "/api/agents/fails-agent",
+            json={"name": "fails-agent", "kb_ids": [kb_id], "disabled_tools": [old_name]},
+        )
+
+        original_save = SQLiteAgentStore.save
+
+        async def _flaky_save(self, cfg):
+            if cfg.name == "fails-agent":
+                raise RuntimeError("boom")
+            return await original_save(self, cfg)
+
+        monkeypatch.setattr(SQLiteAgentStore, "save", _flaky_save)
+
+        with caplog.at_level(logging.WARNING):
+            resp = await client.put(f"/api/knowledge-bases/{kb_id}", json={"name": "Docs Renamed"})
+        assert resp.status_code == 200
+        # The knowledge base itself was renamed despite the agent failure.
+        assert resp.json()["name"] == "Docs Renamed"
+        assert any("fails-agent" in r.message for r in caplog.records)
 
 
 # ── Knowledge base endpoints ─────────────────────────────────────────────
@@ -1866,6 +2152,170 @@ class TestKnowledgeBaseSourceRoute:
         resp = await client.get(f"/api/knowledge-bases/{kb_id}/items/{item_id}/source")
         assert resp.status_code == 200
         assert resp.json()["text"] == "small enough"
+
+
+class TestKnowledgeBaseSearchRoute:
+    """Flight 6 Leg 1, DD-6, AC-10/AC-11: ``GET …/search``."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_vector_store(self, client: AsyncClient, monkeypatch):
+        """Same seam-isolation as ``TestKnowledgeBaseDeleteCallsVectorStore``
+        — route the vector-store module's own ``get_connection()`` to the
+        test client's connection, so building a store never touches the
+        real production database."""
+        from the_one import vectors as vectors_module
+        from the_one.interfaces.web import api as api_module
+
+        monkeypatch.setattr(vectors_module, "get_connection", api_module.get_connection)
+        vectors_module._reset_for_test()
+        yield
+        vectors_module._reset_for_test()
+
+    @staticmethod
+    def _stub_store():
+        class _StubStore:
+            backend = "stub"
+            dtype = "float32"
+            dim = 8
+
+            async def open(self) -> None:
+                return None
+
+            async def upsert(self, kb_id, ids, vectors) -> None:
+                return None
+
+            async def delete(self, kb_id, ids) -> None:
+                return None
+
+            async def delete_kb(self, kb_id) -> None:
+                return None
+
+            async def query(self, kb_id, vector, k, timeout=None):
+                return []
+
+            async def count(self, kb_id) -> int:
+                return 0
+
+            async def flush(self, kb_id) -> None:
+                return None
+
+            async def close(self) -> None:
+                return None
+
+        return _StubStore()
+
+    def _patch_embedding_backend(self, monkeypatch) -> None:
+        from tests._embedding_stub import StubEmbeddingBackend
+        from the_one.interfaces.web import api as api_module
+
+        monkeypatch.setattr(api_module, "get_embedding_backend", lambda: StubEmbeddingBackend())
+
+    async def _seed_chunk(self, client: AsyncClient, text: str) -> tuple[str, str]:
+        from the_one.db._kb_types import ChunkRecord
+        from the_one.db.repositories import KBChunkRepository
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/x.txt"},
+            )
+        ).json()["id"]
+        conn = await api_module.get_connection()
+        chunk_repo = KBChunkRepository(conn)
+        await chunk_repo.replace_item_chunks(
+            item_id,
+            kb_id,
+            [ChunkRecord(seq=0, text=text, char_start=0, char_end=len(text))],
+        )
+        return kb_id, item_id
+
+    async def test_happy_path_returns_hits_with_score(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one import vectors as vectors_module
+
+        monkeypatch.setattr(
+            vectors_module, "_build_store", lambda settings, conn: self._stub_store()
+        )
+        vectors_module._reset_for_test()
+        self._patch_embedding_backend(monkeypatch)
+
+        kb_id, item_id = await self._seed_chunk(client, "hello searchable world")
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/search", params={"q": "searchable"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["degraded"] is None
+        assert body["indexer"] == "idle"
+        assert len(body["hits"]) == 1
+        hit = body["hits"][0]
+        assert hit["item_id"] == item_id
+        assert hit["text"] == "hello searchable world"
+        assert "score" in hit
+
+    async def test_missing_q_returns_422(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/search")
+        assert resp.status_code == 422
+
+    async def test_empty_q_returns_422(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/search", params={"q": ""})
+        assert resp.status_code == 422
+
+    async def test_whitespace_only_q_returns_200_with_zero_hits(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        # No vector store or embedding backend is patched: retrieval.search's
+        # documented no-op for a whitespace-only query must return before
+        # either is touched, so an unpatched (real) backend lookup here
+        # would itself prove the split is broken (it would hang / error
+        # trying to load the real model).
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/search", params={"q": "   "})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["hits"] == []
+        assert body["degraded"] is None
+
+    async def test_limit_zero_returns_422(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.get(
+            f"/api/knowledge-bases/{kb_id}/search", params={"q": "x", "limit": 0}
+        )
+        assert resp.status_code == 422
+
+    async def test_limit_21_returns_422(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.get(
+            f"/api/knowledge-bases/{kb_id}/search", params={"q": "x", "limit": 21}
+        )
+        assert resp.status_code == 422
+
+    async def test_unknown_kb_id_returns_404(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/knowledge-bases/no-such-kb/search", params={"q": "hello"})
+        assert resp.status_code == 404
+
+    async def test_indexer_state_reflects_installed_manager(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one import vectors as vectors_module
+        from the_one.knowledge import manager as manager_mod
+
+        monkeypatch.setattr(
+            vectors_module, "_build_store", lambda settings, conn: self._stub_store()
+        )
+        vectors_module._reset_for_test()
+        self._patch_embedding_backend(monkeypatch)
+        monkeypatch.setattr(manager_mod, "_manager", _FakeIndexingManager(state="indexing"))
+
+        kb_id, _ = await self._seed_chunk(client, "hello world")
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/search", params={"q": "hello"})
+        assert resp.status_code == 200
+        assert resp.json()["indexer"] == "indexing"
 
 
 class TestKnowledgeBaseIndexingManagerRouteIntegration:

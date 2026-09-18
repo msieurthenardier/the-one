@@ -23,8 +23,6 @@ import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-KNOWLEDGE_TEXT = "Knowledge bases will be created and managed here in a future mission."
-
 
 def _wait_studio_ready(page: Page) -> None:
     """Wait for the studio area to mount.
@@ -89,7 +87,7 @@ def test_studio_section_nav_roving_tabindex(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_studio_click_knowledge_section(app_clean: str, page: Page) -> None:
-    """Clicking the Knowledge section button updates URL and shows the stub."""
+    """Clicking the Knowledge section button updates URL and shows the inventory."""
     page.goto(f"{app_clean}#studio")
     _wait_studio_ready(page)
 
@@ -98,10 +96,9 @@ def test_studio_click_knowledge_section(app_clean: str, page: Page) -> None:
     # URL updated.
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
-    # Stub text visible.
-    stub = page.locator('[data-testid="studio-knowledge-stub"]')
-    expect(stub).to_be_visible(timeout=2000)
-    expect(stub).to_have_text(KNOWLEDGE_TEXT)
+    # Inventory rendered.
+    inventory = page.locator('[data-testid="studio-knowledge-inventory"]')
+    expect(inventory).to_be_visible(timeout=2000)
 
     # aria-current moved to Knowledge.
     active = page.locator('.section-nav-item[aria-current="page"]')
@@ -194,7 +191,7 @@ def test_studio_keyboard_enter_activates(app_clean: str, page: Page) -> None:
     page.keyboard.press("Enter")
 
     assert page.evaluate("location.hash") == "#studio/knowledge"
-    expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=2000)
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=2000)
 
     # Roving tabindex updated.
     knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
@@ -209,13 +206,13 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
     page.goto(f"{app_clean}#studio/knowledge")
     _wait_studio_ready(page)
 
-    expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
     page.reload()
     _wait_studio_ready(page)
 
-    expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
     active = page.locator('.section-nav-item[aria-current="page"]')
@@ -268,7 +265,7 @@ def test_studio_section_round_trip_returns_to_agent_listing(
 
     # Switch to Knowledge.
     page.locator('.section-nav-item[data-section="knowledge"]').click()
-    expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=2000)
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=2000)
 
     # Switch back to Agents — selection was cleared on leaving, so the editor
     # is hidden and the tile grid (section-content) owns the main panel.

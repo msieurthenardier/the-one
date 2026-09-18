@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import json
 import logging
@@ -58,12 +59,14 @@ from the_one.db.repositories import (
     _encrypt_overrides_column,
     _encrypt_secrets_blob,
 )
+from the_one.embeddings import get_embedding_backend
 from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
 from the_one.knowledge.extractors import ExtractionError, extractor_for
 from the_one.knowledge.indexer import MAX_FILE_BYTES
 from the_one.knowledge.manager import get_manager as get_indexing_manager
+from the_one.knowledge.retrieval import search as kb_search
 from the_one.knowledge.settings import (
     ChunkingSettings,
     EmbeddingSettings,
@@ -118,7 +121,9 @@ async def _agent_store() -> SQLiteAgentStore:
     return SQLiteAgentStore(conn, get_encryptor(settings.data_dir))
 
 
-def _agent_response(cfg: AgentConfig) -> dict[str, Any]:
+def _agent_response(
+    cfg: AgentConfig, kb_tool_names: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Render an ``AgentConfig`` into the masked HTTP response shape.
 
     Mirrors ``_mcp_source_response`` (below, in the MCP-sources section):
@@ -139,8 +144,20 @@ def _agent_response(cfg: AgentConfig) -> dict[str, Any]:
     a bare ``cfg.model_dump()`` return leaks plaintext credential
     overrides. The regression net is an assertion on response *text*
     (mirrors ``test_list_returns_masked_secrets``).
+
+    ``kb_tool_names`` (L2-D5, AC-6): ``_agent_response`` is synchronous
+    and takes only the config, but resolving each attached knowledge
+    base's derived tool name needs an async repository read — so callers
+    that want the field resolve it themselves (via
+    :func:`_resolve_kb_tool_names`) and pass the finished ``{kb_id:
+    tool_name}`` map in. Left ``None`` (the default), the response has no
+    ``kb_tool_names`` key at all — this is what ``list_agents`` relies on
+    to avoid an N+1 read per page load; only the single-agent routes
+    (``GET``/``POST``/``PUT /api/agents/{name}``, ``.../rename``) pass one.
     """
     data = cfg.model_dump()
+    if kb_tool_names is not None:
+        data["kb_tool_names"] = kb_tool_names
     overrides = data.get("mcp_overrides")
     if overrides:
         for source_entry in overrides.values():
@@ -265,6 +282,37 @@ def _merge_preserved_mcp_credentials(
 async def _kb_repo() -> KnowledgeBaseRepository:
     conn = await get_connection()
     return KnowledgeBaseRepository(conn)
+
+
+async def _resolve_kb_tool_names(cfg: AgentConfig) -> dict[str, str]:
+    """Resolve ``{kb_id: tool_name}`` for ``cfg.kb_ids`` (L2-D5, AC-6).
+
+    Mirrors ``KBToolProvider.get_tools_for_agent``'s own resolution
+    exactly: ``repo.get(kb_id)`` per id, skipping a ``KeyError`` with a
+    WARNING naming the agent and the dangling id (DD-14) — so a dangling
+    id contributes no entry and never makes the whole response fail.
+    Empty ``kb_ids`` short-circuits to ``{}`` with no database call, same
+    as the tool provider's own fast path.
+    """
+    if not cfg.kb_ids:
+        return {}
+    from the_one.knowledge.tool_provider import compute_tool_names
+
+    repo = await _kb_repo()
+    kbs: list[KnowledgeBase] = []
+    for kb_id in cfg.kb_ids:
+        try:
+            kbs.append(await repo.get(kb_id))
+        except KeyError:
+            logger.warning(
+                "agent %r references deleted knowledge base %r; "
+                "kb_tool_names will have no entry for it",
+                cfg.name,
+                kb_id,
+            )
+    if not kbs:
+        return {}
+    return compute_tool_names(kbs, agent_name=cfg.name)
 
 
 async def _kb_item_repo() -> KBItemRepository:
@@ -675,7 +723,7 @@ async def get_agent(name: str) -> dict[str, Any]:
         cfg = await store.load(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 @router.get("/agents/{name}/context-window")
@@ -791,7 +839,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=override_error)
     store = await _agent_store()
     await store.save(cfg)
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 @router.put("/agents/{name}")
@@ -837,6 +885,12 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # preserve just above.
     if "self_revision_requires_approval" not in data:
         data["self_revision_requires_approval"] = existing.self_revision_requires_approval
+    # AC-7: `kb_ids` omitted from the PUT body preserves the stored value
+    # — mirrors the `self_revision_requires_approval` preserve immediately
+    # above. An explicit `kb_ids: []` is NOT an omission and still clears
+    # it; omission and empty are distinguishable and mean different things.
+    if "kb_ids" not in data:
+        data["kb_ids"] = existing.kb_ids
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
@@ -856,7 +910,7 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
     await store.save(cfg)
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 @router.delete("/agents/{name}")
@@ -928,7 +982,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     mcp_repo = await _mcp_repo()
     await self_configuration_manage.cascade_rename(name, new_name, mcp_repo=mcp_repo)
     cfg = await store.load(new_name)
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 # ── Self-configuration surface (M21 F01 L02) ───────────────────────────────
@@ -1464,6 +1518,36 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     await repo.update(updated)
+
+    # L2-D7/L2-D9: the agent rewrite happens AFTER the knowledge-base row
+    # has committed (write_transaction raises on re-entry by the same
+    # task, so this can never be one atomic unit with the write above).
+    # First early return (L2-D9): the raw name is unchanged — most PUTs
+    # touch only description/etc., and every one of those must not load
+    # and re-save every attached agent for nothing.
+    if existing.name != updated.name:
+        # Local imports: both cross into agent-config-adjacent territory
+        # (`compute_tool_names` pulls in `AgentConfig` at its own module
+        # level) — mirrors this module's established lazy-import
+        # convention for anything AgentConfig-adjacent (see the
+        # TYPE_CHECKING note near the top of this file).
+        from the_one.knowledge.kb_rename import rename_kb_tool_references
+        from the_one.knowledge.tool_provider import compute_tool_names
+
+        # Both derived names depend only on (name, kb_id) — DD-17 — so
+        # they're computed from `existing`/`updated` alone, with no other
+        # knowledge base's set membership involved. `agent_name` here is
+        # a log-message label, not an actual agent: this call is not
+        # scoped to one.
+        old_tool_name = compute_tool_names([existing], agent_name="(kb-rename)")[kb_id]
+        new_tool_name = compute_tool_names([updated], agent_name="(kb-rename)")[kb_id]
+        # Second early return (L2-D9): two different raw names can
+        # normalize to the same derived slug (`My Notes` / `My/Notes`
+        # both -> `My_Notes`) — skip the agent rewrite when nothing
+        # actually moved.
+        if old_tool_name != new_tool_name:
+            agent_store = await _agent_store()
+            await rename_kb_tool_references(agent_store, kb_id, old_tool_name, new_tool_name)
     return updated.model_dump()
 
 
@@ -1849,6 +1933,60 @@ async def get_kb_item_source(kb_id: str, item_id: str) -> dict[str, Any]:
         "content_hash": item.content_hash,
         "stale": stale,
         "text": text,
+    }
+
+
+@router.get("/knowledge-bases/{kb_id}/search")
+async def search_knowledge_base(
+    kb_id: str,
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=20),
+) -> dict[str, Any]:
+    """Flight 6 Leg 1, DD-6: the operator-facing, read-only search route —
+    the missing HTTP entry point onto ``retrieval.search`` that Flight 5's
+    debrief asked for. Wraps the exact dependency wiring
+    ``knowledge/tool.py``'s ``KBSearchTool`` uses: repositories off the
+    request connection, the process-wide vector store, and the embedding
+    backend resolved under ``asyncio.to_thread`` (synchronous + lock-
+    taking — must not run directly on the event loop).
+
+    ``q`` is required and non-empty at the route bound (422 on missing or
+    empty); a whitespace-only ``q`` passes the bound and falls through to
+    ``retrieval.search``'s own documented no-op — a 200 with zero hits,
+    touching neither the store nor the backend. Deliberate split: the
+    route rejects a malformed request, but a real query that matches
+    nothing is not an error.
+
+    Renders no per-hit provenance and does not widen ``SearchHit``
+    (Architect cycle 2) — ``dataclasses.asdict`` serializes it verbatim.
+    """
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
+    chunk_repo = await _kb_chunk_repo()
+    item_repo = await _kb_item_repo()
+    store = await _vector_store()
+    # Synchronous + lock-taking — must not run directly on the event loop
+    # (same rationale as knowledge/tool.py's KBSearchTool.execute).
+    backend = await asyncio.to_thread(get_embedding_backend)
+
+    result = await kb_search(
+        kb_id,
+        q,
+        limit=limit,
+        chunk_repo=chunk_repo,
+        item_repo=item_repo,
+        store=store,
+        backend=backend,
+    )
+    manager = get_indexing_manager()
+    return {
+        "hits": [dataclasses.asdict(h) for h in result.hits],
+        "degraded": result.degraded,
+        "indexer": manager.state(kb_id) if manager is not None else "idle",
     }
 
 

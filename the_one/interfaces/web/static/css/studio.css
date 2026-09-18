@@ -1160,4 +1160,124 @@
   .area-studio .connector-setup-steps-doc-ref {
     display: block;
   }
+
+  /* === Studio Knowledge section (Mission 24 Flight 6 Leg 1) ===========
+     The inventory grid + detail view reuse the existing `.entity-tile-
+     grid` / `.editor-section` / `.field-group` / `.chip` / `.field-error`
+     vocabulary wholesale (knowledge-section.js); these rules cover only
+     the row/badge layouts that vocabulary doesn't already provide. */
+  .area-studio .knowledge-create-form[hidden] { display: none; }
+  .area-studio .kb-status-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .area-studio .kb-chunk-count,
+  .area-studio .kb-indexer-state {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .kb-folder-row,
+  .area-studio .kb-item-row,
+  .area-studio .kb-chunk-row,
+  .area-studio .kb-search-hit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .kb-folder-row:last-child,
+  .area-studio .kb-item-row:last-child,
+  .area-studio .kb-chunk-row:last-child,
+  .area-studio .kb-search-hit:last-child {
+    border-bottom: none;
+  }
+  .area-studio .kb-folder-path,
+  .area-studio .kb-item-path,
+  .area-studio .kb-search-hit-path {
+    font-weight: 500;
+    word-break: break-all;
+  }
+  .area-studio .kb-folder-status,
+  .area-studio .kb-folder-indexed-at,
+  .area-studio .kb-folder-watch,
+  .area-studio .kb-item-status,
+  .area-studio .kb-chunk-seq,
+  .area-studio .kb-search-hit-score {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  /* `.field-error` (components.css) already supplies the danger-colored
+     text; these rows just need it inline rather than block-stacked. */
+  .area-studio .kb-folder-error,
+  .area-studio .kb-folder-watch-error,
+  .area-studio .kb-item-error {
+    margin: 0;
+  }
+  .area-studio .kb-item-standalone-badge {
+    color: var(--status-warning);
+  }
+  .area-studio .kb-chunk-text,
+  .area-studio .kb-search-hit-text {
+    flex-basis: 100%;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    white-space: pre-wrap;
+  }
+  .area-studio .kb-source-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+  }
+  .area-studio .kb-reindex-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .area-studio .kb-search-degraded[hidden],
+  .area-studio .kb-chunks-panel[hidden],
+  .area-studio .kb-source-panel[hidden] { display: none; }
+
+  /* === Studio Agent Editor: Knowledge tab (M24 F06 L03) === */
+  /* Rows mirror `.mcp-source-tile`'s toggle + name layout but stay
+     single-line (no expand/collapse — attach is the only control). */
+  .area-studio .agent-knowledge-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .area-studio .agent-knowledge-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .agent-knowledge-row:last-child { border-bottom: none; }
+  .area-studio .agent-knowledge-row-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .area-studio .agent-knowledge-row-name { font-weight: 500; }
+  .area-studio .agent-knowledge-row-tool-name {
+    margin-left: auto;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .agent-knowledge-row-tool-name-placeholder { font-style: italic; }
+  .area-studio .agent-knowledge-load-error {
+    font-size: var(--font-size-body-sm);
+    color: var(--status-danger);
+    padding: 8px 0;
+  }
 }

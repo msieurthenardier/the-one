@@ -157,7 +157,13 @@
       onDelete: callbacks.onDelete,
       onPurge: callbacks.onPurge
     });
-    window.App.studio.renderKnowledgeTab(knowledgePanel);
+    // F6 L3 — extended signature: pass agent + allKnowledgeBases +
+    // callbacks so the Knowledge tab can render the real attach surface
+    // (mirrors renderMcpsTab's call site above).
+    window.App.studio.renderKnowledgeTab(knowledgePanel, agent, callbacks.allKnowledgeBases, {
+      onChange: callbacks.onChange,
+      knowledgeBasesLoaded: callbacks.knowledgeBasesLoaded
+    });
     // F8 L3 — extended signature: pass agent + allMcpSources + callbacks so
     // the MCPs tab can render the chip-list, per-attachment editor, and
     // credential override fields. Mirrors renderToolsTab's call site below.

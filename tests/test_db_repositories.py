@@ -162,6 +162,28 @@ class TestSQLiteAgentStore:
         names = await agent_store.list_agents()
         assert names == ["alpha", "bravo", "charlie"]
 
+    async def test_list_by_kb_returns_only_agents_referencing_the_id(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        # L2-D6/AC-11: ordered by name, and an agent with an empty/absent
+        # kb_ids contributes nothing.
+        await agent_store.save(AgentConfig(name="charlie", kb_ids=["kb-x"]))
+        await agent_store.save(AgentConfig(name="alpha", kb_ids=["kb-x", "kb-y"]))
+        await agent_store.save(AgentConfig(name="bravo", kb_ids=["kb-y"]))
+        await agent_store.save(AgentConfig(name="delta"))  # kb_ids default []
+        assert await agent_store.list_by_kb("kb-x") == ["alpha", "charlie"]
+        assert await agent_store.list_by_kb("kb-y") == ["alpha", "bravo"]
+        assert await agent_store.list_by_kb("kb-z") == []
+
+    async def test_list_by_kb_substring_id_not_falsely_matched(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        # L2-D6: the case a `LIKE '%<id>%'` implementation gets wrong —
+        # "kb-1" is a substring of "kb-10", but must not match it.
+        await agent_store.save(AgentConfig(name="has-kb-10", kb_ids=["kb-10"]))
+        assert await agent_store.list_by_kb("kb-1") == []
+        assert await agent_store.list_by_kb("kb-10") == ["has-kb-10"]
+
     async def test_exists(self, agent_store: SQLiteAgentStore) -> None:
         assert await agent_store.exists("nope") is False
         await agent_store.save(AgentConfig(name="exists"))
