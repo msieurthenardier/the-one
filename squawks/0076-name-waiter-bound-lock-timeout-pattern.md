@@ -98,4 +98,4 @@ paragraphs.
 
 **Reviewer**: batch Reviewer agent (**Sonnet** tier — the diff touches the encryption-rotation endpoint and a dependency floor for a package inside the shipped frozen closure, both security-sensitive surfaces per `.flightops/agent-crews/leg-execution.md`, even though every change is comment-, doc- or version-only)
 **Verdict**: confirmed
-**Commit**: `PENDING`
+**Commit**: `d76d173`

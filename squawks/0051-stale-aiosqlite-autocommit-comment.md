@@ -59,7 +59,7 @@ this function still issues only `SELECT` statements before entering
 - The rotation function's statement sequence (SELECT-only reads, then `write_transaction()` around the writes) is unchanged; behaviour was not altered.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+
+**Reviewer**: batch Reviewer agent (**Sonnet** tier — the diff touches the encryption-rotation endpoint and a dependency floor for a package inside the shipped frozen closure, both security-sensitive surfaces per `.flightops/agent-crews/leg-execution.md`, even though every change is comment-, doc- or version-only)
+**Verdict**: confirmed
+**Commit**: `d76d173`
