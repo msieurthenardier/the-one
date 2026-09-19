@@ -306,6 +306,22 @@ providers, and credential file, then reports *its* state instead of the
 branch's under test. (This mirrors the existing AIAT rule above for
 `-m live` — the same production instance, the same hazard.)
 
+**Do not guess the default data directory — read it.** It is
+platformdirs-derived (`the_one/config.py::_default_data_dir`), NOT a literal
+path, and it differs by platform. Print it with:
+
+```bash
+python -c "from the_one.config import settings; print(settings.data_dir)"
+```
+
+A check against a hardcoded guess is not a check: a stale guess returns a clean
+result whether or not the real directory was just written to. (Squawk 0084 — an
+earlier version of this section named `~/.the-one`, which does not exist, so every
+"production untouched" verification against it passed unconditionally. A
+credential rotation reached the real directory before anyone noticed.) To confirm
+which directory a *running* instance owns, read that process's own
+`/proc/<pid>/environ` rather than assuming.
+
 Always drive a **dedicated dev instance** instead — a non-default port
 AND a scratch data directory, together, every time:
 
@@ -314,7 +330,7 @@ THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch make up
 ```
 
 Port alone is not enough — an instance on 8485 that still points at the
-operator's default `~/.the-one` data directory shares the same credential
+operator's default data directory shares the same credential
 file, database, and sessions as production. A spec's Preconditions must
 name (or require an operator-provided) port and data directory; never
 default to `:8484` or the default data directory.
