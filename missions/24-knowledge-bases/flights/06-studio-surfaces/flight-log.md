@@ -3024,3 +3024,163 @@ markup).
 **Not restarted, per the constraint**: the operator's live 8485 /
 `/tmp/the-one-hat-scratch` instance was not touched, driven, or stopped. It
 needs a restart to serve this pass's `knowledge-section.js`.
+
+---
+
+## The HAT walk itself — 2026-09-19
+
+**Written after the fact, at the debrief's prompting.** The three `HAT` sections
+above record what the walk *yielded*; none records what was *walked*. The
+Architect's debrief review named that gap: "the HAT's yield is well documented;
+the HAT's walk is undocumented. A future reader cannot tell which of DD-18's
+required states were exercised." This section reconstructs it from the session
+while it was still recoverable. Treat it as a reconstruction, not a contemporaneous
+log — that is itself the finding.
+
+### Apparatus
+
+Dev instance on **port 8485** against **`/tmp/the-one-hat-scratch`**, dev mode on,
+verified from the process's own `/proc/<pid>/environ` rather than assumed (the
+technique squawk 0084 exists to enforce). Operator drove a real browser via minted
+handoff links; the Flight Director drove disk, shell and API. Fixture:
+`/tmp/the-one-hat-fixture`, six files across two subdirectories, **47–453 bytes
+each**. Monitoring read live and recorded: `watch_enabled: true`,
+`reconcile_interval_seconds: 300`.
+
+### States and transitions
+
+**[A] indexed / idle / watching** — 4 indexed, 1 failed (`corrupted-export.txt`,
+the deliberate bad file), 4 chunks, folder `watching`, indexer idle.
+
+**[A] → [B] a file appears on disk, no operator action.** Wrote
+`notes/escalation-policy.md` at 17:44:02Z carrying a term (`quinceberry`) present
+in no other file, so "indexed" could be distinguished from "noticed".
+
+- Indexed at **17:44:07Z — five seconds**. The native watcher fired; the 300s
+  reconciliation walk was not involved. This is the WSL2 question answered
+  affirmatively for this environment.
+- 4 → 5 indexed; chunks 4 → 5.
+- *Negative, held*: `corrupted-export.txt` stayed `failed` with `updated_at`
+  unmoved at 15:21:14 — a watcher event on the folder did not requeue an unrelated
+  failed item.
+- *Negative, held*: every other file's `updated_at` also unmoved — nothing was
+  needlessly re-indexed.
+- *Negative, held*: no error text anywhere on the page.
+- The operator's expanded folder panel survived the refresh (L6-D2/L6-D3's keyed
+  reconciliation).
+- **Observed limitation**: the operator could not see the `pending`/`indexing`
+  transitions at all. A 5-second index against a 5-second poll means intermediate
+  states are never rendered for a small file. The page gives no trace that work
+  happened — counts change silently. Noted, not filed: arguably correct for a
+  background indexer.
+
+**[B] → [B] re-index `changed`** (the isolated press — see below).
+
+- No item status or count moved; chunks stayed 5.
+- Only the **folder** item's `updated_at` moved (17:53:07), the walk re-stamping
+  itself. All six **file** items stayed at 17:50:08. **Nothing re-embedded.**
+- *Negative, held*: `corrupted-export.txt` not retried by a `changed` pass.
+
+**[B] → [C] re-index `all`.**
+
+- Every item's `updated_at` moved to 17:50:08 from 15:21:14 — genuine
+  re-extraction and re-embedding.
+- `corrupted-export.txt` **was** retried and failed again, rather than being
+  silently skipped; `requeue_for_reindex` takes `failed` as well as `indexed`.
+- Settled back at 5 indexed / 1 failed / 5 chunks.
+- Placement and labelling confirmed by the operator after the polish pass moved
+  the pair into Status: order Folders → Status → Danger Zone, both buttons inside
+  Status, scope hint legible.
+
+**Flight Director process error, recorded.** The two scopes were requested as one
+message and run back-to-back before any snapshot was taken. Since `all` bumps
+every timestamp, `changed`'s negative — *does not re-embed* — was unprovable from
+the resulting state. It was re-run in isolation afterwards (the numbers above are
+from that run). The lesson is the instruction shape, not the operator's: **a step
+whose assertion is "nothing moved" must be snapshotted immediately before and
+after, never inferred from a later state.**
+
+**[C] → [D] the session-bound attachment contract (DD-18's required cross-surface
+state).** Setup: agent `research-assistant`, provider `hat-mock`, model
+`mock-fast`, `max_iterations` bounded to 2.
+
+- **Attach** in Studio: the knowledge base was present in the tab's list (created
+  in the same session, so an absent entry would have meant a stale list), rendered
+  attached after save, and displayed the derived tool name
+  `kb__Team_Handbook_4785b4a8__search`. Read off the row, never computed (L2-D10).
+- *Negative, held*: a subsequent unrelated General-tab save did not wipe `kb_ids`
+  (squawk 0050's regression net).
+- **With the knowledge base attached**, the agent called the tool and retrieved
+  real fixture prose, with the exact-term file ranked `[1]` — Flight 5's reserved
+  keyword-only slot visible end to end.
+- **Detached in Studio, conversation left open.** `kb_ids` verified **empty**
+  server-side. The *same* conversation continued to call the tool successfully.
+  **This is the contract, and it reads as a bug**: the operator removed the
+  knowledge base, saved, and the agent still reached it.
+- **A new conversation** with the same agent returned
+  `Unknown tool: kb__Team_Handbook_4785b4a8__search`. The detach had reached the
+  agent build; the open session simply kept the tool set it was built with.
+- The pair is the assertion. Either half alone is consistent with a defect.
+
+**[D] → [E] restart-resume.** Triggered `reindex?scope=all`, then `SIGKILL`.
+
+- **The kill landed too early** — 6 `pending`, 0 `indexing`. Six files under 500
+  bytes give an `indexing` window milliseconds wide.
+- The stranded state was therefore **constructed**: two items set to `indexing`
+  directly, with the process already dead. This is the exact state a crash leaves
+  and it is the input the recovery path exists to handle, but it is a synthesized
+  input, not an observed crash. Recorded as such.
+- On restart: **zero stranded**. Both `indexing` rows requeued and completed
+  alongside the four `pending`, landing back at 5 indexed / 1 failed / 5 chunks.
+  Indexing **resumed** rather than restarted — `corrupted-export.txt` kept its
+  single failure rather than being re-run.
+
+**[E] → [F] concurrent delete.** Triggered `reindex?scope=all`, then `DELETE` the
+knowledge base mid-pass.
+
+- `DELETE` returned 200; instance stayed healthy; the deleted id 404s.
+- **Zero orphans** across `knowledge_bases`, `kb_items`, `kb_chunks` and
+  `kb_chunks_fts` — the cascade reached the chunk and FTS rows, not just the parent.
+- *Negative, held*: no error, traceback, warning or unhandled exception in the
+  application log. Twelve new lines, all routine.
+- **Same caveat as the restart step**: the walk had completed its reconcile pass
+  before the `DELETE` arrived, so this proved *delete during an active indexing
+  request*, not *delete during an in-flight embed*. The stronger variant needs a
+  fixture large enough to keep the worker busy for seconds — which is the
+  "Large-folder settle" variant already deferred to the closing flight.
+
+### The observability gap DD-18 did not audit
+
+DD-18 required "at least one state shared with a surface the operator is not
+looking at" and instantiated it as the session-bound attachment contract.
+**No surface in the product can observe a live session's effective tool set** —
+not `GET /tools` (built-ins only), not `_resolve_kb_tool_names` (which reads the
+agent's *stored* `kb_ids`, i.e. configured state), and no chat-session route. The
+contract only became observable during the walk by scripting the dev-mode mock
+provider's `response["tool_calls"]` to emit the call unconditionally, so that the
+agent loop's acceptance or refusal of it became the signal.
+
+That apparatus is legitimate and already used by `kb-agent-query-round-trip`, but
+it was **discovered live rather than audited at planning**, and DD-11's
+observability table — which exists precisely for this and which caught a missing
+read path at Architect cycle 2 — was never reopened when cycle 3 added DD-18.
+The generalizable defect: every read path DD-11 enumerated observes **configured**
+state, and DD-18 asked for **runtime** state. Nothing forced that distinction to
+surface. See the debrief's recommendations.
+
+One artifact of the rig worth recording so it is not misread later: the mock emits
+that tool call unconditionally, ignoring which tools it was offered. A real model
+would never attempt a call for a tool it was not given. The `Unknown tool` error
+is the agent loop behaving correctly, not a hallucination.
+
+### What the fixture could not test
+
+Six files, 47–453 bytes, one level of nesting. Consequently the walk exercised
+**no chunking** (five indexed files produced exactly five chunks — every "chunks in
+seq order" observation was against a list of length one), no multi-second indexing
+window, and no deep nesting. The operator raised this directly and it was checked
+rather than assumed: the **unit** layer already covers all three well
+(`test_kb_walk.py` walks 200 levels; `test_chunking.py` covers boundaries, overlap
+and offsets; `test_kb_chunks.py` covers seq ordering; the `MAX_FILE_BYTES`
+boundary is covered in `test_db_api.py` and `test_kb_indexer.py`). The genuine gap
+was at the **browser** layer, and it was closed in HAT pass 2 rather than deferred.

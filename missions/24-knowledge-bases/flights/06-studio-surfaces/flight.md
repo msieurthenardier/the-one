@@ -825,17 +825,51 @@ trigger cannot fire, and leaving it would imply an unresolved risk.)*
 
 ### Completion Checklist
 
-- [ ] All legs completed, `hat-and-alignment` included
-- [ ] Code merged to `mission/24-knowledge-bases`
-- [ ] `make lint` clean
-- [ ] `make test-unit` green (recorded with counts and timing)
-- [ ] `make test-browser` green (`TEST_TIMEOUT=3600`)
-- [ ] `pip-audit` clean against the release closure
-- [ ] Frozen Windows installer builds and runs
-- [ ] `kb-studio-round-trip` run and green, run log committed (Leg 2)
-- [ ] Squawk 0050 marked completed with its sign-off
-- [ ] CLAUDE.md, `the_one/agents.md` and `SECURITY-MODEL.md` updated for the new
-      route, both surfaces, and DD-14's delete semantics (Leg 3 owns this)
+*(Reconciled at the Flight 6 debrief, 2026-09-19. The landing commit `7208327`
+flipped two status strings and left this section entirely unticked — 0 of 10 —
+while the log recorded several of these green repeatedly. The Architect's debrief
+review caught it. Each box below is now either ticked with its evidence or left
+unticked **with the reason stated**, on the `pip-audit` pattern: an item that
+failed honestly and said why is worth more than one silently carried.)*
+
+- [x] All legs completed, `hat-and-alignment` included — six legs landed; the HAT
+      was walked with the operator on 2026-09-19 (flight log, "The HAT walk
+      itself")
+- [ ] Code merged to `mission/24-knowledge-bases` — **PR #206 is ready for review,
+      not merged.** Merge is the operator's call; this stays open until it happens.
+- [x] `make lint` clean — `ruff check` + `ruff format --check` clean on every leg
+      and on the final tree (449 files formatted)
+- [x] `make test-unit` green — **4769 passed, 10 skipped, 593 deselected,
+      17 warnings, 595.22s** on the final tree
+- [ ] `make test-browser` green (`TEST_TIMEOUT=3600`) — **not run.** Only the
+      `studio` and `system` lanes were run (studio: 176 passed, 3 skipped, on the
+      final tree). The lanes are basename globs, so a full-suite run is **not**
+      implied by them. No leg owned this item, which is why it was never scheduled.
+- [ ] `pip-audit` clean against the release closure — **blocked by squawk 0083**
+      (anyio CVE bump). Ran, failed, filed, left honestly unticked.
+- [ ] Frozen Windows installer builds and runs — **not attempted.** Needs the
+      Concourse Windows worker, named in Prerequisites as a session-external
+      precondition and never re-verified because no leg owned the build. Carries
+      to the closing flight.
+- [x] `kb-studio-round-trip` run and green, run log committed (Leg 2) — 18/19 on
+      `2026-09-18-13-14-52` with one real failure (step 8), remediated and
+      re-verified green on `2026-09-18-reverify`; both run logs committed.
+      **Caveat**: the spec itself remains `**Status**: draft` with five recorded
+      structural defects. It ran and it is green; it is not yet a regression net.
+- [ ] Squawk 0050 marked completed with its sign-off — **still `open`.** Its
+      regression net (a General-tab save not wiping `kb_ids`) was exercised in the
+      behavior test *and* in the HAT and held both times, but the squawk was never
+      formally closed with a reviewer sign-off.
+- [x] CLAUDE.md, `the_one/agents.md` and `SECURITY-MODEL.md` updated for the new
+      route, both surfaces, and DD-14's delete semantics (Leg 3 owns this) —
+      +40/-2 across the three files
+
+**Four items remain open and every one has a named owner or blocker.** Three
+(browser suite, frozen build, `pip-audit`) carry to the closing flight; the fourth
+(merge) is the operator's. Two of them — the full browser run and the frozen build
+— were unowned by any leg, which is the structural reason they went unexecuted
+rather than unticked-with-a-reason. See the debrief's recommendation on giving
+every Completion Checklist item a leg owner.
 
 ### Verification
 

@@ -327,7 +327,10 @@ spend is a decision on record, not an accident.
       at 1M, Leg 2 measurement) and should be re-checked when the number
       is real.
       **Vehicle decided at Flight 4 planning (operator, 2026-09-16; Flight
-      4 DD-12)**: folded into Flight 6 / mission close — a synthetic
+      4 DD-12)**: folded into Flight 6 / mission close — **re-assigned to the
+      closing flight at Flight 6 planning (DD-1)**; Flight 6 scoped itself to
+      Studio surfaces and did not carry this. Flight 6 is ticked below; this
+      item is NOT among what it delivered. — a synthetic
       1M-chunk corpus generated at mission close and measured on the
       Windows worker, with Flight 3's flush constants re-checked against
       the number. Flight 4 added nothing to the measurement.
@@ -351,7 +354,10 @@ spend is a decision on record, not an accident.
   no worker has no flush path at shutdown. Recorded at the Flight 3 debrief,
   unchanged by Flight 4 (the watcher never touches the store). **Resolution
   point: Flight 6 / mission close**, alongside the Windows 1M re-measure —
-  not deferred again (Flight 4 debrief Recommendation 5).
+  not deferred again (Flight 4 debrief Recommendation 5). **Still open after
+  Flight 6**, which deferred it at planning (DD-1) along with the re-measure;
+  it now belongs to the closing flight, and "not deferred again" has in fact
+  been deferred once more. Recorded rather than quietly re-dated.
 
 ## Branch Layout — mission branch, one-off
 
@@ -435,9 +441,15 @@ Operational consequences, recorded so the next flight does not rediscover them:
       bound-the-work design was measured to free the lock under a live
       reader.)*
 - [x] Flight 6: Studio surfaces — the global knowledge-base inventory and the
-      per-agent attach tab, replacing both stubs. Carries Flight 3's waived HAT
+      per-agent attach tab, replacing both stubs. Carried Flight 3's waived HAT
       (register a folder, watch status, read chunks/source, re-index, read a
-      failure, concurrent delete, restart-resume) as the seed of its HAT.
-      Also carries the Windows 1M `usearch` re-measure (open question above;
-      Flight 4 DD-12) and, from Flight 4, rendering `folders[].watch` /
-      `watch_error` and the `monitoring` toggle.
+      failure, concurrent delete, restart-resume) as the seed of its HAT, and
+      walked all seven with the operator on 2026-09-19 alongside DD-18's
+      session-bound attachment contract. Delivered, from Flight 4, the
+      rendering of `folders[].watch` / `watch_error` and the `monitoring`
+      toggle (Administration's Knowledge panel).
+      **Did NOT carry the Windows 1M `usearch` re-measure** — deferred to the
+      closing flight at Flight 6 planning (DD-1), along with
+      `get_vector_store()`'s missing shutdown hook. This bullet's original text
+      listed the re-measure; it is corrected here at the Flight 6 debrief rather
+      than left to imply a delivery that did not happen.
