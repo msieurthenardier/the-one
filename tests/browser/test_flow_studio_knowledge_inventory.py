@@ -35,7 +35,9 @@ confusion with the Leg-1 AC-N citations above. Covers: Leg 5 AC-1/AC-2/
 AC-3 (a folder's two-step remove control — App.confirmDelete, a static
 consequence caption rendered before any click, an immediate
 `refreshStatusNow()` + items refresh on the success path rather than
-waiting on the poll — and the knowledge base itself survives), Leg 5 AC-4
+waiting on the poll — and the knowledge base itself survives; restyled
+onto the summary-line trash icon by Leg 6's AMENDED L6-D3, which keeps
+the two-step), Leg 5 AC-4
 (the create form's description field is persisted), Leg 5 AC-8 (the
 detail view's edit form joins dirty-confirm), Leg 5 AC-9/AC-10 (the
 per-row overflow menu carrying "View chunks"/"View source" is keyboard-
@@ -193,12 +195,12 @@ def test_folder_registration_data_dir_refusal_renders_message(
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(data_dir))
-    page.locator('[data-testid="kb-register-folder-btn"]').click()
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
 
-    error_el = page.locator('[data-testid="kb-folder-register-error"]')
+    error_el = page.locator('[data-testid="kb-folder-add-error"]')
     expect(error_el).to_contain_text("application data directory", timeout=5000)
-    # No folder row was added for the refused registration.
-    expect(page.locator('[data-testid="kb-folder-row"]')).to_have_count(0)
+    # No folder panel was added for the refused registration.
+    expect(page.locator('[data-testid="kb-folder-panel"]')).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -257,7 +259,13 @@ def test_item_row_failed_status_error_and_standalone_badge(
 
     page.goto(f"{base_url}#studio/knowledge/{kb_id}")
     _wait_studio_ready(page)
-    expect(page.locator('[data-testid="kb-items-list"]')).to_be_visible(timeout=5000)
+    # Leg 6 (restyle): neither item has a real `parent_id`, so both land in
+    # the trailing "Other items" panel (L6-D2 chosen option (a)) rather
+    # than a flat items list — a native `<details>`, collapsed by default,
+    # so it must be expanded before asserting visibility on its rows.
+    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
+    expect(other_items_panel).to_be_visible(timeout=5000)
+    other_items_panel.locator("summary").click()
 
     failed_row = page.locator('[data-testid="kb-item-row"][data-item-id="failed-item-1"]')
     expect(failed_row).to_be_visible()
@@ -304,6 +312,12 @@ def test_chunks_open_in_seq_order_and_source_not_prefetched(
 
     page.goto(f"{base_url}#studio/knowledge/{kb_id}")
     _wait_studio_ready(page)
+    # Leg 6 (restyle): no `parent_id` set, so the item lands in the
+    # trailing "Other items" panel — expand it before interacting with the
+    # row inside.
+    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
+    expect(other_items_panel).to_be_visible(timeout=5000)
+    other_items_panel.locator("summary").click()
     row = page.locator(f'[data-testid="kb-item-row"][data-item-id="{item_id}"]')
     expect(row).to_be_visible(timeout=5000)
     # Item-list render alone must not have fetched /source.
@@ -343,12 +357,14 @@ def test_detail_view_indexing_poll_reindex_and_search(
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
-    page.locator('[data-testid="kb-register-folder-btn"]').click()
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
 
-    folder_row = page.locator('[data-testid="kb-folder-row"]')
+    folder_row = page.locator('[data-testid="kb-folder-panel"]')
     expect(folder_row).to_be_visible(timeout=5000)
 
-    # AC-5: the folder row carries path/status/watch, rendered verbatim —
+    # AC-5: the folder panel's summary line carries path/status/watch,
+    # rendered verbatim — the summary is always rendered regardless of the
+    # panel's expand/collapse state, so no click is needed to assert on it.
     # a fresh registration reaches "starting" or "watching" (never "off"
     # or "unavailable", which need no manager / a real notifier failure
     # respectively — see this file's module docstring).
@@ -498,13 +514,18 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
 
     page.goto(f"{base_url}#studio/knowledge/{kb_id}")
     _wait_studio_ready(page)
+    # Leg 6 (restyle): no `parent_id` set, so the item lands in the
+    # trailing "Other items" panel — expand it so its row is interactable.
+    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
+    expect(other_items_panel).to_be_visible(timeout=5000)
+    other_items_panel.locator("summary").click()
     rows = page.locator('[data-testid="kb-item-row"]')
     expect(rows).to_have_count(1, timeout=5000)
     assert len(items_requests) == 1, "the detail-view mount fetch"
 
     # Open the chunks panel on the existing row (via the overflow menu,
     # L5-D4) — it must survive the upcoming list rebuild (the panel lives
-    # outside `kb-items-list`).
+    # outside the folders section's item containers).
     rows.first.locator('[data-testid="kb-item-menu-btn"]').click()
     rows.first.locator('[data-testid="kb-item-menu"]').locator(
         '[data-testid="kb-item-chunks-btn"]'
@@ -551,16 +572,24 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
 
 
 @pytest.mark.browser
-def test_folder_remove_two_step_confirm_caption_and_immediate_refresh(
+def test_folder_remove_two_step_confirm_cascade_hint_and_immediate_refresh(
     app_with_data_dir: tuple[str, Path], page: Page, tmp_path: Path
 ) -> None:
-    """Leg 5 AC-1/AC-2/AC-3: the caption states the consequence BEFORE any
-    click; the two-step App.confirmDelete control (button label "Confirm
-    remove?") removes the folder; both the folder/status display AND the
-    item list reflect it via an IMMEDIATE refreshStatusNow() + items
-    refresh — well inside one 5-second poll interval, not by waiting on
-    it; and the knowledge base itself survives with no other folders
-    affected."""
+    """Leg 5 AC-1/AC-2/AC-3, restyled by Leg 6's AMENDED L6-D3: the
+    section-level cascade hint under Folders states the consequence
+    BEFORE any click (persistent, not per-row); the folder panel's trash
+    icon keeps Leg 5's TWO-STEP confirm through App.confirmDelete — the
+    first click only arms (the summary takes `.confirm-delete`, the path
+    span swaps to "Confirm delete?", and NO DELETE request is issued),
+    the second commits — and both the folder/status display AND the item
+    list then reflect it via an IMMEDIATE refreshStatusNow() + items
+    refresh, well inside one 5-second poll interval, not by waiting on
+    it; the knowledge base itself survives with no other folders
+    affected.
+
+    The "no DELETE yet" half is asserted through a `page.on('request')`
+    counter rather than a DOM-stability sleep: the request either fired
+    or it did not, with no timing heuristic to go stale."""
     base_url, _data_dir = app_with_data_dir
 
     fixture_dir = tmp_path / "kb-remove-fixture"
@@ -572,34 +601,66 @@ def test_folder_remove_two_step_confirm_caption_and_immediate_refresh(
     page.locator('[data-testid="knowledge-base-card"]', has_text="Remove Folder KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
+    # AC-2: the cascade hint is present BEFORE any folder even exists —
+    # section-level, not per-row (L6-D3).
+    hint = page.locator('[data-testid="kb-folders-cascade-hint"]')
+    expect(hint).to_be_visible()
+    expect(hint).to_have_text(
+        "Removing a folder removes every file indexed from it, "
+        "along with their chunks and search entries."
+    )
+
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
-    page.locator('[data-testid="kb-register-folder-btn"]').click()
-    folder_row = page.locator('[data-testid="kb-folder-row"]')
-    expect(folder_row).to_be_visible(timeout=5000)
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
+    folder_panel = page.locator('[data-testid="kb-folder-panel"]')
+    expect(folder_panel).to_be_visible(timeout=5000)
 
     # The real indexing pipeline picks up note.txt — wait for it to land
     # in the item list before exercising removal, so the removal's
-    # cascade has something real to remove.
+    # cascade has something real to remove. `to_have_count` matches DOM
+    # presence regardless of the (collapsed-by-default) panel's expand
+    # state, so no click is needed here.
     expect(page.locator('[data-testid="kb-item-row"]')).to_have_count(1, timeout=30000)
 
-    # AC-2: the consequence caption is present BEFORE any click — not only
-    # in the armed state.
-    caption = folder_row.locator('[data-testid="kb-folder-remove-caption"]')
-    expect(caption).to_be_visible()
-    expect(caption).to_have_text(
-        "Removes this folder and every file indexed from it, with their chunks and search entries."
-    )
+    delete_requests: list[str] = []
 
-    remove_btn = folder_row.locator('[data-testid="kb-folder-remove-btn"]')
+    def _on_request(request) -> None:  # noqa: ANN001
+        if request.method == "DELETE":
+            delete_requests.append(request.url)
+
+    page.on("request", _on_request)
+
+    # L6-D3 (amended): FIRST click only arms the confirm.
+    remove_btn = folder_panel.locator('[data-testid="kb-folder-delete-btn"]')
     expect(remove_btn).to_be_visible()
-    remove_btn.click()  # arm
-    expect(remove_btn).to_have_text("Confirm remove?")
-    remove_btn.click()  # confirm
+    remove_btn.click()
+
+    summary = folder_panel.locator(".kb-folder-summary")
+    expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+    # The arming click issued no DELETE: the folder and its indexed file
+    # are both still there, and no DELETE left the browser at all.
+    assert delete_requests == [], f"arming click issued a DELETE: {delete_requests}"
+    expect(page.locator('[data-testid="kb-folder-panel"]')).to_have_count(1)
+    expect(page.locator('[data-testid="kb-item-row"]')).to_have_count(1)
+
+    # SECOND click within App.confirmDelete's 3s revert window commits.
+    # expect_response makes a silent re-arm (revert-window expiry under
+    # load) fail loudly as a missing-DELETE timeout rather than as a
+    # confusing downstream visibility failure — same idiom as
+    # test_flow_agent_crud.py's Danger Zone delete.
+    with page.expect_response(
+        lambda r: "/items/" in r.url and r.request.method == "DELETE"
+    ) as delete_resp:
+        remove_btn.click()
+    assert delete_resp.value.status in (200, 204), (
+        f"DELETE failed: {delete_resp.value.status} {delete_resp.value.text()}"
+    )
 
     # AC-1: an IMMEDIATE refresh — asserted with a timeout well under one
     # 5-second poll interval, so a pass here cannot be explained by the
     # poll instead of the success-path refresh this criterion requires.
-    expect(page.locator('[data-testid="kb-folder-row"]')).to_have_count(0, timeout=2000)
+    expect(page.locator('[data-testid="kb-folder-panel"]')).to_have_count(0, timeout=2000)
     expect(page.locator('[data-testid="kb-item-row"]')).to_have_count(0, timeout=2000)
 
     # AC-3: the knowledge base itself is NOT deleted — still on its detail
@@ -610,6 +671,69 @@ def test_folder_remove_two_step_confirm_caption_and_immediate_refresh(
     expect(
         page.locator('[data-testid="knowledge-base-card"]', has_text="Remove Folder KB")
     ).to_be_visible()
+
+
+@pytest.mark.browser
+def test_folder_panel_open_state_survives_poll_ticks(
+    app_with_data_dir: tuple[str, Path], page: Page, tmp_path: Path
+) -> None:
+    """L6-D2/L6-D3 coupling: an operator-expanded folder panel stays
+    expanded across the 5-second status poll. This is the whole point of
+    `renderFolders`' keyed reconciliation (`appendChild` MOVES an
+    already-attached `<details>` rather than re-creating it), and it is
+    what makes an armed delete confirm survivable — a tick that recreated
+    the panel would silently destroy the armed row inside
+    App.confirmDelete's 3-second revert window.
+
+    Two `/status` RESPONSES are awaited rather than a wall-clock sleep:
+    `renderFolders` runs in the response handler, so by the time the
+    second response lands the first tick has certainly been rendered.
+    A probe attribute stamped on the DOM node proves the node itself
+    survived — not merely that some panel with the same testid is
+    present."""
+    base_url, _data_dir = app_with_data_dir
+
+    fixture_dir = tmp_path / "kb-open-state-fixture"
+    fixture_dir.mkdir()
+    (fixture_dir / "note.txt").write_text("open-state fixture content.")
+
+    _goto_knowledge_grid(base_url, page)
+    _create_knowledge_base(page, "Open State KB")
+    page.locator('[data-testid="knowledge-base-card"]', has_text="Open State KB").click()
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
+
+    page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
+
+    folder_panel = page.locator('[data-testid="kb-folder-panel"]')
+    expect(folder_panel).to_be_visible(timeout=5000)
+
+    # Expand via the path span — inside the <summary>, and well away from
+    # the trash icon (whose clicks must NOT toggle the panel).
+    folder_panel.locator(".kb-folder-path").click()
+    assert folder_panel.get_attribute("open") is not None, "panel did not expand"
+
+    # Stamp the live node so a recreated panel is distinguishable from a
+    # moved one.
+    folder_panel.evaluate("el => { el.dataset.pollProbe = 'original-node'; }")
+
+    for _ in range(2):
+        with page.expect_response(
+            lambda r: (
+                "/api/knowledge-bases/" in r.url
+                and r.url.endswith("/status")
+                and r.request.method == "GET"
+            ),
+            timeout=15000,
+        ):
+            pass
+
+    assert folder_panel.get_attribute("open") is not None, (
+        "a poll tick collapsed an operator-expanded folder panel"
+    )
+    assert folder_panel.get_attribute("data-poll-probe") == "original-node", (
+        "a poll tick RE-CREATED the folder panel instead of moving it"
+    )
 
 
 @pytest.mark.browser
@@ -636,20 +760,20 @@ def test_create_form_description_persisted(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_edit_form_joins_dirty_confirm(app_clean: str, page: Page) -> None:
-    """Leg 5 AC-8: the edit form's unsaved changes gate cross-section
-    navigation through App.confirmDialog (L5-D3, a reversal of Leg 3's
-    stated non-goal for the single-field create/register forms) — clean
-    navigation (edit form untouched) does not prompt."""
+def test_always_live_fields_join_dirty_confirm(app_clean: str, page: Page) -> None:
+    """Leg 5 AC-8, restyled by Leg 6 (L6-D1): the always-live Name/
+    Description fields' unsaved changes gate cross-section navigation
+    through App.confirmDialog (L5-D3, a reversal of Leg 3's stated
+    non-goal for the single-field create/register forms) — clean
+    navigation (fields untouched since mount) does not prompt, since there
+    is no edit-form toggle left to open."""
     _goto_knowledge_grid(app_clean, page)
     _create_knowledge_base(page, "Dirty Confirm KB")
     page.locator('[data-testid="knowledge-base-card"]', has_text="Dirty Confirm KB").click()
-    expect(page.locator('[data-testid="edit-knowledge-base-btn"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="kb-name-input"]')).to_be_visible(timeout=5000)
 
-    # Clean: opening the edit form without typing anything must NOT gate
-    # navigation.
-    page.locator('[data-testid="edit-knowledge-base-btn"]').click()
-    expect(page.locator('[data-testid="kb-edit-name-input"]')).to_be_visible()
+    # Clean: navigating away without touching the always-live fields must
+    # NOT gate navigation.
     mcp_nav = page.locator('.section-nav-item[data-section="mcp-sources"]')
     mcp_nav.click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
@@ -664,8 +788,7 @@ def test_edit_form_joins_dirty_confirm(app_clean: str, page: Page) -> None:
     page.locator('.section-nav-item[data-section="knowledge"]').click()
     expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
     page.locator('[data-testid="knowledge-base-card"]', has_text="Dirty Confirm KB").click()
-    page.locator('[data-testid="edit-knowledge-base-btn"]').click()
-    page.locator('[data-testid="kb-edit-name-input"]').fill("Dirty Confirm KB Edited")
+    page.locator('[data-testid="kb-name-input"]').fill("Dirty Confirm KB Edited")
 
     mcp_nav.click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
@@ -674,9 +797,7 @@ def test_edit_form_joins_dirty_confirm(app_clean: str, page: Page) -> None:
     # Cancel: stays put, no navigation.
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(0)
-    expect(page.locator('[data-testid="kb-edit-name-input"]')).to_have_value(
-        "Dirty Confirm KB Edited"
-    )
+    expect(page.locator('[data-testid="kb-name-input"]')).to_have_value("Dirty Confirm KB Edited")
 
     # Confirm: discards and navigates.
     mcp_nav.click()
@@ -712,6 +833,11 @@ def test_item_overflow_menu_keyboard_operable(
 
     page.goto(f"{base_url}#studio/knowledge/{kb_id}")
     _wait_studio_ready(page)
+    # Leg 6 (restyle): no `parent_id` set, so the item lands in the
+    # trailing "Other items" panel — expand it before interacting.
+    other_items_panel = page.locator('[data-testid="kb-other-items-panel"]')
+    expect(other_items_panel).to_be_visible(timeout=5000)
+    other_items_panel.locator("summary").click()
     row = page.locator('[data-testid="kb-item-row"][data-item-id="menu-item-1"]')
     expect(row).to_be_visible(timeout=5000)
 

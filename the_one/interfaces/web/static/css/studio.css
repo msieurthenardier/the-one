@@ -1178,7 +1178,6 @@
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
-  .area-studio .kb-folder-row,
   .area-studio .kb-item-row,
   .area-studio .kb-chunk-row,
   .area-studio .kb-search-hit {
@@ -1189,7 +1188,6 @@
     padding: 8px 0;
     border-bottom: 1px solid var(--border);
   }
-  .area-studio .kb-folder-row:last-child,
   .area-studio .kb-item-row:last-child,
   .area-studio .kb-chunk-row:last-child,
   .area-studio .kb-search-hit:last-child {
@@ -1201,9 +1199,12 @@
     font-weight: 500;
     word-break: break-all;
   }
-  .area-studio .kb-folder-status,
+  /* Leg 6 (restyle): `.kb-folder-status`/`.kb-folder-watch` moved onto the
+     shared `.chip` vocabulary (folder summary line, one-line requirement) —
+     dropped from this muted-text group since `.chip` already supplies their
+     color/sizing. `.kb-folder-indexed-at` stays here; it lives in the
+     folder panel's meta body, still plain muted text. */
   .area-studio .kb-folder-indexed-at,
-  .area-studio .kb-folder-watch,
   .area-studio .kb-item-status,
   .area-studio .kb-chunk-seq,
   .area-studio .kb-search-hit-score {
@@ -1247,17 +1248,48 @@
   .area-studio .kb-chunks-panel[hidden],
   .area-studio .kb-source-panel[hidden] { display: none; }
 
-  /* === Studio Knowledge section — HAT affordance gaps (M24 F06 L05) ===
-     L5-D1: folder-row remove control. The caption is forced onto its own
-     flex line (`flex-basis: 100%`) so the consequence sentence reads as a
-     full sentence rather than being squeezed between the watch chip and
-     the button; the remove button follows on the next wrapped line. */
-  .area-studio .kb-folder-remove-caption { flex-basis: 100%; }
-
-  /* L5-D2: the Name + Description edit form replacing the F06 L03
-     rename-only affordance — reuses `.editor-section` / `.field-group` /
+  /* === Studio Knowledge section — restyle to the MCP editor's shape
+     (M24 F06 L06) ===
+     L6-D1: Name + Description are always-live `.field-group` fields in
+     the header region — reuses `.editor-section` / `.field-group` /
      `.field-error` / `.field-hint` wholesale, no new rule needed for the
-     form's own layout. */
+     fields' own layout.
+     L6-D2/L6-D3: folder panels reuse `.mcp-tool-item` / `.mcp-tool-
+     summary` / `.mcp-tool-summary-text` / `.mcp-tool-chevron` /
+     `.mcp-tool-body` wholesale (see the MCP tools-list rules above) — the
+     one-line summary needs no new rule beyond the delete icon's below.
+     The old per-row two-step Remove control (L5-D1) and its
+     `flex-basis: 100%` caption rule are retired — the cascade warning is
+     now persistent section-level text (`.field-hint`, no new rule). */
+  /* L6-D3: the folder delete control reuses `.kv-remove-row-btn` (Custom
+     Headers row precedent) verbatim EXCEPT for line-height — that rule
+     assumes an SVG child (`line-height: 0`, correct for icon glyphs); this
+     button carries a text glyph instead (no innerHTML — see this file's
+     own no-dynamic-sink discipline), so it needs a normal line box. */
+  .area-studio .kb-folder-delete-btn { line-height: 1; }
+
+  /* L6-D3 (amended): the ARMED two-step-confirm state on a folder's
+     `<summary>`. components.css's canonical `.list-item.confirm-delete`
+     pair does not reach here — those selectors are scoped to
+     `.list-item` / `.delete-btn`, and neither matches a `<summary>`, so
+     without these rules the "Confirm delete?" text would swap in with no
+     danger affordance at all. Same pair, re-expressed for this panel and
+     using the same tokens: the danger colour lands on the `<details>`'s
+     EXISTING border (recoloured, not added — an added 1px border would
+     jump the row under the operator's cursor between the arming click
+     and the confirming one) and on the swapped-in title. The trash glyph
+     joins it, mirroring the canonical rule's third line. The `:has()`
+     specificity is (0,4,0), so it wins over the (0,3,0)
+     `.mcp-tool-item:hover` accent border above. */
+  .area-studio .mcp-tool-item:has(> .kb-folder-summary.confirm-delete) {
+    border-color: var(--status-danger);
+  }
+  .area-studio .kb-folder-summary.confirm-delete [data-confirm-title] {
+    color: var(--status-danger);
+  }
+  .area-studio .kb-folder-summary.confirm-delete .kb-folder-delete-btn {
+    color: var(--status-danger);
+  }
 
   /* L5-D4: the per-row overflow menu — built minimal and LOCAL (one
      consumer; see knowledge-section.js's own comment on why this isn't

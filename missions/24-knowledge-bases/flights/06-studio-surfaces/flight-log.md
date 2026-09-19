@@ -2414,3 +2414,337 @@ explicitly not scoped to any one leg's surface.
   restarted** by any command in this leg.
 
 Leg status: `landed`.
+
+### Leg 6 `inventory-detail-restyle` — implementation — 2026-09-19
+
+Restructured the knowledge-base detail view to the MCP server editor's
+shape, per the operator's second round of HAT findings (recorded at the top
+of the leg artifact, 2026-09-19, with reference screenshots): always-live
+Name/Description fields (no edit button), Save/Cancel disabled-until-dirty
+beside Back in the header, folders as native `<details>` panels containing
+their own files, and the shared Danger Zone. Every pattern was copied from
+`mcp-server-editor.js` per the leg's explicit instruction — nothing new was
+invented.
+
+**`static/js/areas/studio/knowledge-section.js`** — `renderKnowledgeDetail`
+rewritten; `renderKnowledgeGrid` untouched. Four leg design decisions:
+
+- **L6-D1 — always-live fields, header Save/Cancel.** `editor-title`/
+  `editor-subtitle` stay STATIC display text (mirrors `mcp-server-editor.js`'s
+  h1/subtitle, which also reflect last-saved state while the actual editable
+  fields live in a section below) — `editor-title` = `kb.name`,
+  `editor-subtitle` = `kb.description` (always rendered, even empty, per
+  AC-1's literal "renders editor-title + editor-subtitle"). Name/Description
+  are ordinary `.field-group` inputs immediately below the header, live from
+  mount with no wrapping form or toggle button. Save/Cancel sit beside Back
+  in `.form-actions`, both `disabled` until a `fieldsSnapshot()` JSON-diff
+  against the mount-time baseline goes dirty; Cancel reverts both fields and
+  recaptures the baseline; Save PUTs `{name, description}` unconditionally
+  (L2-D9's server-side early-return gate is unaffected) and hands the updated
+  object to `callbacks.onSaveSuccess`, which `studio.js` already re-mounts
+  the whole detail view from — that remount is what naturally re-disables
+  Save/Cancel post-save, so no separate "disable after save" code was needed.
+  **The hazard the leg called out twice** (poll must never re-render
+  name/description mid-keystroke) is closed *structurally*: the fields live
+  in `fieldsSection`, a DOM subtree neither `renderStatusSummary` nor
+  `renderFolders` nor `renderAllItems` — the only three functions the
+  returned `{updateStatus, updateItems}` handle can reach — ever writes into.
+- **L6-D2 — folders as native `<details>` panels; parentless items in a
+  trailing "Other items" panel.** `buildFolderPanel(f)` builds one
+  `<details class="mcp-tool-item">` per folder: `<summary>` carries the path
+  (`.mcp-tool-summary-text`, ellipsis-safe), a `status:`/`watch:` chip pair,
+  the delete icon, and the chevron; the body holds a meta region
+  (indexed_at/errors, refreshed every poll tick) and a files region
+  (refreshed only on an actual items change). Items are grouped by
+  `renderAllItems` against `item.parent_id` matched against the CURRENT
+  folder-id set (real indexed files DO carry `parent_id = folder_id` — the
+  backend's `manager.py:430` — confirmed by reading it, not assumed);
+  anything with `parent_id` unset OR pointing at a folder that no longer
+  exists renders in a lazily-built trailing `<details data-testid="kb-other-
+  items-panel">`, never nested under a folder whose path merely contains it
+  — DD-9's standalone badge (`_containingFolder`) is now the ONLY code path
+  that ever renders inside "Other items", so a truly-parented item never
+  pays for the path-guess.
+- **L6-D3 — "Add folder"; one-click trash icon, cascade warning promoted to
+  section-level.** The Folders section title reads "Folders", its submit
+  button "Add folder" (was "Register folder"). Read the leg's own wording
+  twice before implementing: "Leg 5's two-step text confirm... **becomes** a
+  trash icon... matching the Custom Headers row pattern" — taken literally,
+  since the Custom Headers row's own remove is a single immediate click, no
+  confirm step — so `kb-folder-delete-btn` fires the DELETE on ONE click, no
+  `App.confirmDelete` armed state (a deliberate reading, not an oversight —
+  flagged in the handback for the Reviewer to weigh in on explicitly). The
+  cascade sentence survives verbatim
+  ("Removing a folder removes every file indexed from it, along with their
+  chunks and search entries.") as `kb-folders-cascade-hint`, a persistent
+  `.field-hint` under the section title, present before any folder even
+  exists — not a per-click caption. A form-control descendant of `<summary>`
+  does not toggle the parent `<details>` per HTML spec (verified against the
+  existing `tools-tab.js` precedent/comment before relying on it), so the
+  delete click never fights the expand/collapse gesture.
+- **L6-D4 — the overflow menu moves inside folder panels; the single-open
+  tracker now also closes on panel collapse.** `buildItemMenu` is otherwise
+  unchanged. Every `<details>` panel (folder or "Other items") gets a
+  `toggle` listener that calls `closeAnyOpenItemMenu()` when the panel
+  closes — a **new** leak instance beyond the pre-existing list-rebuild
+  case, exactly as the leg named it.
+
+**Poll-vs-mutation split (not itself an AC, but load-bearing for L6-D2's
+panels not to visibly misbehave under the 5-second poll).** `renderFolders`
+and `renderAllItems` never call each other and are never both required by
+the same code path: `renderFolders` reconciles `<details>` panel IDENTITY
+by folder id (`appendChild` on an already-attached node MOVES it, preserving
+`open` state, rather than recreating it) plus summary/meta text — safe on
+every poll tick because it never touches a panel's file rows or the
+open-menu tracker; `renderAllItems` only ever rebuilds file rows (closing
+any open menu first) and runs at mount, on an actual items-signature change,
+or immediately after a folder mutation. Without this split, the returned
+`updateStatus` handle (called unconditionally every 5s by `studio.js`) would
+have collapsed any operator-expanded folder panel every tick — a second
+instance of the exact class of poll-vs-live-state hazard the leg's brief
+called out for the name/description fields, just for a different piece of
+DOM. Caught by design, not by a failing test — no AC or existing test
+exercises "expand a folder, wait 5s, still expanded" — flagged as a gap
+worth a follow-up assertion if the Reviewer agrees it's in scope.
+
+**Icon discipline.** `window.App.icon()` returns raw SVG HTML meant for an
+`innerHTML` assignment; this file has zero dynamic sinks in
+`DYNAMIC_SINK_BASELINE` and the guard fails on any NEW one. Followed
+`connector-editor.js`'s own precedent (its Danger Zone delete carries no
+icon at all, its row-remove uses a plain `✕` glyph) rather than
+`mcp-server-editor.js`'s HTML-string-template icon calls: the folder delete
+button carries a `🗑` text glyph via `textContent`, with `aria-label`
+carrying the folder path. One new CSS line
+(`.kb-folder-delete-btn { line-height: 1; }`) overrides `.kv-remove-row-btn`'s
+`line-height: 0` (correct for an SVG child, wrong for a text glyph) — the
+only genuinely new CSS this leg added; everything else reuses `.mcp-tool-
+item`/`.mcp-tool-summary`/`.mcp-tool-summary-text`/`.mcp-tool-chevron`/
+`.mcp-tool-body`/`.kv-remove-row-btn`/`.chip`/`.field-hint`/`.editor-error`
+wholesale.
+
+**`static/css/studio.css`** — removed `kb-folder-row` from the grouped
+row-list/muted-text selectors (folders are no longer that shape); removed
+the obsolete `.kb-folder-remove-caption { flex-basis: 100%; }` rule (the
+caption itself is gone, replaced by section-level `.field-hint` text, no
+rule needed); added the one `line-height` override above.
+
+**`static/js/areas/studio.js`** — **no changes**. `renderKnowledgeDetail`'s
+callback shape (`onBack`, `onDeleteSuccess`, `onSaveSuccess`,
+`onDirtyChange`) and returned handle shape (`{updateStatus, updateItems}`)
+are unchanged, so the orchestrator's dirty-mirror bridge, poll ownership,
+and remount-on-save wiring all needed zero edits — verified by re-reading
+the relevant `mountKnowledgeDetail`/`startKnowledgePoll` block before
+concluding this, not assumed from the leg's "callbacks if the signature
+changes" hedge.
+
+**`docs/ui-testid-registry.md`** — 8 literal ids added
+(`kb-description-input`, `kb-folder-add-error`, `kb-folder-delete-btn`,
+`kb-folder-panel`, `kb-folders-cascade-hint`, `kb-name-hint`, `kb-name-input`,
+`kb-other-items-panel`), 9 removed (`kb-edit-description-input`,
+`kb-edit-error`, `kb-edit-name-hint`, `kb-edit-name-input`,
+`kb-folder-register-error`, `kb-folder-remove-btn`,
+`kb-folder-remove-caption`, `kb-folder-row`, `kb-items-list` — the last of
+which has no successor id, since items now render inside per-folder panels
+or "Other items" rather than one flat container); 3 manual-exception ids
+added (`cancel-knowledge-btn`, `kb-add-folder-btn`, `save-knowledge-btn`), 3
+removed (`edit-knowledge-base-btn`, `kb-edit-save-btn`,
+`kb-register-folder-btn`).
+
+**Tests re-pointed** — both files the leg named, exactly the trap the leg
+warned about (checked each site for a *content* assertion, not just a
+selector swap):
+
+- **`tests/browser/test_flow_studio_knowledge_inventory.py`**:
+  - `test_folder_registration_data_dir_refusal_renders_message`,
+    `test_detail_view_indexing_poll_reindex_and_search` — testid renames
+    only (`kb-register-folder-btn`→`kb-add-folder-btn`,
+    `kb-folder-register-error`→`kb-folder-add-error`,
+    `kb-folder-row`→`kb-folder-panel`); the folder-path/watch assertions
+    stayed correct unchanged since `<summary>` content is always rendered
+    regardless of the panel's collapsed state.
+  - `test_item_row_failed_status_error_and_standalone_badge`,
+    `test_chunks_open_in_seq_order_and_source_not_prefetched`,
+    `test_items_list_catches_up_when_backend_changes_while_mounted`,
+    `test_item_overflow_menu_keyboard_operable` — all four fixtures are
+    standalone (no `parent_id`), so all four now land in "Other items"; each
+    test gained an explicit `other_items_panel.locator("summary").click()`
+    before any `to_be_visible()`/`.click()`/`.focus()` call reaching inside
+    it (count-only assertions needed no change — Playwright's
+    `to_have_count` matches DOM presence regardless of a collapsed
+    `<details>`'s hidden children, verified against Playwright's own
+    semantics before relying on it rather than blanket-adding expand clicks
+    everywhere).
+  - `test_folder_remove_two_step_confirm_caption_and_immediate_refresh` →
+    renamed `..._single_click_cascade_hint_and_immediate_refresh` and
+    rewritten for L6-D3's single-click model: the two-step arm/confirm
+    sequence is gone, the cascade-hint assertion moved from
+    `folder_row.locator(...)` to a page-level locator (section-level now,
+    not per-row), asserted present BEFORE any folder is even registered.
+  - `test_edit_form_joins_dirty_confirm` → renamed
+    `test_always_live_fields_join_dirty_confirm`; the "open the edit form"
+    step is gone entirely (nothing to open) — "clean" now means "navigate
+    away without typing", "dirty" means typing into the always-live
+    `kb-name-input` directly.
+- **`tests/browser/test_flow_studio_knowledge_attach.py`**:
+  `test_rename_hint_and_empty_refusal_mirror_create_form`,
+  `test_rename_updates_tool_name_and_disabled_tools_on_agent_editor` — the
+  `edit-knowledge-base-btn` click is gone; testids re-pointed
+  (`kb-edit-name-input`→`kb-name-input`, `kb-edit-name-hint`→`kb-name-hint`,
+  `kb-edit-save-btn`→`save-knowledge-btn`); the `kb-edit-error` testid
+  assertion re-pointed to the `.editor-error` CLASS selector, matching the
+  established codebase convention this header error span now follows
+  (`mcp-server-editor.js`, `provider-editor.js`, and others all assert
+  `.editor-error` bare, not a testid — confirmed by grep before adopting the
+  pattern rather than inventing a new testid).
+
+**Gates run:**
+
+- `.venv/bin/python -m ruff check the_one/ tests/ scripts/` — clean.
+- `.venv/bin/python -m ruff format --check the_one/ tests/ scripts/` — clean
+  after reformatting the one changed test file's wrapped string literal.
+- `node --check` on the rewritten JS file — syntax-valid.
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_ui_guards.py
+  -x --timeout 30` — **14 passed**.
+- `make test-unit`, verbatim, alone, foreground — **4769 passed, 10 skipped,
+  592 deselected in 596.33s (0:09:56)**, exit 0.
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio` — **175
+  passed, 3 skipped in 365.42s (0:06:05)**, exit 0; both Leg-6-touched files
+  fully green (`test_flow_studio_knowledge_attach.py` 10/10,
+  `test_flow_studio_knowledge_inventory.py` 14/14).
+
+**Not restarted, per the constraint**: the operator's live 8485/
+`/tmp/the-one-hat-scratch` instance was never touched by any command run in
+this leg. **A restart of that instance IS required to see this leg's
+changes** — there is no hot-reload, and every file this leg touched
+(`knowledge-section.js`, `studio.css`) is served from the running process's
+import-time snapshot.
+
+**Two design calls made without stopping to ask, flagged here for Reviewer
+attention rather than silently baked in:**
+
+1. **Single-click folder delete, no confirm step (L6-D3).** Read as the
+   leg's explicit intent from "becomes a trash icon... matching the Custom
+   Headers row pattern" (that row's own remove is a bare immediate click),
+   with the persistent cascade caption carrying the safety weight instead —
+   but it IS a reduction in click-to-commit friction for a real, irreversible
+   server-side cascade delete, unlike the Custom Headers row's own
+   zero-network-cost analogue. If this reading is wrong, the fix is
+   localized: wrap `deleteFolder`'s call site in `App.confirmDelete` and
+   thread visible confirm-state through the trash button.
+2. **Folder-panel `open` state preserved across poll ticks (the "poll-vs-
+   mutation split" above).** Not required by any AC or existing test — a
+   quality call made because the alternative (collapsing every operator-
+   expanded panel every 5 seconds) would have been an obvious, embarrassing
+   regression during the very HAT walk this leg exists to fix. Flagging it
+   as a design choice rather than letting it pass silently as "just how the
+   poll happens to work."
+
+Leg status: `landed`.
+
+---
+
+## Leg 6 — follow-up pass: L6-D3 amended, two-step confirm restored (2026-09-19)
+
+The Flight Director ruled on design call **1** flagged at the end of the
+Leg 6 entry above (single-click folder delete) and **amended L6-D3 in the
+leg artifact**: the Custom Headers row supplies the trash icon's *visual*
+form only. That row is a client-side form row that persists nothing until
+Save, so its bare click is free and trivially undone; removing a registered
+folder is an immediate, irreversible, server-side **cascading** DELETE (the
+folder, its file items, their chunks). Borrowing the icon is right;
+borrowing the absence of a confirm is not. Leg 5's two-step confirm
+therefore survives the restyle.
+
+The flagging Developer's own predicted fix — "wrap `deleteFolder`'s call
+site in `App.confirmDelete`" — was exactly the shape of the change, which is
+a good sign for the flag-rather-than-ship discipline that produced it.
+
+**Changed:**
+
+- **`the_one/interfaces/web/static/js/areas/studio/knowledge-section.js`** —
+  the folder trash button now goes through
+  `window.App.confirmDelete(summary, …)`; the `<summary>` is the state
+  element, the folder-path span carries `[data-confirm-title]`.
+  `deleteFolder(f, deleteBtn, revertFn)` calls `revertFn()` on the
+  transport-failure path so a failed DELETE rolls the armed row back rather
+  than stranding it reading "Confirm delete?" over a folder that still
+  exists — the same shape as this file's own Danger Zone
+  `delete-knowledge-base-btn` handler. The header L6-D3 comment block and
+  the per-button comment, both of which asserted the single-click choice,
+  are rewritten to state the amended reasoning rather than left
+  contradicting the code. `updateFolderMeta` (which was already innocent —
+  it writes the two chips and the meta body, never the path span) gained a
+  comment stating it must stay that way, naming the armed-confirm reason:
+  it is the second half of L6-D3's coupling, the first being
+  `renderFolders`' move-don't-recreate reconciliation.
+- **`the_one/interfaces/web/static/css/studio.css`** — three armed-state
+  rules. Worth naming because the gap was silent: `components.css`'s
+  canonical `.confirm-delete` rules are scoped to `.list-item` and
+  `.delete-btn`, and **neither selector matches a `<summary>`**, so without
+  a rule the armed row would have swapped its text to "Confirm delete?"
+  with no danger affordance whatsoever. The rules are scoped to a new
+  `kb-folder-summary` class (the same borrow-then-locally-override
+  precedent as `kb-folder-delete-btn` beside `kv-remove-row-btn`) and put
+  `var(--status-danger)` on the `<details>`'s **existing** border, the
+  swapped-in title, and the trash glyph. Recolouring rather than adding the
+  border avoids a 1px layout jump under the operator's cursor between the
+  arming and confirming clicks. Existing tokens only; no new tokens, no
+  colour literals. `:has()` was already in use in `components.css`.
+- **`tests/browser/test_flow_studio_knowledge_inventory.py`** — the two
+  behaviours the previous pass flagged as untested now have tests.
+  `test_folder_remove_single_click_…` is rewritten as
+  `test_folder_remove_two_step_confirm_cascade_hint_and_immediate_refresh`:
+  the first click arms (summary takes `.confirm-delete`, path span reads
+  "Confirm delete?") and issues **no DELETE**, proven by a
+  `page.on("request")` counter rather than a DOM-stability sleep; the
+  second commits, wrapped in `expect_response` so a revert-window expiry
+  under load fails loudly as a missing-DELETE timeout instead of a
+  confusing downstream visibility failure (the `test_flow_agent_crud.py`
+  idiom). New `test_folder_panel_open_state_survives_poll_ticks` proves the
+  reconciliation half: expand a panel, await two real `/status`
+  **responses** rather than sleeping (`renderFolders` runs in the response
+  handler, so the second response's arrival proves the first tick
+  rendered), then assert the panel is still `open` **and** still the same
+  DOM node via a probe attribute stamped on it beforehand. ~10s, well
+  inside this file's existing budget (it already waits 30s on a real
+  indexing pass and sleeps 6s elsewhere) — no flakiness trade-off needed,
+  so no alternative was proposed.
+- **`docs/ui-testid-registry.md`** — line 88's `kb-folder-delete-btn` entry
+  rewritten; it described the single-click behaviour and cited the Custom
+  Headers pattern without qualification. No new testids: the two new
+  selectors are CSS classes, which is why `test_ui_guards.py` needed no
+  registry additions.
+
+**`aria-label` judgement** (asked for explicitly): the armed state's visible
+signal is the path span's text swap — a *different element* from the button
+and not part of its accessible name, so a screen-reader user would get no
+announcement of the state change. Rejected mutating the label on arm (the
+helper's internal 3s auto-revert gives no hook to undo it, so the label
+would go stale and actively lie) and an `aria-live` region on the path span
+(too much machinery for one transient string, on a node the poll works
+beside). Chosen: state the two-step **once, statically**, in the name
+announced on focus — `"Delete folder {path} (press twice to confirm)"`.
+Cannot go stale, sets the expectation before the first press, adds no new
+mechanism. Residual, and **not** introduced here: a screen-reader user
+taking longer than 3s between presses silently re-arms instead of
+committing. That is inherent to `App.confirmDelete` and equally true of this
+page's Danger Zone button and chat's session delete — a helper-wide
+question, not this leg's.
+
+**Gates run (all green):**
+
+- `ruff check the_one/ tests/ scripts/` — `All checks passed!`
+- `ruff format --check the_one/ tests/ scripts/` — `449 files already
+  formatted` (after `ruff format` on the one changed test file).
+- `.venv/bin/python -m pytest tests/test_ui_guards.py -x --timeout=120 -q` —
+  **14 passed in 0.35s**.
+- `make test-unit`, verbatim, alone, foreground — **4769 passed, 10 skipped,
+  593 deselected, 17 warnings in 595.22s (0:09:55)**, exit 0.
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio` — **176
+  passed, 3 skipped in 370.98s (0:06:10)**, exit 0
+  (`test_flow_studio_knowledge_inventory.py` 15/15,
+  `test_flow_studio_knowledge_attach.py` 10/10).
+
+**Not restarted, per the constraint**: the operator's live 8485 /
+`/tmp/the-one-hat-scratch` instance was not touched. It still needs a
+restart to serve this pass's `knowledge-section.js` + `studio.css`.

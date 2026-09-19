@@ -83,26 +83,25 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-create-error` | studio | Knowledge grid create-form submission error (M24 F06 L01) |
 | `kb-create-name-hint` | studio | Knowledge grid create-form advisory name-length hint, shown over 43 code points (DD-16, M24 F06 L01) |
 | `kb-create-name-input` | studio | Knowledge grid create-form name field (M24 F06 L01) |
-| `kb-edit-description-input` | studio | Knowledge detail view edit form description field (L5-D2, M24 F06 L05) |
-| `kb-edit-error` | studio | Knowledge detail view edit form submission error (L5-D2, M24 F06 L05) |
-| `kb-edit-name-hint` | studio | Knowledge detail view edit form advisory name-length hint, shown over 43 code points, reuses the create form's DD-16 hint text (L5-D2, M24 F06 L05) |
-| `kb-edit-name-input` | studio | Knowledge detail view edit form name field (L5-D2, M24 F06 L05) |
-| `kb-folder-path-input` | studio | Knowledge detail view register-a-folder form path field (M24 F06 L01) |
-| `kb-folder-register-error` | studio | Knowledge detail view register-a-folder form submission error, renders the route's `detail` message (DD-10, M24 F06 L01) |
-| `kb-folder-remove-btn` | studio | Knowledge detail view folder row — two-step remove control (App.confirmDelete), "Confirm remove?" (L5-D1, M24 F06 L05) |
-| `kb-folder-remove-caption` | studio | Knowledge detail view folder row — static caption naming the removal's cascade, rendered before any click (L5-D1, M24 F06 L05) |
-| `kb-folder-row` | studio | Knowledge detail view status section — one row per registered folder (M24 F06 L01) |
-| `kb-folder-status-error` | studio | Knowledge detail view folder row — the folder's own walk `error`, when set (M24 F06 L01) |
-| `kb-folder-watch-error` | studio | Knowledge detail view folder row — `watch_error`, when set (M24 F06 L01) |
-| `kb-folders-list` | studio | Knowledge detail view status section — folders container (M24 F06 L01) |
+| `kb-description-input` | studio | Knowledge detail view always-live description field, header region (L6-D1, M24 F06 L06) |
+| `kb-folder-add-error` | studio | Knowledge detail view Folders section "Add folder" submission error, renders the route's `detail` message (DD-10, M24 F06 L01; renamed from `kb-folder-register-error` in M24 F06 L06) |
+| `kb-folder-delete-btn` | studio | Knowledge detail view folder panel summary — trash-icon delete behind the canonical two-step `App.confirmDelete` (armed on the `<summary>`, folder-path span as `[data-confirm-title]`). Takes only its VISUAL form from the Custom Headers row; that row's bare click does not carry, because this one is an irreversible server-side cascading DELETE (amended L6-D3, M24 F06 L06; replaces the labelled two-step `kb-folder-remove-btn`) |
+| `kb-folder-panel` | studio | Knowledge detail view Folders section — one native `<details>` panel per registered folder, carrying path/status/watch in its summary and that folder's files in its body (L6-D2, M24 F06 L06; renamed from `kb-folder-row`) |
+| `kb-folder-path-input` | studio | Knowledge detail view Folders section "Add folder" path field (M24 F06 L01) |
+| `kb-folder-status-error` | studio | Knowledge detail view folder panel body — the folder's own walk `error`, when set (M24 F06 L01) |
+| `kb-folder-watch-error` | studio | Knowledge detail view folder panel body — `watch_error`, when set (M24 F06 L01) |
+| `kb-folders-cascade-hint` | studio | Knowledge detail view Folders section — persistent helper text naming the removal's cascade, section-level rather than per-row (L6-D3, M24 F06 L06; replaces the per-row `kb-folder-remove-caption`) |
+| `kb-folders-list` | studio | Knowledge detail view Folders section — folder-panel + "Other items" panel container (M24 F06 L01; moved out of Status in M24 F06 L06) |
 | `kb-indexer-state` | studio | Knowledge detail view status summary — indexer state word (M24 F06 L01) |
 | `kb-item-error` | studio | Knowledge detail view item row — a `failed` item's error text (M24 F06 L01) |
 | `kb-item-menu` | studio | Knowledge detail view item row — the overflow menu (`role="menu"`), carries "View chunks"/"View source" (L5-D4, M24 F06 L05) |
 | `kb-item-menu-btn` | studio | Knowledge detail view item row — the overflow menu's trigger (`aria-haspopup="menu"`) (L5-D4, M24 F06 L05) |
-| `kb-item-row` | studio | Knowledge detail view — one row per file item (M24 F06 L01) |
-| `kb-item-standalone-badge` | studio | Knowledge detail view item row — standalone-inside-folder badge (DD-9, M24 F06 L01) |
+| `kb-item-row` | studio | Knowledge detail view — one row per file item, nested inside a folder panel or the "Other items" panel (M24 F06 L01) |
+| `kb-item-standalone-badge` | studio | Knowledge detail view item row — standalone-inside-folder badge, only rendered inside the "Other items" panel (DD-9, M24 F06 L01) |
 | `kb-item-status` | studio | Knowledge detail view item row — the item's `status` (M24 F06 L01) |
-| `kb-items-list` | studio | Knowledge detail view items container (M24 F06 L01) |
+| `kb-name-hint` | studio | Knowledge detail view always-live name field's advisory hint, shown over 43 code points, reuses the create form's DD-16 hint text (L6-D1, M24 F06 L06; renamed from `kb-edit-name-hint`) |
+| `kb-name-input` | studio | Knowledge detail view always-live name field, header region — no edit-button toggle (L6-D1, M24 F06 L06; renamed from `kb-edit-name-input`) |
+| `kb-other-items-panel` | studio | Knowledge detail view Folders section — trailing native `<details>` panel for items with no real folder parent (L6-D2 chosen option (a), M24 F06 L06) |
 | `kb-panel-title` | studio | Knowledge detail view chunks/source panel — titled with the open item's path so the panel is attributable when it isn't beside its row (kb-studio-round-trip remediation FIX 4, M24 F06) |
 | `kb-search-degraded` | studio | Knowledge detail view search degrade line, shown alongside the response's own `indexer` word (AC-12, M24 F06 L01) |
 | `kb-search-hit` | studio | Knowledge detail view — one search result row, carries `score` (M24 F06 L01) |
@@ -283,20 +282,20 @@ caught — but it cannot see where the attribute is emitted.
 | `back-connector-btn` | studio | Connector-editor header — passed through the local `_btn(className, testid, text)` helper's `testid` parameter (M23 F02 L02) |
 | `back-knowledge-btn` | studio | Knowledge detail view header — passed through the local `_btn(className, testid, text)` helper's `testid` parameter (M24 F06 L01) |
 | `cancel-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |
+| `cancel-knowledge-btn` | studio | Knowledge detail view header Cancel, disabled until dirty, same `_btn` indirection (L6-D1, M24 F06 L06) |
 | `connector-channel-map-add-btn` | studio | Connector-editor channel→agent map add-row, same `_btn` indirection (M23 F02 L02) |
 | `connector-channel-map-remove-btn` | studio | Connector-editor channel→agent map per-row remove, same `_btn` indirection (M23 F02 L02) |
 | `connector-doctor-btn` | studio | Connector-editor doctor probe, same `_btn` indirection (M23 F02 L02) |
 | `connector-pairing-btn` | studio | Connector-editor pairing-code generation, same `_btn` indirection (M23 F02 L02) |
 | `connector-pairing-copy-btn` | studio | Connector-editor pairing-code copy-to-clipboard button, same `_btn` indirection (Squawk 0043) |
-| `edit-knowledge-base-btn` | studio | Knowledge detail view header edit-form toggle, same `_btn` indirection (L5-D2, M24 F06 L05) |
+| `kb-add-folder-btn` | studio | Knowledge detail view Folders section "Add folder" submit, same `_btn` indirection (M24 F06 L01; renamed from `kb-register-folder-btn`, and the button's own text from "Register folder", in M24 F06 L06) |
 | `kb-create-submit-btn` | studio | Knowledge grid create-form submit, same `_btn` indirection (M24 F06 L01) |
-| `kb-edit-save-btn` | studio | Knowledge detail view edit-form Save, same `_btn` indirection (L5-D2, M24 F06 L05) |
 | `kb-item-chunks-btn` | studio | Knowledge detail view item row overflow menu — "View chunks" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 | `kb-item-source-btn` | studio | Knowledge detail view item row overflow menu — "View source" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
-| `kb-register-folder-btn` | studio | Knowledge detail view register-a-folder form submit, same `_btn` indirection (M24 F06 L01) |
 | `kb-reindex-all-btn` | studio | Knowledge detail view re-index control, same `_btn` indirection (M24 F06 L01) |
 | `kb-reindex-changed-btn` | studio | Knowledge detail view re-index control, same `_btn` indirection (M24 F06 L01) |
 | `kb-search-btn` | studio | Knowledge detail view search control submit, same `_btn` indirection (M24 F06 L01) |
 | `new-connector-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M23 F02 L02) |
 | `new-knowledge-base-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M24 F06 L01) |
 | `save-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |
+| `save-knowledge-btn` | studio | Knowledge detail view header Save, disabled until dirty, same `_btn` indirection (L6-D1, M24 F06 L06; replaces `kb-edit-save-btn`) |
