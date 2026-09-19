@@ -73,6 +73,14 @@
 //     (`renderOtherItems`), never nested under a folder its path merely
 //     happens to contain (DD-9's standalone badge is exactly for that
 //     case, and only applies inside "Other items").
+//     COROLLARY (HAT pass 2): because a subdirectory gets no panel of
+//     its own, a file row INSIDE a panel renders its path relative to
+//     that folder's root (`_relativeItemPath`) — that is what keeps the
+//     subdirectory visible once the tree is flattened. "Other items"
+//     rows keep ABSOLUTE paths: they are parentless, so there is no root
+//     to relativize against, and shortening one against a folder whose
+//     path merely contains it would assert the very parentage the badge
+//     denies.
 //   L6-D3 (as AMENDED by the Flight Director after first
 //     implementation): the folders control reads "Add folder", and Leg
 //     5's labelled Remove-then-Confirm control becomes a trash-glyph
@@ -243,6 +251,38 @@
       }
     }
     return null;
+  }
+
+  // Leg 6 (HAT): a file row INSIDE a folder panel shows its path relative
+  // to that folder's own root (`notes/incident.md`), not the absolute path
+  // repeated from the summary line above it. L6-D2 deliberately refuses to
+  // nest a subdirectory as its own panel (a subdirectory is not a
+  // registered item, so a panel would render false parentage), which
+  // flattens a tree into one list — the relative path is what puts the
+  // subdirectory back on screen without inventing structure.
+  //
+  // Separator handling mirrors `_containingFolder` above: read `sep` off
+  // the folder path itself (the server stores `str(canonical)` in
+  // OS-native form), never assume POSIX. Trailing separators are stripped
+  // first, so a folder recorded as `/data/` or `C:\` still yields the
+  // right prefix (stripping `/` down to `''` leaves prefix `/`, which is
+  // correct for a root-registered folder).
+  //
+  // Returns null — NOT a mangled string — whenever the item is not
+  // actually under the folder root. That should not happen (these rows are
+  // reached through `parent_id`, not a path guess), but if it ever does the
+  // caller falls back to the full path, which is always truthful.
+  function _relativeItemPath(itemPath, folderPath) {
+    if (!itemPath || !folderPath) return null;
+    var sep = (folderPath.indexOf('\\') !== -1 && folderPath.indexOf('/') === -1) ? '\\' : '/';
+    var root = folderPath;
+    while (root.length > 0 && root.charAt(root.length - 1) === sep) {
+      root = root.slice(0, -1);
+    }
+    var prefix = root + sep;
+    if (itemPath.indexOf(prefix) !== 0) return null;
+    var rel = itemPath.slice(prefix.length);
+    return rel.length > 0 ? rel : null;
   }
 
   // ── Grid ──────────────────────────────────────────────────────────────
@@ -791,12 +831,23 @@
     // panel's body and inside the trailing "Other items" panel.
     // `opts.standalone` gates the DD-9 badge lookup — only meaningful for
     // items with no real parent, which is exactly the "Other items" set.
+    // `opts.folderPath` is the OWNING folder's path and is set only for
+    // the first case: inside a panel the path renders relative to that
+    // root (see `_relativeItemPath`). The "Other items" panel passes none
+    // — those items are parentless by definition, so there is no root to
+    // relativize against and the absolute path is the only honest display.
+    // Either way the full absolute path stays one hover away in `title`,
+    // so shortening the label never hides where the file really is.
     function buildFileItemRow(item, opts) {
       opts = opts || {};
+      var shown = (opts.folderPath && _relativeItemPath(item.path_or_url, opts.folderPath))
+        || item.path_or_url;
+      var pathEl = _el('span', { className: 'kb-item-path', text: shown });
+      pathEl.setAttribute('title', item.path_or_url);
       var row = _el('div', { className: 'kb-item-row' });
       row.setAttribute('data-testid', 'kb-item-row');
       row.setAttribute('data-item-id', item.id);
-      row.appendChild(_el('span', { className: 'kb-item-path', text: item.path_or_url }));
+      row.appendChild(pathEl);
       var statusEl = _el('span', { className: 'kb-item-status', text: item.status });
       statusEl.setAttribute('data-testid', 'kb-item-status');
       row.appendChild(statusEl);
@@ -1057,7 +1108,7 @@
     // mount, on an actual items-signature change, or right after a folder
     // mutation. Never called from `renderFolders`, so a metadata-only
     // poll tick never touches file rows or the open-menu tracker.
-    function renderFolderFiles(panel, fileItemsForFolder) {
+    function renderFolderFiles(panel, fileItemsForFolder, folder) {
       panel.filesEl.textContent = '';
       if (fileItemsForFolder.length === 0) {
         panel.filesEl.appendChild(_el('div', {
@@ -1066,8 +1117,11 @@
         }));
         return;
       }
+      var folderPath = folder && folder.path;
       fileItemsForFolder.forEach(function (item) {
-        panel.filesEl.appendChild(buildFileItemRow(item, { standalone: false }));
+        panel.filesEl.appendChild(
+          buildFileItemRow(item, { standalone: false, folderPath: folderPath })
+        );
       });
     }
 
@@ -1077,15 +1131,18 @@
       // stale document-level listener.
       closeAnyOpenItemMenu();
 
-      var folderIds = {};
-      currentFolders.forEach(function (f) { folderIds[f.id] = true; });
+      // id -> folder (not id -> true): the folder OBJECT is what
+      // `renderFolderFiles` needs, to render each file's path relative to
+      // its own root. Same membership test as before — a truthy lookup.
+      var foldersById = {};
+      currentFolders.forEach(function (f) { foldersById[f.id] = f; });
 
       var byFolder = {};
       var other = [];
       nextItems
         .filter(function (it) { return it.type === 'file'; })
         .forEach(function (item) {
-          if (item.parent_id && folderIds[item.parent_id]) {
+          if (item.parent_id && foldersById[item.parent_id]) {
             (byFolder[item.parent_id] = byFolder[item.parent_id] || []).push(item);
           } else {
             other.push(item);
@@ -1093,7 +1150,7 @@
         });
 
       Object.keys(folderPanels).forEach(function (id) {
-        renderFolderFiles(folderPanels[id], byFolder[id] || []);
+        renderFolderFiles(folderPanels[id], byFolder[id] || [], foldersById[id]);
       });
       renderOtherItems(other);
     }

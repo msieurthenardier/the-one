@@ -56,10 +56,23 @@ Danger Zone one alongside its surviving label, the folder one in place of
 the old text glyph); and the folder one's arming click still does not
 toggle its `<details>`, which only became breakable once the target was an
 `<svg>` rather than the `<button>`.
+
+Mission 24 Flight 6 Leg 6 HAT pass 2 (2026-09-19) — two browser-layer gaps
+closed by strengthening the pipeline test rather than adding a parallel
+suite (the unit layer already covers walking, chunking and seq ordering;
+what was missing was specifically the RENDERING of either). The single
+real-pipeline fixture now carries two SUBDIRECTORIES, so the flattening
+L6-D2 chose on purpose (a subdirectory is not a registered item, so it
+gets no panel of its own) is asserted instead of merely assumed, together
+with the relative-path display that puts the subdirectory back on screen;
+and one fixture file is sized deliberately against the chunker's 1000/150
+defaults so the chunk viewer renders MORE THAN ONE row and its "in seq
+order" claim is tested against a list longer than one.
 """
 
 from __future__ import annotations
 
+import os
 import re as _re
 import time
 from pathlib import Path
@@ -68,6 +81,20 @@ import httpx
 import pytest
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
+
+# Sized DELIBERATELY against the chunker's shipped defaults (1000 chars,
+# 150 overlap — pinned by `tests/test_chunking.py::test_defaults_are_1000_and_150`)
+# rather than guessed: 24 paragraphs of ~82 characters is 1966 characters,
+# which `chunk_text` splits into exactly three chunks. Small enough that the
+# extra embedding work is not measurable next to the model load this test
+# already waits on; long enough that "renders in seq order" is finally an
+# assertion about a list of more than one element.
+_MULTI_CHUNK_PARAGRAPHS = 24
+_MULTI_CHUNK_EXPECTED_CHUNKS = 3
+_MULTI_CHUNK_BODY = "\n\n".join(
+    f"Paragraph {i:02d}. The incident response runbook records what happened and who acted."
+    for i in range(_MULTI_CHUNK_PARAGRAPHS)
+)
 
 
 def _wait_studio_ready(page: Page) -> None:
@@ -298,6 +325,16 @@ def test_item_row_failed_status_error_and_standalone_badge(
 
     standalone_row = page.locator('[data-testid="kb-item-row"][data-item-id="standalone-item-1"]')
     expect(standalone_row.locator('[data-testid="kb-item-standalone-badge"]')).to_be_visible()
+    # HAT pass 2: the "Other items" panel keeps ABSOLUTE paths. A file row
+    # inside a folder panel renders relative to that folder's root, but
+    # these items are parentless by definition — there is no root to
+    # relativize against, and this one's path merely LIES INSIDE a
+    # registered folder, which is the false parentage DD-9's badge exists
+    # to refuse. Shortening it against that folder would assert exactly the
+    # relationship the badge is denying.
+    expect(standalone_row.locator(".kb-item-path")).to_have_text(
+        str(fixture_folder / "standalone.txt")
+    )
 
 
 @pytest.mark.browser
@@ -306,7 +343,15 @@ def test_chunks_open_in_seq_order_and_source_not_prefetched(
 ) -> None:
     """AC-8: chunks open on demand and render in seq order; /source is
     never requested while the item list renders — only on the explicit
-    "View source" click (DD-8)."""
+    "View source" click (DD-8).
+
+    This test's item is seeded with a path that need not exist, so it has
+    no chunks at all — what it pins is the on-demand/no-prefetch contract
+    and the empty state. The multi-chunk *rendering* (three rows, `#0`
+    `#1` `#2`) is asserted in
+    `test_detail_view_indexing_poll_reindex_and_search`, which is the test
+    that runs a real indexing pass and can therefore have real chunks.
+    """
     base_url, _data_dir = app_with_data_dir
     headers = auth_headers_for(base_url)
 
@@ -368,9 +413,19 @@ def test_detail_view_indexing_poll_reindex_and_search(
     scopes, then search and see fused hits with a score."""
     base_url, _data_dir = app_with_data_dir
 
+    # Two SUBDIRECTORIES on purpose (HAT pass 2): every other fixture in
+    # this file is one flat directory, so nothing here had ever rendered a
+    # folder with a tree inside it. `notes/incident.md` is the deliberately
+    # multi-chunk file.
     fixture_dir = tmp_path / "kb-fixture"
     fixture_dir.mkdir()
     (fixture_dir / "note.txt").write_text("The quick brown fox jumps over the lazy dog.")
+    (fixture_dir / "handbook").mkdir()
+    (fixture_dir / "handbook" / "onboarding.md").write_text(
+        "Onboarding handbook. Read this before your first on-call shift."
+    )
+    (fixture_dir / "notes").mkdir()
+    (fixture_dir / "notes" / "incident.md").write_text(_MULTI_CHUNK_BODY)
 
     _goto_knowledge_grid(base_url, page)
     _create_knowledge_base(page, "Pipeline KB")
@@ -398,7 +453,65 @@ def test_detail_view_indexing_poll_reindex_and_search(
     # further operator action — as the real indexer processes note.txt.
     # No button is clicked between registration and this assertion.
     expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
-        "indexed: 1", timeout=30000
+        "indexed: 3", timeout=30000
+    )
+
+    # ── HAT pass 2, part 1: a folder with subdirectories renders FLAT,
+    # with relative paths ─────────────────────────────────────────────────
+    #
+    # L6-D2 deliberately refuses to nest a subdirectory as its own panel: a
+    # subdirectory is not a registered item, so a panel would assert a
+    # parentage the data does not have. The cost is that a tree collapses
+    # into one list, and the relative path is what restores the missing
+    # information. Both halves are asserted here because both are choices a
+    # future change could silently reverse.
+    folder_row.locator("summary").click()
+    file_rows = folder_row.locator('[data-testid="kb-item-row"]')
+    expect(file_rows).to_have_count(3, timeout=15000)
+    # No nested panel: the two subdirectories produce no `<details>` of
+    # their own anywhere inside this folder's panel.
+    expect(folder_row.locator('[data-testid="kb-folder-panel"]')).to_have_count(0)
+    expect(page.locator('[data-testid="kb-folder-panel"]')).to_have_count(1)
+
+    # Each file reads relative to the folder root it was discovered under —
+    # `notes/incident.md`, not the absolute path with the folder's own path
+    # repeated in front of it. `os.path.join` rather than a literal "/": the
+    # renderer takes its separator from the folder path's own form, which is
+    # OS-native.
+    rel_note = "note.txt"
+    rel_onboarding = os.path.join("handbook", "onboarding.md")
+    rel_incident = os.path.join("notes", "incident.md")
+    assert sorted(folder_row.locator(".kb-item-path").all_text_contents()) == sorted(
+        [rel_note, rel_onboarding, rel_incident]
+    )
+    # ...and the absolute path is never lost, only moved one hover away.
+    expect(folder_row.locator(".kb-item-path", has_text=rel_incident)).to_have_attribute(
+        "title", str(fixture_dir / "notes" / "incident.md")
+    )
+
+    # ── HAT pass 2, part 2: the chunk viewer renders MORE THAN ONE row ────
+    #
+    # Every fixture file in this suite used to be one short line, so the
+    # chunk panel had only ever been asserted against a list of length one
+    # (or zero). `notes/incident.md` is sized against the chunker's 1000/150
+    # defaults to produce three, which is what makes "in seq order" mean
+    # something.
+    incident_row = file_rows.filter(has=page.locator(".kb-item-path", has_text=rel_incident))
+    incident_row.locator('[data-testid="kb-item-menu-btn"]').click()
+    incident_row.locator('[data-testid="kb-item-chunks-btn"]').click()
+    chunks_panel = page.locator('[data-testid="kb-chunks-panel"]')
+    expect(chunks_panel).to_be_visible()
+    expect(chunks_panel.locator('[data-testid="kb-chunk-row"]')).to_have_count(
+        _MULTI_CHUNK_EXPECTED_CHUNKS, timeout=10000
+    )
+    assert chunks_panel.locator(".kb-chunk-seq").all_text_contents() == [
+        f"#{i}" for i in range(_MULTI_CHUNK_EXPECTED_CHUNKS)
+    ]
+    # The panel titles itself with the item's FULL path (FIX 4), so an
+    # operator reading chunks still knows which file they belong to even
+    # though the row that opened them showed a relative path.
+    expect(chunks_panel.locator('[data-testid="kb-panel-title"]')).to_have_text(
+        str(fixture_dir / "notes" / "incident.md")
     )
 
     # HAT polish pass (L06 follow-up): section order is Folders -> Status
@@ -441,20 +554,27 @@ def test_detail_view_indexing_poll_reindex_and_search(
     # rather than waiting a full poll interval.
     page.locator('[data-testid="kb-reindex-changed-btn"]').click()
     expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
-        "indexed: 1", timeout=10000
+        "indexed: 3", timeout=10000
     )
     page.locator('[data-testid="kb-reindex-all-btn"]').click()
     expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
-        "indexed: 1", timeout=15000
+        "indexed: 3", timeout=15000
     )
 
     # AC-10/AC-12: search renders hits with score; a real query with no
     # matches is not degraded.
     page.locator('[data-testid="kb-search-input"]').fill("fox")
     page.locator('[data-testid="kb-search-btn"]').click()
-    hit = page.locator('[data-testid="kb-search-hit"]')
-    expect(hit).to_be_visible(timeout=10000)
-    expect(hit.locator(".kb-search-hit-score")).to_contain_text("score:")
+    # HAT pass 2: the fixture now holds three files (one of them chunked
+    # three ways), so a semantic query returns SEVERAL hits where it used
+    # to return exactly one — `.first` replaces a now strict-mode-violating
+    # bare locator. Nothing is weakened: the score assertion still runs,
+    # and the file that actually carries the keyword is asserted to be
+    # among the hits, which the old single-hit form could only imply.
+    hits = page.locator('[data-testid="kb-search-hit"]')
+    expect(hits.first).to_be_visible(timeout=10000)
+    expect(hits.first.locator(".kb-search-hit-score")).to_contain_text("score:")
+    expect(hits.filter(has_text=str(fixture_dir / "note.txt"))).to_have_count(1)
     expect(page.locator('[data-testid="kb-search-degraded"]')).to_be_hidden()
 
 

@@ -2881,3 +2881,146 @@ rows re-described with their new labels and new home.
 **Not restarted, per the constraint**: the operator's live 8485 /
 `/tmp/the-one-hat-scratch` instance was not touched. It needs a restart to
 serve this pass's `knowledge-section.js` + `studio.css`.
+
+---
+
+## Leg 6 — HAT pass 2 (2026-09-19): relative file paths + the browser-layer
+## coverage gap they exposed
+
+Two related findings from the operator's live HAT walk, both landing on the
+same surface (`knowledge-section.js`) and closed together because the second
+is what pins the first.
+
+**Part 1 — a file row inside a folder panel shows its path relative to that
+folder's root.** `buildFileItemRow` rendered `item.path_or_url` verbatim, so
+every row in a panel repeated the folder path already displayed on the
+summary line above it and buried the subdirectory mid-string. The operator's
+words: *"we can simply add the full path to the file (from the root of the
+selected directory)."* This is more than tidiness. **L6-D2 deliberately
+refuses to nest a subdirectory as its own panel** — a subdirectory is not a
+registered item, so a panel would render a parentage the data does not have
+— which flattens a two-level tree into one list with nothing on screen
+saying that `handbook/` and `notes/` are different places. The relative path
+restores exactly that information without inventing structure, which is why
+it belongs to the same decision.
+
+New `_relativeItemPath(itemPath, folderPath)` sits beside `_containingFolder`
+and borrows its separator discipline: read `sep` off the **folder path's own
+form** (the server stores `str(canonical)`, OS-native), never assume POSIX.
+Trailing separators are stripped first, so `/data/` and `C:\` both yield the
+right prefix — and stripping `/` down to `''` leaves prefix `/`, correct for
+a root-registered folder. Verified against the eight cases that matter,
+including the directory-boundary false positive (`/tmp/fixture` must NOT
+claim `/tmp/fixturebar/note.txt`) and Windows separators.
+
+**The not-under-root fallback.** The function returns `null`, never a
+mangled string, when the item is not actually under the folder root, and the
+caller falls back to the full path. This *should* be unreachable — these rows
+are reached through `parent_id`, not a path guess — but the alternative to a
+guard is a row silently rendering a slice of somebody else's path, which
+reads as a real filename and is unfalsifiable on screen. The degenerate
+`itemPath === folderPath` case takes the same route (a zero-length remainder
+is not a filename).
+
+**Where it does NOT apply, deliberately.** The trailing "Other items" panel
+keeps **absolute** paths, and `buildFileItemRow` gets no `folderPath` there.
+Those items are parentless by definition, so there is no root to relativize
+against; and DD-9's whole point is that such an item may lie *inside* a
+registered folder's path without being its child — shortening it against
+that folder would assert precisely the false parentage the standalone badge
+exists to deny. The badge itself is untouched and still names the containing
+folder in full.
+
+**Keeping the full path reachable.** The path span carries the absolute path
+in a `title` attribute, so it is one hover away on every row — including the
+"Other items" rows, where the title merely restates the visible text but
+costs nothing and keeps the rule uniform (`.kb-item-path` is
+`word-break: break-all` with no ellipsis, so this is a disclosure affordance,
+not a truncation crutch). Two existing surfaces already carry the full path
+and are unchanged: the chunks and source panels title themselves with
+`item.path_or_url` (FIX 4). Rejected: a second visible span (it re-introduces
+the repetition the change removes) and an `aria-describedby` (more machinery
+than a transient hover hint warrants; the panel title already gives a
+screen-reader user an attributable full path on the one screen where the
+distinction matters).
+
+`renderFolderFiles` gained a third parameter, the folder object;
+`renderAllItems`'s `folderIds` map (`id -> true`) became `foldersById`
+(`id -> folder`), the same membership test with the object the renderer now
+needs. No route, no poll behaviour, no section order, no confirm flow
+changed. `.kb-item-path`'s just-restyled body-sm/regular rule is untouched —
+no CSS change at all in this pass.
+
+**Part 2 — the browser-layer coverage gap.** Every fixture in
+`tests/browser/test_flow_studio_knowledge_inventory.py` was one flat
+directory holding one short file, with two consequences: **no browser test
+had ever rendered a folder containing subdirectories** (so L6-D2's
+flattening was entirely unpinned — a future change could start nesting
+panels and nothing would object), and **the chunk viewer had never rendered
+more than one chunk** (so "renders in seq order" had only ever been asserted
+against a list of length one). The unit layer is already strong here
+(`test_kb_walk.py` covers 200-level nesting, `test_chunking.py` boundaries
+and overlap, `test_kb_chunks.py` seq ordering) — the gap was specifically at
+the rendering layer, so nothing was duplicated downward.
+
+Both closed by strengthening the one test that already runs a real indexing
+pass, `test_detail_view_indexing_poll_reindex_and_search`, rather than
+adding a parallel suite or paying for extra browser spawns. Its fixture now
+carries `note.txt`, `handbook/onboarding.md` and `notes/incident.md`, and it
+asserts: three file rows under the **single** folder panel, **zero** nested
+`kb-folder-panel` inside it (and exactly one on the page), the three
+**relative** path strings, and the absolute path still present in `title`.
+`notes/incident.md` is sized deliberately against the chunker's shipped
+1000/150 defaults rather than guessed — 24 paragraphs, 1966 characters,
+`chunk_text` → exactly three chunks, confirmed by running the real chunker
+against the exact fixture string — and the chunk panel is asserted to render
+three rows reading `#0 #1 #2` in order, with the panel titled by the item's
+full path. Separators come from `os.path.join`, not a literal `/`, matching
+the renderer's OS-native behaviour.
+
+`test_item_row_failed_status_error_and_standalone_badge` gained the
+counterpart assertion for the carve-out: its standalone item's path *lies
+inside* the registered folder, and its row must still show the **absolute**
+path.
+
+**Two existing assertions changed deliberately, neither weakened.**
+
+1. The three `"indexed: 1"` expectations in the pipeline test became
+   `"indexed: 3"` — a direct consequence of the fixture now holding three
+   files.
+2. `expect(hit).to_be_visible()` on `[data-testid="kb-search-hit"]` became
+   `hits.first`. With three files (one chunked three ways) the semantic query
+   returns five hits, and the bare locator is a **strict-mode violation** —
+   it failed loudly on the first lane run rather than passing vacuously. The
+   score assertion is unchanged, and a **new** assertion was added alongside
+   it: the file that actually carries the keyword (`note.txt`) is among the
+   hits, which the old single-hit form could only imply.
+
+**No testid was added or changed**, so `docs/ui-testid-registry.md` needed no
+edit — `title` is an attribute, not a testid, and the new selectors
+(`.kb-item-path`, `.kb-chunk-seq`) are existing CSS classes.
+`tests/test_ui_guards.py` passes with no baseline additions: nothing in this
+pass touches a scanned sink (`setAttribute('title', …)` sets a value, never
+markup).
+
+**Gates run:**
+
+- `ruff check the_one/ tests/ scripts/` — `All checks passed!` (one I001
+  import-sort finding on the test file, auto-fixed, re-run clean).
+- `ruff format --check the_one/ tests/ scripts/` — `449 files already
+  formatted`.
+- `.venv/bin/python -m pytest tests/test_ui_guards.py -x --timeout=120 -q`
+  — **14 passed in 0.43s**.
+- `make test-unit`, verbatim, alone, foreground — **4769 passed, 10 skipped,
+  593 deselected, 17 warnings in 595.70s (0:09:55)**, exit 0.
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio` — first
+  run **1 failed, 175 passed, 3 skipped in 367.81s**, the strict-mode
+  violation in (2) above; fixed, the file re-run alone (**15 passed in
+  73.38s**), then the full lane re-run (**176 passed, 3 skipped in
+  365.97s**). A final comment-only edit to `knowledge-section.js`'s header
+  block followed, so the lane was run **once more, last, over the final
+  tree**: **176 passed, 3 skipped in 366.53s (0:06:06)**, exit 0.
+
+**Not restarted, per the constraint**: the operator's live 8485 /
+`/tmp/the-one-hat-scratch` instance was not touched, driven, or stopped. It
+needs a restart to serve this pass's `knowledge-section.js`.

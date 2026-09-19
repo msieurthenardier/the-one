@@ -398,6 +398,110 @@ values, same two-step confirm on folder delete, same cascade hint.
   (`kb-reindex-scope-hint`); the two `kb-reindex-*-btn` manual-exception
   rows re-described with their new labels and their new home in Status.
 
+**HAT pass 2 (2026-09-19, fourth visit to this leg).** Two related
+findings from the operator's live walk, both on this one surface, closed
+together because the second is what pins the first. No behaviour changed
+beyond the display: same routes, same two-step folder confirm, same
+cascade hint, same section order, no CSS change at all.
+
+1. **A file row inside a folder panel now shows its path relative to that
+   folder's root.** `buildFileItemRow` rendered `item.path_or_url`
+   verbatim, so every row repeated the folder path already on the summary
+   line above it and buried the subdirectory mid-string. This is not just
+   tidiness — **L6-D2 above deliberately refuses to nest a subdirectory as
+   its own panel** (a subdirectory is not a registered item, so a panel
+   would render a parentage the data does not have), which flattens a
+   two-level tree into one list with nothing saying `handbook/` and
+   `notes/` are different places. The relative path restores exactly that
+   without inventing structure, so it belongs to the same decision.
+   - New `_relativeItemPath(itemPath, folderPath)` beside
+     `_containingFolder`, borrowing its separator discipline: read `sep`
+     off the **folder path's own form** (the server stores
+     `str(canonical)`, OS-native), never assume POSIX; strip trailing
+     separators first, so `/data/` and `C:\` both yield the right prefix
+     (stripping `/` to `''` leaves prefix `/`, correct for a
+     root-registered folder). The directory-boundary false positive
+     `_containingFolder` already guards against is guarded here too
+     (`/tmp/fixture` must not claim `/tmp/fixturebar/note.txt`).
+   - **Not-under-root fallback**: returns `null`, never a mangled string,
+     and the caller falls back to the full path. Unreachable in principle
+     — these rows are reached through `parent_id`, not a path guess — but
+     the alternative to a guard is a row silently showing a slice of
+     someone else's path, which reads as a real filename and is
+     unfalsifiable on screen. The degenerate `itemPath === folderPath`
+     case takes the same route.
+   - **The "Other items" panel keeps absolute paths**, deliberately:
+     those items are parentless by definition, so there is no root to
+     relativize against, and DD-9's whole point is that such an item may
+     lie *inside* a registered folder's path without being its child.
+     Shortening it against that folder would assert precisely the false
+     parentage the standalone badge exists to deny. The badge itself is
+     untouched and still names the containing folder in full.
+   - **Full path stays reachable**: the path span carries it in a `title`
+     attribute, so it is one hover away on every row (including "Other
+     items", where it restates the visible text — uniform and free;
+     `.kb-item-path` is `word-break: break-all` with no ellipsis, so this
+     is disclosure, not a truncation crutch). The chunks/source panels
+     already title themselves with the full path (FIX 4) and are
+     unchanged. Rejected: a second visible span (re-introduces the
+     repetition this removes) and `aria-describedby` (more machinery than
+     a transient hover hint warrants).
+   - Threading: `renderFolderFiles` gained a third parameter, the folder
+     object; `renderAllItems`'s `folderIds` map (`id -> true`) became
+     `foldersById` (`id -> folder`) — same membership test, with the
+     object the renderer now needs. `.kb-item-path`'s just-restyled
+     body-sm/regular rule is untouched.
+
+2. **The browser-layer coverage gap this exposed.** Every fixture in
+   `test_flow_studio_knowledge_inventory.py` was one flat directory
+   holding one short file, so **no browser test had ever rendered a folder
+   containing subdirectories** (L6-D2's flattening was entirely unpinned)
+   and **the chunk viewer had never rendered more than one chunk** ("in
+   seq order" was only ever asserted against a list of length one). The
+   unit layer is already strong here (`test_kb_walk.py` 200-level nesting,
+   `test_chunking.py` boundaries/overlap, `test_kb_chunks.py` seq
+   ordering), so nothing was duplicated downward — both gaps were closed
+   by strengthening the one test that already runs a real indexing pass,
+   `test_detail_view_indexing_poll_reindex_and_search`, rather than adding
+   a parallel suite or paying for extra browser spawns.
+   - Its fixture now carries `note.txt`, `handbook/onboarding.md` and
+     `notes/incident.md`, and it asserts three file rows under the
+     **single** folder panel, **zero** nested `kb-folder-panel` inside it
+     (and exactly one on the page), the three **relative** path strings,
+     and the absolute path still present in `title`. Separators come from
+     `os.path.join`, not a literal `/`, matching the renderer.
+   - `notes/incident.md` is sized **against** the chunker's shipped
+     1000/150 defaults rather than guessed — 24 paragraphs, 1966
+     characters, `chunk_text` → exactly three chunks, confirmed by running
+     the real chunker against the exact fixture string. The chunk panel is
+     asserted to render three rows reading `#0 #1 #2` in order, titled
+     with the item's full path.
+   - `test_item_row_failed_status_error_and_standalone_badge` gained the
+     counterpart for the carve-out: its standalone item's path *lies
+     inside* the registered folder, and its row must still show the
+     **absolute** path.
+   - `test_chunks_open_in_seq_order_and_source_not_prefetched` keeps its
+     zero-chunk empty-state assertions (its item's path need not exist, so
+     it legitimately has none); its docstring now points at the test that
+     carries the real multi-chunk rendering.
+   - **Two existing assertions changed deliberately, neither weakened.**
+     The three `"indexed: 1"` expectations became `"indexed: 3"` (a direct
+     consequence of three fixture files). And
+     `expect(hit).to_be_visible()` on `[data-testid="kb-search-hit"]`
+     became `hits.first`: with three files (one chunked three ways) the
+     semantic query returns five hits, making the bare locator a
+     **strict-mode violation** — it failed loudly on the first lane run
+     rather than passing vacuously. The score assertion is unchanged and a
+     **new** one was added beside it: the file that actually carries the
+     keyword (`note.txt`) is among the hits, which the single-hit form
+     could only imply.
+   - **No testid added or changed**, so `docs/ui-testid-registry.md`
+     needed no edit (`title` is an attribute; `.kb-item-path` /
+     `.kb-chunk-seq` are existing CSS classes).
+     `tests/test_ui_guards.py` passes with no baseline additions —
+     `setAttribute('title', …)` sets a value, never markup, and is not a
+     scanned sink.
+
 ---
 
 ## Post-Completion Checklist
