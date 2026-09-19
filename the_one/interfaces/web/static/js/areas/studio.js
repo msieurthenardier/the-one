@@ -207,6 +207,18 @@ App.registerArea({
     self._knowledgeBasesLoaded = false;
     self._allProviders = [];
     self._selectedAgent = null;
+    // Squawk 0090 — explicit load-success flag for `self._selectedAgent`,
+    // the SAME discipline DD-4 fixed `_knowledgeBasesLoaded` with (above).
+    // `doSelect`'s fresh-agent GET has a `.catch` that resolves with the
+    // stale cached agent so the editor still renders SOMETHING (L3-D7);
+    // that stale object is also what `_storedUngatedDisabledNames()`
+    // unions into `disabled_tools`, so a failed fetch would otherwise
+    // re-emit a PRE-rename `kb__{old_slug}__…__search` entry and overwrite
+    // the post-rename one `rename_kb_tool_references` wrote — silently
+    // re-enabling a tool the operator disabled. So: render from the stale
+    // object, but refuse to SAVE from it. `false` blocks Save; create-mode
+    // and "no agent selected" leave it `true` (nothing stale to union).
+    self._selectedAgentLoaded = true;
     self._pendingSelectName = self._pendingSelectName || null;
     self._pendingTabName = self._pendingTabName || null;
     self._createMode = false;
@@ -1759,6 +1771,11 @@ App.registerArea({
       }
       self._createMode = false;
       self._selectedAgent = agent;
+      // Squawk 0090: the object seated here is the LIST-route cache, which
+      // may predate a knowledge-base rename. Block Save until the
+      // fresh-agent fetch below resolves and says otherwise, so a save
+      // racing the in-flight refresh can't union from it either.
+      self._selectedAgentLoaded = false;
       dirty = false;
       self._pendingTabName = null;
       self._activeTab = tabToActivate;
@@ -1784,6 +1801,21 @@ App.registerArea({
       // no rejection handler anywhere in its chain, so a rejecting member
       // would strand the editor with nothing rendered, which is a worse
       // failure than re-rendering from a stale agent.
+      //
+      // Squawk 0090: rendering from the stale agent stays (that is the
+      // L3-D7 trade-off, and `renderEditor(freshAgent)` below renders the
+      // very object the union would read, so the UI remains
+      // self-consistent) — what does NOT stay is saving from it. The
+      // `.catch` records the failure in `freshAgentLoaded`, which becomes
+      // `self._selectedAgentLoaded`; `renderEditor` then shows the
+      // load-failure affordance and `checkDirty`/`save` keep Save
+      // disabled. Refusing the save is the fix rather than DD-4's
+      // omit-the-field shape because `disabled_tools` has NO server-side
+      // preserve-on-omit path (`update_agent` preserves only
+      // `mcp_overrides`, `self_revision_requires_approval` and `kb_ids`;
+      // `AgentConfig.disabled_tools` defaults to `[]`), so omitting it
+      // would WIPE every disabled tool — a strictly worse fail-open.
+      var freshAgentLoaded = true;
       Promise.all([
         refreshToolConfigsCache(),
         refreshMcpSourcesCache(),
@@ -1794,6 +1826,7 @@ App.registerArea({
             return r.json();
           })
           .catch(function () {
+            freshAgentLoaded = false;
             return agent;
           })
       ]).then(function (results) {
@@ -1803,6 +1836,7 @@ App.registerArea({
         // the union below silently keeps reading stale disabled_tools.
         var freshAgent = results[3];
         self._selectedAgent = freshAgent;
+        self._selectedAgentLoaded = freshAgentLoaded;
         for (var fi = 0; fi < self._agents.length; fi++) {
           if (self._agents[fi].name === freshAgent.name) { self._agents[fi] = freshAgent; break; }
         }
@@ -1823,6 +1857,10 @@ App.registerArea({
     function doEnterCreateMode() {
       self._createMode = true;
       self._selectedAgent = null;
+      // Squawk 0090: create-mode has no stored agent to union from
+      // (`_storedUngatedDisabledNames` returns `[]` — AC-9), so there is
+      // nothing stale to guard against; Create must stay enabled.
+      self._selectedAgentLoaded = true;
       self._activeTab = 'general';
       dirty = false;
       if (self._activeSection !== 'agents') {
@@ -1922,6 +1960,28 @@ App.registerArea({
         onRotateExternalCredential: rotateExternalCredential
       });
 
+      // Squawk 0090 — the load-failure affordance, mirroring the sibling
+      // `agent-knowledge-load-error` (knowledge-tab.js, DD-4/L3-D1): say
+      // plainly that this editor is showing a possibly-stale copy and that
+      // saving is off until it reloads. Built with createElement +
+      // textContent (no innerHTML) so `tests/test_ui_guards.py`'s
+      // dynamic-sink baseline is untouched.
+      if (!isCreate && self._selectedAgentLoaded === false) {
+        var loadErrEl = document.createElement('div');
+        loadErrEl.className = 'agent-load-error';
+        loadErrEl.setAttribute('data-testid', 'agent-load-error');
+        loadErrEl.setAttribute('role', 'status');
+        loadErrEl.textContent =
+          'Couldn’t load this agent’s current configuration. The fields below may be ' +
+          'out of date, so saving is disabled. Go back and reopen the agent to retry.';
+        var headerEl = editorEl.querySelector('.editor-header');
+        if (headerEl && headerEl.parentNode) {
+          headerEl.parentNode.insertBefore(loadErrEl, headerEl.nextSibling);
+        } else {
+          editorEl.insertBefore(loadErrEl, editorEl.firstChild);
+        }
+      }
+
       // Wire field-level dirty tracking + provider-change side-effects.
       // These run AFTER the editor DOM is in place.
       wireEditorEvents(isCreate, agent || {
@@ -1961,6 +2021,7 @@ App.registerArea({
     function doHandleBack() {
       self._selectedAgent = null;
       self._createMode = false;
+      self._selectedAgentLoaded = true;  // squawk 0090: nothing selected, nothing stale
       dirty = false;
       self._activeTab = 'general';
       self._selectedMcpAgentSourceId = null;  // F8 L3: clear per-source selection
@@ -2318,8 +2379,14 @@ App.registerArea({
       var current = getFormSnapshot();
       dirty = current !== snapshot;
       // `disabled` is the single source of truth for both Save and Cancel.
+      // Squawk 0090: Save additionally stays disabled while the editor is
+      // rendering a NOT-freshly-loaded agent — `collectFormData`'s
+      // ungated-prefix union reads `self._selectedAgent`, and a stale one
+      // would re-emit a pre-rename `kb__…__search` entry. Cancel is
+      // deliberately NOT gated: discarding edits is always safe.
+      var saveBlocked = !self._createMode && self._selectedAgentLoaded === false;
       var saveBtn = editorEl.querySelector('.save-btn');
-      if (saveBtn) saveBtn.disabled = !dirty;
+      if (saveBtn) saveBtn.disabled = !dirty || saveBlocked;
       var cancelBtn = editorEl.querySelector('.cancel-btn');
       if (cancelBtn) cancelBtn.disabled = !dirty;
     }
@@ -2597,6 +2664,18 @@ App.registerArea({
             if (errorEl) errorEl.textContent = err.message;
           });
       } else {
+        // Squawk 0090 — belt-and-braces behind the disabled Save button
+        // (a keyboard/script-driven click, or a save that races the
+        // in-flight fresh-agent fetch, still reaches here). Refuse rather
+        // than PUT a body whose `disabled_tools` was unioned from a
+        // possibly-pre-rename cached agent.
+        if (self._selectedAgentLoaded === false) {
+          if (errorEl) {
+            errorEl.textContent =
+              'Can’t save — this agent’s current configuration failed to load.';
+          }
+          return;
+        }
         var oldName = self._selectedAgent.name;
         var requestedName = (data.name || '').trim();
         if (!requestedName) {

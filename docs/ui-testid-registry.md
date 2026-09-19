@@ -34,6 +34,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-list` | studio | Agent editor Knowledge tab — attach-row list container (M24 F06 L03) |
 | `agent-knowledge-load-error` | studio | Agent editor Knowledge tab — the knowledge-base fetch failed; no `data-kb-list-loaded` marker (DD-4, L3-D1, M24 F06 L03) |
 | `agent-knowledge-tab` | studio | Agent editor Knowledge tab root; carries `data-kb-list-loaded="true"` on a successful fetch (DD-4, M24 F06 L03) |
+| `agent-load-error` | studio | Agent editor — the fresh `GET /api/agents/{name}` failed; the editor renders the last-known copy and Save is disabled (squawk 0090) |
 | `agent-select` | chat | |
 | `agent-tile-mcp-tool-count` | studio | |
 | `agent-tile-tool-count` | studio | |

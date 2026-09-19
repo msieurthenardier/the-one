@@ -1,10 +1,10 @@
 # Squawk 0084: CLAUDE.md's safety rule names a default data directory that does not exist
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: grounding
 **Reported**: 2026-09-18
-**Completed**: —
+**Completed**: 2026-09-19
 
 ## Report
 
@@ -28,10 +28,20 @@ a `rotate-api-credential` was run without `THE_ONE_DATA_DIR` set and rotated the
 operator's **production** credential. Every "production untouched" verification in
 that session had checked `~/.the-one` and returned a false all-clear. The port
 rule (never 8484) was followed scrupruously throughout; the directory half of the
-same rule was checked against the wrong path. Impact was contained — the installed
-app reads the credential at startup and was unaffected, and `encryption.key` and
+same rule was checked against the wrong path. Impact was contained — `encryption.key` and
 the database were never touched — but the check that should have caught it was
 structurally incapable of doing so.
+
+**Operator-confirmed impact, 2026-09-19** (previously this squawk carried the
+Flight Director's *inference* of containment, not the operator's report — the
+distinction mattered, because a containment claim about someone else's machine
+had been used to close the squawk): **zero impact; relaunching the app fixes
+it.** The mechanism is consistent with the code — `_read_credential_cached`
+(`the_one/api_credential.py:246`) rebuilds its entry when the file's identity
+changes, so the *server* picks up a rotated credential on its own; what needed
+the relaunch was the client side. The earlier phrasing here ("the installed app
+reads the credential at startup and was unaffected") implied nothing at all
+needed doing, which was not quite right.
 
 ## Evidence
 
@@ -52,11 +62,39 @@ the same session.
 
 ## Verification
 
-`grep -rn '~/.the-one' CLAUDE.md .flightops/` returns nothing.
+`grep -rn '~/.the-one' CLAUDE.md .flightops/` returns **exactly one** hit —
+`CLAUDE.md:326`, inside the paragraph that explains this incident ("an earlier
+version of this section named `~/.the-one`, which does not exist..."). That is a
+deliberate historical reference, not a live instruction.
+
+*(Verification corrected 2026-09-19 during the turnaround batch. As first written
+it said the grep "returns nothing", which is false and always was: the corrective
+action itself introduced the explanatory sentence. A verification that fails
+against its own fix is not a verification — and a reviewer running it verbatim
+would have read the hit as an incomplete correction. The check that actually
+matters is that no line **instructs** the reader to use `~/.the-one`, which
+holds.)*
 
 ## Sign-Off
 
-*(pending — this was a documentation correction made directly by the Flight
-Director rather than through the Developer/Reviewer pair, on the grounds that it
-is a one-line safety-doc fix with no code change. Flagged here so the deviation
-from the crew separation is on the record rather than assumed.)*
+*Independent verification confirms the safety-rule correction is accurate and complete — no line instructs a literal default path, the printed one-liner returns the real platformdirs-derived directory, and the sole remaining `~/.the-one` string is the deliberate historical-incident reference the Verification section describes. Approved.*
+
+**Reviewer**: independent Reviewer agent, turnaround batch 2026-09-19.
+
+> Prior pending note, kept for the record:
+>
+> *(pending — routed into the 2026-09-19 turnaround batch for the independent
+> sign-off it never received.)*
+> 
+> **Why this squawk is in a turnaround batch with no code change.** The corrective
+> action was applied during Mission 24 Flight 6, directly by the Flight Director
+> rather than through the Developer/Reviewer pair, on the grounds that it was a
+> one-line safety-doc fix. That reasoning was wrong in a specific way worth naming:
+> the fix was small, but the squawk is `grounding` severity and documents an incident
+> in which the operator's **production API credential was rotated** behind a check
+> that could not fail. A fix whose whole purpose is to make a safety check capable of
+> failing is exactly the kind that should not be self-certified.
+> 
+> Nothing is being re-implemented here. The batch Reviewer verifies the landed
+> correction and supplies the sign-off, closing the separation gap rather than
+> leaving it recorded-and-accepted.
