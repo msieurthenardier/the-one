@@ -41,7 +41,7 @@ ruff format the_one/ tests/ scripts/
 
 ## Local dev (host-native)
 
-The app runs host-native via `the-one serve` (console script → `uvicorn.run(app, settings.host, settings.port)`, no `--reload`). For day-to-day dev use `make up` to launch it backgrounded against the repo venv (writes `.the-one.$(THE_ONE_PORT).pid` + `.the-one.$(THE_ONE_PORT).log`, both gitignored — so the default instance writes `.the-one.8484.pid` and `.the-one.8484.log`). A dev instance started on another port (e.g. `THE_ONE_PORT=8485`) keeps its own PID/log files, which is what makes `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=<scratch> make down` safe against the default instance. Because `serve` has no `--reload`, **source edits take effect on `make restart`** — there is no live hot-reload. The test suite spawns its own uvicorn subprocess; that path is independent of the `make up` server at port 8484.
+The app runs host-native via `the-one serve` (console script → `uvicorn.run(app, settings.host, settings.port)`, no `--reload`). For day-to-day dev use `make up` to launch it backgrounded against the repo venv (writes `.the-one.$(THE_ONE_PORT).pid` + `.the-one.$(THE_ONE_PORT).log`, both gitignored — so the default instance writes `.the-one.8484.pid` and `.the-one.8484.log`). A dev instance started on another port (e.g. `THE_ONE_PORT=8485`) keeps its own PID/log files, which is what makes `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=<scratch> make down` safe against the default instance. Because `serve` has no `--reload`, **Python source edits take effect on `make restart`** — there is no live hot-reload for imported code (static JS/CSS is a different story; see below). The test suite spawns its own uvicorn subprocess; that path is independent of the `make up` server at port 8484.
 
 ```bash
 make up                     # start the-one host-native in the background (PID + log) + verify
@@ -58,9 +58,11 @@ make verify-serving         # curl-check that admin sub-modules return 200
 make help                   # list all targets
 ```
 
-**When `make restart` is required**: any change under `the_one/` you want reflected in the running `make up` server — JS, CSS, HTML, Python. There is no live-reload, so a restart re-imports the source.
+**When `make restart` is required**: any **Python** change under `the_one/` you want reflected in the running `make up` server — there is no live-reload, so a restart re-imports the source. One static file joins them: `the_one/interfaces/web/static/index.html` is served through `_cache_busted_index_html()` in `the_one/interfaces/web/app.py`, which is `@functools.lru_cache`-memoized, so the file is read from disk exactly **once per process** and an edit to it needs a restart like any Python change.
 
-**When `make restart` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
+**When `make restart` is NOT required**: (a) **JS and CSS under `the_one/interfaces/web/static/`** — those are served by the `StaticFiles` mount in `app.py`, which reads from disk per request, so an edit is live to the very next request with no restart (measured: with the process unrestarted, the served body was byte-identical to the just-edited working-tree file); (b) editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
+
+**If a JS/CSS edit appears not to have landed, suspect the browser cache, not the server.** `index.html`'s `/static` asset refs are cache-busted with `?v={__version__}` — the *package* version, which an edit does not change — so a browser keeps serving its cached copy no matter how many times the server is restarted (squawk 0085). Hard-reload the page, or `curl` the asset with the local-API credential to see what the server is actually serving. Restarting will not fix this, and reaching for a restart is what keeps the real cause hidden.
 
 **Note — restart to pick up Pydantic class-definition edits.** Editing a Pydantic **class definition** (`AgentConfig`, `Connector`, `ChatSession`, provider config models) requires a fresh process to take effect: each model binds a compiled core schema to the class object at import, so a long-lived server keeps validating against the schema it imported at startup. `make restart` re-imports everything with fresh class objects.
 
@@ -98,13 +100,18 @@ Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port
 
 ### Dev mode and the mock provider
 
-When `THE_ONE_DEV_MODE=true` is set, an extra provider type `mock` becomes available alongside the standard types (`ollama`, `openai-compatible`, `openai`, `anthropic`, `anthropic-plan`, `openrouter`). The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field — defaults to `"Mock response from the mock provider."` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
+When `THE_ONE_DEV_MODE=true` is set, an extra provider type `mock` becomes available alongside the standard types (`ollama`, `openai-compatible`, `openai`, `anthropic`, `anthropic-plan`, `openrouter`). The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field (a dict, whose `content` holds the reply text) — defaults to `{"content": "Mock response from the mock provider."}` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
 
-**Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`):
+**Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`). **Mind the nesting**: only the five top-level keys below sit in `config` itself; `content`, `tool_calls` and `thinking` live *inside* `response`, not beside it. (Cross-check against `MockProvider`'s class docstring in `the_one/llm/mock.py` — that is the other copy of this list.)
 
-- `"response"` — scripted reply text (default: `"Mock response from the mock provider."`)
+- `"response"` — a **dict** describing what a turn returns (default: `{"content": "Mock response from the mock provider."}`). It must be a dict: `MockProvider` calls `.get()` on it, so a bare string (`{"response": "hi"}`) raises `AttributeError` rather than being treated as the reply text. Its keys:
+  - `"content"` — the reply text (default: `""`)
+  - `"tool_calls"` — a LIST of `{"id": str, "name": str, "arguments": dict}` dicts (`arguments` optional, defaults `{}`), synthesized into real `ToolCall`s on the assistant `Message`. This is the only way to drive a deterministic tool-calling agent turn with no live provider — two behavior specs depend on it — and it is what lets an apparatus make an agent *attempt* a tool call. Also attached to the final chunk of a `stream_chunks` run.
+  - `"thinking"` — a LIST of block dicts parsed into `ThinkingBlock`s: `{"type": "thinking", "thinking": "...", "signature": "..."}` or `{"type": "redacted_thinking", "data": "..."}`. Drives the real thinking-disclosure path end-to-end with no live Anthropic key (M16 F10 L05).
 - `"stream_chunks"` — a LIST of strings; when set (non-empty), `stream()` yields each list element as one streaming chunk in order. When unset/empty, the provider is non-streaming (default). (Not a chunk *count* — the values are the literal chunk texts, e.g. `["Hello, ", "world", "!"]`.)
+- `"delay_ms"` — simulated latency in milliseconds (default: `0`, so tests stay fast): awaited once before `complete()` returns, and *between* successive `stream_chunks`. Useful interactively to exercise the client-side "thinking…" indicator.
 - `"input_tokens"` — `input_tokens` value emitted in `TokenUsage` for each turn (default: `0`). Set to a positive integer in tests that exercise the telemetry overlay or the `last_usage` persistence path (M10 F06); the default preserves all existing test expectations.
+- `"models"` — a LIST of model-id strings returned by `GET /api/providers/{id}/models` for this provider (default: `["mock-default"]`). Read by the API layer (`interfaces/web/api.py`), not by `MockProvider` itself — so it shapes the Studio/Administration model picker, not the chat response.
 
 - Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off
 - UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)

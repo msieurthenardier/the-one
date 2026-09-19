@@ -20,7 +20,10 @@ rename-only affordance — reuses the inventory create form's advisory hint
 + empty-name refusal for the name field), AC-12 (after a rename, the
 attach tab's row shows the NEW derived tool name and the agent's
 `disabled_tools` entry has already moved to match — Leg 2's rewrite,
-observed through this surface).
+observed through this surface). Squawk 0090 adds one more: a FAILED
+fresh-agent `GET /api/agents/{name}` must refuse the save rather than
+let the ungated-prefix union re-emit a pre-rename `kb__...__search`
+entry from the stale cached agent.
 
 AC-5's "route.request.method" filter and its `post_data_json` usage are
 NEW patterns in this file — no prior `tests/browser/` file reads a
@@ -612,3 +615,108 @@ def test_attached_tool_name_survives_unrelated_in_session_save(
     body = _get_agent(base_url, agent_name)
     assert (body.get("kb_tool_names") or {}).get(kb["id"]) == expected_tool_name
     assert body.get("kb_ids") == [kb["id"]]
+
+
+@pytest.mark.browser
+def test_failed_agent_fetch_refuses_save_instead_of_reemitting_stale_disabled_tool(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0090: when `doSelect`'s fresh `GET /api/agents/{name}` fails,
+    the editor still renders from the stale cached agent (L3-D7) — but it
+    must NOT save from it. The stale object is what
+    `_storedUngatedDisabledNames()` unions into `disabled_tools`, so a
+    save from it would re-emit the PRE-rename `kb__{old_slug}__…__search`
+    entry over the post-rename one `rename_kb_tool_references` wrote,
+    silently re-enabling a tool the operator deliberately disabled.
+
+    Shape of the fix (and why it differs from AC-5's sibling above):
+    `disabled_tools` has NO server-side preserve-on-omit path — omitting
+    it would wipe every disabled tool, since `AgentConfig.disabled_tools`
+    defaults to `[]` — so the save is REFUSED, with the load-failure
+    affordance rendered, rather than the field omitted.
+
+    The GET and the PUT share a path, so the single route handler here
+    dispatches on `route.request.method` (the same reason AC-5's handler
+    does).
+    """
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    assert agent_name is not None
+    kb = _create_kb(base_url, "Stale Union Pre-Rename")
+    _put_agent_full(base_url, agent_name, kb_ids=[kb["id"]])
+    old_tool_name = _get_agent(base_url, agent_name)["kb_tool_names"][kb["id"]]
+    # Disable it via the API — DD-13: the Studio form cannot render an
+    # ungated-prefix name, so there is no UI for this.
+    _put_agent_full(base_url, agent_name, disabled_tools=[old_tool_name])
+
+    # Mount the editor while everything is healthy, so the in-page caches
+    # (`self._agents`, `self._selectedAgent`) hold the PRE-rename entry.
+    _open_agent_editor(base_url, page)
+    _open_knowledge_tab(page)
+    expect(page.locator(f'[data-testid="agent-knowledge-row-{kb["id"]}"]')).to_be_visible(
+        timeout=5000
+    )
+
+    # Rename out-of-band (server-side only): the page's caches are now
+    # stale in exactly the way the squawk describes, and the stored
+    # `disabled_tools` entry has moved to the new name.
+    r = httpx.put(
+        f"{base_url}/api/knowledge-bases/{kb['id']}",
+        headers=auth_headers_for(base_url),
+        json={"name": "Stale Union Post-Rename"},
+        timeout=5.0,
+    )
+    assert r.status_code == 200, f"rename KB failed: {r.status_code} {r.text}"
+    body = _get_agent(base_url, agent_name)
+    new_tool_name = body["kb_tool_names"][kb["id"]]
+    assert new_tool_name != old_tool_name, "rename did not move the derived tool name"
+    assert body["disabled_tools"] == [new_tool_name], (
+        f"expected the rewrite to have already landed, got {body['disabled_tools']!r}"
+    )
+
+    # Fail the fresh-agent GET; record (and let through) any PUT.
+    put_bodies: list[dict] = []
+
+    def _fail_get_capture_put(route) -> None:  # noqa: ANN001
+        if route.request.method == "GET":
+            route.fulfill(status=500, content_type="text/plain", body="err")
+            return
+        if route.request.method == "PUT":
+            put_bodies.append(route.request.post_data_json)
+        route.continue_()
+
+    page.route(f"**/api/agents/{agent_name}", _fail_get_capture_put)
+
+    _reselect_agent(page)
+
+    # The editor still renders (L3-D7) — and says so.
+    expect(page.locator('[data-testid="agent-load-error"]')).to_be_visible(timeout=5000)
+
+    # Dirty the form: Save stays disabled, unlike every healthy mount.
+    page.locator('[data-testid="tab-general"]').click()
+    page.locator('[data-field="description"]').fill("save attempt on a stale agent")
+    save_btn = page.locator('[data-testid="save-agent-btn"]')
+    expect(page.locator('[data-testid="cancel-agent-btn"]')).to_be_enabled(timeout=5000)
+    expect(save_btn).to_be_disabled()
+
+    # Second line of defence: force the button live and click it, so
+    # `save()`'s own guard is the thing under test (a click on a disabled
+    # button dispatches no event at all, which would prove nothing).
+    # Re-enable and dispatch in ONE evaluate: a Playwright `.click()` blurs
+    # the description input on its way in, whose `change` listener re-runs
+    # `checkDirty` and re-disables the button between mousedown and mouseup
+    # — so the browser never dispatches the click at all.
+    save_btn.evaluate("(el) => { el.disabled = false; el.click(); }")
+    expect(page.locator(".studio-editor .editor-error")).to_contain_text(
+        "failed to load", timeout=5000
+    )
+
+    assert put_bodies == [], f"no PUT may be sent from a stale agent, got {put_bodies!r}"
+
+    # The stored entry still names the POST-rename tool.
+    page.unroute(f"**/api/agents/{agent_name}")
+    body = _get_agent(base_url, agent_name)
+    assert body["disabled_tools"] == [new_tool_name], (
+        f"expected disabled_tools to still be [{new_tool_name!r}], got {body['disabled_tools']!r}"
+    )
+    assert old_tool_name not in body["disabled_tools"]
