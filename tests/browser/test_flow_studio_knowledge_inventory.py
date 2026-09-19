@@ -43,6 +43,19 @@ detail view's edit form joins dirty-confirm), Leg 5 AC-9/AC-10 (the
 per-row overflow menu carrying "View chunks"/"View source" is keyboard-
 operable — opens from the keyboard, Escape closes and returns focus to
 the trigger, arrows move between items).
+
+Mission 24 Flight 6 Leg 6 HAT polish pass (2026-09-19) — look-and-feel
+only, no behaviour change. Assertions were ADDED to existing tests rather
+than given a test of their own (each needs a fixture the host test already
+builds): the section order is now Folders -> Status -> Search -> Danger
+Zone with the two re-index controls inside Status (they act on the whole
+knowledge base, never one folder — the misreading the move fixes),
+carrying their new "Re-index changed files"/"Re-index all files" labels
+and a scope hint; both destructive controls render a real trash SVG (the
+Danger Zone one alongside its surviving label, the folder one in place of
+the old text glyph); and the folder one's arming click still does not
+toggle its `<details>`, which only became breakable once the target was an
+`<svg>` rather than the `<button>`.
 """
 
 from __future__ import annotations
@@ -134,6 +147,14 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
     page.locator('[data-testid="knowledge-base-card"]', has_text="Delete Me").click()
     delete_btn = page.locator('[data-testid="delete-knowledge-base-btn"]')
     expect(delete_btn).to_be_visible(timeout=5000)
+
+    # HAT polish pass (L06 follow-up): the Danger Zone delete carries a
+    # real trash icon ALONGSIDE its label, not instead of it — the same
+    # shape mcp-server-editor.js's own Danger Zone delete has. The icon
+    # sits outside the `[data-confirm-title]` span, so the label alone is
+    # what App.confirmDelete swaps on arm.
+    expect(delete_btn.locator("svg")).to_have_count(1)
+    expect(delete_btn).to_have_text("Delete Knowledge Base")
 
     delete_btn.click()  # arm
     # Wait for the armed state before the second click — App.confirmDelete
@@ -379,6 +400,42 @@ def test_detail_view_indexing_poll_reindex_and_search(
     expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
         "indexed: 1", timeout=30000
     )
+
+    # HAT polish pass (L06 follow-up): section order is Folders -> Status
+    # -> Search -> Danger Zone. The header's fields sit in an
+    # `.editor-section` carrying no `.section-title`, so it does not
+    # appear here. This assertion is DELIBERATELY order-encoding: the
+    # operator asked for Status (and its re-index pair) to sit BELOW
+    # Folders, which is a change from the leg's original AC-6 order.
+    # Direct-child `>` on purpose: `_panelTitle` gives an OPEN chunks or
+    # source panel a `.section-title` of its own, nested one level deeper
+    # inside the Folders section, which a descendant selector would splice
+    # into this sequence.
+    root = page.locator('[data-testid="studio-knowledge-inventory"]')
+    assert root.locator(".editor-section > .section-title").all_text_contents() == [
+        "Folders",
+        "Status",
+        "Search",
+        "Danger Zone",
+    ]
+
+    # ...and both re-index controls now live INSIDE the Status section,
+    # not among the per-folder panels, because each acts on the whole
+    # knowledge base (POST /reindex requeues every folder) — the scoping
+    # the labels and the hint now make legible.
+    status_section = root.locator(".editor-section").filter(
+        has=page.locator(".section-title", has_text="Status")
+    )
+    expect(status_section.locator('[data-testid="kb-reindex-changed-btn"]')).to_have_text(
+        "Re-index changed files"
+    )
+    expect(status_section.locator('[data-testid="kb-reindex-all-btn"]')).to_have_text(
+        "Re-index all files"
+    )
+    scope_hint = status_section.locator('[data-testid="kb-reindex-scope-hint"]')
+    expect(scope_hint).to_be_visible()
+    expect(scope_hint).to_contain_text("every folder registered in this knowledge base")
+    expect(scope_hint).to_contain_text("there is no per-folder re-index")
 
     # AC-9: reindex (both scopes) triggers one immediate status refresh
     # rather than waiting a full poll interval.
@@ -633,10 +690,25 @@ def test_folder_remove_two_step_confirm_cascade_hint_and_immediate_refresh(
     # L6-D3 (amended): FIRST click only arms the confirm.
     remove_btn = folder_panel.locator('[data-testid="kb-folder-delete-btn"]')
     expect(remove_btn).to_be_visible()
+    # HAT polish pass (L06 follow-up): the summary-line trash is a real
+    # SVG icon now, not a text glyph rendering at the summary's 12px —
+    # which is what "too small" meant. Its size comes from
+    # `.kv-remove-row-btn svg`'s existing 16px, not a rule of its own.
+    expect(remove_btn.locator("svg")).to_have_count(1)
+    assert folder_panel.evaluate("el => el.open") is False
     remove_btn.click()
 
     summary = folder_panel.locator(".kb-folder-summary")
     expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    # ...and arming did NOT toggle the panel. The summary's default
+    # handler skips clicks whose TARGET is a form control, and Blink tests
+    # the target node itself rather than its ancestors — so the new `<svg>`
+    # child, a hit-test target of its own, would reach the summary and
+    # expand the panel on every delete press without
+    # `.kb-folder-delete-btn svg { pointer-events: none }`. With the text
+    # glyph the target was the button and this could not happen, so the
+    # invariant only became assertable-and-breakable with the icon.
+    assert folder_panel.evaluate("el => el.open") is False
     expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
     # The arming click issued no DELETE: the folder and its indexed file
     # are both still there, and no DELETE left the browser at all.

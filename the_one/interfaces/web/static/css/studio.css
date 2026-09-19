@@ -1194,9 +1194,24 @@
     border-bottom: none;
   }
   .area-studio .kb-folder-path,
-  .area-studio .kb-item-path,
   .area-studio .kb-search-hit-path {
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
+    word-break: break-all;
+  }
+  /* HAT polish pass (2026-09-19): the folder is the parent item and the
+     files inside its panel are sub-items, so they must not read at the
+     same weight — or, as they did, LARGER. `.kb-item-path` inherited the
+     section's body size (13px) at weight 500, while the folder's own
+     summary line sits at `--font-size-body-sm` (12px) from
+     `.mcp-tool-summary`. Dropping the file path to that same 12px at
+     regular weight puts it a clear notch below its folder. Both
+     consumers of this class are file rows (a folder panel's body and the
+     trailing "Other items" panel), so no scoping split is needed;
+     `.kb-folder-path` / `.kb-search-hit-path` keep medium weight above,
+     since neither is a sub-item of anything. */
+  .area-studio .kb-item-path {
+    font-weight: var(--font-weight-regular);
+    font-size: var(--font-size-body-sm);
     word-break: break-all;
   }
   /* Leg 6 (restyle): `.kb-folder-status`/`.kb-folder-watch` moved onto the
@@ -1244,6 +1259,11 @@
     gap: 8px;
     margin-top: 8px;
   }
+  /* HAT polish pass: the re-index pair moved into the Status section and
+     gained the scope hint above it. base.css zeroes every margin, so
+     without this the hint sits flush against the indexer-state line.
+     Same `--space-*` scale as `.kb-folders-list` below. */
+  .area-studio .kb-reindex-hint { margin-top: var(--space-3); }
   .area-studio .kb-search-degraded[hidden],
   .area-studio .kb-chunks-panel[hidden],
   .area-studio .kb-source-panel[hidden] { display: none; }
@@ -1262,11 +1282,32 @@
      `flex-basis: 100%` caption rule are retired — the cascade warning is
      now persistent section-level text (`.field-hint`, no new rule). */
   /* L6-D3: the folder delete control reuses `.kv-remove-row-btn` (Custom
-     Headers row precedent) verbatim EXCEPT for line-height — that rule
-     assumes an SVG child (`line-height: 0`, correct for icon glyphs); this
-     button carries a text glyph instead (no innerHTML — see this file's
-     own no-dynamic-sink discipline), so it needs a normal line box. */
-  .area-studio .kb-folder-delete-btn { line-height: 1; }
+     Headers row precedent) — now verbatim, with no override at all. The
+     HAT polish pass (2026-09-19) replaced this button's text glyph with
+     the real `trash` SVG (knowledge-section.js's `_appendIcon`, the
+     DOMParser route that keeps the no-inner-HTML discipline), so the
+     borrowed rule's `line-height: 0` + `svg { width: 16px; height: 16px }`
+     are correct as-is and the old `line-height: 1` override is gone. That
+     16px is also the fix for "the trashcan is too small": the glyph used
+     to render at the summary line's `--font-size-body-sm` (12px).
+
+     `pointer-events: none` on the icon is LOAD-BEARING, not cosmetic, and
+     is new with the SVG. The rule that keeps this button from toggling
+     its `<details>` is the summary's default handler skipping clicks on a
+     form control — and Blink tests the click's TARGET NODE ITSELF, not
+     its ancestors (`HTMLSummaryElement::DefaultEventHandler` ->
+     `IsClickableControl`). With a text glyph the target was the
+     `<button>`, so it was skipped; an `<svg>` child is its own hit-test
+     target and is NOT a form control, so the click would reach the
+     summary and toggle the panel open/closed on every delete press. Making
+     the icon transparent to hit-testing puts the target back on the
+     button. The click still reaches the button's own listener. */
+  .area-studio .kb-folder-delete-btn svg { pointer-events: none; }
+
+  /* HAT polish pass: the folders list needs breathing room under the
+     "Add folder" button, which it had none of. Uses the existing
+     `--space-*` scale (same vocabulary as `.connector-enabled-row`). */
+  .area-studio .kb-folders-list { margin-top: var(--space-3); }
 
   /* L6-D3 (amended): the ARMED two-step-confirm state on a folder's
      `<summary>`. components.css's canonical `.list-item.confirm-delete`

@@ -21,9 +21,12 @@
 // `textContent` — outside the guard's scanned sink set entirely, and a
 // static single-string-literal even if it were scanned. Icons follow the
 // same discipline: `window.App.icon()` returns raw SVG HTML meant for an
-// `innerHTML` assignment, which this file never performs — destructive
-// controls use a plain text glyph (`🗑`) via `textContent`, mirroring
-// `connector-editor.js`'s own icon-free remove/delete affordances.
+// `innerHTML` assignment, which this file never performs. Where a real
+// icon is required (the two destructive controls), it goes in through
+// `_appendIcon` below — the DOMParser route that
+// `tests/_ui_guard_helpers.py`'s own allowance note names as the
+// sanctioned no-inner-HTML path, and that `markdown.js::injectIcon`
+// already uses for exactly this reason.
 //
 // L1-D2: the 5-second status poll is owned by `studio.js`, not this
 // module — `renderKnowledgeDetail` returns `{ updateStatus(status) }`, a
@@ -138,6 +141,23 @@
     if (opts.className) e.className = opts.className;
     if (opts.text !== undefined) e.textContent = opts.text;
     return e;
+  }
+
+  // Appends a TRUSTED icons.js SVG to `parent` without an HTML-string
+  // sink. `window.App.icon(name)` returns SVG *markup*, which normally
+  // wants `innerHTML`; Mission 17 Flight 1's dynamic-sink freeze
+  // (tests/test_ui_guards.py) forbids a new one, and this file has no
+  // baseline entry to spend. `markdown.js::injectIcon` solves the same
+  // problem the same way, and `tests/_ui_guard_helpers.py`'s allowance
+  // note calls that route "the sanctioned no-inner-HTML path for the
+  // copy-button glyph". Only literal icon names are ever passed here —
+  // no untrusted data reaches the parser.
+  function _appendIcon(parent, name) {
+    var svgString = (window.App && window.App.icon) ? window.App.icon(name) : '';
+    if (!svgString) return;
+    var doc = new DOMParser().parseFromString(svgString, 'image/svg+xml');
+    var svg = doc && doc.documentElement;
+    if (svg && svg.nodeName.toLowerCase() === 'svg') parent.appendChild(svg);
   }
 
   function _btn(className, testid, text) {
@@ -519,44 +539,16 @@
       });
     });
 
-    // ── Status (AC-6) — counts/chunks/indexer only; folders moved to
-    // their own section below (Leg 6).
-    var statusSection = _section(root, 'Status');
-    var summaryEl = _el('div', { className: 'kb-status-summary' });
-    summaryEl.setAttribute('data-testid', 'kb-status-summary');
-    statusSection.appendChild(summaryEl);
-
-    function renderStatusSummary(status) {
-      summaryEl.textContent = '';
-      if (!status) {
-        summaryEl.appendChild(_el('div', { className: 'admin-loading', text: 'Loading status…' }));
-        return;
-      }
-      var counts = status.items || {};
-      var countsRow = _el('div', { className: 'kb-status-counts' });
-      STATUS_LABELS.forEach(function (label) {
-        var chip = _el('span', {
-          className: 'chip kb-status-chip',
-          text: label + ': ' + (counts[label] || 0)
-        });
-        chip.setAttribute('data-testid', 'kb-status-count');
-        chip.setAttribute('data-status', label);
-        countsRow.appendChild(chip);
-      });
-      summaryEl.appendChild(countsRow);
-      var chunkEl = _el('div', { className: 'kb-chunk-count', text: 'Chunks: ' + status.chunks });
-      chunkEl.setAttribute('data-testid', 'kb-chunk-count');
-      summaryEl.appendChild(chunkEl);
-      var indexerEl = _el('div', {
-        className: 'kb-indexer-state',
-        text: 'Indexer: ' + status.indexer
-      });
-      indexerEl.setAttribute('data-testid', 'kb-indexer-state');
-      summaryEl.appendChild(indexerEl);
-    }
-    renderStatusSummary(initialStatus);
-
     // ── Folders (AC-6/AC-7/AC-8/AC-9/AC-10, L6-D2/L6-D3) ────────────────
+    //
+    // HAT polish pass (2026-09-19): Folders is now created BEFORE Status,
+    // so it renders ABOVE it. `_section` appends in call order, so the
+    // Status block that used to sit here has moved verbatim to just after
+    // this section's last append (search for "── Status"), taking the
+    // re-index row with it. The operator read the re-index pair as
+    // folder-scoped while it sat among the per-folder panels; it is a
+    // whole-knowledge-base operation, so it belongs beside the
+    // whole-knowledge-base status counts.
     var foldersSection = _section(root, 'Folders');
 
     // L6-D3: the cascade warning that used to live as a per-row caption
@@ -909,7 +901,12 @@
         'aria-label', 'Delete folder ' + f.path + ' (press twice to confirm)'
       );
       deleteBtn.title = 'Delete folder';
-      deleteBtn.textContent = '🗑';
+      // HAT polish pass: a real 16px trash icon (the size
+      // `.kv-remove-row-btn svg` already sets for the Custom Headers row
+      // this borrows from) replaces the text glyph, which rendered at the
+      // summary line's 12px and read as too small. `_appendIcon` keeps the
+      // no-inner-HTML discipline — see its comment.
+      _appendIcon(deleteBtn, 'trash');
       deleteBtn.addEventListener('click', function () {
         window.App.confirmDelete(summary, function (el, revertFn) {
           deleteFolder(f, deleteBtn, revertFn);
@@ -1170,13 +1167,73 @@
     foldersSection.appendChild(chunksPanel);
     foldersSection.appendChild(sourcePanel);
 
+    // ── Status (AC-6, amended by the HAT polish pass) — counts / chunks /
+    // indexer, plus the re-index controls. Created AFTER `foldersSection`
+    // so it renders BELOW it. `renderStatusSummary` is a hoisted function
+    // declaration and `summaryEl` a hoisted `var`, so the earlier
+    // `refreshStatusNow` / `updateStatus` call sites still resolve — both
+    // only ever run from an event handler or a promise, long after this
+    // assignment.
+    var statusSection = _section(root, 'Status');
+    var summaryEl = _el('div', { className: 'kb-status-summary' });
+    summaryEl.setAttribute('data-testid', 'kb-status-summary');
+    statusSection.appendChild(summaryEl);
+
+    function renderStatusSummary(status) {
+      summaryEl.textContent = '';
+      if (!status) {
+        summaryEl.appendChild(_el('div', { className: 'admin-loading', text: 'Loading status…' }));
+        return;
+      }
+      var counts = status.items || {};
+      var countsRow = _el('div', { className: 'kb-status-counts' });
+      STATUS_LABELS.forEach(function (label) {
+        var chip = _el('span', {
+          className: 'chip kb-status-chip',
+          text: label + ': ' + (counts[label] || 0)
+        });
+        chip.setAttribute('data-testid', 'kb-status-count');
+        chip.setAttribute('data-status', label);
+        countsRow.appendChild(chip);
+      });
+      summaryEl.appendChild(countsRow);
+      var chunkEl = _el('div', { className: 'kb-chunk-count', text: 'Chunks: ' + status.chunks });
+      chunkEl.setAttribute('data-testid', 'kb-chunk-count');
+      summaryEl.appendChild(chunkEl);
+      var indexerEl = _el('div', {
+        className: 'kb-indexer-state',
+        text: 'Indexer: ' + status.indexer
+      });
+      indexerEl.setAttribute('data-testid', 'kb-indexer-state');
+      summaryEl.appendChild(indexerEl);
+    }
+    renderStatusSummary(initialStatus);
+
     // ── Re-index ─────────────────────────────────────────────────────
+    // Both buttons POST to /reindex, which is whole-knowledge-base by
+    // construction (`requeue_for_reindex` is one UPDATE across every
+    // folder) — there is no per-folder re-index. Sitting among the
+    // per-folder panels they read as folder-scoped, which is the
+    // misreading this pass fixes: they moved here, the labels name what
+    // is re-indexed rather than a bare "all", and the hint states the
+    // scope in the page's existing `.field-hint` voice.
+    var reindexHint = _el('p', {
+      className: 'field-hint kb-reindex-hint',
+      text:
+        'Re-indexing always covers every folder registered in this knowledge base — ' +
+        'there is no per-folder re-index. "Changed files" re-walks each folder and ' +
+        'indexes only what differs; "All files" re-embeds every file from scratch.'
+    });
+    reindexHint.setAttribute('data-testid', 'kb-reindex-scope-hint');
+    statusSection.appendChild(reindexHint);
     var reindexRow = _el('div', { className: 'kb-reindex-row' });
-    var reindexChangedBtn = _btn('btn-outlined-primary', 'kb-reindex-changed-btn', 'Re-index changed');
-    var reindexAllBtn = _btn('btn-outlined-primary', 'kb-reindex-all-btn', 'Re-index all');
+    var reindexChangedBtn = _btn(
+      'btn-outlined-primary', 'kb-reindex-changed-btn', 'Re-index changed files'
+    );
+    var reindexAllBtn = _btn('btn-outlined-primary', 'kb-reindex-all-btn', 'Re-index all files');
     reindexRow.appendChild(reindexChangedBtn);
     reindexRow.appendChild(reindexAllBtn);
-    foldersSection.appendChild(reindexRow);
+    statusSection.appendChild(reindexRow);
 
     function triggerReindex(scope) {
       reindexChangedBtn.disabled = true;
@@ -1278,6 +1335,16 @@
     var deleteBtn = _el('button', { className: 'btn-muted-destructive delete-btn' });
     deleteBtn.type = 'button';
     deleteBtn.setAttribute('data-testid', 'delete-knowledge-base-btn');
+    // HAT polish pass: a red trash icon BESIDE the label, not instead of
+    // it — the exact shape `mcp-server-editor.js`'s own Danger Zone
+    // delete already has. The icon sits OUTSIDE the `data-confirm-title`
+    // span so App.confirmDelete swaps only the label text on arm and the
+    // glyph persists through the confirm flow. Colour and layout need no
+    // new CSS: `.btn-muted-destructive` is already `inline-flex` with a
+    // 6px gap and `color: var(--status-danger)`, which the icon's
+    // `stroke="currentColor"` inherits, and components.css already sizes
+    // `.btn-muted-destructive svg` at 16px.
+    _appendIcon(deleteBtn, 'trash');
     var deleteTitle = _el('span', { text: 'Delete Knowledge Base' });
     deleteTitle.setAttribute('data-confirm-title', '');
     deleteBtn.appendChild(deleteTitle);

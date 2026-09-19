@@ -103,6 +103,7 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-name-input` | studio | Knowledge detail view always-live name field, header region — no edit-button toggle (L6-D1, M24 F06 L06; renamed from `kb-edit-name-input`) |
 | `kb-other-items-panel` | studio | Knowledge detail view Folders section — trailing native `<details>` panel for items with no real folder parent (L6-D2 chosen option (a), M24 F06 L06) |
 | `kb-panel-title` | studio | Knowledge detail view chunks/source panel — titled with the open item's path so the panel is attributable when it isn't beside its row (kb-studio-round-trip remediation FIX 4, M24 F06) |
+| `kb-reindex-scope-hint` | studio | Knowledge detail view Status section — helper text stating that re-indexing covers every registered folder (there is no per-folder re-index) and what each scope does (M24 F06 L06 HAT polish pass) |
 | `kb-search-degraded` | studio | Knowledge detail view search degrade line, shown alongside the response's own `indexer` word (AC-12, M24 F06 L01) |
 | `kb-search-hit` | studio | Knowledge detail view — one search result row, carries `score` (M24 F06 L01) |
 | `kb-search-input` | studio | Knowledge detail view search query field (DD-6, M24 F06 L01) |
@@ -292,8 +293,8 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-create-submit-btn` | studio | Knowledge grid create-form submit, same `_btn` indirection (M24 F06 L01) |
 | `kb-item-chunks-btn` | studio | Knowledge detail view item row overflow menu — "View chunks" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 | `kb-item-source-btn` | studio | Knowledge detail view item row overflow menu — "View source" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
-| `kb-reindex-all-btn` | studio | Knowledge detail view re-index control, same `_btn` indirection (M24 F06 L01) |
-| `kb-reindex-changed-btn` | studio | Knowledge detail view re-index control, same `_btn` indirection (M24 F06 L01) |
+| `kb-reindex-all-btn` | studio | Knowledge detail view Status section re-index control (`scope=all`), same `_btn` indirection (M24 F06 L01; label "Re-index all" -> "Re-index all files" and moved from Folders into Status in the L06 HAT polish pass) |
+| `kb-reindex-changed-btn` | studio | Knowledge detail view Status section re-index control (`scope=changed`), same `_btn` indirection (M24 F06 L01; label "Re-index changed" -> "Re-index changed files" and moved from Folders into Status in the L06 HAT polish pass) |
 | `kb-search-btn` | studio | Knowledge detail view search control submit, same `_btn` indirection (M24 F06 L01) |
 | `new-connector-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M23 F02 L02) |
 | `new-knowledge-base-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M24 F06 L01) |

@@ -2748,3 +2748,136 @@ question, not this leg's.
 **Not restarted, per the constraint**: the operator's live 8485 /
 `/tmp/the-one-hat-scratch` instance was not touched. It still needs a
 restart to serve this pass's `knowledge-section.js` + `studio.css`.
+
+---
+
+## Leg 06 — HAT polish pass (2026-09-19, third visit)
+
+Five look-and-feel findings from the operator's live HAT walk against the
+8485 / `/tmp/the-one-hat-scratch` dev instance, all on the knowledge-base
+detail page. **Fixes, not features**: no route, no `scope` value, no
+confirm step, no cascade hint changed.
+
+**1 — Re-index moved into Status; Status moved below Folders.** Both
+buttons POST `/reindex`, which is whole-knowledge-base by construction
+(`requeue_for_reindex` is one `UPDATE … WHERE kb_id = ?`) — there is no
+per-folder re-index. Sitting among the per-folder `<details>` panels they
+read as folder-scoped, and the operator asked outright whether they were,
+which is the defect proving it. `_section` appends in call order, so the
+fix is ordering: `_section(root, 'Folders')` now runs first, and the whole
+Status block (section, `summaryEl`, `renderStatusSummary`, its initial
+call) moved *verbatim* to just after the Folders section's last append,
+taking `reindexRow` with it. Safe because `renderStatusSummary` is a
+hoisted function declaration, `summaryEl` a hoisted `var`, and the earlier
+`refreshStatusNow` / returned `updateStatus` call sites only ever run from
+an event handler or a promise. Shipped order: header/fields → Folders →
+Status (re-index) → Search → Danger Zone — which **amends the leg's AC-6**
+(annotated in the leg artifact rather than silently contradicted). Scope
+made legible in existing vocabulary: labels "Re-index changed files" /
+"Re-index all files" (the old "Re-index all" answered "all *what*?" with
+nothing), plus a `.field-hint` (`kb-reindex-scope-hint`) saying re-indexing
+always covers every registered folder and there is no per-folder re-index.
+
+**2 & 3 — the icon-guard judgement, asked for explicitly.** `App.icon()`
+returns an SVG *string*, normally wanting an `innerHTML` sink, and
+`test_ui_guards.py`'s `DYNAMIC_SINK_BASELINE` has **no entry for
+`knowledge-section.js`** — any concatenated sink here fails the freeze.
+`mcp-server-editor.js`'s `App.icon('trash') + …` is a grandfathered
+baseline entry, not a licence. But reading the guard rather than assuming
+it: the freeze bans *HTML-string sinks*, not icons, and
+`tests/_ui_guard_helpers.py`'s own allowance note names
+`new DOMParser().parseFromString(svg, 'image/svg+xml')` **the sanctioned
+no-inner-HTML path**, already shipped as `markdown.js::injectIcon`. So a
+local `_appendIcon(parent, name)` was added on that precedent — trusted
+`icons.js` literals only, no untrusted data, no scanned sink.
+`test_ui_guards.py` passes with **no baseline additions**, so both items
+ship in full and no compliant-alternative substitution was needed.
+- *Item 2 (folder trash too small)*: the glyph rendered at the summary
+  line's 12px. The SVG inherits `.kv-remove-row-btn svg { width: 16px;
+  height: 16px }` from the class it already borrows, so the size fix cost
+  no new CSS — and the local `line-height: 1` override was **deleted**, it
+  existed only to give a text glyph a line box. One rule *was* required, and it
+  is load-bearing: `.kb-folder-delete-btn svg { pointer-events: none }`.
+  What keeps this button from toggling its `<details>` is the summary's
+  default handler skipping clicks on a form control — and Blink tests the
+  click's **target node itself**, not its ancestors
+  (`HTMLSummaryElement::DefaultEventHandler` → `IsClickableControl`). With
+  a text glyph the target was the `<button>`; an `<svg>` child is its own
+  hit-test target and is not a form control, so every delete press would
+  also have expanded/collapsed the panel. Caught reviewing this pass's own
+  diff before the lane run, and now pinned by an assertion (panel
+  `open === false` before and after the arming click) in
+  `test_folder_remove_two_step_confirm_…` — the invariant only became
+  breakable with the icon.
+- *Item 3 (red trash beside the words)*: the icon is appended *before* the
+  `[data-confirm-title]` span, so `App.confirmDelete` still swaps only the
+  label and the glyph persists through the confirm — the exact shape
+  `mcp-server-editor.js`'s Danger Zone delete has. No new CSS:
+  `.btn-muted-destructive` is already `inline-flex`, gap 6px, `color:
+  var(--status-danger)` (inherited by `stroke="currentColor"`), and
+  `components.css` already sizes `.btn-muted-destructive svg` at 16px.
+
+**4 — file rows read as sub-items now.** `.kb-folder-path`,
+`.kb-item-path` and `.kb-search-hit-path` shared one `font-weight: 500`
+rule, so a file inside a panel rendered at the section's 13px at weight
+500 while its *parent* folder's summary sat at 12px — the child was
+literally bigger than the parent. `.kb-item-path` split out to
+`--font-size-body-sm` + `--font-weight-regular`. Both of its consumers are
+file rows (a folder panel body, the "Other items" panel), so no scoping
+split was needed; the other two keep medium weight, neither being a
+sub-item of anything, and the literal `500` became
+`var(--font-weight-medium)` on the way past.
+
+**5 — space under "Add folder".** `.kb-folders-list` gained
+`margin-top: var(--space-3)`, the vocabulary `.connector-enabled-row`
+already uses in this file. (`base.css` zeroes every margin with a `*`
+reset, so vertical rhythm here is always explicit; the same one-line rule,
+as `.kb-reindex-hint`, keeps item 1's new scope hint off the
+indexer-state line above it.) Existing tokens only across the whole pass — no
+new tokens, no colour literals, no new size literals.
+
+**Tests** — assertions added to
+`tests/browser/test_flow_studio_knowledge_inventory.py`, each folded into
+the test that already builds the fixture it needs rather than paying for
+extra browser spawns. `test_detail_view_indexing_poll_reindex_and_search`
+now asserts the `.editor-section .section-title` sequence inside the
+inventory root is exactly `["Folders", "Status", "Search", "Danger Zone"]`
+(deliberately order-encoding — that is the amended AC-6 and the point of
+the change), that both re-index buttons live *inside* the Status section
+with their new labels, and the scope hint's two load-bearing phrases.
+`test_delete_knowledge_base_via_confirm_affordance` asserts the Danger
+Zone button has exactly one `svg` **and** still reads "Delete Knowledge
+Base" (pinning "alongside, not instead of").
+`test_folder_remove_two_step_confirm_…` asserts the summary trash is an
+`svg` and that the panel is `open === false` both before the arming click
+and after it. **No existing assertion was weakened or removed** — the only
+pre-existing assertions on this surface keyed on testids, none of which
+changed. `docs/ui-testid-registry.md`: one new literal testid
+(`kb-reindex-scope-hint`), and the two `kb-reindex-*-btn` manual-exception
+rows re-described with their new labels and new home.
+
+**Gates run:**
+
+- `ruff check the_one/ tests/ scripts/` — `All checks passed!`
+- `ruff format --check the_one/ tests/ scripts/` — `449 files already
+  formatted`.
+- `.venv/bin/python -m pytest tests/test_ui_guards.py -x --timeout=120 -q`
+  — **14 passed in 0.35s** (no new dynamic-sink entries; registry in sync
+  both ways).
+- `make test-unit`, verbatim, alone, foreground — **4769 passed, 10
+  skipped, 593 deselected, 17 warnings in 609.26s (0:10:09)**, exit 0.
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio` — **176
+  passed, 3 skipped in 367.02s (0:06:07)**, exit 0
+  (`test_flow_studio_knowledge_inventory.py` 15/15,
+  `test_flow_studio_knowledge_attach.py` 10/10).
+- One assertion was tightened *after* that lane run (the section-order
+  locator narrowed from a descendant to a direct-child `>` selector, so an
+  open chunks/source panel's own `.section-title` can never splice into the
+  sequence), then
+  `scripts/run-tests.sh -m browser
+  tests/browser/test_flow_studio_knowledge_inventory.py -x -q` re-ran that
+  file alone — **15 passed in 72.80s**, exit 0.
+
+**Not restarted, per the constraint**: the operator's live 8485 /
+`/tmp/the-one-hat-scratch` instance was not touched. It needs a restart to
+serve this pass's `knowledge-section.js` + `studio.css`.

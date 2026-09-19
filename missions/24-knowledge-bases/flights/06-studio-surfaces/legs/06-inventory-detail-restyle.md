@@ -132,7 +132,12 @@ instance of that same leak, so the tracker must cover it.
 - [x] AC-5 — Navigating away dirty still raises the confirm dialog (Leg 5's
       bridge, now over an always-live form).
 - [x] AC-6 — Section order is: header/fields → **Status** → **Folders** →
-      Search → **Danger Zone**.
+      Search → **Danger Zone**. **AMENDED by the HAT polish pass
+      (2026-09-19): Folders now precedes Status** — see the second
+      Implementation Notes block. The operator asked for the re-index pair
+      to move into Status and for Status to sit below Folders; the shipped
+      order is header/fields → **Folders** → **Status** (re-index inside
+      it) → Search → **Danger Zone**.
 - [x] AC-7 — The folders control reads **Add folder**.
 - [x] AC-8 — Each folder is one summary line carrying path, walk status, watch
       state and a **delete (trash) icon**, and expands to reveal the files
@@ -270,6 +275,128 @@ Developer predicted:
 
 **Deliberately unchanged**: `kb-folders-cascade-hint` — it is additional to
 the confirm, not a substitute for it, and its text and testid are untouched.
+
+**HAT polish pass (2026-09-19, third visit to this leg).** Five
+look-and-feel findings from the operator's live HAT walk, all on this one
+surface. No behaviour changed: same routes, same `scope=changed|all`
+values, same two-step confirm on folder delete, same cascade hint.
+
+1. **Re-index moved into Status; Status moved below Folders.** Both
+   buttons POST `/api/knowledge-bases/{kb_id}/reindex`, which is
+   whole-knowledge-base by construction (`requeue_for_reindex` is one
+   `UPDATE … WHERE kb_id = ?`); there is no per-folder re-index at all.
+   Sitting among the per-folder `<details>` panels they read as
+   folder-scoped — the operator asked outright whether they were, which
+   is the defect. `_section` appends in call order, so the fix is
+   ordering: `_section(root, 'Folders')` now runs first and the whole
+   Status block (section, `summaryEl`, `renderStatusSummary`, its initial
+   call) moved *verbatim* to just after the Folders section's last append,
+   taking `reindexRow` with it. Nothing else moved — `renderStatusSummary`
+   is a hoisted function declaration and `summaryEl` a hoisted `var`, and
+   the earlier `refreshStatusNow` / returned `updateStatus` call sites
+   only ever run from an event handler or a promise, long after the
+   assignment. Shipped order: header/fields → Folders → Status (re-index)
+   → Search → Danger Zone, which **amends AC-6** (annotated above).
+   Scope made legible three ways, all in existing vocabulary: labels
+   "Re-index changed files" / "Re-index all files" (the old "Re-index all"
+   answered "all *what*?" with nothing), a `.field-hint`
+   (`kb-reindex-scope-hint`) stating that re-indexing always covers every
+   registered folder and there is no per-folder re-index, and the move
+   itself putting them beside the whole-knowledge-base counts.
+
+2 & 3. **Both trash affordances became real SVG icons — the guard
+   judgement.** `window.App.icon()` returns an SVG *string*, so it
+   normally needs an `innerHTML` sink, and `tests/test_ui_guards.py`'s
+   `DYNAMIC_SINK_BASELINE` has **no entry for `knowledge-section.js`** —
+   any concatenated sink here fails the freeze. `mcp-server-editor.js`'s
+   `window.App.icon('trash') + …` is a grandfathered baseline entry, not a
+   licence. But the freeze bans *HTML-string sinks*, not icons: reading
+   the guard rather than assuming it, `tests/_ui_guard_helpers.py`'s own
+   allowance note names `new DOMParser().parseFromString(svg,
+   'image/svg+xml')` **the sanctioned no-inner-HTML path** for exactly
+   this case, and `markdown.js::injectIcon` already ships it. So a local
+   `_appendIcon(parent, name)` was added on that precedent — it parses
+   only trusted `icons.js` literals, never untrusted data, and touches no
+   scanned sink. `test_ui_guards.py` passes with **no baseline additions**.
+   Both items are therefore implemented in full; no compliant-alternative
+   substitution was needed.
+   - **Item 2 (folder trash too small):** the glyph rendered at the
+     summary line's `--font-size-body-sm` (12px). The SVG picks up
+     `.kv-remove-row-btn svg { width: 16px; height: 16px }` — the rule the
+     borrowed Custom Headers class already carries — so the sizing fix
+     cost *no new CSS*, and the local `line-height: 1` override was
+     **deleted**: it existed only because the button held a text glyph,
+     and the base class's `line-height: 0` is now correct again. One rule
+     *was* required, and it is load-bearing rather than cosmetic:
+     `.kb-folder-delete-btn svg { pointer-events: none }`. What keeps this
+     button from toggling its `<details>` is the summary's default handler
+     skipping clicks on a form control — and Blink tests the click's
+     **target node itself**, not its ancestors
+     (`HTMLSummaryElement::DefaultEventHandler` → `IsClickableControl`).
+     With a text glyph the target was the `<button>`; an `<svg>` child is
+     its own hit-test target and is not a form control, so every delete
+     press would also have expanded/collapsed the panel. Found in review of
+     this pass's own diff, before the lane run — and now pinned by an
+     assertion (the panel is `open === false` both before the arming click
+     and after it) in
+     `test_folder_remove_two_step_confirm_…`, since the invariant only
+     became breakable with the icon.
+   - **Item 3 (red trash on Delete Knowledge Base, with the words):** the
+     icon is appended *before* the `[data-confirm-title]` span, so
+     `App.confirmDelete` still swaps only the label and the glyph persists
+     through the confirm flow — the exact shape `mcp-server-editor.js`'s
+     own Danger Zone delete has. Red and layout need no new CSS either:
+     `.btn-muted-destructive` is already `inline-flex` with a 6px gap and
+     `color: var(--status-danger)`, which the icon's
+     `stroke="currentColor"` inherits, and `components.css` already sizes
+     `.btn-muted-destructive svg` at 16px.
+
+4. **File rows now read as sub-items of their folder.** `.kb-folder-path`,
+   `.kb-item-path` and `.kb-search-hit-path` shared one `font-weight: 500`
+   rule, so a file inside a panel rendered at the section's 13px body size
+   at weight 500 while its *parent* folder's summary line sat at 12px
+   (`.mcp-tool-summary`'s `--font-size-body-sm`) — the child was literally
+   bigger than the parent. `.kb-item-path` is split out to
+   `--font-size-body-sm` + `--font-weight-regular`, putting it a clear
+   notch below the folder. Both consumers of that class are file rows (a
+   folder panel's body and the trailing "Other items" panel), so no
+   scoping split was needed; `.kb-folder-path` / `.kb-search-hit-path`
+   keep medium weight, neither being a sub-item of anything, and the
+   literal `500` became `var(--font-weight-medium)` on the way past.
+
+5. **Space under "Add folder".** `.kb-folders-list` gained
+   `margin-top: var(--space-3)` — the same `--space-*` vocabulary
+   `.connector-enabled-row` already uses in this file. (`base.css` zeroes
+   every margin with a `*` reset, so vertical rhythm here is always
+   explicit; the same one-line rule, as `.kb-reindex-hint`, keeps item 1's
+   new scope hint off the indexer-state line above it.) Existing tokens
+   only throughout this pass: no new tokens, no colour literals, no size
+   literals (the two 16px icon sizes are inherited from rules that already
+   existed).
+
+- **Tests** — assertions added to
+  `tests/browser/test_flow_studio_knowledge_inventory.py`, each folded
+  into the existing test that already builds the fixture it needs rather
+  than paying for extra browser spawns. In
+  `test_detail_view_indexing_poll_reindex_and_search`: the
+  `.editor-section .section-title` sequence inside the inventory root is
+  asserted as exactly `["Folders", "Status", "Search", "Danger Zone"]`
+  (deliberately order-encoding — this is the amended AC-6, and the point
+  of the change), both re-index buttons are asserted to live *inside* the
+  Status section with their new labels, and the scope hint's two
+  load-bearing phrases are asserted. In
+  `test_delete_knowledge_base_via_confirm_affordance`: the Danger Zone
+  button has exactly one `svg` **and** still reads "Delete Knowledge
+  Base", pinning "alongside, not instead of". In
+  `test_folder_remove_two_step_confirm_…`: the summary trash is an `svg`,
+  and the panel is `open === false` both before the arming click and after
+  it (the `pointer-events` invariant above). No existing assertion was
+  weakened or removed; the only pre-existing
+  assertions that touched this surface keyed on testids, none of which
+  changed.
+- `docs/ui-testid-registry.md` — one new literal testid
+  (`kb-reindex-scope-hint`); the two `kb-reindex-*-btn` manual-exception
+  rows re-described with their new labels and their new home in Status.
 
 ---
 
