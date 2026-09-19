@@ -172,6 +172,35 @@ class SQLiteAgentStore:
         ) as cur:
             return [row[0] for row in await cur.fetchall()]
 
+    async def list_by_kb(self, kb_id: str) -> list[str]:
+        """Return agent names whose ``kb_ids`` contains ``kb_id`` (L2-D6).
+
+        ``agents.kb_ids`` is a JSON TEXT column (``schema.py:58``, ``:169``),
+        so this does NOT transfer :meth:`list_by_provider`'s plain column
+        equality — a ``json_each`` membership test is required. ``LIKE
+        '%<id>%'`` is deliberately NOT used: it would match an id that is
+        merely a *substring* of another agent's attached id.
+
+        Guards the column the same way :meth:`_row_to_config` already does
+        (``row["kb_ids"] or "[]"``): measured on this host's SQLite
+        (3.45.1), ``json_each(NULL)`` yields zero rows (safe) but
+        ``json_each('')`` raises ``OperationalError: malformed JSON``. The
+        schema puts no ``NOT NULL`` on ``kb_ids``, so the empty/NULL state
+        is treated as reachable, not impossible.
+        """
+        async with self.conn.execute(
+            """\
+            SELECT name FROM agents
+            WHERE kb_ids IS NOT NULL AND kb_ids != ''
+              AND EXISTS (
+                  SELECT 1 FROM json_each(agents.kb_ids) WHERE json_each.value = ?
+              )
+            ORDER BY name
+            """,
+            (kb_id,),
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
+
     async def load(self, name: str) -> AgentConfig:
         async with self.conn.execute("SELECT * FROM agents WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()

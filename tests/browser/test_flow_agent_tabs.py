@@ -11,7 +11,7 @@ Covers the W3C ARIA tablist with manual activation introduced in F5 leg 03:
 - Click on a tab commits (same as Enter)
 - Refresh on .../{tab} returns the user to that tab
 - Tools tab renders the built-in tool checkboxes (interactive)
-- Knowledge tab renders the empty-state stub
+- Knowledge tab renders the real attach surface (M24 F06 L03)
 - Advanced collapsible: visible, disabled inputs, "Coming soon" caption
 - Test button: disabled when no provider; click triggers fetch and renders
   the result in the .test-result span
@@ -162,8 +162,8 @@ def test_enter_commits_focused_tab(app_with_agent: SeededApp, page: Page) -> Non
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("tabindex", "-1")
 
     # Knowledge panel visible; General hidden.
-    knowledge_stub = page.locator('[data-testid="agent-knowledge-tab-stub"]')
-    expect(knowledge_stub).to_be_visible()
+    knowledge_panel = page.locator('[data-testid="agent-knowledge-tab"]')
+    expect(knowledge_panel).to_be_visible()
 
 
 @pytest.mark.browser
@@ -211,7 +211,7 @@ def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page
     page.goto(target)
     _wait_editor_ready(page, expected_tab="knowledge")
 
-    expect(page.locator('[data-testid="agent-knowledge-tab-stub"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="agent-knowledge-tab"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("aria-selected", "true")
 
 
@@ -246,17 +246,24 @@ def test_tools_tab_renders_builtin_checkboxes(app_with_agent: SeededApp, page: P
 
 
 @pytest.mark.browser
-def test_knowledge_tab_renders_stub(app_with_agent: SeededApp, page: Page) -> None:
-    """Knowledge tab renders the empty-state stub."""
+def test_knowledge_tab_renders_attach_surface(app_with_agent: SeededApp, page: Page) -> None:
+    """Knowledge tab renders the real attach surface (M24 F06 L03).
+
+    L3-D6: the retired stub's content assertion
+    (`to_contain_text("Knowledge bases will be attached")`) does not carry
+    forward — the attach tab's content is data-driven (Leg 3's dedicated
+    `test_flow_studio_knowledge_attach.py` covers rows/toggles/tool
+    names); this test keeps only the visibility/mount assertion its two
+    siblings above already establish as the pattern.
+    """
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
     _wait_editor_ready(page)
 
     page.locator('[data-testid="tab-knowledge"]').click()
 
-    stub = page.locator('[data-testid="agent-knowledge-tab-stub"]')
-    expect(stub).to_be_visible()
-    expect(stub).to_contain_text("Knowledge bases will be attached")
+    panel = page.locator('[data-testid="agent-knowledge-tab"]')
+    expect(panel).to_be_visible()
 
 
 @pytest.mark.browser

@@ -85,7 +85,7 @@ App.registerArea({
       pendingToolName_local = trest ? decodeURIComponent(trest) : null;
     }
 
-    var validIds = ['general', 'providers', 'tools'];
+    var validIds = ['general', 'providers', 'tools', 'knowledge'];
     // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
     if (window.App && window.App.config && window.App.config.dev_mode) {
       validIds.push('design-language');
@@ -122,7 +122,11 @@ App.registerArea({
       // (#admin/tools/{name}) is unchanged. The MCP Servers section that
       // M07 F1 L5 originally placed here was relocated to the Studio nav
       // post-F2 retrofit (admin = system settings, studio = user-managed).
-      { id: 'tools', label: 'Built-in Tools' }
+      { id: 'tools', label: 'Built-in Tools' },
+      // M24 F06 L04, DD-7: app-wide chunking + monitoring settings. The
+      // Knowledge *inventory* (create/rename/delete a knowledge base) lives
+      // in Studio, not here — this panel is app-wide settings only.
+      { id: 'knowledge', label: 'Knowledge' }
     ];
     // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
     // Boot-blocking fetch in app.js populates window.App.config before init.
@@ -244,7 +248,10 @@ App.registerArea({
       // Same-category clicks short-circuit naturally (no state change).
       // Mirrors studio.js's setActiveSection dirty gate.
       var inEditor = (currentCategory === 'providers' && providerFormMode)
-                  || (currentCategory === 'tools' && toolFormMode);
+                  || (currentCategory === 'tools' && toolFormMode)
+                  // Knowledge (L4-D4) has no separate grid/editor mode — the
+                  // whole panel is the form, so `dirty` alone is the marker.
+                  || currentCategory === 'knowledge';
       if (dirty && inEditor) {
         App.confirmDialog({ onConfirm: function () { doSetCategory(catId); } });
         return;
@@ -273,6 +280,8 @@ App.registerArea({
         renderProvidersPanel();
       } else if (currentCategory === 'tools') {
         renderToolsPanel();
+      } else if (currentCategory === 'knowledge') {
+        renderKnowledgePanel();
       } else if (currentCategory === 'design-language') {
         App.admin.renderDesignLanguagePage(contentEl);
       }
@@ -597,6 +606,17 @@ App.registerArea({
       });
     }
 
+    // ── Knowledge Panel (F6 leg 04, DD-7) ─────────────────────────────
+    // No grid/editor split — the whole category is one form, so it delegates
+    // straight to the sub-module and bridges its dirty state onto the shared
+    // `dirty` mirror exactly as the provider/tools editors do.
+    function renderKnowledgePanel() {
+      dirty = false;
+      App.admin.renderKnowledgeSettingsPage(contentEl, {
+        onDirtyChange: function (d) { dirty = d; }
+      });
+    }
+
     // ── Provider Form / Delete / Models / Ollama ─────────────────────
     // Migrated to admin/provider-editor.js + admin/provider-models.js in
     // F6 leg 03. The orchestrator's renderProvidersPanel above delegates
@@ -631,6 +651,11 @@ App.registerArea({
         selectTool(editingTool.name);
       } else if (currentCategory === 'tools') {
         fetchToolConfigs();
+      } else if (currentCategory === 'knowledge' && !dirty) {
+        // Mirrors the providers branch above: skip the refetch while dirty
+        // so a cross-area-and-back trip never silently clobbers an unsaved
+        // edit. A dirty knowledge panel simply keeps showing its own state.
+        renderKnowledgePanel();
       }
     };
     // confirmLeave wired here so it can close over the local `dirty` flag.
@@ -638,7 +663,8 @@ App.registerArea({
     // in-editor → confirm dialog; otherwise → proceed immediately.
     self._confirmLeaveImpl = function (proceed, abort) {
       var inEditor = (currentCategory === 'providers' && providerFormMode)
-                  || (currentCategory === 'tools' && toolFormMode);
+                  || (currentCategory === 'tools' && toolFormMode)
+                  || currentCategory === 'knowledge';
       if (dirty && inEditor) {
         App.confirmDialog({ onConfirm: proceed, onCancel: abort });
       } else {

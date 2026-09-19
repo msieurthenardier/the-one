@@ -610,6 +610,18 @@ Flight 2)". The security-relevant invariants are:
   creates or attaches a knowledge base — attachment is operator-only through
   the API, the same boundary as registering a folder above — so the set of
   knowledge bases an agent can search is entirely operator-determined.
+- **Operator-facing search route (M24 F6, DD-6)**: `GET
+  /api/knowledge-bases/{kb_id}/search` — the route Studio's Knowledge
+  inventory uses to preview `retrieval.search` for a human operator — sits
+  behind the same credential gate as every other route (see
+  "Authentication" above). That means any caller holding the long-lived
+  local-API credential, including an agent that obtained it (e.g. through
+  the `shell` tool reading `<data_dir>/api-credential`, or a self-configuration
+  MCP tool acting under its own scoped credential), can reach it. This is
+  the existing single-user trust model applied to one more route, not a new
+  hole introduced by this route — worth stating explicitly rather than
+  leaving implicit, because the route is read-only and returns chunk text
+  the operator may not have expected to be reachable this way.
 
 ## Boxed Execution Mode (M14 F4)
 

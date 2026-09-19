@@ -8,7 +8,8 @@ App.registerArea({
   // ── Hash-routing serialize/hydrate ──────────────────────────────────
   //
   // serializeState branch order (explicit):
-  //   1. _activeSection === 'knowledge' → 'knowledge'
+  //   1. _activeSection === 'knowledge' → 'knowledge' | 'knowledge/{kb_id}'
+  //      (Flight 6 leg 1, L1-D1 — mirrors the mcp-sources deep-link shape)
   //   2. _activeSection === 'mcp-sources' → 'mcp-sources' | 'mcp-sources/new'
   //      | 'mcp-sources/<id>' (post-F2 retrofit; relocated from admin)
   //   3. _activeSection === 'agents' && agent selected && !createMode →
@@ -21,7 +22,10 @@ App.registerArea({
   // #studio/agents/{name} → #studio/agents/{name}/general upgrade for free
   // (no new redirect logic in studio.js).
   serializeState: function () {
-    if (this._activeSection === 'knowledge') return 'knowledge';
+    if (this._activeSection === 'knowledge') {
+      if (this._selectedKbId) return 'knowledge/' + encodeURIComponent(this._selectedKbId);
+      return 'knowledge';
+    }
     // Mission 23 Flight 2 Leg 2 (DD-9): the Connectors section is
     // deliberately NOT deep-link-aware like mcp-sources — no
     // 'connectors/new' or 'connectors/{id}' sub-path. A refresh while
@@ -85,6 +89,21 @@ App.registerArea({
     var pendingMcpSourceFormMode_local = null;
     if (sub === 'knowledge') {
       section = 'knowledge';
+      // F4 L7-style bare-URL defensive clear (mirrors the 'agents'/
+      // '!sub' branch below): re-entering the bare section always shows
+      // the grid, never a stale detail-view selection from a prior
+      // navigation within the same area lifecycle.
+      this._selectedKbId = null;
+    } else if (sub && sub.indexOf('knowledge/') === 0) {
+      // Flight 6 leg 1 (L1-D1): direct-load on knowledge/{kb_id} — parse
+      // the id so the detail view opens on refresh, mirroring the
+      // mcp-sources/{id} parsing immediately below.
+      section = 'knowledge';
+      var krest = sub.slice('knowledge/'.length);
+      if (krest.charAt(krest.length - 1) === '/') krest = krest.slice(0, -1);
+      var kslashIdx = krest.indexOf('/');
+      if (kslashIdx !== -1) krest = krest.slice(0, kslashIdx);
+      this._selectedKbId = krest ? decodeURIComponent(krest) : null;
     } else if (sub === 'connectors') {
       section = 'connectors';
     } else if (sub === 'mcp-sources') {
@@ -180,6 +199,12 @@ App.registerArea({
     self._allTools = [];
     self._allMcpSources = [];
     self._allKnowledgeBases = [];
+    // F6 L3 (L3-D1) — explicit load-success flag for the agent-editor's
+    // Knowledge tab. NOT inferred from `_allKnowledgeBases` being
+    // null/empty: `refreshKnowledgeBasesCache` keeps a populated STALE
+    // array on failure (DD-15), so a non-null array says nothing about
+    // whether the most recent refresh succeeded.
+    self._knowledgeBasesLoaded = false;
     self._allProviders = [];
     self._selectedAgent = null;
     self._pendingSelectName = self._pendingSelectName || null;
@@ -191,6 +216,13 @@ App.registerArea({
     // Written by renderMcpsTab when a chip is clicked or a deep-link hydrates.
     // Read by serializeState to append /{source-id} to the URL.
     self._selectedMcpAgentSourceId = null;
+    // Flight 6 leg 1 (L1-D1/L1-D2): the Knowledge detail-view selection
+    // and its poll-timer handle. `self._selectedKbId` may already be set
+    // by a pre-init hydrateState call (mirrors `_pendingSelectName`'s
+    // `|| null` preserve, though in this codebase's actual boot order
+    // init() always runs first — see app.js::switchTo).
+    self._selectedKbId = self._selectedKbId || null;
+    self._knowledgePollTimer = null;
     var dirty = false;
     var snapshot = '';
     // Tab handle returned by App.studio.renderAgentEditor — used for
@@ -369,6 +401,9 @@ App.registerArea({
               connectorFormMode = null;
               editingConnector = null;
               dirty = false;
+            } else if (prev === 'knowledge' && self._selectedKbId) {
+              self._selectedKbId = null;
+              dirty = false;
             }
           } else {
             // Same-section reclick: treat as "back to grid".
@@ -383,6 +418,15 @@ App.registerArea({
             } else if (section === 'connectors' && connectorFormMode) {
               connectorFormMode = null;
               editingConnector = null;
+              dirty = false;
+            } else if (section === 'knowledge' && self._selectedKbId) {
+              // setActiveSection's own reset block only fires on a section
+              // CHANGE (prevSection !== section), so a same-section reclick
+              // needs the poll cleared here too — the grid render below
+              // would otherwise leave the detail view's timer running.
+              clearKnowledgePoll();
+              knowledgeDetailHandle = null;
+              self._selectedKbId = null;
               dirty = false;
             }
           }
@@ -402,9 +446,264 @@ App.registerArea({
       renderAgentList();
     }
 
+    // Knowledge section (Flight 6 leg 1, DD-2, L1-D1) — the global
+    // knowledge-base inventory. Two-branch dispatch mirroring
+    // renderMcpSourcesSection: a grid (no selection) and a detail view
+    // (self._selectedKbId set), hash-routed by serializeState/hydrateState
+    // above as 'knowledge' / 'knowledge/{kb_id}'.
+    var knowledgeBases = null; // section-local grid cache; null until first fetch resolves
+    var knowledgeGridHandle = null; // { updateList(kbs) } — never a full rebuild on refresh
+    var knowledgeDetailHandle = null; // { updateStatus(status), updateItems(items) } — L1-D2's poll target
+    // kb-studio-round-trip remediation FIX 1 (2026-09-18): the signature
+    // (per-status counts + chunk count) the items list was LAST rendered
+    // against. The status poll re-fetches `/items` and rebuilds the list
+    // only when a fresh `/status` response's signature differs from this
+    // one — never on every tick, which would blow away an open chunks/
+    // source panel or scroll position (L1-D2's actual intent). Reset to
+    // null on every fresh mount below so the first poll tick after a
+    // remount compares against the mount-time snapshot, not a stale
+    // knowledge base's signature.
+    var lastKnownItemsSignature = null;
+
+    function knowledgeItemsSignature(status) {
+      return JSON.stringify((status && status.items) || {}) + '|' + (status && status.chunks);
+    }
+
     function renderKnowledgeSection() {
       sectionContentEl.innerHTML = '';
-      App.studio.renderKnowledgeStub(sectionContentEl);
+      if (self._selectedKbId) {
+        renderKnowledgeDetailView(self._selectedKbId);
+      } else {
+        // L1-D2 site 3: navigating from the detail view back to the grid
+        // stops the poll — covered here since every grid mount (direct
+        // nav, Back button, delete) routes through this branch.
+        clearKnowledgePoll();
+        knowledgeDetailHandle = null;
+        renderKnowledgeGridView();
+      }
+    }
+
+    function renderKnowledgeGridView() {
+      // Full rebuild ONLY at mount — `knowledgeGridHandle.updateList` (not
+      // a second call to renderKnowledgeGrid) carries every subsequent
+      // refresh below, so a fetch resolving after the operator has opened
+      // the create form never rebuilds the chrome out from under them.
+      knowledgeGridHandle = App.studio.renderKnowledgeGrid(sectionContentEl, knowledgeBases, {
+        onSelectKnowledgeBase: selectKnowledgeBase,
+        onCreateSuccess: function () {
+          // AC-2: appears in the list without a page reload.
+          fetchKnowledgeBases_();
+        }
+      });
+      fetchKnowledgeBases_();
+    }
+
+    function fetchKnowledgeBases_() {
+      return fetch('/api/knowledge-bases')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          // Stale-then guard: bail if the user navigated away, or into a
+          // detail view, mid-fetch.
+          if (self._activeSection !== 'knowledge' || self._selectedKbId) return;
+          knowledgeBases = data;
+          if (knowledgeGridHandle) knowledgeGridHandle.updateList(knowledgeBases);
+        })
+        .catch(function () {
+          if (self._activeSection !== 'knowledge' || self._selectedKbId) return;
+          var gridEl = sectionContentEl.querySelector('.entity-tile-grid');
+          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load knowledge bases.</div>';
+        });
+    }
+
+    function findKnowledgeBase(id) {
+      if (!knowledgeBases) return null;
+      for (var i = 0; i < knowledgeBases.length; i++) {
+        if (knowledgeBases[i].id === id) return knowledgeBases[i];
+      }
+      return null;
+    }
+
+    function selectKnowledgeBase(id) {
+      self._selectedKbId = id;
+      if (window.App && window.App.router) App.router.replaceSub(self.serializeState());
+      renderKnowledgeSection();
+    }
+
+    function renderKnowledgeDetailView(kbId) {
+      var cached = findKnowledgeBase(kbId);
+      if (cached) {
+        mountKnowledgeDetail(cached);
+        return;
+      }
+      // Not in the grid's cache (e.g. a direct hash-load on
+      // #studio/knowledge/{kb_id} before the grid has ever fetched) —
+      // fetch it directly rather than waiting on a list fetch that may
+      // never run while a detail view stays selected.
+      fetch('/api/knowledge-bases/' + encodeURIComponent(kbId))
+        .then(function (r) {
+          if (!r.ok) throw new Error('knowledge base not found: HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (kb) {
+          if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
+          mountKnowledgeDetail(kb);
+        })
+        .catch(function () {
+          // Unknown/deleted id — fall back to the grid rather than a dead view.
+          if (self._activeSection !== 'knowledge') return;
+          self._selectedKbId = null;
+          if (window.App && window.App.router) App.router.replaceSub('knowledge');
+          renderKnowledgeSection();
+        });
+    }
+
+    function mountKnowledgeDetail(kb) {
+      sectionContentEl.innerHTML = '<div class="admin-loading">Loading knowledge base…</div>';
+      Promise.all([
+        fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id) + '/status')
+          .then(function (r) {
+            if (!r.ok) throw new Error('status fetch failed: HTTP ' + r.status);
+            return r.json();
+          }),
+        fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id) + '/items')
+          .then(function (r) {
+            if (!r.ok) throw new Error('items fetch failed: HTTP ' + r.status);
+            return r.json();
+          })
+      ]).then(function (results) {
+        // Stale-then guard: bail if the user navigated away, or to a
+        // different knowledge base, mid-fetch.
+        if (self._activeSection !== 'knowledge' || self._selectedKbId !== kb.id) return;
+        lastKnownItemsSignature = knowledgeItemsSignature(results[0]);
+        // F6 L5 (L5-D3): reset the orchestrator's dirty mirror BEFORE the
+        // detail view mounts — mirrors the mcp-sources/connectors editor
+        // pattern ("Reset orchestrator dirty mirror BEFORE editor mount").
+        // The fresh render closure starts clean; onDirtyChange only fires
+        // on the operator's first edit-form input.
+        dirty = false;
+        knowledgeDetailHandle = App.studio.renderKnowledgeDetail(
+          sectionContentEl, kb, { status: results[0], items: results[1] },
+          {
+            // AC-8/L5-D3: mirrors mcp-sources' own onBack — the LOCAL
+            // Back button doesn't decide to discard on its own; a dirty
+            // edit form gates through App.confirmDialog here, same as
+            // section-nav/cross-area navigation gates through
+            // `_confirmLeaveImpl`.
+            onBack: function () {
+              function doBack() {
+                self._selectedKbId = null;
+                dirty = false;
+                if (window.App && window.App.router) App.router.replaceSub('knowledge');
+                renderKnowledgeSection();
+              }
+              if (dirty) {
+                App.confirmDialog({ onConfirm: doBack });
+                return;
+              }
+              doBack();
+            },
+            onDeleteSuccess: function () {
+              self._selectedKbId = null;
+              dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub('knowledge');
+              renderKnowledgeSection();
+            },
+            // F6 L3 (L3-D5), carried by F6 L5's Name+Description edit form
+            // (L5-D2): re-mount the detail view from the saved object —
+            // refreshes the header title and re-fetches status/items — and
+            // update the grid's section-local cache so navigating back
+            // shows the new name without a second fetch.
+            onSaveSuccess: function (updatedKb) {
+              if (knowledgeBases) {
+                for (var ki = 0; ki < knowledgeBases.length; ki++) {
+                  if (knowledgeBases[ki].id === updatedKb.id) { knowledgeBases[ki] = updatedKb; break; }
+                }
+              }
+              mountKnowledgeDetail(updatedKb);
+            },
+            // F6 L5 (L5-D3): bridges the edit form's dirty state into the
+            // orchestrator's closure `dirty`, consumed by
+            // `_confirmLeaveImpl`'s `inEditor` gate — mirrors the
+            // mcp-sources/connectors `onDirtyChange: function (d) { dirty = d; }`
+            // pattern already established below.
+            onDirtyChange: function (d) { dirty = d; }
+          }
+        );
+        startKnowledgePoll(kb.id);
+      }).catch(function () {
+        if (self._activeSection !== 'knowledge' || self._selectedKbId !== kb.id) return;
+        sectionContentEl.innerHTML = '<div class="admin-loading">Failed to load knowledge base.</div>';
+      });
+    }
+
+    // ── L1-D2: the 5-second status poll, owned here (not by the render
+    // module) so the three clear sites below can all reach one handle.
+    function clearKnowledgePoll() {
+      if (self._knowledgePollTimer) {
+        clearInterval(self._knowledgePollTimer);
+        self._knowledgePollTimer = null;
+      }
+    }
+
+    function startKnowledgePoll(kbId) {
+      clearKnowledgePoll(); // single handle — never stack timers across re-renders
+      self._knowledgePollTimer = setInterval(function () {
+        if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) {
+          clearKnowledgePoll();
+          return;
+        }
+        fetch('/api/knowledge-bases/' + encodeURIComponent(kbId) + '/status')
+          .then(function (r) {
+            if (r.status === 404) {
+              // Edge case: the knowledge base was deleted while this view
+              // was open (another tab, or the poll racing a delete) —
+              // return to the grid rather than leaving a dead view or
+              // looping on the error.
+              clearKnowledgePoll();
+              self._selectedKbId = null;
+              if (window.App && window.App.router) App.router.replaceSub('knowledge');
+              renderKnowledgeSection();
+              return null;
+            }
+            if (!r.ok) throw new Error('status poll failed: HTTP ' + r.status);
+            return r.json();
+          })
+          .then(function (status) {
+            if (!status) return; // 404 branch above already handled it
+            if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
+            if (knowledgeDetailHandle) knowledgeDetailHandle.updateStatus(status);
+            // kb-studio-round-trip remediation FIX 1: invalidate the items
+            // list only when the counts it was last rendered against have
+            // changed (registering a folder, an indexing pass completing,
+            // a watcher pickup, …) — re-fetching `/items` on every tick
+            // would destroy an open chunks/source panel and scroll
+            // position, which is exactly what L1-D2 excluded polling items
+            // to avoid.
+            var signature = knowledgeItemsSignature(status);
+            if (signature !== lastKnownItemsSignature) {
+              fetch('/api/knowledge-bases/' + encodeURIComponent(kbId) + '/items')
+                .then(function (r2) {
+                  if (!r2.ok) throw new Error('items poll failed: HTTP ' + r2.status);
+                  return r2.json();
+                })
+                .then(function (freshItems) {
+                  if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
+                  if (knowledgeDetailHandle && knowledgeDetailHandle.updateItems) {
+                    knowledgeDetailHandle.updateItems(freshItems);
+                  }
+                  lastKnownItemsSignature = signature;
+                })
+                .catch(function () {
+                  // Leave the list as last rendered; `lastKnownItemsSignature`
+                  // is not advanced, so this is retried on the next tick.
+                });
+            }
+          })
+          .catch(function () {
+            // L1-D2: a failed poll leaves the last-rendered state — no
+            // blanking, no escalation to a flash.
+          });
+      }, 5000);
     }
 
     // MCP Servers section — relocated from admin (post-F2 retrofit). Mirrors
@@ -769,6 +1068,21 @@ App.registerArea({
         editingConnector = null;
         dirty = false;
       }
+      // Flight 6 leg 1 (L1-D2 site 1): leaving Knowledge for another
+      // section stops the 5-second status poll AND clears the detail-view
+      // selection, so re-entering #studio/knowledge mounts the grid — the
+      // same contract the two blocks above already have. F6 L5 (L5-D3)
+      // adds the dirty-mirror reset the mcp-sources/connectors blocks
+      // above already carry — this site is reached directly by callers
+      // that route through setActiveSection without going through
+      // commit() first (e.g. hash-route hydration), so it needs its own
+      // reset rather than relying on commit()'s.
+      if (prevSection === 'knowledge' && section !== 'knowledge') {
+        clearKnowledgePoll();
+        knowledgeDetailHandle = null;
+        self._selectedKbId = null;
+        dirty = false;
+      }
       if (section === 'knowledge') {
         renderKnowledgeSection();
       } else if (section === 'mcp-sources') {
@@ -1051,6 +1365,25 @@ App.registerArea({
         self._allMcpSources = sources;
       }).catch(function () {
         self._allMcpSources = self._allMcpSources || [];
+      });
+    }
+
+    // F6 L3 (L3-D1) — re-fetch the knowledge-base list on every agent-edit
+    // mount, mirroring refreshMcpSourcesCache exactly: `_allKnowledgeBases`
+    // was otherwise populated once in `loadAll()` and read nowhere else
+    // (DD-15 — a knowledge base created in the Knowledge section was
+    // invisible to the attach tab until a hard reload). On failure the
+    // PRIOR cache is kept (never blanked) for other consumers, but
+    // `_knowledgeBasesLoaded` is set false so the tab itself renders the
+    // load-failure state rather than presenting that stale cache as
+    // current (DD-15's second half, reconciled with DD-4 by this flag).
+    function refreshKnowledgeBasesCache() {
+      return fetchKnowledgeBases().then(function (kbs) {
+        self._allKnowledgeBases = kbs;
+        self._knowledgeBasesLoaded = true;
+      }).catch(function () {
+        self._allKnowledgeBases = self._allKnowledgeBases || [];
+        self._knowledgeBasesLoaded = false;
       });
     }
 
@@ -1439,9 +1772,41 @@ App.registerArea({
       // disabled state from first paint.
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a source
       // created on the source-edit page appears in the MCPs tab without
-      // a manual page reload. Both refreshes run in parallel.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
-        renderEditor(agent);
+      // a manual page reload. F6 L3 (L3-D1, L3-D3) adds two more: the
+      // knowledge-base list refresh (mirrors the MCP one), and a fresh
+      // fetch of THIS agent — needed because `loadAll()` does not re-run
+      // on a Studio section switch, so after a rename performed in the
+      // Knowledge section the cached `agent` object here can still hold a
+      // pre-rewrite `disabled_tools` entry (collectFormData's ungated-
+      // prefix union below reads from `self._selectedAgent`, so it must be
+      // current). L3-D7: the fresh-agent fetch carries its own `.catch`
+      // that resolves with the passed-in `agent` — this `Promise.all` has
+      // no rejection handler anywhere in its chain, so a rejecting member
+      // would strand the editor with nothing rendered, which is a worse
+      // failure than re-rendering from a stale agent.
+      Promise.all([
+        refreshToolConfigsCache(),
+        refreshMcpSourcesCache(),
+        refreshKnowledgeBasesCache(),
+        fetch('/api/agents/' + encodeURIComponent(agent.name))
+          .then(function (r) {
+            if (!r.ok) throw new Error('fetch fresh agent: HTTP ' + r.status);
+            return r.json();
+          })
+          .catch(function () {
+            return agent;
+          })
+      ]).then(function (results) {
+        // L3-D3: the fetch is not enough on its own — reassign
+        // self._selectedAgent (and the matching self._agents entry) and
+        // render the FETCHED object, not the outer closure's `agent`, or
+        // the union below silently keeps reading stale disabled_tools.
+        var freshAgent = results[3];
+        self._selectedAgent = freshAgent;
+        for (var fi = 0; fi < self._agents.length; fi++) {
+          if (self._agents[fi].name === freshAgent.name) { self._agents[fi] = freshAgent; break; }
+        }
+        renderEditor(freshAgent);
         updateContentVisibility();
         writeUrl_();
       });
@@ -1468,8 +1833,10 @@ App.registerArea({
       // new-agent Tools tab reflects current operator-disabled state.
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a freshly
       // created source is visible from the new-agent MCPs tab without
-      // a manual page reload.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
+      // a manual page reload. F6 L3 (L3-D3): the fresh-agent refetch is
+      // select-path only — create mode has no agent to fetch — but the
+      // knowledge-base refresh goes into both sites.
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshKnowledgeBasesCache()]).then(function () {
         renderEditor(null);
         updateContentVisibility();
         writeUrl_();
@@ -1520,6 +1887,11 @@ App.registerArea({
         disabledTools: self._disabledTools,
         operatorConfigs: self._operatorConfigs,
         fetchToolSchema: fetchToolSchema,
+        // F6 L3 — knowledge-base list + the L3-D1 load-success flag for
+        // the Knowledge tab. Both are refreshed at editor-mount time (see
+        // selectAgent / doSelect / doEnterCreateMode above).
+        allKnowledgeBases: self._allKnowledgeBases,
+        knowledgeBasesLoaded: self._knowledgeBasesLoaded === true,
         // F8 L3 — MCP source list + per-source tools fetcher for MCPs tab.
         allMcpSources: self._allMcpSources,
         fetchMcpSourceTools: fetchMcpSourceTools,
@@ -1952,6 +2324,33 @@ App.registerArea({
       if (cancelBtn) cancelBtn.disabled = !dirty;
     }
 
+    // F6 L3 (L3-D3, DD-13) — the ungated-prefix `disabled_tools` union.
+    // `collectFormData`'s tool-toggle walk below only ever sees BUILT-IN
+    // tool checkboxes (the Tools tab renders built-in categories only), so
+    // an ungated-prefix entry set through the API (see the prefix list
+    // below) would otherwise be erased by any unrelated Studio save.
+    // Reads `self._selectedAgent`
+    // — refreshed on every agent-edit mount by doSelect's fresh-agent
+    // fetch (L3-D3) — never the stale outer closure or `self._agents`
+    // cache, so a rename performed earlier in the session doesn't put a
+    // pre-rewrite entry straight back. `self._selectedAgent` is `null` in
+    // create-mode (AC-9): a new agent has no stored entries, so this
+    // returns `[]` rather than crashing Save.
+    var UNGATED_TOOL_PREFIXES = ['mcp__', 'kb__'];
+    function _storedUngatedDisabledNames() {
+      var stored = (self._selectedAgent && self._selectedAgent.disabled_tools) || [];
+      var result = [];
+      for (var s = 0; s < stored.length; s++) {
+        for (var p = 0; p < UNGATED_TOOL_PREFIXES.length; p++) {
+          if (stored[s].indexOf(UNGATED_TOOL_PREFIXES[p]) === 0) {
+            result.push(stored[s]);
+            break;
+          }
+        }
+      }
+      return result;
+    }
+
     // ── Form data collection ─────────────────────────────────────────
     //
     // collectFormData queries by [data-field="..."] selectors which work
@@ -2008,9 +2407,13 @@ App.registerArea({
         }
       }
 
+      // F6 L3 (L3-D3, DD-13): every branch appends the stored ungated-
+      // prefix entries AFTER the built-in names, in their original stored
+      // order — a Set or object-key walk would make the Save button
+      // flicker, since this value feeds dirty-tracking via getFormSnapshot.
       if (allOn) {
         data.enabled_tools = null;
-        data.disabled_tools = [];
+        data.disabled_tools = [].concat(_storedUngatedDisabledNames());
       } else if (enabledNames.length <= disabledNames.length) {
         // enabled_tools is a BUILT-IN-only whitelist by backend contract
         // (AgentConfig.is_tool_enabled, F09-08): the backend does not gate
@@ -2018,30 +2421,44 @@ App.registerArea({
         // mcp_overrides. Do NOT inject `mcp__` names here; that would
         // reintroduce the coupling that silently stripped MCP tools.
         data.enabled_tools = enabledNames;
-        data.disabled_tools = [];
+        data.disabled_tools = [].concat(_storedUngatedDisabledNames());
       } else {
         data.enabled_tools = null;
-        data.disabled_tools = disabledNames;
+        data.disabled_tools = disabledNames.concat(_storedUngatedDisabledNames());
       }
 
       // Connections (chips) — Tools tab does not currently render chips
-      // (MCP/KB attach is a future-flight stub), so this collects whatever
-      // chip-areas exist (none in F5 leg 03; future legs may add them).
-      // The new override chip-list editors carry data-tool-override-tool
-      // (NOT data-type), so they don't match the [data-type] selector
-      // here and are picked up below in the override walk.
+      // (MCP attach is a tool-row toggle, not a chip; see F8 L4 note
+      // below). The override chip-list editors carry
+      // data-tool-override-tool (NOT data-type), so they don't match the
+      // [data-type] selector here and are picked up below in the override
+      // walk.
       // F8 L4 — MCPs tab uses tool-row toggles instead of chip-area.
       // Walk the new [data-mcp-source-toggle]:checked selector to collect
-      // attached source IDs. KB chips still use the chip-area pattern (KB
-      // tab is a stub; whenever it lands, it can pick its own selector).
+      // attached source IDs.
       var mcpToggles = editorEl.querySelectorAll('[data-mcp-source-toggle][data-mcp-source-id]');
-      var kbChips = editorEl.querySelectorAll('.chip-area[data-type="kb"] .chip');
       data.mcp_source_ids = [];
-      data.kb_ids = [];
       for (var m = 0; m < mcpToggles.length; m++) {
         if (mcpToggles[m].checked) data.mcp_source_ids.push(mcpToggles[m].dataset.mcpSourceId);
       }
-      for (var k = 0; k < kbChips.length; k++) data.kb_ids.push(kbChips[k].dataset.id);
+
+      // F6 L3 (DD-4, L3-D1): `kb_ids` is sent ONLY when the Knowledge
+      // tab's root carries `data-kb-list-loaded="true"` — set by
+      // knowledge-tab.js exclusively on a successful refresh. When the
+      // marker is absent (load failed, or a save races an in-flight
+      // refresh — Edge Case), `kb_ids` is omitted from the payload
+      // entirely so the server-side preserve (Leg 2 AC-7) keeps the
+      // stored value instead of squawk 0050's `kb_ids: []` wipe. A loaded
+      // surface with zero checked rows still sends `[]` — a legitimate
+      // "detach everything".
+      var kbTabRoot = editorEl.querySelector('[data-testid="agent-knowledge-tab"][data-kb-list-loaded="true"]');
+      if (kbTabRoot) {
+        var kbToggles = editorEl.querySelectorAll('[data-kb-toggle][data-kb-id]:checked');
+        data.kb_ids = [];
+        for (var k = 0; k < kbToggles.length; k++) {
+          data.kb_ids.push(kbToggles[k].dataset.kbId);
+        }
+      }
 
       // F6 leg 05 — collect tool_overrides from per-tool override panels.
       // Each override input carries `data-tool-override-tool="{name}"` and
@@ -2243,6 +2660,17 @@ App.registerArea({
                 if (self._agents[i].name === updated.name) { found = self._agents[i]; break; }
               }
               if (found) {
+                // kb-studio-round-trip remediation FIX 2 (FINDING 7,
+                // 2026-09-18): `loadAll()` repopulates `self._agents` from
+                // the LIST route, which deliberately omits `kb_tool_names`
+                // (L2-D5, to avoid an N+1 read on every page load) — so
+                // `found` structurally cannot carry it. `updated` is the
+                // PUT response, which DOES carry it (same single-agent
+                // shape `GET /api/agents/{name}` returns). Merge it forward
+                // rather than discarding it in favour of the list object,
+                // or an attached row would regress to the unattached
+                // placeholder immediately after every save.
+                found.kb_tool_names = updated.kb_tool_names;
                 self._selectedAgent = found;
                 renderEditor(found);
                 showFlash('Saved');
@@ -2439,12 +2867,23 @@ App.registerArea({
     // F4 L5: confirmLeave wired here so it can close over the local `dirty` flag.
     // Gate semantics mirror admin.js's _confirmLeaveImpl (admin.js:625-636): dirty
     // AND in-editor → confirm dialog; otherwise → proceed immediately. The
-    // `inEditor` predicate covers BOTH editor mount contexts.
+    // `inEditor` predicate covers every editor mount context (agents,
+    // mcp-sources, connectors, and — as of F6 L5 — knowledge).
     self._confirmLeaveImpl = function (proceed, abort) {
       var inEditor =
         (self._activeSection === 'agents' && self._selectedAgent) ||
         (self._activeSection === 'mcp-sources' && mcpSourceFormMode) ||
-        (self._activeSection === 'connectors' && connectorFormMode);
+        (self._activeSection === 'connectors' && connectorFormMode) ||
+        // F6 L5 (L5-D3): a reversal of Leg 3's stated non-goal — the
+        // inventory's create/register forms stay OUT of this gate
+        // (single-field, submit-immediately), but the detail view's
+        // Name+Description edit form (L5-D2) is multi-field with an
+        // explicit Save, the exact shape this dialog exists for. `dirty`
+        // can only become true while a detail view is mounted (the grid
+        // has no edit form), so gating on `self._selectedKbId` alone
+        // mirrors the `mcpSourceFormMode`/`connectorFormMode` shape above
+        // without needing a parallel "form open" flag.
+        (self._activeSection === 'knowledge' && self._selectedKbId);
       if (dirty && inEditor) {
         App.confirmDialog({ onConfirm: proceed, onCancel: abort });
       } else {
@@ -2497,5 +2936,19 @@ App.registerArea({
       proceed();
     }
   },
-  deactivate: function () {}
+  // Flight 6 leg 1 (L1-D2 site 2): app.js's performCrossAreaSwitch calls
+  // this on EVERY cross-area transition. Without it, opening a Knowledge
+  // detail view and clicking e.g. Chat leaves the 5-second poll running
+  // for the life of the page — this is the first Studio section to need a
+  // real body here; every prior section issues one-shot fetches, not
+  // intervals. Note the beforeunload listener registered inside init()
+  // is NOT touched here — the in-file warning at its registration site
+  // forbids removing that listener in deactivate(), not giving
+  // deactivate() a body.
+  deactivate: function () {
+    if (this._knowledgePollTimer) {
+      clearInterval(this._knowledgePollTimer);
+      this._knowledgePollTimer = null;
+    }
+  }
 });

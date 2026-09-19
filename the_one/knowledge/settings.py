@@ -114,8 +114,9 @@ class VectorStoreSettings(BaseModel):
     record is the DD-9 outcome since Leg 6).
 
     **Store-written, not operator-configurable**: ``update_knowledge_settings``
-    already 422s any top-level key outside ``{"embedding", "chunking"}``
-    (see ``the_one/interfaces/web/api.py``), so a ``vector_store`` key in a
+    already 422s any top-level key outside the accepted set —
+    ``embedding``, ``chunking`` and (since Flight 4) ``monitoring`` — (see
+    ``the_one/interfaces/web/api.py``), so a ``vector_store`` key in a
     ``PUT`` body is refused by that existing generic guard — no dedicated
     message is added here. ``GET /api/knowledge-settings`` surfaces this
     record read-only under ``"vector_store"``.

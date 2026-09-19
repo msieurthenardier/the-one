@@ -1160,4 +1160,258 @@
   .area-studio .connector-setup-steps-doc-ref {
     display: block;
   }
+
+  /* === Studio Knowledge section (Mission 24 Flight 6 Leg 1) ===========
+     The inventory grid + detail view reuse the existing `.entity-tile-
+     grid` / `.editor-section` / `.field-group` / `.chip` / `.field-error`
+     vocabulary wholesale (knowledge-section.js); these rules cover only
+     the row/badge layouts that vocabulary doesn't already provide. */
+  .area-studio .knowledge-create-form[hidden] { display: none; }
+  .area-studio .kb-status-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .area-studio .kb-chunk-count,
+  .area-studio .kb-indexer-state {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .kb-item-row,
+  .area-studio .kb-chunk-row,
+  .area-studio .kb-search-hit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .kb-item-row:last-child,
+  .area-studio .kb-chunk-row:last-child,
+  .area-studio .kb-search-hit:last-child {
+    border-bottom: none;
+  }
+  .area-studio .kb-folder-path,
+  .area-studio .kb-search-hit-path {
+    font-weight: var(--font-weight-medium);
+    word-break: break-all;
+  }
+  /* HAT polish pass (2026-09-19): the folder is the parent item and the
+     files inside its panel are sub-items, so they must not read at the
+     same weight — or, as they did, LARGER. `.kb-item-path` inherited the
+     section's body size (13px) at weight 500, while the folder's own
+     summary line sits at `--font-size-body-sm` (12px) from
+     `.mcp-tool-summary`. Dropping the file path to that same 12px at
+     regular weight puts it a clear notch below its folder. Both
+     consumers of this class are file rows (a folder panel's body and the
+     trailing "Other items" panel), so no scoping split is needed;
+     `.kb-folder-path` / `.kb-search-hit-path` keep medium weight above,
+     since neither is a sub-item of anything. */
+  .area-studio .kb-item-path {
+    font-weight: var(--font-weight-regular);
+    font-size: var(--font-size-body-sm);
+    word-break: break-all;
+  }
+  /* Leg 6 (restyle): `.kb-folder-status`/`.kb-folder-watch` moved onto the
+     shared `.chip` vocabulary (folder summary line, one-line requirement) —
+     dropped from this muted-text group since `.chip` already supplies their
+     color/sizing. `.kb-folder-indexed-at` stays here; it lives in the
+     folder panel's meta body, still plain muted text. */
+  .area-studio .kb-folder-indexed-at,
+  .area-studio .kb-item-status,
+  .area-studio .kb-chunk-seq,
+  .area-studio .kb-search-hit-score {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  /* `.field-error` (components.css) already supplies the danger-colored
+     text; these rows just need it inline rather than block-stacked. */
+  .area-studio .kb-folder-error,
+  .area-studio .kb-folder-watch-error,
+  .area-studio .kb-item-error {
+    margin: 0;
+  }
+  .area-studio .kb-item-standalone-badge {
+    color: var(--status-warning);
+  }
+  .area-studio .kb-chunk-text,
+  .area-studio .kb-search-hit-text {
+    flex-basis: 100%;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    white-space: pre-wrap;
+  }
+  .area-studio .kb-source-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+  }
+  .area-studio .kb-reindex-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  /* HAT polish pass: the re-index pair moved into the Status section and
+     gained the scope hint above it. base.css zeroes every margin, so
+     without this the hint sits flush against the indexer-state line.
+     Same `--space-*` scale as `.kb-folders-list` below. */
+  .area-studio .kb-reindex-hint { margin-top: var(--space-3); }
+  .area-studio .kb-search-degraded[hidden],
+  .area-studio .kb-chunks-panel[hidden],
+  .area-studio .kb-source-panel[hidden] { display: none; }
+
+  /* === Studio Knowledge section — restyle to the MCP editor's shape
+     (M24 F06 L06) ===
+     L6-D1: Name + Description are always-live `.field-group` fields in
+     the header region — reuses `.editor-section` / `.field-group` /
+     `.field-error` / `.field-hint` wholesale, no new rule needed for the
+     fields' own layout.
+     L6-D2/L6-D3: folder panels reuse `.mcp-tool-item` / `.mcp-tool-
+     summary` / `.mcp-tool-summary-text` / `.mcp-tool-chevron` /
+     `.mcp-tool-body` wholesale (see the MCP tools-list rules above) — the
+     one-line summary needs no new rule beyond the delete icon's below.
+     The old per-row two-step Remove control (L5-D1) and its
+     `flex-basis: 100%` caption rule are retired — the cascade warning is
+     now persistent section-level text (`.field-hint`, no new rule). */
+  /* L6-D3: the folder delete control reuses `.kv-remove-row-btn` (Custom
+     Headers row precedent) — now verbatim, with no override at all. The
+     HAT polish pass (2026-09-19) replaced this button's text glyph with
+     the real `trash` SVG (knowledge-section.js's `_appendIcon`, the
+     DOMParser route that keeps the no-inner-HTML discipline), so the
+     borrowed rule's `line-height: 0` + `svg { width: 16px; height: 16px }`
+     are correct as-is and the old `line-height: 1` override is gone. That
+     16px is also the fix for "the trashcan is too small": the glyph used
+     to render at the summary line's `--font-size-body-sm` (12px).
+
+     `pointer-events: none` on the icon is LOAD-BEARING, not cosmetic, and
+     is new with the SVG. The rule that keeps this button from toggling
+     its `<details>` is the summary's default handler skipping clicks on a
+     form control — and Blink tests the click's TARGET NODE ITSELF, not
+     its ancestors (`HTMLSummaryElement::DefaultEventHandler` ->
+     `IsClickableControl`). With a text glyph the target was the
+     `<button>`, so it was skipped; an `<svg>` child is its own hit-test
+     target and is NOT a form control, so the click would reach the
+     summary and toggle the panel open/closed on every delete press. Making
+     the icon transparent to hit-testing puts the target back on the
+     button. The click still reaches the button's own listener. */
+  .area-studio .kb-folder-delete-btn svg { pointer-events: none; }
+
+  /* HAT polish pass: the folders list needs breathing room under the
+     "Add folder" button, which it had none of. Uses the existing
+     `--space-*` scale (same vocabulary as `.connector-enabled-row`). */
+  .area-studio .kb-folders-list { margin-top: var(--space-3); }
+
+  /* L6-D3 (amended): the ARMED two-step-confirm state on a folder's
+     `<summary>`. components.css's canonical `.list-item.confirm-delete`
+     pair does not reach here — those selectors are scoped to
+     `.list-item` / `.delete-btn`, and neither matches a `<summary>`, so
+     without these rules the "Confirm delete?" text would swap in with no
+     danger affordance at all. Same pair, re-expressed for this panel and
+     using the same tokens: the danger colour lands on the `<details>`'s
+     EXISTING border (recoloured, not added — an added 1px border would
+     jump the row under the operator's cursor between the arming click
+     and the confirming one) and on the swapped-in title. The trash glyph
+     joins it, mirroring the canonical rule's third line. The `:has()`
+     specificity is (0,4,0), so it wins over the (0,3,0)
+     `.mcp-tool-item:hover` accent border above. */
+  .area-studio .mcp-tool-item:has(> .kb-folder-summary.confirm-delete) {
+    border-color: var(--status-danger);
+  }
+  .area-studio .kb-folder-summary.confirm-delete [data-confirm-title] {
+    color: var(--status-danger);
+  }
+  .area-studio .kb-folder-summary.confirm-delete .kb-folder-delete-btn {
+    color: var(--status-danger);
+  }
+
+  /* L5-D4: the per-row overflow menu — built minimal and LOCAL (one
+     consumer; see knowledge-section.js's own comment on why this isn't
+     promoted to components.css). */
+  .area-studio .kb-item-menu-wrap { position: relative; margin-left: auto; }
+  .area-studio .kb-item-menu-trigger {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--fg-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    line-height: 1;
+    padding: 4px 10px;
+  }
+  .area-studio .kb-item-menu-trigger:hover { border-color: var(--border-hover); color: var(--fg); }
+  .area-studio .kb-item-menu-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .area-studio .kb-item-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-popover);
+    padding: 4px;
+    z-index: 20;
+  }
+  .area-studio .kb-item-menu[hidden] { display: none; }
+  .area-studio .kb-item-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--fg);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    padding: 6px 10px;
+  }
+  .area-studio .kb-item-menu-item:hover,
+  .area-studio .kb-item-menu-item:focus-visible {
+    background: var(--surface-elevated);
+    outline: none;
+  }
+
+  /* === Studio Agent Editor: Knowledge tab (M24 F06 L03) === */
+  /* Rows mirror `.mcp-source-tile`'s toggle + name layout but stay
+     single-line (no expand/collapse — attach is the only control). */
+  .area-studio .agent-knowledge-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .area-studio .agent-knowledge-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .agent-knowledge-row:last-child { border-bottom: none; }
+  .area-studio .agent-knowledge-row-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .area-studio .agent-knowledge-row-name { font-weight: 500; }
+  .area-studio .agent-knowledge-row-tool-name {
+    margin-left: auto;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .agent-knowledge-row-tool-name-placeholder { font-style: italic; }
+  .area-studio .agent-knowledge-load-error {
+    font-size: var(--font-size-body-sm);
+    color: var(--status-danger);
+    padding: 8px 0;
+  }
 }

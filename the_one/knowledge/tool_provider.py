@@ -31,10 +31,10 @@ group still collides at that length — **never a prefix of ``kb_id``**.
 LLM tool-name ceiling, so "widen by taking more of ``kb_id``" can grow
 unboundedly and overflow the very budget truncation already reserves
 against; a fixed length is known BEFORE truncation and can be reserved
-exactly (see :func:`_compute_tool_names`).
+exactly (see :func:`compute_tool_names`).
 
 **Naming is computed for the agent's WHOLE attached set at once**
-(:func:`_compute_tool_names`), because group-wide collision detection
+(:func:`compute_tool_names`), because group-wide collision detection
 needs that set — this is why naming lives in the provider and not in
 :class:`~the_one.knowledge.tool.KBSearchTool` itself. The result is
 independent of ``config.kb_ids``'s order: every input to the algorithm
@@ -95,12 +95,15 @@ def _discriminator(kb_id: str, hash_len: int) -> str:
 def _build_name(slug: str, hash_len: int | None, kb_id: str) -> str:
     """Build one final tool name.
 
-    ``hash_len is None`` -> no discriminator, the slug used verbatim
-    (only reachable when the slug is both short enough and non-colliding).
-    Otherwise the discriminator's budget is reserved BEFORE the slug is
-    truncated (AC-10): ``reserve len(discriminator) + 1`` (the ``_``
-    separator), truncate the slug to what remains, append the
-    discriminator once.
+    ``hash_len is None`` -> no discriminator, the slug used verbatim. Not
+    reachable from :func:`compute_tool_names` since DD-17 made the
+    discriminator unconditional (every call site there always passes an
+    explicit length); the branch stays because ``_build_name`` is a pure
+    function with its own documented contract and the AC-9 widening loop
+    still needs to call it with explicit lengths. Otherwise the
+    discriminator's budget is reserved BEFORE the slug is truncated
+    (AC-10): ``reserve len(discriminator) + 1`` (the ``_`` separator),
+    truncate the slug to what remains, append the discriminator once.
     """
     if hash_len is None:
         return f"{_NAME_PREFIX}{slug}{_NAME_SUFFIX}"
@@ -111,21 +114,32 @@ def _build_name(slug: str, hash_len: int | None, kb_id: str) -> str:
     return f"{_NAME_PREFIX}{truncated}_{disc}{_NAME_SUFFIX}"
 
 
-def _compute_tool_names(kbs: list[KnowledgeBase], *, agent_name: str) -> dict[str, str]:
+def compute_tool_names(kbs: list[KnowledgeBase], *, agent_name: str) -> dict[str, str]:
     """Return ``{kb_id: tool_name}`` for every entry in ``kbs`` (DD-4).
 
-    Rules, composed exactly once per knowledge base (AC-10, never two
+    **DD-17: the discriminator is unconditional.** Every knowledge base's
+    derived name gets the ``sha256(kb_id)`` discriminator, regardless of
+    whether it collides or overflows the length budget within ``kbs`` —
+    so a knowledge base's derived name is a pure function of
+    ``(kb.name, kb.id)`` alone, independent of the composition of the set
+    it happens to be computed with (AC-1, AC-2). This is what keeps a
+    name-keyed ``disabled_tools`` entry pointing at the right tool across
+    rename, delete, attach and detach — see the module docstring and
+    ``the_one/agents.md``'s DD-17 note.
+
+    The over-length and collision checks below still run, but only to
+    decide whether to WARN — never to decide whether to discriminate
+    (L2-D1). Composed exactly once per knowledge base (AC-10, never two
     suffixes):
 
     1. **Group-wide collision** (AC-7): if a slug has more than one
-       claimant among ``kbs``, EVERY member of that group gets the
-       discriminator — not just the second and subsequent. Grouped by
-       slug VALUE (a dict keyed on the raw, un-truncated slug), never by
-       ``kbs`` list position, so the result is independent of input
-       order.
+       claimant among ``kbs``, a WARNING names every member of that
+       group. Grouped by slug VALUE (a dict keyed on the raw,
+       un-truncated slug), never by ``kbs`` list position, so the result
+       is independent of input order.
     2. **Over-length** (AC-8): a slug whose un-discriminated name would
-       exceed 64 characters always gets a discriminator too, truncated to
-       fit — never dropped.
+       exceed 64 characters logs a WARNING; the discriminator (applied
+       unconditionally below) truncates the slug to fit — never dropped.
     3. **The discriminator is the AC-9 fixed-length hash**, budgeted
        before truncation (AC-10), applied at most once per name.
     4. **Uniqueness is asserted, not assumed** (AC-9): after the first
@@ -143,25 +157,24 @@ def _compute_tool_names(kbs: list[KnowledgeBase], *, agent_name: str) -> dict[st
         raw_name = f"{_NAME_PREFIX}{slug}{_NAME_SUFFIX}"
         over_length = len(raw_name) > _TOOL_NAME_MAX_LEN
         colliding = len(slug_members[slug]) > 1
-        if over_length or colliding:
-            hash_len_by_id[kb.id] = _HASH_LENGTHS[0]
-            if over_length:
-                logger.warning(
-                    "agent %r: knowledge base %r's name is too long for a "
-                    "tool name; truncating and appending a discriminator",
-                    agent_name,
-                    kb.name,
-                )
-            if colliding:
-                logger.warning(
-                    "agent %r: knowledge bases %s collide on tool-name "
-                    "slug %r; appending a discriminator to all of them",
-                    agent_name,
-                    sorted(slug_members[slug]),
-                    slug,
-                )
-        else:
-            hash_len_by_id[kb.id] = None
+        # L2-D1: the discriminator itself is now unconditional — only the
+        # two WARNING logs stay conditional on their own cases.
+        hash_len_by_id[kb.id] = _HASH_LENGTHS[0]
+        if over_length:
+            logger.warning(
+                "agent %r: knowledge base %r's name is too long for a "
+                "tool name; truncating and appending a discriminator",
+                agent_name,
+                kb.name,
+            )
+        if colliding:
+            logger.warning(
+                "agent %r: knowledge bases %s collide on tool-name "
+                "slug %r; appending a discriminator to all of them",
+                agent_name,
+                sorted(slug_members[slug]),
+                slug,
+            )
 
     # AC-9: assert uniqueness across the whole set; widen the hash length
     # for any group that still collides, up to _HASH_LENGTHS' ceiling.
@@ -235,7 +248,7 @@ class KBToolProvider:
         if not kbs:
             return []
 
-        names = _compute_tool_names(kbs, agent_name=agent_name)
+        names = compute_tool_names(kbs, agent_name=agent_name)
 
         return [
             KBSearchTool(

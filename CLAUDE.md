@@ -80,6 +80,8 @@ Four layers compose bottom-up: **Interfaces** (CLI + Web/FastAPI) → **Agent** 
 
 **Agent-facing retrieval (M24 F5)**: an agent reaches its attached knowledge bases (`AgentConfig.kb_ids`) through one `kb__{slug}__search` tool per attachment, built per agent by `KBToolProvider` and registered by `AgentFactory` beside the MCP tools. `the_one/knowledge/retrieval.py::search` fuses the vector store's semantic hits with FTS5's keyword hits by reciprocal rank, with one result slot reserved for a keyword-only exact-term hit the embedding model would otherwise rank out of the returned set — so a query naming an identifier the model ranks poorly still surfaces it. The tool degrades honestly rather than failing silently: a stale, busy, or otherwise unavailable vector index falls back to keyword-only results (and the reverse for a keyword-index failure), each surfaced as one line above the hits. `search_tools` discovers these tools under a `kb:<slug>:` group, matched purely through the tool's own name and description (a knowledge base gets no separate `source_index` entry — see `the_one/agents.md`'s "Knowledge retrieval" section for why one would be inert). Attachment is authorization: an agent can only ever reach the knowledge bases the operator attached it to, and no agent-facing route creates or attaches one.
 
+**Studio surfaces + operator-facing search (M24 F6)**: `GET /api/knowledge-bases/{kb_id}/search` (query param `q`, `limit: int = Query(10, ge=1, le=20)`, 404 on an unknown `kb_id`) wraps `retrieval.search` for a human caller — read-only, returning `{hits: [...], degraded: str | null, indexer: str}`; it sits behind the same credential gate as every other route (see SECURITY-MODEL.md). Studio's **Knowledge section** is the global inventory (create/rename/delete a knowledge base, register and inspect folders, read items/chunks/source, and preview search through the route above); the agent editor's **Knowledge tab** is attach-only — a per-knowledge-base row toggle (mirroring the MCPs tab's pattern) that also renders the knowledge base's derived `kb__…__search` tool name, served by the backend (`compute_tool_names`, promoted from a private helper) rather than recomputed in JavaScript. Administration gained a **Knowledge** panel (`#admin/knowledge`) for the app-wide `chunking`/`monitoring` settings — `embedding` and `vector_store` render read-only, each with its reason stated on screen: the embedding model is pinned (there is no operator path to change it — see DD-7 in `missions/24-knowledge-bases/flights/06-studio-surfaces/flight.md`), and the vector-store record is written by the app, not chosen by the operator.
+
 Full module map, layer internals, tool-authorship contract, constraint surfaces (Filesystem/Execution/Web Configs), cross-Config dispatch, PTY session lifecycle, MCP F2/F3 contracts, MCP error translation, operator workflows — all in `the_one/agents.md`. Don't duplicate that material here.
 
 ## Desktop launcher (`the-one app`)
@@ -304,6 +306,22 @@ providers, and credential file, then reports *its* state instead of the
 branch's under test. (This mirrors the existing AIAT rule above for
 `-m live` — the same production instance, the same hazard.)
 
+**Do not guess the default data directory — read it.** It is
+platformdirs-derived (`the_one/config.py::_default_data_dir`), NOT a literal
+path, and it differs by platform. Print it with:
+
+```bash
+python -c "from the_one.config import settings; print(settings.data_dir)"
+```
+
+A check against a hardcoded guess is not a check: a stale guess returns a clean
+result whether or not the real directory was just written to. (Squawk 0084 — an
+earlier version of this section named `~/.the-one`, which does not exist, so every
+"production untouched" verification against it passed unconditionally. A
+credential rotation reached the real directory before anyone noticed.) To confirm
+which directory a *running* instance owns, read that process's own
+`/proc/<pid>/environ` rather than assuming.
+
 Always drive a **dedicated dev instance** instead — a non-default port
 AND a scratch data directory, together, every time:
 
@@ -312,7 +330,7 @@ THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch make up
 ```
 
 Port alone is not enough — an instance on 8485 that still points at the
-operator's default `~/.the-one` data directory shares the same credential
+operator's default data directory shares the same credential
 file, database, and sessions as production. A spec's Preconditions must
 name (or require an operator-provided) port and data directory; never
 default to `:8484` or the default data directory.

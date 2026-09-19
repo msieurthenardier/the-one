@@ -5,7 +5,7 @@ Covers: ``KBSearchTool``'s shape (instance attrs before ``super().__init__``,
 ``agent_name`` threading, ``limit`` range-checking, description content,
 result rendering incl. all four degrade causes), ``_normalize_kb_name``'s
 mirror of the MCP normalizer (incl. the recorded ``__``-collapse flaw),
-``_compute_tool_names``'s naming algorithm (group-wide collision, the
+``compute_tool_names``'s naming algorithm (group-wide collision, the
 fixed-length hash discriminator, truncate-and-suffix, the compound case,
 order-independence), and ``KBToolProvider.get_tools_for_agent`` (the
 empty/no-DB-call fast path, the orphan-``kb_id`` skip, and the happy path).
@@ -25,8 +25,8 @@ from the_one.knowledge.retrieval import SearchHit, SearchResult
 from the_one.knowledge.tool import KBSearchTool, build_description
 from the_one.knowledge.tool_provider import (
     KBToolProvider,
-    _compute_tool_names,
     _normalize_kb_name,
+    compute_tool_names,
 )
 
 # ---------------------------------------------------------------------------
@@ -74,26 +74,65 @@ class TestNormalizeKbName:
 
 
 # ---------------------------------------------------------------------------
-# _compute_tool_names
+# compute_tool_names
 # ---------------------------------------------------------------------------
 
 
 class TestComputeToolNames:
-    def test_single_short_name_no_discriminator(self) -> None:
+    def test_single_short_name_still_gets_a_discriminator(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # AC-1/DD-17: the discriminator is now unconditional — even a
+        # solo, short, non-colliding name is discriminated, so its
+        # derived name never equals the undiscriminated form.
+        # AC-3/L2-D1: applying the discriminator unconditionally does
+        # NOT make the WARNING logs unconditional — an ordinary short,
+        # non-colliding name still logs neither "too long" nor "collide".
         kb = _kb("kb1", "Docs")
-        names = _compute_tool_names([kb], agent_name="agent")
-        assert names == {"kb1": "kb__Docs__search"}
+        with caplog.at_level(logging.WARNING):
+            names = compute_tool_names([kb], agent_name="agent")
+        name = names["kb1"]
+        assert name.startswith("kb__Docs_")
+        assert name.endswith("__search")
+        assert name != "kb__Docs__search"
+        disc = name[len("kb__Docs_") : -len("__search")]
+        assert len(disc) == 8
+        assert all(c in "0123456789abcdef" for c in disc)
+        assert caplog.records == []
 
-    def test_two_distinct_short_names_no_discriminator(self) -> None:
+    def test_two_distinct_short_names_each_get_their_own_discriminator(self) -> None:
+        # AC-1/DD-17: two distinct, non-colliding short names are each
+        # independently discriminated — not left bare just because
+        # neither collides with the other.
         kbs = [_kb("kb1", "Docs"), _kb("kb2", "Runbooks")]
-        names = _compute_tool_names(kbs, agent_name="agent")
-        assert names["kb1"] == "kb__Docs__search"
-        assert names["kb2"] == "kb__Runbooks__search"
+        names = compute_tool_names(kbs, agent_name="agent")
+        assert names["kb1"].startswith("kb__Docs_")
+        assert names["kb1"].endswith("__search")
+        assert names["kb1"] != "kb__Docs__search"
+        assert names["kb2"].startswith("kb__Runbooks_")
+        assert names["kb2"].endswith("__search")
+        assert names["kb2"] != "kb__Runbooks__search"
+        assert names["kb1"] != names["kb2"]
+
+    def test_derived_name_is_invariant_to_set_composition(self) -> None:
+        # AC-2, DD-17's whole point: a knowledge base's derived name is
+        # a pure function of (kb.name, kb.id) alone — computing it for
+        # [A], then [A, B] where B shares A's name, then [A, C] where C
+        # does not, must yield the identical name for A every time.
+        kb_a = _kb("kb-a", "Docs")
+        kb_b_same_name = _kb("kb-b", "Docs")
+        kb_c_different_name = _kb("kb-c", "Runbooks")
+
+        alone = compute_tool_names([kb_a], agent_name="agent")
+        with_same_name_sibling = compute_tool_names([kb_a, kb_b_same_name], agent_name="agent")
+        with_different_sibling = compute_tool_names([kb_a, kb_c_different_name], agent_name="agent")
+
+        assert alone["kb-a"] == with_same_name_sibling["kb-a"] == with_different_sibling["kb-a"]
 
     def test_colliding_names_both_get_discriminator(self, caplog: pytest.LogCaptureFixture) -> None:
         kbs = [_kb("kb-docs-1", "Docs"), _kb("kb-docs-2", "Docs")]
         with caplog.at_level(logging.WARNING):
-            names = _compute_tool_names(kbs, agent_name="agent")
+            names = compute_tool_names(kbs, agent_name="agent")
         assert names["kb-docs-1"] != names["kb-docs-2"]
         for name in names.values():
             assert name.startswith("kb__Docs_")
@@ -106,7 +145,7 @@ class TestComputeToolNames:
         # characters (beyond the shared "kb-docs-" prefix) do not appear
         # literally in the discriminator segment.
         kbs = [_kb("kb-docs-1", "Docs"), _kb("kb-docs-2", "Docs")]
-        names = _compute_tool_names(kbs, agent_name="agent")
+        names = compute_tool_names(kbs, agent_name="agent")
         for name in names.values():
             # Discriminator segment is the part between "kb__Docs_" and "__search".
             disc = name[len("kb__Docs_") : -len("__search")]
@@ -115,8 +154,8 @@ class TestComputeToolNames:
 
     def test_collision_group_names_stable_under_reorder(self) -> None:
         kbs = [_kb("kb-docs-1", "Docs"), _kb("kb-docs-2", "Docs")]
-        forward = _compute_tool_names(kbs, agent_name="agent")
-        backward = _compute_tool_names(list(reversed(kbs)), agent_name="agent")
+        forward = compute_tool_names(kbs, agent_name="agent")
+        backward = compute_tool_names(list(reversed(kbs)), agent_name="agent")
         assert forward == backward
 
     def test_over_length_name_truncates_and_suffixes(
@@ -125,7 +164,7 @@ class TestComputeToolNames:
         long_name = "A" * 60  # kb__ + 60 chars + __search = 72 > 64
         kb = _kb("kb1", long_name)
         with caplog.at_level(logging.WARNING):
-            names = _compute_tool_names([kb], agent_name="agent")
+            names = compute_tool_names([kb], agent_name="agent")
         name = names["kb1"]
         assert len(name) <= 64
         assert name.startswith("kb__")
@@ -140,7 +179,7 @@ class TestComputeToolNames:
         # collision the assertion pass is what actually prevents.
         long_name = "B" * 60
         kb = _kb("kb1", long_name)
-        names = _compute_tool_names([kb], agent_name="agent")
+        names = compute_tool_names([kb], agent_name="agent")
         name = names["kb1"]
         body = name[len("kb__") : -len("__search")]
         # body is "<truncated-slug>_<8-hex-discriminator>"
@@ -155,8 +194,8 @@ class TestComputeToolNames:
         name_a = "Engineering Runbooks And Internal Documentation Archive One"
         name_b = "Engineering Runbooks And Internal Documentation Archive Two"
         kbs = [_kb("shared-prefix-aaa", name_a), _kb("shared-prefix-bbb", name_b)]
-        forward = _compute_tool_names(kbs, agent_name="agent")
-        backward = _compute_tool_names(list(reversed(kbs)), agent_name="agent")
+        forward = compute_tool_names(kbs, agent_name="agent")
+        backward = compute_tool_names(list(reversed(kbs)), agent_name="agent")
         assert forward == backward
         assert forward["shared-prefix-aaa"] != forward["shared-prefix-bbb"]
         for name in forward.values():
@@ -177,7 +216,7 @@ class TestComputeToolNames:
         monkeypatch.setattr(provider_mod, "_discriminator", _fake_discriminator)
         kbs = [_kb("kb-docs-1", "Docs"), _kb("kb-docs-2", "Docs")]
         with caplog.at_level(logging.WARNING):
-            names = _compute_tool_names(kbs, agent_name="agent")
+            names = compute_tool_names(kbs, agent_name="agent")
         assert names["kb-docs-1"] != names["kb-docs-2"]
         assert any("still" in r.message and "widening" in r.message for r in caplog.records)
 
@@ -276,7 +315,15 @@ class TestKBToolProvider:
             _AgentConfigStub(kb_ids=["kb1", "kb2"]), agent_name="agent-y"
         )
         assert {t.kb_id for t in tools} == {"kb1", "kb2"}
-        assert {t.name for t in tools} == {"kb__Docs__search", "kb__Runbooks__search"}
+        # DD-17: names are now unconditionally discriminated — assert
+        # shape, not a literal hash (a hardcoded discriminated literal
+        # would rot the same way an undiscriminated one did).
+        names = {t.name for t in tools}
+        assert len(names) == 2
+        assert names.isdisjoint({"kb__Docs__search", "kb__Runbooks__search"})
+        for name in names:
+            assert name.startswith(("kb__Docs_", "kb__Runbooks_"))
+            assert name.endswith("__search")
         for t in tools:
             assert isinstance(t, KBSearchTool)
             assert t._agent_name == "agent-y"
