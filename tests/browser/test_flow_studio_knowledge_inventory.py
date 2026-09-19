@@ -27,6 +27,20 @@ item, a synthetic standalone file item) is seeded via a direct,
 credentialed HTTP POST against the running app (mirrors `seeders.py`'s
 API-based-seeding idiom) rather than invented UI controls — the UI itself
 is only ever driven for what it actually exposes.
+
+Mission 24 Flight 6 Leg 5 (HAT-found affordance gaps) additions — NOTE
+this leg has its OWN AC-1..AC-13 numbering, distinct from Leg 1's above;
+every Leg-5 reference below is spelled out as "Leg 5 AC-N" to avoid
+confusion with the Leg-1 AC-N citations above. Covers: Leg 5 AC-1/AC-2/
+AC-3 (a folder's two-step remove control — App.confirmDelete, a static
+consequence caption rendered before any click, an immediate
+`refreshStatusNow()` + items refresh on the success path rather than
+waiting on the poll — and the knowledge base itself survives), Leg 5 AC-4
+(the create form's description field is persisted), Leg 5 AC-8 (the
+detail view's edit form joins dirty-confirm), Leg 5 AC-9/AC-10 (the
+per-row overflow menu carrying "View chunks"/"View source" is keyboard-
+operable — opens from the keyboard, Escape closes and returns focus to
+the trigger, arrows move between items).
 """
 
 from __future__ import annotations
@@ -295,7 +309,12 @@ def test_chunks_open_in_seq_order_and_source_not_prefetched(
     # Item-list render alone must not have fetched /source.
     assert source_requests == []
 
-    row.locator('[data-testid="kb-item-chunks-btn"]').click()
+    # AC-9/L5-D4: "View chunks" is reachable from the per-row overflow
+    # control, not a bare button on the row.
+    row.locator('[data-testid="kb-item-menu-btn"]').click()
+    menu = row.locator('[data-testid="kb-item-menu"]')
+    expect(menu).to_be_visible()
+    menu.locator('[data-testid="kb-item-chunks-btn"]').click()
     panel = page.locator('[data-testid="kb-chunks-panel"]')
     expect(panel).to_be_visible()
     expect(panel.locator('[data-testid="kb-chunk-row"]')).to_have_count(0)
@@ -483,9 +502,13 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
     expect(rows).to_have_count(1, timeout=5000)
     assert len(items_requests) == 1, "the detail-view mount fetch"
 
-    # Open the chunks panel on the existing row — it must survive the
-    # upcoming list rebuild (the panel lives outside `kb-items-list`).
-    rows.first.locator('[data-testid="kb-item-chunks-btn"]').click()
+    # Open the chunks panel on the existing row (via the overflow menu,
+    # L5-D4) — it must survive the upcoming list rebuild (the panel lives
+    # outside `kb-items-list`).
+    rows.first.locator('[data-testid="kb-item-menu-btn"]').click()
+    rows.first.locator('[data-testid="kb-item-menu"]').locator(
+        '[data-testid="kb-item-chunks-btn"]'
+    ).click()
     panel = page.locator('[data-testid="kb-chunks-panel"]')
     expect(panel).to_be_visible()
     expect(panel.locator('[data-testid="kb-panel-title"]')).to_have_text(first_path)
@@ -521,3 +544,206 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
     # still correctly attributed to the item it was opened for.
     expect(panel).to_be_visible()
     expect(panel.locator('[data-testid="kb-panel-title"]')).to_have_text(first_path)
+
+
+# ── Mission 24 Flight 6 Leg 5 (HAT-found affordance gaps) ───────────────────
+# Leg 5's OWN AC-1..AC-13 numbering — see the module docstring's note.
+
+
+@pytest.mark.browser
+def test_folder_remove_two_step_confirm_caption_and_immediate_refresh(
+    app_with_data_dir: tuple[str, Path], page: Page, tmp_path: Path
+) -> None:
+    """Leg 5 AC-1/AC-2/AC-3: the caption states the consequence BEFORE any
+    click; the two-step App.confirmDelete control (button label "Confirm
+    remove?") removes the folder; both the folder/status display AND the
+    item list reflect it via an IMMEDIATE refreshStatusNow() + items
+    refresh — well inside one 5-second poll interval, not by waiting on
+    it; and the knowledge base itself survives with no other folders
+    affected."""
+    base_url, _data_dir = app_with_data_dir
+
+    fixture_dir = tmp_path / "kb-remove-fixture"
+    fixture_dir.mkdir()
+    (fixture_dir / "note.txt").write_text("removable folder fixture content.")
+
+    _goto_knowledge_grid(base_url, page)
+    _create_knowledge_base(page, "Remove Folder KB")
+    page.locator('[data-testid="knowledge-base-card"]', has_text="Remove Folder KB").click()
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
+
+    page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
+    page.locator('[data-testid="kb-register-folder-btn"]').click()
+    folder_row = page.locator('[data-testid="kb-folder-row"]')
+    expect(folder_row).to_be_visible(timeout=5000)
+
+    # The real indexing pipeline picks up note.txt — wait for it to land
+    # in the item list before exercising removal, so the removal's
+    # cascade has something real to remove.
+    expect(page.locator('[data-testid="kb-item-row"]')).to_have_count(1, timeout=30000)
+
+    # AC-2: the consequence caption is present BEFORE any click — not only
+    # in the armed state.
+    caption = folder_row.locator('[data-testid="kb-folder-remove-caption"]')
+    expect(caption).to_be_visible()
+    expect(caption).to_have_text(
+        "Removes this folder and every file indexed from it, with their chunks and search entries."
+    )
+
+    remove_btn = folder_row.locator('[data-testid="kb-folder-remove-btn"]')
+    expect(remove_btn).to_be_visible()
+    remove_btn.click()  # arm
+    expect(remove_btn).to_have_text("Confirm remove?")
+    remove_btn.click()  # confirm
+
+    # AC-1: an IMMEDIATE refresh — asserted with a timeout well under one
+    # 5-second poll interval, so a pass here cannot be explained by the
+    # poll instead of the success-path refresh this criterion requires.
+    expect(page.locator('[data-testid="kb-folder-row"]')).to_have_count(0, timeout=2000)
+    expect(page.locator('[data-testid="kb-item-row"]')).to_have_count(0, timeout=2000)
+
+    # AC-3: the knowledge base itself is NOT deleted — still on its detail
+    # view, still addressable, with the folder gone and nothing else.
+    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible()
+    expect(page.locator(".editor-title")).to_have_text("Remove Folder KB")
+    page.locator('[data-testid="back-knowledge-btn"]').click()
+    expect(
+        page.locator('[data-testid="knowledge-base-card"]', has_text="Remove Folder KB")
+    ).to_be_visible()
+
+
+@pytest.mark.browser
+def test_create_form_description_persisted(app_clean: str, page: Page) -> None:
+    """Leg 5 AC-4: the create form accepts a description, and it survives
+    the round trip (`GET /api/knowledge-bases/{id}` returns it) — rendered
+    on the grid tile without a page reload."""
+    _goto_knowledge_grid(app_clean, page)
+    page.locator('[data-testid="new-knowledge-base-btn"]').click()
+    page.locator('[data-testid="kb-create-name-input"]').fill("Described KB")
+    page.locator('[data-testid="kb-create-description-input"]').fill("A description for testing.")
+    page.locator('[data-testid="kb-create-submit-btn"]').click()
+
+    card = page.locator('[data-testid="knowledge-base-card"]', has_text="Described KB")
+    expect(card).to_be_visible(timeout=5000)
+    expect(card.locator(".entity-tile-meta")).to_have_text("A description for testing.")
+
+    kb_id = card.get_attribute("data-id")
+    assert kb_id is not None
+    body = httpx.get(
+        f"{app_clean}/api/knowledge-bases/{kb_id}", headers=auth_headers_for(app_clean), timeout=5.0
+    ).json()
+    assert body["description"] == "A description for testing."
+
+
+@pytest.mark.browser
+def test_edit_form_joins_dirty_confirm(app_clean: str, page: Page) -> None:
+    """Leg 5 AC-8: the edit form's unsaved changes gate cross-section
+    navigation through App.confirmDialog (L5-D3, a reversal of Leg 3's
+    stated non-goal for the single-field create/register forms) — clean
+    navigation (edit form untouched) does not prompt."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Dirty Confirm KB")
+    page.locator('[data-testid="knowledge-base-card"]', has_text="Dirty Confirm KB").click()
+    expect(page.locator('[data-testid="edit-knowledge-base-btn"]')).to_be_visible(timeout=5000)
+
+    # Clean: opening the edit form without typing anything must NOT gate
+    # navigation.
+    page.locator('[data-testid="edit-knowledge-base-btn"]').click()
+    expect(page.locator('[data-testid="kb-edit-name-input"]')).to_be_visible()
+    mcp_nav = page.locator('.section-nav-item[data-section="mcp-sources"]')
+    mcp_nav.click()
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+
+    # Dirty: back to the same knowledge base, edit the name, then try to
+    # leave — the dialog gates it. In-app click, not a fresh page.goto — a
+    # second goto to the exact hash already visited earlier in this test
+    # would collide with app.js's own `currentSub` cache and no-op (the
+    # same pre-existing router property test_poll_stops_on_same_area_and_
+    # cross_area_navigation works around above).
+    page.locator('.section-nav-item[data-section="knowledge"]').click()
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
+    page.locator('[data-testid="knowledge-base-card"]', has_text="Dirty Confirm KB").click()
+    page.locator('[data-testid="edit-knowledge-base-btn"]').click()
+    page.locator('[data-testid="kb-edit-name-input"]').fill("Dirty Confirm KB Edited")
+
+    mcp_nav.click()
+    overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
+    expect(overlay).to_be_visible(timeout=8000)
+
+    # Cancel: stays put, no navigation.
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(overlay).to_have_count(0)
+    expect(page.locator('[data-testid="kb-edit-name-input"]')).to_have_value(
+        "Dirty Confirm KB Edited"
+    )
+
+    # Confirm: discards and navigates.
+    mcp_nav.click()
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=8000)
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+
+
+@pytest.mark.browser
+def test_item_overflow_menu_keyboard_operable(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Leg 5 AC-9/AC-10, L5-D4: the per-row overflow menu opens from the
+    keyboard, Escape closes it and returns focus to the trigger, and arrow
+    keys move between "View chunks"/"View source". A click outside also
+    closes it."""
+    base_url, _data_dir = app_with_data_dir
+    headers = auth_headers_for(base_url)
+
+    kb_id = httpx.post(
+        f"{base_url}/api/knowledge-bases", headers=headers, json={"name": "Menu KB"}
+    ).json()["id"]
+    httpx.post(
+        f"{base_url}/api/knowledge-bases/{kb_id}/items",
+        headers=headers,
+        json={
+            "id": "menu-item-1",
+            "type": "file",
+            "path_or_url": "/tmp/kb-menu-fixture.txt",
+            "status": "indexed",
+        },
+    )
+
+    page.goto(f"{base_url}#studio/knowledge/{kb_id}")
+    _wait_studio_ready(page)
+    row = page.locator('[data-testid="kb-item-row"][data-item-id="menu-item-1"]')
+    expect(row).to_be_visible(timeout=5000)
+
+    trigger = row.locator('[data-testid="kb-item-menu-btn"]')
+    menu = row.locator('[data-testid="kb-item-menu"]')
+    expect(trigger).to_have_attribute("aria-haspopup", "menu")
+    expect(trigger).to_have_attribute("aria-expanded", "false")
+    expect(menu).to_be_hidden()
+
+    # Opens from the keyboard: focus the trigger, then ArrowDown opens the
+    # menu and moves focus to the first item.
+    trigger.focus()
+    trigger.press("ArrowDown")
+    expect(menu).to_be_visible()
+    expect(trigger).to_have_attribute("aria-expanded", "true")
+    expect(page.locator('[data-testid="kb-item-chunks-btn"]:focus')).to_have_count(1)
+
+    # Arrow keys move between items.
+    page.keyboard.press("ArrowDown")
+    expect(page.locator('[data-testid="kb-item-source-btn"]:focus')).to_have_count(1)
+    page.keyboard.press("ArrowUp")
+    expect(page.locator('[data-testid="kb-item-chunks-btn"]:focus')).to_have_count(1)
+
+    # Escape closes it and returns focus to the trigger.
+    page.keyboard.press("Escape")
+    expect(menu).to_be_hidden()
+    expect(trigger).to_have_attribute("aria-expanded", "false")
+    expect(trigger).to_be_focused()
+
+    # A click outside closes it too (no focus-return assertion here — the
+    # outside click itself moves focus, by design).
+    trigger.click()
+    expect(menu).to_be_visible()
+    page.locator('[data-testid="kb-status-summary"]').click()
+    expect(menu).to_be_hidden()

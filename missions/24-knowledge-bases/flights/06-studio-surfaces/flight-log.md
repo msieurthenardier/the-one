@@ -2231,3 +2231,186 @@ tests/test_db_api.py -x --timeout 30` — 179 passed; `make test-unit`
 verbatim — 4768 passed, 10 skipped, 588 deselected.
 
 Not committed — left for review per this task's instructions.
+
+### Leg 5 `hat-inventory-affordances` — implementation — 2026-09-19
+
+Closed the three affordance gaps the operator found walking the mission-closing
+HAT (recorded at the top of the leg artifact, 2026-09-19): a registered folder
+could not be removed, a knowledge base's description could not be set or
+edited, and the item row's two action buttons crowded the row.
+
+**`static/js/areas/studio/knowledge-section.js`** — three additions, per the
+leg's four Leg Design Decisions:
+
+- **L5-D1 — folder-row remove control.** Each folder row in the status
+  section gains a `App.confirmDelete` two-step control. The button label is
+  the terse `"Confirm remove?"` matching every other `confirmDelete` caller
+  in the codebase (`studio.js`, `provider-editor.js`, `mcp-server-editor.js`,
+  `system-page.js`, `self-configuration-tab.js`); the consequence sentence
+  ("Removes this folder and every file indexed from it, with their chunks and
+  search entries.") is a **static caption** rendered beside the control
+  before any click, never crammed into the label. On success the handler
+  calls the existing `refreshStatusNow()` **and** a new sibling
+  `refreshItemsListNow()` (a companion that re-fetches `/items` and calls the
+  already-hoisted `renderItemsList`) — both fire on the DELETE's success
+  path, not on the 5-second poll, so AC-1's "without a reload" requirement is
+  met with a two-second Playwright assertion window (well under one poll
+  interval) rather than one that would pass vacuously on the poll instead.
+- **L5-D2 — the Name + Description edit form.** Replaces the F06 L03
+  rename-only affordance (`renameBtn`/`renameForm` → `editToggleBtn`/
+  `editForm`) with a single `Save` over both fields, `PUT`ting
+  `{name, description}` together. **No server change** — verified against
+  source exactly as the design review found it: `update_knowledge_base`'s
+  two early returns (L2-D9) already gate the cross-entity `disabled_tools`
+  rewrite behind a raw-name-changed check then a derived-name-changed check,
+  so a description-only save performs zero agent I/O. The create form also
+  gained a `Description` textarea (AC-4), persisted via the same route the
+  create form already used.
+- **L5-D4 — the per-row overflow menu.** `buildItemMenu(item)` replaces the
+  two bare `"View chunks"`/`"View source"` buttons with a trigger
+  (`aria-haspopup="menu"`, `aria-expanded`) and a `role="menu"` popup
+  (`role="menuitem"` children, reusing the same `kb-item-chunks-btn`/
+  `kb-item-source-btn` testids so AC-9's "both still work" needs no new
+  ids). Escape closes and returns focus to the trigger; arrow keys cycle
+  between items; a document-level click listener (attached only while a
+  menu is open) closes on an outside click. A module-scoped `openItemMenu`
+  tracker ensures at most one menu is open at a time and lets
+  `renderItemsList` positively close whichever menu is open — via
+  `closeAnyOpenItemMenu()`, called at the top of every list rebuild — before
+  wiping `itemsListEl`, so a poll-driven rebuild with a menu open cannot
+  leak a detached element or a stale `document` listener (the leg's own
+  Edge Case). Built local to `knowledge-section.js`, not promoted to
+  `components.css` — there is exactly one consumer, and L5-D4 is explicit
+  that a second consumer is what triggers promotion, not the first.
+
+**A bug caught and fixed before it shipped**: the first draft of the Back
+button's click handler called `callbacks.onDirtyChange(false)` unconditionally
+before `callbacks.onBack()` — which would have silently discarded an unsaved
+edit-form change on every Back click with no confirm dialog, defeating AC-8
+for that one navigation path while every other path (section-nav,
+cross-area) correctly gated. Fixed by moving the gate into `studio.js`'s
+`onBack` implementation itself, mirroring `mcp-sources`' own `onBack` (which
+checks the orchestrator's `dirty` closure var and calls `App.confirmDialog`
+before proceeding) — `knowledge-section.js`'s Back button now only ever
+*requests* the navigation, never decides to discard on its own. Caught by
+re-reading the callback wiring against the mcp-sources precedent before
+writing the browser test, not by the test itself.
+
+**`static/js/areas/studio.js`** — `onBack` gated as above; `onSaveSuccess`
+(renamed from `onRenameSuccess`, same re-mount-from-the-saved-object body);
+an `onDirtyChange: function (d) { dirty = d; }` bridge passed into
+`renderKnowledgeDetail`'s callbacks, with `dirty = false` reset immediately
+before every detail-view mount (mirrors the mcp-sources/connectors "reset
+before editor mount" pattern); `dirty = false` added to the three existing
+knowledge poll-clear sites (`commit()`'s section-change block, `commit()`'s
+same-section-reclick block, `setActiveSection`'s own reset block) since none
+of the three previously touched the dirty mirror; and a fourth
+`(self._activeSection === 'knowledge' && self._selectedKbId)` arm on
+`_confirmLeaveImpl`'s `inEditor` predicate (L5-D3 — a deliberate reversal of
+Leg 3's stated non-goal for the single-field create/register forms, which
+stay out of the gate; the detail view's edit form is the multi-field,
+explicit-Save shape the dialog exists for). Gating on `_selectedKbId` alone
+(rather than a parallel `knowledgeEditFormOpen` flag) is sufficient because
+`dirty` can only become true while the detail view is mounted — the grid has
+no edit form.
+
+**`static/css/studio.css`** — the folder-remove caption forced onto its own
+flex line (`flex-basis: 100%`) so the consequence sentence reads as a
+sentence rather than being squeezed between the watch chip and the button;
+the overflow menu's trigger/popup/menuitem rules, reusing `--shadow-popover`,
+`--radius-sm`, `--surface-elevated` (all pre-existing tokens — no new CSS
+vocabulary). The edit form needed no new rule (reuses `.editor-section` /
+`.field-group` / `.field-error` / `.field-hint` wholesale, same as the create
+form already did).
+
+**`docs/ui-testid-registry.md`** — `kb-rename-error`/`kb-rename-name-hint`/
+`kb-rename-name-input`/`kb-rename-submit-btn`/`rename-knowledge-base-btn`
+retired (the affordance is gone); `kb-edit-*` + `edit-knowledge-base-btn` +
+`kb-create-description-input` + `kb-folder-remove-btn` +
+`kb-folder-remove-caption` + `kb-item-menu` + `kb-item-menu-btn` added.
+`kb-item-chunks-btn`/`kb-item-source-btn`'s notes updated in place to say
+they now live behind the overflow menu — the ids themselves are unchanged.
+
+**Test placement, exactly as the leg's Verification Steps specified**:
+
+- **`tests/test_db_api.py`** gained one new test,
+  `test_description_only_save_leaves_disabled_tools_byte_identical`
+  (`TestKnowledgeBaseRenameRewrite`), asserting AC-5 at the behavior level —
+  `disabled_tools` fetched via `GET` before and after a description-only
+  `PUT`, asserted byte-identical. **AC-6 and AC-6b were NOT duplicated**:
+  Leg 2 already landed `test_rename_rewrites_disabled_tools_entry` (AC-6) and
+  `test_rename_normalizing_to_same_slug_touches_no_agent` (AC-6b, already
+  built on the exact `My Notes`/`My/Notes` pair the leg artifact calls out) —
+  verified by reading both tests before writing anything, per the leg's own
+  instruction not to re-derive what the design review already established.
+  Together the three cover every branch of `update_knowledge_base`
+  (rewrite fires, first early return, second early return), split across two
+  legs' worth of commits rather than one.
+- **`tests/browser/test_flow_studio_knowledge_inventory.py`** gained four new
+  tests (folder remove two-step + caption + immediate refresh, create-form
+  description persistence, edit-form dirty-confirm, overflow-menu keyboard
+  operability) and two existing tests' chunks-button clicks were re-pointed
+  through the new overflow menu (`test_chunks_open_in_seq_order_and_
+  source_not_prefetched`, `test_items_list_catches_up_when_backend_changes_
+  while_mounted`) — both would otherwise fail outright, since the buttons
+  they clicked directly are now hidden inside a closed menu.
+
+**Deviation not in the leg's Files Affected list**:
+`tests/browser/test_flow_studio_knowledge_attach.py` (Leg 3's attach-tab
+test file) needed updating — its two rename-affordance tests
+(`test_rename_hint_and_empty_refusal_mirror_create_form`,
+`test_rename_updates_tool_name_and_disabled_tools_on_agent_editor`) drove the
+now-retired `rename-knowledge-base-btn`/`kb-rename-*` controls directly. Not
+an oversight in the leg artifact — L5-D2's replacement of the rename
+affordance necessarily invalidates any test written against it, and this
+file lived outside the leg's own surface (Leg 3's). Re-pointed to the new
+`edit-knowledge-base-btn`/`kb-edit-*` controls with no change to what each
+test actually verifies (AC-11's hint/refusal parity, AC-12's rename→
+tool-name-move-on-agent-editor).
+
+**A second instance of the already-filed Squawk 0082** (`App.router.
+replaceSub` leaves `currentSub` stale, so a same-document `page.goto()` back
+to an already-visited hash no-ops): the dirty-confirm test's second half
+(re-entering the same knowledge base after having left it via `replaceSub`d
+navigation) reproduced it identically to Leg 4's report — worked around the
+same way, with an in-SPA section-nav click instead of a second `page.goto()`,
+not filed as a new squawk since 0082 already names this exact class and is
+explicitly not scoped to any one leg's surface.
+
+**Gates run:**
+
+- `.venv/bin/python -m ruff check the_one/ tests/ scripts/` — clean.
+- `.venv/bin/python -m ruff format --check the_one/ tests/ scripts/` — clean
+  after reformatting the one new test file (449 files).
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_db_api.py
+  tests/test_ui_guards.py -x --timeout 30` (the leg's own targeted gate) —
+  **185 passed in 74.25s**.
+- `make test-unit`, verbatim, alone, foreground — **4769 passed, 10 skipped,
+  592 deselected in 637.82s (0:10:37)**, exit 0.
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh -m browser
+  tests/browser/test_flow_studio_knowledge_inventory.py` standalone — 14
+  passed. `tests/browser/test_flow_studio_knowledge_attach.py` standalone —
+  10 passed.
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane studio` — one
+  COMPLETE run: **1 failed, 174 passed, 3 skipped in 366.20s**. The single
+  failure, `test_flow_studio_loadall_error.py::test_loadall_
+  healthy_renders_normally`, is **not this leg's surface** (`loadAll()`'s
+  five-fetch `Promise.all`, unrelated to any Leg 5 file) and was confirmed a
+  pre-existing load flake, not a regression: re-run standalone twice, both
+  times **3 passed** clean. Both Leg-5-touched files in that same complete
+  run were fully green (`test_flow_studio_knowledge_attach.py` 10/10,
+  `test_flow_studio_knowledge_inventory.py` 14/14).
+- **Three subsequent attempts to re-run the full lane for a second clean
+  record were each killed by the harness's own low-memory guard before
+  completing** — not a test failure; the third kill landed during a bare
+  `cat`-heredoc setup step with no pytest process running yet, which rules
+  out this leg's test load as the cause. `free -h` read healthy (12–13Gi
+  available) both before and immediately after each kill, and a concurrent
+  second `claude` process was present on the host throughout (consistent
+  with the operator's own active HAT-walk session on the 8485 instance) —
+  logged here as an environment condition to flag, not chased further given
+  the one complete run plus the standalone confirmations above already
+  satisfy AC-12's intent. **The 8485 HAT instance was never touched or
+  restarted** by any command in this leg.
+
+Leg status: `landed`.

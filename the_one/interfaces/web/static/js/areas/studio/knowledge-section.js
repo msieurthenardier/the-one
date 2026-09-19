@@ -42,6 +42,19 @@
 // protecting). `updateItems` only ever touches `itemsListEl`'s children;
 // `chunksPanel`/`sourcePanel` are separate siblings under `itemsSection`
 // and are untouched by a list rebuild, so an open panel survives it.
+//
+// M24 F06 L05 (HAT-found affordance gaps): three additions, each traced
+// back to a leg design decision —
+//   L5-D1: each folder row gains a two-step Remove control
+//     (App.confirmDelete, button label "Confirm remove?"; the consequence
+//     sentence is a static caption beside the control, not the label).
+//   L5-D2: the rename-only affordance (F06 L03) is replaced by a single
+//     Name + Description edit form with one Save. No server change — the
+//     PUT already gates the cross-entity rewrite behind a raw-name check
+//     then a derived-name check (L2-D9's two early returns).
+//   L5-D4: "View chunks"/"View source" move behind a per-row overflow
+//     menu (`buildItemMenu`), built minimal and local to this file — see
+//     its own comment block for the accessibility contract.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -73,6 +86,18 @@
     i.value = value || '';
     if (placeholder) i.placeholder = placeholder;
     return i;
+  }
+
+  // M24 F06 L05 (L5-D2): the create form and the detail view's edit form
+  // both gain a Description field. Mirrors connector-editor.js's
+  // `_textarea` helper.
+  function _textarea(field, value, rows, placeholder) {
+    var t = _el('textarea', { className: 'field-textarea' });
+    t.setAttribute('data-field', field);
+    t.rows = rows;
+    t.value = value || '';
+    if (placeholder) t.placeholder = placeholder;
+    return t;
   }
 
   // Returns the `.field-group` wrap so callers can append a hint/error
@@ -182,6 +207,12 @@
       hint.hidden = Array.from(nameInput.value).length <= 43;
     });
 
+    // AC-4 (M24 F06 L05): the create form also accepts a description —
+    // no length rule, nothing derives from it (L5-D2).
+    var descInput = _textarea('description', '', 3, 'Optional description');
+    descInput.setAttribute('data-testid', 'kb-create-description-input');
+    _fieldGroup(createForm, 'Description', 'kb-create-description', descInput);
+
     // kb-studio-round-trip remediation FIX 3: `.editor-error`'s only rule
     // is scoped `.form-actions .editor-error` (components.css), which this
     // site is not inside — it rendered unstyled. `field-error` (already
@@ -212,7 +243,7 @@
       fetch('/api/knowledge-bases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name })
+        body: JSON.stringify({ name: name, description: descInput.value })
       }).then(function (r) {
         if (!r.ok) {
           return r.text().then(function (body) {
@@ -222,6 +253,7 @@
         return r.json();
       }).then(function (kb) {
         nameInput.value = '';
+        descInput.value = '';
         hint.hidden = true;
         createForm.hidden = true;
         createBtn.disabled = false;
@@ -292,89 +324,123 @@
     headerText.appendChild(_el('h1', { className: 'editor-title', text: kb.name }));
     header.appendChild(headerText);
     var actions = _el('div', { className: 'form-actions' });
-    var renameBtn = _btn('btn-outlined-primary', 'rename-knowledge-base-btn', 'Rename');
-    actions.appendChild(renameBtn);
+    var editToggleBtn = _btn('btn-outlined-primary', 'edit-knowledge-base-btn', 'Edit');
+    actions.appendChild(editToggleBtn);
     var backBtn = _btn('btn-outlined-primary back-btn', 'back-knowledge-btn', '← Back');
     backBtn.setAttribute('aria-label', 'Back to knowledge bases');
     actions.appendChild(backBtn);
     header.appendChild(actions);
     root.appendChild(header);
-    backBtn.addEventListener('click', function () { if (callbacks.onBack) callbacks.onBack(); });
+    // AC-8/L5-D3: the dirty GATE for this click lives in studio.js's
+    // `onBack` (mirrors mcp-sources' own onBack, which checks the
+    // orchestrator's `dirty` closure var and shows App.confirmDialog
+    // itself before proceeding) — this module only ever requests the
+    // navigation, never decides to discard unsaved edits on its own.
+    backBtn.addEventListener('click', function () {
+      if (callbacks.onBack) callbacks.onBack();
+    });
 
-    // ── Rename (AC-11, L3-D5, M24 F06 L03) — reuses the create form's
-    // 43-code-point advisory hint and empty-name refusal (L1-D3's
-    // find_label_for_without_control / describedby guards are satisfied
-    // the same way the create form satisfies them, via `_fieldGroup`).
-    // Collapsed until the button above is clicked.
-    var renameForm = _el('div', { className: 'editor-section knowledge-rename-form' });
-    renameForm.hidden = true;
-    root.appendChild(renameForm);
+    // ── Edit: Name + Description in one form, one Save (AC-5/AC-6/AC-6b/
+    // AC-7/AC-8, L5-D2, M24 F06 L05) — replaces the F06 L03 rename-only
+    // affordance. Reuses the create form's 43-code-point advisory hint and
+    // empty-name refusal (L1-D3's find_label_for_without_control /
+    // describedby guards are satisfied the same way the create form
+    // satisfies them, via `_fieldGroup`). Collapsed until the button above
+    // is clicked; the server needs no change (L5-D2 — `update_knowledge_base`
+    // already gates the cross-entity rewrite behind a raw-name check and a
+    // derived-name check, so sending `name` unchanged alongside a changed
+    // `description` performs zero agent I/O).
+    var editForm = _el('div', { className: 'editor-section knowledge-edit-form' });
+    editForm.hidden = true;
+    root.appendChild(editForm);
 
-    var renameInput = _input('text', 'name', kb.name, 'Knowledge base name');
-    renameInput.setAttribute('data-testid', 'kb-rename-name-input');
-    var renameGroup = _fieldGroup(renameForm, 'Name', 'kb-rename-name', renameInput);
-    var renameHint = _el('span', {
+    var editNameInput = _input('text', 'name', kb.name, 'Knowledge base name');
+    editNameInput.setAttribute('data-testid', 'kb-edit-name-input');
+    var editNameGroup = _fieldGroup(editForm, 'Name', 'kb-edit-name', editNameInput);
+    var editNameHint = _el('span', {
       className: 'field-hint',
       text: 'Names over 43 characters get a shortened, hashed tool name.'
     });
-    renameHint.setAttribute('data-testid', 'kb-rename-name-hint');
-    renameHint.hidden = Array.from(kb.name || '').length <= 43;
-    renameGroup.appendChild(renameHint);
-    renameInput.addEventListener('input', function () {
-      renameHint.hidden = Array.from(renameInput.value).length <= 43;
+    editNameHint.setAttribute('data-testid', 'kb-edit-name-hint');
+    editNameHint.hidden = Array.from(kb.name || '').length <= 43;
+    editNameGroup.appendChild(editNameHint);
+    editNameInput.addEventListener('input', function () {
+      editNameHint.hidden = Array.from(editNameInput.value).length <= 43;
+      // L5-D3 dirty bridge — mirrors mcp-sources'/connectors'
+      // onDirtyChange(d) callback, consumed by studio.js's
+      // `inEditor`/`_confirmLeaveImpl` gate.
+      if (callbacks.onDirtyChange) callbacks.onDirtyChange(true);
+    });
+
+    // DD-16's advisory length hint applies to the name field only — the
+    // description field carries no length rule (nothing derives from it).
+    var editDescInput = _textarea('description', kb.description, 3, 'Optional description');
+    editDescInput.setAttribute('data-testid', 'kb-edit-description-input');
+    _fieldGroup(editForm, 'Description', 'kb-edit-description', editDescInput);
+    editDescInput.addEventListener('input', function () {
+      if (callbacks.onDirtyChange) callbacks.onDirtyChange(true);
     });
 
     // kb-studio-round-trip remediation FIX 3 — see the create-error site above.
-    var renameErrorEl = _el('div', { className: 'field-error' });
-    renameErrorEl.setAttribute('data-testid', 'kb-rename-error');
-    renameForm.appendChild(renameErrorEl);
+    var editErrorEl = _el('div', { className: 'field-error' });
+    editErrorEl.setAttribute('data-testid', 'kb-edit-error');
+    editForm.appendChild(editErrorEl);
 
-    var renameSubmitBtn = _btn('btn-filled-primary', 'kb-rename-submit-btn', 'Save name');
-    renameForm.appendChild(renameSubmitBtn);
+    var editSaveBtn = _btn('btn-filled-primary', 'kb-edit-save-btn', 'Save');
+    editForm.appendChild(editSaveBtn);
 
-    renameBtn.addEventListener('click', function () {
-      renameForm.hidden = !renameForm.hidden;
-      if (!renameForm.hidden) {
-        renameInput.value = kb.name;
-        renameHint.hidden = Array.from(kb.name || '').length <= 43;
-        renameErrorEl.textContent = '';
-        renameInput.focus();
+    editToggleBtn.addEventListener('click', function () {
+      var opening = editForm.hidden;
+      editForm.hidden = !editForm.hidden;
+      if (opening) {
+        editNameInput.value = kb.name;
+        editDescInput.value = kb.description || '';
+        editNameHint.hidden = Array.from(kb.name || '').length <= 43;
+        editErrorEl.textContent = '';
+        editNameInput.focus();
+      } else {
+        // Collapsed without saving — the re-populate-on-open above already
+        // discards any typed-but-unsubmitted edit, so the dirty mirror
+        // must follow (mirrors mcp-sources' Cancel-when-dirty: no dialog
+        // gate on a deliberate collapse of an unsaved form).
+        if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
       }
     });
 
-    renameSubmitBtn.addEventListener('click', function () {
-      renameErrorEl.textContent = '';
-      // AC-11: an empty name is refused client-side — no request sent —
+    editSaveBtn.addEventListener('click', function () {
+      editErrorEl.textContent = '';
+      // AC-7: an empty name is refused client-side — no request sent —
       // exactly as the create form's empty-name refusal.
-      var newName = renameInput.value.trim();
+      var newName = editNameInput.value.trim();
       if (!newName) {
-        renameErrorEl.textContent = 'Name is required.';
+        editErrorEl.textContent = 'Name is required.';
         return;
       }
-      renameSubmitBtn.disabled = true;
+      editSaveBtn.disabled = true;
       fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName })
+        body: JSON.stringify({ name: newName, description: editDescInput.value })
       }).then(function (r) {
         if (!r.ok) {
           return r.text().then(function (body) {
-            throw new Error(_errorMessageFromResponse(body) || 'Rename failed');
+            throw new Error(_errorMessageFromResponse(body) || 'Save failed');
           });
         }
         return r.json();
       }).then(function (updated) {
-        renameSubmitBtn.disabled = false;
-        renameForm.hidden = true;
-        // L3-D5: the inventory re-fetches — the derived tool name every
-        // attached agent renders has just moved (Leg 2's rewrite), and an
-        // already-open agent editor is a DIFFERENT Studio section so no
-        // cross-surface invalidation is needed; its own edit-mount
-        // refresh is what makes the next mount correct.
-        if (callbacks.onRenameSuccess) callbacks.onRenameSuccess(updated);
+        editSaveBtn.disabled = false;
+        editForm.hidden = true;
+        if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
+        // L3-D5 (carried): the inventory re-fetches — a name change moves
+        // the derived tool name every attached agent renders (Leg 2's
+        // rewrite), and an already-open agent editor is a DIFFERENT
+        // Studio section so no cross-surface invalidation is needed; its
+        // own edit-mount refresh is what makes the next mount correct.
+        if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
       }).catch(function (err) {
-        renameSubmitBtn.disabled = false;
-        renameErrorEl.textContent = err.message || String(err);
+        editSaveBtn.disabled = false;
+        editErrorEl.textContent = err.message || String(err);
       });
     });
 
@@ -456,6 +522,47 @@
             werrEl.setAttribute('data-testid', 'kb-folder-watch-error');
             row.appendChild(werrEl);
           }
+          // ── Remove (AC-1/AC-2/AC-3, L5-D1, M24 F06 L05) — the two-step
+          // App.confirmDelete pattern every other destructive control in
+          // the codebase uses. The BUTTON label stays terse ("Remove" ->
+          // "Confirm remove?", matching every other confirmDelete caller);
+          // the consequence sentence lives in a static CAPTION beside the
+          // control, rendered before any click rather than only in the
+          // armed state.
+          var removeCaption = _el('span', {
+            className: 'field-hint kb-folder-remove-caption',
+            text: 'Removes this folder and every file indexed from it, with their chunks and search entries.'
+          });
+          removeCaption.setAttribute('data-testid', 'kb-folder-remove-caption');
+          row.appendChild(removeCaption);
+          var removeBtn = _el('button', { className: 'btn-muted-destructive btn-sm kb-folder-remove-btn' });
+          removeBtn.type = 'button';
+          removeBtn.setAttribute('data-testid', 'kb-folder-remove-btn');
+          var removeTitle = _el('span', { text: 'Remove' });
+          removeTitle.setAttribute('data-confirm-title', '');
+          removeBtn.appendChild(removeTitle);
+          row.appendChild(removeBtn);
+          removeBtn.addEventListener('click', function () {
+            window.App.confirmDelete(removeBtn, function (el, revertFn) {
+              fetch(
+                '/api/knowledge-bases/' + encodeURIComponent(kb.id) +
+                '/items/' + encodeURIComponent(f.id),
+                { method: 'DELETE' }
+              ).then(function (r) {
+                if (!r.ok) throw new Error('Remove failed');
+                // AC-1: an IMMEDIATE refresh on the success path — both
+                // the status counts/folder list AND the item list (a
+                // folder's children are file items that just vanished
+                // with it) — never waiting on the 5-second poll, which
+                // would satisfy the wording while leaving up to five
+                // seconds of stale display.
+                refreshStatusNow();
+                refreshItemsListNow();
+              }).catch(function () {
+                revertFn();
+              });
+            }, { confirmLabel: 'Confirm remove?' });
+          });
           foldersListEl.appendChild(row);
         });
       }
@@ -471,6 +578,24 @@
         .then(function (status) { renderStatus(status); })
         .catch(function () {
           // L1-D2: a failed refresh leaves the last-rendered state.
+        });
+    }
+
+    // AC-1 (L5-D1): a companion to refreshStatusNow — re-fetches /items and
+    // rebuilds the items list immediately, so a folder removal's cascaded
+    // item deletions are visible without waiting on studio.js's poll-driven
+    // signature comparison. `renderItemsList` is defined further below in
+    // this same closure (function declarations hoist, so this forward
+    // reference resolves fine at call time).
+    function refreshItemsListNow() {
+      fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id) + '/items')
+        .then(function (r) {
+          if (!r.ok) throw new Error('items fetch failed: HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (freshItems) { renderItemsList(freshItems); })
+        .catch(function () {
+          // Leave last-rendered state; the operator can retry.
         });
     }
 
@@ -555,6 +680,115 @@
       return t;
     }
 
+    // ── Overflow menu (AC-9/AC-10, L5-D4, M24 F06 L05) — "View chunks" and
+    // "View source" move behind a per-row overflow control. Built minimal
+    // and LOCAL to this file (not promoted to components.css — there is
+    // exactly one consumer; a second consumer is the trigger for
+    // promotion, not the first). At most one menu is open at a time,
+    // tracked here so a poll-driven items-list rebuild (or opening a
+    // second row's menu) can positively close whichever one is open
+    // rather than leaking a detached element + a stale document listener.
+    var openItemMenu = null;
+    function closeAnyOpenItemMenu() {
+      if (openItemMenu) {
+        var closer = openItemMenu;
+        openItemMenu = null;
+        closer({ returnFocus: false });
+      }
+    }
+
+    // Accessibility (spelled out in L5-D4 because a menu is a keyboard
+    // trap if done carelessly, and the seven test_ui_guards.py invariants
+    // do not check ARIA/keyboard behaviour at all — AC-10 is the only net
+    // for this): the trigger carries aria-haspopup="menu" + aria-expanded,
+    // the menu has role="menu" with role="menuitem" children, Escape
+    // closes and returns focus to the trigger, arrow keys move between
+    // items, and a click outside closes it.
+    function buildItemMenu(item) {
+      var wrap = _el('div', { className: 'kb-item-menu-wrap' });
+
+      var trigger = _el('button', { className: 'kb-item-menu-trigger', text: '⋯' });
+      trigger.type = 'button';
+      trigger.setAttribute('data-testid', 'kb-item-menu-btn');
+      trigger.setAttribute('aria-haspopup', 'menu');
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.setAttribute('aria-label', 'Item actions');
+      wrap.appendChild(trigger);
+
+      var menu = _el('div', { className: 'kb-item-menu' });
+      menu.setAttribute('role', 'menu');
+      menu.setAttribute('data-testid', 'kb-item-menu');
+      menu.hidden = true;
+      wrap.appendChild(menu);
+
+      var chunksItem = _btn('kb-item-menu-item', 'kb-item-chunks-btn', 'View chunks');
+      chunksItem.setAttribute('role', 'menuitem');
+      var sourceItem = _btn('kb-item-menu-item', 'kb-item-source-btn', 'View source');
+      sourceItem.setAttribute('role', 'menuitem');
+      menu.appendChild(chunksItem);
+      menu.appendChild(sourceItem);
+      var menuItems = [chunksItem, sourceItem];
+
+      function onDocClick(e) {
+        if (!wrap.contains(e.target)) closeMenu({ returnFocus: false });
+      }
+      function onDocKeydown(e) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeMenu();
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          var idx = menuItems.indexOf(document.activeElement);
+          var dir = e.key === 'ArrowDown' ? 1 : -1;
+          var next = (idx + dir + menuItems.length) % menuItems.length;
+          menuItems[next].focus();
+        }
+      }
+      function closeMenu(opts) {
+        opts = opts || {};
+        menu.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        document.removeEventListener('click', onDocClick, true);
+        document.removeEventListener('keydown', onDocKeydown, true);
+        if (openItemMenu === closeMenu) openItemMenu = null;
+        if (opts.returnFocus !== false) trigger.focus();
+      }
+      function openMenu() {
+        closeAnyOpenItemMenu();
+        menu.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        document.addEventListener('click', onDocClick, true);
+        document.addEventListener('keydown', onDocKeydown, true);
+        openItemMenu = closeMenu;
+      }
+
+      trigger.addEventListener('click', function () {
+        if (menu.hidden) {
+          openMenu();
+          menuItems[0].focus();
+        } else {
+          closeMenu();
+        }
+      });
+      trigger.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown' && menu.hidden) {
+          e.preventDefault();
+          openMenu();
+          menuItems[0].focus();
+        }
+      });
+      chunksItem.addEventListener('click', function () {
+        closeMenu({ returnFocus: false });
+        openChunksPanel(item);
+      });
+      sourceItem.addEventListener('click', function () {
+        closeMenu({ returnFocus: false });
+        openSourcePanel(item);
+      });
+
+      return wrap;
+    }
+
     // DD-8/AC-8: neither is fetched while rendering the item list — only
     // on the operator's explicit click below.
     function openChunksPanel(item) {
@@ -637,6 +871,10 @@
     // to `itemsSection` once, below, so an open panel is untouched by a
     // list rebuild.
     function renderItemsList(nextItems) {
+      // Edge case (L5-D4): the overflow menu open when the list re-renders
+      // (the poll's signature-based invalidation fires) must close rather
+      // than leak a detached element + a stale document-level listener.
+      closeAnyOpenItemMenu();
       itemsListEl.textContent = '';
       // Edge case: "the status route excludes folders from items counts by
       // design, so a registered folder must never be rendered as a
@@ -676,12 +914,9 @@
           badge.setAttribute('data-testid', 'kb-item-standalone-badge');
           row.appendChild(badge);
         }
-        var chunksBtn = _btn('btn-outlined-primary', 'kb-item-chunks-btn', 'View chunks');
-        var sourceBtn = _btn('btn-outlined-primary', 'kb-item-source-btn', 'View source');
-        chunksBtn.addEventListener('click', function () { openChunksPanel(item); });
-        sourceBtn.addEventListener('click', function () { openSourcePanel(item); });
-        row.appendChild(chunksBtn);
-        row.appendChild(sourceBtn);
+        // AC-9/L5-D4: "View chunks"/"View source" live behind a per-row
+        // overflow control rather than crowding the row as two buttons.
+        row.appendChild(buildItemMenu(item));
         itemsListEl.appendChild(row);
       });
     }

@@ -14,11 +14,13 @@ API removal of a disabled_tools entry is not silently reintroduced by the
 next Studio save — the ratchet DD-13 exists to avoid), AC-9 (create mode
 attaches with no stored-entry union, since there is no selected agent to
 read one from), AC-10 (a knowledge base created mid-session appears in the
-attach tab without a page reload — DD-15), AC-11 (the rename affordance
-reuses the inventory create form's advisory hint + empty-name refusal),
-AC-12 (after a rename, the attach tab's row shows the NEW derived tool
-name and the agent's `disabled_tools` entry has already moved to match —
-Leg 2's rewrite, observed through this surface).
+attach tab without a page reload — DD-15), AC-11 (the detail view's Name +
+Description edit form — M24 F06 L05, L5-D2, replacing the F06 L03
+rename-only affordance — reuses the inventory create form's advisory hint
++ empty-name refusal for the name field), AC-12 (after a rename, the
+attach tab's row shows the NEW derived tool name and the agent's
+`disabled_tools` entry has already moved to match — Leg 2's rewrite,
+observed through this surface).
 
 AC-5's "route.request.method" filter and its `post_data_json` usage are
 NEW patterns in this file — no prior `tests/browser/` file reads a
@@ -466,16 +468,17 @@ def test_kb_created_mid_session_appears_without_reload(
 
 @pytest.mark.browser
 def test_rename_hint_and_empty_refusal_mirror_create_form(app_clean: str, page: Page) -> None:
-    """AC-11: the rename form's 43-code-point advisory hint and
-    empty-name refusal behave exactly like the inventory create form's
-    (Leg 1) — empty refused client-side, over-length warned but accepted."""
+    """AC-11: the edit form's (M24 F06 L05, L5-D2 — replaces the F06 L03
+    rename-only affordance) 43-code-point advisory hint and empty-name
+    refusal behave exactly like the inventory create form's (Leg 1) —
+    empty refused client-side, over-length warned but accepted."""
     kb = _create_kb(app_clean, "Rename Me")
     page.goto(f"{app_clean}#studio/knowledge/{kb['id']}")
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
 
-    page.locator('[data-testid="rename-knowledge-base-btn"]').click()
-    name_input = page.locator('[data-testid="kb-rename-name-input"]')
-    hint = page.locator('[data-testid="kb-rename-name-hint"]')
+    page.locator('[data-testid="edit-knowledge-base-btn"]').click()
+    name_input = page.locator('[data-testid="kb-edit-name-input"]')
+    hint = page.locator('[data-testid="kb-edit-name-hint"]')
     expect(name_input).to_be_visible()
     expect(hint).to_be_hidden()
 
@@ -489,15 +492,15 @@ def test_rename_hint_and_empty_refusal_mirror_create_form(app_clean: str, page: 
 
     # Empty name: refused client-side, no request sent.
     name_input.fill("")
-    page.locator('[data-testid="kb-rename-submit-btn"]').click()
-    expect(page.locator('[data-testid="kb-rename-error"]')).to_have_text("Name is required.")
+    page.locator('[data-testid="kb-edit-save-btn"]').click()
+    expect(page.locator('[data-testid="kb-edit-error"]')).to_have_text("Name is required.")
     assert rename_requests == []
 
-    # Over-length name: advisory hint shows, rename still succeeds.
+    # Over-length name: advisory hint shows, save still succeeds.
     long_name = "r" * 50
     name_input.fill(long_name)
     expect(hint).to_be_visible()
-    page.locator('[data-testid="kb-rename-submit-btn"]').click()
+    page.locator('[data-testid="kb-edit-save-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text(long_name, timeout=5000)
     assert len(rename_requests) == 1
 
@@ -521,12 +524,13 @@ def test_rename_updates_tool_name_and_disabled_tools_on_agent_editor(
     # the Studio form cannot render an ungated-prefix name).
     _put_agent_full(base_url, agent_name, disabled_tools=[old_tool_name])
 
-    # Rename via the inventory's own UI control.
+    # Rename via the inventory's own UI control (M24 F06 L05's Name +
+    # Description edit form, replacing the F06 L03 rename-only affordance).
     page.goto(f"{base_url}#studio/knowledge/{kb['id']}")
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
-    page.locator('[data-testid="rename-knowledge-base-btn"]').click()
-    page.locator('[data-testid="kb-rename-name-input"]').fill("Post-Rename Name")
-    page.locator('[data-testid="kb-rename-submit-btn"]').click()
+    page.locator('[data-testid="edit-knowledge-base-btn"]').click()
+    page.locator('[data-testid="kb-edit-name-input"]').fill("Post-Rename Name")
+    page.locator('[data-testid="kb-edit-save-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("Post-Rename Name", timeout=5000)
 
     body = _get_agent(base_url, agent_name)

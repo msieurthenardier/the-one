@@ -79,25 +79,31 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-chunk-count` | studio | Knowledge detail view status summary — chunk count (M24 F06 L01) |
 | `kb-chunk-row` | studio | Knowledge detail view chunks panel — one row per chunk, `seq` order (DD-8, M24 F06 L01) |
 | `kb-chunks-panel` | studio | Knowledge detail view — an item's chunks, opened on demand (DD-8, M24 F06 L01) |
+| `kb-create-description-input` | studio | Knowledge grid create-form description field (AC-4, M24 F06 L05) |
 | `kb-create-error` | studio | Knowledge grid create-form submission error (M24 F06 L01) |
 | `kb-create-name-hint` | studio | Knowledge grid create-form advisory name-length hint, shown over 43 code points (DD-16, M24 F06 L01) |
 | `kb-create-name-input` | studio | Knowledge grid create-form name field (M24 F06 L01) |
+| `kb-edit-description-input` | studio | Knowledge detail view edit form description field (L5-D2, M24 F06 L05) |
+| `kb-edit-error` | studio | Knowledge detail view edit form submission error (L5-D2, M24 F06 L05) |
+| `kb-edit-name-hint` | studio | Knowledge detail view edit form advisory name-length hint, shown over 43 code points, reuses the create form's DD-16 hint text (L5-D2, M24 F06 L05) |
+| `kb-edit-name-input` | studio | Knowledge detail view edit form name field (L5-D2, M24 F06 L05) |
 | `kb-folder-path-input` | studio | Knowledge detail view register-a-folder form path field (M24 F06 L01) |
 | `kb-folder-register-error` | studio | Knowledge detail view register-a-folder form submission error, renders the route's `detail` message (DD-10, M24 F06 L01) |
+| `kb-folder-remove-btn` | studio | Knowledge detail view folder row — two-step remove control (App.confirmDelete), "Confirm remove?" (L5-D1, M24 F06 L05) |
+| `kb-folder-remove-caption` | studio | Knowledge detail view folder row — static caption naming the removal's cascade, rendered before any click (L5-D1, M24 F06 L05) |
 | `kb-folder-row` | studio | Knowledge detail view status section — one row per registered folder (M24 F06 L01) |
 | `kb-folder-status-error` | studio | Knowledge detail view folder row — the folder's own walk `error`, when set (M24 F06 L01) |
 | `kb-folder-watch-error` | studio | Knowledge detail view folder row — `watch_error`, when set (M24 F06 L01) |
 | `kb-folders-list` | studio | Knowledge detail view status section — folders container (M24 F06 L01) |
 | `kb-indexer-state` | studio | Knowledge detail view status summary — indexer state word (M24 F06 L01) |
 | `kb-item-error` | studio | Knowledge detail view item row — a `failed` item's error text (M24 F06 L01) |
+| `kb-item-menu` | studio | Knowledge detail view item row — the overflow menu (`role="menu"`), carries "View chunks"/"View source" (L5-D4, M24 F06 L05) |
+| `kb-item-menu-btn` | studio | Knowledge detail view item row — the overflow menu's trigger (`aria-haspopup="menu"`) (L5-D4, M24 F06 L05) |
 | `kb-item-row` | studio | Knowledge detail view — one row per file item (M24 F06 L01) |
 | `kb-item-standalone-badge` | studio | Knowledge detail view item row — standalone-inside-folder badge (DD-9, M24 F06 L01) |
 | `kb-item-status` | studio | Knowledge detail view item row — the item's `status` (M24 F06 L01) |
 | `kb-items-list` | studio | Knowledge detail view items container (M24 F06 L01) |
 | `kb-panel-title` | studio | Knowledge detail view chunks/source panel — titled with the open item's path so the panel is attributable when it isn't beside its row (kb-studio-round-trip remediation FIX 4, M24 F06) |
-| `kb-rename-error` | studio | Knowledge detail view rename-form submission error (M24 F06 L03) |
-| `kb-rename-name-hint` | studio | Knowledge detail view rename-form advisory name-length hint, shown over 43 code points, reuses the create form's DD-16 hint text (M24 F06 L03) |
-| `kb-rename-name-input` | studio | Knowledge detail view rename-form name field (M24 F06 L03) |
 | `kb-search-degraded` | studio | Knowledge detail view search degrade line, shown alongside the response's own `indexer` word (AC-12, M24 F06 L01) |
 | `kb-search-hit` | studio | Knowledge detail view — one search result row, carries `score` (M24 F06 L01) |
 | `kb-search-input` | studio | Knowledge detail view search query field (DD-6, M24 F06 L01) |
@@ -282,15 +288,15 @@ caught — but it cannot see where the attribute is emitted.
 | `connector-doctor-btn` | studio | Connector-editor doctor probe, same `_btn` indirection (M23 F02 L02) |
 | `connector-pairing-btn` | studio | Connector-editor pairing-code generation, same `_btn` indirection (M23 F02 L02) |
 | `connector-pairing-copy-btn` | studio | Connector-editor pairing-code copy-to-clipboard button, same `_btn` indirection (Squawk 0043) |
+| `edit-knowledge-base-btn` | studio | Knowledge detail view header edit-form toggle, same `_btn` indirection (L5-D2, M24 F06 L05) |
 | `kb-create-submit-btn` | studio | Knowledge grid create-form submit, same `_btn` indirection (M24 F06 L01) |
-| `kb-item-chunks-btn` | studio | Knowledge detail view item row, same `_btn` indirection (M24 F06 L01) |
-| `kb-item-source-btn` | studio | Knowledge detail view item row, same `_btn` indirection (M24 F06 L01) |
+| `kb-edit-save-btn` | studio | Knowledge detail view edit-form Save, same `_btn` indirection (L5-D2, M24 F06 L05) |
+| `kb-item-chunks-btn` | studio | Knowledge detail view item row overflow menu — "View chunks" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
+| `kb-item-source-btn` | studio | Knowledge detail view item row overflow menu — "View source" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 | `kb-register-folder-btn` | studio | Knowledge detail view register-a-folder form submit, same `_btn` indirection (M24 F06 L01) |
 | `kb-reindex-all-btn` | studio | Knowledge detail view re-index control, same `_btn` indirection (M24 F06 L01) |
 | `kb-reindex-changed-btn` | studio | Knowledge detail view re-index control, same `_btn` indirection (M24 F06 L01) |
-| `kb-rename-submit-btn` | studio | Knowledge detail view rename-form submit, same `_btn` indirection (M24 F06 L03) |
 | `kb-search-btn` | studio | Knowledge detail view search control submit, same `_btn` indirection (M24 F06 L01) |
 | `new-connector-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M23 F02 L02) |
 | `new-knowledge-base-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M24 F06 L01) |
-| `rename-knowledge-base-btn` | studio | Knowledge detail view header rename toggle, same `_btn` indirection (M24 F06 L03) |
 | `save-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |

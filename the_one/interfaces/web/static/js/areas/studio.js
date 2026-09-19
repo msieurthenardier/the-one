@@ -403,6 +403,7 @@ App.registerArea({
               dirty = false;
             } else if (prev === 'knowledge' && self._selectedKbId) {
               self._selectedKbId = null;
+              dirty = false;
             }
           } else {
             // Same-section reclick: treat as "back to grid".
@@ -426,6 +427,7 @@ App.registerArea({
               clearKnowledgePoll();
               knowledgeDetailHandle = null;
               self._selectedKbId = null;
+              dirty = false;
             }
           }
           setActiveSection(section);
@@ -573,31 +575,58 @@ App.registerArea({
         // different knowledge base, mid-fetch.
         if (self._activeSection !== 'knowledge' || self._selectedKbId !== kb.id) return;
         lastKnownItemsSignature = knowledgeItemsSignature(results[0]);
+        // F6 L5 (L5-D3): reset the orchestrator's dirty mirror BEFORE the
+        // detail view mounts — mirrors the mcp-sources/connectors editor
+        // pattern ("Reset orchestrator dirty mirror BEFORE editor mount").
+        // The fresh render closure starts clean; onDirtyChange only fires
+        // on the operator's first edit-form input.
+        dirty = false;
         knowledgeDetailHandle = App.studio.renderKnowledgeDetail(
           sectionContentEl, kb, { status: results[0], items: results[1] },
           {
+            // AC-8/L5-D3: mirrors mcp-sources' own onBack — the LOCAL
+            // Back button doesn't decide to discard on its own; a dirty
+            // edit form gates through App.confirmDialog here, same as
+            // section-nav/cross-area navigation gates through
+            // `_confirmLeaveImpl`.
             onBack: function () {
-              self._selectedKbId = null;
-              if (window.App && window.App.router) App.router.replaceSub('knowledge');
-              renderKnowledgeSection();
+              function doBack() {
+                self._selectedKbId = null;
+                dirty = false;
+                if (window.App && window.App.router) App.router.replaceSub('knowledge');
+                renderKnowledgeSection();
+              }
+              if (dirty) {
+                App.confirmDialog({ onConfirm: doBack });
+                return;
+              }
+              doBack();
             },
             onDeleteSuccess: function () {
               self._selectedKbId = null;
+              dirty = false;
               if (window.App && window.App.router) App.router.replaceSub('knowledge');
               renderKnowledgeSection();
             },
-            // F6 L3 (L3-D5): re-mount the detail view from the renamed
-            // object — refreshes the header title and re-fetches status/
-            // items — and update the grid's section-local cache so
-            // navigating back shows the new name without a second fetch.
-            onRenameSuccess: function (updatedKb) {
+            // F6 L3 (L3-D5), carried by F6 L5's Name+Description edit form
+            // (L5-D2): re-mount the detail view from the saved object —
+            // refreshes the header title and re-fetches status/items — and
+            // update the grid's section-local cache so navigating back
+            // shows the new name without a second fetch.
+            onSaveSuccess: function (updatedKb) {
               if (knowledgeBases) {
                 for (var ki = 0; ki < knowledgeBases.length; ki++) {
                   if (knowledgeBases[ki].id === updatedKb.id) { knowledgeBases[ki] = updatedKb; break; }
                 }
               }
               mountKnowledgeDetail(updatedKb);
-            }
+            },
+            // F6 L5 (L5-D3): bridges the edit form's dirty state into the
+            // orchestrator's closure `dirty`, consumed by
+            // `_confirmLeaveImpl`'s `inEditor` gate — mirrors the
+            // mcp-sources/connectors `onDirtyChange: function (d) { dirty = d; }`
+            // pattern already established below.
+            onDirtyChange: function (d) { dirty = d; }
           }
         );
         startKnowledgePoll(kb.id);
@@ -1042,11 +1071,17 @@ App.registerArea({
       // Flight 6 leg 1 (L1-D2 site 1): leaving Knowledge for another
       // section stops the 5-second status poll AND clears the detail-view
       // selection, so re-entering #studio/knowledge mounts the grid — the
-      // same contract the two blocks above already have.
+      // same contract the two blocks above already have. F6 L5 (L5-D3)
+      // adds the dirty-mirror reset the mcp-sources/connectors blocks
+      // above already carry — this site is reached directly by callers
+      // that route through setActiveSection without going through
+      // commit() first (e.g. hash-route hydration), so it needs its own
+      // reset rather than relying on commit()'s.
       if (prevSection === 'knowledge' && section !== 'knowledge') {
         clearKnowledgePoll();
         knowledgeDetailHandle = null;
         self._selectedKbId = null;
+        dirty = false;
       }
       if (section === 'knowledge') {
         renderKnowledgeSection();
@@ -2832,12 +2867,23 @@ App.registerArea({
     // F4 L5: confirmLeave wired here so it can close over the local `dirty` flag.
     // Gate semantics mirror admin.js's _confirmLeaveImpl (admin.js:625-636): dirty
     // AND in-editor → confirm dialog; otherwise → proceed immediately. The
-    // `inEditor` predicate covers BOTH editor mount contexts.
+    // `inEditor` predicate covers every editor mount context (agents,
+    // mcp-sources, connectors, and — as of F6 L5 — knowledge).
     self._confirmLeaveImpl = function (proceed, abort) {
       var inEditor =
         (self._activeSection === 'agents' && self._selectedAgent) ||
         (self._activeSection === 'mcp-sources' && mcpSourceFormMode) ||
-        (self._activeSection === 'connectors' && connectorFormMode);
+        (self._activeSection === 'connectors' && connectorFormMode) ||
+        // F6 L5 (L5-D3): a reversal of Leg 3's stated non-goal — the
+        // inventory's create/register forms stay OUT of this gate
+        // (single-field, submit-immediately), but the detail view's
+        // Name+Description edit form (L5-D2) is multi-field with an
+        // explicit Save, the exact shape this dialog exists for. `dirty`
+        // can only become true while a detail view is mounted (the grid
+        // has no edit form), so gating on `self._selectedKbId` alone
+        // mirrors the `mcpSourceFormMode`/`connectorFormMode` shape above
+        // without needing a parallel "form open" flag.
+        (self._activeSection === 'knowledge' && self._selectedKbId);
       if (dirty && inEditor) {
         App.confirmDialog({ onConfirm: proceed, onCancel: abort });
       } else {

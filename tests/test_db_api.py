@@ -771,6 +771,44 @@ class TestKnowledgeBaseRenameRewrite:
         assert resp.status_code == 200
         assert calls == []
 
+    async def test_description_only_save_leaves_disabled_tools_byte_identical(
+        self, client: AsyncClient
+    ) -> None:
+        # M24 F06 L05 AC-5: complements
+        # test_rename_to_identical_name_touches_no_agent's implementation-
+        # level "zero store calls" assertion with a behavior-level one —
+        # fetch the agent before and after a description-only save and
+        # assert `disabled_tools` is byte-identical. This is L5-D2's
+        # load-bearing claim (verified at design review against source,
+        # not assumed): a description-only PUT performs zero agent I/O
+        # because `update_knowledge_base`'s first early return (L2-D9)
+        # fires on the raw name being unchanged.
+        kb_resp = await client.post("/api/knowledge-bases", json={"name": "Docs"})
+        kb_id = kb_resp.json()["id"]
+        agent_resp = await client.post(
+            "/api/agents", json={"name": "desc-only-save-agent", "kb_ids": [kb_id]}
+        )
+        old_name = agent_resp.json()["kb_tool_names"][kb_id]
+        await client.put(
+            "/api/agents/desc-only-save-agent",
+            json={
+                "name": "desc-only-save-agent",
+                "kb_ids": [kb_id],
+                "disabled_tools": [old_name],
+            },
+        )
+        before = (await client.get("/api/agents/desc-only-save-agent")).json()["disabled_tools"]
+
+        resp = await client.put(
+            f"/api/knowledge-bases/{kb_id}",
+            json={"name": "Docs", "description": "a new description"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["description"] == "a new description"
+
+        after = (await client.get("/api/agents/desc-only-save-agent")).json()["disabled_tools"]
+        assert after == before == [old_name]
+
     async def test_rename_normalizing_to_same_slug_touches_no_agent(
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
