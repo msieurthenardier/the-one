@@ -28,10 +28,20 @@ a `rotate-api-credential` was run without `THE_ONE_DATA_DIR` set and rotated the
 operator's **production** credential. Every "production untouched" verification in
 that session had checked `~/.the-one` and returned a false all-clear. The port
 rule (never 8484) was followed scrupruously throughout; the directory half of the
-same rule was checked against the wrong path. Impact was contained — the installed
-app reads the credential at startup and was unaffected, and `encryption.key` and
+same rule was checked against the wrong path. Impact was contained — `encryption.key` and
 the database were never touched — but the check that should have caught it was
 structurally incapable of doing so.
+
+**Operator-confirmed impact, 2026-09-19** (previously this squawk carried the
+Flight Director's *inference* of containment, not the operator's report — the
+distinction mattered, because a containment claim about someone else's machine
+had been used to close the squawk): **zero impact; relaunching the app fixes
+it.** The mechanism is consistent with the code — `_read_credential_cached`
+(`the_one/api_credential.py:246`) rebuilds its entry when the file's identity
+changes, so the *server* picks up a rotated credential on its own; what needed
+the relaunch was the client side. The earlier phrasing here ("the installed app
+reads the credential at startup and was unaffected") implied nothing at all
+needed doing, which was not quite right.
 
 ## Evidence
 

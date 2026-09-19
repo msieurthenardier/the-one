@@ -184,7 +184,10 @@ assertion, and nothing in the audit's shape forced that distinction to surface.
 evidence of absence.** Two instances this flight, both the Flight Director's:
 squawk 0084's data-directory check against a path that never existed (so "production
 untouched" passed unconditionally — and a production credential was rotated behind
-it), and a `ps` filter that structurally could not match a
+it; **operator-confirmed 2026-09-19 as zero impact, fixed by relaunching the app**,
+which closes this debrief's one outstanding human-interview question and replaces
+the Flight Director's inferred containment claim with the operator's own report),
+and a `ps` filter that structurally could not match a
 `bash scripts/run-tests.sh` command line, used to assert a violation that had not
 happened. Two instances is a pattern.
 
