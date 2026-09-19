@@ -1,7 +1,7 @@
 # Behavior Test: Knowledge Base Studio Round Trip
 
 **Slug**: `kb-studio-round-trip`
-**Status**: draft *(kept draft deliberately — the run found four structural spec defects that must be re-authored before this becomes `active`: steps 9 and 10 are mutually unsatisfiable; steps 5, 8 and 10 each carry a precondition a fresh mount silently satisfies; step 6's ordering clause is unfalsifiable against the mandated fixture; step 2 puts an action in the Expected Results column; and **step 8's second clause ("the edited file re-indexes") has no browser-frame observable at all** — the item row renders only path and status, so a `[mixed-frame]` clause was written against a surface that cannot carry it. See the run log's closing summaries.)*
+**Status**: draft *(kept draft deliberately — the run found **five** structural spec defects that must be re-authored before this becomes `active`: steps 9 and 10 are mutually unsatisfiable; steps 5, 8 and 10 each carry a precondition a fresh mount silently satisfies; step 6's ordering clause is unfalsifiable against the mandated fixture; step 2 puts an action in the Expected Results column; and **step 8's second clause ("the edited file re-indexes") has no browser-frame observable at all** — the item row renders only path and status, so a `[mixed-frame]` clause was written against a surface that cannot carry it. See the run log's closing summaries.)*
 **Created**: 2026-09-17
 **Last Run**: 2026-09-18-13-14-52 (18/19 pass; step 8 FAILED, then re-verified PASS on 2026-09-18-reverify after remediation — see `kb-studio-round-trip/runs/2026-09-18-13-14-52.md`)
 
