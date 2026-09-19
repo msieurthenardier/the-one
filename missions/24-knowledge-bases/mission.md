@@ -434,7 +434,7 @@ Operational consequences, recorded so the next flight does not rediscover them:
       or rebuild degrades to keyword-only instead of waiting; the earlier
       bound-the-work design was measured to free the lock under a live
       reader.)*
-- [ ] Flight 6: Studio surfaces — the global knowledge-base inventory and the
+- [x] Flight 6: Studio surfaces — the global knowledge-base inventory and the
       per-agent attach tab, replacing both stubs. Carries Flight 3's waived HAT
       (register a folder, watch status, read chunks/source, re-index, read a
       failure, concurrent delete, restart-resume) as the seed of its HAT.
