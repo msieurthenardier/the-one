@@ -453,3 +453,18 @@ Operational consequences, recorded so the next flight does not rediscover them:
       `get_vector_store()`'s missing shutdown hook. This bullet's original text
       listed the re-measure; it is corrected here at the Flight 6 debrief rather
       than left to imply a delivery that did not happen.
+- [ ] Flight 7: Mission close — the four recorded obligations that outlived the
+      flights meant to carry them: `get_vector_store()`'s missing shutdown hook
+      (a Known Issue deferred four times) and DD-17's free detach → rename →
+      reattach reconcile; the coupled inventory leg (per-item freshness with the
+      signature widening that must land beside it, walk skip counters, the
+      `ORDER BY` tiebreaks, the armed-confirm invariant, and the
+      `App.confirmDelete` lapse question); the two measurements the mission
+      asked for and never took (the Windows `usearch` ladder at 200k/500k/1M,
+      and a sensitivity sweep over `RRF_K`/`candidate_k`/the reserved slot —
+      a sweep, not a relevance benchmark, because no ground truth exists);
+      and the release gates Flight 6 listed and left unowned, ending with
+      `kb-studio-round-trip` re-authored to `active` so the closing regression
+      net is re-runnable. **Does NOT carry** the shared `the_one/tools/naming.py`
+      (its "before a third prefixed namespace" trigger has not fired) or the
+      PUT/PATCH preserve-on-omit protocol question, which escalates.
