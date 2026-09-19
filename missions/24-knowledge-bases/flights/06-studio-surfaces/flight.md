@@ -835,8 +835,8 @@ failed honestly and said why is worth more than one silently carried.)*
 - [x] All legs completed, `hat-and-alignment` included — six legs landed; the HAT
       was walked with the operator on 2026-09-19 (flight log, "The HAT walk
       itself")
-- [ ] Code merged to `mission/24-knowledge-bases` — **PR #206 is ready for review,
-      not merged.** Merge is the operator's call; this stays open until it happens.
+- [x] Code merged to `mission/24-knowledge-bases` — PR #206 merged 2026-09-19 at
+      `c44e782`
 - [x] `make lint` clean — `ruff check` + `ruff format --check` clean on every leg
       and on the final tree (449 files formatted)
 - [x] `make test-unit` green — **4769 passed, 10 skipped, 593 deselected,
