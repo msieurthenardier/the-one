@@ -100,7 +100,7 @@ that keeps summaries intact through a different code path still passes.
 **Verdict**: confirmed — "the invariant is pinned by a test that drives a real
 items-signature tick against an armed folder confirm and asserts the summary
 node survives; the test was falsified before being trusted."
-**Commit**: 7f80998 (`flight/07-mission-close`, Leg 03 `confirm-lapse`)
+**Commit**: e7fea7e (`flight/07-mission-close`, Leg 03 `confirm-lapse`)
 
 **Note**: the falsification found the failure mode is **worse than this squawk
 described**. This report predicted a confirm that "intermittently fails to

@@ -84,7 +84,7 @@ which governs agent tool reach)
 three queries; a repository test pins stable order across repeated reads with
 tied `created_at`; the browser assertion that motivated this squawk is tightened
 from a sorted-set comparison to an exact sequence."
-**Commit**: 7f80998 (`flight/07-mission-close`, Leg 02 `inventory-freshness`)
+**Commit**: e7fea7e (`flight/07-mission-close`, Leg 02 `inventory-freshness`)
 
 **Note**: a **fourth** untiebroken query — `list_by_status`
 (`repositories.py:777`) — was found by the Flight Director while spot-checking
