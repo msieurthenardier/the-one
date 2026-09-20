@@ -1,6 +1,6 @@
 # Flight: Mission Close
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
@@ -37,7 +37,7 @@ and a set of release gates — the full browser suite, `pip-audit`, the frozen
 Windows build — that Flight 6 listed and left unowned. Alongside them, two
 measurements the mission asked for and never took: whether Flight 2's Windows
 1M `usearch` figures (extrapolated from 200k) survive contact with a real 1M
-corpus, and whether `RRF_K` / `candidate_k` / the DD-12 reserved slot are
+corpus, and whether `RRF_K` / `candidate_k` / the DD-3 reserved slot are
 load-bearing constants or arbitrary ones. The flight ends with
 `kb-studio-round-trip` re-authored to `active`, so the mission's closing
 regression net is re-runnable rather than nominally present.
@@ -176,7 +176,7 @@ relevance judgments.
   precision number defensible only against the labeller.
 - **What the sweep can conclude**: whether the constants are load-bearing
   (the result set moves materially when they move) or arbitrary (it does
-  not), and whether the DD-12 reserved slot ever fires outside its
+  not), and whether the DD-3 reserved slot ever fires outside its
   constructed test cases. Both are real answers to the mission's open
   question "is the balance operator-tunable or fixed."
 - **What it cannot conclude**: that any particular value is *better*. The
@@ -326,10 +326,33 @@ base interpreter.
   A benchmark is more sensitive to this than a build: a stale `usearch` or
   `numpy` would silently produce numbers for a version the product does not
   ship, and nothing in the output would say so.
-- **A version string does not determine the backend** (Architect cycle 1, and
-  the sharpest finding of the review). `bench_vector_store.py:215-218` records
-  `platform`, `python`, `sqlite_version` and `usearch_version` — and
-  **nothing about SIMD or numkong linkage**. Flight 1 established that every
+- ⚠️ **CORRECTED 2026-09-19 at Leg 3 design review — this decision's premise
+  was FALSE.** `scripts/bench_vector_store.py:102` has imported
+  `_usearch_acceleration` from `the_one.diagnostics` since Flight 2 Leg 5
+  (commit `c315cf5`), and `host_facts()` (`:210-225`) has emitted
+  `"usearch_acceleration": _usearch_acceleration()` all along — the **same
+  function** the `doctor` probe uses, reporting `numkong=yes, simd=haswell`,
+  documented as "never raises" and already degrading gracefully when numkong
+  is missing or unlinked.
+- **The evidence behind the false claim was a grep that could not match.**
+  This decision cited `grep 'simd\|simsimd\|numkong'` over the script
+  returning nothing. That is true, and meaningless: the identifier is
+  `usearch_acceleration`, which contains none of those substrings. **A negative
+  result from an instrument that cannot express the thing is not evidence of
+  absence** — the Flight 6 debrief's own Key Learning #2, recorded after two
+  instances, both the Flight Director's. This is the third.
+- **What survives**: the *hazard* is real and correctly stated — `usearch`
+  swallows its own numkong `ImportError`, so an unrecorded backend is a genuine
+  risk, and `_usearch_acceleration`'s docstring says it exists for exactly that
+  reason. **What was wrong**: the claim that the bench script lacked it. The
+  remaining gap is narrower and real — see the leg's AC-3: `host_facts()` is
+  printed once by the parent and never called in a `--child` invocation, whose
+  entire stdout contract is one rendered markdown row. So a per-cell subprocess
+  still cannot report its own backend.
+- *(Original text, preserved: "A version string does not determine the backend.
+  `bench_vector_store.py:215-218` records `platform`, `python`,
+  `sqlite_version` and `usearch_version` — and nothing about SIMD or numkong
+  linkage.")* Flight 1 established that every
   published `usearch` Windows wheel is `simd=serial` with zero `nk_*` symbol
   refs (`mission.md:249-252`) and, worse, that **`usearch` swallows its own
   numkong `ImportError`** (Flight 1 log, `:93-95`) — a bundle missing
@@ -337,11 +360,11 @@ base interpreter.
   and still prints a clean `OK`. So a fresh per-run venv — DD-10's own remedy —
   is exactly where a silent backend difference could enter, one layer below
   where DD-10 was looking.
-- **Therefore the task emits the resolved numkong-linkage / SIMD backend
-  alongside the versions**, and `bench_vector_store.py` gains the field to
-  carry it. Flight 1 already built this observability for the `doctor` probe
-  (`numkong=yes, simd=haswell`); the bench script never got it. Numbers
-  measured under an unrecorded backend are not measurements.
+- **Therefore**: the host-level field already exists and is reused, not
+  rebuilt. The leg's work is threading it to **per-cell** visibility through
+  `render_row`/`_TABLE_HEADERS`, so a forked child's row carries the backend
+  it actually ran under. Numbers measured under an unrecorded backend are not
+  measurements — and a parent-only record does not cover a per-cell fork.
 
 **DD-11 — the disclosure-tile rename rides the UI leg; issue #207 stays a
 future mission**: rename the trio to a neutral vocabulary and add the
@@ -468,7 +491,7 @@ misses is worth less than no audit.
 | `the_one/knowledge/manager.py:412 — "(skipped_dirs=%d, skipped_entries=%d)"` — already logged per pass, never persisted (DD-7) | verified |
 | `the_one/interfaces/web/static/js/areas/studio.js:480 — knowledgeItemsSignature(status)` — counts-only; read at `:589` and `:694` (DD-6) | verified |
 | `the_one/db/repositories.py:527,632,640 — "ORDER BY created_at"` with no tiebreak; `:1569` and `:2431` in the same file already carry `, id DESC` / `, identifier DESC` tiebreaks as in-file precedent (squawk 0087) | verified |
-| `the_one/knowledge/retrieval.py:93 — RRF_K = 60`; `:112 — SEMANTIC_QUERY_TIMEOUT = 2.0`; `:160 — _candidate_k(limit)`; the DD-12 reserved slot at `:220-233` (DD-4) | verified |
+| `the_one/knowledge/retrieval.py:93 — RRF_K = 60`; `:112 — SEMANTIC_QUERY_TIMEOUT = 2.0`; `:160 — _candidate_k(limit)`; the DD-3 reserved slot at `:220-233` (DD-4) | verified |
 | `the_one/knowledge/tool_provider.py:117 — compute_tool_names` — the discriminator IS applied unconditionally (verified in control flow, not just docstring) (DD-13) | verified |
 | `the_one/knowledge/tool_provider.py:72 — _HASH_LENGTHS = (8, 12, 16)` + the widening loop at `:181-200` — the discriminator's **width** is set-composition-dependent, contradicting the docstring's "independent of the composition of the set" (DD-13) | verified — **corrected**; an earlier row quoted the docstring as if it were the control flow |
 | `the_one/agent/factory.py:423 — "if tool.name not in disabled_names and config.is_tool_enabled(tool.name)"` — the per-agent disable is applied here, NOT in `KBToolProvider.get_tools_for_agent` (`tool_provider.py:215-262`, which never consults `disabled_tools`) (DD-13 seam) | verified |
@@ -479,7 +502,8 @@ misses is worth less than no audit.
 | `the_one/vectors/usearch_store.py:424-426 — flush` early-returns on `not entry.dirty`, so a second `close()` is a no-op unless the first flush failed (DD-3 idempotency) | verified |
 | `the_one/db/repositories.py:1851-1876 — AppMetadataRepository.get/set` — generic string kv, schema v31, already holds `last_purge_at` and `VECTOR_STORE_KEY` (DD-7 persistence without migration) | verified |
 | `the_one/db/schema.py:14 — CURRENT_VERSION = 41` — so a new migration would be **v42**, not v41 (Adaptation Criteria) | verified |
-| `scripts/bench_vector_store.py:215-218` records `platform`/`python`/`sqlite_version`/`usearch_version` and **nothing about SIMD or numkong linkage**; `usearch` swallows its own numkong `ImportError` (Flight 1 log `:93-95`) (DD-10) | verified |
+| `scripts/bench_vector_store.py:102` imports `_usearch_acceleration`; `host_facts()` (`:210-225`) already emits `"usearch_acceleration"` — present since Flight 2 Leg 5 (`c315cf5`) | **FALSIFIED at Leg 3 design review.** This row previously read "records … **nothing** about SIMD or numkong linkage — verified", on the strength of a grep for `simd\|simsimd\|numkong` that cannot match the identifier `usearch_acceleration`. Third instance in Mission 24 of asserting absence with an instrument that cannot express presence |
+| `usearch` swallows its own numkong `ImportError` (Flight 1 log `:93-95`); `the_one/diagnostics.py:378-415 — _usearch_acceleration` exists precisely to surface it | verified — the hazard is real; only the claim that the bench lacked coverage was false |
 | 24 distinct `mcp-tool-*` class names across 6 source files, referenced by 4 browser test files in the `studio` and `shared` lanes (DD-11) | verified — **corrected** from "the trio" |
 | `the_one/knowledge/tool_provider.py:61` and `the_one/mcp/_tool.py:39` — `_TOOL_NAME_MAX_LEN = 64` duplicated; `the_one/tools/naming.py` does not exist (DD-2) | verified |
 | `scripts/bench_vector_store.py:837-861 — _build_arg_parser` — `--corpus`, `--cells`, `--k`, `--seed`, `--child`; per-cell child processes for clean `peak_rss_MB` (DD-5) | verified |
@@ -608,8 +632,11 @@ the results, because this mission branch has no CI lane.
   correctness change to the indexing pipeline, which is a different risk
   domain and gets its own leg or flight
 - DD-8's investigation concludes the right fix is a change to the confirm
-  *interaction* rather than its feedback — a six-call-site interaction change
-  is a design decision that escalates to the operator before implementation
+  *interaction* rather than its feedback — a **13**-call-site interaction
+  change is a design decision that escalates to the operator before
+  implementation. *(This trigger said "six" until the count was corrected;
+  among the 13 is the API-credential rotation confirm, which is why an
+  interaction change here is escalated rather than decided in-leg.)*
 
 **Acceptable variations**:
 - Further splitting **2b** if DD-8's chosen fix turns out to want a per-lane
@@ -703,7 +730,15 @@ items went unexecuted last flight.
 - [ ] `pip-audit` clean against the release closure — *Leg 4* (needs squawk
       0083 landed first; see Prerequisites)
 - [ ] Frozen Windows build succeeds and the built app runs — *Leg 4*
-- [ ] `kb-studio-round-trip` status `active` and passing — *Leg 4*
+- [~] `kb-studio-round-trip` status `active` — **DONE**; **passing — NOT YET
+      RUN** — *Leg 05 (spec), Flight Director (run)*. **Deliberately deferred,
+      operator decision 2026-09-20**: the spec is re-authored and `active`, and
+      the 18-step walk is scheduled before the flight's PR merges rather than
+      before its commit. Recorded as **not-run, never as passed** — which is
+      AC-17's own rule applied to this flight's own checklist. The mission
+      criterion it backs ("a knowledge base can be attached to and detached
+      from any agent in Studio, behavior-test-backed") therefore stays
+      **unticked** until the run is green.
 - [ ] Documentation updated: CLAUDE.md and `the_one/agents.md` for the shutdown
       hook, the skip-counter projection, the `get_kb_status` freshness
       aggregate and the new CI task — *Leg 4*

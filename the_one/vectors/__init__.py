@@ -22,11 +22,19 @@ resolved inside ``UsearchStore.open()``, so a test's
 ``settings.data_dir`` monkeypatch applied AFTER an earlier test already
 cached a store would otherwise never take effect (and could write
 sidecars into the operator's real data directory).
+
+``close_vector_store()`` (Mission 24 Flight 7 Leg 1, DD-3/DD-3a) is the
+shutdown-side mirror: it closes the cached store IF ONE WAS BUILT and
+never builds one to close it — an instance that never touched a
+knowledge base has ``_store is None`` and this returns without touching
+disk. Shares ``_clear_cache()`` with ``_reset_for_test()`` rather than
+letting the two cache-clears drift.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import aiosqlite
 
@@ -40,6 +48,8 @@ from the_one.vectors._store import (
     quantize_int8,
 )
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "VectorStore",
     "VectorStoreBusyError",
@@ -47,6 +57,7 @@ __all__ = [
     "VectorStoreStaleError",
     "quantize_int8",
     "get_vector_store",
+    "close_vector_store",
 ]
 
 _store: VectorStore | None = None
@@ -84,11 +95,53 @@ async def get_vector_store() -> VectorStore:
         return _store
 
 
+def _clear_cache() -> None:
+    """Drop the cached store reference. Shared by ``_reset_for_test()`` and
+    ``close_vector_store()`` so the two cache-clears cannot drift apart."""
+    global _store
+    _store = None
+
+
 def _reset_for_test() -> None:
     """Clear the cached store. Test fixtures only.
 
     Mirrors ``the_one/embeddings/__init__.py``'s ``_reset_for_test`` and
     ``the_one/platform/sandbox/factory.py``'s reset seam.
     """
+    _clear_cache()
+
+
+async def close_vector_store(*, skip_kb_ids: frozenset[str] | set[str] = frozenset()) -> None:
+    """Shutdown hook (Mission 24 Flight 7 Leg 1, DD-3/DD-3a). Closes the
+    process-wide vector store if one was built; NEVER calls
+    ``get_vector_store()`` and so never builds one just to close it — when
+    ``_store is None`` (no knowledge base was ever touched this process)
+    this returns immediately, with no disk access at all.
+
+    ``skip_kb_ids`` names knowledge bases whose most recent
+    ``IndexingManager.stop()`` took the cancel fallback (DD-3a,
+    ``IndexingManager.cancelled_kb_ids()``): cancelling that task releases
+    the per-KB lock while the worker thread may still be mutating the
+    index (``usearch_store.py``'s ``upsert`` holds the lock across an
+    ``asyncio.to_thread`` call), so flushing one right after would race a
+    live mutation and tear the on-disk index. Each skipped kb_id is
+    logged at WARNING so the lost write is visible rather than silent —
+    it is recoverable by re-indexing; a torn index is not.
+
+    Idempotent: closing an already-closed (or never-opened) store is a
+    no-op, and a second call after a failed flush only re-flushes the
+    knowledge bases that failed (``UsearchStore.flush``'s own
+    not-dirty early return).
+    """
     global _store
-    _store = None
+    if _store is None:
+        return
+    for kb_id in skip_kb_ids:
+        logger.warning(
+            "vector store shutdown: kb_id=%s not flushed — a cancelled "
+            "mutation may still be running (DD-3a)",
+            kb_id,
+        )
+    store = _store
+    await store.close(skip_kb_ids=frozenset(skip_kb_ids))
+    _clear_cache()

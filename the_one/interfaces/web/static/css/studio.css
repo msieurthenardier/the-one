@@ -175,6 +175,26 @@
      element styled as a tile. Summary: name + " — preview…" (single line,
      100-char ellipsis) + chevron on the right. Body: full description with
      line breaks + input schema collapsible. */
+  /* consumers: the `.mcp-tool-*` vocabulary below (24 class names in
+     total) is read by SIX source files, not just this one:
+     `css/studio.css` (this file, the definitions), `areas/studio.js`,
+     `studio/tools-tab.js`, `studio/mcps-tab.js`,
+     `studio/mcp-server-editor.js` — its original consumers, styling the
+     MCP source-editor's own tool tiles — AND `studio/knowledge-section.js`,
+     a LATER, cross-page borrow: `buildFolderPanel` (folder panels) and
+     `buildOtherItemsPanel` ("Other items") each independently set
+     `details.className = 'mcp-tool-item'` to get this tile's look for the
+     Knowledge section, a surface the MCP editor knows nothing about. Four
+     browser test files assert against this vocabulary across the `studio`
+     and `shared` lanes. DD-11 (Flight 7, Mission Close) recorded this
+     borrow deliberately rather than renaming: the actual vocabulary turned
+     out to be 24 class names, not the three "trio" the rename was
+     originally scoped against, and a partial rename would leave more
+     idioms behind than it removed. This note exists so the borrow is
+     never invisible again — see DD-11 and the Flight 6 debrief's
+     Recommendation 6 (`the_one/agents.md`) for the fuller rationale; the
+     rename itself belongs to a future component-layer mission (issue
+     #207), never to a change made in passing here. */
   .area-studio .mcp-tool-item {
     /* Quiet tile echoing `.entity-tile` / `.mcp-source-tile`: solid
        surface + hairline border. Hover gains accent border. Open state

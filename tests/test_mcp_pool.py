@@ -711,6 +711,14 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
         async def drain(self):
             calls.append("indexing_drain")
 
+        def cancelled_kb_ids(self):
+            # M24 F07 L01, AC-7: real IndexingManager.cancelled_kb_ids() —
+            # this spy stands in for it here since ordering, not the
+            # cancel-report plumbing itself, is what this test pins.
+            # AC-7a (a separate test below) drives the real manager and
+            # proves the value actually reaches close_vector_store.
+            return frozenset()
+
     monkeypatch.setattr(app_mod, "IndexingManager", _FakeIndexingManager)
 
     # M24 F04 L03, DD-7: watch-manager spy, mirroring the indexing-manager
@@ -784,6 +792,16 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     async def _fake_close_conn():
         calls.append("db")
 
+    # M24 F07 L01, AC-7: vector-store shutdown-hook spy — extends the
+    # drain-order pin with the hook's position, between the connector-
+    # manager drain and the DB close (app.py calls it unconditionally,
+    # right before `close_connection()`).
+    _vector_close_calls: list[frozenset] = []
+
+    async def _fake_close_vector_store(*, skip_kb_ids=frozenset()):
+        calls.append("vector_close")
+        _vector_close_calls.append(skip_kb_ids)
+
     monkeypatch.setattr(app_mod, "_session_registry_shutdown_drain", _fake_pty_drain)
     # ``_evict_all_for_source`` is imported function-locally inside the
     # shutdown branch (``from the_one.mcp._pool import _evict_all_for_source``);
@@ -793,6 +811,7 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
     monkeypatch.setattr(app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain)
     monkeypatch.setattr(oauth_mod, "stop_periodic_sweep", _fake_oauth_sweep_stop)
     monkeypatch.setattr(app_mod, "close_connection", _fake_close_conn)
+    monkeypatch.setattr(app_mod, "close_vector_store", _fake_close_vector_store)
 
     # Drive lifespan: enter (runs startup), exit (runs shutdown).
     from fastapi import FastAPI
@@ -819,6 +838,7 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
             "mcp",
             "oauth",
             "connector_drain",
+            "vector_close",
             "db",
         )
     ]
@@ -833,8 +853,12 @@ async def test_lifespan_shutdown_drain_order(monkeypatch):
         "mcp",
         "oauth",
         "connector_drain",
+        "vector_close",
         "db",
     ]
+    # AC-7: the hook runs exactly once, after the connector-manager drain
+    # and before the DB close.
+    assert _vector_close_calls == [frozenset()]
     # M24 F04 L03, DD-7: the watch manager was constructed with the SAME
     # indexing-manager instance app.py's startup block built — proof
     # construction happens after (not instead of) the indexing manager's
@@ -891,6 +915,9 @@ async def test_lifespan_watch_manager_drain_runs_even_when_start_all_raises(monk
         async def drain(self):
             calls.append("indexing_drain")
 
+        def cancelled_kb_ids(self):
+            return frozenset()
+
     monkeypatch.setattr(app_mod, "IndexingManager", _FakeIndexingManager)
 
     class _FakeWatchManager:
@@ -927,10 +954,14 @@ async def test_lifespan_watch_manager_drain_runs_even_when_start_all_raises(monk
     async def _fake_close_conn():
         pass
 
+    async def _fake_close_vector_store(*, skip_kb_ids=frozenset()):
+        pass
+
     monkeypatch.setattr(app_mod, "_session_registry_shutdown_drain", _fake_pty_drain)
     monkeypatch.setattr(app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain)
     monkeypatch.setattr(oauth_mod, "stop_periodic_sweep", _fake_oauth_sweep_stop)
     monkeypatch.setattr(app_mod, "close_connection", _fake_close_conn)
+    monkeypatch.setattr(app_mod, "close_vector_store", _fake_close_vector_store)
 
     from fastapi import FastAPI
 
@@ -939,6 +970,131 @@ async def test_lifespan_watch_manager_drain_runs_even_when_start_all_raises(monk
         pass
 
     assert calls == ["indexing_start", "watch_start_attempted", "watch_drain", "indexing_drain"]
+
+
+async def test_lifespan_shutdown_threads_real_cancel_report_into_vector_hook(monkeypatch):
+    """M24 F07 L01, AC-7a. AC-7's drain-order test replaces
+    ``close_vector_store`` with a bare spy and never inspects what it was
+    CALLED WITH; AC-8/9/10 (in ``test_vector_store_shutdown.py``) test the
+    hook in isolation with a hand-built skip set. Neither proves the
+    cancel report survives ``app.py``'s own
+    ``_set_module_indexing_manager(None)`` / ``_indexing_manager = None``
+    null-out (``app.py:426-427``) on its way to the hook.
+
+    This test closes that gap by driving the REAL ``app.py`` shutdown
+    branch with a fake ``IndexingManager`` whose ``drain()`` populates a
+    non-empty ``cancelled_kb_ids()`` — mirroring what a real
+    ``stop()`` cancel-fallback write does — and asserting the
+    ``close_vector_store`` spy is called with that EXACT kb_id in
+    ``skip_kb_ids``. An implementation that captures the manager
+    reference (or calls ``cancelled_kb_ids()``) AFTER the null-out would
+    either crash on ``None`` or (if defensively guarded) silently pass an
+    empty skip set here — this test fails either way, which is the point.
+    """
+    from the_one.interfaces.web import app as app_mod
+    from the_one.mcp import oauth as oauth_mod
+
+    async def _fake_init_db():
+        pass
+
+    _fake_conn = MagicMock()
+
+    async def _fake_get_connection():
+        return _fake_conn
+
+    async def _fake_migrate_json_to_sqlite(store):
+        pass
+
+    monkeypatch.setattr(app_mod, "init_db", _fake_init_db)
+    monkeypatch.setattr(app_mod, "get_connection", _fake_get_connection)
+    monkeypatch.setattr(app_mod, "migrate_json_to_sqlite", _fake_migrate_json_to_sqlite)
+    monkeypatch.setattr(app_mod, "SQLiteAgentStore", MagicMock())
+    monkeypatch.setattr(app_mod, "AgentFactory", MagicMock())
+    monkeypatch.setattr(oauth_mod, "start_periodic_sweep", lambda: None)
+
+    class _FakeConnectorManager:
+        async def start_all(self, repo, encryptor):
+            pass
+
+        async def drain(self):
+            pass
+
+    monkeypatch.setattr(app_mod, "ConnectorManager", _FakeConnectorManager)
+
+    # The fake manager's `drain()` populates `cancelled_kb_ids()` exactly
+    # like a real DD-3a cancel-fallback `stop()` would — this is the
+    # report app.py must capture before it nulls the manager out.
+    class _FakeIndexingManager:
+        def __init__(self):
+            self._cancelled: frozenset[str] = frozenset()
+
+        async def start_all(self):
+            pass
+
+        async def drain(self):
+            self._cancelled = frozenset({"kb-cancelled-during-drain"})
+
+        def cancelled_kb_ids(self):
+            return self._cancelled
+
+    monkeypatch.setattr(app_mod, "IndexingManager", _FakeIndexingManager)
+
+    class _FakeWatchManager:
+        def __init__(self, *, index_manager):
+            self.index_manager = index_manager
+
+        async def start_all(self):
+            pass
+
+        async def drain(self):
+            pass
+
+    monkeypatch.setattr(app_mod, "WatchManager", _FakeWatchManager)
+
+    class _FakeMCPSourceRepository:
+        def __init__(self, conn, encryptor):
+            pass
+
+        async def list(self):
+            return []
+
+    monkeypatch.setattr(app_mod, "MCPSourceRepository", _FakeMCPSourceRepository)
+
+    async def _fake_pty_drain():
+        pass
+
+    async def _fake_mcp_drain():
+        pass
+
+    async def _fake_oauth_sweep_stop():
+        pass
+
+    async def _fake_close_conn():
+        pass
+
+    _vector_close_calls: list[frozenset] = []
+
+    async def _fake_close_vector_store(*, skip_kb_ids=frozenset()):
+        _vector_close_calls.append(skip_kb_ids)
+
+    monkeypatch.setattr(app_mod, "_session_registry_shutdown_drain", _fake_pty_drain)
+    monkeypatch.setattr(app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain)
+    monkeypatch.setattr(oauth_mod, "stop_periodic_sweep", _fake_oauth_sweep_stop)
+    monkeypatch.setattr(app_mod, "close_connection", _fake_close_conn)
+    monkeypatch.setattr(app_mod, "close_vector_store", _fake_close_vector_store)
+
+    from fastapi import FastAPI
+
+    fake_app = FastAPI()
+    async with app_mod.lifespan(fake_app):
+        pass
+
+    # The hook received the exact kb_id the fake manager's drain()
+    # recorded — proving app.py captured the report BEFORE the null-out,
+    # not after (a post-null-out read would see None/empty here).
+    assert _vector_close_calls == [frozenset({"kb-cancelled-during-drain"})]
+    # And the null-out itself still happened (AC-6a's other half).
+    assert app_mod._indexing_manager is None
 
 
 async def test_drain_timeout_handles_stuck_worker(monkeypatch):

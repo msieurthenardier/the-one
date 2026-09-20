@@ -291,9 +291,34 @@ spend is a decision on record, not an accident.
       Flight 2's settings API refuses a `model_id`/`dim` change while any chunk
       exists (409); the re-index itself is designed with the pipeline in
       Flight 3.
-- [ ] How are semantic and keyword results combined — reciprocal rank fusion, a
+- [x] How are semantic and keyword results combined — reciprocal rank fusion, a
       weighted score, or keyword as a fallback when semantic recall is thin? And
       is the balance operator-tunable or fixed?
+      **Resolved at Flight 7 (Leg 3, mission close, 2026-09-20, DD-4).**
+      Reciprocal rank fusion, and the balance is **fixed, and here is the
+      evidence the fixing is not arbitrary** — never "tuned," and no
+      `RRF_K`/`candidate_k` value is recommended. A sweep
+      (`scripts/sweep_fusion_constants.py`) drove `retrieval.search()`
+      end-to-end over a real corpus (33,281 chunks indexed from `docs/` and
+      `missions/` via a real `UsearchStore` + `KBChunkRepository` +
+      `IndexingManager`, 60 queries sampled from the corpus itself) across a
+      5×5 grid of `RRF_K` ∈ {10, 30, 60, 100, 200} × `candidate_k` ∈ {10, 25,
+      50, 100, 200}. Result: the Flight 5 DD-3 reserved slot's fire rate is
+      **0.000 across the entire grid** (60 queries), and the returned top-10
+      set's overlap against the shipped constants (`RRF_K=60`,
+      `candidate_k=50`) is **≥0.998** everywhere, dropping only at the two
+      most extreme corners (`RRF_K=100or200, candidate_k=200`: overlap 0.998,
+      exact-match 0.983) — otherwise overlap/exact-match are both 1.000. The
+      constants are **not load-bearing** at this corpus size: moving them
+      barely moves the result set. **Caveat carried forward (AC-16 boundary,
+      do not drop it):** the sweep's embedding stand-in is a deterministic,
+      hash-seeded stub (dim=8, mirroring `tests/_embedding_stub.py`) with no
+      correlation to real semantic meaning — it characterises fusion
+      *arithmetic* (how RRF combines two rank lists), never a real model's
+      correlation pattern, and it manufactures no relevance judgments. It
+      would not catch a genuine quality regression in fusion; a future
+      mission wanting a real relevance benchmark still needs to build one
+      from scratch.
 - [ ] Do `kb__` tools follow the built-in enable/disable whitelist path or the
       MCP-override path? The carve-out at `the_one/agent/config.py:166-172` (`AgentConfig.is_tool_enabled`; an earlier draft cited `config.py`, which is the wrong file) is hardcoded to the
       `mcp__` prefix, so a `kb__` name is currently treated as a built-in — any
@@ -318,7 +343,7 @@ spend is a decision on record, not an accident.
       not honoured — no `pathspec` dependency); a supported file over 10 MiB
       or with a null byte in its first 8 KiB becomes a `failed` item with a
       visible error, never a silent skip.
-- [ ] Re-measure `usearch` build and incremental-upsert cost on Windows at
+- [x] Re-measure `usearch` build and incremental-upsert cost on Windows at
       1M vectors once a real corpus of that size exists (Flight 2 debrief
       Recommendation 5; Flight 3 reconnaissance R6). Flight 2's Windows 1M/3M
       figures (~2 h / ~7 h build, ~10–12 s / ~24 s save) are extrapolations
@@ -334,6 +359,30 @@ spend is a decision on record, not an accident.
       1M-chunk corpus generated at mission close and measured on the
       Windows worker, with Flight 3's flush constants re-checked against
       the number. Flight 4 added nothing to the measurement.
+      **Resolved at Flight 7 (Leg 3, mission close, 2026-09-20, DD-5), on a
+      verified extrapolation — not a direct 1M measurement.** A staged
+      Windows ladder ran on the real Concourse worker
+      (`ci/tasks/windows-vector-bench.yml`, `numkong=no, simd=serial`
+      recorded on every row, confirming the unlinked-wheel finding above):
+      200k calibrated twice against Flight 2's own 200k table (both
+      `build_s` figures within 2.2%, well inside a pre-declared ±10% band),
+      then 500k ran once. Both gated metrics passed the pre-declared band at
+      500k (`build_s` f16 +2.01%, i8 +8.18%, both ≤±10%; `save_ms` f16
+      −17.38%, i8 −5.89%, both ≤±25%) — **Windows `usearch` build cost is
+      linear in N**, verified across a 2.5× range, which is the assumption
+      Flight 3's flush cadence rests on. The operator then stopped the
+      ladder at 500k rather than spending the shared worker's remaining
+      ~2.5 hours on a 1M rung: two independent anchors (200k×5 and 500k×2)
+      already agree on the 1M projection within 2% for f16 and 8% for i8.
+      **What this is NOT**: there is no measured 1M figure — the question
+      closes on a verified extrapolation, and anyone who needs the real
+      number should run `fly -t the-one execute -c
+      ci/tasks/windows-vector-bench.yml -i repo=. -v bench_n=1000000`. The
+      **i8 build drift (+8.18%)** at 500k is larger than the 200k
+      calibration pair's own run-to-run spread (≤2.0%), so it is recorded as
+      a residual, not dismissed as noise. Flight 3's flush constants were
+      re-checked against this curve (Flight 7 flight-log, Leg 3) and
+      re-confirmed — see the flight log for the arithmetic.
 
 ## Known Issues
 
@@ -342,7 +391,11 @@ spend is a decision on record, not an accident.
   defect; changing it would mean building usearch from source on Windows. The
   `doctor` probe reports the condition in its detail line so a genuine
   DLL-resolution failure reads differently from this unlinked-wheel state.
-  Surfaced by Flight 1.
+  Surfaced by Flight 1. **Confirmed live at every rung of Flight 7's Windows
+  bench ladder** (200k×2, 500k): `numkong=no, simd=serial` recorded on every
+  measured row via the bench script's per-cell backend column, not just
+  asserted from the wheel-binary read — see the Windows 1M re-measure open
+  question above.
 - **Dead weight in the frozen bundle**: numkong's 1.15 MB `.pyd` on Windows
   (imported unconditionally by usearch, unreachable by it — unchanged
   reason). `hf-xet` (4.03 MB, a Hub transfer accelerator the

@@ -94,3 +94,30 @@ def test_purge_button_arms_on_single_click(app_with_agent: SeededApp, page: Page
     expect(purge_title).to_have_text("Confirm Purge?")
     # App.confirmDelete adds the shared armed-state class on arm.
     expect(purge_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+
+@pytest.mark.browser
+def test_purge_button_confirm_lapse_is_visually_distinct(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Purge-now confirm
+    (`studio.js:2116`) is distinguishable on screen from one that was never
+    armed, past the real 3s `revertMs`. Note (leg guidance 4b, pre-existing
+    quirk, not this leg's to fix): a SUCCESSFUL purge never calls
+    `revertFn()` either, so that path is "stuck armed", not lapsed — this
+    test only exercises the timeout path, which never reaches `onConfirm`
+    at all."""
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    purge_btn = page.locator('[data-testid="purge-history-btn"]')
+    purge_title = purge_btn.locator("[data-confirm-title]")
+    expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    purge_btn.click()
+    expect(purge_title).to_have_text("Confirm Purge?")
+    expect(purge_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(purge_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(purge_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(purge_title).to_have_text("Purge now")

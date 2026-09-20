@@ -1,7 +1,7 @@
 # Behavior Test: Knowledge Base Studio Round Trip
 
 **Slug**: `kb-studio-round-trip`
-**Status**: draft *(kept draft deliberately — the run found **five** structural spec defects that must be re-authored before this becomes `active`: steps 9 and 10 are mutually unsatisfiable; steps 5, 8 and 10 each carry a precondition a fresh mount silently satisfies; step 6's ordering clause is unfalsifiable against the mandated fixture; step 2 puts an action in the Expected Results column; and **step 8's second clause ("the edited file re-indexes") has no browser-frame observable at all** — the item row renders only path and status, so a `[mixed-frame]` clause was written against a surface that cannot carry it. See the run log's closing summaries.)*
+**Status**: active *(re-authored 2026-09-20, Mission 24 Flight 7 `regression-net-and-gates` leg — closes the six structural spec defects found in run `2026-09-18-13-14-52`: five named on this line's prior `draft` text (steps 9/10's mutual unsatisfiability; steps 5/8/10's fresh-mount preconditions; step 6's unfalsifiable ordering clause; step 2's action-in-results-column; step 8's missing freshness observable) plus a sixth — step 9's vacuous-pass problem — diagnosed only in that run's Orchestrator Notes at `:735-742`, never in the status line. See that run log's closing summaries and the 2026-09-18-reverify run log for the defect-by-defect reasoning this re-author follows.)*
 **Created**: 2026-09-17
 **Last Run**: 2026-09-18-13-14-52 (18/19 pass; step 8 FAILED, then re-verified PASS on 2026-09-18-reverify after remediation — see `kb-studio-round-trip/runs/2026-09-18-13-14-52.md`)
 
@@ -43,15 +43,58 @@ ratchet would pass every other step in this table.
   by reference. No step below encodes them.
 - A fixture folder exists **outside the repository**, containing at least:
   - three small text or markdown files with distinct, greppable prose;
+  - one further text or markdown file comfortably exceeding the chunk size —
+    at least 3 KB of distinct prose, so it yields **at least three chunks**
+    (chunk size 1000 characters). Needed so step 6's chunk-ordering clause has
+    something to fail against: every file under ~1000 characters is
+    single-chunk, and a one-element list is sorted vacuously (the defect named
+    in the 2026-09-18-13-14-52 run log's FINDING 5). This makes the fixture's
+    **good**-file count **four**, not three — steps 3 and 5 below are written
+    against four.
   - one file that will fail indexing — **it must carry a supported extension
     (`.txt` or `.md`)** and be over `MAX_FILE_BYTES` (10 MiB) or contain a null
     byte in its first 8 KiB. A `.bin` or other unsupported suffix is filtered out
     by the walk and never becomes an item at all, so step 5's "failed, with its
     error legible in the UI" would be unobservable.
+- **A second, disposable fixture folder for step 10's restart-resume check
+  only**: `<fixture-restart>`, outside the repository and distinct from the
+  fixture above, sized so a full index pass takes on the order of several
+  seconds to low tens of seconds — long enough for an operator (or the
+  Executor) to issue a stop command while at least one item is still
+  `indexing`. Reuse `kb-folder-index-round-trip.md`'s `live-kill` variant's
+  generator pattern (many small text files) at a scale that keeps this
+  spec's own runtime reasonable — for example 300-500 files of a few KB each
+  — rather than authoring a second generator. It is registered on its own
+  disposable knowledge base, created and deleted entirely within step 10, so
+  it never affects steps 3, 5 or 8's item counts on the main fixture. This is
+  the fix for the sixth defect named in the 2026-09-18-13-14-52 run log's
+  Orchestrator Notes (`:735-742`): on a 3-4 file fixture an index pass
+  completes faster than a stop command can land, so "stop it mid-pass" was
+  previously unwinnable and the crash-recovery assertion was never actually
+  exercised. Size it **at authoring time here**, never by growing it mid-run —
+  growing it mid-run is exactly what would perturb steps 5/8's counts on the
+  *other* fixture if this bullet were skipped and the main fixture reused
+  instead.
 - At least one agent exists with a configured provider, so the attach tab has
   something to attach to and the agent can be saved.
-- The instance has been restarted at least once since the fixture folder was
-  created, or step 9's restart-resume assertion is the first restart.
+- **Steps marked `[continuous-session]` must run inside one uninterrupted
+  browser page/process, from the step's trigger action through its
+  observation** — no reload, no re-navigation to the app root, and no fresh
+  Executor process boundary in between. This project's default apparatus
+  re-mounts fresh at every step boundary (`storage_state` persists the session
+  cookie, but not the page), which silently satisfies any "without operator
+  action" or "same session" wording the moment the apparatus re-mounts — the
+  gap the 2026-09-18-13-14-52 run log's FINDING 3 names. A step so marked is
+  not judged PASS on a reading obtained by a fresh mount inside its span: the
+  Executor states, for that step, which process/page continuity it actually
+  achieved, and the Validator records the marked clause **UNEXERCISED** rather
+  than PASS if a fresh mount occurred anywhere in the marked span — it does
+  not fail the step outright. **Step 5 is a deliberate partial exception**: a
+  genuinely continuous reading would need a second, throwaway registration
+  event this spec does not budget for without risking steps 6-18's counts, so
+  the Executor should still avoid navigating away where practical, but a fresh
+  mount there records only that step's timing clause UNEXERCISED, per the run
+  log's own disposition (FINDING 3).
 - **Monitoring settings are read and pinned before the run, not assumed.**
   `monitoring.watch_enabled` defaults `true` and `reconcile_interval_seconds`
   defaults **300**; the reconciliation walk — not the watcher — is the source of
@@ -67,11 +110,16 @@ ratchet would pass every other step in this table.
 
 - **browser** (rendered Studio surfaces — measured via chrome-devtools,
   playwright, or similar). Rendered state is primary: screenshot plus
-  accessibility snapshot. DOM evals are supplementary diagnostics only.
+  accessibility snapshot. DOM evals are supplementary diagnostics only. An
+  apparatus driving a `[continuous-session]` step must be capable of keeping
+  one page/process alive across that step's whole span (e.g. Playwright driven
+  from one script, not one Executor process per step) — a spec depending on
+  session continuity should fail at READY if the apparatus cannot do this, not
+  discover it mid-step.
 - **http** (API read-back for state the UI collapses or cannot show — measured
   via curl through Bash or a dedicated MCP):
   - `GET /api/knowledge-bases/{kb_id}/status` — per-folder `status`, `watch`,
-    `watch_error`; `chunks`; `indexer`
+    `watch_error`; `chunks`; `content_freshness`; `indexer`
   - `GET /api/agents/{name}` — `kb_ids`, `disabled_tools`
   - `GET /api/knowledge-bases/{kb_id}/search` — `hits`, `degraded`, `indexer`
 - **filesystem** (fixture creation, edit and deletion — measured via Bash /
@@ -81,18 +129,27 @@ ratchet would pass every other step in this table.
 
 ## Steps
 
+**Row 9 (attach) runs before Row 10 (restart-resume) — a deliberate local
+swap from this spec's original step order, not a bug.** Row 10 restarts the
+instance, which ends any browser session; Row 9 requires attaching within the
+same session as step 2's create, which a restart would foreclose. Swapping them
+satisfies both with **no coverage loss**: nothing in steps 11-18 needs
+continuous-session state (they read fresh per step), and Row 10's restart
+threatens nothing downstream once it runs after Row 9's attach. (AC-1,
+2026-09-18-13-14-52 run log's Orchestrator Notes and Executor closing.)
+
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | Open Studio's Knowledge section in the browser. | The section renders a real inventory surface — a create affordance and either a list of knowledge bases or an empty state. The Flight 5 stub text ("Knowledge bases will be created and managed here in a future mission") is **absent**. |
-| 2 | Create a knowledge base with a short name. Then attempt to create one with a name longer than 43 characters. | The first is created and appears in the inventory. The second surfaces a length hint naming the limit — and, per DD-16, the hint is **advisory**: the second knowledge base **is** created and stays in the inventory. Assert both, so the decided behaviour is judged rather than the intuitive one. Delete the over-long one before continuing so it does not affect later steps. |
+| 2 | Create a knowledge base with a short name. Then attempt to create one with a name longer than 43 characters. After observing the length-hint behaviour, delete the over-long knowledge base. | The first is created and appears in the inventory. The second surfaces a length hint naming the limit — and, per DD-16, the hint is **advisory**: the second knowledge base **is** created and stays in the inventory until deleted. Assert both, so the decided behaviour is judged rather than the intuitive one. After the deletion action, the inventory shows only the first knowledge base — the cleanup actually removed it rather than merely being instructed to. |
 | 3 | Register the fixture folder on the new knowledge base. | The folder appears with a walk status. No error is shown. |
 | 4 | **SAFETY: name the instance's own scratch data directory itself — never `$HOME`, and not its parent.** Attempt to register that path as a second source. | Refused, and the message **says why** — that the application's own database and index live there. A bare "422" or "invalid path" is a fail. *(The data dir itself is the deterministic case: a parent that happens to be the filesystem root trips a different, earlier guard with different wording.)* |
-| 5 | (Wait point, no actions.) *(Step 3's registration kicks an index pass immediately, so this wait does not depend on the reconcile interval — step 8's does.)* | Within two configured reconcile intervals, the inventory shows the three good fixture files as indexed and the deliberately-bad file as **failed, with its error legible in the UI**. `GET /status` agrees: `items` counts match what is rendered, and `chunks` is greater than zero. `[mixed-frame]` |
-| 6 | Open one indexed item and read its chunks, then its source text. | Chunks render in sequence order. Source text renders and matches the fixture file's prose. |
+| 5 | (Wait point, no actions.) *(Step 3's registration kicks an index pass immediately, so this wait does not depend on the reconcile interval — step 8's does.)* | Within two configured reconcile intervals, the inventory shows the **four** good fixture files as indexed and the deliberately-bad file as **failed, with its error legible in the UI**. `GET /status` agrees: `items` counts match what is rendered, and `chunks` is greater than zero. This clause is `[continuous-session]` on a best-effort basis only (see Preconditions) — a fresh mount during this step's span records it **UNEXERCISED**, not a fail. `[mixed-frame]` |
+| 6 | Open the multi-chunk fixture item — the file mandated in Preconditions to exceed the chunk size — and read its chunks, then its source text. | Chunks render in sequence order, and the clause is falsifiable here: the mandated file yields at least three chunks, so an out-of-order render has something to show against. Source text renders and matches the fixture file's prose. |
 | 7 | Run a search from the inventory for an exact, rare term that appears in exactly one fixture file. | The hit set contains that file's chunk, with its score rendered. If a degrade line is shown, it names a cause and is accompanied by the indexer state; if no degrade line is shown, `GET /search` reports `degraded: null`. `[mixed-frame]` |
-| 8 | Add a new file to the fixture folder on disk and edit an existing one. Wait two configured reconcile intervals. | Both changes are reflected in the inventory without any operator action in the UI and without restarting the app — the new file appears, the edited file re-indexes. Record whether `folders[].watch` was active, so a pass carried by the walk alone is not mistaken for a working watcher. `[mixed-frame]` |
-| 9 | Stop the instance while an index pass is in flight (trigger `reindex?scope=all`, then stop). Start it again. Wait two configured reconcile intervals. | After restart, indexing **resumes rather than restarts**: no item is stranded in `indexing`, and the inventory returns to a fully-indexed state. `GET /status` shows no `indexing` item once the indexer reports idle. |
-| 10 | Open an agent in Studio, go to its Knowledge tab, attach the knowledge base **created in step 2 during this same browser session — do not reload the page first**, and save. | The knowledge base is present in the tab's list at all (the create-then-attach path), renders as attached after save, and `GET /api/agents/{name}` reports its id in `kb_ids`. An absent entry means the tab's list is stale. |
+| 8 | Before editing, read and record the fixture folder's current `content_freshness` (`GET /status`) and the file you are about to edit's current `Indexed:` timestamp (`data-testid="kb-item-indexed-at"`) off its item row. Then add a new file to the fixture folder on disk and edit that same existing file. Wait two configured reconcile intervals. `[continuous-session]` | Both changes are reflected in the inventory without any operator action in the UI and without restarting the app: the new file's row appears, and the edited file's row shows an `Indexed:` timestamp (`data-testid="kb-item-indexed-at"`) later than the one recorded before editing. `GET /status`'s `content_freshness` (`MAX(indexed_at)` across file items) has also advanced past its pre-edit value, in step with the rendered timestamp — the two must agree, not merely both move independently. A **folder-level** `indexed_at` advancing is **not** evidence for this clause — it advances on every walk, changed content or not, and must not be cited as the rendered trace (2026-09-18-reverify run log). Record whether `folders[].watch` was active, so a pass carried by the walk alone is not mistaken for a working watcher. `[mixed-frame]` |
+| 9 | Open an agent in Studio, go to its Knowledge tab, attach the knowledge base **created in step 2 during this same browser session — do not reload the page first**, and save. `[continuous-session]` | The knowledge base is present in the tab's list at all (the create-then-attach path), renders as attached after save, and `GET /api/agents/{name}` reports its id in `kb_ids`. An absent entry means the tab's list is stale. |
+| 10 | Create a fresh, disposable knowledge base and register `<fixture-restart>` on it (Preconditions) — registration kicks off an index pass immediately. Poll `GET .../status` until at least one item reports `indexing` (proof the pass is genuinely in flight — the fix for this spec's sixth, previously-unnamed defect), then stop the instance immediately. Start it again. Poll `GET .../status` until the indexer reports idle — a bare two-interval wait is not sufficient here, since this fixture's pass duration is not bounded by the reconcile interval. | The pre-stop poll shows at least one item in `indexing` before the stop — a stop that never observes an in-flight item is not evidence for anything and must be re-attempted, not recorded as a pass. After restart, indexing **resumes rather than restarts**: no item is stranded in `indexing` once the indexer reports idle, and `<fixture-restart>`'s files reach a terminal status (`indexed` or `failed`) with none left at `pending`/`indexing`. `GET /status` shows no `indexing` item once the indexer reports idle. Delete this disposable knowledge base once confirmed — it plays no further role in the spec. |
 | 11 | **Squawk 0050's regression net.** Go to that agent's **General** tab, change an unrelated field (for example the description), and save. Do not touch the Knowledge tab. | `GET /api/agents/{name}` still reports the knowledge base in `kb_ids` — **unchanged**. The Knowledge tab still renders it as attached. A wiped `kb_ids` is the exact defect this step exists to catch. |
 | 12 | **Read the derived tool name off the attach-tab row** (do not compute it — the collision-discriminator logic is exactly what must not be reimplemented here). Then disable it for that agent via `PUT /api/agents/{name}`, adding that name to `disabled_tools`. *(There is deliberately no UI for disabling — see Out of Scope.)* | The row displays a `kb__…__search` name, and `GET /api/agents/{name}` then lists that exact name in `disabled_tools`. |
 | 13 | **DD-13's regression net.** Make another unrelated Studio save from the agent's **General** tab. Do not touch any tool or knowledge-base control. | `GET /api/agents/{name}` still lists the `kb__…__search` name in `disabled_tools` — **unchanged**. An erased entry means a deliberately disabled tool has silently re-enabled, and is a fail. |
@@ -113,9 +170,8 @@ ratchet would pass every other step in this table.
   shortcut. If a later flight adds such a surface, steps 12–14 should be
   re-authored to drive it.
 - Watcher mechanics under load and the `starting`/`idle`/`running` tolerance —
-  covered by `kb-folder-watch-round-trip` (Flight 4) and its planned
-  "Large-folder settle" variant, deferred with that variant to the closing
-  flight.
+  covered by `kb-folder-watch-round-trip` (Flight 4) and the `large-folder
+  settle` variant on `kb-folder-index-round-trip` (Flight 7).
 - Indexing pipeline internals (chunking boundaries, embedding correctness) —
   covered by `kb-folder-index-round-trip` (Flight 3) and unit tests.
 - The Administration settings panel — a separate surface; covered by browser-lane
@@ -124,5 +180,6 @@ ratchet would pass every other step in this table.
 
 ## Variants (optional)
 
-None yet. A "large fixture folder" variant would duplicate the closing flight's
-"Large-folder settle" work and should be authored there, not here.
+None yet. A "large fixture folder" variant would duplicate
+`kb-folder-index-round-trip`'s "large-folder settle" work and should be
+authored there, not here.

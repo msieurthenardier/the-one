@@ -27,6 +27,8 @@ no committed visual-snapshot baselines.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import pytest
 from browser._credential_registry import auth_headers_for
@@ -183,6 +185,42 @@ def test_revoke_removes_grant(app_clean: str, page: Page) -> None:
         headers=auth_headers_for(app_clean),
     ).json()
     assert listing == [], f"expected no credentials server-side, got: {listing}"
+
+
+@pytest.mark.browser
+def test_revoke_confirm_lapse_is_visually_distinct(app_clean: str, page: Page) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the External-access
+    revoke confirm (`self-configuration-tab.js:1294`) is distinguishable on
+    screen from one that was never armed, past the real 3s `revertMs` —
+    and the grant is NOT revoked by a lapse."""
+    _seed_agent(app_clean, "ext-lapse-agent")
+    _enable_self_configuration(app_clean, "ext-lapse-agent")
+    _navigate_to_self_configuration_tab(page, app_clean, "ext-lapse-agent")
+
+    grant_btn = page.locator('[data-testid="self-configuration-external-grant-btn"]')
+    expect(grant_btn).to_be_enabled(timeout=8000)
+    page.locator('[data-testid="self-configuration-external-grant-label"]').fill("to-lapse")
+    grant_btn.click()
+    expect(
+        page.locator('[data-testid="self-configuration-external-credential-row"]')
+    ).to_have_count(1, timeout=8000)
+
+    revoke_btn = page.locator('[data-testid="self-configuration-external-revoke-btn"]')
+    expect(revoke_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    revoke_btn.click()
+    expect(revoke_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(revoke_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(revoke_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(revoke_btn).to_have_text("Revoke")
+
+    # Never committed: the grant is still there, server-side.
+    listing = httpx.get(
+        f"{app_clean}/api/agents/ext-lapse-agent/self-configuration/external-credentials",
+        timeout=5.0,
+        headers=auth_headers_for(app_clean),
+    ).json()
+    assert len(listing) == 1, f"a lapse must not revoke the grant, got: {listing}"
 
 
 @pytest.mark.browser
