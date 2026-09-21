@@ -517,23 +517,37 @@ misses is worth less than no audit.
 
 ### Prerequisites
 
-- [ ] **PR #208 merged into `mission/24-knowledge-bases`** — the squawk
-      turnaround (0084, 0086, 0089, 0090). The flight branch cuts from the
+- [x] **PR #208 merged into `mission/24-knowledge-bases`** — merged
+      2026-09-19 at `6d75b8b`; the flight branch was cut from the updated
+      mission branch. The squawk turnaround (0084, 0086, 0089, 0090). The flight branch cuts from the
       mission branch; branching before this merges puts the flight behind its
       own corrected documentation.
-- [ ] **Squawk 0083 completed** (`anyio` → 4.14.2) — DD-9. Blocks the gates
-      leg; the frozen Windows build must be verified after the bump.
-- [ ] **Squawk 0050 completed** (write-up + sign-off) — DD-9. Artifact work,
-      no code change.
-- [ ] **Concourse Windows worker reachable** — operator confirmed the path is
-      available, 2026-09-19. **This is a planning-time confirmation and is not
+- [ ] **Squawk 0083 completed** (`anyio` → 4.14.2) — **NOT MET. The flight
+      proceeded past it anyway.** ⚠️ *Recorded at the debrief, 2026-09-20, on
+      the Architect's finding.* This prerequisite says "**Blocks the gates
+      leg**". The gates leg ran with 0083 still `open`, and the flight
+      converted a stated hard blocker into a soft, owned gap — `pip-audit`
+      recorded as failing with an owner rather than the leg being held. That
+      may have been the right call, but it was **not a decision anyone took**:
+      it happened without the prerequisite being revisited, and the honest
+      label for it is *the flight renegotiated its own bar mid-execution*. The
+      frozen Windows build was consequently verified **before** the bump, not
+      after, which is the opposite of what this line requires.
+- [ ] **Squawk 0050 completed** (write-up + sign-off) — **NOT MET**, still
+      `open`. Artifact work, no code change. Carried; nothing in the flight
+      depended on it.
+- [x] **Concourse Windows worker reachable** — re-verified at Leg 04's first
+      step (`windows-tests.yml`, 549 passed / 1 pre-existing failure, now
+      squawk 0092). Operator confirmed the path 2026-09-19. **This is a planning-time confirmation and is not
       sufficient on its own**: the `fly -t the-one` login expires, and the
       worker is shared and uncontainerised with `build-windows-installer`
       auto-triggering onto it (`ci/README.md:92-93`). Leg 3's **first step** is
       to re-run `fly -t the-one execute -c ci/tasks/windows-tests.yml -i repo=.`
       and confirm green, so a worker or auth problem surfaces as itself rather
       than as a bench-task bug days later.
-- [ ] **A 1M-chunk corpus is generatable** — `bench_vector_store.py`'s
+- [~] **A 1M-chunk corpus is generatable** — moot; the 1M rung was not run
+      (operator decision). Unverified at 1M; the generator ran at 500k.
+      Original text: — `bench_vector_store.py`'s
       synthetic generator is seeded and parameterised; confirm it reaches 1M
       within the worker's disk budget before the ladder leg runs.
 - [ ] **`make test-unit` green on the mission branch** at flight start, so the
@@ -742,15 +756,22 @@ items went unexecuted last flight.
       `the-one-setup-0.8.1.exe` (135,040,950 bytes), all nine frozen-doctor
       gates OK including `usearch`, `fts5`, `embedding model`, `file watcher`;
       `RESULT: PASS`
-- [~] `kb-studio-round-trip` status `active` — **DONE**; **passing — NOT YET
-      RUN** — *Leg 05 (spec), Flight Director (run)*. **Deliberately deferred,
-      operator decision 2026-09-20**: the spec is re-authored and `active`, and
-      the 18-step walk is scheduled before the flight's PR merges rather than
-      before its commit. Recorded as **not-run, never as passed** — which is
-      AC-17's own rule applied to this flight's own checklist. The mission
-      criterion it backs ("a knowledge base can be attached to and detached
-      from any agent in Studio, behavior-test-backed") therefore stays
-      **unticked** until the run is green.
+- [ ] `kb-studio-round-trip` status `active` and passing — **NOT MET.**
+      *(Updated 2026-09-21, after the run.)* Leg 05 re-authored it to `active`,
+      and it **ran 18/18 PASS** on 2026-09-21
+      (`tests/behavior/kb-studio-round-trip/runs/2026-09-21-02-10-21.md`). But
+      that run surfaced **four further structural defects** (#7-#10) plus one
+      under-scoped clause (#11), and the independent Validator ruled it **not
+      yet `active`-worthy**: *"four real defects found in one execution pass is
+      not what a settled spec produces."* **Operator decision: revert to
+      `draft` and fix.** All five are now fixed; **one clean run remains**
+      before this can tick.
+      **The distinction worth preserving**: the *product* evidence from this run
+      is strong — every DD under test (DD-5, DD-13, DD-14, DD-17, squawk 0050's
+      net) held, several with wire-level proof. The defects are about the
+      **spec's ability to catch a future regression**, not about whether the
+      feature works. A criterion that says "behavior-test-backed" needs a test
+      that would catch one.
 - [x] Documentation updated — *Leg 05* — CLAUDE.md and `the_one/agents.md`
       carry the shutdown hook, the `get_kb_status` additive keys, the
       skip-counter projection, the `.confirm-lapsed` cue and the new CI task

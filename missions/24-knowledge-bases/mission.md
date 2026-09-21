@@ -525,8 +525,14 @@ Operational consequences, recorded so the next flight does not rediscover them:
       lint PASS · `make test-unit` **4,809** PASS · full `make test-browser`
       **530** PASS · frozen Windows build PASS. **`pip-audit` NOT clean** —
       `anyio`'s two CVEs stand, owned by squawk 0083 and recorded as failing
-      rather than bumped inline. **`kb-studio-round-trip` is `active` but NOT
-      YET RUN**, recorded as not-run rather than passed — so the criterion it
-      backs ("a knowledge base can be attached to and detached from any agent
-      in Studio, behavior-test-backed") **stays unticked** until that walk is
-      green. Squawks 0091 and 0092 were found mid-flight and deferred.
+      rather than bumped inline. **`kb-studio-round-trip` ran 2026-09-21: 18/18
+      PASS** — but the run surfaced four further structural defects and one
+      under-scoped clause, and the spec was **reverted to `draft`** on the
+      independent Validator's assessment that it is not yet `active`-worthy.
+      All five are fixed; one clean run remains. The criterion it backs ("a
+      knowledge base can be attached to and detached from any agent in Studio,
+      behavior-test-backed") **stays unticked** until then. The *product*
+      evidence is strong — every design decision under test held, several with
+      wire-level proof — but a criterion that says "behavior-test-backed" needs
+      a test that would catch a future regression, and that is what the four
+      defects were about. Squawks 0091 and 0092 were found mid-flight and deferred.
