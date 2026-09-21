@@ -1,6 +1,6 @@
 # Leg: regression-net-and-gates
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Mission Close](../flight.md)
 
 ## Objective

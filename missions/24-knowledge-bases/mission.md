@@ -506,7 +506,7 @@ Operational consequences, recorded so the next flight does not rediscover them:
       `get_vector_store()`'s missing shutdown hook. This bullet's original text
       listed the re-measure; it is corrected here at the Flight 6 debrief rather
       than left to imply a delivery that did not happen.
-- [ ] Flight 7: Mission close — the four recorded obligations that outlived the
+- [x] Flight 7: Mission close — the four recorded obligations that outlived the
       flights meant to carry them: `get_vector_store()`'s missing shutdown hook
       (a Known Issue deferred four times) and DD-17's free detach → rename →
       reattach reconcile; the coupled inventory leg (per-item freshness with the
@@ -521,3 +521,12 @@ Operational consequences, recorded so the next flight does not rediscover them:
       net is re-runnable. **Does NOT carry** the shared `the_one/tools/naming.py`
       (its "before a third prefixed namespace" trigger has not fired) or the
       PUT/PATCH preserve-on-omit protocol question, which escalates.
+      **Landed 2026-09-20** (PR #209, draft against the mission branch). Gates:
+      lint PASS · `make test-unit` **4,809** PASS · full `make test-browser`
+      **530** PASS · frozen Windows build PASS. **`pip-audit` NOT clean** —
+      `anyio`'s two CVEs stand, owned by squawk 0083 and recorded as failing
+      rather than bumped inline. **`kb-studio-round-trip` is `active` but NOT
+      YET RUN**, recorded as not-run rather than passed — so the criterion it
+      backs ("a knowledge base can be attached to and detached from any agent
+      in Studio, behavior-test-backed") **stays unticked** until that walk is
+      green. Squawks 0091 and 0092 were found mid-flight and deferred.

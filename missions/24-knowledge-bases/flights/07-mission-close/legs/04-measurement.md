@@ -1,6 +1,6 @@
 # Leg: measurement
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Mission Close](../flight.md)
 
 ## Objective

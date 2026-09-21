@@ -1,6 +1,6 @@
 # Flight: Mission Close
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria
@@ -721,15 +721,27 @@ the results, because this mission branch has no CI lane.
 Every item carries a leg owner, per F6 debrief Recommendation 3 — two unowned
 items went unexecuted last flight.
 
-- [ ] All legs completed — *Flight Director*
-- [ ] `make lint` clean — *Leg 4*
-- [ ] `make test-unit` green, with the count recorded against the F1–F6 series
-      — *Leg 4*
-- [ ] Full `make test-browser` green (`TEST_TIMEOUT=3600`, all four lanes) —
-      *Leg 4*
-- [ ] `pip-audit` clean against the release closure — *Leg 4* (needs squawk
-      0083 landed first; see Prerequisites)
-- [ ] Frozen Windows build succeeds and the built app runs — *Leg 4*
+- [x] All legs completed — *Flight Director* (5 of 5 `completed`)
+- [x] `make lint` clean — *Leg 05* — `ruff check` passed, `ruff format --check` 452 files
+- [x] `make test-unit` green — *Leg 05* — **4,809 passed / 10 skipped**, plus
+      one confirmed real-clock timing flake
+      (`test_kb_watcher.py::test_drain_three_live_entries_under_a_second`,
+      passes standalone and in its own file). Series: F1 3,950 · F2 4,370 ·
+      F3 4,547 · F4 4,649 · F5 4,732 · F6 4,769 · **F7 4,809** (+40)
+- [x] Full `make test-browser` green — *Leg 05* — **530 passed / 6 skipped**
+      in 940.50s, all four lanes (F6: 469/6). Two full-lane-only failures, both
+      confirmed squawk-0035 flakes: isolated 2 passed in 4.36s, and
+      `test_flow_provider_editor.py` 29/29 in 58.15s — that one scrutinised
+      **because** Leg 03 modified the file, not waved through on the pattern
+- [ ] **`pip-audit` NOT CLEAN — recorded as failing, not skipped** — *Leg 05*.
+      `anyio` 4.13.0 carries CVE-2026-63374 and CVE-2026-64847 (fixed in
+      4.14.2). Owned by **squawk 0083**, still `open`. Not bumped inline:
+      dependency work on a flight branch would fold a squawk's record into a
+      flight commit. **This item cannot be ticked by this flight.**
+- [x] Frozen Windows build succeeds and runs — *Leg 05* — build 630446,
+      `the-one-setup-0.8.1.exe` (135,040,950 bytes), all nine frozen-doctor
+      gates OK including `usearch`, `fts5`, `embedding model`, `file watcher`;
+      `RESULT: PASS`
 - [~] `kb-studio-round-trip` status `active` — **DONE**; **passing — NOT YET
       RUN** — *Leg 05 (spec), Flight Director (run)*. **Deliberately deferred,
       operator decision 2026-09-20**: the spec is re-authored and `active`, and
@@ -739,14 +751,19 @@ items went unexecuted last flight.
       criterion it backs ("a knowledge base can be attached to and detached
       from any agent in Studio, behavior-test-backed") therefore stays
       **unticked** until the run is green.
-- [ ] Documentation updated: CLAUDE.md and `the_one/agents.md` for the shutdown
-      hook, the skip-counter projection, the `get_kb_status` freshness
-      aggregate and the new CI task — *Leg 4*
-- [ ] Code merged to `mission/24-knowledge-bases` — *Flight Director*
-- [ ] Mission open questions closed: Windows 1M re-measure, fusion balance —
-      *Leg 3*
-- [ ] Mission Known Issue closed: `get_vector_store()` shutdown hook — *Leg 1*
-- [ ] Squawks 0087 and 0088 closed with sign-offs — *Leg 2a / Leg 2b*
+- [x] Documentation updated — *Leg 05* — CLAUDE.md and `the_one/agents.md`
+      carry the shutdown hook, the `get_kb_status` additive keys, the
+      skip-counter projection, the `.confirm-lapsed` cue and the new CI task
+- [ ] Code merged to `mission/24-knowledge-bases` — *Flight Director* —
+      **PR #209 open as draft**; goes ready-for-review when the behaviour test
+      runs green
+- [x] Mission open questions closed — *Leg 04* — the Windows re-measure
+      closes on a **verified extrapolation, not a measurement** (i8 +8.18%
+      named as residual); fusion balance closes as **fixed**, evidenced as not
+      load-bearing at ~33k chunks — never as "tuned"
+- [x] Mission Known Issue closed: `get_vector_store()` shutdown hook — *Leg 01*
+- [x] Squawks 0087 and 0088 `completed` with sign-offs — *Leg 02 / Leg 03*,
+      signed off in `e7fea7e`
 
 **Leg map**: Leg 1 `non-ui-defect-closure` · Leg 2a `inventory-freshness` ·
 Leg 2b `confirm-lapse` · Leg 3 `measurement` · Leg 4
