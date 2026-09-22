@@ -1705,6 +1705,125 @@ so the restart-resume step is winnable rather than vacuous.
 
 **Scheduled**: before the flight's PR merges into `mission/24-knowledge-bases`.
 
+## Behaviour test — `kb-studio-round-trip` clean run (2026-09-22)
+
+The run the flight's last unticked acceptance item was waiting on. Spec was
+`draft` since 2026-09-21, reverted after its previous 18/18 run surfaced four
+further structural defects plus one under-scoped clause.
+
+**Result: 17 pass / 1 inconclusive / 0 fail** across all 18 checkpoints.
+Run log: `tests/behavior/kb-studio-round-trip/runs/2026-09-22-01-05-35.md`.
+
+**Two process corrections from the previous run's Validator were adopted in full.**
+Checkpoints were run **strictly one at a time** — 18 separate Executor→Validator
+round-trips — rather than batched; the previous run batched 5-7 and 11-13, and its
+Validator's assessment was that the clean result *"doesn't retroactively justify the
+batching, it just means we got lucky that nothing broke inside a batch."* And
+Validator reasoning was never relayed to the Executor: the run's one cross-agent
+procedure (step 13-bis) was issued as a bare sequence of actions with no indication
+of what any outcome would imply.
+
+**What this run proved that no previous run did.** Step 5's `[continuous-session]`
+clause and step 9's full step-2-to-9 continuity span were **exercised for the first
+time** rather than recorded UNEXERCISED. Step 9's span was verified by two
+independent outside readers — the Flight Director and the Validator, separately,
+via read-only CDP `evaluate` calls neither agent could have coordinated to fake.
+Step 8's rewritten `content_freshness` clause reproduced the exact phenomenon that
+forced its rewrite — the aggregate equalled the *new* file's timestamp, not the
+*edited* file's, diverging ~1.09 ms (prior run: 1.868 ms) — and **passed**, where
+the old equality clause would have failed correct behaviour. The Validator
+recomputed the maximum itself rather than accepting the reported one, and judged
+that the rewrite *"is doing its intended job, not just being lenient."*
+
+**Step 5's routing was overridden deliberately.** Crew protocol sends wait-point
+rows straight to the Validator, which observes independently — but that is a fresh
+mount, which by the spec's own partial-exception rule would have recorded the
+`[continuous-session]` clause UNEXERCISED before it could be tried. Routed to the
+Executor's continuous page instead. Following the generic protocol would have
+silently lost a clause that was in fact exercisable.
+
+### New spec defect #15 — found, fixed, and the fix verified in-run
+
+Step 13 came back with `disabled_tools` erased after an unrelated save. Rather
+than record a DD-13 regression, the confound was surfaced **as fact, not
+conclusion**: step 12 sets the entry via an out-of-band API `PUT` — the only path
+that exists, since there is deliberately no UI for it — while step 9 mandates one
+unbroken page, so by step 13 the client's in-memory config necessarily predates the
+`PUT`. **The Validator held its verdict** and specified a discriminating experiment
+rather than ruling either way on the available evidence.
+
+Step 13-bis: re-add via `PUT`, force a full reload (the continuity marker going
+`kb-studio-rt-…` → `null` is falsifiable proof of a genuine remount, not a
+hash-only no-op), confirm the entry present server-side **before** saving, then an
+unrelated save from the fresh page — **the entry survived**. DD-13's client-side
+union works correctly when the client has current knowledge of the field.
+
+Verdict: **inconclusive — the test failed, not the system.** Two
+individually-correct requirements collided. Fixed in the spec by inserting an
+explicit fresh-load beat between steps 12 and 13; **the corrected sequence was
+itself executed during this run as 13-bis and passed**, so the fix ships verified
+rather than merely reasoned.
+
+### Findings carried out of the run
+
+- **Product finding, recommended as a flight rather than a squawk** — Studio's
+  agent-editor save is last-writer-wins with no staleness detection. An
+  out-of-band config change made while a tab is open is silently discarded by that
+  tab's next unrelated save: no version check, no conflict warning, no signal to
+  the operator. Plausible real operator sequence, because an operator may set
+  `disabled_tools` by script *precisely because no UI exists for it*. Inconsistent
+  with staleness patterns this codebase already applies elsewhere (`if_version`
+  gating; the self-configuration restore path's fail-closed-against-staleness
+  behaviour). **It fails the squawk gate** on two of four criteria — the fix needs
+  a design decision (detect how? block, warn, or refetch?) and touches a shared
+  interface — so it is raised as a flight candidate rather than logged as a squawk.
+- **Literal restart-resume remains unproven.** Step 10 won the race on the first
+  attempt (+0.0424 s, with the transition bracketed 9.6 ms on the other side) but
+  caught the snapshot at `indexed: 0` — the spec's own named evidence ceiling.
+  Aggregate resume is well-evidenced; the `content_hash`-survival mechanism the
+  spec describes was never exercised. Closing it needs a larger/slower fixture or a
+  throttled pass. The Executor reported the ceiling plainly rather than silently
+  retrying for a better number.
+- **Apparatus: untracked pages spawn during error recovery.** A second, unattributed
+  page sat in the shared CDP context adjacent to the run's most load-bearing
+  evidence, found by the Flight Director's independent verification. It was debris
+  from an aborted script. *"Exactly one page" is an invariant nobody enforces; it
+  was discovered by accident.* Closed at checkpoint 11; must be enforced before this
+  apparatus runs unattended.
+- **Evidence-capture defect.** Two step-6 screenshots asserting a pre-/post-probe
+  distinction were **byte-identical** (`md5` verified independently by the Flight
+  Director, not taken on the Validator's word) and framed only the top of the panel,
+  so neither depicted the ordering they were captured to prove. The verdict survived
+  only because the Validator generated its own artifact. Same *instrument cannot
+  detect what it claims to* family this mission keeps producing — and the fourth
+  distinct instance in Mission 24.
+- **Three weakly-falsifiable clauses named** by the Validator for a future revision:
+  step 3's "no error shown" (nothing adversarial forces it), step 5's timing clause
+  (registration completes the pass in ~80 ms, so the reconcile walk is never
+  exercised by that wait), and step 7's degrade branch (only the `degraded: null`
+  branch is reachable in this scenario; the named branch has never been falsified by
+  any run of this spec).
+
+### Unrequested rigour worth recording
+
+At step 6 the Executor intercepted the chunks response and re-served the same 15
+objects in **reversed** `seq` order; the UI still rendered ascending, proving
+client-side re-sorting empirically rather than by reading the JS — then separately
+curled the endpoint to confirm the API's own order was ascending too, closing the
+gap that the client sort would otherwise hide. At step 18 it went **looking** for a
+log-level error rather than stopping at "no visible error," surfaced two
+`WARNING` lines verbatim, and declined to characterise them — leaving the
+interpretive call to the Validator, which made it explicitly.
+
+### Note on the flight artifact
+
+`### Checkpoints` (flight.md:612) is largely unticked even though most of its items
+were demonstrably delivered — it appears never to have been tick-maintained during
+the flight, unlike `### Completion Checklist`, which was reconciled before landing.
+Only the two items this run and squawk 0083 actually closed were ticked there; the
+rest were left alone rather than swept, since ticking items without verifying them
+is the exact habit this mission's debriefs keep flagging.
+
 ## Session Notes
 
 **2026-09-19** — Flight planned, Architect-reviewed, and marked `ready`. Two

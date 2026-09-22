@@ -8,10 +8,18 @@
 - [ ] Operator can inspect a knowledge base's contents and metadata, and
       retrieve the source material behind any indexed item *(the item row
       gains the freshness field its own behaviour spec asserts against)*
-- [ ] A knowledge base can be attached to and detached from any agent in
-      Studio *(behavior-test-backed — this flight re-authors
-      `kb-studio-round-trip` to `active`, which is what makes the criterion
-      honestly tickable; it is Mission 24's only non-`active` spec)*
+- [x] A knowledge base can be attached to and detached from any agent in
+      Studio *(behavior-test-backed — `kb-studio-round-trip` is `active` as of
+      2026-09-22 and scored **17 pass / 1 inconclusive / 0 fail**. Attach is
+      proven at step 9 with wire-level evidence, and the load-bearing half is
+      that the knowledge base was **present in the tab's list before any attach
+      action** — the create-then-attach path — observed on one unbroken page
+      spanning steps 2-9, verified by two independent outside readers. Detach is
+      proven at step 18 via DD-14's lazy cleanup: a dangling `kb_ids` entry
+      survives the delete and clears on the next save, with `disabled_tools`
+      correctly left inert. **Named gap**: detach by UI toggle-off-then-save is
+      not a step in the spec — detach is evidenced through delete-and-save, not
+      through the toggle. Worth a step in a future revision.)*
 - [ ] Existing installs upgrade with no data loss, the unit gate stays green,
       and the frozen Windows installer still builds and runs
 - [ ] Retrieval combines semantic and keyword matching *(already ticked by
@@ -625,10 +633,19 @@ the results, because this mission branch has no CI lane.
       alongside every measurement
 - [ ] The fusion sweep answers whether `RRF_K` and `candidate_k` are
       load-bearing, without claiming a better value
-- [ ] `kb-studio-round-trip` is `active` and passes
-- [ ] `make lint`, `make test-unit`, full `make test-browser`, `pip-audit`
+- [x] `kb-studio-round-trip` is `active` and passes *(2026-09-22: 17 pass /
+      1 inconclusive / 0 fail, strict one-checkpoint-at-a-time. The inconclusive
+      (step 13) was a spec-sequencing gap, **defect #15**, now fixed — and the
+      fix's corrected sequence was executed during the run as step 13-bis and
+      passed. Step 5's `[continuous-session]` clause and step 9's full step-2-to-9
+      span were **exercised for the first time** rather than recorded UNEXERCISED.)*
+- [x] `make lint`, `make test-unit`, full `make test-browser`, `pip-audit`
       against the release closure, and a frozen Windows build all run by hand
       and recorded — **each with a named leg owner** (F6 debrief Rec. 3)
+      *(`pip-audit` was the last one outstanding and is now green: squawk 0083
+      bumped `anyio` past its two CVEs, and the frozen Windows build was
+      re-verified **after** the bump — build 78 PASS — because `anyio` is inside
+      the PyInstaller closure.)*
 
 ### Adaptation Criteria
 
@@ -747,31 +764,48 @@ items went unexecuted last flight.
       confirmed squawk-0035 flakes: isolated 2 passed in 4.36s, and
       `test_flow_provider_editor.py` 29/29 in 58.15s — that one scrutinised
       **because** Leg 03 modified the file, not waved through on the pattern
-- [ ] **`pip-audit` NOT CLEAN — recorded as failing, not skipped** — *Leg 05*.
-      `anyio` 4.13.0 carries CVE-2026-63374 and CVE-2026-64847 (fixed in
-      4.14.2). Owned by **squawk 0083**, still `open`. Not bumped inline:
-      dependency work on a flight branch would fold a squawk's record into a
-      flight commit. **This item cannot be ticked by this flight.**
+- [x] `pip-audit` clean — *squawk 0083*, **not this flight**. At Leg 05 this
+      was recorded as failing rather than skipped: `anyio` 4.13.0 carried
+      CVE-2026-63374 and CVE-2026-64847 (fixed in 4.14.2). It was deliberately
+      not bumped inline, because dependency work on a flight branch would fold a
+      squawk's record into a flight commit. **Squawk 0083 subsequently landed
+      the bump** (commit `4f2f723`, PR #210) and `pip-audit` is now green
+      against the release closure. The frozen Windows build was re-run **after**
+      the bump — build 78 `RESULT: PASS` — because `anyio` sits inside the
+      PyInstaller closure, so the earlier frozen-build tick could not carry over
+      unexamined. *The original note said "this item cannot be ticked by this
+      flight," and that stayed true: it was ticked by the squawk that owned it.*
 - [x] Frozen Windows build succeeds and runs — *Leg 05* — build 630446,
       `the-one-setup-0.8.1.exe` (135,040,950 bytes), all nine frozen-doctor
       gates OK including `usearch`, `fts5`, `embedding model`, `file watcher`;
       `RESULT: PASS`
-- [ ] `kb-studio-round-trip` status `active` and passing — **NOT MET.**
-      *(Updated 2026-09-21, after the run.)* Leg 05 re-authored it to `active`,
-      and it **ran 18/18 PASS** on 2026-09-21
-      (`tests/behavior/kb-studio-round-trip/runs/2026-09-21-02-10-21.md`). But
-      that run surfaced **four further structural defects** (#7-#10) plus one
-      under-scoped clause (#11), and the independent Validator ruled it **not
-      yet `active`-worthy**: *"four real defects found in one execution pass is
-      not what a settled spec produces."* **Operator decision: revert to
-      `draft` and fix.** All five are now fixed; **one clean run remains**
-      before this can tick.
-      **The distinction worth preserving**: the *product* evidence from this run
-      is strong — every DD under test (DD-5, DD-13, DD-14, DD-17, squawk 0050's
-      net) held, several with wire-level proof. The defects are about the
-      **spec's ability to catch a future regression**, not about whether the
-      feature works. A criterion that says "behavior-test-backed" needs a test
-      that would catch one.
+- [x] `kb-studio-round-trip` status `active` and passing — **MET 2026-09-22.**
+      *(History preserved, because it is the point.)* Leg 05 re-authored it to
+      `active` and it ran 18/18 PASS on 2026-09-21 — but that run surfaced four
+      further structural defects (#7-#10) plus one under-scoped clause (#11),
+      and the independent Validator ruled it not yet `active`-worthy: *"four
+      real defects found in one execution pass is not what a settled spec
+      produces."* Operator decision: revert to `draft` and fix.
+      **The clean run is now done** (2026-09-22-01-05-35): **17 pass /
+      1 inconclusive / 0 fail**, run strictly one checkpoint at a time, with all
+      five earlier repairs holding. Two clauses previously recorded UNEXERCISED
+      — step 5's `[continuous-session]` and step 9's full step-2-to-9 span —
+      were **exercised for the first time**. Step 8's rewritten
+      `content_freshness` clause reproduced the exact ~1 ms divergence that
+      forced the rewrite and **passed**, where the old clause would have failed
+      correct behaviour.
+      **One new spec defect (#15) was found and fixed**: a step 12-to-13
+      sequencing gap where the mandated page continuity collides with the
+      out-of-band `PUT` that is the only way to set `disabled_tools`. Its fix
+      was executed during the run as step 13-bis and passed, so it ships
+      verified rather than merely reasoned.
+      **The distinction worth preserving**: the *product* evidence was strong
+      even at the 2026-09-21 run — every DD under test (DD-5, DD-13, DD-14,
+      DD-17, squawk 0050's net) held, several with wire-level proof. The defects
+      were always about the **spec's ability to catch a future regression**, not
+      about whether the feature works. A criterion that says
+      "behavior-test-backed" needs a test that would catch one — and now it has
+      one that has been shown to catch its own.
 - [x] Documentation updated — *Leg 05* — CLAUDE.md and `the_one/agents.md`
       carry the shutdown hook, the `get_kb_status` additive keys, the
       skip-counter projection, the `.confirm-lapsed` cue and the new CI task
