@@ -1,6 +1,6 @@
 # Flight: Mission Close
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria

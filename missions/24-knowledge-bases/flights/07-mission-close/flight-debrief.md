@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-20
 **Flight**: [Mission Close](flight.md)
-**Status**: landed *(contested — see "The label" below)*
+**Status**: completed *(the contested label is resolved — see "Addendum, 2026-09-22" at the end)*
 **Duration**: 2026-09-19 planning → 2026-09-20 landed
 **Legs Completed**: 5 of 5
 
@@ -378,3 +378,77 @@ Lint: `ruff check` clean, `ruff format --check` 452 files.
 
 Frozen Windows build: **PASS** — `the-one-setup-0.8.1.exe`, 135,040,950 bytes,
 nine of nine doctor gates OK.
+
+
+## Addendum — 2026-09-22: the contested label, resolved
+
+This debrief was written on 2026-09-20 with the flight's own first-named
+criterion unticked and its PR in draft. The Architect's finding was recorded
+rather than argued away:
+
+> *Both `git log` and `flight.md` call this "landed" while the PR is still draft
+> and the criterion the flight exists to satisfy is unticked … not in the
+> substance, but in the label.*
+
+**That finding was correct, and it has now been closed by doing the work rather
+than by relabelling it.** `kb-studio-round-trip` ran on 2026-09-22:
+**17 pass / 1 inconclusive / 0 fail** across all 18 checkpoints, strict
+one-checkpoint-at-a-time. The spec is `active`, the criterion is ticked, the
+`pip-audit` item is closed by squawk 0083, and PR #209 is out of draft. The
+Completion Checklist now carries one unticked item — the merge itself, which is
+the operator's call.
+
+**What the run added that the debrief could not have known.** All five repairs
+from the 2026-09-21 revert held. Two clauses that had never actually been tested
+— step 5's `[continuous-session]` and step 9's full step-2-to-9 span — were
+exercised for the first time rather than recorded UNEXERCISED, the latter
+verified by two independent outside readers via read-only calls neither agent
+could have coordinated to fake. Step 8's rewritten `content_freshness` clause
+reproduced the exact ~1 ms divergence that forced its rewrite and **passed**,
+where the old equality clause would have failed correct behaviour — which is the
+strongest available evidence that the rewrite fixed the clause rather than
+merely loosening it.
+
+**One new spec defect (#15) was found, fixed, and its fix verified in-run.** Step
+9's mandated page continuity collides with step 12's out-of-band `PUT` — the only
+way to set `disabled_tools`, since there is deliberately no UI — leaving the
+client stale by step 13, which then reads as a DD-13 failure when DD-13 is fine.
+Ruled inconclusive: *the test failed, not the system.* The fix (an explicit
+fresh-load beat) was executed during the run as step 13-bis and passed.
+
+**This is the second time in this flight that the same defect class produced a
+false positive against correct code** — first DD-10's grep that could not match
+the identifier it searched for, now step 13's clause that could not distinguish
+the behaviour it claimed to test. The flight's own Key Learning #2 named the
+class; it recurred anyway, which suggests naming it is not sufficient
+prophylaxis. What actually caught it this time was procedural, not analytical:
+an independent judge who **held a verdict and demanded a discriminating
+experiment** instead of ruling on the available evidence.
+
+**On the second Architect finding** — that the flight's comparison with Flight 6
+was "asserted by the Flight Director about the Flight Director's own work, with
+no independent reviewer checking whether 'owned' is actually sufficient" — that
+one **also stands, and is now partly answered by outcome**: the owned gaps were
+in fact closed (`pip-audit` by the squawk that owned it, the behaviour test by
+this run), which is what "owned" was supposed to mean. But the finding's
+procedural point is untouched: nothing in the process forced that check, and it
+was closed by follow-through rather than by any mechanism.
+
+### Carried out of the run, not swept
+
+- **Studio's agent-editor save is last-writer-wins with no staleness detection.**
+  Raised as a **flight candidate, not a squawk** — it fails the squawk
+  qualification gate on two of four criteria (needs a design decision; touches a
+  shared interface). Logging it as a squawk would have been using the squawk
+  path as a workaround for scope, which the methodology explicitly warns against.
+- **Literal restart-resume remains unproven.** Step 10 won its race first try
+  (+0.0424 s, bracketed 9.6 ms on the other side) but caught the snapshot at
+  `indexed: 0` — the spec's own named evidence ceiling. Aggregate resume is well
+  evidenced; the `content_hash`-survival mechanism was never exercised.
+- **Apparatus: untracked pages spawn during error recovery.** *"Exactly one page"
+  is an invariant nobody enforces; it was discovered by accident.* Must be
+  enforced before this apparatus runs unattended.
+- **Three weakly-falsifiable clauses named** for a future spec revision (steps 3,
+  5 and 7), each with the reason it cannot currently fail.
+
+Run log: `tests/behavior/kb-studio-round-trip/runs/2026-09-22-01-05-35.md`.

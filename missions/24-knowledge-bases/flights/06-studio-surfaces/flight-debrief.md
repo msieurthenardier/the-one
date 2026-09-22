@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-19
 **Flight**: [Studio Surfaces](flight.md)
-**Status**: landed
+**Status**: completed
 **Duration**: 2026-09-17 - 2026-09-19
 **Legs Completed**: 6 of 6, plus an operator-driven HAT
 
