@@ -1,6 +1,6 @@
 # Flight: Studio Surfaces
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Knowledge Bases](../../mission.md)
 
 ## Contributing to Criteria

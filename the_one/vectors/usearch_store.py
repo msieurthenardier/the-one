@@ -483,8 +483,17 @@ class UsearchStore:
             entry.dirty = False
             entry.stale = False
 
-    async def close(self) -> None:
+    async def close(self, *, skip_kb_ids: frozenset[str] | set[str] = frozenset()) -> None:
+        """Flush every dirty knowledge base under its own ``try/except``
+        (one failure never aborts the rest), except those named in
+        ``skip_kb_ids`` — the vector-store shutdown hook's DD-3a cancel
+        skip set (Mission 24 Flight 7 Leg 1). Does not clear ``self._kbs``
+        or mark the store closed, so a second call re-flushes only the
+        knowledge bases whose first flush failed (``flush``'s own
+        not-dirty early return makes that a no-op otherwise)."""
         for kb_id in list(self._kbs.keys()):
+            if kb_id in skip_kb_ids:
+                continue
             try:
                 await self.flush(kb_id)
             except Exception:

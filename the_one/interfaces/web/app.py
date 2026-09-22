@@ -106,6 +106,7 @@ from the_one.sessions import (
     subscribers_for,
 )
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
+from the_one.vectors import close_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -418,11 +419,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # worker mid-item gets its cooperative-stop-then-flush budget
         # before any other shutdown work begins. Concurrent per-KB stop
         # inside `drain()` bounds this to 20s + 20s regardless of KB count.
+        # M24 F07 L01, AC-6a: captured INSIDE this `if` block, before the
+        # two lines below null both the module accessor and this local —
+        # a read taken after this block sees only `None`/empty. Threaded
+        # into the close_vector_store() call near close_connection() below.
+        _cancel_report_kb_ids: frozenset[str] = frozenset()
         if _indexing_manager is not None:
             try:
                 await _indexing_manager.drain()
             except Exception:
                 logger.exception("indexing manager shutdown failed")
+            _cancel_report_kb_ids = _indexing_manager.cancelled_kb_ids()
             _set_module_indexing_manager(None)
             _indexing_manager = None
         # F05 L01: drain the web-session idle reaper after in-flight task drains
@@ -534,6 +541,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # but symmetric with the startup ``set_factory`` call and keeps
         # subsequent tests from observing a stale slot.
         _set_module_factory(None)
+        # M24 F07 L01, DD-3/DD-3a: close the vector store AFTER the
+        # indexing-manager drain above (that drain flushes each worker's
+        # own knowledge base) and BEFORE close_connection() below
+        # (UsearchStore.flush() writes through self.conn via
+        # _upsert_registry_row()). Called UNCONDITIONALLY (AC-6b) — a store
+        # can exist and be dirty with no indexing manager at all (e.g. the
+        # item-delete route's direct write, api.py's _vector_store()); when
+        # there is no manager, `_cancel_report_kb_ids` is the empty
+        # frozenset set above and nothing is skipped for that reason. Never
+        # builds a store to close it (close_vector_store()'s own no-op
+        # when `_store is None`).
+        try:
+            await close_vector_store(skip_kb_ids=_cancel_report_kb_ids)
+        except Exception:
+            logger.exception("vector store shutdown failed")
         await close_connection()
 
 

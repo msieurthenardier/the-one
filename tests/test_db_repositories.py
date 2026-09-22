@@ -1047,6 +1047,79 @@ class TestKBItemRepositoryBulkAndListings:
         assert await kb_item_repo.requeue_for_reindex("kb1") == 0
 
 
+class TestKBItemRepositoryOrdering:
+    """Squawk 0087 / Flight 7 Leg 2, AC-13/AC-14: ``list``,
+    ``list_children``, ``list_folders`` all gain a ``, path_or_url``
+    ASCENDING tiebreak on tied ``created_at`` rows (the common case, not
+    the exotic one — a folder walk inserts every discovered file in one
+    pass). Every item below shares one explicit ``created_at`` so SQLite
+    has no timestamp to sort by at all; only the tiebreak can produce a
+    deterministic order."""
+
+    _TIED = "2026-01-01T00:00:00+00:00"
+
+    async def test_list_orders_tied_rows_by_path_ascending_and_repeatably(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        # Inserted in a scrambled order on purpose — a correct result
+        # depends on the ORDER BY, not on insertion order happening to
+        # already match it.
+        for item_id, path in [("c", "/z"), ("a", "/a"), ("b", "/m")]:
+            await kb_item_repo.create(
+                KBItem(
+                    id=item_id,
+                    kb_id="kb1",
+                    type="file",
+                    path_or_url=path,
+                    created_at=self._TIED,
+                )
+            )
+        expected = ["a", "b", "c"]
+        # "Repeated reads" (leg Verification Steps): the same query run
+        # twice must return the identical order both times.
+        assert [i.id for i in await kb_item_repo.list("kb1")] == expected
+        assert [i.id for i in await kb_item_repo.list("kb1")] == expected
+
+    async def test_list_children_orders_tied_rows_by_path_ascending(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(
+            KBItem(id="folder1", kb_id="kb1", type="folder", path_or_url="/root")
+        )
+        for item_id, path in [("c2", "/root/z"), ("c1", "/root/a")]:
+            await kb_item_repo.create(
+                KBItem(
+                    id=item_id,
+                    kb_id="kb1",
+                    parent_id="folder1",
+                    type="file",
+                    path_or_url=path,
+                    created_at=self._TIED,
+                )
+            )
+        children = await kb_item_repo.list_children("folder1")
+        assert [c.id for c in children] == ["c1", "c2"]
+
+    async def test_list_folders_orders_tied_rows_by_path_ascending(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        for item_id, path in [("f2", "/z"), ("f1", "/a")]:
+            await kb_item_repo.create(
+                KBItem(
+                    id=item_id,
+                    kb_id="kb1",
+                    type="folder",
+                    path_or_url=path,
+                    created_at=self._TIED,
+                )
+            )
+        folders = await kb_item_repo.list_folders("kb1")
+        assert [f.id for f in folders] == ["f1", "f2"]
+
+
 # ── KB Item Repository lifecycle (Flight 2 Leg 1, DD-5) ───────────────────
 
 
@@ -2869,6 +2942,31 @@ class TestAppMetadataRepository:
         # only for an absent row, '' for a present-but-empty value.
         await app_metadata_repo.set("k", "")
         assert await app_metadata_repo.get("k") == ""
+
+    async def test_delete_removes_a_present_key(
+        self, app_metadata_repo: AppMetadataRepository
+    ) -> None:
+        """AC-11a (Flight 7 Leg 2): ``delete`` did not exist before this
+        leg — DD-7's whole cleanup obligation (AC-11) is unsatisfiable
+        without it."""
+        await app_metadata_repo.set("k", "v")
+        await app_metadata_repo.delete("k")
+        assert await app_metadata_repo.get("k") is None
+
+    async def test_delete_absent_key_is_a_noop(
+        self, app_metadata_repo: AppMetadataRepository
+    ) -> None:
+        await app_metadata_repo.delete("nope")  # must not raise
+        assert await app_metadata_repo.get("nope") is None
+
+    async def test_delete_leaves_other_keys_untouched(
+        self, app_metadata_repo: AppMetadataRepository
+    ) -> None:
+        await app_metadata_repo.set("keep", "1")
+        await app_metadata_repo.set("gone", "2")
+        await app_metadata_repo.delete("gone")
+        assert await app_metadata_repo.get("keep") == "1"
+        assert await app_metadata_repo.get("gone") is None
 
 
 # ── AgentRevisionRepository (M21 F02 L01 — AC3/AC4/AC8) ──────────────────

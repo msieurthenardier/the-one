@@ -10,6 +10,8 @@ this browser lane's.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
@@ -261,3 +263,27 @@ def test_studio_connector_setup_steps_shown_per_type(app_with_agent: SeededApp, 
     # anchor pointing at an unmounted path (only `/static` is mounted; see
     # squawk 0046's Corrective Action).
     assert doc_ref.evaluate("el => el.tagName") != "A"
+
+
+@pytest.mark.browser
+def test_delete_connector_confirm_lapse_is_visually_distinct(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Danger Zone
+    connector-delete confirm (`connector-editor.js:599`) is distinguishable
+    on screen from one that was never armed, past the real 3s `revertMs`."""
+    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    page.locator('[data-testid="new-connector-btn"]').click()
+    page.locator('[data-field="name"]').fill("Lapse Test Connector")
+    page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
+    page.locator('[data-testid="save-connector-btn"]').click()
+
+    delete_btn = page.locator('[data-testid="delete-connector-btn"]')
+    expect(delete_btn).to_be_visible(timeout=8000)
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    delete_btn.click()
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(delete_btn).to_have_text("Delete Connector")

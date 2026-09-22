@@ -211,6 +211,33 @@ def test_delete_streamable_http_source(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
+def test_delete_mcp_source_confirm_lapse_is_visually_distinct(app_clean: str, page: Page) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Danger Zone MCP
+    server delete confirm (`mcp-server-editor.js:1270`) is distinguishable
+    on screen from one that was never armed, past the real 3s `revertMs`."""
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "delete-lapse-me",
+            "type": "stdio",
+            "config": {"command": "x"},
+            "secrets": {},
+        },
+    )
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    delete_btn = page.locator('[data-testid="delete-mcp-source-btn"]')
+    expect(delete_btn).to_be_visible(timeout=8000)
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    delete_btn.click()
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    # Still on the editor (not reverted-then-navigated) and never deleted.
+    assert sid in [s["id"] for s in _list_sources(app_clean)]
+
+
+@pytest.mark.browser
 def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
     """Dirty editor + Back → confirmDialog; Cancel keeps editor mounted."""
     page.goto(f"{app_clean}#studio/mcp-sources/new")
@@ -1020,6 +1047,45 @@ def test_reset_button_two_step_confirmation(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0, timeout=5000)
     expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text("Click", timeout=5000)
     expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_reset_mcp_connection_confirm_lapse_is_visually_distinct(
+    app_clean: str, page: Page
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the connection Reset
+    confirm (`mcp-server-editor.js:1321`) is distinguishable on screen from
+    one that was never armed, past the real 3s `revertMs` — and, since
+    reverting here does NOT navigate away, the reverted control is still
+    reachable to observe."""
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "reset-lapse-me",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {
+                "access_token": "tok",
+                "dcr_credentials": {"client_id": "cid"},
+            },
+        },
+    )
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    reset_btn = page.locator('[data-testid="reset-mcp-connection-btn"]')
+    expect(reset_btn).to_be_visible(timeout=8000)
+    expect(reset_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    reset_btn.click()
+    expect(reset_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(reset_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(reset_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(reset_btn).to_have_text("Reset connection")
+    # The connection was never actually reset (no commit fired). OAuth-managed
+    # keys (access_token, dcr_credentials) are always stripped from the GET
+    # response body (api.py's OAUTH_MANAGED_SECRET_KEYS visibility filter),
+    # so `oauth_active` — not raw secret presence — is the observable here.
+    src = _get_source(app_clean, sid)
+    assert src["oauth_active"] is True
 
 
 # ── F9 L1 (vibing follow-up): Reset button placement + post-OAuth visibility +

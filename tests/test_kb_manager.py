@@ -43,6 +43,7 @@ from the_one.knowledge.settings import (
     ChunkingSettings,
     KnowledgeSettings,
     save_knowledge_settings,
+    walk_skip_counters_key,
 )
 from the_one.knowledge.walk import DiscoveredFile, ReconcilePlan, content_hash
 from the_one.vectors import _reset_for_test as reset_vectors_module
@@ -222,6 +223,52 @@ class TestPass:
             assert child.content_hash is not None
 
         assert await chunk_repo.count_for_kb(kb.id) > 0
+
+        # DD-7 (Flight 7 Leg 2, AC-8): the walk's skip counters persisted
+        # through the shared key helper — a clean fixture with no
+        # symlinks/unreadable dirs/`SKIPPED_DIRS` names skips nothing, so
+        # this is the "walked, skipped nothing" (0, not absent) case.
+        import json as _json
+
+        meta_repo = AppMetadataRepository(conn)
+        raw = await meta_repo.get(walk_skip_counters_key("folder1"))
+        assert raw is not None
+        counts = _json.loads(raw)
+        assert counts == {"skipped_dirs": 0, "skipped_entries": 0}
+
+    async def test_walk_skip_counters_persist_a_real_skip(
+        self, conn, kb_repo, item_repo, chunk_repo, store, backend, tmp_path
+    ) -> None:
+        """DD-7 (Flight 7 Leg 2, AC-8): a real conditional skip
+        (``SKIPPED_DIRS``-named directory, ``walk.py``'s own by-design
+        filter set) shows up as a non-zero persisted counter, not just a
+        quiet zero."""
+        kb = await _make_kb(kb_repo)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "a.txt").write_text("hello world")
+        (folder / "node_modules").mkdir()
+        (folder / "node_modules" / "ignored.txt").write_text("never indexed")
+
+        await item_repo.create(
+            KBItem(id="folder1", kb_id=kb.id, type="folder", path_or_url=str(folder))
+        )
+
+        manager = _make_manager(conn, store, backend)
+        manager.request_index(kb.id)
+        await manager.wait_until_idle(kb.id, timeout=10.0)
+
+        assert manager.state(kb.id) == "idle"
+        children = await item_repo.list_children("folder1")
+        assert len(children) == 1  # node_modules never descended
+
+        import json as _json
+
+        meta_repo = AppMetadataRepository(conn)
+        raw = await meta_repo.get(walk_skip_counters_key("folder1"))
+        assert raw is not None
+        counts = _json.loads(raw)
+        assert counts == {"skipped_dirs": 1, "skipped_entries": 0}
 
     async def test_dormant_url_folder_and_broken_file_still_reaches_idle(
         self, conn, kb_repo, item_repo, store, backend, tmp_path, monkeypatch
@@ -794,6 +841,69 @@ class TestCooperativeStopAndCancelFallback:
         finished = await item_repo.get("item1")
         assert finished.status == "indexed"
 
+    async def test_cancel_report_is_overwritten_never_accumulated(
+        self, conn, kb_repo, item_repo, store, tmp_path
+    ) -> None:
+        """M24 F07 L01, AC-4/AC-4a/AC-4b (DD-3a). A forced cancel-fallback
+        ``stop()`` is reported via ``cancelled_kb_ids()``; a LATER clean
+        ``stop()`` for the SAME kb_id clears that verdict rather than
+        accumulating it — the report answers "how did the most recent
+        stop end," never "has this kb_id ever cancelled." The write site
+        is symmetric: forcing a second cancel re-asserts the verdict just
+        as the clean stop cleared it.
+
+        This is the AC-4a scenario the Edge Cases section names
+        explicitly: a folder-delete route calls ``stop()`` then
+        immediately ``request_index()`` again (``api.py:1786,1798-1799``),
+        so a kb_id can cancel once and then index cleanly for hours
+        before shutdown — an append-only report would keep skipping it
+        and lose that later, genuinely safe-to-flush write.
+        """
+        kb = await _make_kb(kb_repo)
+        path = tmp_path / "doc.txt"
+        path.write_text("content that ignores stop")
+        await item_repo.create(KBItem(id="item1", kb_id=kb.id, type="file", path_or_url=str(path)))
+
+        blocking_backend = _BlockingBackend(delay=2.0)
+        manager = IndexingManager(
+            conn_factory=_make_conn_factory(conn),
+            store_factory=_make_store_factory(store),
+            backend_factory=_make_backend_factory(blocking_backend),
+            stop_timeout=0.2,
+        )
+
+        # 1. Force the cancel fallback — the report must show it.
+        manager.request_index(kb.id)
+        await asyncio.to_thread(blocking_backend.started.get, True, 5.0)
+        await manager.stop(kb.id)
+        assert manager.state(kb.id) == "stopped"
+        assert manager.cancelled_kb_ids() == frozenset({kb.id})
+
+        # 2. A later CLEAN stop for the same kb_id clears the verdict
+        # (AC-4a/4b) — swap to a fast backend, let it finish cleanly, then
+        # stop() again while the worker is idle (no cancel needed).
+        fast_backend = StubEmbeddingBackend(dim=8)
+        manager._backend_factory = _make_backend_factory(fast_backend)  # test-only swap
+        manager.request_index(kb.id)
+        await manager.wait_until_idle(kb.id, timeout=10.0)
+
+        await manager.stop(kb.id)
+        assert manager.cancelled_kb_ids() == frozenset(), (
+            "a clean stop must clear the prior cancelled verdict for the same kb_id"
+        )
+
+        # 3. Symmetric write site: forcing a SECOND cancel re-asserts it.
+        # Nothing is pending for "item1" any more (it finished at step 2),
+        # so re-queue it to give the worker something to block on.
+        async with write_transaction(conn):
+            await conn.execute("UPDATE kb_items SET status='pending' WHERE id = 'item1'")
+        blocking_backend_2 = _BlockingBackend(delay=2.0)
+        manager._backend_factory = _make_backend_factory(blocking_backend_2)  # test-only swap
+        manager.request_index(kb.id)
+        await asyncio.to_thread(blocking_backend_2.started.get, True, 5.0)
+        await manager.stop(kb.id)
+        assert manager.cancelled_kb_ids() == frozenset({kb.id})
+
 
 # ── AC-6: drain ──────────────────────────────────────────────────────────
 
@@ -831,6 +941,43 @@ class TestDrain:
         manager = IndexingManager()
         await manager.drain()  # must not raise
         assert manager._entries == {}
+
+    async def test_cancel_report_survives_the_real_drain(
+        self, conn, kb_repo, item_repo, store, tmp_path
+    ) -> None:
+        """M24 F07 L01, AC-4c. ``drain()`` ends with
+        ``self._entries.clear()`` — the SAME call that immediately
+        precedes every production read of the cancel report (the vector-
+        store shutdown hook, via ``app.py``'s lifespan). This drives the
+        REAL ``IndexingManager.drain()`` (not a hand-built ``_entries``
+        rig, unlike ``test_drain_stops_workers_concurrently`` above) with
+        one kb_id forced down the cancel-fallback path first, and asserts
+        ``cancelled_kb_ids()`` is still readable — and correct — after
+        ``drain()`` returns. Without a manager-level report (as opposed
+        to a ``_WorkerEntry`` field), this assertion would see an empty
+        set: `_entries == {}` is exactly what `test_drain_stops_workers_
+        concurrently` already asserts post-drain, which is the property
+        this test exists to survive.
+        """
+        kb = await _make_kb(kb_repo)
+        path = tmp_path / "doc.txt"
+        path.write_text("content that ignores stop")
+        await item_repo.create(KBItem(id="item1", kb_id=kb.id, type="file", path_or_url=str(path)))
+
+        blocking_backend = _BlockingBackend(delay=2.0)
+        manager = IndexingManager(
+            conn_factory=_make_conn_factory(conn),
+            store_factory=_make_store_factory(store),
+            backend_factory=_make_backend_factory(blocking_backend),
+            stop_timeout=0.2,
+        )
+        manager.request_index(kb.id)
+        await asyncio.to_thread(blocking_backend.started.get, True, 5.0)
+
+        await manager.drain()
+
+        assert manager._entries == {}
+        assert manager.cancelled_kb_ids() == frozenset({kb.id})
 
 
 # ── AC-7: start_all ──────────────────────────────────────────────────────

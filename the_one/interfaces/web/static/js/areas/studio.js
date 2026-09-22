@@ -475,10 +475,24 @@ App.registerArea({
     // null on every fresh mount below so the first poll tick after a
     // remount compares against the mount-time snapshot, not a stale
     // knowledge base's signature.
+    //
+    // Flight 7 Leg 2 (DD-6): widened to fold in `status.content_freshness`
+    // (the backend's MAX(indexed_at)-over-file-items aggregate) — WITHOUT
+    // it, a content-only edit to an already-indexed file changes neither
+    // the per-status counts nor the chunk count, so this signature never
+    // moved and the `/items` re-fetch below never fired, even though the
+    // freshness field the item row now renders (AC-1) had gone stale. Both
+    // halves land in the same commit — DD-6's own reason: shipping the
+    // render half alone would have converted an invisible blind spot into
+    // a visible staleness bug.
     var lastKnownItemsSignature = null;
 
     function knowledgeItemsSignature(status) {
-      return JSON.stringify((status && status.items) || {}) + '|' + (status && status.chunks);
+      return (
+        JSON.stringify((status && status.items) || {}) +
+        '|' + (status && status.chunks) +
+        '|' + (status && status.content_freshness)
+      );
     }
 
     function renderKnowledgeSection() {

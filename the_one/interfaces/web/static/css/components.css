@@ -707,6 +707,19 @@
   .list-item.confirm-delete [data-confirm-title] { color: var(--status-danger); }
   .list-item.confirm-delete .list-item-delete { color: var(--status-danger); opacity: 1; display: block; }
 
+  /* === Lapse cue (App.confirmDelete auto-revert, M24 F07 confirm-lapse) === */
+  /* Set by confirm.js's timer-expiry-only `lapse()` callback — never by
+     `revert()` itself, since revert() also runs as the revertFn callers
+     invoke on transport failure and (system-page.js's credential rotation)
+     on SUCCESS; decorating revert() would mislabel a successful commit as
+     lapsed. Cleared unconditionally on the control's next confirmDelete
+     call (arm or commit alike). Element-shape-agnostic on purpose — the 13
+     call sites arm a <button>, a <li class="list-item">, or a <summary>,
+     and outline works identically on all three with no assumption about
+     internal layout, so this one rule reaches every site through the
+     shared helper with no call site special-cased. */
+  .confirm-lapsed { outline: 2px solid var(--status-warning); outline-offset: 2px; }
+
   /* === Page header (entity-list / area-page header with optional primary action) === */
   /* Mirrors chat's .header + .new-chat-header pattern. Used by studio's
      Agents/Knowledge/Tools pages and admin's System + LLM Providers pages.

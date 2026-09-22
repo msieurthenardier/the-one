@@ -89,12 +89,14 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-folder-delete-btn` | studio | Knowledge detail view folder panel summary — trash-icon delete behind the canonical two-step `App.confirmDelete` (armed on the `<summary>`, folder-path span as `[data-confirm-title]`). Takes only its VISUAL form from the Custom Headers row; that row's bare click does not carry, because this one is an irreversible server-side cascading DELETE (amended L6-D3, M24 F06 L06; replaces the labelled two-step `kb-folder-remove-btn`) |
 | `kb-folder-panel` | studio | Knowledge detail view Folders section — one native `<details>` panel per registered folder, carrying path/status/watch in its summary and that folder's files in its body (L6-D2, M24 F06 L06; renamed from `kb-folder-row`) |
 | `kb-folder-path-input` | studio | Knowledge detail view Folders section "Add folder" path field (M24 F06 L01) |
+| `kb-folder-skip-counts` | studio | Knowledge detail view folder panel body — the last completed walk's persisted `skipped_dirs`/`skipped_entries`, absent (not zero) until a walk has completed (DD-7, Flight 7 Leg 2) |
 | `kb-folder-status-error` | studio | Knowledge detail view folder panel body — the folder's own walk `error`, when set (M24 F06 L01) |
 | `kb-folder-watch-error` | studio | Knowledge detail view folder panel body — `watch_error`, when set (M24 F06 L01) |
 | `kb-folders-cascade-hint` | studio | Knowledge detail view Folders section — persistent helper text naming the removal's cascade, section-level rather than per-row (L6-D3, M24 F06 L06; replaces the per-row `kb-folder-remove-caption`) |
 | `kb-folders-list` | studio | Knowledge detail view Folders section — folder-panel + "Other items" panel container (M24 F06 L01; moved out of Status in M24 F06 L06) |
 | `kb-indexer-state` | studio | Knowledge detail view status summary — indexer state word (M24 F06 L01) |
 | `kb-item-error` | studio | Knowledge detail view item row — a `failed` item's error text (M24 F06 L01) |
+| `kb-item-indexed-at` | studio | Knowledge detail view item row — the item's content-freshness signal, rendered from `indexed_at` (only when the item has ever indexed — never a fabricated timestamp); `content_hash`, when present, rides along as the hover title (DD-6, Flight 7 Leg 2) |
 | `kb-item-menu` | studio | Knowledge detail view item row — the overflow menu (`role="menu"`), carries "View chunks"/"View source" (L5-D4, M24 F06 L05) |
 | `kb-item-menu-btn` | studio | Knowledge detail view item row — the overflow menu's trigger (`aria-haspopup="menu"`) (L5-D4, M24 F06 L05) |
 | `kb-item-row` | studio | Knowledge detail view — one row per file item, nested inside a folder panel or the "Other items" panel (M24 F06 L01) |

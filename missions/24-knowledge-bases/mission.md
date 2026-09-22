@@ -1,6 +1,6 @@
 # Mission: Knowledge Bases
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -99,16 +99,17 @@ a self-referential foreign key.
 
 ## Success Criteria
 
-- [ ] Operator can register a folder on disk as a knowledge base source, and see each discovered item's index status including failures
-- [ ] Files in a registered folder index automatically, and additions, modifications, and deletions are reflected without operator action or an app restart *(behavior-test-backed)*
-- [ ] Indexing a large folder runs in the background without blocking the UI, and resumes rather than restarts after an interruption
-- [ ] Operator can inspect a knowledge base's contents and metadata, and retrieve the source material behind any indexed item
-- [ ] The embedding backend is bundled, local and non-LLM: it works on a fresh install with no account, no network, and no external service running, and no file contents leave the machine *(amended at Flight 2 planning — an earlier draft had the operator choose between backends and be warned when a choice sends contents off-machine; no such backend ships in this mission)*
+- [x] Operator can register a folder on disk as a knowledge base source, and see each discovered item's index status including failures *(Flights 3 + 6; behavior-test-backed — `kb-folder-index-round-trip` 8/8 on 2026-09-15 for the API half, including step 4's load-bearing filter assertion that what is NOT made an item matters as much as what is. The operator-surface half is proven by `kb-studio-round-trip` 2026-09-22 checkpoints 3 and 5: a folder registered through Studio, then four good files rendered `indexed` and `corrupt.txt` rendered **`failed` with its error text "binary content" visibly legible on the row** — visibility confirmed three ways, not merely DOM-present — with the rendered counts matching `GET /status` exactly.)*
+- [x] Files in a registered folder index automatically, and additions, modifications, and deletions are reflected without operator action or an app restart *(Flight 4; behavior-test-backed — `kb-folder-watch-round-trip` 9/9 on 2026-09-16. All three verbs in one filesystem-only pass at step 3 (append, create, delete) with **no API call and no `reindex`**; step 9 removed the fixture root entirely and the folder went `failed` with a non-null error. Re-confirmed on the operator surface by `kb-studio-round-trip` 2026-09-22 checkpoint 8: an added file and a size-changing edit both appeared with **no UI action and no restart**, and `content_freshness` advanced only for the two changed items while three untouched files held their original timestamps — ruling out a signal that merely moves on every walk.)*
+- [ ] Indexing a large folder runs in the background without blocking the UI, and resumes rather than restarts after an interruption — **PARTIAL, deliberately left unticked (reconciled 2026-09-22).** The *resume* half is proven: `kb-folder-index-round-trip` step 10 is the spec's load-bearing resume assertion — the instance is stopped, a row is seeded to `indexing` directly in the scratch database, and on restart the stranded item is requeued rather than the folder re-walked from scratch — PASS on 2026-09-15. The *large-folder-without-blocking* half is **not evidenced by any executed test**: the `large-folder settle` variant written for exactly this (Flight 7, F4 debrief Rec. 3) was **authored but never run**, and so was `live-kill`; the spec still carries only its single base run on a small fixture. Nearest live evidence is `kb-studio-round-trip` 2026-09-22 checkpoint 10 — 400 files indexed in the background with the API responsive throughout and all 400 reaching terminal status after a real stop/start — which is suggestive but is neither a large folder nor an assertion about UI responsiveness. **To close**: run the `large-folder settle` variant (2,000 x 50 KB) and record whether the tolerance was actually exercised or passed vacuously on a warm cache, which the variant's own flake profile requires it to state.
+- [x] Operator can inspect a knowledge base's contents and metadata, and retrieve the source material behind any indexed item *(Flights 3 + 6; behavior-test-backed — the API half (`GET /items/{id}/chunks`, `GET /items/{id}/source`) landed in Flight 3, the Studio surfaces in Flight 6. Proven end to end by `kb-studio-round-trip` 2026-09-22 checkpoint 6: `handbook.md`'s 15 chunks rendered in `seq` order — **falsified by an intercept probe that re-served the same chunks reversed, after which the UI still rendered them ascending** — and the source text read back byte-identical to the file on disk (full string equality, 13,251 chars, sha256 matching both the file and the item's stored `content_hash`).)*
+- [x] The embedding backend is bundled, local and non-LLM: it works on a fresh install with no account, no network, and no external service running, and no file contents leave the machine *(amended at Flight 2 planning — an earlier draft had the operator choose between backends and be warned when a choice sends contents off-machine; no such backend ships in this mission. Ticked at Flight 7 close — Flights 1 + 2: `the_one/embeddings/data/potion-retrieval-32M` (63 MB) ships in-tree, and the frozen Windows build's `the-one doctor` gate resolves it **from inside the bundle**: `embedding model: OK — 512-dim float16 model -> float32 seam, norm 1.0000, truncated=0 (model.safetensors=64,605,272 bytes)`, re-verified on build 78 after squawk 0083's dependency bump. A static non-LLM embedder: no provider, no account, no key. **Nuance worth keeping**: "no file contents leave the machine" is a negative, evidenced by construction — a local model with no outbound call on the index path — rather than by a network-egress test that would falsify it directly.)*
 - [x] Retrieval combines semantic and keyword matching, so a query naming an exact term finds it even when the embedding model ranks that term poorly *(Flight 5: `the_one/knowledge/retrieval.py` fuses the vector store and FTS5 by reciprocal rank, with one slot reserved for a keyword-only hit so the exact-term guarantee holds at every `limit`; pinned by five targeted tests including the crowding case that fails without the reserved slot)*
-- [ ] A new file-format handler or a different vector store can be introduced without modifying the indexing pipeline
-- [ ] A knowledge base can be attached to and detached from any agent in Studio *(behavior-test-backed)*
+- [x] **A different vector store** can be introduced without modifying the indexing pipeline *(Flight 2; **split from the file-format half at mission close, 2026-09-22, after the Architect falsified that half — see below**. This half holds, and on stronger evidence than the mission originally claimed: `VectorStore` is a `runtime_checkable` Protocol (`the_one/vectors/_store.py:98`) and **three independent test implementations satisfy it in full and drive `index_item` and `IndexingManager` end to end with `indexer.py` untouched** — `tests/test_kb_indexer.py::RecordingStore`, `tests/test_kb_indexer.py::_OnlyRebuildStore`, `tests/test_kb_manager.py::_AlwaysStaleStore`. That is a demonstration, not a structural promise. A second production backend would touch `knowledge/settings.py`, `vectors/__init__.py::_build_store`, `diagnostics.py` and the PyInstaller closure — **none of which is the indexing pipeline**. **Known cost recorded, not hidden**: migration v41 freezes `kb_vector_index` with `path`/`generation` NOT NULL (`the_one/db/schema.py:2576-2585`), a sidecar-file shape a remote or extension-backed store cannot satisfy without a migration — F2's `store-owned-until-decided` avoided freezing a loser's table and then froze the winner's.)*
+- [ ] **A new file-format handler** can be introduced without modifying the indexing pipeline — **FALSIFIED at mission close (2026-09-22); this criterion was wrongly ticked earlier the same day and is corrected here.** `index_item` resolves the extractor at `the_one/knowledge/indexer.py:143` and then applies an **unconditional** binary sniff at `:155` (`is_binary_head` → `raise _Reject("binary content")`) **before** calling `extract` at `:159`, with no branch on the resolved extractor and no capability flag on the `Extractor` Protocol by which a handler could declare it consumes binary input. A `.docx` is a ZIP (`PK\x03\x04\x14\x00\x00\x00…`, null bytes at offset 4), so a `PdfExtractor`/`OfficeExtractor` — **precisely the formats this mission defers** — would have every file land `failed` before its `extract` was ever called. Introducing one requires editing `index_item`, which is the indexing pipeline. **The claim is true only for a text-shaped handler** (the `HtmlExtractor` the docstrings use as their example needs no pipeline change). **The pinning test cannot detect this and asserts the opposite**: `tests/test_kb_extractors.py:255-257` writes text under the comment *"Content is irrelevant — StubExtractor always returns STUB_TEXT, ignoring what's on disk"*, which is false — `index_item` reads the first 8 KiB before the extractor is consulted. The over-claim is restated at `the_one/agents.md:1211` and `the_one/knowledge/extractors/text.py:5-8`. **To close**: scope the binary gate into the deferred PDF/Office mission where a real handler exists to test against; widen the M7 test to a binary fixture, watch it fail, and let that failure be the pin.
+- [x] A knowledge base can be attached to and detached from any agent in Studio *(Flight 7; behavior-test-backed — `kb-studio-round-trip` 17 pass / 1 inconclusive / 0 fail on 2026-09-22, run strictly one checkpoint at a time. Attach proven at step 9: the knowledge base was present in the agent's Knowledge tab list **before** any attach action (the create-then-attach path), observed on one unbroken page spanning steps 2-9 whose continuity was independently verified by two outside readers via a falsifiable marker; `kb_ids` carried the id after save. Detach proven at step 18 via DD-14: the dangling id survives the delete and clears on the next save, `disabled_tools` left correctly inert. Gap named in the flight: detach by UI toggle-off is evidenced through delete-and-save rather than the toggle itself.)*
 - [x] An attached agent can discover and query its knowledge bases during a chat session, and cannot reach one it is not attached to *(Flight 5; behavior-test-backed — `kb-agent-query-round-trip` 8/8 on 2026-09-17: an attached agent's tool result carried fixture prose retrieved from disk; an unattached agent got `Unknown tool` with no knowledge-base content; a narrowed built-in whitelist kept the tool and an explicit blacklist still removed it by name)*
-- [ ] Existing installs upgrade with no data loss, the unit gate stays green, and the frozen Windows installer still builds and runs
+- [x] Existing installs upgrade with no data loss, the unit gate stays green, and the frozen Windows installer still builds and runs *(Flight 7's gates leg, each with a named owner — `tests/test_db_migration.py` covers the upgrade path; `make test-unit` **4,809 passed / 10 skipped**; full `make test-browser` **530 passed / 6 skipped**; frozen Windows build 630446 `the-one-setup-0.8.1.exe` with all nine frozen-doctor gates OK, `RESULT: PASS`, and re-verified as build 78 **after** squawk 0083's `anyio` bump because `anyio` sits inside the PyInstaller closure. `pip-audit` is clean as of squawk 0083 (`4f2f723`).)*
 
 ## Stakeholders
 
@@ -215,7 +216,7 @@ spend is a decision on record, not an accident.
 
 ## Open Questions
 
-- [ ] **Does `sqlite-vec` load in the frozen build?** No longer an open bet —
+- [x] **Does `sqlite-vec` load in the frozen build?** **Closed by decision, not by probe (reconciled 2026-09-22).** `sqlite-vec` was benchmarked as a candidate second backend in Flight 2 Legs 4-5 and then **removed from the release closure in Leg 6** on the operator's DD-9 decision, so the frozen-load risk this question was hedging never had to be taken: **no native SQLite extension is loaded anywhere in the app** (`the_one/agents.md`, vector-store seam). `usearch` is an ordinary imported extension module that never touches the app's SQLite connection, and `UsearchStore` is the only implementation that exists. One residue is documented rather than hidden: a dev database that opened the Leg 4 backend can retain an inert `kb_vectors` `vec0` table which cannot be dropped without the extension loaded; no release ever shipped it, and the v41 migration deliberately never touches it. *Original text retained below for provenance.* No longer an open bet —
       a probe with a known safety net. `sqlite-vec` is 292 KB with **zero
       dependencies** and ships wheels for Windows, macOS (x86_64 and arm64), and
       Linux (x86_64 and aarch64); it delivers `vec0.dll` as package data, which
@@ -281,7 +282,7 @@ spend is a decision on record, not an accident.
       a paragraph-aware deterministic chunker with defaults of 1,000 characters
       and 150 overlap, configurable once under Administration (API in Flight 2,
       the panel in a later flight). See Flight 2 DD-7.
-- [ ] Changing the embedding backend or model invalidates every stored vector —
+- [x] **Changing the embedding backend or model invalidates every stored vector.** **Answered by scope (reconciled 2026-09-22): switching is not offered in this mission.** DD-2 amended the provider-delegating backend out, so there is no second production backend to switch to, and `the_one/knowledge/settings.py:10` records that the embedding record has exactly one valid value. The model is pinned with no operator path to change it (DD-7; Administration renders `embedding` read-only with the reason stated on screen). The downstream sub-questions — how a full re-index is surfaced, costed and made interruptible — therefore do not arise in this mission and would be re-opened by any future flight that introduces a second backend or an operator-selectable model. *Original text retained below for provenance.*
       different dimensionality, different space. With the backend now app-global
       the blast radius is every knowledge base at once. Is switching offered at
       all, and if so how is the full re-index surfaced, costed, and made
@@ -291,10 +292,35 @@ spend is a decision on record, not an accident.
       Flight 2's settings API refuses a `model_id`/`dim` change while any chunk
       exists (409); the re-index itself is designed with the pipeline in
       Flight 3.
-- [ ] How are semantic and keyword results combined — reciprocal rank fusion, a
+- [x] How are semantic and keyword results combined — reciprocal rank fusion, a
       weighted score, or keyword as a fallback when semantic recall is thin? And
       is the balance operator-tunable or fixed?
-- [ ] Do `kb__` tools follow the built-in enable/disable whitelist path or the
+      **Resolved at Flight 7 (Leg 3, mission close, 2026-09-20, DD-4).**
+      Reciprocal rank fusion, and the balance is **fixed, and here is the
+      evidence the fixing is not arbitrary** — never "tuned," and no
+      `RRF_K`/`candidate_k` value is recommended. A sweep
+      (`scripts/sweep_fusion_constants.py`) drove `retrieval.search()`
+      end-to-end over a real corpus (33,281 chunks indexed from `docs/` and
+      `missions/` via a real `UsearchStore` + `KBChunkRepository` +
+      `IndexingManager`, 60 queries sampled from the corpus itself) across a
+      5×5 grid of `RRF_K` ∈ {10, 30, 60, 100, 200} × `candidate_k` ∈ {10, 25,
+      50, 100, 200}. Result: the Flight 5 DD-3 reserved slot's fire rate is
+      **0.000 across the entire grid** (60 queries), and the returned top-10
+      set's overlap against the shipped constants (`RRF_K=60`,
+      `candidate_k=50`) is **≥0.998** everywhere, dropping only at the two
+      most extreme corners (`RRF_K=100or200, candidate_k=200`: overlap 0.998,
+      exact-match 0.983) — otherwise overlap/exact-match are both 1.000. The
+      constants are **not load-bearing** at this corpus size: moving them
+      barely moves the result set. **Caveat carried forward (AC-16 boundary,
+      do not drop it):** the sweep's embedding stand-in is a deterministic,
+      hash-seeded stub (dim=8, mirroring `tests/_embedding_stub.py`) with no
+      correlation to real semantic meaning — it characterises fusion
+      *arithmetic* (how RRF combines two rank lists), never a real model's
+      correlation pattern, and it manufactures no relevance judgments. It
+      would not catch a genuine quality regression in fusion; a future
+      mission wanting a real relevance benchmark still needs to build one
+      from scratch.
+- [x] **Do `kb__` tools follow the built-in enable/disable whitelist path or the MCP-override path?** **Answered (reconciled 2026-09-22): the prefix set was generalized** — the first of the two options this question named. `UNGATED_TOOL_PREFIXES = ("mcp__", "kb__")` at `the_one/agent/config.py:15`, consumed at `:182` (`tool_name.startswith(UNGATED_TOOL_PREFIXES)`), so a `kb__` name is exempt from the built-in whitelist and `is_tool_enabled()` reduces to `name not in disabled_tools`. The silent-loss failure mode the question anticipated — an agent whose built-in list was narrowed in Studio losing every KB tool with no error and no UI signal — is therefore foreclosed. The regression net landed as the question required: Flight 5's agent-query round-trip, plus Flight 7's `disabled_tools` chain (`kb-studio-round-trip` steps 12-18, 2026-09-22). *Original text retained below for provenance.*
       MCP-override path? The carve-out at `the_one/agent/config.py:166-172` (`AgentConfig.is_tool_enabled`; an earlier draft cited `config.py`, which is the wrong file) is hardcoded to the
       `mcp__` prefix, so a `kb__` name is currently treated as a built-in — any
       agent whose built-in tool list has been narrowed in Studio would silently
@@ -318,7 +344,7 @@ spend is a decision on record, not an accident.
       not honoured — no `pathspec` dependency); a supported file over 10 MiB
       or with a null byte in its first 8 KiB becomes a `failed` item with a
       visible error, never a silent skip.
-- [ ] Re-measure `usearch` build and incremental-upsert cost on Windows at
+- [x] Re-measure `usearch` build and incremental-upsert cost on Windows at
       1M vectors once a real corpus of that size exists (Flight 2 debrief
       Recommendation 5; Flight 3 reconnaissance R6). Flight 2's Windows 1M/3M
       figures (~2 h / ~7 h build, ~10–12 s / ~24 s save) are extrapolations
@@ -334,15 +360,65 @@ spend is a decision on record, not an accident.
       1M-chunk corpus generated at mission close and measured on the
       Windows worker, with Flight 3's flush constants re-checked against
       the number. Flight 4 added nothing to the measurement.
+      **Resolved at Flight 7 (Leg 3, mission close, 2026-09-20, DD-5), on a
+      verified extrapolation — not a direct 1M measurement.** A staged
+      Windows ladder ran on the real Concourse worker
+      (`ci/tasks/windows-vector-bench.yml`, `numkong=no, simd=serial`
+      recorded on every row, confirming the unlinked-wheel finding above):
+      200k calibrated twice against Flight 2's own 200k table (both
+      `build_s` figures within 2.2%, well inside a pre-declared ±10% band),
+      then 500k ran once. Both gated metrics passed the pre-declared band at
+      500k (`build_s` f16 +2.01%, i8 +8.18%, both ≤±10%; `save_ms` f16
+      −17.38%, i8 −5.89%, both ≤±25%) — **Windows `usearch` build cost is
+      linear in N**, verified across a 2.5× range, which is the assumption
+      Flight 3's flush cadence rests on. The operator then stopped the
+      ladder at 500k rather than spending the shared worker's remaining
+      ~2.5 hours on a 1M rung: two independent anchors (200k×5 and 500k×2)
+      already agree on the 1M projection within 2% for f16 and 8% for i8.
+      **What this is NOT**: there is no measured 1M figure — the question
+      closes on a verified extrapolation, and anyone who needs the real
+      number should run `fly -t the-one execute -c
+      ci/tasks/windows-vector-bench.yml -i repo=. -v bench_n=1000000`. The
+      **i8 build drift (+8.18%)** at 500k is larger than the 200k
+      calibration pair's own run-to-run spread (≤2.0%), so it is recorded as
+      a residual, not dismissed as noise. Flight 3's flush constants were
+      re-checked against this curve (Flight 7 flight-log, Leg 3) and
+      re-confirmed — see the flight log for the arithmetic.
 
 ## Known Issues
 
+- **Vector indexes are fully resident in RAM, with no eviction path, and this
+  was never costed against the mission's own declared corpus ceiling.**
+  *(Added at mission close, 2026-09-22, from the Architect's debrief input — it
+  appears in no flight debrief.)* `UsearchStore._ensure_loaded` uses
+  `Index.restore`, a full in-RAM load, not `Index.view`. The choice is
+  deliberate and documented — but for an unrelated reason (`Index.restore`
+  never memory-maps, so nothing keeps the destination open, which is what makes
+  the atomic `os.replace` save work on Windows). `self._kbs` is popped in
+  exactly one place, `delete_kb`, so **every knowledge base whose index is ever
+  touched stays resident for the process lifetime, and N knowledge bases sum.**
+  Against this mission's declared ceiling of "low single-digit GB of raw text
+  per knowledge base" (see Constraints), with `EMBEDDING_DIM = 512`, f16, and a
+  chunk stride of 850: 1 GB of text → ~1.26 M chunks → **~1.20 GiB resident**;
+  2 GB → **~2.41 GiB**; 3 GB → **~3.61 GiB** — plus the HNSW graph and the
+  ~250 MiB embedding-model footprint, in a frozen Windows desktop app, with no
+  per-knowledge-base ceiling surfaced to the operator. The storage arithmetic
+  was done for **disk** at Flight 1 (it is why `sqlite-vec`'s disk-backed
+  vectors were attractive) and never for **RAM**. Pairs with
+  `SEMANTIC_QUERY_TIMEOUT = 2.0` (flagged in the Flight 5 debrief): at the
+  ceiling a flush is ~24 s, during which every agent query degrades to
+  keyword-only, repeatedly, with no operator dial. **Neither is measured.**
+  Measure both before a future mission scopes around the ceiling.
 - **`usearch` runs unaccelerated on Windows** (`simd=serial`, no numkong
   linkage in any published wheel). Upstream characteristic, not a packaging
   defect; changing it would mean building usearch from source on Windows. The
   `doctor` probe reports the condition in its detail line so a genuine
   DLL-resolution failure reads differently from this unlinked-wheel state.
-  Surfaced by Flight 1.
+  Surfaced by Flight 1. **Confirmed live at every rung of Flight 7's Windows
+  bench ladder** (200k×2, 500k): `numkong=no, simd=serial` recorded on every
+  measured row via the bench script's per-cell backend column, not just
+  asserted from the wheel-binary read — see the Windows 1M re-measure open
+  question above.
 - **Dead weight in the frozen bundle**: numkong's 1.15 MB `.pyd` on Windows
   (imported unconditionally by usearch, unreachable by it — unchanged
   reason). `hf-xet` (4.03 MB, a Hub transfer accelerator the
@@ -453,3 +529,33 @@ Operational consequences, recorded so the next flight does not rediscover them:
       `get_vector_store()`'s missing shutdown hook. This bullet's original text
       listed the re-measure; it is corrected here at the Flight 6 debrief rather
       than left to imply a delivery that did not happen.
+- [x] Flight 7: Mission close — the four recorded obligations that outlived the
+      flights meant to carry them: `get_vector_store()`'s missing shutdown hook
+      (a Known Issue deferred four times) and DD-17's free detach → rename →
+      reattach reconcile; the coupled inventory leg (per-item freshness with the
+      signature widening that must land beside it, walk skip counters, the
+      `ORDER BY` tiebreaks, the armed-confirm invariant, and the
+      `App.confirmDelete` lapse question); the two measurements the mission
+      asked for and never took (the Windows `usearch` ladder at 200k/500k/1M,
+      and a sensitivity sweep over `RRF_K`/`candidate_k`/the reserved slot —
+      a sweep, not a relevance benchmark, because no ground truth exists);
+      and the release gates Flight 6 listed and left unowned, ending with
+      `kb-studio-round-trip` re-authored to `active` so the closing regression
+      net is re-runnable. **Does NOT carry** the shared `the_one/tools/naming.py`
+      (its "before a third prefixed namespace" trigger has not fired) or the
+      PUT/PATCH preserve-on-omit protocol question, which escalates.
+      **Landed 2026-09-20** (PR #209, draft against the mission branch). Gates:
+      lint PASS · `make test-unit` **4,809** PASS · full `make test-browser`
+      **530** PASS · frozen Windows build PASS. **`pip-audit` NOT clean** —
+      `anyio`'s two CVEs stand, owned by squawk 0083 and recorded as failing
+      rather than bumped inline. **`kb-studio-round-trip` ran 2026-09-21: 18/18
+      PASS** — but the run surfaced four further structural defects and one
+      under-scoped clause, and the spec was **reverted to `draft`** on the
+      independent Validator's assessment that it is not yet `active`-worthy.
+      All five are fixed; one clean run remains. The criterion it backs ("a
+      knowledge base can be attached to and detached from any agent in Studio,
+      behavior-test-backed") **stays unticked** until then. The *product*
+      evidence is strong — every design decision under test held, several with
+      wire-level proof — but a criterion that says "behavior-test-backed" needs
+      a test that would catch a future regression, and that is what the four
+      defects were about. Squawks 0091 and 0092 were found mid-flight and deferred.

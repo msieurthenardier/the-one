@@ -35,6 +35,25 @@ CHUNKING_KEY = "knowledge.chunking"
 VECTOR_STORE_KEY = "knowledge.vector_store"
 MONITORING_KEY = "knowledge.monitoring"
 
+
+def walk_skip_counters_key(folder_item_id: str) -> str:
+    """The ``app_metadata`` key holding a folder item's last completed
+    walk's skip counters (DD-7, Flight 7 Leg 2, AC-11b).
+
+    ONE shared helper, used by all four call sites: the write site
+    (``manager.py``'s ``_walk_one_folder``, right after a walk completes),
+    the read site (``api.py``'s ``get_kb_status``), and both cleanup sites
+    (``delete_kb_item``, ``delete_knowledge_base``). A kv key derived
+    independently at each site is exactly how a drifted cleanup key would
+    silently leave orphaned rows behind while ``AppMetadataRepository.get``
+    on the wrong key still returns ``None`` — a false green even under a
+    test that asserts "no key behind" (AC-12), because it would be
+    checking the same drifted key the cleanup site used, not the one the
+    write site actually wrote.
+    """
+    return f"knowledge.walk_skips.{folder_item_id}"
+
+
 # DD-9: usearch, the operator's Flight 2 decision-checkpoint choice
 # (flight-log.md, "DD-9 decision checkpoint (2026-09-15)"), offers `f16`/`i8`
 # natively.

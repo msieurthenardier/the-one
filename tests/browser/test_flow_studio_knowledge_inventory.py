@@ -481,9 +481,20 @@ def test_detail_view_indexing_poll_reindex_and_search(
     rel_note = "note.txt"
     rel_onboarding = os.path.join("handbook", "onboarding.md")
     rel_incident = os.path.join("notes", "incident.md")
-    assert sorted(folder_row.locator(".kb-item-path").all_text_contents()) == sorted(
-        [rel_note, rel_onboarding, rel_incident]
-    )
+    # Squawk 0087 / Flight 7 Leg 2, AC-14a: order is now a CONTRACT
+    # (`KBItemRepository.list_children`'s `ORDER BY created_at,
+    # path_or_url` tiebreak), so this compares an exact SEQUENCE rather
+    # than a sorted set — a set comparison was the squawk 0087 workaround
+    # for when order was unguaranteed SQLite tie behaviour, not a database
+    # contract. The expected order is ascending ABSOLUTE path (the
+    # tiebreak column), which is also the order `walk_folder` discovers
+    # files in: "handbook/onboarding.md" < "note.txt" < "notes/incident.md"
+    # (byte-for-byte, "note.txt"'s "." sorts before "notes"'s "s").
+    assert folder_row.locator(".kb-item-path").all_text_contents() == [
+        rel_onboarding,
+        rel_note,
+        rel_incident,
+    ]
     # ...and the absolute path is never lost, only moved one hover away.
     expect(folder_row.locator(".kb-item-path", has_text=rel_incident)).to_have_attribute(
         "title", str(fixture_dir / "notes" / "incident.md")
@@ -1065,3 +1076,298 @@ def test_item_overflow_menu_keyboard_operable(
     expect(menu).to_be_visible()
     page.locator('[data-testid="kb-status-summary"]').click()
     expect(menu).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_content_only_edit_updates_item_freshness_with_no_reload(
+    app_clean: str, page: Page, tmp_path: Path
+) -> None:
+    """Mission 24 Flight 7 Leg 2, DD-6, AC-6: the full round trip a
+    content-only edit has to survive — real folder, real file, real
+    indexer, real 5-second poll. Before this leg,
+    `knowledgeItemsSignature` was counts-only, so this exact edit would
+    have produced no `/items` re-fetch at all (the render half alone would
+    have shipped an invisible staleness bug, DD-6's own reason both halves
+    land together).
+
+    Per leg Edge Cases, the edit changes the file's SIZE (not just its
+    bytes) — `plan_reconcile` keys change-detection on `size_bytes`/
+    `mtime`, not `content_hash`, so a same-size edit is not detected as
+    changed at all and must not be used here.
+    """
+    fixture_dir = tmp_path / "freshness-fixture"
+    fixture_dir.mkdir()
+    (fixture_dir / "note.txt").write_text("short")
+
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "Freshness KB")
+    page.locator('[data-testid="knowledge-base-card"]', has_text="Freshness KB").click()
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
+
+    page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
+
+    folder_row = page.locator('[data-testid="kb-folder-panel"]')
+    expect(folder_row).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
+        "indexed: 1", timeout=30000
+    )
+    folder_row.locator("summary").click()
+
+    item_row = page.locator('[data-testid="kb-item-row"]')
+    expect(item_row).to_have_count(1)
+    fresh_el = item_row.locator('[data-testid="kb-item-indexed-at"]')
+    expect(fresh_el).to_be_visible()
+    initial_text = fresh_el.text_content()
+    assert initial_text and initial_text.startswith("Indexed: ")
+
+    # A content-only edit, on disk, with no operator action in the app at
+    # all — no button click, no navigation, no reload. Longer content
+    # changes the size, which is what makes the walk's reconcile pass
+    # actually notice (see the module docstring above).
+    (fixture_dir / "note.txt").write_text(
+        "This is a substantially longer replacement body, so the file's "
+        "size changes along with its content — the case plan_reconcile "
+        "actually detects."
+    )
+
+    # AC-6: the row's freshness signal changes on its own, within a few
+    # poll intervals — proving the whole chain: the watcher/walk re-
+    # indexes -> `indexed_at` advances -> `content_freshness` moves ->
+    # `knowledgeItemsSignature` differs -> `/items` re-fetches -> the row
+    # re-renders with a new `kb-item-indexed-at` text. Generous timeout:
+    # the local embedding backend loads its model lazily on first use.
+    expect(fresh_el).not_to_have_text(initial_text, timeout=45000)
+    updated_text = fresh_el.text_content()
+    assert updated_text and updated_text.startswith("Indexed: ") and updated_text != initial_text
+
+
+@pytest.mark.browser
+def test_armed_folder_confirm_survives_items_signature_tick(
+    app_with_data_dir: tuple[str, Path], page: Page, tmp_path: Path
+) -> None:
+    """Squawk 0088's third invariant, mechanically pinned (Mission 24
+    Flight 7 leg confirm-lapse, AC-10/AC-10a). L6-D3 named three
+    behaviours the folder-delete confirm depends on; only two had a test
+    before this one:
+
+    1. `renderFolders` reconciles by folder id and moves existing nodes
+       rather than recreating them (tested).
+    2. `updateFolderMeta` never rewrites the path span (tested).
+    3. `renderAllItems` must not rebuild the `<summary>` either — it
+       reaches a panel only through `renderFolderFiles`
+       (`knowledge-section.js:1111`), which writes `panel.filesEl` (the
+       panel BODY), never the summary. **This test.**
+
+    AC-10a: a naive version of this test — arm, then wait on the real
+    walk -> hash -> chunk -> embed -> 5-second-poll pipeline for a tick —
+    would see the confirm auto-revert (3s) before a naturally-timed tick
+    ever arrives, failing or passing for reasons that have nothing to do
+    with the invariant (the very mechanism this leg is redesigning). Two
+    techniques avoid that race:
+
+    1. The signature-changing edit is driven and CONFIRMED directly —
+       `httpx` against `POST .../reindex?scope=changed`, then a tight
+       polling loop against `GET .../status` — never by sleeping on the
+       real pipeline's own latency. By the time anything is armed, the
+       change already sits in the database.
+    2. The arm click is PHASE-LOCKED to the app's own 5-second status
+       poll (observed live via `page.expect_response`), so the very next
+       natural tick lands well inside the 3-second `revertMs` window
+       instead of racing an arbitrary point in that 5-second cycle.
+    """
+    base_url, _data_dir = app_with_data_dir
+    headers = auth_headers_for(base_url)
+
+    fixture_dir = tmp_path / "lapse-invariant-fixture"
+    fixture_dir.mkdir()
+    (fixture_dir / "note.txt").write_text("short")
+
+    _goto_knowledge_grid(base_url, page)
+    _create_knowledge_base(page, "Lapse Invariant KB")
+    card = page.locator('[data-testid="knowledge-base-card"]', has_text="Lapse Invariant KB")
+    kb_id = card.get_attribute("data-id")
+    assert kb_id is not None
+    card.click()
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
+
+    page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
+
+    folder_panel = page.locator('[data-testid="kb-folder-panel"]')
+    expect(folder_panel).to_be_visible(timeout=5000)
+    # Warm-up: the real indexing pipeline (including the embedding
+    # backend's lazy model load) pays its one-time cost here, off the
+    # timing-critical section below.
+    expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
+        "indexed: 1", timeout=30000
+    )
+
+    status_url = f"{base_url}/api/knowledge-bases/{kb_id}/status"
+    items_url = f"{base_url}/api/knowledge-bases/{kb_id}/items"
+    initial_freshness = httpx.get(status_url, headers=headers, timeout=5.0).json()[
+        "content_freshness"
+    ]
+
+    # Stamp the live summary node so a REBUILT node is distinguishable
+    # from the SAME node surviving in place — the identity technique
+    # `test_folder_panel_open_state_survives_poll_ticks` already uses.
+    summary = folder_panel.locator(".kb-folder-summary")
+    summary.evaluate("el => { el.dataset.lapseInvariantProbe = 'original-node'; }")
+
+    items_requests: list[str] = []
+
+    def _on_request(request) -> None:  # noqa: ANN001
+        if request.url == items_url and request.method == "GET":
+            items_requests.append(request.url)
+
+    page.on("request", _on_request)
+
+    # Phase-lock step 1: observe a natural poll tick land, establishing a
+    # timing anchor (the poll has been running in the background since
+    # mount, throughout the indexing warm-up above).
+    with page.expect_response(
+        lambda r: r.url == status_url and r.request.method == "GET", timeout=15000
+    ):
+        pass
+    anchor = time.monotonic()
+
+    # Drive the signature-changing edit directly — a content-only change
+    # (longer body, so plan_reconcile's size/mtime-keyed change detection
+    # actually fires; a same-size edit would not, per the freshness test
+    # above) — and confirm it landed via our OWN tight polling loop
+    # against the real API, never by sleeping on the pipeline or the
+    # app's poll.
+    (fixture_dir / "note.txt").write_text(
+        "A substantially longer replacement body so the file's size "
+        "changes along with its content, which is what plan_reconcile's "
+        "change detection actually keys on."
+    )
+    reindex_resp = httpx.post(
+        f"{base_url}/api/knowledge-bases/{kb_id}/reindex",
+        headers=headers,
+        params={"scope": "changed"},
+        timeout=5.0,
+    )
+    assert reindex_resp.status_code == 202
+
+    new_freshness = None
+    deadline = anchor + 4.3  # stay well clear of the next ~5s tick
+    while time.monotonic() < deadline:
+        body = httpx.get(status_url, headers=headers, timeout=5.0).json()
+        if body["content_freshness"] and body["content_freshness"] != initial_freshness:
+            new_freshness = body["content_freshness"]
+            break
+        time.sleep(0.1)
+    assert new_freshness is not None, (
+        "content_freshness did not move within the phase-lock budget — the "
+        "reindex/detection technique itself needs a longer budget, not the "
+        "confirm/tick invariant below"
+    )
+
+    # Phase-lock step 2: arm just before the next natural tick is due
+    # (~5s after the anchor), so that tick's re-render lands comfortably
+    # inside the 3-second revertMs window instead of racing it.
+    remaining = (anchor + 4.6) - time.monotonic()
+    if remaining > 0:
+        page.wait_for_timeout(remaining * 1000)
+
+    remove_btn = folder_panel.locator('[data-testid="kb-folder-delete-btn"]')
+    remove_btn.click()
+    expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+
+    # The next natural tick — carrying the already-landed signature
+    # change — fires here, well inside revertMs per the phase lock.
+    with page.expect_response(
+        lambda r: r.url == status_url and r.request.method == "GET", timeout=3000
+    ):
+        pass
+    # Give the chained /items re-fetch + renderAllItems pass a brief beat
+    # to complete (a second network round trip after /status).
+    page.wait_for_timeout(300)
+
+    assert items_requests, (
+        "no /items re-fetch followed the status tick — this exercised "
+        "updateStatus only, not the renderAllItems path AC-10 pins"
+    )
+
+    # The invariant: still armed, and it is the SAME node — not a fresh
+    # one recreated with the armed markers coincidentally reapplied.
+    expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+    assert summary.get_attribute("data-lapse-invariant-probe") == "original-node", (
+        "an items-signature tick RECREATED the armed folder summary instead of leaving it in place"
+    )
+
+
+@pytest.mark.browser
+def test_folder_delete_confirm_lapse_is_visually_distinct(
+    app_with_data_dir: tuple[str, Path], page: Page, tmp_path: Path
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: a lapsed folder-delete
+    confirm is distinguishable on screen from one that was never armed.
+    `App.confirmDelete`'s timer-expiry-only `lapse()` marks
+    `.confirm-lapsed` (confirm.js) before reverting; this asserts the
+    call site actually receives it, waiting past the real 3s `revertMs`
+    rather than a shortened test-only value (leg AC-6/guidance: the
+    default is not touched)."""
+    base_url, _data_dir = app_with_data_dir
+
+    fixture_dir = tmp_path / "folder-lapse-fixture"
+    fixture_dir.mkdir()
+    (fixture_dir / "note.txt").write_text("lapse fixture content.")
+
+    _goto_knowledge_grid(base_url, page)
+    _create_knowledge_base(page, "Folder Lapse KB")
+    page.locator('[data-testid="knowledge-base-card"]', has_text="Folder Lapse KB").click()
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
+
+    page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
+    page.locator('[data-testid="kb-add-folder-btn"]').click()
+    folder_panel = page.locator('[data-testid="kb-folder-panel"]')
+    expect(folder_panel).to_be_visible(timeout=5000)
+
+    summary = folder_panel.locator(".kb-folder-summary")
+    remove_btn = folder_panel.locator('[data-testid="kb-folder-delete-btn"]')
+
+    expect(summary).not_to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
+    remove_btn.click()
+    expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+
+    # Past the real 3-second revertMs, the control has reverted (AC-7:
+    # the path text is restored, not left as the placeholder) AND carries
+    # the lapse cue distinguishing it from never-armed.
+    expect(summary).not_to_have_class(_re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(summary).to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
+    expect(folder_panel.locator(".kb-folder-path")).to_have_text(str(fixture_dir))
+
+    # AC-7 (re-arm): the next click clears the lapse cue (per the
+    # helper's "cleared on the next interaction" contract) and arms fresh
+    # with the ORIGINAL title, never the stale "Confirm delete?" text a
+    # capture-discipline regression would produce.
+    remove_btn.click()
+    expect(summary).not_to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
+    expect(summary).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+    expect(folder_panel.locator(".kb-folder-path")).to_have_text("Confirm delete?")
+
+
+@pytest.mark.browser
+def test_kb_delete_confirm_lapse_is_visually_distinct(app_clean: str, page: Page) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Danger Zone
+    knowledge-base delete confirm (a plain button, not a `<summary>`)
+    gets the same lapse cue through the shared helper — no call site is
+    special-cased (AC-5)."""
+    _goto_knowledge_grid(app_clean, page)
+    _create_knowledge_base(page, "KB Delete Lapse KB")
+    page.locator('[data-testid="knowledge-base-card"]', has_text="KB Delete Lapse KB").click()
+    expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
+
+    delete_btn = page.locator('[data-testid="delete-knowledge-base-btn"]')
+    expect(delete_btn).not_to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
+    delete_btn.click()
+    expect(delete_btn).to_have_class(_re.compile(r"\bconfirm-delete\b"))
+
+    expect(delete_btn).not_to_have_class(_re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(delete_btn).to_have_class(_re.compile(r"\bconfirm-lapsed\b"))
+    expect(delete_btn).to_have_text("Delete Knowledge Base")

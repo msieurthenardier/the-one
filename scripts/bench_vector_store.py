@@ -459,6 +459,14 @@ async def run_cell(
     full corpus for more than one cell at a time).
     """
     row: dict[str, object] = {"backend": backend, "dtype": dtype, "n": n}
+    # AC-3 (DD-10): a `--child` invocation never calls `host_facts()` — its
+    # entire stdout contract is one rendered `render_row(rows[0])` line — so
+    # the SIMD/numkong backend must be threaded as a per-cell COLUMN rather
+    # than a host-level-only fact. Set unconditionally, before the
+    # free-space guard/try block below, so it survives onto SKIPPED and
+    # ERROR rows too (`row` is mutated in place, not rebuilt on that path).
+    # `_usearch_acceleration()` is documented "never raises".
+    row["usearch_acceleration"] = _usearch_acceleration()
 
     bytes_per_vec = _BYTES_PER_VECTOR[(backend, dtype)]
     needed = int(n * bytes_per_vec * _FREE_SPACE_MARGIN)
@@ -744,6 +752,7 @@ _TABLE_HEADERS = [
     "peak_rss_MB",
     "save_ms",
     "restore_ms",
+    "usearch_acceleration",
     "status",
 ]
 
@@ -775,8 +784,16 @@ def render_row(row: dict[str, object]) -> str:
         return f"{value:.{nd}f}"
 
     status = str(row.get("status", "OK"))
+    # AC-3: the backend column is rendered on EVERY row — OK, SKIPPED and
+    # ERROR alike — since `run_cell` sets it unconditionally before the
+    # free-space guard. `"-"` only if the caller synthesized a row dict that
+    # never went through `run_cell` at all (e.g. `_run_cell_subprocess`'s own
+    # child-exit-failure row).
+    accel = str(row.get("usearch_acceleration", "-"))
     if status != "OK":
-        cells_out = [str(row["backend"]), str(row["dtype"]), str(row["n"])] + ["-"] * 9 + [status]
+        cells_out = (
+            [str(row["backend"]), str(row["dtype"]), str(row["n"])] + ["-"] * 9 + [accel, status]
+        )
     else:
         cells_out = [
             str(row["backend"]),
@@ -791,6 +808,7 @@ def render_row(row: dict[str, object]) -> str:
             fmt(row.get("peak_rss_mb"), 2),
             fmt(row.get("save_ms"), 3),
             fmt(row.get("restore_ms"), 3),
+            accel,
             "OK",
         ]
     return "| " + " | ".join(cells_out) + " |"

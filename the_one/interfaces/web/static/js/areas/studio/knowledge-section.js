@@ -856,6 +856,23 @@
         itemErrEl.setAttribute('data-testid', 'kb-item-error');
         row.appendChild(itemErrEl);
       }
+      // Flight 7 Leg 2 (DD-6, AC-1): the freshness signal — derived from
+      // `indexed_at`, which `GET /items` already returns and which only
+      // ever advances when THIS item actually re-indexes (never on a
+      // no-op walk pass — see `KBItemRepository.latest_indexed_at`'s
+      // docstring). `content_hash` rides along as the hover title, a
+      // second, independent content identity for the curious. Rendered
+      // only when the item has ever indexed — a never-indexed item
+      // (`indexed_at` null) gets no fabricated timestamp (leg Edge Cases).
+      if (item.indexed_at) {
+        var freshEl = _el('span', {
+          className: 'kb-item-indexed-at',
+          text: 'Indexed: ' + item.indexed_at
+        });
+        freshEl.setAttribute('data-testid', 'kb-item-indexed-at');
+        if (item.content_hash) freshEl.title = 'content hash: ' + item.content_hash;
+        row.appendChild(freshEl);
+      }
       if (opts.standalone) {
         // DD-9: a standalone file whose path lies inside a registered
         // folder is badged rather than silently shown as a look-alike
@@ -1005,6 +1022,20 @@
       panel.metaEl.textContent = '';
       if (f.indexed_at) {
         panel.metaEl.appendChild(_el('div', { className: 'kb-folder-indexed-at', text: 'Indexed: ' + f.indexed_at }));
+      }
+      // Flight 7 Leg 2 (DD-7, AC-10): the last completed walk's skip
+      // counters, persisted server-side so they survive a restart.
+      // `skipped_dirs`/`skipped_entries` come back `null` (not `0`) when
+      // no walk has ever completed for this folder — "not yet walked" and
+      // "walked, skipped nothing" are different facts (leg Edge Cases), so
+      // absence renders nothing here rather than a fabricated "0".
+      if (f.skipped_dirs != null && f.skipped_entries != null) {
+        var skipEl = _el('div', {
+          className: 'kb-folder-skip-counts',
+          text: 'Skipped: ' + f.skipped_dirs + ' dirs, ' + f.skipped_entries + ' entries'
+        });
+        skipEl.setAttribute('data-testid', 'kb-folder-skip-counts');
+        panel.metaEl.appendChild(skipEl);
       }
       // AC-5 (carried, M24 F06 L01): the folder's own walk `error`.
       if (f.error) {

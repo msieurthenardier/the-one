@@ -1876,6 +1876,12 @@ class TestKnowledgeBaseStatusRoute:
                 "error": folder_item["error"],
                 "watch": "off",
                 "watch_error": None,
+                # Flight 7 Leg 2, AC-9: no walk has ever completed for
+                # this folder (a fake manager is installed; nothing real
+                # walked it) — both counters read absent (`None`), not a
+                # fabricated `0` (leg Edge Cases).
+                "skipped_dirs": None,
+                "skipped_entries": None,
             }
         ]
 
@@ -1910,6 +1916,8 @@ class TestKnowledgeBaseStatusRoute:
                 "error": folder_item["error"],
                 "watch": "unavailable",
                 "watch_error": "root removed",
+                "skipped_dirs": None,
+                "skipped_entries": None,
             }
         ]
 
@@ -1939,6 +1947,253 @@ class TestKnowledgeBaseStatusRoute:
 
         resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
         assert resp.json()["chunks"] == 2
+
+
+class TestKnowledgeBaseContentFreshness:
+    """Flight 7 Leg 2 (DD-6, AC-2/AC-3/AC-5): ``get_kb_status``'s
+    ``content_freshness`` aggregate — additive to the pre-existing
+    ``items``/``chunks`` keys, moves iff a FILE item actually reaches
+    ``indexed`` (never on an unrelated pending/folder change), and is
+    byte-identical across repeated reads when nothing new has indexed."""
+
+    async def test_absent_when_no_file_item_has_ever_indexed(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": "/tmp/a.txt"},
+        )
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        assert resp.json()["content_freshness"] is None
+
+    async def test_moves_when_a_file_item_reaches_indexed(self, client: AsyncClient) -> None:
+        from the_one.db.repositories import KBItemRepository
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/a.txt"},
+            )
+        ).json()["id"]
+
+        before = (await client.get(f"/api/knowledge-bases/{kb_id}/status")).json()
+        assert before["content_freshness"] is None
+
+        conn = await api_module.get_connection()
+        item_repo = KBItemRepository(conn)
+        # Mirrors what `_flush` does in the real pipeline: a file item's
+        # ONLY route to `indexed_at` is `update_status(..., "indexed")`.
+        await item_repo.update_status(item_id, "indexing")
+        updated = await item_repo.update_status(item_id, "indexed")
+
+        after = (await client.get(f"/api/knowledge-bases/{kb_id}/status")).json()
+        assert after["content_freshness"] == updated.indexed_at
+        assert after["content_freshness"] is not None
+
+    async def test_stable_across_repeated_reads_with_no_new_indexing(
+        self, client: AsyncClient
+    ) -> None:
+        """AC-5: a quiet corpus must not move the signal on every poll —
+        this is what keeps `knowledgeItemsSignature` from re-fetching
+        `/items` every tick and blowing away an open panel."""
+        from the_one.db.repositories import KBItemRepository
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/a.txt"},
+            )
+        ).json()["id"]
+        conn = await api_module.get_connection()
+        item_repo = KBItemRepository(conn)
+        await item_repo.update_status(item_id, "indexing")
+        await item_repo.update_status(item_id, "indexed")
+
+        first = (await client.get(f"/api/knowledge-bases/{kb_id}/status")).json()
+        second = (await client.get(f"/api/knowledge-bases/{kb_id}/status")).json()
+        assert first["content_freshness"] == second["content_freshness"]
+
+    async def test_folder_indexed_at_never_moves_the_aggregate(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        """AC-3's negative case: a FOLDER item reaching ``indexed`` (which
+        `_walk_one_folder` does unconditionally on every pass) must not
+        move `content_freshness` — only FILE items are scoped in."""
+        from the_one.db.repositories import KBItemRepository
+        from the_one.interfaces.web import api as api_module
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        conn = await api_module.get_connection()
+        item_repo = KBItemRepository(conn)
+        folders = await item_repo.list_folders(kb_id)
+        await item_repo.update_status(folders[0].id, "indexing")
+        await item_repo.update_status(folders[0].id, "indexed")
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        assert resp.json()["content_freshness"] is None
+
+    async def test_is_additive_existing_keys_unchanged(self, client: AsyncClient) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        body = resp.json()
+        assert set(body.keys()) == {"items", "content_freshness", "folders", "chunks", "indexer"}
+
+
+class TestKnowledgeBaseWalkSkipCounters:
+    """Flight 7 Leg 2 (DD-7): persistence (AC-8), projection (AC-9), and
+    cleanup on both delete paths (AC-11/AC-12) for the walk skip counters —
+    plus AC-11a (`AppMetadataRepository.delete`) and AC-11b (one shared
+    key helper used at every call site)."""
+
+    async def test_folder_with_no_completed_walk_projects_none(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "folder", "path_or_url": str(folder)},
+        )
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        entry = resp.json()["folders"][0]
+        assert entry["skipped_dirs"] is None
+        assert entry["skipped_entries"] is None
+
+    async def test_persisted_counters_are_projected_by_status(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        import json as _json
+
+        from the_one.db.repositories import AppMetadataRepository
+        from the_one.interfaces.web import api as api_module
+        from the_one.knowledge.settings import walk_skip_counters_key
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        folder_item = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "folder", "path_or_url": str(folder)},
+            )
+        ).json()
+
+        conn = await api_module.get_connection()
+        meta_repo = AppMetadataRepository(conn)
+        key = walk_skip_counters_key(folder_item["id"])
+        # Same shape `_walk_one_folder` writes (AC-11b: through the ONE
+        # shared key helper, never a hand-rolled string).
+        await meta_repo.set(key, _json.dumps({"skipped_dirs": 2, "skipped_entries": 5}))
+
+        resp = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        entry = resp.json()["folders"][0]
+        assert entry["skipped_dirs"] == 2
+        assert entry["skipped_entries"] == 5
+
+        # Zero counters are a real recorded fact ("walked, skipped
+        # nothing"), distinct from absence ("not yet walked") — must round
+        # trip as 0, not None.
+        await meta_repo.set(key, _json.dumps({"skipped_dirs": 0, "skipped_entries": 0}))
+        resp2 = await client.get(f"/api/knowledge-bases/{kb_id}/status")
+        entry2 = resp2.json()["folders"][0]
+        assert entry2["skipped_dirs"] == 0
+        assert entry2["skipped_entries"] == 0
+
+    async def test_delete_kb_item_folder_clears_its_skip_counter_key(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        import json as _json
+
+        from the_one.db.repositories import AppMetadataRepository
+        from the_one.interfaces.web import api as api_module
+        from the_one.knowledge.settings import walk_skip_counters_key
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        folder_item = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "folder", "path_or_url": str(folder)},
+            )
+        ).json()
+
+        conn = await api_module.get_connection()
+        meta_repo = AppMetadataRepository(conn)
+        key = walk_skip_counters_key(folder_item["id"])
+        await meta_repo.set(key, _json.dumps({"skipped_dirs": 1, "skipped_entries": 1}))
+        assert await meta_repo.get(key) is not None
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{folder_item['id']}")
+        assert resp.status_code == 200
+
+        # AC-12: the KEY THE WRITE SITE ACTUALLY USED is gone — read
+        # through the same shared helper the test used to write it, so a
+        # drifted cleanup-site key cannot produce a false green here.
+        assert await meta_repo.get(key) is None
+
+    async def test_delete_knowledge_base_clears_every_folders_skip_counter_key(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        import json as _json
+
+        from the_one.db.repositories import AppMetadataRepository
+        from the_one.interfaces.web import api as api_module
+        from the_one.knowledge.settings import walk_skip_counters_key
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        folder_a = tmp_path / "a"
+        folder_a.mkdir()
+        folder_b = tmp_path / "b"
+        folder_b.mkdir()
+        item_a = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "folder", "path_or_url": str(folder_a)},
+            )
+        ).json()
+        item_b = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "folder", "path_or_url": str(folder_b)},
+            )
+        ).json()
+
+        conn = await api_module.get_connection()
+        meta_repo = AppMetadataRepository(conn)
+        key_a = walk_skip_counters_key(item_a["id"])
+        key_b = walk_skip_counters_key(item_b["id"])
+        await meta_repo.set(key_a, _json.dumps({"skipped_dirs": 1, "skipped_entries": 0}))
+        await meta_repo.set(key_b, _json.dumps({"skipped_dirs": 0, "skipped_entries": 3}))
+
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}")
+        assert resp.status_code == 200
+
+        assert await meta_repo.get(key_a) is None
+        assert await meta_repo.get(key_b) is None
+
+    async def test_delete_kb_item_file_type_does_not_error(self, client: AsyncClient) -> None:
+        """A standalone `file` item delete must not attempt (or need) any
+        skip-counter cleanup — files never have one."""
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        item_id = (
+            await client.post(
+                f"/api/knowledge-bases/{kb_id}/items",
+                json={"type": "file", "path_or_url": "/tmp/a.txt"},
+            )
+        ).json()["id"]
+        resp = await client.delete(f"/api/knowledge-bases/{kb_id}/items/{item_id}")
+        assert resp.status_code == 200
 
 
 class TestKnowledgeBaseReindexRoute:

@@ -523,8 +523,13 @@ class KBItemRepository:
         self.conn = conn
 
     async def list(self, kb_id: str) -> list[KBItem]:
+        """Squawk 0087: ``, path_or_url`` is a tiebreak on tied
+        ``created_at`` rows (a folder walk inserts every discovered file in
+        one pass, so ties are the common case, not the exotic one) —
+        ascending, matching the order ``walk_folder`` discovers files in
+        (``walk.py``'s own ``files.sort(key=lambda f: f.path)``)."""
         async with self.conn.execute(
-            "SELECT * FROM kb_items WHERE kb_id = ? ORDER BY created_at", (kb_id,)
+            "SELECT * FROM kb_items WHERE kb_id = ? ORDER BY created_at, path_or_url", (kb_id,)
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
@@ -627,17 +632,20 @@ class KBItemRepository:
     async def list_children(self, folder_item_id: str) -> list[KBItem]:
         """Items whose ``parent_id`` equals ``folder_item_id``, oldest
         first. ``[]`` for an unknown id (no existence check — an unknown
-        parent simply has no children)."""
+        parent simply has no children). Squawk 0087: ``, path_or_url``
+        tiebreak, same rationale as :meth:`list`."""
         async with self.conn.execute(
-            "SELECT * FROM kb_items WHERE parent_id = ? ORDER BY created_at",
+            "SELECT * FROM kb_items WHERE parent_id = ? ORDER BY created_at, path_or_url",
             (folder_item_id,),
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
     async def list_folders(self, kb_id: str) -> list[KBItem]:
-        """``kb_id``'s ``folder`` items, oldest first."""
+        """``kb_id``'s ``folder`` items, oldest first. Squawk 0087:
+        ``, path_or_url`` tiebreak, same rationale as :meth:`list`."""
         async with self.conn.execute(
-            "SELECT * FROM kb_items WHERE kb_id = ? AND type = 'folder' ORDER BY created_at",
+            "SELECT * FROM kb_items WHERE kb_id = ? AND type = 'folder' "
+            "ORDER BY created_at, path_or_url",
             (kb_id,),
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
@@ -772,6 +780,31 @@ class KBItemRepository:
             params.append(limit)
         async with self.conn.execute(sql, params) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def latest_indexed_at(self, kb_id: str, *, type: str | None = None) -> str | None:
+        """``MAX(indexed_at)`` across ``kb_id``'s items, optionally scoped
+        to ``type``. ``None`` when no matching item has ever reached
+        ``indexed``.
+
+        DD-6/AC-2/AC-3 (Flight 7 Leg 2): scoped to ``type="file"``, this is
+        the inventory's content-freshness aggregate — it advances **iff** a
+        file item actually re-indexes, because ``indexed_at`` is stamped
+        only by :meth:`update_status`'s transition into ``"indexed"``
+        (never on a no-op pass). This is the opposite of a **folder**
+        item's ``indexed_at``, which ``manager.py``'s ``_walk_one_folder``
+        stamps unconditionally on every completed walk — using that signal
+        here would make the aggregate advance every poll on a quiet
+        corpus, which is exactly what AC-5 forbids. One indexed query
+        (``idx_kb_items_kb_id``), not a scan.
+        """
+        sql = "SELECT MAX(indexed_at) FROM kb_items WHERE kb_id = ?"
+        params: list[Any] = [kb_id]
+        if type is not None:
+            sql += " AND type = ?"
+            params.append(type)
+        async with self.conn.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return row[0] if row is not None else None
 
     async def count_by_status(self, kb_id: str, *, type: str | None = None) -> dict[str, int]:
         """Per-status item counts for ``kb_id`` — every status in
@@ -1874,6 +1907,14 @@ class AppMetadataRepository:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    async def delete(self, key: str) -> None:
+        """Delete ``key`` if present; a no-op if absent (Flight 7 Leg 2,
+        AC-11a). Added so a kv key that falls outside ``kb_items``' FK
+        cascade — e.g. DD-7's per-folder walk-skip-counter key — can be
+        cleaned up explicitly by its owning delete path."""
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM app_metadata WHERE key = ?", (key,))
 
 
 # ── Chat session repository ──────────────────────────────────────────────

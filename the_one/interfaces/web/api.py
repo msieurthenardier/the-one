@@ -44,6 +44,7 @@ from the_one.db.models import (
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     AgentRevisionRepository,
+    AppMetadataRepository,
     ChatSessionRepository,
     ConnectorDirectoryRepository,
     ConnectorRepository,
@@ -75,6 +76,7 @@ from the_one.knowledge.settings import (
     load_knowledge_settings,
     load_vector_store_settings,
     save_knowledge_settings,
+    walk_skip_counters_key,
 )
 from the_one.knowledge.walk import content_hash, is_filesystem_root
 from the_one.knowledge.watcher import get_manager as get_watch_manager
@@ -323,6 +325,11 @@ async def _kb_item_repo() -> KBItemRepository:
 async def _kb_chunk_repo() -> KBChunkRepository:
     conn = await get_connection()
     return KBChunkRepository(conn)
+
+
+async def _app_metadata_repo() -> AppMetadataRepository:
+    conn = await get_connection()
+    return AppMetadataRepository(conn)
 
 
 async def _vector_store():
@@ -1576,6 +1583,7 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
 @router.delete("/knowledge-bases/{kb_id}")
 async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
     repo = await _kb_repo()
+    item_repo = await _kb_item_repo()
     # Flight 3 Leg 3, AC-10: stop kb_id's worker (if a manager is
     # installed) BEFORE the repository delete, so no worker is mid-item
     # on rows about to be cascaded. A no-op for an untracked kb_id.
@@ -1591,6 +1599,12 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
             await watch.stop_kb(kb_id)
         if manager is not None:
             await manager.stop(kb_id)
+        # Flight 7 Leg 2, DD-7/AC-11: enumerate the KB's folders BEFORE
+        # the repository delete below — once `repo.delete` commits, the
+        # `kb_items` rows (and thus the folder ids the walk-skip-counter
+        # keys are keyed on) are gone via FK cascade, and there is nothing
+        # left to enumerate.
+        folders = await item_repo.list_folders(kb_id)
         try:
             await repo.delete(kb_id)
         except KeyError:
@@ -1605,6 +1619,18 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
             await store.delete_kb(kb_id)
         except Exception:
             logger.exception("vector store delete_kb failed for knowledge base %s", kb_id)
+        # Flight 7 Leg 2, DD-7/AC-11: clean up each folder's walk-skip-
+        # counter kv key — outside `kb_items`' FK cascade by construction
+        # (app_metadata is a separate table), so left alone it would
+        # orphan forever. Same log-and-continue shape as the vector-store
+        # cleanup above: a failure here must not un-delete the knowledge
+        # base that already committed.
+        try:
+            meta_repo = await _app_metadata_repo()
+            for folder in folders:
+                await meta_repo.delete(walk_skip_counters_key(folder.id))
+        except Exception:
+            logger.exception("walk-skip-counter cleanup failed for knowledge base %s", kb_id)
     return {"status": "ok"}
 
 
@@ -1795,6 +1821,21 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
             except Exception:
                 logger.exception("vector store delete failed for kb item %s", item_id)
 
+        # Flight 7 Leg 2, DD-7/AC-11: a folder delete also clears its own
+        # walk-skip-counter kv key. NO enumeration needed — folders cannot
+        # nest (registration 409s on an overlapping folder, and only
+        # ``file`` items ever carry a ``parent_id``), so this item's own
+        # id is the only key there ever was. Deliberately NOT keyed off
+        # ``ids`` above: ``KBItemRepository.delete`` returns removed CHUNK
+        # ids only, never descendant item/folder ids — reusing it here
+        # would clear nothing.
+        if item.type == "folder":
+            try:
+                meta_repo = await _app_metadata_repo()
+                await meta_repo.delete(walk_skip_counters_key(item.id))
+            except Exception:
+                logger.exception("walk-skip-counter cleanup failed for kb item %s", item_id)
+
         if item.type == "folder" and manager is not None:
             manager.request_index(kb_id)
 
@@ -1806,7 +1847,20 @@ async def get_kb_status(kb_id: str) -> dict[str, Any]:
     """Flight 3 Leg 3, DD-8: the per-KB status projection — file-item
     counts (folders excluded, so Flight 6's inventory never renders a
     folder as a document), each folder's own walk status, the chunk
-    count, and the indexer's current state word."""
+    count, and the indexer's current state word.
+
+    Flight 7 Leg 2 (DD-6/DD-7) adds two ADDITIVE signals — no existing key
+    removed or renamed: `"content_freshness"`, the ``MAX(indexed_at)``
+    across the KB's ``file`` items (see
+    ``KBItemRepository.latest_indexed_at``'s docstring for why this moves
+    iff a file item actually re-indexes, unlike a folder's own
+    ``indexed_at``) — this is what widens
+    ``studio.js::knowledgeItemsSignature`` to see a content-only edit;
+    and each ``folders[]`` entry gains ``"skipped_dirs"``/
+    ``"skipped_entries"``, the last completed walk's persisted counts —
+    both ``None`` for a folder whose walk has never completed ("not yet
+    walked" is a different fact from "walked, skipped nothing").
+    """
     kb_repo = await _kb_repo()
     try:
         await kb_repo.get(kb_id)
@@ -1815,6 +1869,7 @@ async def get_kb_status(kb_id: str) -> dict[str, Any]:
 
     item_repo = await _kb_item_repo()
     chunk_repo = await _kb_chunk_repo()
+    meta_repo = await _app_metadata_repo()
     folders = await item_repo.list_folders(kb_id)
     manager = get_indexing_manager()
     # Flight 4 Leg 3, DD-8: each folder's watch state and reason, additive
@@ -1822,9 +1877,22 @@ async def get_kb_status(kb_id: str) -> dict[str, Any]:
     # installed, matching `_after_folder_registered`'s no-op shape.
     watch = get_watch_manager()
 
-    return {
-        "items": await item_repo.count_by_status(kb_id, type="file"),
-        "folders": [
+    folder_entries = []
+    for f in folders:
+        # DD-7/AC-9: the walk-skip-counter kv record, read through the
+        # SAME shared key helper the write site (manager.py) and both
+        # cleanup sites (delete_kb_item/delete_knowledge_base) use
+        # (AC-11b) — a per-folder read, same cost class as the watch
+        # state/error lookups on the lines directly below.
+        skip_raw = await meta_repo.get(walk_skip_counters_key(f.id))
+        if skip_raw is not None:
+            skip_counts = json.loads(skip_raw)
+            skipped_dirs = skip_counts.get("skipped_dirs")
+            skipped_entries = skip_counts.get("skipped_entries")
+        else:
+            skipped_dirs = None
+            skipped_entries = None
+        folder_entries.append(
             {
                 "id": f.id,
                 "path": f.path_or_url,
@@ -1833,9 +1901,15 @@ async def get_kb_status(kb_id: str) -> dict[str, Any]:
                 "error": f.error,
                 "watch": watch.state(f.id) if watch is not None else "off",
                 "watch_error": watch.error(f.id) if watch is not None else None,
+                "skipped_dirs": skipped_dirs,
+                "skipped_entries": skipped_entries,
             }
-            for f in folders
-        ],
+        )
+
+    return {
+        "items": await item_repo.count_by_status(kb_id, type="file"),
+        "content_freshness": await item_repo.latest_indexed_at(kb_id, type="file"),
+        "folders": folder_entries,
         "chunks": await chunk_repo.count_for_kb(kb_id),
         "indexer": manager.state(kb_id) if manager is not None else "idle",
     }

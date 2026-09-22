@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import json
 import logging
 import time
 import uuid
@@ -77,6 +78,7 @@ from the_one.knowledge.settings import (
     VectorStoreSettings,
     load_knowledge_settings,
     save_vector_store_settings,
+    walk_skip_counters_key,
 )
 from the_one.knowledge.walk import content_hash, plan_reconcile, walk_folder
 from the_one.vectors import get_vector_store
@@ -160,6 +162,18 @@ class IndexingManager:
         # knowledge base's worker so two CPU-bound embed threads never
         # race the same model concurrently.
         self._embed_lock = asyncio.Lock()
+        # Mission 24 Flight 7 Leg 1, DD-3a: per-kb_id verdict of whether the
+        # MOST RECENT stop() took the cancel fallback. Deliberately a
+        # manager-level dict, NOT a _WorkerEntry field — drain() clears
+        # _entries (below) immediately after gathering every stop(), which
+        # would wipe a flag stored there before the shutdown hook (the one
+        # reader that matters) ever gets to read it. Overwritten on every
+        # stop() call in both directions (never accumulated): a clean stop
+        # for a kb_id clears any prior cancelled verdict for that same
+        # kb_id, because a kb_id can cancel once and then index cleanly for
+        # hours before shutdown — an append-only report would keep skipping
+        # it and lose that later, genuinely safe-to-flush write.
+        self._cancel_report: dict[str, bool] = {}
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
@@ -238,6 +252,12 @@ class IndexingManager:
                 await entry.task
             cancelled = True
 
+        # DD-3a: the write site is symmetric — this line runs on every
+        # stop(), so a cancel re-asserts the verdict just as a clean stop
+        # clears it. The report answers "how did the most recent stop end",
+        # never "has this kb_id ever cancelled".
+        self._cancel_report[kb_id] = cancelled
+
         if cancelled:
             # The cancel fallback never flushes (a cancelled to_thread
             # mutation may still be running — DD-7) and nothing else
@@ -252,6 +272,20 @@ class IndexingManager:
                 )
         # In every case, unblock any wait_until_idle caller.
         entry.idle.set()
+
+    def cancelled_kb_ids(self) -> frozenset[str]:
+        """kb_ids whose most recent ``stop()`` took the cancel fallback
+        (DD-3a) — read by the vector-store shutdown hook
+        (``the_one.vectors.close_vector_store``) to skip a flush that could
+        race a still-running mutation and tear the on-disk index.
+
+        Survives ``drain()``: backed by ``self._cancel_report``, a
+        manager-level dict independent of ``self._entries`` (which
+        ``drain()`` clears). See ``self._cancel_report``'s own comment for
+        why a ``_WorkerEntry`` field would be the wrong home."""
+        return frozenset(
+            kb_id for kb_id, was_cancelled in self._cancel_report.items() if was_cancelled
+        )
 
     async def drain(self) -> None:
         """Stop every worker concurrently, then forget them all."""
@@ -407,6 +441,21 @@ class IndexingManager:
         plan = plan_reconcile(result.files, existing)
         await self._apply_reconcile(kb_id, folder.id, plan, ctx)
         await ctx.item_repo.update_status(folder.id, "indexed")
+
+        # DD-7 (Flight 7 Leg 2, AC-8): persist this pass's skip counters so
+        # they survive a process restart — the walk already counts them
+        # (`result.skipped_dirs`/`.skipped_entries`); this is the missing
+        # persistence half. Written through the shared key helper
+        # (AC-11b) so the read site (`get_kb_status`) and both cleanup
+        # sites (`delete_kb_item`, `delete_knowledge_base`) can never drift
+        # from where this actually wrote.
+        meta_repo = AppMetadataRepository(ctx.conn)
+        await meta_repo.set(
+            walk_skip_counters_key(folder.id),
+            json.dumps(
+                {"skipped_dirs": result.skipped_dirs, "skipped_entries": result.skipped_entries}
+            ),
+        )
         logger.info(
             "kb %s: folder %s walk: %d new, %d changed, %d removed, %d unchanged "
             "(skipped_dirs=%d, skipped_entries=%d)",

@@ -92,7 +92,7 @@ def _assert_row_sane(row: dict[str, str]) -> None:
 
 _GOOD_ROW_LINE = (
     "| usearch | f16 | 300 | 0.01 | 0.34 | 0.21 | 0.29 | 0.31 "
-    "| 1.0000 | 111.11 | 11.60 | 1.68 | OK |"
+    "| 1.0000 | 111.11 | 11.60 | 1.68 | numkong=yes, simd=haswell | OK |"
 )
 
 
@@ -111,7 +111,7 @@ def test_assert_row_sane_rejects_p50_greater_than_p95() -> None:
     # Swap p50_ms (0.21) and p95_ms (0.29) so p50 > p95.
     corrupted = (
         "| usearch | f16 | 300 | 0.01 | 0.34 | 0.29 | 0.21 | 0.31 "
-        "| 1.0000 | 111.11 | 11.60 | 1.68 | OK |"
+        "| 1.0000 | 111.11 | 11.60 | 1.68 | numkong=yes, simd=haswell | OK |"
     )
     with pytest.raises(AssertionError):
         _assert_row_sane(_parse_bench_row(corrupted))
@@ -311,6 +311,98 @@ def test_child_mode_emits_exactly_one_row_on_stdout(tmp_path, capsys) -> None:
     _assert_row_sane(_parse_bench_row(stdout_lines[0]))
 
 
+def test_child_mode_row_carries_the_backend_column(tmp_path, capsys) -> None:
+    """AC-3 (DD-10): a `--child` invocation never calls `host_facts()` — its
+    entire stdout is `render_row(rows[0])` — so the SIMD/numkong backend must
+    survive as a per-cell COLUMN, not a host-level-only fact. This is the
+    real remaining gap the leg's design review identified: the host-level
+    field already existed (AC-2), but a forked child could not report it."""
+    argv = [
+        "--corpus",
+        "synthetic",
+        "--n",
+        "300",
+        "--queries",
+        "5",
+        "--k",
+        "3",
+        "--cells",
+        "usearch:f16",
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--child",
+    ]
+    exit_code = bench_vector_store.main(argv)
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    stdout_lines = [ln for ln in captured.out.splitlines() if ln.strip()]
+    assert len(stdout_lines) == 1
+    row = _parse_bench_row(stdout_lines[0])
+    assert "usearch_acceleration" in bench_vector_store._TABLE_HEADERS
+    assert "numkong=" in row["usearch_acceleration"]
+
+
+def test_direct_invocation_row_also_carries_the_backend_column(tmp_path, capsys) -> None:
+    """AC-2/AC-3: the same field appears in the parent's direct (non-child,
+    non-multi-cell) path too — `host_facts()`'s host-level line AND the
+    per-cell column both carry it; this test is the per-cell half."""
+    argv = [
+        "--corpus",
+        "synthetic",
+        "--n",
+        "300",
+        "--queries",
+        "5",
+        "--k",
+        "3",
+        "--cells",
+        "usearch:f16",
+        "--data-dir",
+        str(tmp_path / "data"),
+    ]
+    exit_code = bench_vector_store.main(argv)
+    assert exit_code == 0
+
+    captured = capsys.readouterr()
+    assert "usearch_acceleration" in captured.out  # host_facts() line
+    row_lines = [ln for ln in captured.out.splitlines() if ln.startswith("| usearch")]
+    assert len(row_lines) == 1
+    row = _parse_bench_row(row_lines[0])
+    assert "numkong=" in row["usearch_acceleration"]
+
+
+def test_run_cell_records_degraded_backend_rather_than_erroring(tmp_path, monkeypatch) -> None:
+    """AC-4: a run whose numkong import "fails" (simulated via the
+    `tests/test_doctor.py::TestUsearchAcceleration` precedent —
+    monkeypatching `USES_NUMKONG`) still completes with status OK and
+    records the degraded backend string in the row, rather than erroring."""
+    import usearch.compiled as compiled
+
+    monkeypatch.setattr(compiled, "USES_NUMKONG", 0, raising=False)
+
+    ids, vecs = _small_corpus(n=10, dim=8)
+    truth = bench_vector_store.brute_force_topk(vecs[:2], [(ids, vecs)], k=3)
+
+    row = asyncio.run(
+        bench_vector_store.run_cell(
+            "usearch",
+            "f16",
+            dim=8,
+            n=10,
+            batch_source=lambda: [(ids, vecs)],
+            query_vectors=vecs[:2],
+            truth=truth,
+            k=3,
+            data_dir=tmp_path,
+        )
+    )
+    assert row["status"] == "OK"
+    assert "numkong=no" in row["usearch_acceleration"]
+    line = bench_vector_store.render_row(row)
+    assert "numkong=no" in line
+
+
 def test_child_mode_requires_exactly_one_cell(tmp_path) -> None:
     argv = [
         "--corpus",
@@ -377,11 +469,11 @@ def test_multi_cell_run_preserves_distinct_per_cell_rss_unforced(
     fake_rows = {
         ("usearch", "f16"): (
             "| usearch | f16 | 300 | 0.01 | 0.34 | 0.21 | 0.29 | 0.31 "
-            "| 1.0000 | 111.11 | 11.60 | 1.68 | OK |"
+            "| 1.0000 | 111.11 | 11.60 | 1.68 | numkong=yes, simd=haswell | OK |"
         ),
         ("usearch", "i8"): (
             "| usearch | i8 | 300 | 0.01 | 0.17 | 0.15 | 0.20 | 0.22 "
-            "| 1.0000 | 222.22 | 8.02 | 1.16 | OK |"
+            "| 1.0000 | 222.22 | 8.02 | 1.16 | numkong=yes, simd=haswell | OK |"
         ),
     }
 

@@ -106,3 +106,32 @@ client-cached.
   same terminal state as Step 10 with `items.failed` unchanged. Higher
   fidelity, flake-prone by construction — run only when the seeded variant
   passes.
+- **large-folder settle** (Mission 24 Flight 7 `regression-net-and-gates`
+  leg, F4 debrief Rec. 3): reuses live-kill's own generator — the same
+  2,000 × 50 KB text files into `<fixture>/bulk/`, no second generator
+  authored — but does **not** kill anything. Register the bulk-laden
+  `<fixture>` at Step 2 (instead of the small default fixture) and replace
+  Step 3's single terminal poll with dense sub-2 s sampling from
+  immediately after the `202` all the way to `indexer: idle`, recording
+  `indexer` and `folders[0].watch` (and `folders[0].status`) on every
+  sample rather than only at the end. The point is duration, not damage:
+  the mandated small fixture (three good files) indexes in well under a
+  second, so a single poll almost always lands on the terminal state and
+  the transient states are never actually observed — this variant's whole
+  job is to make the pass slow enough that the poll genuinely lands mid-pass
+  on more than one sample. Expect `folders[0].watch` to read `starting` on
+  the first one or two samples before settling to `watching` (per
+  `kb-folder-watch-round-trip`'s own tolerance for that state), `indexer`
+  to read `running` for the bulk of the pass and `idle` only once every
+  item resolves, and the terminal counts to match Step 3/4's shape scaled
+  up (`items.failed` = 1 for the deliberately oversized file, `items.indexed`
+  = 2,002). **Flake profile, stated honestly, as live-kill's is**: this
+  variant cannot flake on live-kill's axis — there is no SIGKILL race to
+  win or lose — but it can still pass vacuously. On a fast disk or a warm
+  embedding-model cache the pass may still resolve inside the first one or
+  two poll intervals, in which case `starting`/`running` were not actually
+  exercised and the run log must say so rather than claim the tolerance
+  was proven; only a genuinely slow/cold pass forces the multi-sample
+  transient window this variant exists to observe. Run only when the
+  seeded variant (Steps 1–11) passes, and record the observed pass
+  duration and sample count either way.
