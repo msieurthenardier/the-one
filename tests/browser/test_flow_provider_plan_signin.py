@@ -465,6 +465,40 @@ def test_reset_returns_to_signin_state_and_survives_reload(
     expect(page.locator('[data-testid="plan-connected-indicator"]')).to_have_count(0)
 
 
+@pytest.mark.browser
+def test_plan_reset_confirm_lapse_is_visually_distinct(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the plan Reset
+    connection confirm (`provider-editor.js:509`) is distinguishable on
+    screen from one that was never armed, past the real 3s `revertMs` —
+    and a lapse does NOT disconnect (`oauth_active` unchanged)."""
+    base_url, data_dir = app_with_data_dir
+    provider_id = _seed_plan_provider(base_url)
+    _seed_plan_tokens(data_dir, provider_id)
+    _stub_models(page, provider_id)
+
+    page.goto(f"{base_url}#admin/providers/{provider_id}")
+    reset_btn = page.locator('[data-testid="plan-reset-btn"]')
+    expect(reset_btn).to_be_visible(timeout=8000)
+    expect(reset_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    reset_btn.click()
+    expect(reset_btn).to_have_text(re.compile(r"Confirm Reset\?", re.IGNORECASE))
+    expect(reset_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(reset_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(reset_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(reset_btn).to_have_text(re.compile(r"Reset connection", re.IGNORECASE))
+    assert (
+        httpx.get(
+            f"{base_url}/api/providers/{provider_id}",
+            timeout=5.0,
+            headers=auth_headers_for(base_url),
+        ).json()["oauth_active"]
+        is True
+    )
+
+
 # ── Legacy anthropic providers unaffected ────────────────────────────────
 
 

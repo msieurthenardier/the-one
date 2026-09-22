@@ -1,0 +1,126 @@
+# Windows `usearch` vector-store bench — runs on the Concourse
+# `platform: windows` worker. M24 F07 L03 (measurement leg), DD-5/DD-10.
+#
+# Produces one rendered markdown table (host facts + one row per cell) for
+# a single synthetic-corpus rung of the staged Windows ladder (200k -> 500k
+# -> 1M). Invoke once per rung with `-v bench_n=<N>`; there is no default
+# for `bench_n` on purpose — an un-set rung size is a mistake worth failing
+# loudly on rather than silently running at some other N.
+#
+# Mirrors ci/tasks/windows-installer-build.yml's two hard-won lessons:
+#   1. Fresh per-run venv, never the persistent C:\Python311 site-packages
+#      (build 606657 shipped a stale hf_xet this way — see that task's own
+#      comments). A benchmark is MORE sensitive to this than a build: a
+#      stale usearch/numpy would silently produce numbers for a version the
+#      product does not ship, and nothing in the output would say so.
+#   2. $ErrorActionPreference = "Stop" does NOT make PowerShell react to a
+#      native executable's exit code — check $LASTEXITCODE by hand after
+#      every native command (builds 606657 and 606698 both ran past failed
+#      installs for exactly this reason).
+#
+# Backend recording (DD-10, corrected): the host-level `usearch_acceleration`
+# fact was already emitted by `host_facts()` before this leg — see that
+# section of the rendered output below. What this leg added is a PER-CELL
+# `usearch_acceleration` table column (scripts/bench_vector_store.py's
+# `_TABLE_HEADERS`/`render_row`), because a fresh per-run venv (this task's
+# own remedy for lesson 1) is exactly where a silent backend difference
+# could enter — one layer below where the host-level fact alone could see.
+#
+# Runnable ad hoc against a working tree:
+#   fly -t the-one execute -c ci/tasks/windows-vector-bench.yml -i repo=. \
+#     -v bench_n=200000 -v bench_label=200k-run1 -o bench-results=./out
+#
+# Ladder invocations (AC-7/AC-8/AC-9):
+#   -v bench_n=200000 -v bench_label=200k-run1   (calibration run 1)
+#   -v bench_n=200000 -v bench_label=200k-run2   (calibration run 2)
+#   -v bench_n=500000 -v bench_label=500k        (the leg's rung)
+#   -v bench_n=1000000 -v bench_label=1m         (pass 2 only — operator go/no-go)
+#
+# Multi-hour rungs (500k+) MUST be launched detached and polled, never held
+# on the local `fly` client foreground: build 59 (Flight 2) died at 44 min
+# when the local client process itself was killed by a host OOM, taking the
+# build's output with it (no server-side `timeout:` field exists for this
+# ad-hoc `fly execute` shape). Use:
+#   setsid nohup fly -t the-one execute -c ci/tasks/windows-vector-bench.yml \
+#     -i repo=. -v bench_n=500000 -v bench_label=500k -o bench-results=./out \
+#     > /tmp/500k.log 2>&1 & disown
+#   fly -t the-one watch -b <build-id>
+# and do not run `make test-unit` concurrently with a rung on this host.
+platform: windows
+
+inputs:
+  - name: repo
+
+outputs:
+  - name: bench-results
+
+params:
+  bench_n: ((bench_n))
+  bench_label: ((bench_label))
+  # Overridable, but the defaults below match every rung this leg runs —
+  # only bench_n/bench_label vary per invocation.
+  bench_queries: 200
+  bench_seed: 2024
+  bench_cells: ""
+
+run:
+  path: powershell
+  args:
+    - -NoProfile
+    - -ExecutionPolicy
+    - Bypass
+    - -Command
+    - |
+      $ErrorActionPreference = "Stop"
+      Write-Host "=== [1/4] provision toolchain (choco: Python 3.11) ==="
+      choco install python311 -y --no-progress
+      $py = "C:\Python311\python.exe"
+      if (!(Test-Path $py)) { throw "python311 not at $py" }
+      & $py --version
+      Set-Location repo
+
+      # Fresh per-run venv (lesson 1 above) — never the persistent
+      # C:\Python311 site-packages.
+      & $py -m venv .benchvenv
+      if ($LASTEXITCODE -ne 0) { throw "venv creation failed ($LASTEXITCODE)" }
+      $py = (Resolve-Path ".benchvenv\Scripts\python.exe").Path
+      if (!(Test-Path $py)) { throw "bench venv python not at $py" }
+      & $py --version
+
+      Write-Host "=== [2/4] pip install deps ==="
+      & $py -m pip install --upgrade pip --quiet
+      if ($LASTEXITCODE -ne 0) { throw "pip install --upgrade pip failed ($LASTEXITCODE)" }
+      & $py -m pip install -e ".[all-llms,dev]" --quiet
+      if ($LASTEXITCODE -ne 0) { throw "pip install -e .[all-llms,dev] failed ($LASTEXITCODE)" }
+
+      Write-Host "=== [3/4] run vector-store bench (N=$env:BENCH_N, label=$env:BENCH_LABEL) ==="
+      if (-not $env:BENCH_N) { throw "bench_n param is required (no default — see task header)" }
+      if (-not $env:BENCH_LABEL) { throw "bench_label param is required (no default — see task header)" }
+      # Data dir lives under the worker's TEMP, not under the repo checkout
+      # or an output volume — the 500k/1M rungs' on-disk footprint has no
+      # reason to round-trip through Concourse's volume machinery, and the
+      # script deletes each cell's files as soon as its row is recorded
+      # (see the script's own module docstring).
+      $dataDir = Join-Path $env:TEMP "the-one-bench-data-$env:BENCH_LABEL"
+      if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+      New-Item -ItemType Directory -Path $dataDir | Out-Null
+      $outFile = "..\bench-results\bench-$env:BENCH_LABEL.md"
+      $benchArgs = @(
+        "scripts\bench_vector_store.py",
+        "--corpus", "synthetic",
+        "--n", $env:BENCH_N,
+        "--queries", $env:BENCH_QUERIES,
+        "--seed", $env:BENCH_SEED,
+        "--data-dir", $dataDir,
+        "--out", $outFile
+      )
+      if ($env:BENCH_CELLS -and $env:BENCH_CELLS.Trim() -ne "") {
+        $benchArgs += @("--cells", $env:BENCH_CELLS)
+      }
+      & $py @benchArgs
+      if ($LASTEXITCODE -ne 0) { throw "bench_vector_store.py failed ($LASTEXITCODE)" }
+      if (!(Test-Path $outFile)) { throw "bench produced no output file: $outFile" }
+
+      Write-Host "=== [4/4] rendered result ==="
+      Get-Content $outFile | Write-Host
+      Write-Host "BENCH OK: $env:BENCH_LABEL (N=$env:BENCH_N)"

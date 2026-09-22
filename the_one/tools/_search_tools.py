@@ -1,10 +1,17 @@
-"""Unified search_tools: searches both built-in tools and attached MCP servers.
+"""Unified search_tools: searches built-in tools, attached MCP servers, and
+attached knowledge bases.
 
 Iterates the agent's ToolRegistry, applies search-tool exclusions, tokenized-
 matches against name + description (case-insensitive) for built-in tools and
 both source-level (source name + synthetic description) + per-tool for MCP
 tools, and mutates the shared visibility-filter container via the on_match
 callback.
+
+**Knowledge-base tools (``kb__{slug}__search``, Flight 5 Leg 2) match
+per-tool only** — there is no ``source_index`` entry for a knowledge base
+(DD-7, as amended; see ``_format_result``'s ``kb__`` branch below for why).
+A query matches a knowledge base's tool exactly when it matches that tool's
+own ``name + description``, same as any built-in tool.
 
 Per-agent enabled_tools/disabled_tools filtering is ALREADY APPLIED at
 registry-build time by ``AgentFactory.create``. Per-source MCP override
@@ -60,6 +67,7 @@ from the_one.tools.base import Tool, ToolRegistry
 # Names that must NEVER appear in search results — they're infrastructure.
 _EXCLUDED_NAMES: frozenset[str] = frozenset({"search_tools"})
 _MCP_PREFIX = "mcp__"
+_KB_PREFIX = "kb__"
 _DEFAULT_DESCRIPTION_CAP = 200
 
 # Maximum number of results returned for a non-empty query. Keeps the result
@@ -297,12 +305,25 @@ def _format_result(
     """
     builtin: list[str] = []
     by_source: dict[str, list[str]] = {}
+    by_kb: dict[str, list[str]] = {}
     for s in matches:
         name = s["name"]
         if name.startswith(_MCP_PREFIX):
             parts = name.split("__", 2)
             src = parts[1] if len(parts) >= 3 else "unknown"
             by_source.setdefault(src, []).append(name)
+        elif name.startswith(_KB_PREFIX):
+            # Flight 5 Leg 2 (DD-7, as amended): the group label comes
+            # ENTIRELY from parsing the tool name — no `source_index`
+            # entry exists for a knowledge base (a KB has exactly one
+            # tool, so source-level en-bloc selection is degenerate; see
+            # the module docstring). Same `split("__", 2)` shape as the
+            # MCP branch above, and it inherits the same latent flaw: a
+            # slug containing "__" (e.g. "My  Notes" -> "My__Notes")
+            # mis-renders to just "My" — recorded, not fixed (DD-4).
+            parts = name.split("__", 2)
+            slug = parts[1] if len(parts) >= 3 else "unknown"
+            by_kb.setdefault(slug, []).append(name)
         else:
             builtin.append(name)
 
@@ -311,6 +332,8 @@ def _format_result(
         groups.append(f"built-in: {', '.join(builtin)}")
     for src, names in by_source.items():
         groups.append(f"mcp:{src}: {', '.join(names)}")
+    for slug, names in by_kb.items():
+        groups.append(f"kb:{slug}: {', '.join(names)}")
     body = "; ".join(groups)
 
     shown = len(matches)

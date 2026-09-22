@@ -7,14 +7,14 @@ The Flight Director (Mission Control) orchestrates this phase using the
 ## Crew
 
 ### Developer
-- **Context**: {project}/
+- **Context**: project root (current working directory)
 - **Model**: Sonnet
 - **Role**: Implements code changes. Also performs design reviews against real
   codebase to validate leg specs before implementation.
 - **Actions**: implement, fix-review-issues, commit, review-leg-design
 
 ### Reviewer
-- **Context**: {project}/
+- **Context**: project root (current working directory)
 - **Model**: Sonnet when the diff touches a security-sensitive surface (credentials, key
   material, the credential gate or middleware exemptions, sandboxing, self-configuration
   identity); Haiku otherwise. The Flight Director records which tier applied in the flight
@@ -24,7 +24,7 @@ The Flight Director (Mission Control) orchestrates this phase using the
 - **Actions**: code review
 
 ### Accessibility Reviewer (optional)
-- **Context**: {project}/
+- **Context**: project root (current working directory)
 - **Model**: Sonnet
 - **Role**: Reviews UI changes for accessibility compliance. Evaluates against
   WCAG 2.1 AA standards, screen reader compatibility, keyboard navigation,
@@ -70,7 +70,7 @@ The Flight Director substitutes these variables in prompts at runtime:
 
 | Variable | Description | Available In |
 |----------|-------------|-------------|
-| `{project-slug}` | Project identifier from projects.md | All prompts |
+| `{project-slug}` | Project identifier — the repository directory name, or the name from the git remote | All prompts |
 | `{flight-number}` | Current flight number | All prompts |
 | `{leg-number}` | Current leg number | Leg-scoped prompts |
 | `{leg-artifact-path}` | Path to the leg artifact file | review-leg-design |
@@ -91,6 +91,13 @@ action: review-leg-design
 
 Read the leg artifact at {leg-artifact-path}. Cross-reference its acceptance
 criteria, implementation guidance, and file references against the actual codebase.
+
+**Read in Developer order first.** Before evaluating rationale in Context, read
+the numbered Acceptance Criteria and the Implementation Guidance steps top to
+bottom, implementing each mentally as you go — the order a Developer would
+encounter them. This is what surfaces a criterion or step that a later one
+silently superseded but whose stale text is still sitting upstream: it reads
+fine in isolation and is invisible to a review that jumps straight to rationale.
 
 Evaluate:
 1. Acceptance criteria — specific, verifiable, complete?

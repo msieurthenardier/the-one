@@ -33,21 +33,21 @@ pytest -m live tests/test_aiat.py                   # AIAT (needs running instan
 pytest -m browser tests/browser/                    # Browser tests (needs THE_ONE_DEV_MODE=true)
 
 # Lint & format
-ruff check the_one/ tests/
-ruff format the_one/ tests/
+ruff check the_one/ tests/ scripts/
+ruff format the_one/ tests/ scripts/
 ```
 
-**Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/` run in CI on every push to `main` (Concourse, `ci/tasks/lint.yml`). The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence. CI now runs on local Concourse; the GitHub Actions `lint.yml` and `test.yml` are `workflow_dispatch`-only break-glass fallbacks — see `ci/README.md` for the full topology.
+**Lint/format gate.** Run `pre-commit install` once to activate the pre-commit hook (`pipx install pre-commit` first if you don't have it; it's also in the `[dev]` extra). The same `ruff check the_one/ tests/ scripts/` + `ruff format --check the_one/ tests/ scripts/` run in CI on every push to `main` (Concourse, `ci/tasks/lint.yml`). The gate exists to stop ruff-baseline drift — so a future maintenance cycle doesn't re-discover its absence. CI now runs on local Concourse; the GitHub Actions `lint.yml` and `test.yml` are `workflow_dispatch`-only break-glass fallbacks — see `ci/README.md` for the full topology.
 
 ## Local dev (host-native)
 
-The app runs host-native via `the-one serve` (console script → `uvicorn.run(app, settings.host, settings.port)`, no `--reload`). For day-to-day dev use `make up` to launch it backgrounded against the repo venv (writes `.the-one.pid` + `.the-one.log`, both gitignored). Because `serve` has no `--reload`, **source edits take effect on `make restart`** — there is no live hot-reload. The test suite spawns its own uvicorn subprocess; that path is independent of the `make up` server at port 8484.
+The app runs host-native via `the-one serve` (console script → `uvicorn.run(app, settings.host, settings.port)`, no `--reload`). For day-to-day dev use `make up` to launch it backgrounded against the repo venv (writes `.the-one.$(THE_ONE_PORT).pid` + `.the-one.$(THE_ONE_PORT).log`, both gitignored — so the default instance writes `.the-one.8484.pid` and `.the-one.8484.log`). A dev instance started on another port (e.g. `THE_ONE_PORT=8485`) keeps its own PID/log files, which is what makes `THE_ONE_PORT=8485 THE_ONE_DATA_DIR=<scratch> make down` safe against the default instance. Because `serve` has no `--reload`, **Python source edits take effect on `make restart`** — there is no live hot-reload for imported code (static JS/CSS is a different story; see below). The test suite spawns its own uvicorn subprocess; that path is independent of the `make up` server at port 8484.
 
 ```bash
 make up                     # start the-one host-native in the background (PID + log) + verify
 make restart                # restart to pick up source edits (no --reload) + verify
 make down                   # stop (by PID)
-make logs                   # tail the host log file (.the-one.log)
+make logs                   # tail the host log file (.the-one.$(THE_ONE_PORT).log, e.g. .the-one.8484.log)
 make reset-db CONFIRM=1     # wipe the host data dir + restart. Gated to prevent accidental data loss.
 make test                   # run all default tests (host-native)
 make test-unit              # unit tests only
@@ -58,9 +58,11 @@ make verify-serving         # curl-check that admin sub-modules return 200
 make help                   # list all targets
 ```
 
-**When `make restart` is required**: any change under `the_one/` you want reflected in the running `make up` server — JS, CSS, HTML, Python. There is no live-reload, so a restart re-imports the source.
+**When `make restart` is required**: any **Python** change under `the_one/` you want reflected in the running `make up` server — there is no live-reload, so a restart re-imports the source. One static file joins them: `the_one/interfaces/web/static/index.html` is served through `_cache_busted_index_html()` in `the_one/interfaces/web/app.py`, which is `@functools.lru_cache`-memoized, so the file is read from disk exactly **once per process** and an edit to it needs a restart like any Python change.
 
-**When `make restart` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
+**When `make restart` is NOT required**: (a) **JS and CSS under `the_one/interfaces/web/static/`** — those are served by the `StaticFiles` mount in `app.py`, which reads from disk per request, so an edit is live to the very next request with no restart (measured: with the process unrestarted, the served body was byte-identical to the just-edited working-tree file); (b) editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
+
+**If a JS/CSS edit appears not to have landed, suspect the browser cache, not the server.** `index.html`'s `/static` asset refs are cache-busted with `?v={__version__}` — the *package* version, which an edit does not change — so a browser keeps serving its cached copy no matter how many times the server is restarted (squawk 0085). Hard-reload the page, or `curl` the asset with the local-API credential to see what the server is actually serving. Restarting will not fix this, and reaching for a restart is what keeps the real cause hidden.
 
 **Note — restart to pick up Pydantic class-definition edits.** Editing a Pydantic **class definition** (`AgentConfig`, `Connector`, `ChatSession`, provider config models) requires a fresh process to take effect: each model binds a compiled core schema to the class object at import, so a long-lived server keeps validating against the schema it imported at startup. `make restart` re-imports everything with fresh class objects.
 
@@ -75,6 +77,20 @@ Four layers compose bottom-up: **Interfaces** (CLI + Web/FastAPI) → **Agent** 
 **LLM layer — `anthropic-plan` provider type (M19)**: chats on a Claude Pro/Max subscription via OAuth sign-in from Administration (popup or copyable URL + code paste) — no API key ever; tokens live Fernet-encrypted in `llm_providers.secrets` (stripped from every response — `oauth_active` is the UI signal) and auto-refresh via the per-provider single-flight credential source in `the_one/llm/plan_credentials.py`.
 
 **Self-configuration surface (M21 F01 L02-L03)**: an agent's Studio editor gains a sixth "Self-configuration" tab, off by default. Enabling it mints a per-agent credential and attaches a loopback MCP source through which the agent can act on its own configuration — a real `streamable-http` source, so the operator's existing per-source and per-tool checkboxes on the MCPs tab govern it exactly like any other MCP server (the row there is locked checked+disabled; only the Self-configuration tab can enable/disable it). Four tools: `get_my_configuration` / `describe_my_capabilities` (read), and `update_my_description` / `update_my_system_prompt` (write, M21 F01 L03) — each write tool takes `text` (the new value, whole-value replacement — no append or partial edit) and `apply`, either `"next_turn"` (the change lands when the agent's current turn in this conversation ends — never mid-turn) or `"next_session"` (this open conversation is untouched; the change is visible the next time the conversation is rejoined). No tool takes a field name, so no other part of an agent's configuration is reachable through this surface. **Operator oversight (M21 F02):** every self-revision is recorded in the `agent_revisions` log (L01), and each agent carries an operator-owned `self_revision_requires_approval` flag (L02, a v35 `agents` column, default off, unreachable by the agent). When approval mode is on, a proposed revision is held in the queue as `pending` instead of applied; the operator approves (fail-closed against staleness) or dismisses it from the Self-configuration tab. New endpoints under `/api/agents/{name}/self-configuration`: `PUT /approval-mode`, `GET /revisions`, `GET /revisions/pending-count`, `POST /revisions/{id}/approve` (`?override=true` to overwrite a drifted value), `POST /revisions/{id}/dismiss`. **Restore (L03):** `POST /revisions/{id}/restore` (`?side=proposed|base`, default `proposed`) rolls a field back to any earlier value it held — operator-direct, so it applies immediately regardless of approval mode and is logged as a new `applied`/`restore` row (never queued). The target must be an `applied` revision (a value the field actually took); a non-applied target is refused 409. `side=base` reinstates the target row's before-image — the only way to reach the original pre-first-revision value. There is no agent-facing restore tool. See `the_one/agents.md` "Self-configuration surface contract" and `SECURITY-MODEL.md`'s "Self-configuration surface" for the credential-scoping, approval-mode, restore, and residual-risk detail.
+
+**Knowledge bases (M24)**: `POST /api/knowledge-bases/{kb_id}/items` with `type: "folder"` registers a folder on disk — operator-only (no agent-facing route creates items) and read with the app's own privileges, no allowlist; a folder that equals, contains, or lies inside the application data directory is refused with 422 (Flight 4), since the app's own database and index live there. Item routes (`GET`/`POST /items`, `GET`/`DELETE /items/{item_id}`, `POST /items/{item_id}/retry`) plus four Flight 3 routes: `GET /status` (per-KB item-status counts, each folder's walk status and watch state, chunk count, indexer state), `POST /reindex?scope=changed|all` (202; `changed` just re-walks, `all` also re-embeds every file), `GET /items/{item_id}/chunks` (paged, `seq` order), `GET /items/{item_id}/source` (extracted text read-back with a freshness flag). Indexing itself runs in a background worker (`IndexingManager`, one per knowledge base) started by the web app's lifespan; a killed or restarted process resumes rather than restarts — any item stranded mid-index (`indexing`) is requeued to `pending` at startup and at the top of every worker pass. **Change monitoring (M24 F04)**: a registered folder is kept current with no operator action — a per-folder filesystem watcher (native OS change notification, one dedicated thread per folder, at most 64 concurrent) that only ever triggers a re-index pass, backed by a periodic reconciliation walk (every 5 minutes by default) that is the actual source of truth and the only path that works on every platform. Both are operator-configurable, live, under `monitoring` in `GET`/`PUT /api/knowledge-settings`; `GET .../status`'s `folders[]` entries carry `watch`/`watch_error`. `the-one doctor` gained a ninth gate, `file watcher`, proving the native notifier loads (and, when frozen, round-trips a real change). See `the_one/agents.md`'s "Knowledge storage"/"Knowledge indexing"/"WatchManager" sections for the full pipeline and manager contracts.
+
+**Agent-facing retrieval (M24 F5)**: an agent reaches its attached knowledge bases (`AgentConfig.kb_ids`) through one `kb__{slug}__search` tool per attachment, built per agent by `KBToolProvider` and registered by `AgentFactory` beside the MCP tools. `the_one/knowledge/retrieval.py::search` fuses the vector store's semantic hits with FTS5's keyword hits by reciprocal rank, with one result slot reserved for a keyword-only exact-term hit the embedding model would otherwise rank out of the returned set — so a query naming an identifier the model ranks poorly still surfaces it. The tool degrades honestly rather than failing silently: a stale, busy, or otherwise unavailable vector index falls back to keyword-only results (and the reverse for a keyword-index failure), each surfaced as one line above the hits. `search_tools` discovers these tools under a `kb:<slug>:` group, matched purely through the tool's own name and description (a knowledge base gets no separate `source_index` entry — see `the_one/agents.md`'s "Knowledge retrieval" section for why one would be inert). Attachment is authorization: an agent can only ever reach the knowledge bases the operator attached it to, and no agent-facing route creates or attaches one.
+
+**Studio surfaces + operator-facing search (M24 F6)**: `GET /api/knowledge-bases/{kb_id}/search` (query param `q`, `limit: int = Query(10, ge=1, le=20)`, 404 on an unknown `kb_id`) wraps `retrieval.search` for a human caller — read-only, returning `{hits: [...], degraded: str | null, indexer: str}`; it sits behind the same credential gate as every other route (see SECURITY-MODEL.md). Studio's **Knowledge section** is the global inventory (create/rename/delete a knowledge base, register and inspect folders, read items/chunks/source, and preview search through the route above); the agent editor's **Knowledge tab** is attach-only — a per-knowledge-base row toggle (mirroring the MCPs tab's pattern) that also renders the knowledge base's derived `kb__…__search` tool name, served by the backend (`compute_tool_names`, promoted from a private helper) rather than recomputed in JavaScript. Administration gained a **Knowledge** panel (`#admin/knowledge`) for the app-wide `chunking`/`monitoring` settings — `embedding` and `vector_store` render read-only, each with its reason stated on screen: the embedding model is pinned (there is no operator path to change it — see DD-7 in `missions/24-knowledge-bases/flights/06-studio-surfaces/flight.md`), and the vector-store record is written by the app, not chosen by the operator.
+
+**Mission close, non-UI defect closure (M24 F7 L1)**: the vector store now has a shutdown hook — `the_one/vectors/__init__.py::close_vector_store()` closes the process-wide store if one was built (never builds one just to close it) and is called unconditionally from the lifespan, between the indexing-manager drain and `close_connection()`. It skips any knowledge base whose most recent `IndexingManager.stop()` took the cancel fallback (`IndexingManager.cancelled_kb_ids()`, DD-3a) — flushing one right after would race a still-running mutation and tear the index; the lost write is recovered by re-indexing instead. Separately, `AgentFactory.create()`'s `kb_tools` loop now reconciles a stale `disabled_tools` entry against a knowledge base's `kb_id` (not just its current derived name) — closes the hole where a disable made while an agent was attached silently stopped applying after the knowledge base was detached, renamed, and reattached. See `the_one/agents.md`'s "Vector-store shutdown hook" and "DD-13" blocks for the full contract.
+
+**Mission close, inventory freshness (M24 F7 L2a)**: `GET /api/knowledge-bases/{kb_id}/status` gains two additive keys. `"content_freshness"` is `MAX(indexed_at)` across the KB's `file` items — it moves **iff** a file item actually re-indexes (never on a no-op walk pass, unlike a folder item's own `indexed_at`, which advances on every completed walk regardless of change) — and `studio.js::knowledgeItemsSignature` now folds it in, so a content-only edit to an already-indexed file (previously invisible to the poll) now triggers the `/items` re-fetch that repaints the item row's new `Indexed: …` freshness line. Each `folders[]` entry also gains `"skipped_dirs"`/`"skipped_entries"` — the last completed walk's counts, persisted via `AppMetadataRepository` under a key from the new `the_one.knowledge.settings.walk_skip_counters_key()` helper (one shared implementation across the write site, the read site, and both delete-path cleanup sites, since a kv key sits outside `kb_items`' FK cascade). `AppMetadataRepository` gained a `delete(key)` method. Separately, squawk 0087 is fixed: `KBItemRepository.list`/`.list_children`/`.list_folders` now order `..., path_or_url` ascending, so a tied `created_at` batch (a folder walk inserting every file in one pass) reads back in stable, walk-matching order. See `the_one/agents.md`'s "`get_kb_status` gains two ADDITIVE signals" block for the full contract.
+
+**Mission close, confirm-lapse cue (M24 F7, `confirm-lapse` leg)**: the shared two-step `App.confirmDelete` helper (`the_one/interfaces/web/static/js/confirm.js`) now distinguishes a timed-out arm from a never-armed control. A `.confirm-lapsed` CSS class is added ONLY by the arm timer's own expiry callback (never by `revert()` itself, which also runs on a successful commit and on a credential-rotation success path that must not be mislabeled "lapsed"), and is cleared unconditionally at the top of every `confirmDelete` call — arm or commit alike — so a returning operator always starts from a clean visual slate. Feedback-only: the arm/commit decision still depends solely on the pre-existing `.confirm-delete` class; `.confirm-lapsed` never gates it. Applies uniformly across all 13 `App.confirmDelete` call sites, with no per-call-site opt-in. Closed squawk 0088's third invariant (`renderAllItems` must never rebuild a folder's armed `<summary>` node) along the way, with a falsified-and-reverted regression test proving the pin. See `the_one/agents.md`'s "confirm-lapse cue" section for the full contract and the squawk for the invariant-pinning test.
+
+**Mission close, Windows vector-store measurement (M24 F7, `measurement` leg)**: `ci/tasks/windows-vector-bench.yml` is a new ad-hoc (not part of the standard five-lane CI matrix) Concourse task that runs `scripts/bench_vector_store.py` on the `platform: windows` worker for one synthetic-corpus rung at a time (`-v bench_n=<N>`, no default — an unset rung size fails loudly rather than running silently at the wrong size). It re-confirms the flush-cadence constants from Flight 3 against measured data up to a 500k-vector rung (the operator's stop-at-500k decision; the 1M rung was not run — its cost/benefit was projected from two independent anchors instead) and records per-cell `usearch_acceleration` so a stale/unaccelerated Windows backend cannot silently produce numbers for a build the product does not ship. `scripts/sweep_fusion_constants.py` (new) is the accompanying `RRF_K`/`candidate_k` sweep that closed the mission's fusion-balance open question as "fixed by evidence, not tuned" (DD-4) — no product constant changed. See `the_one/agents.md`'s vector-store bench section and `missions/24-knowledge-bases/flights/07-mission-close/flight-log.md`'s "Leg measurement (3)" for the full ladder, band declarations and verdicts.
 
 Full module map, layer internals, tool-authorship contract, constraint surfaces (Filesystem/Execution/Web Configs), cross-Config dispatch, PTY session lifecycle, MCP F2/F3 contracts, MCP error translation, operator workflows — all in `the_one/agents.md`. Don't duplicate that material here.
 
@@ -92,13 +108,18 @@ Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port
 
 ### Dev mode and the mock provider
 
-When `THE_ONE_DEV_MODE=true` is set, an extra provider type `mock` becomes available alongside the standard types (`ollama`, `openai-compatible`, `openai`, `anthropic`, `anthropic-plan`, `openrouter`). The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field — defaults to `"Mock response from the mock provider."` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
+When `THE_ONE_DEV_MODE=true` is set, an extra provider type `mock` becomes available alongside the standard types (`ollama`, `openai-compatible`, `openai`, `anthropic`, `anthropic-plan`, `openrouter`). The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field (a dict, whose `content` holds the reply text) — defaults to `{"content": "Mock response from the mock provider."}` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
 
-**Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`):
+**Mock provider `config` options** (all optional, set in `LLMProviderConfig.config`). **Mind the nesting**: only the five top-level keys below sit in `config` itself; `content`, `tool_calls` and `thinking` live *inside* `response`, not beside it. (Cross-check against `MockProvider`'s class docstring in `the_one/llm/mock.py` — that is the other copy of this list.)
 
-- `"response"` — scripted reply text (default: `"Mock response from the mock provider."`)
+- `"response"` — a **dict** describing what a turn returns (default: `{"content": "Mock response from the mock provider."}`). It must be a dict: `MockProvider` calls `.get()` on it, so a bare string (`{"response": "hi"}`) raises `AttributeError` rather than being treated as the reply text. Its keys:
+  - `"content"` — the reply text (default: `""`)
+  - `"tool_calls"` — a LIST of `{"id": str, "name": str, "arguments": dict}` dicts (`arguments` optional, defaults `{}`), synthesized into real `ToolCall`s on the assistant `Message`. This is the only way to drive a deterministic tool-calling agent turn with no live provider — two behavior specs depend on it — and it is what lets an apparatus make an agent *attempt* a tool call. Also attached to the final chunk of a `stream_chunks` run.
+  - `"thinking"` — a LIST of block dicts parsed into `ThinkingBlock`s: `{"type": "thinking", "thinking": "...", "signature": "..."}` or `{"type": "redacted_thinking", "data": "..."}`. Drives the real thinking-disclosure path end-to-end with no live Anthropic key (M16 F10 L05).
 - `"stream_chunks"` — a LIST of strings; when set (non-empty), `stream()` yields each list element as one streaming chunk in order. When unset/empty, the provider is non-streaming (default). (Not a chunk *count* — the values are the literal chunk texts, e.g. `["Hello, ", "world", "!"]`.)
+- `"delay_ms"` — simulated latency in milliseconds (default: `0`, so tests stay fast): awaited once before `complete()` returns, and *between* successive `stream_chunks`. Useful interactively to exercise the client-side "thinking…" indicator.
 - `"input_tokens"` — `input_tokens` value emitted in `TokenUsage` for each turn (default: `0`). Set to a positive integer in tests that exercise the telemetry overlay or the `last_usage` persistence path (M10 F06); the default preserves all existing test expectations.
+- `"models"` — a LIST of model-id strings returned by `GET /api/providers/{id}/models` for this provider (default: `["mock-default"]`). Read by the API layer (`interfaces/web/api.py`), not by `MockProvider` itself — so it shapes the Studio/Administration model picker, not the chat response.
 
 - Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off
 - UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)
@@ -300,6 +321,22 @@ providers, and credential file, then reports *its* state instead of the
 branch's under test. (This mirrors the existing AIAT rule above for
 `-m live` — the same production instance, the same hazard.)
 
+**Do not guess the default data directory — read it.** It is
+platformdirs-derived (`the_one/config.py::_default_data_dir`), NOT a literal
+path, and it differs by platform. Print it with:
+
+```bash
+python -c "from the_one.config import settings; print(settings.data_dir)"
+```
+
+A check against a hardcoded guess is not a check: a stale guess returns a clean
+result whether or not the real directory was just written to. (Squawk 0084 — an
+earlier version of this section named `~/.the-one`, which does not exist, so every
+"production untouched" verification against it passed unconditionally. A
+credential rotation reached the real directory before anyone noticed.) To confirm
+which directory a *running* instance owns, read that process's own
+`/proc/<pid>/environ` rather than assuming.
+
 Always drive a **dedicated dev instance** instead — a non-default port
 AND a scratch data directory, together, every time:
 
@@ -308,7 +345,7 @@ THE_ONE_PORT=8485 THE_ONE_DATA_DIR=/tmp/the-one-behavior-test-scratch make up
 ```
 
 Port alone is not enough — an instance on 8485 that still points at the
-operator's default `~/.the-one` data directory shares the same credential
+operator's default data directory shares the same credential
 file, database, and sessions as production. A spec's Preconditions must
 name (or require an operator-provided) port and data directory; never
 default to `:8484` or the default data directory.
@@ -383,10 +420,16 @@ it directly with no credential at all.
 
 ## Flight Operations
 
-This project uses [Flight Control](https://github.com/msieurthenardier/mission-control).
+This project uses [Flight Control](https://github.com/msieurthenardier/mission-control) via the `mission-control` Claude Code plugin. Skills are invoked as `/mission-control:<skill>` from this project's root.
 
-**Before any mission/flight/leg work, read these files in order:**
+**Before any mission/flight/leg/squawk work, read these files in order:**
 1. `.flightops/README.md` — What the flightops directory contains
 2. `.flightops/FLIGHT_OPERATIONS.md` — **The workflow you MUST follow**
 3. `.flightops/ARTIFACTS.md` — Where all artifacts are stored
 4. `.flightops/agent-crews/` — Project crew definitions for each phase (read the relevant crew file)
+
+**Flight Director role.** When a human says a leg is ready to implement, invoke `/mission-control:agentic-workflow`. Do not read the leg spec, plan execution steps, or execute commands directly — the skill orchestrates separate Developer and Reviewer agents and emits `[HANDOFF:...]` and `[COMPLETE:...]` signals. Planning skills (`/mission-control:mission`, `/mission-control:flight`, debriefs, `/mission-control:routine-maintenance`) produce artifacts only and never modify source files.
+
+**Spawned agents** (Developer, Reviewer, Architect, Executor, Validator) do not have the Skill tool. Everything they need is in `.flightops/`; they must not try to load plugin skills.
+
+**Methodology drift.** A SessionStart notice from the plugin means this project is behind the installed plugin version. Recommend `/mission-control:preflight-check` or `/mission-control:init-project` to bring it current; never apply migrations by hand.

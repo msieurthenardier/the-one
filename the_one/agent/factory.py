@@ -12,20 +12,78 @@ from the_one.config import settings
 from the_one.llm import get_provider
 from the_one.llm.registry import PROVIDER_TYPE_MAP
 from the_one.tools._search_tools import SearchTools
-from the_one.tools.base import ToolRegistry
+from the_one.tools.base import Tool, ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
 from the_one.tools.connector_lookup import FIND_PLATFORM_DESTINATION_TOOL_NAME
 from the_one.tools.connector_send import SEND_TO_PLATFORM_CHANNEL_TOOL_NAME
 from the_one.tools.provider import ToolProvider
 
 if TYPE_CHECKING:
-    # Type-only import — ``MCPToolProvider`` is lazy-imported at __init__
-    # call time (see comment in ``AgentFactory.__init__``). This block
-    # only runs under static type checkers; no runtime cost. Without
-    # this, ruff F821 flags the string-quoted annotation as undefined.
+    # Type-only imports — both ``KBToolProvider`` and ``MCPToolProvider``
+    # are lazy-imported at __init__ call time (see comments in
+    # ``AgentFactory.__init__``) to avoid the circular import cycle
+    # ``agent.__init__ -> agent.factory -> db.repositories -> agent.config
+    # -> agent.__init__`` that ``_build_source_index``'s docstring records.
+    # This block only runs under static type checkers; no runtime cost.
+    # Without it, ruff F821 flags the string-quoted annotations as
+    # undefined.
+    from the_one.knowledge.tool_provider import KBToolProvider
     from the_one.mcp._tool_provider import MCPToolProvider
 
 logger = logging.getLogger(__name__)
+
+
+def _kb_tool_is_disabled(tool: Tool, disabled_tools: list[str]) -> bool:
+    """M24 F07 L01, DD-13: read-side reconcile for the detach -> rename ->
+    reattach hole. ``compute_tool_names`` (``knowledge/tool_provider.py``)
+    applies the ``sha256(kb_id)`` discriminator to a ``kb__…__search``
+    name UNCONDITIONALLY, so it is a stable fingerprint of the knowledge
+    base's identity that survives a rename — this treats a
+    ``disabled_tools`` entry as disabling ``tool`` when the entry carries
+    a discriminator derived from ``tool.kb_id``, even when the entry's
+    slug no longer matches ``tool``'s CURRENT name (a stale entry left
+    behind by a rename that happened while the knowledge base was
+    detached, the one case ``knowledge/kb_rename.py``'s write-side
+    rewrite structurally cannot see — it only reaches currently-attached
+    agents).
+
+    This is exactly equivalent to the un-reconciled ``tool.name in
+    disabled_tools`` for a CURRENT-name entry (the exact-match check
+    below), plus the reconcile for a STALE one. Only called for `kb__`
+    tools (which always carry a real ``kb_id``) — the AC-15 caller never
+    mutates ``disabled_tools``; this returns a plain bool over a local
+    view.
+
+    **The matching rule never parses the slug** (a knowledge-base name
+    can itself normalize to a slug containing ``_``/``__`` —
+    ``tool_provider.py:82-86``): it strips the fixed ``kb__``/``__search``
+    wrapper and checks only whether what remains ENDS WITH
+    ``"_" + discriminator``, tried at every ``_HASH_LENGTHS`` width (8,
+    12, 16 — AC-12) since the discriminator can widen on a slug
+    collision within the SET the name was originally computed against.
+    """
+    if tool.name in disabled_tools:
+        return True
+
+    kb_id = getattr(tool, "kb_id", None)
+    if kb_id is None or not disabled_tools:
+        return False
+
+    from the_one.knowledge.tool_provider import (
+        _HASH_LENGTHS,
+        _NAME_PREFIX,
+        _NAME_SUFFIX,
+        _discriminator,
+    )
+
+    discriminators = {_discriminator(kb_id, hash_len) for hash_len in _HASH_LENGTHS}
+    for entry in disabled_tools:
+        if not (entry.startswith(_NAME_PREFIX) and entry.endswith(_NAME_SUFFIX)):
+            continue
+        body = entry[len(_NAME_PREFIX) : -len(_NAME_SUFFIX)]
+        if any(body.endswith("_" + disc) for disc in discriminators):
+            return True
+    return False
 
 
 async def _build_source_index(
@@ -218,6 +276,7 @@ class AgentFactory:
         store: AgentConfigStore | None = None,
         tool_providers: list[ToolProvider] | None = None,
         mcp_provider: "MCPToolProvider | None" = None,
+        kb_provider: "KBToolProvider | None" = None,
     ) -> None:
         self.store = store
         self.tool_providers = tool_providers or [BuiltinToolProvider()]
@@ -229,6 +288,14 @@ class AgentFactory:
         from the_one.mcp._tool_provider import MCPToolProvider as _MCPToolProvider
 
         self.mcp_provider = mcp_provider if mcp_provider is not None else _MCPToolProvider()
+
+        # Flight 5 Leg 2 (DD-5, AC-14): KBToolProvider injected the same
+        # way, for the same testability reason — tests pass None to
+        # disable KB wiring. Lazy import for the same cycle-avoidance
+        # reason as MCPToolProvider above.
+        from the_one.knowledge.tool_provider import KBToolProvider as _KBToolProvider
+
+        self.kb_provider = kb_provider if kb_provider is not None else _KBToolProvider()
 
     async def create(self, name: str = "default") -> Agent:
         """Create an Agent instance from a named config."""
@@ -389,6 +456,35 @@ class AgentFactory:
             mcp_tools = await self.mcp_provider.get_tools_for_agent(config, agent_name=name)
             for tool in mcp_tools:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
+                    registry.register(tool)
+
+        # Flight 5 Leg 2 (DD-5 AC-15/AC-16): knowledge-base tool attach,
+        # immediately after the MCP block, behind the SAME filter. Guarded
+        # only by `self.kb_provider is not None` (mirroring the MCP idiom
+        # above) even though `get_tools_for_agent` already returns `[]`
+        # cheaply for an empty `config.kb_ids` (AC-12) — a reader expects
+        # the same structural shape as the MCP block. No ordering
+        # constraint relative to `SearchTools`'s registration above: DD-7's
+        # amendment removed the `source_index` entries that used to create
+        # one. Registering last does NOT make these tools shadow-proof in
+        # general (`ToolRegistry.register` is `self._tools[name] = tool` —
+        # last-write-wins) — it is safe here only because the `kb__` prefix
+        # makes a name collision with a built-in or MCP tool impossible.
+        # DD-13: `config.is_tool_enabled(tool.name)` is replaced here (ONLY
+        # here — the shared method itself is untouched, per DD-13's own
+        # scoping) with the reconciled disable check. For a `kb__` name
+        # `is_tool_enabled` reduces to `tool.name not in
+        # config.disabled_tools` (`kb__` is in `UNGATED_TOOL_PREFIXES`, so
+        # the `enabled_tools` whitelist branch never applies) — so this is
+        # exactly that check, plus the stale-entry reconcile.
+        # `_kb_tool_is_disabled` never mutates `config.disabled_tools`
+        # (AC-15): it only ever reads it.
+        if self.kb_provider is not None:
+            kb_tools = await self.kb_provider.get_tools_for_agent(config, agent_name=name)
+            for tool in kb_tools:
+                if tool.name not in disabled_names and not _kb_tool_is_disabled(
+                    tool, config.disabled_tools
+                ):
                     registry.register(tool)
 
         # DD-5 (Mission 23 Flight 3 Leg 2, mission-owner-amended baseline-

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import json
 import logging
@@ -11,12 +12,13 @@ import os
 import re
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
 
@@ -27,6 +29,8 @@ from the_one.connectors import registry as connector_registry
 from the_one.connectors.base import ConnectorClientError, DoctorReport, InboundEnvelope
 from the_one.connectors.manager import PAIRING_TTL_SECONDS
 from the_one.connectors.manager import get_manager as get_connector_manager
+from the_one.db._kb_types import KBItemTransitionError
+from the_one.db._write_lock import write_transaction
 from the_one.db.connection import get_connection
 from the_one.db.models import (
     ChatSession,
@@ -40,9 +44,11 @@ from the_one.db.models import (
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     AgentRevisionRepository,
+    AppMetadataRepository,
     ChatSessionRepository,
     ConnectorDirectoryRepository,
     ConnectorRepository,
+    KBChunkRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
@@ -54,13 +60,33 @@ from the_one.db.repositories import (
     _encrypt_overrides_column,
     _encrypt_secrets_blob,
 )
+from the_one.embeddings import get_embedding_backend
+from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
+from the_one.knowledge.extractors import ExtractionError, extractor_for
+from the_one.knowledge.indexer import MAX_FILE_BYTES
+from the_one.knowledge.manager import get_manager as get_indexing_manager
+from the_one.knowledge.retrieval import search as kb_search
+from the_one.knowledge.settings import (
+    ChunkingSettings,
+    EmbeddingSettings,
+    KnowledgeSettings,
+    MonitoringSettings,
+    load_knowledge_settings,
+    load_vector_store_settings,
+    save_knowledge_settings,
+    walk_skip_counters_key,
+)
+from the_one.knowledge.walk import content_hash, is_filesystem_root
+from the_one.knowledge.watcher import get_manager as get_watch_manager
 from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
+from the_one.platform.paths import canonicalize, is_within
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
+from the_one.vectors import get_vector_store
 
 if TYPE_CHECKING:
     # `AgentConfig` is intentionally NOT imported at module load time —
@@ -97,7 +123,9 @@ async def _agent_store() -> SQLiteAgentStore:
     return SQLiteAgentStore(conn, get_encryptor(settings.data_dir))
 
 
-def _agent_response(cfg: AgentConfig) -> dict[str, Any]:
+def _agent_response(
+    cfg: AgentConfig, kb_tool_names: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Render an ``AgentConfig`` into the masked HTTP response shape.
 
     Mirrors ``_mcp_source_response`` (below, in the MCP-sources section):
@@ -118,8 +146,20 @@ def _agent_response(cfg: AgentConfig) -> dict[str, Any]:
     a bare ``cfg.model_dump()`` return leaks plaintext credential
     overrides. The regression net is an assertion on response *text*
     (mirrors ``test_list_returns_masked_secrets``).
+
+    ``kb_tool_names`` (L2-D5, AC-6): ``_agent_response`` is synchronous
+    and takes only the config, but resolving each attached knowledge
+    base's derived tool name needs an async repository read — so callers
+    that want the field resolve it themselves (via
+    :func:`_resolve_kb_tool_names`) and pass the finished ``{kb_id:
+    tool_name}`` map in. Left ``None`` (the default), the response has no
+    ``kb_tool_names`` key at all — this is what ``list_agents`` relies on
+    to avoid an N+1 read per page load; only the single-agent routes
+    (``GET``/``POST``/``PUT /api/agents/{name}``, ``.../rename``) pass one.
     """
     data = cfg.model_dump()
+    if kb_tool_names is not None:
+        data["kb_tool_names"] = kb_tool_names
     overrides = data.get("mcp_overrides")
     if overrides:
         for source_entry in overrides.values():
@@ -246,9 +286,58 @@ async def _kb_repo() -> KnowledgeBaseRepository:
     return KnowledgeBaseRepository(conn)
 
 
+async def _resolve_kb_tool_names(cfg: AgentConfig) -> dict[str, str]:
+    """Resolve ``{kb_id: tool_name}`` for ``cfg.kb_ids`` (L2-D5, AC-6).
+
+    Mirrors ``KBToolProvider.get_tools_for_agent``'s own resolution
+    exactly: ``repo.get(kb_id)`` per id, skipping a ``KeyError`` with a
+    WARNING naming the agent and the dangling id (DD-14) — so a dangling
+    id contributes no entry and never makes the whole response fail.
+    Empty ``kb_ids`` short-circuits to ``{}`` with no database call, same
+    as the tool provider's own fast path.
+    """
+    if not cfg.kb_ids:
+        return {}
+    from the_one.knowledge.tool_provider import compute_tool_names
+
+    repo = await _kb_repo()
+    kbs: list[KnowledgeBase] = []
+    for kb_id in cfg.kb_ids:
+        try:
+            kbs.append(await repo.get(kb_id))
+        except KeyError:
+            logger.warning(
+                "agent %r references deleted knowledge base %r; "
+                "kb_tool_names will have no entry for it",
+                cfg.name,
+                kb_id,
+            )
+    if not kbs:
+        return {}
+    return compute_tool_names(kbs, agent_name=cfg.name)
+
+
 async def _kb_item_repo() -> KBItemRepository:
     conn = await get_connection()
     return KBItemRepository(conn)
+
+
+async def _kb_chunk_repo() -> KBChunkRepository:
+    conn = await get_connection()
+    return KBChunkRepository(conn)
+
+
+async def _app_metadata_repo() -> AppMetadataRepository:
+    conn = await get_connection()
+    return AppMetadataRepository(conn)
+
+
+async def _vector_store():
+    """The process-wide vector store (Flight 2 Leg 4). A thin named
+    wrapper around ``get_vector_store()`` — the delete routes' recording-
+    stub tests monkeypatch the dispatcher's own ``_build_store`` seam, not
+    this helper, so it stays a plain pass-through."""
+    return await get_vector_store()
 
 
 async def _mcp_repo() -> MCPSourceRepository:
@@ -641,7 +730,7 @@ async def get_agent(name: str) -> dict[str, Any]:
         cfg = await store.load(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 @router.get("/agents/{name}/context-window")
@@ -757,7 +846,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=override_error)
     store = await _agent_store()
     await store.save(cfg)
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 @router.put("/agents/{name}")
@@ -803,6 +892,12 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     # preserve just above.
     if "self_revision_requires_approval" not in data:
         data["self_revision_requires_approval"] = existing.self_revision_requires_approval
+    # AC-7: `kb_ids` omitted from the PUT body preserves the stored value
+    # — mirrors the `self_revision_requires_approval` preserve immediately
+    # above. An explicit `kb_ids: []` is NOT an omission and still clears
+    # it; omission and empty are distinguishable and mean different things.
+    if "kb_ids" not in data:
+        data["kb_ids"] = existing.kb_ids
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
@@ -822,7 +917,7 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     if override_error is not None:
         raise HTTPException(status_code=422, detail=override_error)
     await store.save(cfg)
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 @router.delete("/agents/{name}")
@@ -894,7 +989,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     mcp_repo = await _mcp_repo()
     await self_configuration_manage.cascade_rename(name, new_name, mcp_repo=mcp_repo)
     cfg = await store.load(new_name)
-    return _agent_response(cfg)
+    return _agent_response(cfg, await _resolve_kb_tool_names(cfg))
 
 
 # ── Self-configuration surface (M21 F01 L02) ───────────────────────────────
@@ -1389,9 +1484,22 @@ async def create_knowledge_base(request: Request) -> dict[str, Any]:
     data = await request.json()
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
-    kb = KnowledgeBase.model_validate(data)
+    try:
+        kb = KnowledgeBase.model_validate(data)
+    except ValidationError as e:
+        # Leg 5 review fix (BLOCKING 2): a client-supplied `id` (e.g.
+        # "../../../evil") must 422 via the model's charset validator, not
+        # crash as an unhandled 500 — `KnowledgeBase.id` is used verbatim
+        # to build a filesystem path in `UsearchStore._path_for`.
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     repo = await _kb_repo()
     await repo.create(kb)
+    # M24 F02 L03, DD-1: kick the embedding warm-up on the operator's first
+    # KB after a cold start, so they don't pay the model load inside their
+    # first indexing request either. Idempotent — no bookkeeping needed.
+    # Squawk 0055: the task handle is held inside ``the_one.embeddings``
+    # (not discarded here) so it can't be garbage-collected mid-flight.
+    _schedule_embedding_warm_up()
     return kb.model_dump()
 
 
@@ -1417,16 +1525,112 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     await repo.update(updated)
+
+    # L2-D7/L2-D9: the agent rewrite happens AFTER the knowledge-base row
+    # has committed (write_transaction raises on re-entry by the same
+    # task, so this can never be one atomic unit with the write above).
+    # First early return (L2-D9): the raw name is unchanged — most PUTs
+    # touch only description/etc., and every one of those must not load
+    # and re-save every attached agent for nothing.
+    if existing.name != updated.name:
+        # Local imports: both cross into agent-config-adjacent territory
+        # (`compute_tool_names` pulls in `AgentConfig` at its own module
+        # level) — mirrors this module's established lazy-import
+        # convention for anything AgentConfig-adjacent (see the
+        # TYPE_CHECKING note near the top of this file).
+        from the_one.knowledge.kb_rename import rename_kb_tool_references
+        from the_one.knowledge.tool_provider import compute_tool_names
+
+        # Both derived names depend only on (name, kb_id) — DD-17 — so
+        # they're computed from `existing`/`updated` alone, with no other
+        # knowledge base's set membership involved. `agent_name` here is
+        # a log-message label, not an actual agent: this call is not
+        # scoped to one.
+        old_tool_name = compute_tool_names([existing], agent_name="(kb-rename)")[kb_id]
+        new_tool_name = compute_tool_names([updated], agent_name="(kb-rename)")[kb_id]
+        # Second early return (L2-D9): two different raw names can
+        # normalize to the same derived slug (`My Notes` / `My/Notes`
+        # both -> `My_Notes`) — skip the agent rewrite when nothing
+        # actually moved.
+        if old_tool_name != new_tool_name:
+            # Phase 2d review fix: acquiring the agent store is the one
+            # step in this path that happens BEFORE `rename_kb_tool_references`
+            # is even entered, so its own try/except (AC-12) can't cover a
+            # failure here — without this guard, a DB error at this line
+            # would raise past this endpoint as an unhandled 500 *after*
+            # the knowledge-base row above has already committed, with no
+            # WARNING at all. Match the same fail-open shape: log and
+            # move on rather than raise.
+            try:
+                agent_store = await _agent_store()
+            except Exception:
+                logger.warning(
+                    "knowledge base %r rename: failed to acquire the agent "
+                    "store to rewrite disabled_tools entry %r -> %r; the "
+                    "knowledge base has already been renamed, but no agent "
+                    "could be examined, so disabled_tools entries may still "
+                    "reference the old tool name",
+                    kb_id,
+                    old_tool_name,
+                    new_tool_name,
+                    exc_info=True,
+                )
+            else:
+                await rename_kb_tool_references(agent_store, kb_id, old_tool_name, new_tool_name)
     return updated.model_dump()
 
 
 @router.delete("/knowledge-bases/{kb_id}")
 async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
     repo = await _kb_repo()
-    try:
-        await repo.delete(kb_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+    item_repo = await _kb_item_repo()
+    # Flight 3 Leg 3, AC-10: stop kb_id's worker (if a manager is
+    # installed) BEFORE the repository delete, so no worker is mid-item
+    # on rows about to be cascaded. A no-op for an untracked kb_id.
+    manager = get_indexing_manager()
+    # Flight 4 Leg 3, DD-3/DD-8: suppress kb_id's watch timer for the
+    # whole stop -> delete -> store-delete sequence, closing the same race
+    # AC-10 closed for indexing alone (a reconcile tick or a sibling
+    # folder's timer restarting the worker between `manager.stop` and the
+    # repository delete). A `None` manager is `contextlib.nullcontext()`.
+    watch = get_watch_manager()
+    async with watch.suppress(kb_id) if watch is not None else contextlib.nullcontext():
+        if watch is not None:
+            await watch.stop_kb(kb_id)
+        if manager is not None:
+            await manager.stop(kb_id)
+        # Flight 7 Leg 2, DD-7/AC-11: enumerate the KB's folders BEFORE
+        # the repository delete below — once `repo.delete` commits, the
+        # `kb_items` rows (and thus the folder ids the walk-skip-counter
+        # keys are keyed on) are gone via FK cascade, and there is nothing
+        # left to enumerate.
+        folders = await item_repo.list_folders(kb_id)
+        try:
+            await repo.delete(kb_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+        # Flight 2 Leg 4: vector-store cleanup happens AFTER the repository
+        # transaction has committed, never inside it (both stores acquire
+        # the write lock themselves — DD-13 forbids nesting). The DB row is
+        # truth; a store failure here is logged and swallowed rather than
+        # surfaced — a stale vector row for a never-recycled id is harmless.
+        try:
+            store = await _vector_store()
+            await store.delete_kb(kb_id)
+        except Exception:
+            logger.exception("vector store delete_kb failed for knowledge base %s", kb_id)
+        # Flight 7 Leg 2, DD-7/AC-11: clean up each folder's walk-skip-
+        # counter kv key — outside `kb_items`' FK cascade by construction
+        # (app_metadata is a separate table), so left alone it would
+        # orphan forever. Same log-and-continue shape as the vector-store
+        # cleanup above: a failure here must not un-delete the knowledge
+        # base that already committed.
+        try:
+            meta_repo = await _app_metadata_repo()
+            for folder in folders:
+                await meta_repo.delete(walk_skip_counters_key(folder.id))
+        except Exception:
+            logger.exception("walk-skip-counter cleanup failed for knowledge base %s", kb_id)
     return {"status": "ok"}
 
 
@@ -1442,24 +1646,549 @@ async def list_kb_items(kb_id: str) -> list[dict[str, Any]]:
 
 @router.post("/knowledge-bases/{kb_id}/items", status_code=201)
 async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
+    # R8: check the KB exists BEFORE validating/inserting the body, so an
+    # unknown kb_id surfaces as 404 rather than leaking the FK violation
+    # as an unhandled 500 IntegrityError.
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
     data = await request.json()
     data["kb_id"] = kb_id
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
-    item = KBItem.model_validate(data)
+    try:
+        item = KBItem.model_validate(data)
+    except ValidationError as e:
+        # Flight 3 Leg 1: the create_knowledge_base 422 shape (:1414-1420)
+        # — a malformed item body used to 500 unhandled.
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+
     repo = await _kb_item_repo()
+    if item.type == "folder":
+        # DD-1: existence -> root -> containment, in that exact order, so
+        # a non-existent path under a registered folder is 422, not 409.
+        canonical = canonicalize(item.path_or_url)
+        if not await asyncio.to_thread(canonical.is_dir):
+            raise HTTPException(
+                status_code=422,
+                detail=f"folder does not exist or is not a directory: {item.path_or_url}",
+            )
+        if is_filesystem_root(canonical):
+            raise HTTPException(
+                status_code=422, detail=f"cannot register the filesystem root: {canonical}"
+            )
+        # DD-6: a folder that equals, contains, or lies inside the data
+        # directory is refused before the containment scan — the app's own
+        # database, WAL and vector sidecar live there, and registering it
+        # (or an ancestor of it) would feed every indexing write back into
+        # the watcher as a new pass forever (Flight 4).
+        if is_within(settings.data_dir, canonical) or is_within(canonical, settings.data_dir):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"folder overlaps the application data directory ({settings.data_dir}); "
+                    "the app's own database and index live there — register a folder that "
+                    "does not contain it"
+                ),
+            )
+        for existing in await repo.list_folders(kb_id):
+            if is_within(canonical, existing.path_or_url) or is_within(
+                existing.path_or_url, canonical
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"folder overlaps registered folder {existing.id}: {existing.path_or_url}"
+                    ),
+                )
+        item = item.model_copy(update={"path_or_url": str(canonical)})
+
     await repo.create(item)
+    if item.type == "folder":
+        _after_folder_registered(kb_id, item)
     return item.model_dump()
+
+
+def _after_folder_registered(kb_id: str, item: KBItem) -> None:
+    """Kick kb_id's indexing worker (Flight 3 Leg 3) and start watching
+    the folder (Flight 4 Leg 3) — a no-op for either manager not
+    installed (pre-lifespan, or a test with none injected)."""
+    manager = get_indexing_manager()
+    if manager is not None:
+        manager.request_index(kb_id)
+    watch = get_watch_manager()
+    if watch is not None:
+        watch.start(kb_id, item)
+
+
+@router.get("/knowledge-bases/{kb_id}/items/{item_id}")
+async def get_kb_item(kb_id: str, item_id: str) -> dict[str, Any]:
+    repo = await _kb_item_repo()
+    try:
+        item = await repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    # Scoping rule (R8): an id that exists but belongs to another KB reads
+    # as unknown — same message and status as a truly-missing id, so ids
+    # never leak across KBs.
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    return item.model_dump()
+
+
+@router.post("/knowledge-bases/{kb_id}/items/{item_id}/retry")
+async def retry_kb_item(kb_id: str, item_id: str) -> dict[str, Any]:
+    """Move a stranded item back to ``pending``.
+
+    Accepts both ``failed`` (operator retry) and ``indexing`` (a process
+    killed mid-index, DD-5) — the same operator intent. Flight 3 Leg 3
+    added two automatic paths that also clear a stranded ``indexing``
+    row — ``IndexingManager.start_all``'s startup ``requeue_stranded()``
+    and the per-pass ``requeue_stranded(kb_id)`` at the top of every
+    worker pass — so this route is no longer the *only* way out, just the
+    operator-immediate one (no restart or re-index request needed). Any
+    other current status is rejected 409 with the current status in the
+    detail.
+    """
+    repo = await _kb_item_repo()
+    try:
+        item = await repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    # Retry's operator intent is narrower than the full DD-5 transition
+    # table's ``pending: {indexing, failed, indexed}`` — an ``indexed``
+    # item can also reach ``pending`` (re-index), but that is a DIFFERENT
+    # operation from retry; only a stranded item (``failed`` or mid-kill
+    # ``indexing``) is a valid retry target.
+    if item.status not in ("failed", "indexing"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot retry item in status '{item.status}'",
+        )
+    try:
+        updated = await repo.update_status(item_id, "pending")
+    except KBItemTransitionError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot retry item in status '{item.status}'",
+        )
+    return updated.model_dump()
 
 
 @router.delete("/knowledge-bases/{kb_id}/items/{item_id}")
 async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
     repo = await _kb_item_repo()
     try:
-        await repo.delete(item_id)
+        item = await repo.get(item_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    # Scoping rule (R8): deleting item X through a KB path it does not
+    # belong to now 404s instead of succeeding.
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+
+    # Flight 3 Leg 3, AC-10: a folder delete stops kb_id's worker first
+    # (no worker mid-item on rows about to be cascaded) and re-kicks it
+    # after (the remaining folders re-walk). A standalone file delete
+    # needs neither — the worker's own per-item catch handles a vanished
+    # row.
+    manager = get_indexing_manager()
+    # Flight 4 Leg 3, DD-3/DD-8: a folder delete also stops the item's
+    # watch entry, under the same kb_id suppression as
+    # delete_knowledge_base — a folder delete only (the standalone-file
+    # branch below needs neither watch nor suppression: there is nothing
+    # watching a lone file). The two 404s above fire before this block, so
+    # no suppression is entered or exited on those paths.
+    watch = get_watch_manager() if item.type == "folder" else None
+    async with watch.suppress(kb_id) if watch is not None else contextlib.nullcontext():
+        if watch is not None:
+            await watch.stop(item_id)
+        if item.type == "folder" and manager is not None:
+            await manager.stop(kb_id)
+
+        ids = await repo.delete(item_id)
+        # Flight 2 Leg 4: same after-the-repository-transaction, log-and-
+        # continue shape as delete_knowledge_base above.
+        if ids:
+            try:
+                store = await _vector_store()
+                await store.delete(kb_id, ids)
+            except Exception:
+                logger.exception("vector store delete failed for kb item %s", item_id)
+
+        # Flight 7 Leg 2, DD-7/AC-11: a folder delete also clears its own
+        # walk-skip-counter kv key. NO enumeration needed — folders cannot
+        # nest (registration 409s on an overlapping folder, and only
+        # ``file`` items ever carry a ``parent_id``), so this item's own
+        # id is the only key there ever was. Deliberately NOT keyed off
+        # ``ids`` above: ``KBItemRepository.delete`` returns removed CHUNK
+        # ids only, never descendant item/folder ids — reusing it here
+        # would clear nothing.
+        if item.type == "folder":
+            try:
+                meta_repo = await _app_metadata_repo()
+                await meta_repo.delete(walk_skip_counters_key(item.id))
+            except Exception:
+                logger.exception("walk-skip-counter cleanup failed for kb item %s", item_id)
+
+        if item.type == "folder" and manager is not None:
+            manager.request_index(kb_id)
+
     return {"status": "ok"}
+
+
+@router.get("/knowledge-bases/{kb_id}/status")
+async def get_kb_status(kb_id: str) -> dict[str, Any]:
+    """Flight 3 Leg 3, DD-8: the per-KB status projection — file-item
+    counts (folders excluded, so Flight 6's inventory never renders a
+    folder as a document), each folder's own walk status, the chunk
+    count, and the indexer's current state word.
+
+    Flight 7 Leg 2 (DD-6/DD-7) adds two ADDITIVE signals — no existing key
+    removed or renamed: `"content_freshness"`, the ``MAX(indexed_at)``
+    across the KB's ``file`` items (see
+    ``KBItemRepository.latest_indexed_at``'s docstring for why this moves
+    iff a file item actually re-indexes, unlike a folder's own
+    ``indexed_at``) — this is what widens
+    ``studio.js::knowledgeItemsSignature`` to see a content-only edit;
+    and each ``folders[]`` entry gains ``"skipped_dirs"``/
+    ``"skipped_entries"``, the last completed walk's persisted counts —
+    both ``None`` for a folder whose walk has never completed ("not yet
+    walked" is a different fact from "walked, skipped nothing").
+    """
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
+    item_repo = await _kb_item_repo()
+    chunk_repo = await _kb_chunk_repo()
+    meta_repo = await _app_metadata_repo()
+    folders = await item_repo.list_folders(kb_id)
+    manager = get_indexing_manager()
+    # Flight 4 Leg 3, DD-8: each folder's watch state and reason, additive
+    # to Flight 3's projection. "off" / `None` with no watch manager
+    # installed, matching `_after_folder_registered`'s no-op shape.
+    watch = get_watch_manager()
+
+    folder_entries = []
+    for f in folders:
+        # DD-7/AC-9: the walk-skip-counter kv record, read through the
+        # SAME shared key helper the write site (manager.py) and both
+        # cleanup sites (delete_kb_item/delete_knowledge_base) use
+        # (AC-11b) — a per-folder read, same cost class as the watch
+        # state/error lookups on the lines directly below.
+        skip_raw = await meta_repo.get(walk_skip_counters_key(f.id))
+        if skip_raw is not None:
+            skip_counts = json.loads(skip_raw)
+            skipped_dirs = skip_counts.get("skipped_dirs")
+            skipped_entries = skip_counts.get("skipped_entries")
+        else:
+            skipped_dirs = None
+            skipped_entries = None
+        folder_entries.append(
+            {
+                "id": f.id,
+                "path": f.path_or_url,
+                "status": f.status,
+                "indexed_at": f.indexed_at,
+                "error": f.error,
+                "watch": watch.state(f.id) if watch is not None else "off",
+                "watch_error": watch.error(f.id) if watch is not None else None,
+                "skipped_dirs": skipped_dirs,
+                "skipped_entries": skipped_entries,
+            }
+        )
+
+    return {
+        "items": await item_repo.count_by_status(kb_id, type="file"),
+        "content_freshness": await item_repo.latest_indexed_at(kb_id, type="file"),
+        "folders": folder_entries,
+        "chunks": await chunk_repo.count_for_kb(kb_id),
+        "indexer": manager.state(kb_id) if manager is not None else "idle",
+    }
+
+
+@router.post("/knowledge-bases/{kb_id}/reindex", status_code=202)
+async def reindex_knowledge_base(
+    kb_id: str, scope: Literal["changed", "all"] = "changed"
+) -> dict[str, Any]:
+    """Flight 3 Leg 3, DD-8: ``changed`` (default) is a plain reconcile
+    pass — ``request_index`` alone, so the next walk picks up new/edited/
+    deleted files and unchanged content is not re-embedded. ``all`` is
+    the recovery hammer — ``requeue_for_reindex`` (every ``indexed``/
+    ``failed`` **file** item back to ``pending``; folders and ``indexing``
+    items untouched) before ``request_index``, so every file is
+    re-extracted and re-embedded."""
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
+    requeued = 0
+    if scope == "all":
+        item_repo = await _kb_item_repo()
+        requeued = await item_repo.requeue_for_reindex(kb_id)
+
+    manager = get_indexing_manager()
+    if manager is not None:
+        manager.request_index(kb_id)
+
+    return {"scope": scope, "requeued": requeued}
+
+
+@router.get("/knowledge-bases/{kb_id}/items/{item_id}/chunks")
+async def get_kb_item_chunks(
+    kb_id: str,
+    item_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+) -> list[dict[str, Any]]:
+    """Flight 3 Leg 3, DD-8: an item's chunks in ``seq`` order, paged.
+    R8 scoping: an item of another KB reads as 404."""
+    item_repo = await _kb_item_repo()
+    try:
+        item = await item_repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+
+    chunk_repo = await _kb_chunk_repo()
+    chunks = await chunk_repo.list_for_item(item_id, limit=limit, offset=offset)
+    return [
+        {
+            "id": c.id,
+            "seq": c.seq,
+            "char_start": c.char_start,
+            "char_end": c.char_end,
+            "text": c.text,
+        }
+        for c in chunks
+    ]
+
+
+@router.get("/knowledge-bases/{kb_id}/items/{item_id}/source")
+async def get_kb_item_source(kb_id: str, item_id: str) -> dict[str, Any]:
+    """Flight 3 Leg 3, DD-8: the source read-back — the extracted text
+    re-run through the item's extractor on demand (never stored; chunks
+    are the stored form and their offsets index into exactly this text).
+    404 if the item or the file is missing; 422 for a ``folder``/``url``
+    item or a ``file`` item with no registered extractor; 413 if the file
+    exceeds ``MAX_FILE_BYTES`` — the route enforces the same 10 MiB cap
+    the indexer does, checked independently here (not inherited from the
+    indexer's own rejection; a file the indexer already failed on for a
+    different reason is still readable here as long as it is under the
+    cap)."""
+    item_repo = await _kb_item_repo()
+    try:
+        item = await item_repo.get(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.kb_id != kb_id:
+        raise HTTPException(status_code=404, detail=f"KB item not found: {item_id}")
+    if item.type != "file":
+        raise HTTPException(status_code=422, detail=f"item type {item.type!r} has no source text")
+
+    path = Path(item.path_or_url)
+    extractor = extractor_for(path)
+    if extractor is None:
+        raise HTTPException(
+            status_code=422, detail=f"no extractor registered for suffix {path.suffix!r}"
+        )
+
+    try:
+        st = await asyncio.to_thread(path.stat)
+    except (FileNotFoundError, NotADirectoryError):
+        raise HTTPException(status_code=404, detail=f"file not found: {path}")
+
+    if st.st_size > MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(f"file exceeds the 10 MiB read-back cap ({st.st_size} bytes)"),
+        )
+
+    try:
+        text = await asyncio.to_thread(extractor.extract, path)
+    except ExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    digest = await asyncio.to_thread(content_hash, path)
+    stale = item.content_hash is None or digest != item.content_hash
+
+    return {
+        "path": str(path),
+        "size_bytes": st.st_size,
+        "content_hash": item.content_hash,
+        "stale": stale,
+        "text": text,
+    }
+
+
+@router.get("/knowledge-bases/{kb_id}/search")
+async def search_knowledge_base(
+    kb_id: str,
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=20),
+) -> dict[str, Any]:
+    """Flight 6 Leg 1, DD-6: the operator-facing, read-only search route —
+    the missing HTTP entry point onto ``retrieval.search`` that Flight 5's
+    debrief asked for. Wraps the exact dependency wiring
+    ``knowledge/tool.py``'s ``KBSearchTool`` uses: repositories off the
+    request connection, the process-wide vector store, and the embedding
+    backend resolved under ``asyncio.to_thread`` (synchronous + lock-
+    taking — must not run directly on the event loop).
+
+    ``q`` is required and non-empty at the route bound (422 on missing or
+    empty); a whitespace-only ``q`` passes the bound and falls through to
+    ``retrieval.search``'s own documented no-op — a 200 with zero hits,
+    touching neither the store nor the backend. Deliberate split: the
+    route rejects a malformed request, but a real query that matches
+    nothing is not an error.
+
+    Renders no per-hit provenance and does not widen ``SearchHit``
+    (Architect cycle 2) — ``dataclasses.asdict`` serializes it verbatim.
+    """
+    kb_repo = await _kb_repo()
+    try:
+        await kb_repo.get(kb_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
+
+    chunk_repo = await _kb_chunk_repo()
+    item_repo = await _kb_item_repo()
+    store = await _vector_store()
+    # Synchronous + lock-taking — must not run directly on the event loop
+    # (same rationale as knowledge/tool.py's KBSearchTool.execute).
+    backend = await asyncio.to_thread(get_embedding_backend)
+
+    result = await kb_search(
+        kb_id,
+        q,
+        limit=limit,
+        chunk_repo=chunk_repo,
+        item_repo=item_repo,
+        store=store,
+        backend=backend,
+    )
+    manager = get_indexing_manager()
+    return {
+        "hits": [dataclasses.asdict(h) for h in result.hits],
+        "degraded": result.degraded,
+        "indexer": manager.state(kb_id) if manager is not None else "idle",
+    }
+
+
+# ── Knowledge settings ───────────────────────────────────────────────────
+
+_KNOWLEDGE_SETTINGS_NOTES = [
+    "Chunking changes apply to items indexed after the change; existing chunks are not re-chunked.",
+    "The embedding backend is fixed to the bundled local model in this release.",
+    "Monitoring changes (the watcher on/off switch and the reconciliation "
+    "interval) apply immediately.",
+]
+
+
+async def _knowledge_settings_conn():
+    return await get_connection()
+
+
+async def _knowledge_settings_response(conn, current: KnowledgeSettings) -> dict[str, Any]:
+    # Flight 2 Leg 4: `vector_store` is store-written (DD-3/DD-6, never
+    # accepted by the PUT route below — the existing top-level-key guard
+    # already 422s it) and read fresh on every response since it is
+    # independent of `current`'s embedding/chunking values.
+    vector_store = await load_vector_store_settings(conn)
+    return {
+        "embedding": current.embedding.model_dump(),
+        "chunking": current.chunking.model_dump(),
+        "monitoring": current.monitoring.model_dump(),
+        "vector_store": vector_store.model_dump(),
+        "notes": list(_KNOWLEDGE_SETTINGS_NOTES),
+    }
+
+
+@router.get("/knowledge-settings")
+async def get_knowledge_settings() -> dict[str, Any]:
+    conn = await _knowledge_settings_conn()
+    current = await load_knowledge_settings(conn)
+    return await _knowledge_settings_response(conn, current)
+
+
+@router.put("/knowledge-settings")
+async def update_knowledge_settings(request: Request) -> dict[str, Any]:
+    data = await request.json()
+    if not isinstance(data, dict) or set(data) - {"embedding", "chunking", "monitoring"}:
+        raise HTTPException(
+            status_code=422,
+            detail="body must contain only 'embedding', 'chunking' and/or 'monitoring' keys",
+        )
+
+    # Leg 5 review fix-now: a non-dict `embedding`/`chunking`/`monitoring`
+    # value (e.g. a string or list) must 422, not raise an uncaught
+    # TypeError out of `dict.update()` below and surface as an unhandled
+    # 500.
+    for key in ("embedding", "chunking", "monitoring"):
+        if key in data and not isinstance(data[key], dict):
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{key}' must be an object, got {type(data[key]).__name__}",
+            )
+
+    conn = await _knowledge_settings_conn()
+    current = await load_knowledge_settings(conn)
+
+    merged_embedding = current.embedding.model_dump()
+    if "embedding" in data:
+        merged_embedding.update(data["embedding"])
+    merged_chunking = current.chunking.model_dump()
+    if "chunking" in data:
+        merged_chunking.update(data["chunking"])
+    merged_monitoring = current.monitoring.model_dump()
+    if "monitoring" in data:
+        merged_monitoring.update(data["monitoring"])
+
+    try:
+        updated = KnowledgeSettings(
+            embedding=EmbeddingSettings.model_validate(merged_embedding),
+            chunking=ChunkingSettings.model_validate(merged_chunking),
+            monitoring=MonitoringSettings.model_validate(merged_monitoring),
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+
+    await save_knowledge_settings(conn, updated)
+    # DD-5: applied live, not only on the next indexing pass (unlike
+    # chunking) — the operator chose settings over env vars precisely so
+    # the on/off switch and the interval are switches. This is the
+    # `leg-staged-hook-seam` (agents.md): a documented no-op here, filled
+    # by Leg 3 with `get_watch_manager().apply_settings(...)`.
+    await _after_monitoring_settings_changed(updated.monitoring)
+    return await _knowledge_settings_response(conn, updated)
+
+
+async def _after_monitoring_settings_changed(monitoring: MonitoringSettings) -> None:
+    """Apply a saved `MonitoringSettings` change live (Flight 4 DD-5).
+
+    Filled in by Leg 3: `await get_watch_manager().apply_settings(
+    monitoring)` — a `None` manager (pre-lifespan, or a test with none
+    injected) is a no-op, the `_after_folder_registered` shape.
+    `apply_settings` is itself idempotent (disabled -> stop and forget
+    every entry; enabled -> re-subscribe every folder of every knowledge
+    base; either way the reconcile loop wakes so a changed interval
+    applies immediately). Awaited by the route only after a successful
+    `save_knowledge_settings`, never on a 422 path.
+    """
+    watch = get_watch_manager()
+    if watch is not None:
+        await watch.apply_settings(monitoring)
 
 
 # ── MCP Sources ───────────────────────────────────────────────────────────
@@ -4640,11 +5369,18 @@ async def rotate_encryption_key() -> dict[str, str]:
     conn = await get_connection()
 
     # 1. Decrypt existing rows with the current encryptor. NOTE: Between this
-    #    first SELECT and the final commit() below, this function MUST issue
-    #    only DML statements (SELECT/UPDATE). Per the schema.py v8 docstring,
-    #    aiosqlite silently COMMITs before any non-DML statement (PRAGMA,
-    #    DDL, BEGIN), which would split the rotation into two separately-
-    #    committed transactions and break the atomicity contract.
+    #    first SELECT and the write_transaction() block below (whose exit is
+    #    the commit), this function issues only SELECT statements — no
+    #    PRAGMA/DDL/BEGIN. Under aiosqlite's default isolation_level="" mode,
+    #    a transaction is opened by the first DML statement and stays open
+    #    only until an explicit commit()/rollback() — DDL and PRAGMA do NOT
+    #    auto-commit (that behavior was removed in Python 3.6). What
+    #    actually splits a transaction is *another coroutine's* commit() on
+    #    the shared connection landing between two of this function's
+    #    statements; write_transaction() (the_one/db/_write_lock.py) is what
+    #    prevents that for the write below by holding the write lock across
+    #    it (Squawk 0051; see Flight 2 DD-13 and the corrected comment at
+    #    schema.py's v8 migration block for the measured rule).
     async with conn.execute(
         "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
     ) as cur:
@@ -4800,56 +5536,61 @@ async def rotate_encryption_key() -> dict[str, str]:
         )
         raise HTTPException(status_code=500, detail="could not stage new encryption key") from None
 
-    # 4. Write all rows in a single transaction and commit. If anything in
-    #    this block raises, roll the transaction back, discard the staged
-    #    sidecar, and re-raise so the connection cache does not surface
+    # 4. Write all rows inside one write_transaction() (DD-13, Flight 2 Leg
+    #    1) and commit. If anything in this block raises, the guard rolls
+    #    the transaction back on exit; we additionally discard the staged
+    #    sidecar and re-raise so the connection cache does not surface
     #    uncommitted ciphertext encrypted with the new (not-yet-on-disk)
     #    key. The key file is untouched at this point, so re-raising
-    #    leaves the system fully recoverable. The single commit() covers
+    #    leaves the system fully recoverable. The single transaction covers
     #    ALL SEVEN surfaces (llm_providers.api_key, llm_providers.secrets,
     #    mcp_sources.secrets, connectors.secrets, agents.tool_overrides /
     #    agents.mcp_overrides, tool_configs.secrets,
     #    agent_external_credentials.secret) — a failure in any UPDATE loop
     #    rolls back all of them atomically.
     try:
-        for pid, ct in reencrypted:
-            await conn.execute(
-                "UPDATE llm_providers SET api_key = ? WHERE id = ?",
-                (ct, pid),
-            )
-        for pid, ct in reencrypted_provider_secrets:
-            await conn.execute(
-                "UPDATE llm_providers SET secrets = ? WHERE id = ?",
-                (ct, pid),
-            )
-        for sid, ct in reencrypted_mcps:
-            await conn.execute(
-                "UPDATE mcp_sources SET secrets = ? WHERE id = ?",
-                (ct, sid),
-            )
-        for aid, ct in reencrypted_connectors:
-            await conn.execute(
-                "UPDATE connectors SET secrets = ? WHERE id = ?",
-                (ct, aid),
-            )
-        for agent_name, tool_ct, mcp_ct in reencrypted_agents:
-            await conn.execute(
-                "UPDATE agents SET tool_overrides = ?, mcp_overrides = ? WHERE name = ?",
-                (tool_ct, mcp_ct, agent_name),
-            )
-        for tool_name, ct in reencrypted_tool_configs:
-            await conn.execute(
-                "UPDATE tool_configs SET secrets = ? WHERE name = ?",
-                (ct, tool_name),
-            )
-        for identifier, ct in reencrypted_ext_credentials:
-            await conn.execute(
-                "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
-                (ct, identifier),
-            )
-        await conn.commit()
-    except Exception:
-        await conn.rollback()
+        async with write_transaction(conn):
+            for pid, ct in reencrypted:
+                await conn.execute(
+                    "UPDATE llm_providers SET api_key = ? WHERE id = ?",
+                    (ct, pid),
+                )
+            for pid, ct in reencrypted_provider_secrets:
+                await conn.execute(
+                    "UPDATE llm_providers SET secrets = ? WHERE id = ?",
+                    (ct, pid),
+                )
+            for sid, ct in reencrypted_mcps:
+                await conn.execute(
+                    "UPDATE mcp_sources SET secrets = ? WHERE id = ?",
+                    (ct, sid),
+                )
+            for aid, ct in reencrypted_connectors:
+                await conn.execute(
+                    "UPDATE connectors SET secrets = ? WHERE id = ?",
+                    (ct, aid),
+                )
+            for agent_name, tool_ct, mcp_ct in reencrypted_agents:
+                await conn.execute(
+                    "UPDATE agents SET tool_overrides = ?, mcp_overrides = ? WHERE name = ?",
+                    (tool_ct, mcp_ct, agent_name),
+                )
+            for tool_name, ct in reencrypted_tool_configs:
+                await conn.execute(
+                    "UPDATE tool_configs SET secrets = ? WHERE name = ?",
+                    (ct, tool_name),
+                )
+            for identifier, ct in reencrypted_ext_credentials:
+                await conn.execute(
+                    "UPDATE agent_external_credentials SET secret = ? WHERE identifier = ?",
+                    (ct, identifier),
+                )
+    except BaseException:
+        # BaseException (not Exception): write_transaction's guard
+        # (the_one/db/_write_lock.py:73) rolls back on BaseException, so a
+        # CancelledError/KeyboardInterrupt mid-block would skip this
+        # discard under a narrower catch, leaving a pending key staged
+        # (squawk 0057).
         encryptor.discard_pending_key()
         raise
 

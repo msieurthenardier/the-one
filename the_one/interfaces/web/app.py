@@ -62,10 +62,12 @@ from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     ChatSessionRepository,
     ConnectorRepository,
+    KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
     SQLiteAgentStore,
 )
+from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.handoff_store import HANDOFF_QUERY_PARAM, mint_handoff_credential
@@ -75,6 +77,10 @@ from the_one.interfaces.web.middleware import (
     OriginAllowlistMiddleware,
     build_default_allowlist,
 )
+from the_one.knowledge.manager import IndexingManager
+from the_one.knowledge.manager import set_manager as _set_module_indexing_manager
+from the_one.knowledge.watcher import WatchManager
+from the_one.knowledge.watcher import set_manager as _set_module_watch_manager
 from the_one.llm.base import (
     OPERATOR_VISIBILITY,
     ContentBlock,
@@ -100,6 +106,7 @@ from the_one.sessions import (
     subscribers_for,
 )
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
+from the_one.vectors import close_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +330,53 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _set_module_connector_manager(_connector_manager)
         except Exception:
             logger.exception("connector manager startup failed")
+
+        # M24 F02 L03, DD-1: kick the embedding warm-up AFTER the connector
+        # manager start above, gated on at least one knowledge base already
+        # existing — an operator who never creates a KB never pays the
+        # ~250 MiB model load. Own try/except (a scheduling failure must not
+        # kill app startup, mirroring the other startup blocks); `warm_up()`
+        # itself also never raises (it logs a loader failure internally), so
+        # this only guards the `count()` read and the `create_task` call.
+        # Squawk 0055: the task handle is held inside
+        # ``the_one.embeddings`` (not discarded here) so it can't be
+        # garbage-collected mid-flight.
+        try:
+            if await KnowledgeBaseRepository(await get_connection()).count() > 0:
+                _schedule_embedding_warm_up()
+        except Exception:
+            logger.exception("embedding warm-up scheduling failed")
+
+        # M24 F03 L03, DD-7: construct the indexing manager and publish it
+        # via the module accessor BEFORE start_all runs (not after, unlike
+        # the connector-manager block above) — the shutdown drain below
+        # reads the local `_indexing_manager` global, not the accessor, so
+        # publishing early just means a route reaching the manager mid-
+        # startup sees a real (if not yet fully started) instance rather
+        # than None. Own try/except around start_all only, mirroring the
+        # other startup blocks (a requeue/settings-write failure must not
+        # kill app startup).
+        global _indexing_manager
+        _indexing_manager = IndexingManager()
+        _set_module_indexing_manager(_indexing_manager)
+        try:
+            await _indexing_manager.start_all()
+        except Exception:
+            logger.exception("indexing manager startup failed")
+
+        # M24 F04 L03, DD-7: construct the watch manager and publish it via
+        # the module accessor BEFORE its own guarded start_all runs — the
+        # same shape as the indexing-manager block above. Own try/except
+        # around start_all only (a subscribe/settings-load failure must not
+        # kill app startup); an operator with no folders pays one sleeping
+        # reconcile-loop task.
+        global _watch_manager
+        _watch_manager = WatchManager(index_manager=_indexing_manager)
+        _set_module_watch_manager(_watch_manager)
+        try:
+            await _watch_manager.start_all()
+        except Exception:
+            logger.exception("watch manager startup failed")
         yield
         # Drain the PTY session registry on shutdown — cancels the idle
         # reaper task and closes any live sessions. Wrapped in
@@ -346,6 +400,38 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if _inflight_resume_tasks:
             with contextlib.suppress(Exception):
                 await asyncio.gather(*list(_inflight_resume_tasks), return_exceptions=True)
+        # M24 F04 L03, DD-7: drain the watch manager immediately before the
+        # indexing manager's own drain below — no `request_index` can land
+        # on an indexing manager that is stopping workers. Own try/except
+        # (a subscription that hangs must not kill the rest of shutdown);
+        # the two cleanup lines sit outside the try/except, mirroring the
+        # indexing-manager block below, so the accessor is cleared even
+        # when `drain()` raises.
+        if _watch_manager is not None:
+            try:
+                await _watch_manager.drain()
+            except Exception:
+                logger.exception("watch manager shutdown failed")
+            _set_module_watch_manager(None)
+            _watch_manager = None
+        # M24 F03 L03, DD-7: drain the indexing manager right after the
+        # in-flight/resume task gathers and before the reaper drain — a KB
+        # worker mid-item gets its cooperative-stop-then-flush budget
+        # before any other shutdown work begins. Concurrent per-KB stop
+        # inside `drain()` bounds this to 20s + 20s regardless of KB count.
+        # M24 F07 L01, AC-6a: captured INSIDE this `if` block, before the
+        # two lines below null both the module accessor and this local —
+        # a read taken after this block sees only `None`/empty. Threaded
+        # into the close_vector_store() call near close_connection() below.
+        _cancel_report_kb_ids: frozenset[str] = frozenset()
+        if _indexing_manager is not None:
+            try:
+                await _indexing_manager.drain()
+            except Exception:
+                logger.exception("indexing manager shutdown failed")
+            _cancel_report_kb_ids = _indexing_manager.cancelled_kb_ids()
+            _set_module_indexing_manager(None)
+            _indexing_manager = None
         # F05 L01: drain the web-session idle reaper after in-flight task drains
         # and before the PTY session registry drain. Cancels the reaper task and
         # closes all remaining in-memory sessions.
@@ -455,6 +541,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # but symmetric with the startup ``set_factory`` call and keeps
         # subsequent tests from observing a stale slot.
         _set_module_factory(None)
+        # M24 F07 L01, DD-3/DD-3a: close the vector store AFTER the
+        # indexing-manager drain above (that drain flushes each worker's
+        # own knowledge base) and BEFORE close_connection() below
+        # (UsearchStore.flush() writes through self.conn via
+        # _upsert_registry_row()). Called UNCONDITIONALLY (AC-6b) — a store
+        # can exist and be dirty with no indexing manager at all (e.g. the
+        # item-delete route's direct write, api.py's _vector_store()); when
+        # there is no manager, `_cancel_report_kb_ids` is the empty
+        # frozenset set above and nothing is skipped for that reason. Never
+        # builds a store to close it (close_vector_store()'s own no-op
+        # when `_store is None`).
+        try:
+            await close_vector_store(skip_kb_ids=_cancel_report_kb_ids)
+        except Exception:
+            logger.exception("vector store shutdown failed")
         await close_connection()
 
 
@@ -497,6 +598,19 @@ _state: dict[str, Any] = {}
 # accessor (`_set_module_connector_manager`) for non-web-layer consumers
 # (the send/history tools; ``the_one.connectors.manager.get_manager``).
 _connector_manager: ConnectorManager | None = None
+
+# M24 F03 L03: the running indexing manager. Mirrors `_connector_manager`
+# above — the lifespan's own local global (what shutdown's drain reads)
+# alongside the module-level accessor (`_set_module_indexing_manager`,
+# what routes reach via `the_one.knowledge.manager.get_manager`).
+_indexing_manager: IndexingManager | None = None
+
+# M24 F04 L03, DD-7: the running watch manager. Same shape as
+# `_indexing_manager` above — the lifespan's own local global (what
+# shutdown's drain reads) alongside the module-level accessor
+# (`_set_module_watch_manager`, what routes reach via
+# `the_one.knowledge.watcher.get_manager`).
+_watch_manager: WatchManager | None = None
 
 # Mission 23 Flight 2 Leg 2: True for the lifetime of a lifespan cycle iff
 # THIS process's dual-gated startup hook registered the "stub" connector

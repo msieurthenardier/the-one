@@ -6,7 +6,7 @@ technical spec and uses project-side agents to validate against the real codebas
 ## Crew
 
 ### Architect
-- **Context**: {project}/
+- **Context**: project root (current working directory)
 - **Model**: Opus
 - **Role**: Reviews flight specs for technical soundness. Validates design
   decisions, prerequisites, technical approach, and leg breakdown against
@@ -29,7 +29,7 @@ The Flight Director substitutes these variables in prompts at runtime:
 
 | Variable | Description |
 |----------|-------------|
-| `{project-slug}` | Project identifier from projects.md |
+| `{project-slug}` | Project identifier — the repository directory name, or the name from the git remote |
 | `{flight-number}` | Current flight number |
 | `{flight-artifact-path}` | Path to the flight artifact file |
 
@@ -48,6 +48,13 @@ Read the flight artifact at {flight-artifact-path}. Cross-reference its design
 decisions, prerequisites, technical approach, and leg breakdown against the actual
 codebase state and architecture best practices.
 
+**Read in Developer order first.** Before evaluating rationale prose, read the
+numbered Design Decisions and the Legs list top to bottom in that order,
+implementing each mentally as you go — the order a Developer would encounter
+them. This is what surfaces a decision that a later one silently superseded
+but whose stale text is still sitting upstream: it reads fine in isolation and
+is invisible to a review that jumps straight to rationale.
+
 Evaluate:
 1. Design decisions — are they sound given the real codebase and architecture?
 2. Prerequisites — are they accurate? Is anything missing or already done?
@@ -56,6 +63,9 @@ Evaluate:
 5. Codebase state — does the spec account for current working tree, existing tooling,
    and conventions that might affect implementation?
 6. Architecture — does the approach maintain or improve system structure?
+7. Environment-derived defaults — for each planning premise probe against a library or tool, does its behavior depend on something the environment or platform supplies (a kernel release, an env var, an OS check)? If so, does the spec show that default pinned explicitly before the probe's result is trusted, rather than measured under whatever backend the probing host happened to select?
+8. External-session prerequisites — for each prerequisite that depends on a session external to this planning pass (a login, a worker, a token), does the spec call for a per-leg re-verify at implementation time rather than relying on a one-time check made during planning?
+9. Citation Audit — spot-check a sample of its rows against the actual codebase yourself; do not trust a `verified` mark at face value. Confirm the cited `file:symbol` exists and actually has the asserted signature, control flow, exception type, mutability, or cardinality. A stale or fabricated citation is exactly the defect class this audit exists to catch, and it only works if reviewers re-check it.
 
 Provide structured output:
 

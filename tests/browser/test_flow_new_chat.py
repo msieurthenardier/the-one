@@ -211,6 +211,37 @@ def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page:
     expect(page.locator(".chat-chrome")).to_be_hidden()
 
 
+@pytest.mark.browser
+def test_session_delete_confirm_lapse_is_visually_distinct(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the chat session-delete
+    confirm (`chat.js:1140`) is distinguishable on screen from one that was
+    never armed, past the real 3s `revertMs`. Unlike the other 12 sites,
+    `App.chat.renderSessionList` fully rebuilds every row on ANY
+    `session_list` WS message (no keyed reconciliation) — the leg finding
+    records this as a limitation of the fix at this one site (a concurrent
+    background session_list broadcast would wipe the cue), but nothing in
+    this quiescent single-session test triggers one."""
+    page.goto(app_with_agent.base_url)
+    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(
+        app_with_agent.agent_name, timeout=8000
+    )
+
+    row = page.locator(".area-chat .session-group-list .list-item").first
+    expect(row).to_be_visible(timeout=5000)
+    expect(row).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    row.hover()
+    row.locator(".list-item-delete").click()
+    expect(row).to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=2000)
+
+    expect(row).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(row).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    # Never committed: still on the same session, chrome still visible.
+    expect(page.locator(".chat-chrome")).to_be_visible()
+
+
 # ── Chat history grouping ────────────────────────────────────────────────
 
 

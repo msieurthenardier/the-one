@@ -1,0 +1,52 @@
+# Squawk 0085: static assets are cache-busted by app version, so dev edits serve stale
+
+**Status**: open
+**Type**: defect
+**Severity**: routine
+**Reported**: 2026-09-19
+**Completed**: —
+
+## Report
+
+`static/index.html`'s asset references carry `?v={__version__}` — the **package
+version**, not anything derived from the files themselves. So a browser that has
+cached `knowledge-section.js?v=0.8.1` keeps serving it until the version string
+changes, regardless of how many times the source was edited and the server
+restarted.
+
+For a release this is fine: a shipped build bumps the version. For **development
+it is a footgun with no signal** — `make restart` reports success, the server
+genuinely serves the new bytes, and the operator's browser silently runs the old
+ones. Nothing on screen distinguishes "the fix didn't work" from "you are looking
+at cached JavaScript".
+
+**Observed during Mission 24 Flight 6's HAT**, which is exactly where it should
+surface. Three landed UI changes appeared not to have shipped. The server was
+verified to be serving the new code (`buildItemMenu` ×3, `refreshItemsListNow` ×2,
+`kb-edit` ×7, fetched over HTTP); the browser was serving a cached
+`?v=0.8.1`. A hard reload resolved it. Cost a round trip and briefly cast doubt on
+a change that was correct.
+
+## Evidence
+
+- `the_one/interfaces/web/api.py` — the index template substitutes
+  `"version": __version__`, and assets render as
+  `knowledge-section.js?v=0.8.1`.
+- `tests/test_index_asset_cache_busting.py` asserts every `/static` js/css ref
+  carries the version parameter — so the mechanism is deliberate, and this squawk
+  is about the **key**, not the presence of busting.
+
+## Disposition
+
+The fix shape is conventional but is a small design choice, so name it rather than
+assume it: in dev mode (`THE_ONE_DEV_MODE=true`), key the parameter to each file's
+**mtime** (or a short content hash) instead of the package version, leaving release
+behaviour exactly as it is. That keeps production caching efficient — one stable
+key per release — while making a dev restart always serve what is on disk.
+
+Scoping it to dev mode avoids the obvious cost of per-file hashing on every
+production page load, and matches how the project already gates other
+developer-only behaviour.
+
+`tests/test_index_asset_cache_busting.py` will need updating alongside — it
+currently pins the total ref count and the version-keyed shape.

@@ -570,6 +570,58 @@ Flight 2)". The security-relevant invariants are:
   `_clean_npx`, raises `ValueError` before any path operation.
   Established in F1 M09 Leg 3 after a design-review catch (the original
   draft used the broken char-class allowlist).
+- **No native SQLite extension is loaded anywhere in the app (M24 F2 L06,
+  DD-10)**: the vector-store seam's only backend (`the_one/vectors/usearch_store.py`,
+  DD-9) is `usearch` — an ordinary imported Python extension module, not a
+  SQLite extension, and it never touches the app's SQLite connection at
+  all (its HNSW index lives in a separate sidecar file, per DD-3). The app
+  never calls `sqlite3.Connection.enable_load_extension` anywhere. A
+  candidate backend that loaded a native SQLite extension (`sqlite-vec`'s
+  `vec0`, via `enable_load_extension`) was benchmarked in Flight 2 Legs
+  4-5 and removed from the closure in Leg 6 after the operator's DD-9
+  decision; this paragraph is retired along with it.
+- **Knowledge-base indexing (M24 F3)**: registering a folder or file as a
+  knowledge-base source is operator-only through the API — no agent-facing
+  route creates `kb_items` (Flight 5's tools are read-only search). Once
+  registered, the app reads a folder's contents with its own process
+  privileges and no allowlist applies: the operator is choosing what their
+  agents may read, the same trust boundary as everything else under the
+  single-user, local-only model. The walk (`the_one/knowledge/walk.py`)
+  skips dot-prefixed entries and the `SKIPPED_DIRS` set by construction —
+  not a security boundary, a scope-of-indexing default. Extracted chunk
+  text is stored in plaintext in the SQLite database, like every other
+  record under this model. Registration refuses (422) a folder that
+  equals, contains, or lies inside the application data directory (M24
+  F4) — the app's own database, WAL and vector sidecar live there, so
+  this keeps the app's own files out of the index and keeps indexing
+  writes from feeding a change-monitoring watcher back into itself. That
+  same watcher (`the_one/knowledge/watcher.py`) registers operating-system
+  change notifications on the operator-chosen folder trees and reads them
+  with the app's own process privileges — the same trust boundary as the
+  walk above, no new one introduced.
+- **Agent-facing retrieval is attachment-scoped (M24 F5)**: an agent reaches
+  exactly the knowledge bases the operator attached to it
+  (`AgentConfig.kb_ids`) — one `kb__{slug}__search` tool is built per
+  attachment, and the tool instance carries its `kb_id` as a constructor
+  argument, never a value the model supplies as a tool-call argument, so it
+  is not forgeable through the LLM's tool-call interface (`ToolRegistry`
+  gates on tool *name*, and the registry only ever contains tools for
+  knowledge bases actually in `kb_ids`). There is no agent-facing route that
+  creates or attaches a knowledge base — attachment is operator-only through
+  the API, the same boundary as registering a folder above — so the set of
+  knowledge bases an agent can search is entirely operator-determined.
+- **Operator-facing search route (M24 F6, DD-6)**: `GET
+  /api/knowledge-bases/{kb_id}/search` — the route Studio's Knowledge
+  inventory uses to preview `retrieval.search` for a human operator — sits
+  behind the same credential gate as every other route (see
+  "Authentication" above). That means any caller holding the long-lived
+  local-API credential, including an agent that obtained it (e.g. through
+  the `shell` tool reading `<data_dir>/api-credential`, or a self-configuration
+  MCP tool acting under its own scoped credential), can reach it. This is
+  the existing single-user trust model applied to one more route, not a new
+  hole introduced by this route — worth stating explicitly rather than
+  leaving implicit, because the route is read-only and returns chunk text
+  the operator may not have expected to be reachable this way.
 
 ## Boxed Execution Mode (M14 F4)
 

@@ -124,6 +124,80 @@ static_datas = collect_data_files(
 # survival class as the provider tree-shake above, one layer down at the data file.
 seed_datas = collect_data_files("the_one", includes=["llm/data/*.json"])
 
+# Bundled float16 embedding model (M24 F01 L02, DD-1/DD-2): the five-file
+# `potion-retrieval-32M` directory under the_one/embeddings/data/ is the
+# mission's default embedding backend, loaded at runtime via
+# importlib.resources.files("the_one.embeddings")/"data"/"potion-retrieval-32M"
+# (the_one/diagnostics.py:_probe_embedding_model). Exactly the same two-sided
+# requirement as the model-catalog seed above: the pyproject.toml package-data
+# glob covers the wheel/sdist path and NOT this one, and collect_submodules
+# ships the `the_one.embeddings` module but none of its data. Without this
+# collection the frozen bundle has no weights at all.
+#
+# collect_data_files IS the right mechanism here, unlike the Flight 1
+# native-loadable-extension case below: its unconditional exclusion of
+# importlib.machinery.all_suffixes() blocks only importable extension
+# suffixes (.so/.pyd/.py), and every file in this directory is .json,
+# .safetensors or .md. The **/* glob must cover all
+# five files — model2vec's loader validates the layout, so a partial glob fails
+# at load rather than degrading silently.
+#
+# Failure mode if this is dropped: the `embedding model` doctor gate FAILS the
+# build (it is unconditional per DD-7), which is the point — a tree-shaken model
+# directory would otherwise be a silent fetch from the Hugging Face hub on any
+# networked machine. The probe asserts the packaged path exists and sets
+# HF_HUB_OFFLINE=1 before loading precisely so that cannot happen.
+#
+# NO hook and NO hiddenimports entry is needed for the native payloads this
+# pulls in. Verified against a real one-dir build: `tokenizers.abi3.so`,
+# `_safetensors_rust.abi3.so` and hf-xet's extension are ordinary importable
+# extension modules, so PyInstaller's module graph collects them unaided.
+# pyinstaller-hooks-contrib ships no hook for tokenizers, safetensors,
+# huggingface_hub or model2vec — do not go looking for one.
+embedding_datas = collect_data_files("the_one", includes=["embeddings/data/**/*"])
+
+# A native loadable-extension collection lesson from Flight 1 (a vector-store
+# candidate removed from the closure in Flight 2 Leg 6): `collect_data_files`
+# silently drops `.so` files (it excludes every
+# `importlib.machinery.all_suffixes()` entry), so a native library that is
+# data to the module graph — nothing imports it, it is opened by path at
+# runtime — needs `collect_dynamic_libs` with explicit `search_patterns`, not
+# `collect_data_files`, or the frozen bundle silently ships nothing on Linux
+# while appearing to work elsewhere.
+#
+# usearch.compiled and numkong._numkong need NO spec entry — both are ordinary
+# importable extension modules, so PyInstaller's module graph collects them with
+# no configuration (verified against a no-hook one-dir build).
+#
+# ── numkong / SIMD on Windows: do NOT go hunting here ────────────────────────
+# The frozen Windows doctor reports `numkong=no, simd=serial` while Linux
+# reports `numkong=yes, simd=haswell`. That asymmetry is NOT a packaging defect
+# and no spec entry, PyInstaller hook, add_dll_directory, or binaries tuple can
+# change it. Evidence, taken from the published wheels themselves:
+#
+#   * usearch's Linux `compiled.*.so` has UNDEFINED `nk_*` symbols (nk_capabilities,
+#     nk_find_kernel_punned, ...), resolved from the numkong `.so` that
+#     usearch/__init__.py loads with RTLD_GLOBAL, and carries the full ISA name
+#     table (haswell/skylake/icelake/genoa/...).
+#   * usearch's `win_amd64` `compiled.cp311-win_amd64.pyd` has ZERO `nk_`
+#     references, no import-table entry for `_numkong*.pyd`, an EMPTY delay-import
+#     directory, no GetProcAddress/LoadLibrary in its KERNEL32 imports, and
+#     `serial` as its only ISA name string. It has no code path that can call
+#     numkong. Checked across 2.16.0, 2.20.0, 2.25.0, 2.26.0 and 2.26.2 (latest):
+#     every Windows wheel is built the same way.
+#   * numkong's own `win_amd64` wheel is fine — it exports the whole `nk_*`
+#     surface and ships all ISA kernels; it is simply not linked to.
+#   * macOS is NOT affected: the `macosx_11_0_arm64` wheel carries `nk_*`
+#     references and neon/haswell/skylake ISA names like Linux. Windows is the
+#     lone outlier of the three platforms this mission targets.
+#
+# `USES_NUMKONG` is therefore compile-time, and 0 in every published Windows
+# usearch wheel. Changing it would mean building usearch from source on Windows,
+# which is far outside this leg. The doctor's usearch line says so explicitly
+# (the_one/diagnostics.py:_numkong_extension_state) so the next reader does not
+# repeat the search. numkong stays in the bundle regardless: usearch/__init__.py
+# imports it unconditionally, so removing it would only trade dead weight for a
+# swallowed ImportError.
 # cryptography and pywebview (->pythonnet/clr_loader: Python.Runtime.dll,
 # WebBrowserInterop) ship maintained PyInstaller contrib hooks — let those
 # hooks collect their datas/binaries/hiddenimports rather than hand-rolling
@@ -145,6 +219,19 @@ hiddenimports = [
     # aiosqlite + the stdlib sqlite3 C-extension backing it.
     "aiosqlite",
     "sqlite3",
+    # M24 F01 L02 (updated M24 F02 L03) — `the_one.embeddings` IS now
+    # imported as a module (`the_one.diagnostics` and `the_one.knowledge.settings`
+    # both import from `the_one.embeddings.local` at module load time), so
+    # PyInstaller's static analysis DOES see this package today. The entry
+    # stays anyway: `the_one.embeddings.local.resolve_model_dir` still
+    # reaches the packaged weights only by NAME, via
+    # importlib.resources.files("the_one.embeddings").joinpath("data", ...) —
+    # a string argument PyInstaller's import-graph walk cannot follow.
+    # Without this entry the package's `data/` payload would still ship
+    # (embedding_datas above ships it independently) but a build that ever
+    # dropped the module import above would silently tree-shake the package
+    # itself back out, so the explicit entry remains the load-bearing one.
+    "the_one.embeddings",
     # pystray Windows backend — the collect_submodules walk covers the package
     # tree but a redundant explicit entry ensures the win32 backend is present.
     "pystray._win32",
@@ -174,6 +261,7 @@ hiddenimports = [
 datas = [
     *static_datas,
     *seed_datas,
+    *embedding_datas,
     *uvicorn_datas,
 ]
 
@@ -184,9 +272,23 @@ binaries = [
 
 # Mission 23 Flight 1 (backend-removal leg): the nacl exclusion existed
 # only for discord.py's optional voice support; discord.py itself is
-# gone from the dependency closure now, so there is nothing to exclude.
-# Kept as an empty list — ``excludes=`` below expects the name to exist.
-excludes = []
+# gone from the dependency closure now, so there was nothing left to
+# exclude for a while — but see the hf_xet entry below (M24 F02 L06).
+#
+# Squawk 0049 / M24 F02 L06: `hf-xet` is excluded from the dependency
+# closure itself via `[tool.uv] exclude-dependencies` (pyproject.toml),
+# but `huggingface_hub` still carries a guarded `import hf_xet` in its
+# download path — if the module happens to be importable in the BUILD
+# environment for any reason, PyInstaller follows that import and bundles
+# it regardless of what the closure says. Concourse build 606657 proved
+# this isn't hypothetical: the Windows worker runs tasks uncontainerised,
+# `C:\Python311` site-packages persist across builds, and a stale
+# `hf_xet` copy from an earlier build was importable at freeze time —
+# `hf_xet.pyd` shipped in the bundle and the installer stayed at the
+# pre-squawk-0049 baseline size even though the doctor gate (which never
+# imports `hf_xet`) still passed. Excluding it here makes the bundle
+# correct regardless of what else is sitting in the build environment.
+excludes = ["hf_xet"]
 
 
 # TWO EXEs in one one-dir bundle (operator-HAT fix). DD6 originally pinned a single
@@ -271,6 +373,22 @@ coll = COLLECT(
     a_gui.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    # UPX-packing a native library is a known load-failure source. No toolchain
+    # in either CI path currently provides UPX, so `upx=True` is a no-op today
+    # and these entries are free insurance against a future UPX install rather
+    # than a live fix. Covers usearch's and numkong's native extension modules
+    # (M24 F01 L01, the surviving vector store per M24 F02 L06 DD-9) plus the
+    # model2vec closure's native payloads (M24 F01 L02). `hf-xet` was excluded
+    # from the dependency closure entirely in Leg 6 (squawk 0049), so it no
+    # longer ships and needs no entry here.
+    upx_exclude=[
+        "compiled*",  # usearch native core (compiled.cp311-win_amd64.pyd)
+        "_numkong*",  # numkong native core (_numkong.cp311-win_amd64.pyd)
+        # M24 F01 L02 — native payloads of the model2vec closure. Same rule as
+        # the two above: UPX-compressing a Rust/pybind extension is the
+        # classic source of an import that works unpacked and dies packed.
+        "tokenizers*",  # HF tokenizers Rust core (tokenizers.abi3.so / .pyd)
+        "_safetensors_rust*",  # safetensors Rust core
+    ],
     name=APP_NAME,  # dist/the-one/  (the-one v{APP_VERSION} one-dir bundle)
 )

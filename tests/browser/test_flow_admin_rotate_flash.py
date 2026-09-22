@@ -75,3 +75,54 @@ def test_rotate_promoted_shows_success_flash(app_clean: str, page: Page) -> None
     flash = page.locator(".admin-system-flash")
     expect(flash).to_have_class(re.compile(r"\bsuccess\b"), timeout=5000)
     expect(flash).to_have_text("Encryption key rotated successfully.")
+
+
+@pytest.mark.browser
+def test_rotate_confirm_lapse_is_visually_distinct(app_clean: str, page: Page) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the credential-rotation
+    confirm — the highest-consequence confirm in the app (AC-6) — is
+    distinguishable on screen from one that was never armed, past the real
+    3s `revertMs`, when the operator lets it lapse without a second click
+    (no POST fires at all)."""
+    rotate_requests: list[str] = []
+    page.on(
+        "request",
+        lambda r: rotate_requests.append(r.url) if "/api/encryption/rotate" in r.url else None,
+    )
+
+    page.goto(f"{app_clean}#admin/general")
+    rotate_btn = page.locator('[data-testid="rotate-key-btn"]')
+    expect(rotate_btn).to_be_visible(timeout=8000)
+    expect(rotate_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    rotate_btn.click()
+    expect(rotate_btn).to_have_text(re.compile(r"Confirm Rotate\?", re.IGNORECASE))
+    expect(rotate_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(rotate_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(rotate_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(rotate_btn).to_contain_text("Rotate Encryption Key")
+    assert rotate_requests == [], "a lapse must never fire the rotate POST"
+
+
+@pytest.mark.browser
+def test_rotate_success_never_carries_the_lapse_cue(app_clean: str, page: Page) -> None:
+    """AC-6a: `revert()` has three callers — timer expiry (a true lapse),
+    a transport-failure `.catch`, and `system-page.js:87-91`'s SUCCESS
+    path, which also calls `revertFn()` (with a comment saying so). Only
+    the timer's own callback marks `.confirm-lapsed` (confirm.js's
+    `lapse()`) — the shared `revert()` never does. This is exactly the
+    scenario AC-6a exists to protect: a successful, COMMITTED rotation
+    must never render as "lapsed", which would contradict AC-4 at the
+    app's highest-consequence confirm."""
+    _mock_rotate_response(page, "promoted")
+
+    page.goto(f"{app_clean}#admin/general")
+    _arm_and_commit_rotate(page)
+
+    flash = page.locator(".admin-system-flash")
+    expect(flash).to_have_class(re.compile(r"\bsuccess\b"), timeout=5000)
+
+    rotate_btn = page.locator('[data-testid="rotate-key-btn"]')
+    expect(rotate_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"))
+    expect(rotate_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(rotate_btn).to_contain_text("Rotate Encryption Key")

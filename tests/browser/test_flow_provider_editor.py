@@ -241,6 +241,54 @@ def test_delete_blocked_when_provider_in_use(app_with_agent: SeededApp, page: Pa
     expect(delete_btn).to_contain_text("Delete Provider")
 
 
+@pytest.mark.browser
+def test_delete_confirm_lapse_is_visually_distinct(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Danger Zone
+    provider-delete confirm — the no-agent-usage arming path
+    (`provider-editor.js:946`) — is distinguishable on screen from one
+    that was never armed, past the real 3s `revertMs`."""
+    page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
+    delete_btn = page.locator('[data-testid="delete-provider-btn"]')
+    expect(delete_btn).to_be_visible(timeout=8000)
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    delete_btn.click()
+    expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(delete_btn).to_contain_text("Delete Provider")
+    # Never committed: still on the editor, provider still there.
+    assert page.evaluate("location.hash") == f"#admin/providers/{app_with_provider.provider_id}"
+
+
+@pytest.mark.browser
+def test_delete_confirm_lapse_via_fail_open_path_is_visually_distinct(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """Same as above, but reached via the network-failure fail-open arming
+    path (`provider-editor.js:951`) — the agent-usage pre-gate fetch
+    itself fails, so the button arms anyway. Both arming paths feed the
+    same shared `App.confirmDelete`, so the lapse cue is identical."""
+    page.route(
+        f"**/api/providers/{app_with_provider.provider_id}/agents",
+        lambda route: route.abort("failed"),
+    )
+    page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
+    delete_btn = page.locator('[data-testid="delete-provider-btn"]')
+    expect(delete_btn).to_be_visible(timeout=8000)
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    delete_btn.click()
+    expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE), timeout=5000)
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(delete_btn).to_contain_text("Delete Provider")
+
+
 # ── Test button ──────────────────────────────────────────────────────────
 
 

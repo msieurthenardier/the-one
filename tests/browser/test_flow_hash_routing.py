@@ -167,7 +167,7 @@ def test_studio_root_redirects_to_agents(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page) -> None:
-    """Navigating to #studio/knowledge shows the stub; refresh preserves the section."""
+    """Navigating to #studio/knowledge shows the inventory; refresh preserves the section."""
     base_url = app_clean
 
     page.goto(f"{base_url}#studio/knowledge")
@@ -175,15 +175,15 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
         timeout=8000
     )
 
-    stub = page.locator('[data-testid="studio-knowledge-stub"]')
-    expect(stub).to_be_visible(timeout=5000)
+    inventory = page.locator('[data-testid="studio-knowledge-inventory"]')
+    expect(inventory).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
     page.reload()
     expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
         timeout=8000
     )
-    expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
 

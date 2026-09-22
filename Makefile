@@ -192,6 +192,20 @@ brand-assets: ## Derive favicon + topbar icon PNGs from source mascot via Pillow
 refresh-model-catalog: ## Regenerate the bundled model-catalog seed from models.dev
 	$(PY) scripts/refresh_model_catalog.py
 
+# Downloads ~130 MB from the Hugging Face hub and rewrites a ~62 MiB TRACKED
+# binary. Only run this when the upstream model or the target dtype changes —
+# a needless re-run writes another copy of the weights into git history.
+.PHONY: refresh-embedding-model
+refresh-embedding-model: ## Regenerate the bundled float16 potion-retrieval-32M weights
+	$(PY) scripts/refresh_embedding_model.py
+
+# Small smoke size (AC-1) — the full DD-4 cell comparison at 1M/3M is a
+# manual, foreground, long-running invocation; see the flight log's "Store
+# Benchmark" section for those commands.
+.PHONY: bench-vector-store
+bench-vector-store: ## Benchmark the two DD-9 usearch vector-store cells (smoke size)
+	$(PY) scripts/bench_vector_store.py --corpus synthetic --n 20000 --queries 50
+
 # ── Tests ──────────────────────────────────────────────────────────────
 # All test targets run host-native via the repo .venv (see PY variable above).
 
@@ -232,15 +246,15 @@ smoke-runtimes: ## Verify uvx / pipx / npx + their host caches populate and are 
 
 .PHONY: lint
 lint: ## Ruff check host-native (read-only)
-	$(PY) -m ruff check the_one/ tests/
+	$(PY) -m ruff check the_one/ tests/ scripts/
 
 .PHONY: format
 format: ## Ruff format host-native (writes changes)
-	$(PY) -m ruff format the_one/ tests/
+	$(PY) -m ruff format the_one/ tests/ scripts/
 
 .PHONY: format-check
 format-check: ## Ruff format check host-native (read-only)
-	$(PY) -m ruff format --check the_one/ tests/
+	$(PY) -m ruff format --check the_one/ tests/ scripts/
 
 # ── Drift detection (host-side) ────────────────────────────────────────
 

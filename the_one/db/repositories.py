@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
+from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 import aiosqlite
@@ -17,11 +19,19 @@ from cryptography.fernet import InvalidToken
 # `_row_to_config`, which imports it locally instead.
 if TYPE_CHECKING:
     from the_one.agent.config import AgentConfig
+from the_one.db._kb_types import (
+    KB_ITEM_STATUSES,
+    KB_ITEM_TRANSITIONS,
+    ChunkRecord,
+    KBItemTransitionError,
+)
+from the_one.db._write_lock import write_transaction
 from the_one.db.models import (
     AgentRevision,
     ChatSession,
     Connector,
     ConnectorDirectoryEntry,
+    KBChunk,
     KBItem,
     KnowledgeBase,
     LLMProviderConfig,
@@ -162,6 +172,35 @@ class SQLiteAgentStore:
         ) as cur:
             return [row[0] for row in await cur.fetchall()]
 
+    async def list_by_kb(self, kb_id: str) -> list[str]:
+        """Return agent names whose ``kb_ids`` contains ``kb_id`` (L2-D6).
+
+        ``agents.kb_ids`` is a JSON TEXT column (``schema.py:58``, ``:169``),
+        so this does NOT transfer :meth:`list_by_provider`'s plain column
+        equality — a ``json_each`` membership test is required. ``LIKE
+        '%<id>%'`` is deliberately NOT used: it would match an id that is
+        merely a *substring* of another agent's attached id.
+
+        Guards the column the same way :meth:`_row_to_config` already does
+        (``row["kb_ids"] or "[]"``): measured on this host's SQLite
+        (3.45.1), ``json_each(NULL)`` yields zero rows (safe) but
+        ``json_each('')`` raises ``OperationalError: malformed JSON``. The
+        schema puts no ``NOT NULL`` on ``kb_ids``, so the empty/NULL state
+        is treated as reachable, not impossible.
+        """
+        async with self.conn.execute(
+            """\
+            SELECT name FROM agents
+            WHERE kb_ids IS NOT NULL AND kb_ids != ''
+              AND EXISTS (
+                  SELECT 1 FROM json_each(agents.kb_ids) WHERE json_each.value = ?
+              )
+            ORDER BY name
+            """,
+            (kb_id,),
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
+
     async def load(self, name: str) -> AgentConfig:
         async with self.conn.execute("SELECT * FROM agents WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()
@@ -171,52 +210,52 @@ class SQLiteAgentStore:
 
     async def save(self, config: AgentConfig) -> None:
         now = now_iso()
-        await self.conn.execute(
-            """\
-            INSERT INTO agents (
-                name, description, provider_config_id, llm_model,
-                system_prompt, enabled_tools, disabled_tools, max_iterations,
-                kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
-                chat_history_retention_days,
-                self_revision_requires_approval,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                description=excluded.description,
-                provider_config_id=excluded.provider_config_id,
-                llm_model=excluded.llm_model,
-                system_prompt=excluded.system_prompt,
-                enabled_tools=excluded.enabled_tools,
-                disabled_tools=excluded.disabled_tools,
-                max_iterations=excluded.max_iterations,
-                kb_ids=excluded.kb_ids,
-                mcp_source_ids=excluded.mcp_source_ids,
-                tool_overrides=excluded.tool_overrides,
-                mcp_overrides=excluded.mcp_overrides,
-                chat_history_retention_days=excluded.chat_history_retention_days,
-                self_revision_requires_approval=excluded.self_revision_requires_approval,
-                updated_at=excluded.updated_at
-            """,
-            (
-                config.name,
-                config.description,
-                config.provider_config_id,
-                config.llm_model,
-                config.system_prompt,
-                json.dumps(config.enabled_tools) if config.enabled_tools is not None else None,
-                json.dumps(config.disabled_tools),
-                config.max_iterations,
-                json.dumps(config.kb_ids),
-                json.dumps(config.mcp_source_ids),
-                _encrypt_overrides_column(self.encryptor, config.tool_overrides),
-                _encrypt_overrides_column(self.encryptor, config.mcp_overrides),
-                config.chat_history_retention_days,
-                int(config.self_revision_requires_approval),
-                now,
-                now,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                """\
+                INSERT INTO agents (
+                    name, description, provider_config_id, llm_model,
+                    system_prompt, enabled_tools, disabled_tools, max_iterations,
+                    kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
+                    chat_history_retention_days,
+                    self_revision_requires_approval,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    description=excluded.description,
+                    provider_config_id=excluded.provider_config_id,
+                    llm_model=excluded.llm_model,
+                    system_prompt=excluded.system_prompt,
+                    enabled_tools=excluded.enabled_tools,
+                    disabled_tools=excluded.disabled_tools,
+                    max_iterations=excluded.max_iterations,
+                    kb_ids=excluded.kb_ids,
+                    mcp_source_ids=excluded.mcp_source_ids,
+                    tool_overrides=excluded.tool_overrides,
+                    mcp_overrides=excluded.mcp_overrides,
+                    chat_history_retention_days=excluded.chat_history_retention_days,
+                    self_revision_requires_approval=excluded.self_revision_requires_approval,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    config.name,
+                    config.description,
+                    config.provider_config_id,
+                    config.llm_model,
+                    config.system_prompt,
+                    json.dumps(config.enabled_tools) if config.enabled_tools is not None else None,
+                    json.dumps(config.disabled_tools),
+                    config.max_iterations,
+                    json.dumps(config.kb_ids),
+                    json.dumps(config.mcp_source_ids),
+                    _encrypt_overrides_column(self.encryptor, config.tool_overrides),
+                    _encrypt_overrides_column(self.encryptor, config.mcp_overrides),
+                    config.chat_history_retention_days,
+                    int(config.self_revision_requires_approval),
+                    now,
+                    now,
+                ),
+            )
 
     async def set_self_revision_requires_approval(self, name: str, value: bool) -> None:
         """Targeted UPDATE of the operator-owned approval-mode flag (M21 F02 L02).
@@ -230,11 +269,12 @@ class SQLiteAgentStore:
         """
         if not await self.exists(name):
             raise KeyError(f"Agent config not found: {name}")
-        await self.conn.execute(
-            "UPDATE agents SET self_revision_requires_approval = ?, updated_at = ? WHERE name = ?",
-            (int(value), now_iso(), name),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agents SET self_revision_requires_approval = ?, "
+                "updated_at = ? WHERE name = ?",
+                (int(value), now_iso(), name),
+            )
 
     async def compare_and_set_field(
         self, name: str, field: str, base_value: str, new_value: str
@@ -262,19 +302,19 @@ class SQLiteAgentStore:
         """
         if field not in {"description", "system_prompt"}:
             raise ValueError(f"illegal field: {field!r}")
-        async with self.conn.execute(
-            f"UPDATE agents SET {field} = ?, updated_at = ? WHERE name = ? AND {field} = ?",
-            (new_value, now_iso(), name, base_value),
-        ) as cur:
-            rowcount = cur.rowcount
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                f"UPDATE agents SET {field} = ?, updated_at = ? WHERE name = ? AND {field} = ?",
+                (new_value, now_iso(), name, base_value),
+            ) as cur:
+                rowcount = cur.rowcount
         return rowcount == 1
 
     async def delete(self, name: str) -> None:
         if not await self.exists(name):
             raise KeyError(f"Agent config not found: {name}")
-        await self.conn.execute("DELETE FROM agents WHERE name = ?", (name,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM agents WHERE name = ?", (name,))
 
     async def exists(self, name: str) -> bool:
         async with self.conn.execute("SELECT 1 FROM agents WHERE name = ?", (name,)) as cur:
@@ -310,15 +350,15 @@ class SQLiteAgentStore:
         now = now_iso()
         # Single transaction: atomic PK swap + manual cascade on
         # chat_sessions.agent_name (FK was dropped in schema v5).
-        await self.conn.execute(
-            "UPDATE agents SET name = ?, updated_at = ? WHERE name = ?",
-            (new_name, now, old_name),
-        )
-        await self.conn.execute(
-            "UPDATE chat_sessions SET agent_name = ? WHERE agent_name = ?",
-            (new_name, old_name),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agents SET name = ?, updated_at = ? WHERE name = ?",
+                (new_name, now, old_name),
+            )
+            await self.conn.execute(
+                "UPDATE chat_sessions SET agent_name = ? WHERE agent_name = ?",
+                (new_name, old_name),
+            )
 
     def _row_to_config(self, row: aiosqlite.Row) -> AgentConfig:
         # Local import (squawk 0003): AgentConfig is TYPE_CHECKING-only at module
@@ -358,6 +398,33 @@ class SQLiteAgentStore:
         )
 
 
+# ── FTS5 sync helper (Flight 2 Leg 2, DD-5) ──────────────────────────────
+
+
+async def _fts_delete_rows(conn: aiosqlite.Connection, rows: Sequence[tuple[int, str]]) -> None:
+    """Issue the external-content FTS5 ``'delete'`` command for each row.
+
+    ``rows`` is ``(rowid, text)`` pairs — external-content FTS5 needs the
+    *original* indexed text to remove a row from the shadow index, so every
+    caller MUST ``SELECT id, text FROM kb_chunks WHERE ...`` **before**
+    issuing the matching ``DELETE FROM kb_chunks``. This is the ONLY site
+    that issues FTS delete commands — ``KBChunkRepository.replace_item_chunks``
+    / ``delete_for_item`` / ``delete_for_kb`` and the cascade hooks in
+    ``KnowledgeBaseRepository.delete`` / ``KBItemRepository.delete`` all
+    call through here rather than building the command inline.
+
+    Callers must hold the write lock (call this from inside a
+    ``write_transaction`` block) — it issues no commit/rollback of its own.
+    A no-op for an empty ``rows``.
+    """
+    if not rows:
+        return
+    await conn.executemany(
+        "INSERT INTO kb_chunks_fts(kb_chunks_fts, rowid, text) VALUES ('delete', ?, ?)",
+        rows,
+    )
+
+
 # ── Knowledge base repository ────────────────────────────────────────────
 
 
@@ -371,6 +438,15 @@ class KnowledgeBaseRepository:
         async with self.conn.execute("SELECT * FROM knowledge_bases ORDER BY name") as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
+    async def count(self) -> int:
+        """Total knowledge base count — the embedding warm-up gate
+        (M24 F02 L03, DD-1): an operator who never creates a KB never pays
+        the model load at startup.
+        """
+        async with self.conn.execute("SELECT count(*) FROM knowledge_bases") as cur:
+            row = await cur.fetchone()
+        return row[0] if row is not None else 0
+
     async def get(self, kb_id: str) -> KnowledgeBase:
         async with self.conn.execute("SELECT * FROM knowledge_bases WHERE id = ?", (kb_id,)) as cur:
             row = await cur.fetchone()
@@ -379,27 +455,42 @@ class KnowledgeBaseRepository:
         return self._row_to_model(row)
 
     async def create(self, kb: KnowledgeBase) -> None:
-        await self.conn.execute(
-            "INSERT INTO knowledge_bases (id, name, description, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (kb.id, kb.name, kb.description, kb.created_at, kb.updated_at),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO knowledge_bases (id, name, description, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (kb.id, kb.name, kb.description, kb.created_at, kb.updated_at),
+            )
 
     async def update(self, kb: KnowledgeBase) -> None:
         if not await self._exists(kb.id):
             raise KeyError(f"Knowledge base not found: {kb.id}")
-        await self.conn.execute(
-            "UPDATE knowledge_bases SET name=?, description=?, updated_at=? WHERE id=?",
-            (kb.name, kb.description, now_iso(), kb.id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE knowledge_bases SET name=?, description=?, updated_at=? WHERE id=?",
+                (kb.name, kb.description, now_iso(), kb.id),
+            )
 
     async def delete(self, kb_id: str) -> None:
+        """Delete a knowledge base and, via FK cascade, its items and chunks.
+
+        Flight 2 Leg 2: the FK cascade reaches ``kb_items`` and ``kb_chunks``
+        but NOT the ``kb_chunks_fts`` shadow table, so before the delete this
+        selects the about-to-be-cascaded chunks' ``(id, text)`` and issues
+        their FTS deletes via the module-level ``_fts_delete_rows`` helper —
+        inside this SAME ``write_transaction``, never by calling into
+        ``KBChunkRepository`` (which opens its own transaction and would
+        raise on same-task re-entry).
+        """
         if not await self._exists(kb_id):
             raise KeyError(f"Knowledge base not found: {kb_id}")
-        await self.conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (kb_id,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id, text FROM kb_chunks WHERE kb_id = ?", (kb_id,)
+            ) as cur:
+                chunk_rows = [(row[0], row[1]) for row in await cur.fetchall()]
+            await _fts_delete_rows(self.conn, chunk_rows)
+            await self.conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (kb_id,))
 
     async def _exists(self, kb_id: str) -> bool:
         async with self.conn.execute("SELECT 1 FROM knowledge_bases WHERE id = ?", (kb_id,)) as cur:
@@ -420,14 +511,25 @@ class KnowledgeBaseRepository:
 
 
 class KBItemRepository:
-    """Async CRUD for knowledge base items."""
+    """Async CRUD for knowledge base items, plus the v40 lifecycle surface
+    (Flight 2 Leg 1, DD-5): :meth:`update_status` enforces
+    ``KB_ITEM_TRANSITIONS`` as one conditional ``UPDATE`` (no read-then-write
+    TOCTOU window), :meth:`set_content_identity` records the dedup identity
+    a re-index compares against, and :meth:`list_by_status` /
+    :meth:`count_by_status` are the per-KB progress projections.
+    """
 
     def __init__(self, conn: aiosqlite.Connection) -> None:
         self.conn = conn
 
     async def list(self, kb_id: str) -> list[KBItem]:
+        """Squawk 0087: ``, path_or_url`` is a tiebreak on tied
+        ``created_at`` rows (a folder walk inserts every discovered file in
+        one pass, so ties are the common case, not the exotic one) —
+        ascending, matching the order ``walk_folder`` discovers files in
+        (``walk.py``'s own ``files.sort(key=lambda f: f.path)``)."""
         async with self.conn.execute(
-            "SELECT * FROM kb_items WHERE kb_id = ? ORDER BY created_at", (kb_id,)
+            "SELECT * FROM kb_items WHERE kb_id = ? ORDER BY created_at, path_or_url", (kb_id,)
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
@@ -439,27 +541,288 @@ class KBItemRepository:
         return self._row_to_model(row)
 
     async def create(self, item: KBItem) -> None:
-        await self.conn.execute(
-            "INSERT INTO kb_items (id, kb_id, parent_id, type, path_or_url, status, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                item.id,
-                item.kb_id,
-                item.parent_id,
-                item.type,
-                item.path_or_url,
-                item.status,
-                item.created_at,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO kb_items ("
+                "    id, kb_id, parent_id, type, path_or_url, status, error,"
+                "    content_hash, size_bytes, mtime, created_at, updated_at, indexed_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    item.id,
+                    item.kb_id,
+                    item.parent_id,
+                    item.type,
+                    item.path_or_url,
+                    item.status,
+                    item.error,
+                    item.content_hash,
+                    item.size_bytes,
+                    item.mtime,
+                    item.created_at,
+                    item.updated_at,
+                    item.indexed_at,
+                ),
+            )
 
-    async def delete(self, item_id: str) -> None:
+    async def delete(self, item_id: str) -> list[int]:
+        """Delete an item and, via FK cascade, its chunks (and, for a
+        ``folder`` item, its children's chunks too). Returns every removed
+        chunk id.
+
+        Flight 2 Leg 2 / Flight 3 Leg 1 (DD-2): same shape as
+        ``KnowledgeBaseRepository.delete`` — select the about-to-be-cascaded
+        chunks' ``(id, text)``, issue their FTS deletes via
+        ``_fts_delete_rows`` inside this same ``write_transaction``, then
+        delete the item. FK cascade (``kb_items.parent_id ... ON DELETE
+        CASCADE``, then ``kb_chunks.item_id ... ON DELETE CASCADE``) removes
+        any children and all the chunks — the item's own and every child's —
+        after the FTS rows for all of them are already gone, so a folder
+        delete can never desync ``kb_chunks_fts`` the way a select scoped to
+        only ``item_id`` would.
+        """
         async with self.conn.execute("SELECT 1 FROM kb_items WHERE id = ?", (item_id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"KB item not found: {item_id}")
-        await self.conn.execute("DELETE FROM kb_items WHERE id = ?", (item_id,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id, text FROM kb_chunks WHERE item_id = ? "
+                "OR item_id IN (SELECT id FROM kb_items WHERE parent_id = ?)",
+                (item_id, item_id),
+            ) as cur:
+                chunk_rows = [(row[0], row[1]) for row in await cur.fetchall()]
+            await _fts_delete_rows(self.conn, chunk_rows)
+            await self.conn.execute("DELETE FROM kb_items WHERE id = ?", (item_id,))
+        return [row[0] for row in chunk_rows]
+
+    async def create_many(self, items: Sequence[KBItem]) -> None:
+        """Bulk-insert ``items`` in one ``write_transaction`` via
+        ``executemany`` — the same 13-column statement as :meth:`create`.
+        A no-op for an empty ``items``. A duplicate id inside the batch
+        raises ``sqlite3.IntegrityError``; the ``write_transaction`` guard
+        rolls back the whole batch on any exception, so none of it lands.
+        """
+        if not items:
+            return
+        async with write_transaction(self.conn):
+            await self.conn.executemany(
+                "INSERT INTO kb_items ("
+                "    id, kb_id, parent_id, type, path_or_url, status, error,"
+                "    content_hash, size_bytes, mtime, created_at, updated_at, indexed_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        item.id,
+                        item.kb_id,
+                        item.parent_id,
+                        item.type,
+                        item.path_or_url,
+                        item.status,
+                        item.error,
+                        item.content_hash,
+                        item.size_bytes,
+                        item.mtime,
+                        item.created_at,
+                        item.updated_at,
+                        item.indexed_at,
+                    )
+                    for item in items
+                ],
+            )
+
+    async def list_children(self, folder_item_id: str) -> list[KBItem]:
+        """Items whose ``parent_id`` equals ``folder_item_id``, oldest
+        first. ``[]`` for an unknown id (no existence check — an unknown
+        parent simply has no children). Squawk 0087: ``, path_or_url``
+        tiebreak, same rationale as :meth:`list`."""
+        async with self.conn.execute(
+            "SELECT * FROM kb_items WHERE parent_id = ? ORDER BY created_at, path_or_url",
+            (folder_item_id,),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def list_folders(self, kb_id: str) -> list[KBItem]:
+        """``kb_id``'s ``folder`` items, oldest first. Squawk 0087:
+        ``, path_or_url`` tiebreak, same rationale as :meth:`list`."""
+        async with self.conn.execute(
+            "SELECT * FROM kb_items WHERE kb_id = ? AND type = 'folder' "
+            "ORDER BY created_at, path_or_url",
+            (kb_id,),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def requeue_stranded(self, kb_id: str | None = None) -> int:
+        """Move every ``indexing`` item (any type) back to ``pending``,
+        scoped to ``kb_id`` when given. Clears ``error``, stamps
+        ``updated_at``, returns the row count.
+
+        The resume-not-restart primitive (Flight 3 DD-7): a worker killed
+        or crashed mid-item leaves rows stranded at ``indexing``; the next
+        pass (or startup) requeues them in one conditional ``UPDATE``. The
+        assertion below pins the bulk ``UPDATE``'s hardcoded ``'indexing'``
+        / ``'pending'`` literals to ``KB_ITEM_TRANSITIONS`` so a future
+        change to that table cannot silently desync from this method.
+        """
+        assert "indexing" in KB_ITEM_TRANSITIONS["pending"], (
+            "requeue_stranded's bulk UPDATE assumes indexing->pending is a "
+            "legal transition — KB_ITEM_TRANSITIONS drifted"
+        )
+        sql = (
+            "UPDATE kb_items SET status = 'pending', error = NULL, updated_at = ? "
+            "WHERE status = 'indexing'"
+        )
+        params: list[Any] = [now_iso()]
+        if kb_id is not None:
+            sql += " AND kb_id = ?"
+            params.append(kb_id)
+        async with write_transaction(self.conn):
+            async with self.conn.execute(sql, params) as cur:
+                rowcount = cur.rowcount
+        return rowcount
+
+    async def requeue_for_reindex(self, kb_id: str) -> int:
+        """Move ``kb_id``'s ``indexed``/``failed`` **``file``** items back to
+        ``pending``. Leaves ``indexing`` items, ``folder`` items and other
+        KBs untouched. Clears ``error``, returns the row count.
+
+        Both source statuses' transition into ``pending`` are asserted
+        against ``KB_ITEM_TRANSITIONS`` for the same reason as
+        :meth:`requeue_stranded`.
+        """
+        assert "indexed" in KB_ITEM_TRANSITIONS["pending"], (
+            "requeue_for_reindex's bulk UPDATE assumes indexed->pending is a "
+            "legal transition — KB_ITEM_TRANSITIONS drifted"
+        )
+        assert "failed" in KB_ITEM_TRANSITIONS["pending"], (
+            "requeue_for_reindex's bulk UPDATE assumes failed->pending is a "
+            "legal transition — KB_ITEM_TRANSITIONS drifted"
+        )
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "UPDATE kb_items SET status = 'pending', error = NULL, updated_at = ? "
+                "WHERE kb_id = ? AND type = 'file' AND status IN ('indexed', 'failed')",
+                (now_iso(), kb_id),
+            ) as cur:
+                rowcount = cur.rowcount
+        return rowcount
+
+    async def update_status(self, item_id: str, status: str, *, error: str | None = None) -> KBItem:
+        """Move ``item_id`` to ``status`` as one conditional ``UPDATE``.
+
+        Raises ``ValueError`` immediately for a ``status`` outside
+        ``KB_ITEM_TRANSITIONS`` (never let the dict lookup's ``KeyError``
+        masquerade as "item not found"). The ``UPDATE`` is scoped to
+        ``WHERE id = ? AND status IN (<allowed predecessors>)`` — a
+        check-and-set with no read-then-write TOCTOU window. ``rowcount ==
+        0`` means either a missing item or an invalid transition,
+        distinguished by one follow-up ``SELECT`` (outside the write lock —
+        reads need no lock). ``error`` is stored only when transitioning
+        INTO ``failed`` and cleared (set to NULL) on every other
+        transition. Reaching ``indexed`` stamps ``indexed_at``; every
+        transition stamps ``updated_at`` — both bound from the SAME
+        ``now_iso()`` call so the two stamps are identical on the
+        transition into ``indexed``.
+        """
+        if status not in KB_ITEM_TRANSITIONS:
+            raise ValueError(f"Unknown KB item status: {status!r}")
+        allowed = KB_ITEM_TRANSITIONS[status]
+        placeholders = ", ".join("?" for _ in allowed)
+        now = now_iso()
+        stored_error = error if status == "failed" else None
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "UPDATE kb_items SET status = ?, error = ?, updated_at = ?, "
+                "indexed_at = CASE WHEN ? = 'indexed' THEN ? ELSE indexed_at END "
+                f"WHERE id = ? AND status IN ({placeholders})",
+                (status, stored_error, now, status, now, item_id, *allowed),
+            ) as cur:
+                rowcount = cur.rowcount
+        if rowcount == 0:
+            async with self.conn.execute(
+                "SELECT status FROM kb_items WHERE id = ?", (item_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise KeyError(f"KB item not found: {item_id}")
+            raise KBItemTransitionError(f"{row['status']}→{status}")
+        return await self.get(item_id)
+
+    async def set_content_identity(
+        self, item_id: str, *, content_hash: str, size_bytes: int, mtime: float
+    ) -> None:
+        """One UPDATE stamping the dedup identity columns + ``updated_at``."""
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE kb_items SET content_hash = ?, size_bytes = ?, mtime = ?, "
+                "updated_at = ? WHERE id = ?",
+                (content_hash, size_bytes, mtime, now_iso(), item_id),
+            )
+
+    async def list_by_status(
+        self,
+        kb_id: str,
+        status: str,
+        *,
+        limit: int | None = None,
+        type: str | None = None,
+    ) -> list[KBItem]:
+        """Items in ``kb_id`` at ``status``, oldest first. Uses the
+        ``(kb_id, status)`` index. Additive keywords, byte-for-byte the old
+        behaviour when omitted: ``type`` filters to that item type (the
+        worker drains ``type="file"`` only), ``limit`` caps the page."""
+        sql = "SELECT * FROM kb_items WHERE kb_id = ? AND status = ?"
+        params: list[Any] = [kb_id, status]
+        if type is not None:
+            sql += " AND type = ?"
+            params.append(type)
+        sql += " ORDER BY created_at"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        async with self.conn.execute(sql, params) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def latest_indexed_at(self, kb_id: str, *, type: str | None = None) -> str | None:
+        """``MAX(indexed_at)`` across ``kb_id``'s items, optionally scoped
+        to ``type``. ``None`` when no matching item has ever reached
+        ``indexed``.
+
+        DD-6/AC-2/AC-3 (Flight 7 Leg 2): scoped to ``type="file"``, this is
+        the inventory's content-freshness aggregate — it advances **iff** a
+        file item actually re-indexes, because ``indexed_at`` is stamped
+        only by :meth:`update_status`'s transition into ``"indexed"``
+        (never on a no-op pass). This is the opposite of a **folder**
+        item's ``indexed_at``, which ``manager.py``'s ``_walk_one_folder``
+        stamps unconditionally on every completed walk — using that signal
+        here would make the aggregate advance every poll on a quiet
+        corpus, which is exactly what AC-5 forbids. One indexed query
+        (``idx_kb_items_kb_id``), not a scan.
+        """
+        sql = "SELECT MAX(indexed_at) FROM kb_items WHERE kb_id = ?"
+        params: list[Any] = [kb_id]
+        if type is not None:
+            sql += " AND type = ?"
+            params.append(type)
+        async with self.conn.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return row[0] if row is not None else None
+
+    async def count_by_status(self, kb_id: str, *, type: str | None = None) -> dict[str, int]:
+        """Per-status item counts for ``kb_id`` — every status in
+        ``KB_ITEM_STATUSES`` present, zeros included for statuses with no
+        rows. ``type`` (additive keyword) filters to that item type (DD-8
+        counts ``file`` items only)."""
+        counts = {status: 0 for status in KB_ITEM_STATUSES}
+        sql = "SELECT status, COUNT(*) FROM kb_items WHERE kb_id = ?"
+        params: list[Any] = [kb_id]
+        if type is not None:
+            sql += " AND type = ?"
+            params.append(type)
+        sql += " GROUP BY status"
+        async with self.conn.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        for row in rows:
+            counts[row[0]] = row[1]
+        return counts
 
     @staticmethod
     def _row_to_model(row: aiosqlite.Row) -> KBItem:
@@ -469,7 +832,288 @@ class KBItemRepository:
             parent_id=row["parent_id"],
             type=row["type"],
             path_or_url=row["path_or_url"],
-            status=row["status"] or "pending",
+            status=row["status"],
+            error=row["error"],
+            content_hash=row["content_hash"],
+            size_bytes=row["size_bytes"],
+            mtime=row["mtime"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            indexed_at=row["indexed_at"],
+        )
+
+
+# ── KB chunk repository (Flight 2 Leg 2, DD-5/DD-12) ─────────────────────
+
+# ``kb_chunks`` rows fetched in batches of this size to build a ``WHERE id
+# IN (…)`` clause — ``SQLITE_MAX_VARIABLE_NUMBER`` varies by build (32,766
+# is the SQLite default since 3.32; the exact figure is not relied upon),
+# so ``get_many`` always chunks the placeholder list regardless of host.
+_GET_MANY_BATCH_SIZE = 500
+
+# Squawk 0054: ceiling for ``search_keyword``'s ``k``. Flight 5 exposes this
+# path to an agent-controlled tool argument, where an unbounded ``k`` is a
+# resource-exhaustion vector (an unreasonably large ``LIMIT`` still forces
+# SQLite to materialise/sort that many FTS matches). 1000 is generously above
+# any realistic result-set size a caller would ever consume.
+MAX_SEARCH_K = 1000
+
+
+class KBChunkRepository:
+    """Async CRUD for ``kb_chunks`` plus the ``kb_chunks_fts`` keyword-search,
+    rebuild, and integrity-check primitives.
+
+    ``kb_chunks_fts`` is an external-content FTS5 index over ``kb_chunks``
+    (content_rowid='id') — this repository is the ONLY writer of the FTS
+    shadow table (the ``db-writes-hold-the-write-lock`` convention's
+    FTS-specific corollary; see ``the_one/agents.md``'s "Knowledge storage"
+    subsystem contract). Every FTS delete goes through the module-level
+    ``_fts_delete_rows`` helper so the ``'delete'`` command shape lives in
+    exactly one place.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def replace_item_chunks(
+        self, item_id: str, kb_id: str, chunks: Sequence[ChunkRecord]
+    ) -> list[int]:
+        """Atomically replace every chunk belonging to ``item_id``.
+
+        One ``write_transaction``: select the existing rows' ``(id, text)``,
+        FTS-delete them, ``DELETE`` the rows, then insert ``chunks`` in
+        ``seq`` order (collecting each ``cur.lastrowid`` — never
+        ``RETURNING``, since the frozen CPython bundle's SQLite version is
+        not pinned by this project) and sync the new rows into the FTS
+        index. Any exception anywhere in this sequence rolls the whole
+        transaction back via the guard, so a failure mid-insert (e.g. a
+        duplicate ``seq`` violating ``UNIQUE(item_id, seq)``) leaves the
+        previous chunks and their FTS rows exactly as they were.
+
+        An empty ``chunks`` deletes the existing rows and returns ``[]`` —
+        a zero-length extraction is a valid re-index result.
+        """
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id, text FROM kb_chunks WHERE item_id = ?", (item_id,)
+            ) as cur:
+                old_rows = [(row[0], row[1]) for row in await cur.fetchall()]
+            await _fts_delete_rows(self.conn, old_rows)
+            await self.conn.execute("DELETE FROM kb_chunks WHERE item_id = ?", (item_id,))
+
+            ids: list[int] = []
+            texts: list[str] = []
+            for chunk in chunks:
+                async with self.conn.execute(
+                    "INSERT INTO kb_chunks (item_id, kb_id, seq, text, char_start, char_end) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (item_id, kb_id, chunk.seq, chunk.text, chunk.char_start, chunk.char_end),
+                ) as cur:
+                    ids.append(cur.lastrowid)
+                texts.append(chunk.text)
+
+            if ids:
+                await self.conn.executemany(
+                    "INSERT INTO kb_chunks_fts(rowid, text) VALUES (?, ?)",
+                    list(zip(ids, texts, strict=True)),
+                )
+        return ids
+
+    async def delete_for_item(self, item_id: str) -> list[int]:
+        """Delete every chunk belonging to ``item_id`` (and its FTS rows).
+        Returns the removed chunk ids."""
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id, text FROM kb_chunks WHERE item_id = ?", (item_id,)
+            ) as cur:
+                rows = [(row[0], row[1]) for row in await cur.fetchall()]
+            await _fts_delete_rows(self.conn, rows)
+            await self.conn.execute("DELETE FROM kb_chunks WHERE item_id = ?", (item_id,))
+        return [row[0] for row in rows]
+
+    async def delete_for_kb(self, kb_id: str) -> list[int]:
+        """Delete every chunk belonging to ``kb_id`` (and its FTS rows).
+        Returns the removed chunk ids."""
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id, text FROM kb_chunks WHERE kb_id = ?", (kb_id,)
+            ) as cur:
+                rows = [(row[0], row[1]) for row in await cur.fetchall()]
+            await _fts_delete_rows(self.conn, rows)
+            await self.conn.execute("DELETE FROM kb_chunks WHERE kb_id = ?", (kb_id,))
+        return [row[0] for row in rows]
+
+    async def list_for_item(
+        self, item_id: str, *, limit: int | None = None, offset: int = 0
+    ) -> list[KBChunk]:
+        """Chunks of ``item_id`` in ``seq`` order. Unchanged when called
+        positionally (just ``item_id``). ``limit``/``offset`` page the
+        result — SQLite requires a ``LIMIT`` for ``OFFSET``, so an
+        ``offset`` with no ``limit`` uses ``LIMIT -1`` (SQLite's
+        unbounded-limit sentinel)."""
+        sql = "SELECT * FROM kb_chunks WHERE item_id = ? ORDER BY seq"
+        params: list[Any] = [item_id]
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+        elif offset:
+            sql += " LIMIT -1 OFFSET ?"
+            params.append(offset)
+        async with self.conn.execute(sql, params) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def ids_for_item(self, item_id: str) -> list[int]:
+        """Chunk ids of ``item_id`` in ``seq`` order — never selects
+        ``text`` (a large file's chunk count must not force materialising
+        its text just to delete the matching vectors)."""
+        async with self.conn.execute(
+            "SELECT id FROM kb_chunks WHERE item_id = ? ORDER BY seq", (item_id,)
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
+
+    async def iter_for_kb(self, kb_id: str, batch_size: int = 1000) -> AsyncIterator[list[KBChunk]]:
+        """Async-iterate ``kb_id``'s chunks in ascending ``id`` order via
+        keyset pagination (``WHERE kb_id = ? AND id > ? ORDER BY id LIMIT
+        ?``) — DD-6's rebuild stream. Yields nothing for an empty KB. Holds
+        no transaction between pages: a chunk inserted mid-iteration with a
+        higher id is seen by a later page; one deleted is simply absent —
+        the caller (the rebuild) tolerates both.
+        """
+        last_id = 0
+        while True:
+            async with self.conn.execute(
+                "SELECT * FROM kb_chunks WHERE kb_id = ? AND id > ? ORDER BY id LIMIT ?",
+                (kb_id, last_id, batch_size),
+            ) as cur:
+                rows = await cur.fetchall()
+            if not rows:
+                return
+            page = [self._row_to_model(r) for r in rows]
+            yield page
+            if len(page) < batch_size:
+                return
+            last_id = page[-1].id
+
+    async def get_many(self, ids: Sequence[int]) -> list[KBChunk]:
+        """Fetch chunks by id, preserving ``ids``'s order (not SQL's).
+
+        Batches the ``IN (…)`` clause at ``_GET_MANY_BATCH_SIZE`` regardless
+        of host — ``SQLITE_MAX_VARIABLE_NUMBER`` varies by build. Returns
+        ``[]`` for an empty ``ids`` without issuing a query (``IN ()`` is a
+        syntax error).
+        """
+        if not ids:
+            return []
+        by_id: dict[int, KBChunk] = {}
+        id_list = list(ids)
+        for start in range(0, len(id_list), _GET_MANY_BATCH_SIZE):
+            batch = id_list[start : start + _GET_MANY_BATCH_SIZE]
+            placeholders = ", ".join("?" for _ in batch)
+            async with self.conn.execute(
+                f"SELECT * FROM kb_chunks WHERE id IN ({placeholders})", batch
+            ) as cur:
+                for row in await cur.fetchall():
+                    model = self._row_to_model(row)
+                    by_id[model.id] = model
+        return [by_id[i] for i in id_list if i in by_id]
+
+    async def count_for_kb(self, kb_id: str) -> int:
+        async with self.conn.execute(
+            "SELECT COUNT(*) FROM kb_chunks WHERE kb_id = ?", (kb_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+    async def search_keyword(self, kb_id: str, query: str, k: int) -> list[tuple[int, float]]:
+        """Keyword search over ``kb_id``'s chunks. Returns ``(chunk_id, score)``
+        pairs ordered best-first.
+
+        ``bm25()`` is lower-is-better (negative) — this method returns the
+        raw score as-is; callers (Leg 4's benchmark, the later fusion
+        flight) must not assume higher-is-better.
+
+        The query is split on whitespace and each term individually quoted
+        (``'"' + term.replace('"', '""') + '"'``), joined by spaces (FTS5
+        implicit AND) — this neutralises FTS5 operator characters (``"``,
+        ``*``, ``(``, ``-``, ``OR``, ``NEAR``) so a query containing them is
+        matched as plain terms instead of raising or being misinterpreted.
+        An empty or whitespace-only ``query`` returns ``[]`` without
+        touching the DB.
+
+        ``bm25(kb_chunks_fts)`` and the ``MATCH`` clause both name the
+        UNALIASED table — ``bm25(f)`` / ``f MATCH ...`` raise
+        ``no such column: f`` even though the rowid select aliases the FTS
+        table ``f``. The KB scope is a join (not a WHERE on the FTS table
+        itself) because the FTS table carries no ``kb_id`` column.
+
+        ``k`` is bounded to ``1 <= k <= MAX_SEARCH_K`` (squawk 0054) —
+        rejected with ``ValueError`` outside that range, not clamped, to
+        match this repository's existing convention of raising on invalid
+        input (e.g. ``replace_item_chunks``'s illegal-field guard) rather
+        than silently coercing it.
+        """
+        if k < 1 or k > MAX_SEARCH_K:
+            raise ValueError(f"k must be between 1 and {MAX_SEARCH_K}, got {k}")
+        terms = query.split()
+        if not terms:
+            return []
+        match_query = " ".join('"' + term.replace('"', '""') + '"' for term in terms)
+        async with self.conn.execute(
+            "SELECT f.rowid, bm25(kb_chunks_fts) AS score FROM kb_chunks_fts f "
+            "JOIN kb_chunks c ON c.id = f.rowid "
+            "WHERE kb_chunks_fts MATCH ? AND c.kb_id = ? "
+            "ORDER BY score LIMIT ?",
+            (match_query, kb_id, k),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [(row[0], row[1]) for row in rows]
+
+    async def rebuild_fts(self) -> None:
+        """Rebuild the FTS5 index from ``kb_chunks``'s current contents.
+
+        Recovers from a desynchronised index (e.g. a raw ``DELETE FROM
+        kb_chunks`` issued outside this repository, bypassing the FTS sync
+        rule).
+        """
+        async with write_transaction(self.conn):
+            await self.conn.execute("INSERT INTO kb_chunks_fts(kb_chunks_fts) VALUES ('rebuild')")
+
+    async def check_fts(self) -> bool:
+        """Verify the FTS5 index against ``kb_chunks``'s current contents.
+
+        Uses the TWO-argument integrity-check form —
+        ``INSERT INTO kb_chunks_fts(kb_chunks_fts, rank) VALUES
+        ('integrity-check', 1)`` — which, for an external-content table,
+        verifies the index against the content table. The one-argument form
+        checks only the index's own internal structure and reports clean on
+        an external-content desync; it is deliberately not used here.
+
+        Takes the write-transaction guard even though nothing is committed
+        (the check issues no writes) — the rule the guard enforces is about
+        never running while another task's write is mid-flight on the FTS
+        table, and a read inside the guard is allowed. Returns ``False`` on
+        ``sqlite3.DatabaseError`` (the desync signal); ``True`` otherwise,
+        including on an empty index.
+        """
+        try:
+            async with write_transaction(self.conn):
+                await self.conn.execute(
+                    "INSERT INTO kb_chunks_fts(kb_chunks_fts, rank) VALUES ('integrity-check', 1)"
+                )
+        except sqlite3.DatabaseError:
+            return False
+        return True
+
+    @staticmethod
+    def _row_to_model(row: aiosqlite.Row) -> KBChunk:
+        return KBChunk(
+            id=row["id"],
+            item_id=row["item_id"],
+            kb_id=row["kb_id"],
+            seq=row["seq"],
+            text=row["text"],
+            char_start=row["char_start"],
+            char_end=row["char_end"],
             created_at=row["created_at"],
         )
 
@@ -506,44 +1150,45 @@ class MCPSourceRepository:
         return self._row_to_model(row)
 
     async def create(self, source: MCPSource) -> None:
-        await self.conn.execute(
-            "INSERT INTO mcp_sources (id, name, type, config, secrets, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                source.id,
-                source.name,
-                source.type,
-                json.dumps(source.config),
-                self._secrets_to_ciphertext(source.secrets),
-                source.created_at,
-                source.updated_at,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO mcp_sources (id, name, type, config, secrets, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    source.id,
+                    source.name,
+                    source.type,
+                    json.dumps(source.config),
+                    self._secrets_to_ciphertext(source.secrets),
+                    source.created_at,
+                    source.updated_at,
+                ),
+            )
 
     async def update(self, source: MCPSource) -> None:
         async with self.conn.execute("SELECT 1 FROM mcp_sources WHERE id = ?", (source.id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"MCP source not found: {source.id}")
-        await self.conn.execute(
-            "UPDATE mcp_sources SET name=?, type=?, config=?, secrets=?, updated_at=? WHERE id=?",
-            (
-                source.name,
-                source.type,
-                json.dumps(source.config),
-                self._secrets_to_ciphertext(source.secrets),
-                now_iso(),
-                source.id,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE mcp_sources SET name=?, type=?, config=?, secrets=?, updated_at=? "
+                "WHERE id=?",
+                (
+                    source.name,
+                    source.type,
+                    json.dumps(source.config),
+                    self._secrets_to_ciphertext(source.secrets),
+                    now_iso(),
+                    source.id,
+                ),
+            )
 
     async def delete(self, source_id: str) -> None:
         async with self.conn.execute("SELECT 1 FROM mcp_sources WHERE id = ?", (source_id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"MCP source not found: {source_id}")
-        await self.conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
 
     async def find_by_runtime_package(
         self, runtime: str, package: str, exclude_id: str
@@ -642,52 +1287,52 @@ class ConnectorRepository:
         return self._row_to_model(row)
 
     async def create(self, account: Connector) -> None:
-        await self.conn.execute(
-            "INSERT INTO connectors"
-            " (id, name, type, config, secrets, idle_timeout_seconds,"
-            "  session_continuation_seconds, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                account.id,
-                account.name,
-                account.type,
-                json.dumps(account.config),
-                self._secrets_to_ciphertext(account.secrets),
-                account.idle_timeout_seconds,
-                account.session_continuation_seconds,
-                account.created_at,
-                account.updated_at,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO connectors"
+                " (id, name, type, config, secrets, idle_timeout_seconds,"
+                "  session_continuation_seconds, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    account.id,
+                    account.name,
+                    account.type,
+                    json.dumps(account.config),
+                    self._secrets_to_ciphertext(account.secrets),
+                    account.idle_timeout_seconds,
+                    account.session_continuation_seconds,
+                    account.created_at,
+                    account.updated_at,
+                ),
+            )
 
     async def update(self, account: Connector) -> None:
         async with self.conn.execute("SELECT 1 FROM connectors WHERE id = ?", (account.id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Connector account not found: {account.id}")
-        await self.conn.execute(
-            "UPDATE connectors"
-            " SET name=?, type=?, config=?, secrets=?, idle_timeout_seconds=?,"
-            "     session_continuation_seconds=?, updated_at=? WHERE id=?",
-            (
-                account.name,
-                account.type,
-                json.dumps(account.config),
-                self._secrets_to_ciphertext(account.secrets),
-                account.idle_timeout_seconds,
-                account.session_continuation_seconds,
-                now_iso(),
-                account.id,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE connectors"
+                " SET name=?, type=?, config=?, secrets=?, idle_timeout_seconds=?,"
+                "     session_continuation_seconds=?, updated_at=? WHERE id=?",
+                (
+                    account.name,
+                    account.type,
+                    json.dumps(account.config),
+                    self._secrets_to_ciphertext(account.secrets),
+                    account.idle_timeout_seconds,
+                    account.session_continuation_seconds,
+                    now_iso(),
+                    account.id,
+                ),
+            )
 
     async def delete(self, account_id: str) -> None:
         async with self.conn.execute("SELECT 1 FROM connectors WHERE id = ?", (account_id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Connector account not found: {account_id}")
-        await self.conn.execute("DELETE FROM connectors WHERE id = ?", (account_id,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM connectors WHERE id = ?", (account_id,))
 
     def _row_to_model(self, row: aiosqlite.Row) -> Connector:
         return Connector(
@@ -758,16 +1403,16 @@ class ConnectorDirectoryRepository:
             and existing["username"] == username
         ):
             return
-        await self.conn.execute(
-            "INSERT INTO connector_directory "
-            "(connector_id, kind, platform_id, thread_id, display_name, username, last_seen) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(connector_id, kind, platform_id) DO UPDATE SET "
-            "thread_id = excluded.thread_id, display_name = excluded.display_name, "
-            "username = excluded.username, last_seen = excluded.last_seen",
-            (connector_id, kind, platform_id, thread_id, display_name, username, now_iso()),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO connector_directory "
+                "(connector_id, kind, platform_id, thread_id, display_name, username, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(connector_id, kind, platform_id) DO UPDATE SET "
+                "thread_id = excluded.thread_id, display_name = excluded.display_name, "
+                "username = excluded.username, last_seen = excluded.last_seen",
+                (connector_id, kind, platform_id, thread_id, display_name, username, now_iso()),
+            )
 
     async def get(
         self, connector_id: str, kind: str, platform_id: str
@@ -860,10 +1505,10 @@ class ConnectorDirectoryRepository:
     async def delete_for_connector(self, connector_id: str) -> None:
         """DD-1g: one deterministic DELETE, wired into the connector
         delete route. No FK/cascade (DD-4) — this is the mechanism."""
-        await self.conn.execute(
-            "DELETE FROM connector_directory WHERE connector_id = ?", (connector_id,)
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "DELETE FROM connector_directory WHERE connector_id = ?", (connector_id,)
+            )
 
 
 # ── Agent revision repository ────────────────────────────────────────────
@@ -915,26 +1560,26 @@ class AgentRevisionRepository:
         ``self`` / ``restore``).
         """
         revision_id = uuid.uuid4().hex
-        await self.conn.execute(
-            "INSERT INTO agent_revisions "
-            "(id, agent_name, field, proposed_value, base_value, "
-            " status, source, source_principal, restored_from, created_at, resolved_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                revision_id,
-                agent_name,
-                field,
-                proposed_value,
-                base_value,
-                status,
-                source,
-                source_principal,
-                restored_from,
-                created_at,
-                resolved_at,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO agent_revisions "
+                "(id, agent_name, field, proposed_value, base_value, "
+                " status, source, source_principal, restored_from, created_at, resolved_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    revision_id,
+                    agent_name,
+                    field,
+                    proposed_value,
+                    base_value,
+                    status,
+                    source,
+                    source_principal,
+                    restored_from,
+                    created_at,
+                    resolved_at,
+                ),
+            )
         return await self.get(revision_id)
 
     async def get(self, revision_id: str) -> AgentRevision:
@@ -1026,14 +1671,14 @@ class AgentRevisionRepository:
                 True,
             )
         revision_id = existing["id"]
-        await self.conn.execute(
-            "UPDATE agent_revisions "
-            "SET proposed_value = ?, base_value = ?, created_at = ?, "
-            "    source = ?, source_principal = ? "
-            "WHERE id = ?",
-            (proposed_value, base_value, ts, source, source_principal, revision_id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agent_revisions "
+                "SET proposed_value = ?, base_value = ?, created_at = ?, "
+                "    source = ?, source_principal = ? "
+                "WHERE id = ?",
+                (proposed_value, base_value, ts, source, source_principal, revision_id),
+            )
         return await self.get(revision_id), False
 
     async def mark_applied(self, revision_id: str) -> AgentRevision:
@@ -1059,11 +1704,11 @@ class AgentRevisionRepository:
             raise ValueError(
                 f"Agent revision {revision_id} is {current.status}; cannot transition to {target}"
             )
-        await self.conn.execute(
-            "UPDATE agent_revisions SET status = ?, resolved_at = ? WHERE id = ?",
-            (target, now_iso(), revision_id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agent_revisions SET status = ?, resolved_at = ? WHERE id = ?",
+                (target, now_iso(), revision_id),
+            )
         return await self.get(revision_id)
 
     async def update_base_value(self, revision_id: str, base_value: str) -> AgentRevision:
@@ -1074,11 +1719,11 @@ class AgentRevisionRepository:
         to the current stored value before applying, so the applied row
         records the base it actually overwrote.
         """
-        await self.conn.execute(
-            "UPDATE agent_revisions SET base_value = ? WHERE id = ?",
-            (base_value, revision_id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agent_revisions SET base_value = ? WHERE id = ?",
+                (base_value, revision_id),
+            )
         return await self.get(revision_id)
 
     async def supersede_pending(self, agent_name: str) -> int:
@@ -1088,13 +1733,14 @@ class AgentRevisionRepository:
         revision proposed under a since-revoked surface must not be
         approvable afterward. Returns the number of rows superseded.
         """
-        cur = await self.conn.execute(
-            "UPDATE agent_revisions SET status = 'superseded', resolved_at = ? "
-            "WHERE agent_name = ? AND status = 'pending'",
-            (now_iso(), agent_name),
-        )
-        await self.conn.commit()
-        return cur.rowcount
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "UPDATE agent_revisions SET status = 'superseded', resolved_at = ? "
+                "WHERE agent_name = ? AND status = 'pending'",
+                (now_iso(), agent_name),
+            ) as cur:
+                rowcount = cur.rowcount
+        return rowcount
 
     def _row_to_model(self, row: aiosqlite.Row) -> AgentRevision:
         return AgentRevision(
@@ -1189,32 +1835,32 @@ class ToolConfigRepository:
         "last write wins" semantics are intentional for that surface.
         """
         secrets = secrets or {}
-        await self.conn.execute(
-            """\
-            INSERT INTO tool_configs (name, config, secrets, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                config=excluded.config,
-                secrets=excluded.secrets,
-                enabled=excluded.enabled,
-                updated_at=excluded.updated_at
-            """,
-            (
-                name,
-                json.dumps(config),
-                self._secrets_to_ciphertext(secrets),
-                int(enabled),
-                now_iso(),
-                now_iso(),
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                """\
+                INSERT INTO tool_configs (name, config, secrets, enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    config=excluded.config,
+                    secrets=excluded.secrets,
+                    enabled=excluded.enabled,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    name,
+                    json.dumps(config),
+                    self._secrets_to_ciphertext(secrets),
+                    int(enabled),
+                    now_iso(),
+                    now_iso(),
+                ),
+            )
 
     async def delete(self, name: str) -> None:
         if not await self.exists(name):
             raise KeyError(f"Tool config not found: {name}")
-        await self.conn.execute("DELETE FROM tool_configs WHERE name = ?", (name,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM tool_configs WHERE name = ?", (name,))
 
     async def exists(self, name: str) -> bool:
         async with self.conn.execute("SELECT 1 FROM tool_configs WHERE name = ?", (name,)) as cur:
@@ -1255,12 +1901,20 @@ class AppMetadataRepository:
 
     async def set(self, key: str, value: str) -> None:
         """Insert or update ``key`` to ``value`` (upsert; latest value wins)."""
-        await self.conn.execute(
-            "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+    async def delete(self, key: str) -> None:
+        """Delete ``key`` if present; a no-op if absent (Flight 7 Leg 2,
+        AC-11a). Added so a kv key that falls outside ``kb_items``' FK
+        cascade — e.g. DD-7's per-folder walk-skip-counter key — can be
+        cleaned up explicitly by its owning delete path."""
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM app_metadata WHERE key = ?", (key,))
 
 
 # ── Chat session repository ──────────────────────────────────────────────
@@ -1330,31 +1984,31 @@ class ChatSessionRepository:
         return self._row_to_model(row)
 
     async def create(self, session: ChatSession) -> None:
-        await self.conn.execute(
-            "INSERT INTO chat_sessions ("
-            " id, agent_name, title, messages, created_at, updated_at,"
-            " platform, connector_id, channel_id, thread_id, peer_id,"
-            " session_metadata, last_inbound_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                session.id,
-                session.agent_name,
-                session.title,
-                session.messages,
-                session.created_at,
-                session.updated_at,
-                session.platform,
-                session.connector_id,
-                session.channel_id,
-                session.thread_id,
-                session.peer_id,
-                json.dumps(session.session_metadata)
-                if session.session_metadata is not None
-                else None,
-                session.last_inbound_at,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO chat_sessions ("
+                " id, agent_name, title, messages, created_at, updated_at,"
+                " platform, connector_id, channel_id, thread_id, peer_id,"
+                " session_metadata, last_inbound_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session.id,
+                    session.agent_name,
+                    session.title,
+                    session.messages,
+                    session.created_at,
+                    session.updated_at,
+                    session.platform,
+                    session.connector_id,
+                    session.channel_id,
+                    session.thread_id,
+                    session.peer_id,
+                    json.dumps(session.session_metadata)
+                    if session.session_metadata is not None
+                    else None,
+                    session.last_inbound_at,
+                ),
+            )
 
     async def update(self, session: ChatSession) -> None:
         """Update the mutable session fields (title, messages, updated_at).
@@ -1382,11 +2036,11 @@ class ChatSessionRepository:
         ) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Chat session not found: {session.id}")
-        await self.conn.execute(
-            "UPDATE chat_sessions SET title=?, messages=?, updated_at=? WHERE id=?",
-            (session.title, session.messages, now_iso(), session.id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE chat_sessions SET title=?, messages=?, updated_at=? WHERE id=?",
+                (session.title, session.messages, now_iso(), session.id),
+            )
 
     async def delete(self, session_id: str) -> None:
         async with self.conn.execute(
@@ -1394,8 +2048,8 @@ class ChatSessionRepository:
         ) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Chat session not found: {session_id}")
-        await self.conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
 
     async def delete_all_for_agent(self, agent_name: str) -> int:
         """Delete every chat session for an agent (interactive AND
@@ -1407,11 +2061,11 @@ class ChatSessionRepository:
         so this neither cascades nor is blocked. Rename-safe because
         rename() re-points chat_sessions.agent_name in one transaction.
         """
-        async with self.conn.execute(
-            "DELETE FROM chat_sessions WHERE agent_name = ?", (agent_name,)
-        ) as cur:
-            count = cur.rowcount
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "DELETE FROM chat_sessions WHERE agent_name = ?", (agent_name,)
+            ) as cur:
+                count = cur.rowcount
         return count
 
     async def delete_older_than(self, agent_name: str, cutoff: str) -> list[str]:
@@ -1445,11 +2099,11 @@ class ChatSessionRepository:
         ) as cur:
             ids = [row[0] for row in await cur.fetchall()]
         if ids:
-            await self.conn.execute(
-                "DELETE FROM chat_sessions WHERE agent_name = ? AND updated_at < ?",
-                (agent_name, cutoff),
-            )
-            await self.conn.commit()
+            async with write_transaction(self.conn):
+                await self.conn.execute(
+                    "DELETE FROM chat_sessions WHERE agent_name = ? AND updated_at < ?",
+                    (agent_name, cutoff),
+                )
         return ids
 
     async def purge_messages(self, session_id: str) -> None:
@@ -1459,11 +2113,11 @@ class ChatSessionRepository:
         ) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Chat session not found: {session_id}")
-        await self.conn.execute(
-            "UPDATE chat_sessions SET messages='[]', updated_at=? WHERE id=?",
-            (now_iso(), session_id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE chat_sessions SET messages='[]', updated_at=? WHERE id=?",
+                (now_iso(), session_id),
+            )
 
     async def update_last_inbound(self, session_id: str, when: str) -> None:
         """Bump the connector-driven activity timestamps for a session.
@@ -1490,11 +2144,11 @@ class ChatSessionRepository:
         ) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Chat session not found: {session_id}")
-        await self.conn.execute(
-            "UPDATE chat_sessions SET last_inbound_at = ?, updated_at = ? WHERE id = ?",
-            (when, when, session_id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE chat_sessions SET last_inbound_at = ?, updated_at = ? WHERE id = ?",
+                (when, when, session_id),
+            )
 
     async def append_to_session_metadata(self, session_id: str, key: str, value: Any) -> None:
         """Append ``value`` to the list at ``session_metadata[key]``.
@@ -1534,11 +2188,11 @@ class ChatSessionRepository:
             existing = []
         existing.append(value)
         metadata[key] = existing
-        await self.conn.execute(
-            "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
-            (json.dumps(metadata), session_id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
+                (json.dumps(metadata), session_id),
+            )
 
     async def set_session_metadata_key(
         self,
@@ -1609,11 +2263,11 @@ class ChatSessionRepository:
             # write replaces the column with a well-formed dict.
             metadata = {}
         metadata[key] = value
-        await self.conn.execute(
-            "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
-            (json.dumps(metadata), session_id),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
+                (json.dumps(metadata), session_id),
+            )
 
     @staticmethod
     def _row_to_model(row: aiosqlite.Row) -> ChatSession:
@@ -1671,31 +2325,31 @@ class LLMProviderRepository:
         return self._row_to_model(row)
 
     async def create(self, provider: LLMProviderConfig) -> None:
-        await self.conn.execute(
-            "INSERT INTO llm_providers (id, name, type, base_url, api_key, config,"
-            " secrets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            self._to_row(provider),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url, api_key, config,"
+                " secrets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                self._to_row(provider),
+            )
 
     async def update(self, provider: LLMProviderConfig) -> None:
         if not await self._exists(provider.id):
             raise KeyError(f"Provider not found: {provider.id}")
-        await self.conn.execute(
-            "UPDATE llm_providers SET name=?, type=?, base_url=?, api_key=?,"
-            " config=?, secrets=?, updated_at=? WHERE id=?",
-            (
-                provider.name,
-                provider.type,
-                provider.base_url,
-                self.encryptor.encrypt_optional(provider.api_key),
-                json.dumps(provider.config),
-                _encrypt_secrets_blob(self.encryptor, provider.secrets),
-                now_iso(),
-                provider.id,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE llm_providers SET name=?, type=?, base_url=?, api_key=?,"
+                " config=?, secrets=?, updated_at=? WHERE id=?",
+                (
+                    provider.name,
+                    provider.type,
+                    provider.base_url,
+                    self.encryptor.encrypt_optional(provider.api_key),
+                    json.dumps(provider.config),
+                    _encrypt_secrets_blob(self.encryptor, provider.secrets),
+                    now_iso(),
+                    provider.id,
+                ),
+            )
 
     async def update_secrets(self, provider_id: str, secrets: dict[str, Any]) -> None:
         """Replace ONLY the encrypted OAuth-secrets blob for one provider.
@@ -1708,21 +2362,21 @@ class LLMProviderRepository:
         """
         if not await self._exists(provider_id):
             raise KeyError(f"Provider not found: {provider_id}")
-        await self.conn.execute(
-            "UPDATE llm_providers SET secrets=?, updated_at=? WHERE id=?",
-            (
-                _encrypt_secrets_blob(self.encryptor, secrets),
-                now_iso(),
-                provider_id,
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE llm_providers SET secrets=?, updated_at=? WHERE id=?",
+                (
+                    _encrypt_secrets_blob(self.encryptor, secrets),
+                    now_iso(),
+                    provider_id,
+                ),
+            )
 
     async def delete(self, provider_id: str) -> None:
         if not await self._exists(provider_id):
             raise KeyError(f"Provider not found: {provider_id}")
-        await self.conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
 
     async def _exists(self, provider_id: str) -> bool:
         async with self.conn.execute(
@@ -1795,19 +2449,19 @@ class AgentExternalCredentialRepository:
         """Insert one external-credential row. ``secret`` is the plaintext
         secret component of the ``ext_<identifier>.<secret>`` token; it is
         Fernet-encrypted here and never stored in the clear (DD2)."""
-        await self.conn.execute(
-            "INSERT INTO agent_external_credentials "
-            "(identifier, source_id, secret, label, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                identifier,
-                source_id,
-                self.encryptor.encrypt(secret),
-                label,
-                now_iso(),
-            ),
-        )
-        await self.conn.commit()
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "INSERT INTO agent_external_credentials "
+                "(identifier, source_id, secret, label, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    identifier,
+                    source_id,
+                    self.encryptor.encrypt(secret),
+                    label,
+                    now_iso(),
+                ),
+            )
 
     async def list_for_source(self, source_id: str) -> list[dict[str, Any]]:
         """Return a secret-free projection of every credential scoped to
@@ -1850,12 +2504,13 @@ class AgentExternalCredentialRepository:
         """Hard-delete the row for *identifier*. Returns ``True`` if a row
         was removed, ``False`` if there was nothing to delete (idempotent
         no-op — mirrors the cascade path, which also hard-deletes)."""
-        cur = await self.conn.execute(
-            "DELETE FROM agent_external_credentials WHERE identifier = ?",
-            (identifier,),
-        )
-        await self.conn.commit()
-        return cur.rowcount > 0
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "DELETE FROM agent_external_credentials WHERE identifier = ?",
+                (identifier,),
+            ) as cur:
+                rowcount = cur.rowcount
+        return rowcount > 0
 
     async def load_all(self) -> list[tuple[str, str, str]]:
         """Return ``(identifier, source_id, secret)`` for every row, with

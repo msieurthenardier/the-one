@@ -218,3 +218,122 @@ async def test_lifespan_reconciles_leftover_rotation_sidecar(
     assert (tmp_path / "encryption.key").read_bytes() == new_key
     assert not (tmp_path / "encryption.key.next").exists()
     assert _settings.data_dir == tmp_path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M24 F02 L03, DD-1 — embedding warm-up at lifespan startup
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def test_lifespan_does_not_warm_up_with_no_knowledge_bases(
+    _isolated_data_dir,
+) -> None:
+    """AC-5: zero knowledge bases at startup -> the loader is never called."""
+    import asyncio
+
+    from tests._embedding_stub import StubEmbeddingBackend
+    from the_one import embeddings
+    from the_one.interfaces.web.app import app, lifespan
+
+    calls = {"n": 0}
+
+    def _fake_load() -> StubEmbeddingBackend:
+        calls["n"] += 1
+        return StubEmbeddingBackend()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(embeddings.LocalStaticBackend, "load", staticmethod(_fake_load))
+        embeddings._reset_for_test()
+        async with lifespan(app):
+            await asyncio.sleep(0.05)
+
+    assert calls["n"] == 0
+    embeddings._reset_for_test()
+
+
+async def test_lifespan_warms_up_embedding_backend_when_a_kb_exists(
+    _isolated_data_dir,
+) -> None:
+    """AC-5: one KB at startup -> the loader is called exactly once, under
+    ``asyncio.to_thread`` (never on the event-loop thread)."""
+    import asyncio
+    import threading
+
+    from tests._embedding_stub import StubEmbeddingBackend
+    from the_one import embeddings
+    from the_one.db.connection import get_connection
+    from the_one.db.models import KnowledgeBase
+    from the_one.db.repositories import KnowledgeBaseRepository
+    from the_one.db.schema import ensure_schema
+    from the_one.interfaces.web.app import app, lifespan
+
+    conn = await get_connection()
+    await ensure_schema(conn)
+    await KnowledgeBaseRepository(conn).create(KnowledgeBase(id="kb1", name="KB One"))
+
+    main_thread_ident = threading.get_ident()
+    calls: dict[str, object] = {"n": 0, "thread_ident": None}
+
+    def _fake_load() -> StubEmbeddingBackend:
+        calls["n"] = calls["n"] + 1  # type: ignore[operator]
+        calls["thread_ident"] = threading.get_ident()
+        return StubEmbeddingBackend()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(embeddings.LocalStaticBackend, "load", staticmethod(_fake_load))
+        embeddings._reset_for_test()
+        async with lifespan(app):
+            for _ in range(50):
+                if calls["n"]:
+                    break
+                await asyncio.sleep(0.01)
+
+    assert calls["n"] == 1
+    assert calls["thread_ident"] != main_thread_ident
+    embeddings._reset_for_test()
+
+
+async def test_lifespan_warm_up_failure_does_not_fail_startup(
+    _isolated_data_dir, caplog: pytest.LogCaptureFixture
+) -> None:
+    """AC-5: a loader failure is logged and must not fail startup."""
+    import asyncio
+
+    from the_one import embeddings
+    from the_one.db.connection import get_connection
+    from the_one.db.models import KnowledgeBase
+    from the_one.db.repositories import KnowledgeBaseRepository
+    from the_one.db.schema import ensure_schema
+    from the_one.interfaces.web.app import app, lifespan
+
+    conn = await get_connection()
+    await ensure_schema(conn)
+    await KnowledgeBaseRepository(conn).create(KnowledgeBase(id="kb1", name="KB One"))
+
+    def _explode() -> None:
+        raise RuntimeError("simulated missing weights")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(embeddings.LocalStaticBackend, "load", staticmethod(_explode))
+        embeddings._reset_for_test()
+        with caplog.at_level("ERROR"):
+            async with lifespan(app):
+                await asyncio.sleep(0.1)
+
+    # Reaching here at all proves startup did not raise; the failure must
+    # still have been logged rather than silently swallowed.
+    assert any("embedding backend warm-up failed" in r.message for r in caplog.records)
+    embeddings._reset_for_test()
+
+
+def test_warm_up_scheduled_after_connector_manager_start_in_source() -> None:
+    """Regression guard on the ordering DD-1 requires: the warm-up gate's
+    ``count()`` read must not race the connector manager's own startup."""
+    import inspect
+
+    from the_one.interfaces.web.app import lifespan
+
+    source = inspect.getsource(lifespan)
+    assert source.index("connector manager startup failed") < source.index(
+        "embedding warm-up scheduling failed"
+    )

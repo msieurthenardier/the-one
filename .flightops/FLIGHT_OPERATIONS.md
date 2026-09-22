@@ -11,17 +11,35 @@
 
 ---
 
+## The Hierarchy
+
+| Level | Audience | What it is | Sizing |
+|-------|----------|------------|--------|
+| **Mission** | Humans | One meaningful outcome, stated in human terms | Typically 1-3 flights |
+| **Flight** | Humans + AI | A technical spec with pre/in/post-flight checklists | One coherent cluster of design decisions and risks |
+| **Leg** | AI agents | A coherent feature slice with explicit, binary acceptance criteria | Boundaries sit at decision and risk points, not effort |
+
+**Lifecycle states:**
+- **Missions**: `planning` → `active` → `completed` (or `aborted`)
+- **Flights**: `planning` → `ready` → `in-flight` → `landed` → `completed` (or `aborted`)
+- **Legs**: `planning` → `ready` → `in-flight` → `landed` → `completed` (or `aborted`)
+- **Squawks**: `open` → `in-progress` → `completed` (or `deferred` / `escalated`) — outside the hierarchy, see below
+
+**Phase gates require confirmation.** A mission must be fully agreed with the human before any flight is designed; a flight must be fully agreed before any leg is designed. Never skip ahead — get explicit confirmation at each transition. Squawks sit outside these gates by design; their equivalent control is the qualification gate in the Squawks section.
+
+---
+
 ## Project Crew & Phases
 
 Each phase of the Flight Control workflow has a crew definition in `.flightops/agent-crews/`:
 
 | Crew | Purpose |
 |------|---------|
-| `mission-design.md` | Crew for `/mission` (e.g., Architect validates viability) |
-| `flight-design.md` | Crew for `/flight` (e.g., Architect reviews spec) |
-| `leg-execution.md` | Crew for `/agentic-workflow` (e.g., Developer + Reviewer) |
-| `flight-debrief.md` | Crew for `/flight-debrief` (e.g., Developer provides perspective) |
-| `mission-debrief.md` | Crew for `/mission-debrief` (e.g., Architect provides perspective) |
+| `mission-design.md` | Crew for `/mission-control:mission` (e.g., Architect validates viability) |
+| `flight-design.md` | Crew for `/mission-control:flight` (e.g., Architect reviews spec) |
+| `leg-execution.md` | Crew for `/mission-control:agentic-workflow` (e.g., Developer + Reviewer) |
+| `flight-debrief.md` | Crew for `/mission-control:flight-debrief` (e.g., Developer provides perspective) |
+| `mission-debrief.md` | Crew for `/mission-control:mission-debrief` (e.g., Architect provides perspective) |
 
 Crew files define: roles, models, interaction protocols, prompts, and signals. Customize these to change your project's agent configuration.
 
@@ -29,9 +47,9 @@ Crew files define: roles, models, interaction protocols, prompts, and signals. C
 
 ## Multi-Agent Workflow
 
-Legs must be implemented by a **separate Developer instance** and reviewed by a **separate Reviewer instance** (or whatever crew is defined in `leg-execution.md`). Mission Control designs legs and orchestrates — it does NOT implement code directly.
+Legs must be implemented by a **separate Developer instance** and reviewed by a **separate Reviewer instance** (or whatever crew is defined in `leg-execution.md`). The Flight Director designs legs and orchestrates — it does NOT implement code directly. This holds for squawks too, no matter how small the fix looks: the orchestrator spawns a Developer even for a one-line change.
 
-The Reviewer has no knowledge of the Developer's reasoning — only the resulting changes. This separation provides objective code review. Use the `/agentic-workflow` skill in mission-control to drive this cycle.
+The Reviewer has no knowledge of the Developer's reasoning — only the resulting changes. This separation provides objective code review. Use the `/mission-control:agentic-workflow` skill to drive this cycle.
 
 ---
 
@@ -100,7 +118,7 @@ Emit at the end of your response, on its own line:
 
 ## Squawks — Small Fixes Outside the Hierarchy
 
-Not every fix deserves a mission. A **squawk** is a standalone artifact for work too small to plan: one defect, or one routine servicing update. It has no parent mission, no flight, no leg, and no debrief. Logged and completed via `/squawk` on the mission-control side; stored per `ARTIFACTS.md` (default `squawks/{id}-{slug}.md`).
+Not every fix deserves a mission. A **squawk** is a standalone artifact for work too small to plan: one defect, or one routine servicing update. It has no parent mission, no flight, no leg, and no debrief. Logged and completed via `/mission-control:squawk`; stored per `ARTIFACTS.md` (default `squawks/{id}-{slug}.md`).
 
 **It's a squawk only if all four hold:**
 
@@ -109,7 +127,7 @@ Not every fix deserves a mission. A **squawk** is a standalone artifact for work
 3. Bounded blast radius — no shared-interface, schema/migration, lifecycle, or security-sensitive changes
 4. Verifiable by an existing test, or one new one
 
-Fail any one, and it's a flight or a mission. **This gate is the whole point** — a squawk that starts growing is marked `escalated` and handed to `/flight` or `/mission`, never quietly expanded. If you are implementing a squawk and the fix spreads beyond the reported surface, stop, revert, and emit `[BLOCKED:exceeds-squawk-scope]`.
+Fail any one, and it's a flight or a mission. **This gate is the whole point** — a squawk that starts growing is marked `escalated` and handed to `/mission-control:flight` or `/mission-control:mission`, never quietly expanded. If you are implementing a squawk and the fix spreads beyond the reported surface, stop, revert, and emit `[BLOCKED:exceeds-squawk-scope]`.
 
 **Types**: `defect` (something is broken) | `servicing` (dependency bump, config, lint rule, doc fix).
 **Severity**: `grounding` (complete before further work in that area) | `routine` (carry to the next turnaround).
@@ -146,6 +164,34 @@ When reviewing a mission, flight, or leg:
 5. Describe any changes made
 6. Signal `[HANDOFF:confirmed]` if no issues, or describe changes for validation
 
+### Correcting a Rule (Supersession Sweep)
+
+When a review finds a rule wrong and you fix it in place, the superseded
+version routinely survives upstream of the fix — a Developer reading
+top-to-bottom meets the stale text *first* and implements that instead. This
+has produced repeat findings across multiple flights, so treat it as a
+standing step of every correction, not a one-off judgment call:
+
+1. **Name the superseded literal token.** Not "the old approach" — the exact
+   string that no longer applies (a function name, a constant, a field
+   expression: `asyncio.wait_for`, `kb_id[:6]`).
+2. **Grep it to zero.** Search the token across the full artifact set — flight
+   spec, all leg specs, all behavior specs. The correction is not complete
+   until that grep returns nothing. Optionally, log a short "Superseded
+   Rules" ledger at the foot of the spec (old token → new rule → swept) so
+   the next reviewer can audit it in seconds instead of re-deriving it.
+3. **One normative home per rule.** A rule that has already produced a review
+   finding gets exactly one code-shaped authoritative statement (pseudocode
+   or a literal snippet, not prose) somewhere in the spec; every other
+   mention of that rule is a pointer to it ("see DD-3"), never a paraphrase.
+   Paraphrases are where drift hides.
+4. **Precedence clauses are only safe when the block they crown is the sole
+   statement of the rule.** A clause like "this numbered list is
+   authoritative" is often added specifically to kill ambiguity — but if a
+   stale duplicate still exists elsewhere, the clause elevates that stale
+   text instead of resolving it. Add a precedence clause only after step 2's
+   sweep confirms there is nothing left to out-rank.
+
 ---
 
 ## Code Review Gate
@@ -181,7 +227,7 @@ Deferred issues go in the flight log.
 The orchestrator will then:
 - Mark the PR ready for human review
 
-The flight debrief is a separate step run via `/flight-debrief`, which transitions the flight from `landed` to `completed`.
+The flight debrief is a separate step run via `/mission-control:flight-debrief`, which transitions the flight from `landed` to `completed`.
 
 ---
 
@@ -213,13 +259,13 @@ Where things live:
 - **Spec format**: `ARTIFACTS.md`'s "Behavior Test — Spec" section is authoritative.
 - **Spec files**: `tests/behavior/{slug}.md` (or wherever ARTIFACTS.md configures).
 - **Run logs**: `tests/behavior/{slug}/runs/{ts}.md` (committed). Evidence lives at an ephemeral path outside the project tree (`/tmp/behavior-tests/...`), never committed.
-- **Crew (Executor + Validator) prompts**: `.flightops/agent-crews/behavior-tests-execution.md` (project-modifiable scaffolding shipped by `/init-project`).
+- **Crew (Executor + Validator) prompts**: `.flightops/agent-crews/behavior-tests-execution.md` (project-modifiable scaffolding shipped by `/mission-control:init-project`).
 
 Workflow:
 1. During flight or leg planning, identify a verification need that warrants a behavior test (e.g., "the new toggle must persist across page reload AND reach the backend AND survive a process restart").
 2. Author the spec inline using the format in ARTIFACTS.md. Write it to the configured behavior-test directory.
-3. Reference the spec slug in the parent artifact's acceptance criteria — e.g., the leg says "Run `/behavior-test <slug>` to verify acceptance."
-4. The operator (or the agentic-workflow at HAT time) invokes `/behavior-test <slug>` to execute. The skill spawns the live Executor + Validator crew, drives the step loop, and writes a run log with verdict + evidence.
+3. Reference the spec slug in the parent artifact's acceptance criteria — e.g., the leg says "Run `/mission-control:behavior-test <slug>` to verify acceptance."
+4. The operator (or the agentic-workflow at HAT time) invokes `/mission-control:behavior-test <slug>` to execute. The skill spawns the live Executor + Validator crew, drives the step loop, and writes a run log with verdict + evidence.
 
 When NOT to use a behavior test:
 - Pure logic / data transforms → unit tests.
@@ -238,3 +284,5 @@ The behavior-test format is heavyweight (two live agents, evidence directory, ru
 3. **Binary acceptance criteria** — Met or not met
 4. **Log everything** — Decisions, deviations, anomalies
 5. **Signal clearly** — End of response, own line
+6. **Artifacts are the record** — Issues, debt, design gaps, and lessons go in flight logs, debriefs, and mission known-issues, never in Claude Code memory
+7. **Never leak operator identity** — No machine usernames or absolute home paths in artifacts, code, tests, or commit messages; use repo-relative paths or `<username>` placeholders

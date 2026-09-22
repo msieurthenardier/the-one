@@ -41,7 +41,7 @@ Concourse.
 `.github/workflows/pr-lint.yml` triggers `on: pull_request` (branches: `[main]`) and
 runs two jobs, both fail-on-nonzero:
 
-- **lint** — `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/`,
+- **lint** — `ruff check the_one/ tests/ scripts/` + `ruff format --check the_one/ tests/ scripts/`,
   pinned to the same `ruff==0.15.15` version as `ci/tasks/lint.yml` (parity with the
   Concourse lane).
 - **pip-audit** — audits the **release dependency closure**: `uv export --no-dev
@@ -91,7 +91,19 @@ in parallel. Watch it at `http://localhost:8080/teams/the-one/pipelines/the-one`
 
 The `build-windows-installer` job auto-triggers after `ci` passes (`trigger: true` +
 `passed: [ci]`) — so a successful CI run on `main` automatically builds and publishes
-the installer to MinIO.
+the installer to MinIO. `ci/tasks/windows-installer-build.yml` installs the exported
+release closure into a fresh per-build `venv` (M24 F02 L06) rather than the
+persistent `C:\Python311` base interpreter, because the Windows worker runs tasks
+uncontainerised and that interpreter's site-packages survive across builds — build
+606657 shipped a stale `hf_xet` package that way. The venv alone isn't sufficient,
+though: `pip install -r <uv export>` still needs `--no-deps` (build 606698, AC-15) —
+without it, pip walks each package's own declared requirements in hash-checking
+mode, huggingface-hub's wheel metadata still declares `hf-xet` even though the
+closure correctly excludes it, and pip refuses to install ANYTHING rather than
+skipping just that one package. Every native step from `pip install --upgrade
+pip` through the PyInstaller freeze now also checks `$LASTEXITCODE`, since PowerShell's `$ErrorActionPreference = "Stop"` doesn't apply
+to native-executable exit codes — that gap is how build 606657's failed install went
+unnoticed in the first place.
 
 ### 3. On-demand installer build
 

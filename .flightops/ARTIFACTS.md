@@ -127,12 +127,23 @@ What this flight accomplishes (one paragraph).
 - Rationale: Why this choice
 - Trade-off: What we're giving up
 
+### Citation Audit
+
+Required before the first Architect cycle. One row per design decision that
+asserts a code mechanism (a signature, control flow, an exception type,
+mutability, cardinality) — verified against the working tree at `{sha}`:
+
+| Citation | Status |
+|---|---|
+| `path/to/file.py::Symbol` — {the specific mechanism this decision relies on} | verified \| unverified |
+
 ### Prerequisites
 - [ ] {What must be true before execution}
 
 ### Pre-Flight Checklist
 - [ ] All open questions resolved
 - [ ] Design decisions documented
+- [ ] Citation Audit complete — every code-asserting design decision verified
 - [ ] Prerequisites verified
 - [ ] Validation approach defined
 - [ ] Legs defined

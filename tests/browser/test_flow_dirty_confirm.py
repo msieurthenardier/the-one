@@ -182,7 +182,7 @@ def test_section_nav_clean_does_not_open_dialog(app_with_provider: SeededApp, pa
     knowledge_btn.click()
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible()
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible()
 
 
 @pytest.mark.browser

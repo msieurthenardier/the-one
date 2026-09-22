@@ -4387,7 +4387,14 @@ class TestSchemaV39:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 39
+        # A fresh DB runs the ENTIRE migration chain, so ``MAX(version)``
+        # (and CURRENT_VERSION) now lands at least at 40 — v40 (Flight 2 Leg
+        # 1) added a step after this one, and later legs may add more. This
+        # assertion is a sanity pin on the module constant, not a claim that
+        # this test only exercises v39; TestSchemaV40/TestSchemaV41 below
+        # are the version-specific shape/CHECK/AUTOINCREMENT coverage — the
+        # newest block's test pins the exact value (house pattern).
+        assert CURRENT_VERSION >= 40
 
         await conn.close()
 
@@ -4515,5 +4522,636 @@ class TestSchemaV39:
             "VALUES ('tg-1', 'peer', 'p1', NULL, 'Alice', NULL, 't')"
         )
         await conn.commit()
+
+        await conn.close()
+
+
+async def _rewind_to_v39_kb_items(conn) -> None:
+    """Recreate the exact pre-v40 (SCHEMA_V1, ``schema.py:72-80``)
+    ``kb_items`` shape, seed three rows (one with a valid ``status``, one
+    with ``status IS NULL``, one with a junk ``status``), and stamp the
+    version back below 40 — the v39-shaped-DB fixture for the v40
+    upgrade-preserves-rows test (AC-2).
+
+    Mirrors ``_rewind_to_pre_v38``'s shape-then-stamp pattern.
+    """
+    await conn.execute("DROP TABLE kb_items")
+    await conn.execute(
+        "CREATE TABLE kb_items ("
+        "    id TEXT PRIMARY KEY,"
+        "    kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,"
+        "    parent_id TEXT REFERENCES kb_items(id) ON DELETE CASCADE,"
+        "    type TEXT NOT NULL CHECK (type IN ('file', 'url')),"
+        "    path_or_url TEXT NOT NULL,"
+        "    status TEXT DEFAULT 'pending',"
+        "    created_at TEXT NOT NULL DEFAULT (datetime('now'))"
+        ")"
+    )
+    await conn.execute(
+        "INSERT INTO kb_items (id, kb_id, parent_id, type, path_or_url, status, created_at) "
+        "VALUES ('item-pending', 'kb1', NULL, 'file', 'p1', 'pending', 'created-1')"
+    )
+    await conn.execute(
+        "INSERT INTO kb_items (id, kb_id, parent_id, type, path_or_url, status, created_at) "
+        "VALUES ('item-null', 'kb1', NULL, 'url', 'p2', NULL, 'created-2')"
+    )
+    await conn.execute(
+        "INSERT INTO kb_items (id, kb_id, parent_id, type, path_or_url, status, created_at) "
+        "VALUES ('item-garbage', 'kb1', NULL, 'file', 'p3', 'garbage', 'created-3')"
+    )
+    await conn.execute("DELETE FROM schema_version WHERE version >= 40")
+    await conn.commit()
+
+
+class TestSchemaV40:
+    """Tests for the v40 migration (Flight 2 "Storage and Embedding
+    Foundation", Leg 1, DD-5/DD-13) — the flight's one hard-to-reverse
+    step: ``kb_items`` rebuilt with a constrained lifecycle, ``kb_chunks``
+    with never-recycled ``AUTOINCREMENT`` ids, and an external-content
+    FTS5 index (``kb_chunks_fts``).
+    """
+
+    async def test_v40_upgrade_from_fresh_db(self, tmp_path) -> None:
+        """AC-1: a fresh DB lands v40 with the full expected shape —
+        ``kb_items`` / ``kb_chunks`` columns, the FTS5 table, and the
+        membership-style ``sqlite_master`` assertion (never an exact set —
+        FTS5 shadow tables and ``sqlite_sequence`` also exist)."""
+        db_path = tmp_path / "v40-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        async with conn.execute("PRAGMA table_info(kb_items)") as cur:
+            kb_items_cols = {r["name"] for r in await cur.fetchall()}
+        assert kb_items_cols == {
+            "id",
+            "kb_id",
+            "parent_id",
+            "type",
+            "path_or_url",
+            "status",
+            "error",
+            "content_hash",
+            "size_bytes",
+            "mtime",
+            "created_at",
+            "updated_at",
+            "indexed_at",
+        }, kb_items_cols
+
+        async with conn.execute("PRAGMA table_info(kb_chunks)") as cur:
+            kb_chunks_cols = {r["name"] for r in await cur.fetchall()}
+        assert kb_chunks_cols == {
+            "id",
+            "item_id",
+            "kb_id",
+            "seq",
+            "text",
+            "char_start",
+            "char_end",
+            "created_at",
+        }, kb_chunks_cols
+
+        async with conn.execute("SELECT name FROM sqlite_master") as cur:
+            names = {r["name"] for r in await cur.fetchall()}
+        # Membership, never an exact set (house style) — FTS5 shadow
+        # tables (_data/_idx/_docsize/_config) and sqlite_sequence also
+        # exist and are not enumerated here.
+        for expected in (
+            "kb_items",
+            "kb_chunks",
+            "kb_chunks_fts",
+            "sqlite_sequence",
+            "idx_kb_items_kb_id",
+            "idx_kb_items_kb_status",
+            "idx_kb_chunks_kb_id",
+        ):
+            assert expected in names, f"{expected!r} missing from sqlite_master: {names}"
+
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+        assert CURRENT_VERSION >= 40
+
+        await conn.close()
+
+    async def test_v40_check_constraints(self, tmp_path) -> None:
+        """AC-3: both CHECKs hold on a fresh DB — every ``KB_ITEM_TYPES`` /
+        ``KB_ITEM_STATUSES`` member inserts; a bogus value on either column
+        raises ``sqlite3.IntegrityError``. (Also covered behaviourally, in
+        more depth, by ``tests/test_kb_types_consistency.py``.)"""
+        import sqlite3
+
+        db_path = tmp_path / "v40-check.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO knowledge_bases (id, name) VALUES ('kb1', 'KB1')")
+        await conn.commit()
+
+        await conn.execute(
+            "INSERT INTO kb_items (id, kb_id, type, path_or_url) "
+            "VALUES ('folder-1', 'kb1', 'folder', 'p1')"
+        )
+        await conn.execute(
+            "INSERT INTO kb_items (id, kb_id, type, path_or_url, status) "
+            "VALUES ('indexing-1', 'kb1', 'file', 'p2', 'indexing')"
+        )
+        await conn.commit()
+
+        with pytest.raises(sqlite3.IntegrityError):
+            await conn.execute(
+                "INSERT INTO kb_items (id, kb_id, type, path_or_url) "
+                "VALUES ('bad-type', 'kb1', 'blob', 'p3')"
+            )
+        await conn.rollback()
+
+        with pytest.raises(sqlite3.IntegrityError):
+            await conn.execute(
+                "INSERT INTO kb_items (id, kb_id, type, path_or_url, status) "
+                "VALUES ('bad-status', 'kb1', 'file', 'p4', 'done')"
+            )
+        await conn.rollback()
+
+        await conn.close()
+
+    async def test_v40_upgrade_from_v39_db_preserves_kb_items_rows(self, tmp_path) -> None:
+        """AC-2: upgrading a v39-shaped DB carrying three ``kb_items`` rows
+        (status 'pending', status NULL, status 'garbage') preserves all
+        three with ids, kb_id, parent_id, type, path_or_url, created_at
+        intact; the NULL and 'garbage' rows read back as 'pending';
+        updated_at equals created_at for migrated rows; PRAGMA
+        foreign_keys is 1 afterwards."""
+        db_path = tmp_path / "v40-from-v39.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO knowledge_bases (id, name) VALUES ('kb1', 'KB1')")
+        await conn.commit()
+
+        await _rewind_to_v39_kb_items(conn)
+
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT * FROM kb_items ORDER BY id") as cur:
+            rows = {r["id"]: dict(r) for r in await cur.fetchall()}
+
+        assert set(rows.keys()) == {"item-pending", "item-null", "item-garbage"}
+
+        assert rows["item-pending"]["kb_id"] == "kb1"
+        assert rows["item-pending"]["parent_id"] is None
+        assert rows["item-pending"]["type"] == "file"
+        assert rows["item-pending"]["path_or_url"] == "p1"
+        assert rows["item-pending"]["created_at"] == "created-1"
+        assert rows["item-pending"]["status"] == "pending"
+        assert rows["item-pending"]["updated_at"] == "created-1"
+
+        assert rows["item-null"]["type"] == "url"
+        assert rows["item-null"]["path_or_url"] == "p2"
+        assert rows["item-null"]["created_at"] == "created-2"
+        assert rows["item-null"]["status"] == "pending"  # NULL -> pending
+        assert rows["item-null"]["updated_at"] == "created-2"
+
+        assert rows["item-garbage"]["type"] == "file"
+        assert rows["item-garbage"]["path_or_url"] == "p3"
+        assert rows["item-garbage"]["created_at"] == "created-3"
+        assert rows["item-garbage"]["status"] == "pending"  # 'garbage' -> pending
+        assert rows["item-garbage"]["updated_at"] == "created-3"
+
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1
+
+        await conn.close()
+
+    async def test_v40_idempotent_on_double_ensure(self, tmp_path) -> None:
+        """ensure_schema twice on a fresh DB: v40 stamped exactly once."""
+        db_path = tmp_path / "v40-double.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(40) == 1, f"v40 row should appear exactly once: {versions}"
+
+        await conn.close()
+
+    async def test_v40_tolerant_of_rewind_rerun(self, tmp_path) -> None:
+        """The ``>= 7`` rewind-rerun pattern: deleting every schema_version
+        row from 7 upward and re-running ensure_schema re-fires the entire
+        chain incl. v40. Must not raise; the v40 shape (incl. the FTS5
+        table, still queryable) survives intact."""
+        db_path = tmp_path / "v40-rewind.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute("DELETE FROM schema_version WHERE version >= 7")
+        await conn.commit()
+
+        await ensure_schema(conn)  # must not raise
+
+        async with conn.execute("PRAGMA table_info(kb_items)") as cur:
+            kb_items_cols = {r["name"] for r in await cur.fetchall()}
+        assert "content_hash" in kb_items_cols
+
+        # kb_chunks_fts survived the re-run and is still queryable.
+        async with conn.execute("SELECT COUNT(*) FROM kb_chunks_fts") as cur:
+            assert (await cur.fetchone())[0] == 0
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v40_stamp_only_rewind_short_circuits_rebuild_and_preserves_rows(
+        self, tmp_path
+    ) -> None:
+        """AC-4: a stamp-only rewind (``DELETE … WHERE version >= 40``)
+        re-runs without rebuilding — the column-absence guard short-
+        circuits (``kb_items`` already carries ``content_hash``) — and
+        preserves rows untouched, including a row whose ``content_hash``
+        was already populated (the guard's own signal column)."""
+        db_path = tmp_path / "v40-stamp-only-rewind.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO knowledge_bases (id, name) VALUES ('kb1', 'KB1')")
+        await conn.execute(
+            "INSERT INTO kb_items (id, kb_id, type, path_or_url, content_hash) "
+            "VALUES ('item-1', 'kb1', 'file', 'p1', 'deadbeef')"
+        )
+        await conn.commit()
+
+        await conn.execute("DELETE FROM schema_version WHERE version >= 40")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT content_hash FROM kb_items WHERE id = 'item-1'") as cur:
+            row = await cur.fetchone()
+        assert row["content_hash"] == "deadbeef"
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v40_kb_chunks_ids_never_recycled(self, tmp_path) -> None:
+        """AC-5: insert three ``kb_chunks`` rows, delete the last, insert
+        again — the new id is greater than every id ever issued
+        (``AUTOINCREMENT``, not a plain ``INTEGER PRIMARY KEY``)."""
+        db_path = tmp_path / "v40-autoincrement.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("INSERT INTO knowledge_bases (id, name) VALUES ('kb1', 'KB1')")
+        await conn.execute(
+            "INSERT INTO kb_items (id, kb_id, type, path_or_url) "
+            "VALUES ('item-1', 'kb1', 'file', 'p1')"
+        )
+        await conn.commit()
+
+        for seq in range(3):
+            await conn.execute(
+                "INSERT INTO kb_chunks (item_id, kb_id, seq, text, char_start, char_end) "
+                "VALUES ('item-1', 'kb1', ?, ?, ?, ?)",
+                (seq, f"chunk-{seq}", seq * 10, seq * 10 + 5),
+            )
+        await conn.commit()
+
+        async with conn.execute("SELECT id FROM kb_chunks ORDER BY id") as cur:
+            ids_before = [r[0] for r in await cur.fetchall()]
+        assert len(ids_before) == 3
+
+        await conn.execute("DELETE FROM kb_chunks WHERE id = ?", (ids_before[-1],))
+        await conn.commit()
+
+        await conn.execute(
+            "INSERT INTO kb_chunks (item_id, kb_id, seq, text, char_start, char_end) "
+            "VALUES ('item-1', 'kb1', 3, 'chunk-3', 30, 35)"
+        )
+        await conn.commit()
+
+        async with conn.execute("SELECT id FROM kb_chunks ORDER BY id") as cur:
+            ids_after = [r[0] for r in await cur.fetchall()]
+        assert ids_after[-1] > max(ids_before), (
+            f"new id {ids_after[-1]} did not exceed every prior id {ids_before} "
+            "— AUTOINCREMENT is not taking effect"
+        )
+
+        await conn.close()
+
+
+class TestSchemaV41:
+    """Tests for the v41 migration (Flight 2 "Storage and Embedding
+    Foundation", Leg 6, DD-3/DD-9) — the operator's DD-9 decision
+    (``usearch``, dtype ``f16``) moved ``kb_vector_index`` from store-owned
+    DDL (``UsearchStore.open()``, Legs 4-5) into a versioned migration, and
+    purges any stale ``sqlite-vec`` ``knowledge.vector_store`` record.
+    """
+
+    async def test_v41_upgrade_from_fresh_db(self, tmp_path) -> None:
+        """AC-5a: a fresh DB lands v41 with ``kb_vector_index`` in
+        ``sqlite_master`` and exactly the column set
+        ``UsearchStore.open()`` created in Leg 4 (byte-for-byte, so a
+        database where the store already made the table passes through
+        unchanged)."""
+        db_path = tmp_path / "v41-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cur:
+            names = {r["name"] for r in await cur.fetchall()}
+        assert "kb_vector_index" in names, f"kb_vector_index missing from sqlite_master: {names}"
+
+        async with conn.execute("PRAGMA table_info(kb_vector_index)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert cols == {
+            "kb_id",
+            "path",
+            "count",
+            "generation",
+            "dtype",
+            "dim",
+            "updated_at",
+        }, cols
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+        assert CURRENT_VERSION == 41
+
+        await conn.close()
+
+    async def test_v41_upgrade_preserves_existing_kb_vector_index_row(self, tmp_path) -> None:
+        """AC-5b: a v40 database in which the store already created
+        ``kb_vector_index`` (the Leg 4-5 store-owned DDL, ``CREATE TABLE
+        IF NOT EXISTS``) with a row upgrades to v41 with the row intact —
+        the migration's ``IF NOT EXISTS`` is a no-op against an
+        already-present table."""
+        db_path = tmp_path / "v41-preexisting-table.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Rewind to v40, as if the v41 migration had never run (the table
+        # still exists from the ensure_schema call above via IF NOT
+        # EXISTS — simulating a Leg 4/5 dev database where
+        # UsearchStore.open() had already created it independently).
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        await conn.execute(
+            "INSERT INTO kb_vector_index (kb_id, path, count, generation, dtype, dim, updated_at) "
+            "VALUES ('kb1', '/tmp/kb1.usearch', 5, 2, 'f16', 512, 'ts-1')"
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)  # v41 re-fires; CREATE TABLE IF NOT EXISTS no-ops
+
+        async with conn.execute("SELECT * FROM kb_vector_index WHERE kb_id = 'kb1'") as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["count"] == 5
+        assert row["generation"] == 2
+        assert row["dtype"] == "f16"
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v41_purges_stale_sqlite_vec_vector_store_record(self, tmp_path) -> None:
+        """AC-5c: a v40 database whose ``app_metadata`` holds a
+        ``sqlite-vec`` ``knowledge.vector_store`` record (only a test or
+        the benchmark script could have written one — ``save_vector_store_
+        settings`` has no production caller) has the row removed after
+        ``ensure_schema``."""
+        db_path = tmp_path / "v41-purge-sqlite-vec.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+            (
+                "knowledge.vector_store",
+                '{"backend": "sqlite-vec", "dtype": "float32", "dim": 512, '
+                '"model_id": "potion-retrieval-32M"}',
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT value FROM app_metadata WHERE key = 'knowledge.vector_store'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is None
+
+        await conn.close()
+
+    async def test_v41_keeps_usearch_vector_store_record(self, tmp_path) -> None:
+        """AC-5c (the other half): a ``usearch`` ``knowledge.vector_store``
+        record is untouched by the purge."""
+        db_path = tmp_path / "v41-keep-usearch.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        record = (
+            '{"backend": "usearch", "dtype": "f16", "dim": 512, "model_id": "potion-retrieval-32M"}'
+        )
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+            ("knowledge.vector_store", record),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT value FROM app_metadata WHERE key = 'knowledge.vector_store'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["value"] == record
+
+        await conn.close()
+
+    async def test_v41_does_not_touch_kb_vectors_vec0_table(self, tmp_path) -> None:
+        """The v41 block must never attempt to drop or alter ``kb_vectors``
+        (the losing ``sqlite-vec`` backend's ``vec0`` virtual table) — a
+        ``vec0`` table cannot be dropped without the extension loaded.
+        Simulated here with a plain table of the same name (this host's
+        `sqlite3` build does not load `vec0` for this test) — the point is
+        that the migration source contains no `kb_vectors` statement, so
+        any pre-existing table of that name survives ``ensure_schema``
+        untouched regardless of its real shape."""
+        db_path = tmp_path / "v41-kb-vectors-survives.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 41")
+        await conn.commit()
+
+        await conn.execute("CREATE TABLE IF NOT EXISTS kb_vectors (rowid INTEGER PRIMARY KEY)")
+        await conn.execute("INSERT INTO kb_vectors (rowid) VALUES (1)")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT COUNT(*) FROM kb_vectors") as cur:
+            assert (await cur.fetchone())[0] == 1
+
+        await conn.close()
+
+    async def test_v41_idempotent_on_double_ensure(self, tmp_path) -> None:
+        """ensure_schema twice on a fresh DB: v41 stamped exactly once
+        (mirrors ``TestSchemaV40.test_v40_idempotent_on_double_ensure``)."""
+        db_path = tmp_path / "v41-double.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(41) == 1, f"v41 row should appear exactly once: {versions}"
+
+        await conn.close()
+
+    async def test_v41_tolerant_of_rewind_rerun(self, tmp_path) -> None:
+        """The ``>= 7`` rewind-rerun pattern: deleting every schema_version
+        row from 7 upward and re-running ensure_schema re-fires the entire
+        chain incl. v41 (mirrors ``TestSchemaV40.test_v40_tolerant_of_
+        rewind_rerun``). Asserts on both halves of the v41 migration: the
+        ``kb_vector_index`` shape is present and a pre-existing row
+        survives, and the sqlite-vec ``app_metadata`` purge still fires
+        (a stale sqlite-vec record inserted before the rewind is gone
+        afterward) while a non-sqlite-vec record is untouched."""
+        db_path = tmp_path / "v41-rewind.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute(
+            "INSERT INTO kb_vector_index (kb_id, path, count, generation, dtype, dim, updated_at) "
+            "VALUES ('kb1', '/tmp/kb1.usearch', 5, 2, 'f16', 512, 'ts-1')"
+        )
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
+            (
+                "knowledge.vector_store",
+                '{"backend": "sqlite-vec", "dtype": "float32", "dim": 512, '
+                '"model_id": "potion-retrieval-32M"}',
+            ),
+        )
+        await conn.commit()
+
+        await conn.execute("DELETE FROM schema_version WHERE version >= 7")
+        await conn.commit()
+
+        await ensure_schema(conn)  # must not raise
+
+        async with conn.execute("PRAGMA table_info(kb_vector_index)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert cols == {
+            "kb_id",
+            "path",
+            "count",
+            "generation",
+            "dtype",
+            "dim",
+            "updated_at",
+        }, cols
+
+        async with conn.execute("SELECT * FROM kb_vector_index WHERE kb_id = 'kb1'") as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["count"] == 5
+        assert row["generation"] == 2
+        assert row["dtype"] == "f16"
+
+        async with conn.execute(
+            "SELECT value FROM app_metadata WHERE key = 'knowledge.vector_store'"
+        ) as cur:
+            purged_row = await cur.fetchone()
+        assert purged_row is None, "stale sqlite-vec record should have been purged on rewind-rerun"
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v41_app_metadata_absent_guard(self, tmp_path) -> None:
+        """AC-5c's guard (``the_one/db/schema.py`` ~2603-2611): a hand-built
+        fixture stamped past v31 with no ``app_metadata`` table at all must
+        run ``ensure_schema`` through to v41 without raising. Without the
+        ``app_metadata_exists`` guard, the unconditional ``DELETE FROM
+        app_metadata ...`` raises ``sqlite3.OperationalError: no such
+        table: app_metadata`` (verified by hand against a patched copy of
+        the migration with the guard removed — reproduced separately, not
+        exercised in-repo). ``TestSchemaV32``'s v31 fixture only covers
+        this incidentally (it happens to omit ``app_metadata`` too, as a
+        side effect of testing something else); this test targets the
+        guard directly."""
+        db_path = tmp_path / "v41-no-app-metadata.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-built fixture: only schema_version, stamped 1..31, with no
+        # other table at all — in particular no app_metadata (created by
+        # the real v31 block, which this fixture bypasses entirely by
+        # stamping directly).
+        await conn.executescript("""
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        """)
+        for v in range(1, 32):
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
+        await conn.commit()
+
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='app_metadata'"
+        ) as cur:
+            assert (await cur.fetchone()) is None  # precondition: table absent
+
+        await ensure_schema(conn)  # must not raise
+
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
+            names = {r["name"] for r in await cur.fetchall()}
+        assert "kb_vector_index" in names
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == CURRENT_VERSION
 
         await conn.close()

@@ -111,6 +111,9 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     "areas/admin/design-language/status-section.js": [
         "host.innerHTML = // --- badges (provider / tool category) --- // Per-badge ink (",
     ],
+    "areas/admin/knowledge-settings-page.js": [
+        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Know',
+    ],
     "areas/admin/provider-editor.js": [
         "container.innerHTML = html;",
         "eyeBtn.innerHTML = window.App.icon('eye-off');",
@@ -196,9 +199,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "div.innerHTML = 'No MCP sources registered yet. ' + '<a href=\"#studio/mcp-source",
         "refreshBtn.innerHTML = window.App.icon('refresh') + ' Refresh';",
         "countSpan.innerHTML = '<strong>' + total + '</strong> tool' + (total === 1 ? '' ",
-    ],
-    "areas/studio/stub-knowledge.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Know',
     ],
     "areas/studio/tools-tab.js": [
         "expandLabel.innerHTML = '<strong>' + toolNames.length + '</strong> tool' + (tool",

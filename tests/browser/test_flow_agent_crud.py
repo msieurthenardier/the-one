@@ -113,3 +113,38 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)
     # Regex (not exact class string) — only `is-hidden` is the contract here.
     expect(page.locator(".studio-editor")).to_have_class(re.compile(r"\bis-hidden\b"))
+
+
+@pytest.mark.browser
+def test_delete_agent_confirm_lapse_is_visually_distinct(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the agent editor's
+    Delete confirm (`studio.js:2080`) is distinguishable on screen from one
+    that was never armed, past the real 3s `revertMs`."""
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
+    editor_hidden = page.evaluate(
+        "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
+    )
+    if editor_hidden:
+        page.locator("button.entity-tile").first.click()
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
+        "aria-selected", "true", timeout=8000
+    )
+
+    delete_btn = page.locator('[data-testid="delete-agent-btn"]')
+    expect(delete_btn).to_be_visible(timeout=8000)
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    delete_btn.click()
+    expect(delete_btn).to_have_text("Confirm Delete?")
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
+    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    expect(delete_btn).to_have_text("Delete Agent")
+    # Never committed: the agent is still there.
+    expect(page.locator('[data-testid="agent-item"]')).to_have_count(1)

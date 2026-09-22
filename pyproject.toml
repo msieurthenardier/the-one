@@ -16,6 +16,13 @@ dependencies = [
     "prompt-toolkit>=3.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    # Direct dep as of Flight 4 (M24 F04 L01, DD-11): the app imports
+    # `watchfiles` itself now (the change-monitoring watcher, DD-0/DD-9's
+    # `doctor` gate) rather than reaching it only transitively through
+    # `uvicorn[standard]`'s reload supervisor, which `the-one serve` never
+    # uses. `uv.lock` already pins 1.1.1 with Windows/macOS/Linux wheels —
+    # this declaration changes no resolved version.
+    "watchfiles>=1.0",
     "websockets>=13.0",
     "jinja2>=3.1",
     "aiosqlite>=0.20",
@@ -42,9 +49,11 @@ dependencies = [
     #    CVE-2026-53539 and GHSA-v9pg-7xvm-68hf / CVE-2026-53540; fixed in
     #    0.0.31)
     #  - soupsieve, pure transitive via readability-lxml's bs4 dep (no
-    #    prior explicit floor; closes GHSA-2wc2-fm75-p42x /
-    #    CVE-2026-49476 and GHSA-836r-79rf-4m37 / CVE-2026-49477; fixed in
-    #    2.8.4)
+    #    prior explicit floor; closed GHSA-2wc2-fm75-p42x /
+    #    CVE-2026-49476 and GHSA-836r-79rf-4m37 / CVE-2026-49477 at 2.8.4;
+    #    floor raised to 2.9.0 for CVE-2026-85999 and CVE-2026-86000, two
+    #    ReDoS advisories in the CSS-selector compiler — 2026-09-17
+    #    pip-audit run; fixed in 2.9.0)
     #  - lxml-html-clean, pure transitive via readability-lxml (no prior
     #    explicit floor; closes GHSA-4jhm-jv67-739f / CVE-2026-49825,
     #    xlink:href javascript: URL bypass; fixed in 0.4.5)
@@ -61,13 +70,33 @@ dependencies = [
     "cryptography>=50.0.0",
     "pydantic-settings>=2.14.2",
     "python-multipart>=0.0.31",
-    "soupsieve>=2.8.4",
+    "soupsieve>=2.9.0",
     "lxml-html-clean>=0.4.5",
     "lxml>=6.1.1",
     "platformdirs>=4.0",
     # ConPTY backend for Windows PTY sessions (M15 F3 Leg 2). The env marker
     # ensures this never installs on Linux/macOS — pywinpty is Windows-only.
     "pywinpty>=2.0; sys_platform == \"win32\"",
+    # Vector store for the knowledge-base mission (M24 F02 L06 / DD-9). The
+    # operator chose usearch at the Flight 2 decision checkpoint
+    # (flight-log.md, "DD-9 decision checkpoint (2026-09-15)"): it was the
+    # only benchmarked candidate to clear the p95 <= 250ms bar at the
+    # corpus ceiling on Windows. usearch is a standalone HNSW id->vector
+    # index (pulls numpy +
+    # the native numkong extension unconditionally, per
+    # usearch/__init__.py — numkong stays even though it never loads on the
+    # frozen Windows build, Known Issues); it satisfies the mission's
+    # vectors-and-ids-only constraint natively. It is exercised by the
+    # frozen-only `usearch` doctor probe in the_one/diagnostics.py, which is
+    # the regression gate for the native payload surviving the freeze.
+    "usearch>=2.16",
+    # Static embedding backend for the knowledge-base mission (M24 F01 DD-1/DD-2).
+    # model2vec loads the float16 `potion-retrieval-32M` weights committed under
+    # the_one/embeddings/data/ — a base dependency, not an extra, because the
+    # model is package data present in every checkout and the doctor's
+    # `embedding model` gate is unconditional (DD-7). Its numpy requirement is
+    # already satisfied: numpy entered the closure transitively via usearch.
+    "model2vec>=0.9",
 ]
 
 [project.optional-dependencies]
@@ -99,11 +128,26 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-timeout>=2.4", "ruff==0.15
 [project.scripts]
 the-one = "the_one.main:cli_entry"
 
+[tool.uv]
+# Squawk 0049 / M24 F02 L06: huggingface-hub pulls hf-xet (a Rust Hub
+# transfer accelerator) on x86_64/arm64. The app never downloads from the
+# Hub — the embedding model is package data and HF_HUB_OFFLINE=1 is
+# forced — and huggingface_hub imports hf_xet lazily inside its download
+# path only, so excluding it is safe and trims ~4 MB from the bundle.
+exclude-dependencies = ["hf-xet"]
+
 [tool.setuptools.packages.find]
 include = ["the_one*"]
 
 [tool.setuptools.package-data]
-the_one = ["interfaces/web/static/**/*", "llm/data/*.json"]
+# NOTE: globs on the `the_one` key deliberately cross sub-package boundaries —
+# `interfaces/web/static/**/*` is the long-standing proof. The bundled embedding
+# model (M24 F01 L02) is therefore declared here as `embeddings/data/**/*`
+# rather than under a new `the_one.embeddings` key. It must cover all five files
+# save_pretrained emits (README.md, config.json, model.safetensors,
+# modules.json, tokenizer.json) — model2vec's loader validates the layout, so a
+# partial glob fails at load rather than degrading silently.
+the_one = ["interfaces/web/static/**/*", "llm/data/*.json", "embeddings/data/**/*"]
 
 [build-system]
 requires = ["setuptools>=75"]

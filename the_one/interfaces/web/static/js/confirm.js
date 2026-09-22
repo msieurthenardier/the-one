@@ -31,6 +31,39 @@
 //
 // Keydown-bubble guard is NOT this helper's responsibility — that lives on
 // the parent activatable element (per the resolved Open Question for F5).
+//
+// Lapse cue (M24 F07 leg confirm-lapse). Before this change, a timed-out
+// arm and a never-armed control were visually identical — a returning
+// operator could not tell "I let it lapse" from "I committed." The fix adds
+// a `.confirm-lapsed` class, marked ONLY by the timer's own expiry callback
+// and cleared unconditionally on the NEXT call to confirmDelete for this
+// itemEl (arm or commit branch alike, at the top of the function, before
+// the arm/commit decision is made).
+//
+// This is feedback-only, mechanically (leg AC-3): the arm/commit decision
+// below still depends solely on the binary `.confirm-delete` class —
+// `.confirm-lapsed` never gates it, it is purely a cosmetic marker cleared
+// on sight. Click count to commit is unchanged (still 2). revertMs's role
+// is unchanged (first click still starts it, commit still clears it via
+// the same clearTimeout call inside revert()).
+//
+// `revert()` is NOT where the lapse class is set — it has three callers
+// (timer expiry, a transport-failure `.catch`, and system-page.js's
+// credential-rotation SUCCESS path, which calls revertFn() after a
+// successful rotation with a comment saying so). Decorating `revert()`
+// itself would label a successful rotation "lapsed". Instead the timer's
+// own callback (below) marks the class, THEN calls the shared `revert()`
+// cleanup — so the two callers that invoke `revert` as `revertFn` (success,
+// transport failure) never touch `.confirm-lapsed` at all.
+//
+// Purely visual — no aria-live announcement. `self-configuration-tab.js`
+// already announces the ARM transition via its own `role=status` region
+// (added for WCAG 4.1.2, since its persistent aria-label overrides the
+// swapped title text as the accessible name); wiring an equivalent
+// announcement for LAPSE would mean either a per-call-site opt-in (which
+// AC-5 forbids — no call site may be special-cased) or the helper owning
+// a generic live-region contract, which is a larger surface than this leg
+// covers. Recorded as a deliberate decision, not an omission.
 (function (window) {
   'use strict';
   window.App = window.App || {};
@@ -43,6 +76,12 @@
     var revertMs = opts.revertMs || 3000;
     var titleEl = itemEl.querySelector(titleSelector);
 
+    // Cleared on every call — arm or commit — so a returning operator's
+    // next interaction with this control always starts from a clean visual
+    // slate. This does NOT gate the arm/commit decision below; it runs
+    // unconditionally before that decision is made.
+    itemEl.classList.remove('confirm-lapsed');
+
     function revert() {
       if (itemEl._confirmRevertTimer) {
         clearTimeout(itemEl._confirmRevertTimer);
@@ -53,6 +92,14 @@
         titleEl.textContent = itemEl._confirmOriginalTitle;
       }
       itemEl._confirmOriginalTitle = null;
+    }
+
+    // Timer-expiry-only path: marks the lapse cue, THEN reverts. Distinct
+    // from `revert` itself so the revertFn handed to callers (transport
+    // failure, and system-page.js's success path) never marks lapse.
+    function lapse() {
+      itemEl.classList.add('confirm-lapsed');
+      revert();
     }
 
     if (itemEl.classList.contains('confirm-delete')) {
@@ -70,6 +117,6 @@
     itemEl._confirmOriginalTitle = titleEl ? titleEl.textContent : '';
     itemEl.classList.add('confirm-delete');
     if (titleEl) titleEl.textContent = confirmLabel;
-    itemEl._confirmRevertTimer = setTimeout(revert, revertMs);
+    itemEl._confirmRevertTimer = setTimeout(lapse, revertMs);
   };
 })(window);
