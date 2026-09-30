@@ -175,6 +175,11 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "panel.innerHTML = html;",
     ],
     "areas/studio/mcp-server-editor.js": [
+        # Squawk 0102/0104: syncServerInfoSection's Server-section repaint
+        # re-emits the same escaped renderServerInfoSection output that the
+        # mount path already sends through the baselined
+        # ``container.innerHTML = html;`` below — no new data reaches the DOM.
+        "tmp.innerHTML = html;",
         "container.innerHTML = html;",
         "argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs ||",
         "sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-path",
