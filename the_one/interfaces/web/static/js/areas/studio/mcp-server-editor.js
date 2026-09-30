@@ -420,6 +420,46 @@
     return html;
   }
 
+  // Mount-time gate for the Server section — shared with the post-refresh
+  // repaint (syncServerInfoSection) so both paths agree on when it shows.
+  function cacheHasServerInfo(cache) {
+    return !!(cache && (cache.server_info || cache.instructions ||
+      cache.capabilities || cache.meta || cache.protocol_version));
+  }
+
+  // Squawk 0102: repaint the Server section in place after a successful
+  // Refresh connection. The section was previously rendered only at mount,
+  // so a server that reported a new serverInfo (e.g. an upgraded version)
+  // kept showing the old value until the editor was re-mounted. Targeted
+  // DOM mutation only — replace the existing node, insert it above the
+  // Tools section if this is the first refresh to populate it, or remove
+  // it if the cache no longer qualifies. A full re-render would clobber
+  // dirty form state. The section's only interactive parts are native
+  // <details> elements, so nothing needs re-wiring after replacement.
+  function syncServerInfoSection(container, cache) {
+    var existing = container.querySelector('[data-testid="mcp-server-info-section"]');
+    var html = cacheHasServerInfo(cache) ? renderServerInfoSection(cache) : '';
+    var fresh = null;
+    if (html) {
+      var tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      fresh = tmp.firstElementChild;
+    }
+    if (existing) {
+      if (fresh) {
+        existing.parentNode.replaceChild(fresh, existing);
+      } else {
+        existing.parentNode.removeChild(existing);
+      }
+      return;
+    }
+    if (!fresh) return;
+    var toolsSection = container.querySelector('.mcp-tools-section');
+    if (toolsSection && toolsSection.parentNode) {
+      toolsSection.parentNode.insertBefore(fresh, toolsSection);
+    }
+  }
+
   // ── Public entry point ──────────────────────────────────────────────
 
   function renderMcpSourceEditor(container, source, mcpTypes, callbacks) {
@@ -597,7 +637,7 @@
       // negotiated protocol version, the server's free-form instructions
       // prose, declared capabilities, and any `_meta` extras. Rendered
       // above Tools when any of these are available in the cache.
-      if (cache && (cache.server_info || cache.instructions || cache.capabilities || cache.meta || cache.protocol_version)) {
+      if (cacheHasServerInfo(cache)) {
         html += renderServerInfoSection(cache);
       }
       html += '<div class="editor-section mcp-tools-section">';
@@ -1225,6 +1265,14 @@
             if (!refreshed) return;
             source.oauth_active = !!refreshed.oauth_active;
             syncResetButtonVisibility(container, source, mcpTypes, callbacks);
+            // Squawk 0102: the refresh just rewrote config._cache server-side
+            // (serverInfo, capabilities, instructions, ...) — repaint the
+            // Server section from it. source.config._cache is deliberately
+            // NOT overwritten in memory: hasOAuthState's cache-presence
+            // fallback reads it, so syncing it would change Reset-button
+            // visibility on later refreshes (outside this squawk's scope).
+            syncServerInfoSection(container,
+              (refreshed.config && refreshed.config._cache) || null);
           })
           .catch(function () { /* best-effort; UI stays consistent on next mount */ });
       }
