@@ -947,6 +947,83 @@ def test_server_info_website_and_icon_allow_https(app_clean: str, page: Page) ->
     expect(link).to_have_attribute("href", "https://example.com/about")
 
 
+# ── Squawk 0102: Server section repaints after Refresh connection ────────
+
+
+@pytest.mark.browser
+def test_server_info_section_repaints_after_refresh(app_clean: str, page: Page) -> None:
+    """A Refresh connection that brings back a new serverInfo version must
+    repaint the Server section in place — without the operator leaving and
+    re-entering the editor (squawk 0102: the section was mount-only, so it
+    kept the old version while the tools list repainted).
+
+    Seeds a source with no cache, so the first Refresh exercises the
+    insert-above-Tools path and the second exercises the replace path.
+    /test/connect and the success-handler's per-id GET refetch are stubbed
+    (same pattern as test_reset_button_reappears_after_post_oauth_refresh);
+    the GET serves whatever version the "server" currently reports. Initial
+    mount reads the LIST endpoint, so the per-id stub only answers the
+    post-refresh refetch.
+    """
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "server-info-repaint",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    real_source = _get_source(app_clean, sid)
+    reported = {"version": "0.3.0"}
+
+    def handle_get(route):
+        refreshed = json.loads(json.dumps(real_source))
+        refreshed["config"]["_cache"] = {
+            "tools": [{"name": "echo", "description": "", "input_schema": {}}],
+            "server_info": {"name": "sonos", "title": "Sonos MCP", "version": reported["version"]},
+            "capabilities": {"tools": {}},
+            "last_updated": "2026-09-30T00:00:00Z",
+        }
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(refreshed))
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "status": "ok",
+                    "tools": [{"name": "echo", "description": "", "input_schema": {}}],
+                    "capabilities": {"tools": {}},
+                }
+            ),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}", handle_get)
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    refresh_btn = page.locator('[data-testid="mcp-test-connection"]')
+    expect(refresh_btn).to_be_visible(timeout=8000)
+    section = page.locator('[data-testid="mcp-server-info-section"]')
+    expect(section).to_have_count(0)
+
+    # First refresh: section is inserted, above the Tools section.
+    refresh_btn.click()
+    expect(section).to_have_count(1, timeout=4000)
+    expect(section.locator(".mcp-server-version-line")).to_contain_text("v0.3.0")
+    expect(page.locator(".mcp-server-info-section + .mcp-tools-section")).to_have_count(1)
+
+    # The server is upgraded; refresh again without leaving the editor.
+    reported["version"] = "0.5.0"
+    expect(refresh_btn).not_to_be_disabled(timeout=4000)
+    refresh_btn.click()
+    expect(section.locator(".mcp-server-version-line")).to_contain_text("v0.5.0", timeout=4000)
+    expect(section).to_have_count(1)
+    expect(section.locator(".mcp-server-version-line")).not_to_contain_text("0.3.0")
+
+
 @pytest.mark.browser
 def test_reset_button_hidden_for_stdio_source(app_clean: str, page: Page) -> None:
     """stdio sources never show the Reset connection button (no OAuth concept)."""
