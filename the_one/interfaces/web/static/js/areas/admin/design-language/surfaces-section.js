@@ -7,11 +7,9 @@
   // SURFACES section samples the M17 F3 tile/list vocabulary plus brand
   // chrome miniatures: entity tiles (surface + hairline + radius-md; hover
   // shifts to --border-hover; selected = accent border), 40px list rows
-  // with hover surface shift, section-nav, static app-picker miniatures
-  // (no event bindings, no real renderTopBar invocation) and the
-  // iOS-toggle sample (canonical DOM template from tools-grid.js; the
-  // gallery-scoped .design-language-toggle-sample override in admin.css
-  // strips the primitive's absolute anchoring so two states flow inline).
+  // with hover surface shift, section-nav and static app-picker miniatures
+  // (no event bindings, no real renderTopBar invocation). The toggle demo
+  // moved to the library reference (ui-choices-section.js, App.ui.toggle).
   // Rendered via createElement per the innerHTML-sink freeze (M17 F1).
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
@@ -72,19 +70,6 @@
     labelEl.textContent = labelText;
     btn.appendChild(labelEl);
     return btn;
-  }
-
-  function toggleSwitch(on, ariaLabel) {
-    var label = el('label', 'tool-enable-switch');
-    var input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = !!on;
-    input.setAttribute('aria-label', ariaLabel);
-    label.appendChild(input);
-    var track = el('span', 'tool-enable-switch-track');
-    track.setAttribute('aria-hidden', 'true');
-    label.appendChild(track);
-    return label;
   }
 
   function render(host) {
@@ -154,20 +139,6 @@
     pickerRow.appendChild(pickerButton('System', true));
     pickerSample.appendChild(pickerRow);
     host.appendChild(pickerSample);
-
-    // --- iOS-toggle sample (ON + OFF side by side) ---
-    var toggleSample = sample('tool-enable-switch (iOS toggle)');
-    var toggleRow = el('div', 'design-language-toggle-sample');
-    toggleRow.appendChild(toggleSwitch(true, 'ON state sample'));
-    var onLabel = el('span', 'design-language-toggle-label');
-    onLabel.textContent = 'ON';
-    toggleRow.appendChild(onLabel);
-    toggleRow.appendChild(toggleSwitch(false, 'OFF state sample'));
-    var offLabel = el('span', 'design-language-toggle-label');
-    offLabel.textContent = 'OFF';
-    toggleRow.appendChild(offLabel);
-    toggleSample.appendChild(toggleRow);
-    host.appendChild(toggleSample);
   }
 
   window.App.admin.designLanguage.surfacesSection = { render: render };

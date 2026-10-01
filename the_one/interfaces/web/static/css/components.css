@@ -17,8 +17,8 @@
     top: -40px;
     left: 0;
     z-index: 1000;
-    background: var(--accent);
-    color: var(--fg-on-accent);
+    background: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
     padding: 8px 16px;
     text-decoration: none;
     font-weight: var(--font-weight-bold);
@@ -333,7 +333,7 @@
     -webkit-appearance: none;
     width: 16px;
     height: 16px;
-    border: 1.5px solid var(--border-strong);
+    border: 1.5px solid var(--control-border);
     border-radius: 0;
     background: var(--surface);
     cursor: pointer;
@@ -343,9 +343,13 @@
     transition: background 0.15s ease, border-color 0.15s ease;
   }
   .checkbox-primary:hover { border-color: var(--accent); }
+  /* Checked = solid deep-violet fill (--accent-fill), white tick
+     (--fg-on-accent-fill). Unchecked border is --control-border (non-text
+     3:1 on every surface, M25 F1 L3 DD7). :hover keeps --accent (its UI gate
+     covers it). */
   .checkbox-primary:checked {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--accent-fill);
+    border-color: var(--accent-fill);
   }
   .checkbox-primary:checked::after {
     content: "";
@@ -354,7 +358,7 @@
     top: 0;
     width: 4px;
     height: 9px;
-    border: solid var(--fg-on-accent);
+    border: solid var(--fg-on-accent-fill);
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
   }
@@ -362,6 +366,26 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+  /* Indeterminate = the same gated fill and ink pair as :checked, with a dash
+     instead of the tick. It is declared after the :checked::after rule at equal
+     specificity, so a control that is both checked and indeterminate shows the
+     dash. */
+  .checkbox-primary:indeterminate {
+    background: var(--accent-fill);
+    border-color: var(--accent-fill);
+  }
+  .checkbox-primary:indeterminate::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 5px;
+    width: 9px;
+    height: 0;
+    border: solid var(--fg-on-accent-fill);
+    border-width: 0 0 2px 0;
+    transform: none;
+  }
+  .checkbox-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Section Title === */
   /* Quiet label (v3): sans, small, medium weight, secondary ink — no
@@ -389,98 +413,30 @@
      semantics" DD). */
   h2.section-title { font-size: var(--font-size-h3); }
 
-  /* === Button vocabulary (M17 F3 — one vocabulary, four variants) ===
-     Variants: PRIMARY (.btn-filled-primary — flat accent fill),
-     SECONDARY (.btn-outlined-primary — quiet surface + hairline border),
-     GHOST (.btn-ghost — borderless, surface shift on hover), and
-     DANGER (.btn-muted-destructive — soft danger fill + muted danger
-     border). Class names retained from the v2 vocabulary for
-     test-selector / consumer continuity; the *treatment* is v3.
+  /* === Button vocabulary (M17 F3 — one vocabulary, four variants;
+     restyled deep violet in M25 F1 L3, DD6) ===
+     Variants: PRIMARY (.btn-filled-primary — deep-violet --accent-fill,
+     white label), SECONDARY (.btn-outlined-primary — raised: elevated
+     fill + hairline, hover strengthens only the border),
+     GHOST (.btn-ghost — borderless, elevated fill on hover), and
+     DANGER (.btn-muted-destructive — transparent, muted danger hairline,
+     soft danger fill on hover only). Class names retained from the v2
+     vocabulary for test-selector / consumer continuity; the *treatment*
+     is the approved Buttons board's `.deep` rules.
 
-     Conventions: 32px control height, --radius-sm, flat fills (no
-     gradients, no shadows at rest), pinned focus form (2px accent
-     outline, +2px offset). ONE primary per region — every other action
-     in the same view region takes secondary/ghost/danger. */
-  .btn-outlined-primary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 12px;
-    background-color: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--fg);
-    font-size: var(--font-size-body-sm);
-    cursor: pointer;
-    font-family: inherit;
-    transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
-      color var(--motion-base) var(--ease-tactile);
-  }
-  .btn-outlined-primary:hover {
-    background-color: var(--surface-elevated);
-    border-color: var(--border-hover);
-    transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
-      color var(--motion-fast) var(--ease-tactile);
-  }
-  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .btn-outlined-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+     Conventions: 32px control height, padding 0 12px, --radius-sm, 13px
+     medium-weight label, flat fills (no gradients, no shadows at rest),
+     pinned focus form (2px accent outline, +2px offset), disabled .4.
+     Every variant transitions background-color / border-color / opacity.
+     ONE primary per region — every other action in the same view region
+     takes secondary/ghost/danger.
 
-  .btn-filled-primary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 16px;
-    background-color: var(--accent);
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    color: var(--fg-on-accent);
-    font-weight: var(--font-weight-semibold);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    transition:
-      opacity var(--motion-base) var(--ease-tactile);
-  }
-  .btn-filled-primary:hover { opacity: 0.9; }
-  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .btn-ghost {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 12px;
-    background-color: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    color: var(--fg-secondary);
-    font-size: var(--font-size-body-sm);
-    cursor: pointer;
-    font-family: inherit;
-    transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      color var(--motion-base) var(--ease-tactile);
-  }
-  .btn-ghost:hover {
-    background-color: var(--surface);
-    color: var(--fg);
-    transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      color var(--motion-fast) var(--ease-tactile);
-  }
-  .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-
+     Secondary on a --surface-elevated tile: the fill is invisible (1.1:1
+     hairline). WCAG 1.4.11 does not require a button boundary when the
+     label is visible; accepted design note (DD6). */
+  .btn-outlined-primary,
+  .btn-filled-primary,
+  .btn-ghost,
   .btn-muted-destructive {
     display: inline-flex;
     align-items: center;
@@ -488,31 +444,71 @@
     gap: 6px;
     height: 32px;
     padding: 0 12px;
-    background-color: var(--status-danger-bg-soft);
-    border: 1px solid var(--status-danger-muted);
     border-radius: var(--radius-sm);
-    color: var(--status-danger);
-    font-size: var(--font-size-body-sm);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
     font-family: inherit;
     transition:
       background-color var(--motion-base) var(--ease-tactile),
+      border-color var(--motion-base) var(--ease-tactile),
       color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile);
+      opacity var(--motion-base) var(--ease-tactile);
   }
+  .btn-outlined-primary:hover,
+  .btn-filled-primary:hover,
+  .btn-ghost:hover,
   .btn-muted-destructive:hover {
-    border-color: var(--status-danger);
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
+      border-color var(--motion-fast) var(--ease-tactile),
       color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile);
+      opacity var(--motion-fast) var(--ease-tactile);
   }
+
+  .btn-outlined-primary {
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+  .btn-outlined-primary:hover { border-color: var(--border-strong); }
+  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-outlined-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-filled-primary {
+    background-color: var(--accent-fill);
+    border: 1px solid transparent;
+    color: var(--fg-on-accent-fill);
+  }
+  .btn-filled-primary:hover { background-color: var(--accent-fill-hover); }
+  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-ghost {
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: var(--fg-secondary);
+  }
+  .btn-ghost:hover {
+    background-color: var(--surface-elevated);
+    color: var(--fg);
+  }
+  .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-muted-destructive {
+    background-color: transparent;
+    border: 1px solid var(--status-danger-muted);
+    color: var(--status-danger);
+  }
+  .btn-muted-destructive:hover { background-color: var(--status-danger-bg-soft); }
   .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .btn-muted-destructive:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Button size modifiers ===
-     Optional modifiers overriding the primitive's default height +
-     font-size. Compose onto any button variant.
+     Optional modifiers overriding the primitive's default height, padding
+     and label size. Compose onto any button variant. They set NO
+     font-weight: every size takes the variants' medium weight.
 
      Example:
        <button class="btn-outlined-primary btn-sm">Refresh</button>
@@ -534,6 +530,15 @@
   .btn-ghost svg,
   .btn-muted-destructive svg { width: 16px; height: 16px; flex-shrink: 0; }
 
+  /* Icon-only modifier (M25 F1 L3, DD6/A5): a square 32×32 button with no
+     padding and a 16px svg; with .btn-sm a 24×24 one with a 14px svg. An
+     icon-only button must carry an aria-label. Placed after the size
+     modifiers and the svg rule so equal-specificity later-wins applies. */
+  .btn-icon { width: 32px; height: 32px; padding: 0; }
+  .btn-icon svg { width: 16px; height: 16px; }
+  .btn-icon.btn-sm { width: 24px; height: 24px; padding: 0; }
+  .btn-icon.btn-sm svg { width: 14px; height: 14px; }
+
   /* === Chip + Chip-Remove (single-use lift for vocabulary completeness) === */
   /* Mission 08 F2 L5 polish: accent-tinted flat color (no gradient, no bezel)
      so chips read as part of the brand vocabulary without competing with
@@ -550,6 +555,107 @@
   .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
 
+  /* === List pane (App.ui.listPane, M25 F1 L2, DD14) ===
+     A navigation list: <section> > header (h2 + actions), optional filter,
+     then one <ul> per group. Rows are <a> or <button>. Selected = one marker,
+     the translucent accent wash plus a 1px accent ring drawn as an inset
+     box-shadow (no layout shift). Hover = surface-elevated; focus-visible =
+     the standard 2px accent ring, inset so a scroll container never clips it.
+     Existing tokens only. */
+  .ui-list-pane { display: flex; flex-direction: column; min-height: 0; }
+  .ui-list-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+  .ui-list-pane-title {
+    margin: 0;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-secondary);
+  }
+  .ui-list-pane-actions { display: flex; align-items: center; gap: var(--space-1); }
+  .ui-list-pane-filter { padding: 0 var(--space-3) var(--space-2); margin-bottom: 0; }
+  .ui-list-pane-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-2); }
+  .ui-list-pane-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .ui-list-pane-body[hidden],
+  .ui-list-pane-group[hidden],
+  .ui-list-pane-empty[hidden] { display: none; }
+  .ui-list-pane-caption {
+    padding: var(--space-2) var(--space-2) var(--space-1);
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  .ui-list-pane-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ui-list-pane-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .ui-list-pane-compact .ui-list-pane-row { padding: 6px 10px; font-size: var(--font-size-caption); }
+  .ui-list-pane-row:hover { background: var(--surface-elevated); }
+  .ui-list-pane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ui-list-pane-row[aria-current="page"] {
+    background: var(--accent-translucent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .ui-list-pane-icon { display: inline-flex; flex-shrink: 0; }
+  .ui-list-pane-icon svg { width: 16px; height: 16px; }
+  .ui-list-pane-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .ui-list-pane-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-list-pane-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  .ui-list-pane-badges { display: inline-flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+  .ui-list-pane-badge { font-size: var(--font-size-caption); color: var(--fg-muted); }
+  .ui-list-pane-count {
+    flex-shrink: 0;
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
+  }
+  /* --fg-muted fails body AA on the selected-row wash in three of four
+     theme/surface cases, so a selected row's meta, neutral badges and counts
+     use --fg-secondary (gated: test_selected_row_meta_passes_body_aa). */
+  .ui-list-pane-row[aria-current="page"] .ui-list-pane-meta,
+  .ui-list-pane-row[aria-current="page"] .ui-list-pane-badge,
+  .ui-list-pane-row[aria-current="page"] .ui-list-pane-count { color: var(--fg-secondary); }
+
   /* === Empty State (empty-list / empty-canvas messaging) === */
   .empty-state {
     padding: 16px;
@@ -557,6 +663,63 @@
     font-size: var(--font-size-body);
     text-align: center;
   }
+  /* App.ui.emptyState title: body size, medium weight, primary ink, no margin.
+     The body paragraph keeps the container's muted ink (gated on the ladder). */
+  .ui-empty-title {
+    margin: 0;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg);
+  }
+  .ui-empty-body { margin: var(--space-1) 0 0; }
+  .ui-empty-icon { display: inline-flex; margin-bottom: var(--space-2); }
+  .ui-empty-icon svg { width: 24px; height: 24px; }
+
+  /* === App.ui.menu (menu button popup) === */
+  .ui-menu-wrap { position: relative; display: inline-block; }
+  .ui-menu {
+    position: absolute;
+    top: 100%;
+    z-index: 50;
+    box-sizing: border-box;
+    min-width: 160px;
+    margin-top: var(--space-1);
+    padding: var(--space-1);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-popover);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ui-menu[hidden] { display: none; }
+  .ui-menu:focus { outline: none; }
+  .ui-menu-align-start { left: 0; }
+  .ui-menu-align-end { right: 0; }
+  .ui-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    width: 100%;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--font-size-body-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+  .ui-menu-item:hover,
+  .ui-menu-item:focus { background: var(--surface); }
+  .ui-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ui-menu-item[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+  .ui-menu-item-danger { color: var(--status-danger); }
+  .ui-menu-item-icon { display: inline-flex; flex-shrink: 0; }
+  .ui-menu-item-icon svg { width: 16px; height: 16px; }
 
   /* Page-level empty canvas — mirrors `.chat-welcome` centering for empty
      entity inventories (LLM Providers, Studio Agents, Knowledge, Tools).
@@ -981,7 +1144,7 @@
      agent editor and admin's provider editor). The dirty-tracker shim
      (checkDirty) flips both attributes together. Cosmetics from
      .btn-filled-primary (Save) / .btn-outlined-primary (Cancel). */
-  .save-btn { transition: opacity 0.2s; padding: 6px 16px; font-size: var(--font-size-body-sm); }
+  .save-btn { transition: opacity 0.2s; }
   .save-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
   .save-btn:not([disabled]) { opacity: 1; }
 
@@ -1007,7 +1170,9 @@
      post-F6 leg 04). 3-second revert + accessibility behavior owned by the
      helper at confirm.js. The capital-D 'Confirm Delete?' label is
      preserved by passing the confirmLabel option per call site. */
-  .delete-btn { padding: 6px 14px; border-radius: 6px; font-size: var(--font-size-body-sm); }
+  /* M25 F1 L3 (DD6): the rest state takes the vocabulary's own padding, radius
+     and 13px label (no pins here). The ARMED state below is a deliberate
+     solid-danger, semibold confirmation state and stays. */
   .delete-btn.confirm-delete { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
 
   /* === Editor section (lifted from .area-studio in F6 leg 03) === */
@@ -1236,6 +1401,125 @@
      documentation/grep hook with no extra rules today. */
   .modal-actions { /* alias for .form-actions in the modal context */ }
 
+
+  /* === App.ui.badge (M25 F1 L4) ===
+     Neutral base plus one --<kind> modifier per kind. The twelve token kinds
+     pair --badge-<kind> with --badge-ink-<kind> (gated by
+     test_badge_ink_passes_body_aa); approved and dismissed sit on the
+     --surface-elevated ladder with --fg / --fg-secondary ink and a 1px inset
+     ring, so the meaning is in the text and never in colour alone. */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface-elevated);
+    color: var(--fg-secondary);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-normal);
+    white-space: nowrap;
+  }
+  .badge--anthropic { background: var(--badge-anthropic); color: var(--badge-ink-anthropic); }
+  .badge--anthropic-plan { background: var(--badge-anthropic-plan); color: var(--badge-ink-anthropic-plan); }
+  .badge--connectors { background: var(--badge-connectors); color: var(--badge-ink-connectors); }
+  .badge--execution { background: var(--badge-execution); color: var(--badge-ink-execution); }
+  .badge--filesystem { background: var(--badge-filesystem); color: var(--badge-ink-filesystem); }
+  .badge--mock { background: var(--badge-mock); color: var(--badge-ink-mock); }
+  .badge--ollama { background: var(--badge-ollama); color: var(--badge-ink-ollama); }
+  .badge--openai { background: var(--badge-openai); color: var(--badge-ink-openai); }
+  .badge--openai-compatible { background: var(--badge-openai-compatible); color: var(--badge-ink-openai-compatible); }
+  .badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
+  .badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
+  .badge--web { background: var(--badge-web); color: var(--badge-ink-web); }
+  .badge--approved {
+    background: var(--surface-elevated);
+    color: var(--fg);
+    box-shadow: inset 0 0 0 1px var(--status-success);
+  }
+  .badge--dismissed {
+    background: var(--surface-elevated);
+    color: var(--fg-secondary);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  /* === App.ui.checkbox / App.ui.toggle (M25 F1 L4) === */
+  .ui-checkbox,
+  .ui-toggle { display: flex; flex-direction: column; gap: var(--space-1); }
+  .ui-checkbox-label,
+  .ui-toggle-label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    align-self: flex-start;
+    cursor: pointer;
+    color: var(--fg);
+    font-size: var(--font-size-body);
+  }
+  .ui-checkbox-label:hover .checkbox-primary { border-color: var(--accent); }
+  .ui-checkbox.is-disabled .ui-checkbox-label,
+  .ui-toggle.is-disabled .ui-toggle-label { cursor: not-allowed; }
+  .ui-checkbox .ui-choice-hint,
+  .ui-toggle .ui-choice-hint { margin: 0; }
+  /* The switch input is visually hidden with the clip technique (never
+     display:none or opacity alone) so it stays focusable and role-reachable. */
+  .ui-toggle-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .ui-toggle-track {
+    position: relative;
+    display: inline-block;
+    flex-shrink: 0;
+    width: 36px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--control-border);
+    transition: background var(--motion-fast) var(--ease-tactile);
+  }
+  .ui-toggle-track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--control-thumb);
+    transition: transform var(--motion-fast) var(--ease-tactile);
+  }
+  .ui-toggle-input:checked + .ui-toggle-track { background: var(--accent-fill); }
+  .ui-toggle-input:checked + .ui-toggle-track::after { transform: translateX(16px); }
+  .ui-toggle-input:focus-visible + .ui-toggle-track {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .ui-toggle-input:disabled + .ui-toggle-track { opacity: 0.4; cursor: not-allowed; }
+
+  /* Forced colors (Windows High Contrast, SC 1.4.11): author backgrounds and
+     box-shadows are dropped, so state must ride on borders and system colours. */
+  @media (forced-colors: active) {
+    .ui-toggle-track { border: 1px solid CanvasText; box-sizing: border-box; background: Canvas; }
+    .ui-toggle-track::after { background: CanvasText; }
+    .ui-toggle-input:checked + .ui-toggle-track { background: Highlight; border-color: Highlight; }
+    .ui-toggle-input:checked + .ui-toggle-track::after { background: HighlightText; }
+    .checkbox-primary { border: 1.5px solid CanvasText; forced-color-adjust: none; background: Canvas; }
+    .checkbox-primary:checked,
+    .checkbox-primary:indeterminate { background: Highlight; border-color: Highlight; }
+    .checkbox-primary:checked::after,
+    .checkbox-primary:indeterminate::after { border-color: HighlightText; }
+    .ui-list-pane-row[aria-current="page"] { border: 1px solid Highlight; }
+    .ui-menu-item:focus,
+    .ui-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  }
 }
 
 @layer utilities {

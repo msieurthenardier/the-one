@@ -76,11 +76,11 @@
     background-color: var(--accent-translucent-hover);
     transition: background-color var(--motion-fast) var(--ease-tactile), color var(--motion-fast) var(--ease-tactile);
   }
-  /* Active option = solid accent fill, same family as .btn-filled-primary. */
+  /* Active option = solid deep-violet fill, same family as .btn-filled-primary. */
   .area-admin .admin-theme-option.active {
-    background-color: var(--accent);
-    color: var(--fg-on-accent);
-    border-color: var(--accent);
+    background-color: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
+    border-color: var(--accent-fill);
   }
   .area-admin .admin-theme-option:focus-visible {
     outline: 2px solid var(--accent);
@@ -272,9 +272,10 @@
     display: block;
     width: 36px;
     height: 20px;
-    /* Off-state track uses --border-strong (an established token) for the
-       OFF visual; --surface-muted is NOT defined. */
-    background: var(--border-strong);
+    /* Off-state track uses --control-border (M25 F1 L3, DD7: ≥3:1 non-text
+       against every surface; --border-strong was only ~2:1). --surface-muted
+       is NOT defined. */
+    background: var(--control-border);
     border-radius: 10px;
     position: relative;
     transition: background 0.2s ease;
@@ -289,13 +290,15 @@
     left: 2px;
     width: 16px;
     height: 16px;
-    background: var(--fg-on-accent);
+    /* Thumb is --control-thumb in BOTH states (gated against the off track
+       --control-border and the on track --accent-fill). */
+    background: var(--control-thumb);
     border-radius: 50%;
     transition: transform 0.2s ease;
   }
   .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track,
   .area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track {
-    background: var(--accent);
+    background: var(--accent-fill);
   }
   .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after,
   .area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after {
@@ -645,15 +648,15 @@
   .area-admin .design-language-token-swatch { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--space-1); }
   .area-admin .design-language-token-swatch-color { width: 100%; height: 40px; border-radius: 4px; border: 1px solid var(--border); }
   .area-admin .design-language-token-swatch-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); word-break: break-all; }
-  .area-admin .design-language-button-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; align-items: start; }
-
-  /* iOS-toggle gallery sample — strips the primitive's bottom-right absolute
-     anchoring (designed for entity-tile placement) so two toggles render
-     side-by-side in the gallery flow. */
-  .area-admin .design-language-toggle-sample { display: flex; gap: 12px; align-items: center; }
-  .area-admin .design-language-toggle-sample .tool-enable-switch { position: static; }
-  .area-admin .design-language-toggle-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); }
-
+  /* Control-library living reference (M25 F1 L6): each [data-ui-demo] root holds
+     a dark and a light pane. A pane sets its own colour and background because
+     the theme tokens are [data-theme]-scoped and inherited colour resolves at
+     <body>. */
+  .area-admin .design-language-ui-demo { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+  .area-admin .design-language-ui-pane { display: flex; flex-direction: column; gap: 12px; padding: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); }
+  .area-admin .design-language-ui-pane--menu { min-height: 240px; }
+  .area-admin .design-language-ui-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .area-admin .design-language-caption { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); }
 
   /* Telemetry strip (Mission 08 F2 L5 — T1 layout). Gallery-only until a
      downstream polish flight consumes it; rules stay in admin.css scope. */

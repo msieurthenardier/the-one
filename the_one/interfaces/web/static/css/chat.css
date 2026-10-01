@@ -520,9 +520,9 @@
     align-items: center;
   }
   .area-chat .msg-pending-approval-approve {
-    background: var(--accent);
-    color: var(--fg-on-accent);
-    border: 1px solid var(--accent);
+    background: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
+    border: 1px solid var(--accent-fill);
     padding: 4px 12px;
     cursor: pointer;
     border-radius: 4px;

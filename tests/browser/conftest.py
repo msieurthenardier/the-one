@@ -72,6 +72,7 @@ from browser._credential_registry import (
 from browser._credential_registry import (
     unregister as _unregister_credential,
 )
+from browser._ui_engines import engine_browser, engine_page  # noqa: F401 - register fixtures
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 

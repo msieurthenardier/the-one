@@ -1,10 +1,10 @@
 # Squawk 0105: `DYNAMIC_SINK_BASELINE` header comment carries a stale site count
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-30
-**Completed**: —
+**Completed**: 2026-10-01
 
 ## Report
 
@@ -22,7 +22,7 @@ stale. Found by the squawk 0103/0104 Reviewer.
 
 ## Corrective Action
 
-*(written at completion)*
+Reworded the header comment above `DYNAMIC_SINK_BASELINE` in `tests/test_ui_guards.py` (M25 F1 L1): it no longer restates a live site or file count; it says the dict is the authoritative current truth, that removals never fail the ratchet, and that static sites are exempt. Original suggestion kept for reference:
 
 Reword the comment so it describes the history without a live count that can
 go stale (for example, "counts at freeze time were …; the dict below is the
@@ -30,10 +30,12 @@ current truth"), or refresh it and add a note that the dict is authoritative.
 
 ## Verification
 
-*(written at completion)*
+`grep -n "92 sites" tests/test_ui_guards.py` returns nothing; `tests/test_ui_guards.py` passes. Original check:
 
 Read-back: `tests/test_ui_guards.py` still passes.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: Flight 1 Reviewer agent (Sonnet) — flight-scoped review
+**Verdict**: confirmed
+**Commit**: `flight/1: control library foundation — App.ui factories, deep violet, WebKit apparatus` on branch `flight/01-control-library-foundation`

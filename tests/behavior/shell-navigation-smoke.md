@@ -3,7 +3,7 @@
 **Slug**: `shell-navigation-smoke`
 **Status**: active
 **Created**: 2026-07-03
-**Last Run**: 2026-07-06-06-21-43 (pass, 6/6 — F7 mission-end regression smoke; both/auto theme; hash-survival + theme flip/restore green; see runs/)
+**Last Run**: 2026-10-01-06-30-02 (pass, 6/6 — Mission 25 Flight 1 close gate; Auto theme; flip/restore + cold deep link green; PDF evidence path, screenshots unavailable; see runs/)
 
 ## Intent
 

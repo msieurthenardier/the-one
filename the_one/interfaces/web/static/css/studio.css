@@ -57,15 +57,22 @@
   .area-studio .tools-tab-intro { margin-top: 0; }
 
   /* === Studio Area: Tool Toggles === */
-  /* Tool-actions buttons use .btn-outlined-primary; this override drops to caption-size + tighter padding. */
+  /* Tool-actions buttons use .btn-outlined-primary; this override drops to caption-size + tighter padding.
+     DOCUMENTED EXCEPTION to the DD6 button treatment (M25 F1 L3): a compact
+     CSS-only row action, kept at its compact size (not the 13px/0 12px standard). */
   .area-studio .tool-actions { display: flex; gap: 8px; margin-bottom: 12px; }
   .area-studio .tool-actions .btn-outlined-primary { padding: 3px 10px; font-size: var(--font-size-caption); }
   .area-studio .tool-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
   .area-studio .tool-toggle { display: none; }
-  .area-studio .tool-switch { width: 32px; height: 18px; background: var(--surface-elevated); border-radius: 9px; position: relative; flex-shrink: 0; transition: background var(--motion-medium); }
-  .area-studio .tool-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--fg-tertiary); border-radius: 50%; transition: transform var(--motion-medium), background var(--motion-medium); }
-  .area-studio .tool-toggle:checked + .tool-switch { background: var(--accent); }
-  .area-studio .tool-toggle:checked + .tool-switch::after { transform: translateX(14px); background: var(--fg-on-accent); }
+  /* Off track is --control-border (non-text 3:1, M25 F1 L3 DD7) with a white
+     --control-thumb in both states; on = --accent-fill. The INDETERMINATE
+     track below stays an accent wash with no boundary by accepted design: the
+     gated --accent thumb (test_tool_switch_indeterminate_thumb_holds_ui_contrast)
+     carries that state. */
+  .area-studio .tool-switch { width: 32px; height: 18px; background: var(--control-border); border-radius: 9px; position: relative; flex-shrink: 0; transition: background var(--motion-medium); }
+  .area-studio .tool-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--control-thumb); border-radius: 50%; transition: transform var(--motion-medium), background var(--motion-medium); }
+  .area-studio .tool-toggle:checked + .tool-switch { background: var(--accent-fill); }
+  .area-studio .tool-toggle:checked + .tool-switch::after { transform: translateX(14px); background: var(--control-thumb); }
   /* Tristate (master category toggle): partial-enabled = accent-translucent
      track + thumb at the halfway position, accent-tinted. F4 L2. */
   .area-studio .tool-toggle:indeterminate + .tool-switch { background: var(--accent-translucent); }
@@ -394,7 +401,7 @@
   .area-studio .mcp-attach-chip-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
   .area-studio .mcp-attach-chip-list .chip { padding: 6px 12px; border: 1px solid var(--border); border-radius: 16px; cursor: pointer; user-select: none; background: var(--surface); color: var(--fg-secondary); display: inline-flex; align-items: center; gap: 4px; }
   .area-studio .mcp-attach-chip-list .chip:hover { border-color: var(--accent); color: var(--accent); }
-  .area-studio .mcp-attach-chip-list .chip-attached { background: var(--accent); color: var(--fg-on-accent, white); border-color: var(--accent); }
+  .area-studio .mcp-attach-chip-list .chip-attached { background: var(--accent-fill); color: var(--fg-on-accent-fill); border-color: var(--accent-fill); }
   .area-studio .mcp-attach-chip-list .chip-attached:hover { opacity: 0.85; }
   .area-studio .mcp-attach-chip-list .chip-transport-badge { font-size: 10px; opacity: 0.7; }
   .area-studio .mcp-empty-state { padding: 24px; text-align: center; color: var(--fg-secondary); }
@@ -404,7 +411,7 @@
   .area-studio .mcp-editor-title { margin: 0; font-size: var(--font-size-body); }
   .area-studio .mcp-editor-section { margin-top: 12px; }
   .area-studio .mcp-editor-section h4 { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
-  .area-studio .mcp-refresh-tools-btn { margin-bottom: 8px; font-size: var(--font-size-body-sm); }
+  .area-studio .mcp-refresh-tools-btn { margin-bottom: 8px; }
 
   /* === Agent-editor MCPs tab — MCP source TILE ============================
      Each MCP source on the agent-editor MCPs tab renders as a tile echoing
@@ -470,6 +477,9 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
+  /* DOCUMENTED EXCEPTION to the DD6 button treatment (M25 F1 L3): the tile
+     row is a compact header strip; the refresh button keeps its caption size
+     and 4px/12px padding here (CSS-only; no JS markup change in this leg). */
   .area-studio .mcp-source-tile-row1 .mcp-refresh-tools-btn {
     margin-bottom: 0;
     padding: 4px 12px;

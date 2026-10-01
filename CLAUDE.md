@@ -207,6 +207,8 @@ Windows. See `packaging/windows/README.md`.
 - Tools return strings, errors are caught and wrapped by the agent loop
 - LLM provider schemas default to OpenAI function-calling format; override `tool_schema()` for others
 
+**Control library (`App.ui`, M25)**: new UI controls are factories in `the_one/interfaces/web/static/js/ui/` (ES5, native elements, no HTML-string sinks, caller-supplied `testid`). Every factory needs a demo on the dev-mode `#admin/design-language` page, a row in `docs/ui-control-inventory.md`, and engine-parametrized contract tests (Chromium + WebKit); `tests/test_ui_control_inventory.py` enforces the first two. See `the_one/agents.md` "Control library (`App.ui`)" and "UI test apparatus".
+
 Named project-wide patterns (`trust-the-runtime`, `canonical-import + convenience-re-export`, `structural-Protocol-satisfaction`, `verbatim-message-equality`, `host-side-bench-drift-detection`, `container-test-entrypoints-reach-via-make`, `landmark-elements-over-aria-roles`, …) live in `the_one/agents.md`'s "Project Conventions" section.
 
 ## HAT Design Guidance
@@ -248,6 +250,8 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 **Color contrast tests** (`tests/test_design_tokens_a11y.py`): WCAG 2.1 AA contrast audits for the F2 design tokens. Run via default `pytest tests/`. See `the_one/agents.md` "Color contrast (WCAG AA)" for the audited pairs and any deliberate exceptions.
 
 **Visual snapshot tests** (`@pytest.mark.pixel`, in `tests/browser/test_visual_snapshots.py`): 12 Playwright baseline screenshots covering 3 UI areas × 2 states × 2 themes. Run via `pytest -m pixel`. Baselines live in `tests/browser/__snapshots__/` and are **gitignored** — local regression artifacts only; each developer regenerates on a fresh checkout with `pytest -m pixel --snapshot-update`. Tolerance 2% pixel diff. CI never runs `-m pixel` (excluded by default in `pyproject.toml::addopts`).
+
+**UI test apparatus (M25 F1)**: library contract tests run in Chromium and WebKit through the `engine_page` fixture (`tests/browser/_ui_engines.py`); a WebKit launch failure skips locally and fails under `THE_ONE_REQUIRE_WEBKIT=1` (CI). `bash scripts/setup-webkit-userland.sh` provisions WebKit's host libraries without sudo; `scripts/webkitgtk_probe.py` (system `/usr/bin/python3`, dev instance on 8485 only — it refuses 8484 and the default data dir) checks pages in the real desktop engine. See `the_one/agents.md` "UI test apparatus".
 
 **Token-definition test** (`tests/test_token_definitions.py`): asserts every `var(--x)` reference in component CSS is defined in `tokens.css` or `fonts.css`. Catches typos that CSS would silently treat as `unset`.
 
@@ -428,7 +432,7 @@ This project uses [Flight Control](https://github.com/msieurthenardier/mission-c
 3. `.flightops/ARTIFACTS.md` — Where all artifacts are stored
 4. `.flightops/agent-crews/` — Project crew definitions for each phase (read the relevant crew file)
 
-**Flight Director role.** When a human says a leg is ready to implement, invoke `/mission-control:agentic-workflow`. Do not read the leg spec, plan execution steps, or execute commands directly — the skill orchestrates separate Developer and Reviewer agents and emits `[HANDOFF:...]` and `[COMPLETE:...]` signals. Planning skills (`/mission-control:mission`, `/mission-control:flight`, debriefs, `/mission-control:routine-maintenance`) produce artifacts only and never modify source files.
+**Flight Director role.** This session — the one the human talks to — is the Flight Director: it runs the Flight Control skills, plans directly, and orchestrates spawned crew, and never edits source itself. Spawned agents are crew, never the Flight Director. When a human says a leg is ready to implement, invoke `/mission-control:agentic-workflow`. Do not read the leg spec, plan execution steps, or execute commands directly — the skill orchestrates separate Developer and Reviewer agents and emits `[HANDOFF:...]` and `[COMPLETE:...]` signals. Planning skills (`/mission-control:mission`, `/mission-control:sortie`, `/mission-control:flight`, debriefs, `/mission-control:routine-maintenance`) produce artifacts only and never modify source files.
 
 **Spawned agents** (Developer, Reviewer, Architect, Executor, Validator) do not have the Skill tool. Everything they need is in `.flightops/`; they must not try to load plugin skills.
 

@@ -1,8 +1,11 @@
 ---
 # Browser test suite — mirrors the GitHub Actions "browser" job (test.yml).
 # Runs Playwright-driven browser tests with a mock LLM provider.
-# `playwright install --with-deps chromium` runs as root in the debian python:3.11
-# image — apt deps are installed automatically by --with-deps.
+# `playwright install --with-deps chromium webkit` runs as root in the debian
+# python:3.11-bookworm image (tag pinned so the Debian base cannot drift) — apt deps
+# are installed automatically by --with-deps. WebKit backs the engine-parametrized
+# App.ui contract tests; THE_ONE_REQUIRE_WEBKIT=1 makes an unlaunchable WebKit FAIL
+# instead of skip.
 # Bare `python -m pytest` is correct here (Concourse task containers are ephemeral —
 # orphaned uvicorn/Chromium children die with the container).
 # Expected wall-clock: ~15 min (the CI long pole).
@@ -15,7 +18,7 @@ image_resource:
   type: registry-image
   source:
     repository: python
-    tag: "3.11"
+    tag: "3.11-bookworm"
 
 inputs:
   - name: repo
@@ -27,5 +30,5 @@ run:
     - |
       cd repo
       pip install -e ".[all-llms,dev]"
-      python -m playwright install --with-deps chromium
-      THE_ONE_DEV_MODE=true python -m pytest -m browser tests/browser/ --timeout=300 --tb=short
+      python -m playwright install --with-deps chromium webkit
+      THE_ONE_REQUIRE_WEBKIT=1 THE_ONE_DEV_MODE=true python -m pytest -m browser tests/browser/ --timeout=300 --tb=short

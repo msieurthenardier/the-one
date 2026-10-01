@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workbench prototype</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/gleepglorp/tokens.css">
+<link rel="stylesheet" href="ds/gleepglorp/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="position: relative; width: 1440px; height: 900px; overflow: hidden; display: flex; background: var(--bg); color: var(--fg); font-family: var(--font-family-sans); font-size: var(--font-size-body)">
+<nav aria-label="Main" style="width: 72px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; background: var(--surface); border-right: 1px solid var(--border)">
+  <img src="/_blob/84cc497525576d6498f3b4c9e77f9514" alt="GleepGlorp AI" style="width: 28px; height: 28px; image-rendering: pixelated; margin-bottom: 12px">
+  <button onClick="{{go.chats}}" style="{{rs.chats}}" aria-label="Chats"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg><span>Chats</span></button>
+  <button onClick="{{go.agents}}" style="{{rs.agents}}" aria-label="Agents"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></svg><span>Agents</span></button>
+  <button onClick="{{go.library}}" style="{{rs.library}}" aria-label="Library"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span>Library</span></button>
+  <button onClick="{{go.settings}}" style="{{rs.settings}}" aria-label="Settings"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></button>
+  <button class="btn-ghost" onClick="{{openPalette}}" aria-label="Jump to (Ctrl K)" style="margin-top: auto; width: 44px; height: 44px; padding: 0"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
+</nav>
+<sc-if value="{{isAgents}}" hint-placeholder-val="{{true}}">
+<section aria-label="Agents" style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg); min-height: 0">
+  <div style="display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px"><h2 style="margin: 0; font-size: var(--font-size-h2); font-weight: 600">Agents</h2><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">{{agentCount}}</span>
+    <button class="btn-outlined-primary btn-sm" style="margin-left: auto"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>New</button></div>
+  <div style="padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px">
+    <div style="position: relative">
+      <label for="aq" style="position: absolute; left: -9999px">Filter agents</label>
+      <input id="aq" class="field-input" placeholder="Filter by name, model or provider" value="{{q}}" onChange="{{onQ}}" style="width: 100%; box-sizing: border-box; padding-left: 32px">
+      <span style="position: absolute; left: 10px; top: 9px; color: var(--fg-muted)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+    </div>
+  </div>
+  <div style="flex-grow: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px">
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="1">
+      <sc-for list="{{g.items}}" as="a" hint-placeholder-count="8">
+        <button onClick="{{a.pick}}" aria-current="{{a.current}}" style="{{a.rowStyle}}">
+          <span class="badge badge--{{a.badge}}" style="width: 8px; height: 8px; padding: 0; border-radius: 50%" aria-hidden="true"></span>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: left">
+            <span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{a.name}}</span>
+            <span style="font-size: var(--font-size-caption); color: var(--fg-muted); font-family: var(--font-family-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{a.model}}</span>
+          </span>
+        </button>
+      </sc-for>
+    </sc-for>
+    <sc-if value="{{noMatches}}" hint-placeholder-val="{{false}}">
+      <div class="empty-state">No agents match "{{q}}".</div>
+    </sc-if>
+  </div>
+</section>
+<main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0">
+  <header class="editor-header" style="border-bottom: 1px solid var(--border); padding: 12px 24px; align-items: center">
+    <div class="editor-header-text">
+      <div style="font-size: var(--font-size-caption); color: var(--fg-muted)">Agents</div>
+      <h1 class="editor-title">{{sel.name}}</h1>
+    </div>
+    <div class="form-actions">
+      <button class="btn-outlined-primary" onClick="{{chatWithSel}}"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg>Chat</button>
+      <button class="btn-filled-primary">Save</button>
+    </div>
+  </header>
+  <div style="flex-grow: 1; min-height: 0; overflow: hidden; display: flex; gap: 32px; padding: 24px">
+    <div style="flex-grow: 1; min-width: 0; max-width: 640px; display: flex; flex-direction: column; gap: 4px">
+      <h2 class="section-title">Identity</h2>
+      <div class="field-group"><label for="an">Name</label><input id="an" class="field-input" value="{{sel.name}}" onChange="{{noop}}"></div>
+      <div class="field-group"><label for="ad">Description</label><input id="ad" class="field-input" value="{{sel.desc}}" onChange="{{noop}}"></div>
+      <h2 class="section-title" style="margin-top: 16px">Model</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+        <div class="field-group"><label for="ap">Provider</label><select id="ap" class="field-select"><option>{{sel.provider}}</option></select></div>
+        <div class="field-group"><label for="am">Model</label><select id="am" class="field-select"><option>{{sel.model}}</option></select></div>
+      </div>
+      <h2 class="section-title" style="margin-top: 16px">Capabilities</h2>
+      <label style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border)"><span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0"><span style="display: flex; align-items: center; gap: 8px; font-size: var(--font-size-body); color: var(--fg)">Research notes</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">Knowledge base · 412 files</span></span><span class="tool-enable-switch"><input type="checkbox" checked aria-label="Research notes"><span class="tool-enable-switch-track"></span></span></label>
+      <label style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border)"><span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0"><span style="display: flex; align-items: center; gap: 8px; font-size: var(--font-size-body); color: var(--fg)">Web<span class="badge badge--web">web</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">Built-in · web_search, fetch_url</span></span><span class="tool-enable-switch"><input type="checkbox" checked aria-label="Web"><span class="tool-enable-switch-track"></span></span></label>
+      <label style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border)"><span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0"><span style="display: flex; align-items: center; gap: 8px; font-size: var(--font-size-body); color: var(--fg)">Filesystem<span class="badge badge--filesystem">filesystem</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">Built-in · read-only in ~/research</span></span><span class="tool-enable-switch"><input type="checkbox" checked aria-label="Filesystem"><span class="tool-enable-switch-track"></span></span></label>
+      <label style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border)"><span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0"><span style="display: flex; align-items: center; gap: 8px; font-size: var(--font-size-body); color: var(--fg)">zotero</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">MCP server · 9 tools</span></span><span class="tool-enable-switch"><input type="checkbox" aria-label="zotero"><span class="tool-enable-switch-track"></span></span></label>
+    </div>
+    <nav aria-label="On this page" style="width: 180px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 4px">
+      <div style="font-size: var(--font-size-caption); color: var(--fg-muted); padding: 0 0 8px 12px">On this page</div>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--accent); color: var(--fg)">Identity</a>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--border); color: var(--fg-muted)">Model</a>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--border); color: var(--fg-muted)">Prompt</a>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--border); color: var(--fg-muted)">Capabilities</a>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--border); color: var(--fg-muted)">Behavior</a>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--border); color: var(--fg-muted)">Self-configuration</a>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--border); color: var(--fg-muted)">Conversations ({{sel.chats}})</a>
+      <a href="#" style="display: block; padding: 4px 10px; font-size: var(--font-size-body-sm); text-decoration: none; border-left: 2px solid var(--border); color: var(--status-danger)">Delete agent</a>
+    </nav>
+  </div>
+</main>
+</sc-if>
+<sc-if value="{{isChats}}" hint-placeholder-val="{{false}}">
+<section aria-label="Chats" style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg); min-height: 0">
+  <div style="display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px"><h2 style="margin: 0; font-size: var(--font-size-h2); font-weight: 600">Chats</h2></div>
+  <div style="padding: 0 16px 12px; display: flex; flex-direction: column; gap: 10px">
+    <button class="btn-filled-primary btn-lg" onClick="{{openPicker}}" style="width: 100%"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>New chat</button>
+  </div>
+  <div style="flex-grow: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border)">
+    <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Today</div>
+    <sc-if value="{{hasNew}}" hint-placeholder-val="{{false}}">
+      <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; background: var(--accent-translucent); border-color: var(--accent)"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">New chat</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">now</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">{{newAgent.name}}</span></button>
+    </sc-if>
+    <button style="{{dprRowStyle}}" onClick="{{openDpr}}"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">DPR paper summary</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">10:42</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Research assistant</span></button>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fix flaky pty test</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">09:15</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Local coder</span></button>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Review knowledge-status diff</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">08:03</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Code reviewer</span></button>
+    <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Yesterday</div>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">RAG reading list</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">Tue</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Research assistant</span></button>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Weekly inbox sweep</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">Tue</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Inbox triage</span></button>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">#help: install on Windows</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">Tue</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Discord concierge</span></button>
+    <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Last 7 days</div>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Portuguese: ordering food</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">Sun</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Language tutor</span></button>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Q3 expenses</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">Sat</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Expense logger</span></button>
+    <button style="display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent"><span style="display: flex; gap: 8px"><span style="font-size: var(--font-size-body); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Port bench to Windows</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted); flex-shrink: 0">Fri</span></span><span style="font-size: var(--font-size-caption); color: var(--fg-secondary)">Local coder</span></button>
+  </div>
+</section>
+<main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0">
+  <header style="height: var(--topbar-h); flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--border)">
+    <h1 style="margin: 0; font-size: var(--font-size-body); font-weight: 600">{{chatTitle}}</h1>
+    <span style="font-size: var(--font-size-body-sm); color: var(--fg-muted)">with {{cur.name}}</span>
+    <button class="btn-ghost" onClick="{{toggleInspector}}" aria-pressed="{{inspector}}" aria-label="Show this chat's agent" style="margin-left: auto"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></button>
+  </header>
+  <sc-if value="{{hasNew}}" hint-placeholder-val="{{false}}">
+    <div style="flex-grow: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 24px">
+      <div style="max-width: 480px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center">
+        <span class="badge badge--{{cur.badge}}">{{cur.model}}</span>
+        <h2 style="margin: 4px 0 0; font-size: var(--font-size-h1); font-weight: 600">{{cur.name}}</h2>
+        <p style="margin: 0; font-size: var(--font-size-body-lg); color: var(--fg-secondary)">{{cur.desc}}</p>
+        <button class="btn-ghost btn-sm" onClick="{{openPicker}}" style="margin-top: 8px">Pick a different agent</button>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{isThread}}" hint-placeholder-val="{{true}}">
+    <div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 24px">
+      <div style="max-width: 720px; margin: 0 auto"><div class="messages" style="gap: 16px">
+  <div class="msg user">Find the three most cited papers on retrieval-augmented generation in my notes, and tell me which one to read first.</div>
+  <div class="msg tool">kb__research_notes__search(query="retrieval-augmented generation", limit=10)</div>
+  <div class="msg assistant">I found three papers in Research notes that are cited most often in your other notes:
+
+1. Lewis et al., 2020 — Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks
+2. Karpukhin et al., 2020 — Dense Passage Retrieval
+3. Izacard and Grave, 2021 — Leveraging Passage Retrieval with Generative Models
+
+Read Lewis et al. first. It defines the RAG architecture the other two build on, and your notes on it are the most complete.</div>
+  <div class="msg user">Summarize the Dense Passage Retrieval notes in five bullets.</div>
+</div></div>
+    </div>
+    <div class="telemetry" style="justify-content: flex-end; padding: 0 24px"><span class="label">ctx:</span><span class="context-bar-wrap"><span class="context-bar" style="display: block; width: 38%"></span></span><span class="t-ctx-pct">38%</span><span class="label">in:</span><span class="value">12,480</span><span class="label">out:</span><span class="value">1,106</span></div>
+  </sc-if>
+  <div style="padding: 12px 24px 20px">
+    <div style="max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px 12px">
+      <label for="cm" style="position: absolute; left: -9999px">Message</label>
+      <textarea id="cm" rows="2" placeholder="Message {{cur.name}}…" style="resize: none; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: var(--font-size-body-lg); outline: none"></textarea>
+      <div style="display: flex; align-items: center; gap: 8px">
+        <button class="btn-ghost btn-sm" aria-label="Attach a file"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+        <span style="font-size: var(--font-size-caption); color: var(--fg-muted); font-family: var(--font-family-mono)">{{cur.model}}</span>
+        <button class="btn-filled-primary" style="margin-left: auto"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>Send</button>
+      </div>
+    </div>
+  </div>
+</main>
+<sc-if value="{{inspector}}" hint-placeholder-val="{{true}}">
+<aside aria-label="This chat's agent" style="width: 320px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface)">
+  <div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border)">
+    <span style="font-size: var(--font-size-body); font-weight: 600">{{cur.name}}</span>
+    <span class="badge badge--{{cur.badge}}">{{cur.badge}}</span>
+  </div>
+  <div style="padding: 16px; display: flex; flex-direction: column; gap: 16px">
+    <p style="margin: 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary)">{{cur.desc}}</p>
+    <dl style="margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; font-size: var(--font-size-body-sm)">
+      <dt style="color: var(--fg-muted)">Model</dt><dd style="margin: 0; font-family: var(--font-family-mono)">{{cur.model}}</dd>
+      <dt style="color: var(--fg-muted)">Provider</dt><dd style="margin: 0">{{cur.provider}}</dd>
+      <dt style="color: var(--fg-muted)">Chats</dt><dd style="margin: 0">{{cur.chats}}</dd>
+    </dl>
+    <button class="btn-outlined-primary" onClick="{{openCur}}" style="align-self: flex-start"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>Open agent settings</button>
+  </div>
+</aside>
+</sc-if>
+</sc-if>
+<sc-if value="{{isLibrary}}" hint-placeholder-val="{{false}}">
+<section aria-label="Library" style="width: 300px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg); min-height: 0">
+  <div style="display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px"><h2 style="margin: 0; font-size: var(--font-size-h2); font-weight: 600">Library</h2>
+    <button class="btn-outlined-primary btn-sm" style="margin-left: auto"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Add</button></div>
+  <p style="margin: 0; padding: 0 16px 8px; font-size: var(--font-size-caption); color: var(--fg-muted)">Things agents can use. Attach them from an agent's Capabilities.</p>
+  <div style="flex-grow: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Knowledge bases</div>
+    <button style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--fg-secondary); background: var(--accent-translucent); border-color: var(--accent); color: var(--fg)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: var(--font-size-body); color: var(--fg)">Research notes</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">412 files · 6 agents</span></span></button>
+    <button style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--fg-secondary)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: var(--font-size-body); color: var(--fg)">the-one docs</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">88 files · 3 agents</span></span></button>
+    <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">MCP servers</div>
+    <button style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--fg-secondary)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: var(--font-size-body); color: var(--fg)">zotero</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">9 tools · connected</span></span></button>
+    <button style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--fg-secondary)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: var(--font-size-body); color: var(--fg)">github</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">24 tools · connected</span></span></button>
+    <button style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--fg-secondary)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: var(--font-size-body); color: var(--fg)">home-assistant</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">Not connected</span></span></button>
+    <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Connectors</div>
+    <button style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--fg-secondary)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: var(--font-size-body); color: var(--fg)">Discord: GleepGlorp server</span><span style="font-size: var(--font-size-caption); color: var(--fg-muted)">3 channels · 3 agents</span></span></button>
+  </div>
+</section>
+<main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0">
+  <header class="editor-header" style="border-bottom: 1px solid var(--border); padding: 12px 24px; align-items: center">
+    <div class="editor-header-text"><div style="font-size: var(--font-size-caption); color: var(--fg-muted)">Library / Knowledge bases</div><h1 class="editor-title">Research notes</h1></div>
+    <div class="form-actions"><button class="btn-outlined-primary"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>Re-index</button><button class="btn-outlined-primary"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Add folder</button></div>
+  </header>
+  <div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px">
+    <div style="display: flex; flex-direction: column; gap: 12px; max-width: 680px">
+      <h2 class="section-title" style="margin: 0">Folders</h2>
+      <div style="border: 1px solid var(--border); border-radius: var(--radius-md)">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border)"><span style="font-family: var(--font-family-mono); font-size: var(--font-size-body-sm)">~/notes/papers</span><span class="test-result test-result-ok" style="margin-left: auto">Watching · 318 files</span></div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px"><span style="font-family: var(--font-family-mono); font-size: var(--font-size-body-sm)">~/notes/reading-log</span><span class="test-result test-result-warning" style="margin-left: auto">Indexing · 94 of 120</span></div>
+      </div>
+      <h2 class="section-title" style="margin: 12px 0 0">Try a search</h2>
+      <div style="display: flex; gap: 8px"><label for="ks" style="position: absolute; left: -9999px">Search this knowledge base</label><input id="ks" class="field-input" value="dense passage retrieval" onChange="{{noop}}"><button class="btn-outlined-primary">Search</button></div>
+      <pre class="code-block">karpukhin-2020-dpr.md · chunk 4 · score 0.91
+Dense Passage Retrieval encodes questions and passages with two BERT encoders…</pre>
+      <p style="margin: 0; font-size: var(--font-size-caption); color: var(--fg-muted)">Chunk size and indexing schedule are app-wide: <button onClick="{{go.settings}}" style="background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer">Settings › Knowledge indexing</button>.</p>
+    </div>
+    <aside style="display: flex; flex-direction: column; gap: 8px">
+      <div style="font-size: var(--font-size-body-sm); font-weight: 500; color: var(--fg-secondary)">Used by 6 agents</div>
+      <button onClick="{{openResearch}}" class="btn-ghost" style="justify-content: flex-start">Research assistant</button>
+      <button class="btn-ghost" style="justify-content: flex-start">Paper summarizer</button>
+      <button class="btn-ghost" style="justify-content: flex-start">Citation checker</button>
+      <button class="btn-ghost" style="justify-content: flex-start">Literature scout</button>
+      <button class="btn-ghost" style="justify-content: flex-start">Grant drafter</button>
+      <button class="btn-ghost" style="justify-content: flex-start">Prompt lab</button>
+    </aside>
+  </div>
+</main>
+</sc-if>
+<sc-if value="{{isSettings}}" hint-placeholder-val="{{false}}">
+<nav aria-label="Settings" style="width: 240px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; border-right: 1px solid var(--border)">
+  <h2 style="margin: 0 0 4px 10px; margin: 0; font-size: var(--font-size-h2); font-weight: 600">Settings</h2>
+  <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">General</div><a href="#" style="display: block; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); text-decoration: none; color: var(--fg-secondary)">Appearance</a><a href="#" style="display: block; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); text-decoration: none; color: var(--fg-secondary)">Prompts</a><a href="#" style="display: block; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); text-decoration: none; color: var(--fg-secondary)">Encryption</a><div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Models</div><a href="#" style="display: block; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); text-decoration: none; color: var(--fg); background: var(--accent-translucent); box-shadow: inset 0 0 0 1px var(--accent)">Providers</a><div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Defaults for agents</div><a href="#" style="display: block; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); text-decoration: none; color: var(--fg-secondary)">Built-in tools</a><a href="#" style="display: block; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); text-decoration: none; color: var(--fg-secondary)">Knowledge indexing</a><div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Developer</div><a href="#" style="display: block; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); text-decoration: none; color: var(--fg-secondary)">Design language</a>
+</nav>
+<main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden">
+  <div class="page-header" style="padding: 16px 32px"><h1 class="page-title">Providers</h1><button class="btn-outlined-primary"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Add provider</button></div>
+  <div style="padding: 0 32px; display: flex; flex-direction: column; max-width: 880px">
+    <p style="margin: 0 0 16px; font-size: var(--font-size-body-sm); color: var(--fg-muted)">A provider is an account or server that runs models. Agents pick one in their Model section.</p>
+    <table style="width: 100%; border-collapse: collapse; font-size: var(--font-size-body)">
+      <thead><tr style="text-align: left; font-size: var(--font-size-caption); color: var(--fg-muted)"><th style="font-weight: 500; padding: 12px; border-bottom: 1px solid var(--border)">Name</th><th style="font-weight: 500; padding: 12px; border-bottom: 1px solid var(--border)">Type</th><th style="font-weight: 500; padding: 12px; border-bottom: 1px solid var(--border)">Status</th><th style="font-weight: 500; padding: 12px; border-bottom: 1px solid var(--border)">Used by</th></tr></thead>
+      <tbody>
+        <tr><td style="padding: 12px; border-bottom: 1px solid var(--border); font-weight: 600">Claude Max</td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="badge badge--anthropic-plan">anthropic-plan</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="test-result test-result-ok" style="margin: 0">Signed in</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)">9 agents</td></tr>
+        <tr><td style="padding: 12px; border-bottom: 1px solid var(--border); font-weight: 600">Anthropic API</td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="badge badge--anthropic">anthropic</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="test-result test-result-ok" style="margin: 0">Connected</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)">4 agents</td></tr>
+        <tr><td style="padding: 12px; border-bottom: 1px solid var(--border); font-weight: 600">Ollama on this machine</td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="badge badge--ollama">ollama</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="test-result test-result-ok" style="margin: 0">Connected</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)">9 agents</td></tr>
+        <tr><td style="padding: 12px; border-bottom: 1px solid var(--border); font-weight: 600">OpenAI</td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="badge badge--openai">openai</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="test-result test-result-fail" style="margin: 0">Key rejected</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)">6 agents</td></tr>
+        <tr><td style="padding: 12px; border-bottom: 1px solid var(--border); font-weight: 600">OpenRouter</td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="badge badge--openrouter">openrouter</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)"><span class="test-result test-result-ok" style="margin: 0">Connected</span></td><td style="padding: 12px; border-bottom: 1px solid var(--border)">2 agents</td></tr>
+      </tbody>
+    </table>
+    <div class="banner banner-error" style="margin-top: 16px">OpenAI rejected the saved API key. 6 agents can't reply until you update it.</div>
+  </div>
+</main>
+</sc-if>
+<sc-if value="{{picker}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: 72px">
+  <button onClick="{{closePicker}}" aria-label="Close" style="position: absolute; inset: 0; border: 0; background: rgba(0, 0, 0, 0.3); cursor: default"></button>
+  <div role="dialog" aria-modal="true" aria-labelledby="pt" style="position: relative; width: 640px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); overflow: hidden; display: flex; flex-direction: column; max-height: 720px">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 16px 20px 12px">
+      <h2 id="pt" style="margin: 0; font-size: var(--font-size-h2); font-weight: 600">Start a chat with…</h2>
+      <button class="btn-ghost btn-sm" onClick="{{closePicker}}" style="margin-left: auto">Esc</button>
+    </div>
+    <div style="position: relative; padding: 0 20px 12px">
+      <label for="pk" style="position: absolute; left: -9999px">Find an agent</label>
+      <input id="pk" class="field-input" placeholder="Find an agent by name, model or provider" value="{{pickQ}}" onChange="{{onPickQ}}" style="width: 100%; box-sizing: border-box; padding-left: 34px; height: 40px; font-size: var(--font-size-body-lg)">
+      <span style="position: absolute; left: 32px; top: 12px; color: var(--fg-muted)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span>
+    </div>
+    <div style="flex-grow: 1; min-height: 0; overflow-y: auto; padding: 0 12px 12px; border-top: 1px solid var(--border)">
+      <sc-for list="{{pickGroups}}" as="g" hint-placeholder-count="2">
+        <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">{{g.name}}</div>
+        <sc-for list="{{g.items}}" as="a" hint-placeholder-count="5">
+          <button onClick="{{a.start}}" style="display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid transparent; background: transparent; font: inherit; text-align: left; cursor: pointer">
+            <span class="badge badge--{{a.badge}}" style="width: 8px; height: 8px; padding: 0; border-radius: 50%" aria-hidden="true"></span>
+            <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1">
+              <span style="font-size: var(--font-size-body); font-weight: 600; color: var(--fg)">{{a.name}}</span>
+              <span style="font-size: var(--font-size-caption); color: var(--fg-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{a.desc}}</span>
+            </span>
+            <span style="font-size: var(--font-size-caption); color: var(--fg-muted); font-family: var(--font-family-mono); flex-shrink: 0">{{a.model}}</span>
+          </button>
+        </sc-for>
+      </sc-for>
+      <sc-if value="{{pickNone}}" hint-placeholder-val="{{false}}">
+        <div class="empty-state">No agents match "{{pickQ}}".</div>
+      </sc-if>
+    </div>
+    <div style="display: flex; gap: 16px; padding: 10px 20px; border-top: 1px solid var(--border); font-size: var(--font-size-caption); color: var(--fg-muted)"><span>Picking an agent starts a new chat with it</span><span style="margin-left: auto">Enter to start</span></div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{palette}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; display: flex; justify-content: center; padding-top: 96px">
+  <button onClick="{{closePalette}}" aria-label="Close" style="position: absolute; inset: 0; border: 0; background: rgba(0, 0, 0, 0.3); cursor: default"></button>
+  <div role="dialog" aria-modal="true" aria-label="Jump to" style="position: relative; width: 600px; height: fit-content; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); overflow: hidden">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border)">
+      <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><label for="pq" style="position: absolute; left: -9999px">Jump to</label>
+      <input id="pq" value="{{pq}}" onChange="{{onPq}}" placeholder="Jump to an agent, chat, library item or setting" style="flex-grow: 1; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: var(--font-size-body-lg); outline: none">
+      <button class="btn-ghost btn-sm" onClick="{{closePalette}}">Esc</button>
+    </div>
+    <div style="padding: 8px; display: flex; flex-direction: column; gap: 2px; max-height: 420px; overflow-y: auto">
+      <sc-for list="{{results}}" as="r" hint-placeholder-count="6">
+        <button onClick="{{r.pick}}" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); border: 0; background: transparent; color: var(--fg); font: inherit; font-size: var(--font-size-body); text-align: left; cursor: pointer">
+          <span>{{r.label}}</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">{{r.where}}</span>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--border); font-size: var(--font-size-caption); color: var(--fg-muted)"><span>Ctrl K from anywhere</span><span>Enter to open</span></div>
+  </div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+
+const AGENTS = [{"id": "a0", "name": "Research assistant", "tag": "Research", "model": "claude-opus-5-5", "badge": "anthropic-plan", "chats": 3, "pinned": true, "rank": 1, "desc": "Reads papers from your notes and answers with citations."}, {"id": "a1", "name": "Paper summarizer", "tag": "Research", "model": "claude-sonnet-5-5", "badge": "anthropic-plan", "chats": 9, "pinned": false, "rank": 6, "desc": "Turns a PDF into a one-page summary with key figures."}, {"id": "a2", "name": "Citation checker", "tag": "Research", "model": "gpt-5-mini", "badge": "openai", "chats": 2, "pinned": false, "rank": 14, "desc": "Checks references against the bibliography file."}, {"id": "a3", "name": "Literature scout", "tag": "Research", "model": "claude-sonnet-5-5", "badge": "anthropic", "chats": 5, "pinned": false, "rank": 19, "desc": "Searches the web for new papers on a watched topic."}, {"id": "a4", "name": "Grant drafter", "tag": "Research", "model": "claude-opus-5-5", "badge": "anthropic-plan", "chats": 1, "pinned": false, "rank": 27, "desc": "Drafts grant sections from your project notes."}, {"id": "a5", "name": "Local coder", "tag": "Coding", "model": "llama3.1:8b", "badge": "ollama", "chats": 4, "pinned": true, "rank": 2, "desc": "Runs shell and Python in the sandbox."}, {"id": "a6", "name": "Code reviewer", "tag": "Coding", "model": "claude-opus-5-5", "badge": "anthropic-plan", "chats": 11, "pinned": true, "rank": 3, "desc": "Reviews a diff for bugs before you commit."}, {"id": "a7", "name": "Test writer", "tag": "Coding", "model": "qwen2.5-coder:14b", "badge": "ollama", "chats": 6, "pinned": false, "rank": 8, "desc": "Writes pytest cases for a module you point it at."}, {"id": "a8", "name": "Refactor helper", "tag": "Coding", "model": "claude-sonnet-5-5", "badge": "anthropic", "chats": 3, "pinned": false, "rank": 12, "desc": "Proposes small, safe refactors one file at a time."}, {"id": "a9", "name": "Regex whisperer", "tag": "Coding", "model": "gpt-5-mini", "badge": "openai", "chats": 7, "pinned": false, "rank": 16, "desc": "Builds and explains regular expressions."}, {"id": "a10", "name": "SQL helper", "tag": "Coding", "model": "deepseek-coder:6.7b", "badge": "ollama", "chats": 2, "pinned": false, "rank": 21, "desc": "Writes and explains SQLite queries."}, {"id": "a11", "name": "Docs writer", "tag": "Coding", "model": "claude-sonnet-5-5", "badge": "anthropic-plan", "chats": 4, "pinned": false, "rank": 10, "desc": "Drafts README and reference docs from code."}, {"id": "a12", "name": "Inbox triage", "tag": "Ops", "model": "gpt-5", "badge": "openai", "chats": 12, "pinned": true, "rank": 4, "desc": "Sorts incoming mail into act, read and archive."}, {"id": "a13", "name": "Calendar planner", "tag": "Ops", "model": "gpt-5-mini", "badge": "openai", "chats": 5, "pinned": false, "rank": 9, "desc": "Finds time for meetings and drafts invites."}, {"id": "a14", "name": "Expense logger", "tag": "Ops", "model": "llama3.1:8b", "badge": "ollama", "chats": 3, "pinned": false, "rank": 17, "desc": "Turns receipts into rows in your expenses sheet."}, {"id": "a15", "name": "Travel planner", "tag": "Ops", "model": "claude-sonnet-5-5", "badge": "openrouter", "chats": 2, "pinned": false, "rank": 20, "desc": "Plans trips and keeps a packing list."}, {"id": "a16", "name": "Meeting notes", "tag": "Ops", "model": "claude-sonnet-5-5", "badge": "anthropic-plan", "chats": 8, "pinned": false, "rank": 7, "desc": "Cleans up transcripts into decisions and actions."}, {"id": "a17", "name": "Backup watcher", "tag": "Ops", "model": "llama3.2:3b", "badge": "ollama", "chats": 1, "pinned": false, "rank": 25, "desc": "Reads backup logs and flags failures."}, {"id": "a18", "name": "Discord concierge", "tag": "Connectors", "model": "claude-sonnet-5-5", "badge": "anthropic", "chats": 2, "pinned": false, "rank": 5, "desc": "Answers questions in the #help channel."}, {"id": "a19", "name": "Discord moderator", "tag": "Connectors", "model": "gpt-5-mini", "badge": "openai", "chats": 1, "pinned": false, "rank": 18, "desc": "Flags messages that break the server rules."}, {"id": "a20", "name": "Release announcer", "tag": "Connectors", "model": "claude-sonnet-5-5", "badge": "anthropic", "chats": 1, "pinned": false, "rank": 23, "desc": "Posts release notes to #announcements."}, {"id": "a21", "name": "Recipe planner", "tag": "Personal", "model": "llama3.1:8b", "badge": "ollama", "chats": 4, "pinned": false, "rank": 11, "desc": "Plans a week of dinners from what's in the fridge."}, {"id": "a22", "name": "Workout coach", "tag": "Personal", "model": "gpt-5-mini", "badge": "openai", "chats": 3, "pinned": false, "rank": 15, "desc": "Builds a training plan and adjusts it weekly."}, {"id": "a23", "name": "Language tutor", "tag": "Personal", "model": "claude-sonnet-5-5", "badge": "openrouter", "chats": 6, "pinned": false, "rank": 13, "desc": "Practises Portuguese conversation with corrections."}, {"id": "a24", "name": "Reading list", "tag": "Personal", "model": "llama3.2:3b", "badge": "ollama", "chats": 2, "pinned": false, "rank": 22, "desc": "Keeps your to-read list and suggests what's next."}, {"id": "a25", "name": "Garden log", "tag": "Personal", "model": "llama3.2:3b", "badge": "ollama", "chats": 1, "pinned": false, "rank": 26, "desc": "Tracks what you planted and when to water."}, {"id": "a26", "name": "Mock echo", "tag": "Dev", "model": "mock-default", "badge": "mock", "chats": 0, "pinned": false, "rank": 28, "desc": "Returns a scripted reply. Dev mode only."}, {"id": "a27", "name": "Prompt lab", "tag": "Dev", "model": "claude-opus-5-5", "badge": "anthropic-plan", "chats": 5, "pinned": false, "rank": 24, "desc": "Side-by-side testing of system prompts."}];
+const TAGS = ['Research', 'Coding', 'Ops', 'Connectors', 'Personal', 'Dev'];
+const RAIL = 'display: flex; flex-direction: column; align-items: center; gap: 4px; width: 60px; padding: 8px 0; border-radius: var(--radius-sm); border: 1px solid transparent; font: inherit; font-size: var(--font-size-tiny); cursor: pointer; ';
+const ROW = 'display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid transparent; font: inherit; cursor: pointer; background: transparent; ';
+const ROWDPR = 'display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font: inherit; text-align: left; cursor: pointer; border: 1px solid transparent; background: transparent; ';
+const CHIP = 'height: 24px; padding: 0 10px; border-radius: 12px; font: inherit; font-size: var(--font-size-caption); cursor: pointer; ';
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { screen: 'agents', sel: 'a0', q: '', mode: 'group', palette: false, pq: '', inspector: true, pins: {}, picker: false, pickQ: '', newChat: null };
+  }
+  isPinned(a) { return this.state.pins[a.id] ?? a.pinned; }
+  renderVals() {
+    const s = this.state;
+    const go = {};
+    const rs = {};
+    ['chats', 'agents', 'library', 'settings'].forEach((k) => {
+      go[k] = () => this.setState({ screen: k, palette: false });
+      rs[k] = RAIL + (s.screen === k ? 'color: var(--fg); background: var(--accent-translucent); border-color: var(--accent)' : 'color: var(--fg-secondary); background: transparent');
+    });
+    const q = s.q.trim().toLowerCase();
+    const match = AGENTS.filter((a) => !q || (a.name + ' ' + a.model + ' ' + a.badge).toLowerCase().includes(q));
+    const row = (a) => ({
+      ...a,
+      pin: this.isPinned(a) ? 'Pinned' : '',
+      current: a.id === s.sel ? 'true' : 'false',
+      rowStyle: ROW + (a.id === s.sel ? 'background: var(--accent-translucent); border-color: var(--accent)' : ''),
+      pick: () => this.setState({ sel: a.id }),
+    });
+    const groups = match.length ? [{ name: 'All', items: match.slice().sort((x, y) => x.name.localeCompare(y.name)).map(row) }] : [];
+    const selA = AGENTS.find((a) => a.id === s.sel) || AGENTS[0];
+    const provider = { 'anthropic-plan': 'Claude Max', anthropic: 'Anthropic API', ollama: 'Ollama on this machine', openai: 'OpenAI', openrouter: 'OpenRouter', mock: 'Mock' }[selA.badge];
+    const openAgent = (id) => () => this.setState({ screen: 'agents', sel: id, palette: false, q: '' });
+    const pq = s.pq.trim().toLowerCase();
+    const all = AGENTS.map((a) => ({ label: a.name, where: 'Agent', pick: openAgent(a.id) }))
+      .concat([
+        { label: 'DPR paper summary', where: 'Chat · Research assistant', pick: () => this.setState({ screen: 'chats', newChat: null, palette: false }) },
+        { label: 'New chat…', where: 'Action', pick: () => this.setState({ screen: 'chats', palette: false, picker: true, pickQ: '' }) },
+        { label: 'Research notes', where: 'Library · Knowledge base', pick: go.library },
+        { label: 'zotero', where: 'Library · MCP server', pick: go.library },
+        { label: 'Providers', where: 'Settings', pick: go.settings },
+        { label: 'Knowledge indexing', where: 'Settings · Defaults for agents', pick: go.settings },
+      ]);
+    const results = all.filter((r) => !pq || (r.label + ' ' + r.where).toLowerCase().includes(pq)).slice(0, 8);
+    const cur0 = s.newChat ? AGENTS.find((a) => a.id === s.newChat) : AGENTS[0];
+    const provOf = (a) => ({ 'anthropic-plan': 'Claude Max', anthropic: 'Anthropic API', ollama: 'Ollama on this machine', openai: 'OpenAI', openrouter: 'OpenRouter', mock: 'Mock' }[a.badge]);
+    const startWith = (id) => () => this.setState({ screen: 'chats', newChat: id, picker: false, pickQ: '', palette: false });
+    const kq = s.pickQ.trim().toLowerCase();
+    const pmatch = AGENTS.filter((a) => !kq || (a.name + ' ' + a.model + ' ' + a.badge + ' ' + a.desc).toLowerCase().includes(kq));
+    const prow = (a) => ({ ...a, start: startWith(a.id) });
+    let pickGroups = kq
+      ? [{ name: pmatch.length + ' matching', items: pmatch.map(prow) }]
+      : [{ name: 'Recently used', items: AGENTS.slice().sort((x, y) => x.rank - y.rank).slice(0, 5).map(prow) },
+         { name: 'All agents', items: AGENTS.slice().sort((x, y) => x.name.localeCompare(y.name)).map(prow) }];
+    pickGroups = pickGroups.filter((g) => g.items.length);
+    return {
+      picker: s.picker, openPicker: () => this.setState({ picker: true, pickQ: '' }), closePicker: () => this.setState({ picker: false }),
+      pickQ: s.pickQ, onPickQ: (e) => this.setState({ pickQ: e.target.value }), pickGroups, pickNone: pickGroups.length === 0,
+      hasNew: !!s.newChat, isThread: !s.newChat, newAgent: cur0,
+      cur: { ...cur0, provider: provOf(cur0) },
+      chatTitle: s.newChat ? 'New chat' : 'DPR paper summary',
+      dprRowStyle: ROWDPR + (s.newChat ? '' : 'background: var(--accent-translucent); border-color: var(--accent)'),
+      openDpr: () => this.setState({ newChat: null }),
+      openCur: openAgent(cur0.id),
+      theme: this.props.theme ?? 'dark',
+      go, rs,
+      isAgents: s.screen === 'agents', isChats: s.screen === 'chats', isLibrary: s.screen === 'library', isSettings: s.screen === 'settings',
+      q: s.q, onQ: (e) => this.setState({ q: e.target.value }),
+      groups, noMatches: groups.length === 0, agentCount: match.length + ' of ' + AGENTS.length,
+      sel: { ...selA, provider: provider + ' (' + selA.badge + ')' },
+      pinLabel: this.isPinned(selA) ? 'Unpin' : 'Pin',
+      togglePin: () => this.setState({ pins: { ...s.pins, [selA.id]: !this.isPinned(selA) } }),
+      chatWithSel: startWith(selA.id),
+      openResearch: openAgent('a0'),
+      inspector: s.inspector, toggleInspector: () => this.setState({ inspector: !s.inspector }),
+      palette: s.palette, openPalette: () => this.setState({ palette: true, pq: '' }), closePalette: () => this.setState({ palette: false }),
+      pq: s.pq, onPq: (e) => this.setState({ pq: e.target.value }), results,
+      noop: () => {},
+    };
+  }
+}
+
+</script>
+</body>
+</html>

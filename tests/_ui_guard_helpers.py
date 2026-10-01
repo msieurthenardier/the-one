@@ -62,6 +62,16 @@ _SETATTR_LITERAL = re.compile(r"setAttribute\(\s*'data-testid'\s*,\s*'([^\"'\n]+
 # setAttribute parametric: setAttribute('data-testid', 'prefix-' + ...)
 _SETATTR_PARAMETRIC = re.compile(r"setAttribute\(\s*'data-testid'\s*,\s*'([^\"'\n]+)'\s*\+")
 
+# Library literal (DD2, M25 F1): a ``testid: 'foo'`` property handed to an
+# ``App.ui`` factory (own options, a nested option object, or a per-item
+# object). ``\b`` excludes ``rowtestid:``; the negative lookahead stops a
+# parametric site (``'prefix-' + x``) also matching as a literal. The char
+# class ``[^"'\n]`` anchors to the value's own quotes.
+_PROP_LITERAL = re.compile(r"\btestid:\s*'([^\"'\n]+)'(?!\s*\+)")
+
+# Library parametric: ``testid: 'prefix-' + ...`` (``\s*`` spans a newline).
+_PROP_PARAMETRIC = re.compile(r"\btestid:\s*'([^\"'\n]+)'\s*\+")
+
 # Selector reference: [data-testid="foo"] — used in querySelector strings.
 _SELECTOR_REF = re.compile(r'\[data-testid="([^"\'\n\]]+)"\]')
 
@@ -70,9 +80,9 @@ def iter_js_files(js_dir: Path = JS_DIR) -> list[Path]:
     return sorted(js_dir.rglob("*.js"))
 
 
-def relpath(path: Path) -> str:
-    """Path relative to the js/ root, as a forward-slash string."""
-    return path.relative_to(JS_DIR).as_posix()
+def relpath(path: Path, root: Path = JS_DIR) -> str:
+    """Path relative to ``root`` (default the js/ root), as a forward-slash string."""
+    return path.relative_to(root).as_posix()
 
 
 def extract_testids(
@@ -89,7 +99,7 @@ def extract_testids(
     selector_refs: dict[str, set[str]] = {}
     for js_file in iter_js_files(js_dir):
         text = js_file.read_text()
-        rel = relpath(js_file)
+        rel = relpath(js_file, js_dir)
         for testid in _ATTR_LITERAL.findall(text):
             literals.setdefault(testid, set()).add(rel)
         for testid in _SETATTR_LITERAL.findall(text):
@@ -98,9 +108,75 @@ def extract_testids(
             parametric.setdefault(prefix, set()).add(rel)
         for prefix in _SETATTR_PARAMETRIC.findall(text):
             parametric.setdefault(prefix, set()).add(rel)
+        for testid in _PROP_LITERAL.findall(text):
+            literals.setdefault(testid, set()).add(rel)
+        for prefix in _PROP_PARAMETRIC.findall(text):
+            parametric.setdefault(prefix, set()).add(rel)
         for testid in _SELECTOR_REF.findall(text):
             selector_refs.setdefault(testid, set()).add(rel)
     return literals, parametric, selector_refs
+
+
+# ── testid-value scanner (DD2 composite-rule enforcement) ───────────────────
+#
+# Every ``testid`` KEY in static/js must carry a value the extractor can see:
+# anything else is a silent manual exception, invisible to both directions of
+# the registry diff. The lookbehind excludes ``data-testid`` / ``rowtestid`` /
+# bare ``testid`` parameters; optional quotes catch ``'testid':`` keys.
+_TESTID_KEY = re.compile(r"(?<![\w-])['\"]?testid['\"]?\s*:")
+
+# Outside ui/: a single-quoted literal ending at , } ) or end of line, or a
+# single-quoted ``'prefix' +`` concatenation (the + may start the next line).
+_VALUE_LITERAL = re.compile(r"'[^\"'\n]+'(?:[ \t]*(?:[,})]|$)|\s*\+)", re.MULTILINE)
+
+# Inside ui/: forwarding only, ``<identifier-chain>.testid``.
+_VALUE_FORWARD = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.testid\b")
+
+
+def find_testid_value_violations(js_dir: Path = JS_DIR) -> list[tuple[str, int, str]]:
+    """Return ``(rel_path, line_number, excerpt)`` for every ``testid`` key whose
+    value is not an allowed form. The value is classified by its LEADING token,
+    so a ternary's inner quotes and colon are never split. Comments are scanned
+    like live code, consistent with the extractor. Empty list = passing."""
+    bad: list[tuple[str, int, str]] = []
+    for js_file in iter_js_files(js_dir):
+        text = js_file.read_text()
+        rel = relpath(js_file, js_dir)
+        in_ui = rel.startswith("ui/")
+        for m in _TESTID_KEY.finditer(text):
+            value = text[m.end() :].lstrip(" \t")
+            if "'" in m.group(0) or '"' in m.group(0):
+                ok = False  # quoted key
+            elif in_ui:
+                ok = bool(_VALUE_FORWARD.match(value))
+            else:
+                ok = bool(_VALUE_LITERAL.match(value))
+            if not ok:
+                lineno = text.count("\n", 0, m.start()) + 1
+                line_end = text.find("\n", m.start())
+                excerpt = text[m.start() : len(text) if line_end < 0 else line_end]
+                bad.append((rel, lineno, excerpt.strip()[:100]))
+    return bad
+
+
+UI_DIR = JS_DIR / "ui"
+
+
+def find_ui_dir_sink_tokens(
+    ui_dir: Path = UI_DIR,
+) -> tuple[int, list[tuple[str, int, str, str]]]:
+    """DD4 zero-token scan over ``static/js/ui/*.js`` (comments included).
+
+    Returns ``(files_scanned, hits)``; each hit is ``(file, line, token,
+    stripped_line)``. An absent directory scans zero files with no hits."""
+    if not ui_dir.is_dir():
+        return 0, []
+    files = sorted(ui_dir.glob("*.js"))
+    hits: list[tuple[str, int, str, str]] = []
+    for f in files:
+        for lineno, token, line in find_markdown_html_sink_tokens(f):
+            hits.append((f.name, lineno, token, line))
+    return len(files), hits
 
 
 def id_appears_as_string_literal(testid: str, js_dir: Path = JS_DIR) -> bool:
@@ -114,8 +190,9 @@ def id_appears_as_string_literal(testid: str, js_dir: Path = JS_DIR) -> bool:
 # ── Field label-association guard (M17 F5 L1) ───────────────────────────────
 #
 # The M17 F3 ``.field-group`` vocabulary wires label association BY HAND at
-# every site (``fieldGroup()`` in the design-language gallery is gallery-local,
-# not exported): a ``<label for="X">`` must resolve to a control ``id="X"``, and
+# every site (the old gallery-local ``fieldGroup()`` helper was deleted in M25 F1
+# L6; the gallery now uses ``App.ui.field``): a ``<label for="X">`` must resolve
+# to a control ``id="X"``, and
 # an ``.is-invalid`` control's ``aria-describedby="Y"`` must resolve to a
 # ``.field-error`` element ``id="Y"``. As the F5 studio re-skin migrates the 54
 # ``.field-row`` sites to ``.field-group``, these guards catch the easy
@@ -278,7 +355,7 @@ def classify_sinks(js_dir: Path = JS_DIR) -> tuple[dict[str, list[str]], dict[st
     static: dict[str, list[str]] = {}
     for js_file in iter_js_files(js_dir):
         text = js_file.read_text()
-        rel = relpath(js_file)
+        rel = relpath(js_file, js_dir)
         sites: list[tuple[int, bool]] = []  # (anchor pos, is_static)
 
         for m in _SINK_ASSIGN.finditer(text):
