@@ -498,6 +498,19 @@ The Flight Director ran the behavior tests against `4828d53` on a dedicated dev 
 - **Asynchronous delete arm.** The provider Delete arm waits on an agent-usage pre-fetch, so it arms after about 57–130 ms. Probes must poll for "Confirm Delete?".
 - **Not an app race.** The `workbench-navigation` D11 lost-first-keystroke hypothesis was falsified. MutationObserver probes found no editor re-render, even when typing 59 ms after mount. The lost input came from goldfinch's hidden-tab handling.
 
+### PR (2026-10-01)
+
+- **PR #218** (https://github.com/msieurthenardier/the-one/pull/218) is open and ready for review.
+- I did not merge it. Merging is the operator's call.
+- **PR #217 merged** (squash, `3121c2d`, 2026-10-01T22:19Z). GitHub retargeted #218 to
+  `main`, where it conflicted, because the squash rewrote the Flight 1 history underneath
+  it.
+  - **Fix.** The Flight 2 commits were rebased onto `main` with
+    `git rebase --onto origin/main flight/01-control-library-foundation`. The Flight 1
+    tree and the squash tree were identical, so the rebased HEAD tree is byte-identical
+    to before.
+  - **Push.** The branch was force-pushed with `--force-with-lease`.
+
 ## Flight Director Notes
 
 - 2026-10-01: Flight design review.
