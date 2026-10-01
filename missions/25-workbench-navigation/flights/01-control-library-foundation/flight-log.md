@@ -353,6 +353,12 @@ The four historically flaky tests (`test_agent_item_keyboard_select`, `test_edit
     reads the local-API credential file and mints a handoff. That is a credential-adjacent
     surface under the crew file's security-sensitive rule.
   - The Accessibility Reviewer is enabled because every leg changed UI.
+- **Flight-close behavior test** (2026-10-01): `/mission-control:behavior-test
+  shell-navigation-smoke` against commit `2139acb` on a dedicated dev instance (port 8485,
+  scratch data dir). Result: **PASS 6/6**, in live mode. The run log is
+  `tests/behavior/shell-navigation-smoke/runs/2026-10-01-06-30-02.md`. goldfinch
+  screenshots were unavailable, so the doctrine's PDF + AX + computed-style evidence
+  path was used.
 
 ## Decisions
 
