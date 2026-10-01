@@ -1,6 +1,6 @@
 # Flight: Control Library Foundation
 
-**Status**: planning
+**Status**: ready
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -171,6 +171,19 @@ Guard fixes and probes (land in `ui-test-apparatus`):
 Real call-site registration starts when a `static/js` file first calls a factory with a
 `testid`. Until then, the probes are the evidence.
 
+**Composite rule enforcement** (also lands in `ui-test-apparatus`). A unit guard checks
+every `testid` key in `static/js/**/*.js`:
+- **Outside `static/js/ui/`**, its value must be a single-quoted literal or a
+  `'prefix' +` concatenation.
+- **Inside `ui/`**, the only allowed form forwards a property: `<expr>.testid`.
+
+The guard forbids anything else: `testid: someVar`, a ternary, a quoted key `'testid':` or
+a double-quoted value. Each would otherwise be a silent manual exception, invisible to
+both directions of the registry diff.
+
+Composites with no native control (list pane, badge, empty state) put their own `testid`
+on their **root** element.
+
 **DD3 — Label and description wiring is generated, then checked at runtime.**
 
 What `App.ui.field` generates:
@@ -182,8 +195,11 @@ What `App.ui.field` generates:
 
 The static `for=` guard only scans HTML strings, so the library is checked at **runtime**.
 - The resolver JS lives in exactly one place, `tests/browser/_a11y_resolve.js`. It is
-  promoted from `test_flow_chiplist_label_resolver.py::_RESOLVE_JS` and shared by the
-  Playwright helper and the WebKitGTK probe (`single-source-of-truth-for-paired-helpers`).
+  shared by the Playwright helper and the WebKitGTK probe
+  (`single-source-of-truth-for-paired-helpers`).
+- It generalises `test_flow_chiplist_label_resolver.py::_RESOLVE_JS`, and that test moves
+  onto the shared helper, keeping its stricter `.chip-list-input` assertion locally. There
+  is then one resolver, not two.
 - The Playwright helper is `tests/browser/_a11y_resolvers.py::assert_controls_labelled_and_described(page, root_selector)`.
 
 Rules, for every control under a root:
@@ -193,7 +209,7 @@ Rules, for every control under a root:
   `labels`, `aria-label`, a resolvable `aria-labelledby`, or non-empty text content for
   content-named roles (buttons, links, menuitems, options).
 - **Id references.** Every id in `aria-describedby` and `aria-labelledby` must resolve to
-  an element.
+  an element, and `aria-labelledby` targets must have non-empty text.
 - **`aria-controls`.** It must resolve unless the referencing element has
   `aria-expanded="false"`, since a popup may render only when opened.
 
@@ -212,6 +228,10 @@ Where it applies:
 - The existing sink guard already fails any new file with a dynamic sink. It exempts
   static clears by design, so a new unit guard runs `find_markdown_html_sink_tokens(path)`
   over every `static/js/ui/*.js` and asserts zero tokens.
+  - That scanner also reads comments, so library prose follows the `markdown.js`
+    convention: write "inner-HTML", never the property name.
+  - Once `ui/` exists, the guard asserts it found at least one file, so a rename cannot
+    leave it passing on nothing.
 
 **DD5 — Layout, export idiom and naming.**
 
@@ -288,9 +308,21 @@ Three new hex tokens go in **both** theme blocks of `tokens.css`, mirrored in
 `test_tool_switch_indeterminate_thumb_holds_ui_contrast`). `--fg-on-accent` stays for
 anything still on `--accent`.
 
-**Solid control fills move to `--accent-fill`.** The leg greps every
-`background(-color)?:\s*var\(--accent\)`, classifies each hit, and records the list in the
-flight log. Known sites at `b9630bc`:
+**Solid control fills move to `--accent-fill`, and what sits on them moves with them.** The
+rule at every migrated site:
+- the fill (`background`) → `--accent-fill`;
+- a paired `border-color: var(--accent)` → `--accent-fill`;
+- the text, tick or thumb colour drawn on the fill → `--fg-on-accent-fill`.
+
+The DD7 gates test token pairs, not CSS rules. A site that moved its background but kept
+`color: var(--fg-on-accent)` would pass every gate while rendering failing text: dark
+`#101114` on `#7c3aed` is 3.31:1. So each migrated site gets a **CSS usage pin**, a unit
+test asserting that the rule consumes the gated pair, modelled on
+`test_editor_error_banner_consumes_the_gated_danger_pair`.
+
+The leg greps every `background(-color)?:\s*var\(--accent\)`, classifies each hit, and
+records the list in the flight log. Meters stay on `--accent`: `.context-bar` and
+`.admin-pf-pull-fill` (`admin.css:161`). Known control sites at `b9630bc`:
 
 | Site | Location |
 |---|---|
@@ -330,20 +362,28 @@ Per variant:
 | ghost | `.btn-ghost` | transparent, `--fg-secondary` | `--surface-elevated` fill, `--fg` |
 | danger | `.btn-muted-destructive` | transparent, `--status-danger-muted` hairline, `--status-danger` label | `--status-danger-bg-soft` fill |
 
-**Size modifiers survive.** `.btn-sm` (24px), `.btn-lg` (36px) and `.btn-xl` (40px) are
-used 11 times in JS and documented in `agents.md`. They keep their heights and label
-sizes; they pick up the new colours and the medium weight. The 13px-label rule applies to
-unmodified buttons.
+**Size modifiers survive** (reference spec A6/A7). `.btn-sm` (24px, 10px label), `.btn-lg`
+(36px, `0 20px`) and `.btn-xl` (40px) are used 11 times in JS and documented in
+`agents.md`. They keep their heights, padding and label sizes; they pick up the new
+colours and the medium weight. The 13px-label rule applies to unmodified buttons.
+Keeping the 10px `.btn-sm` label is an explicit value pick, flagged at the post-Flight-3
+operator checkpoint.
 
-**Overrides to reconcile** so an unmodified primary or secondary button renders with the
-13px medium label:
+**Icon-only buttons** (A5): a new `.btn-icon` modifier makes a square 32×32 button with no
+padding, and a square 24×24 one with `.btn-sm`. An icon-only button requires an
+`ariaLabel` option; the factory throws without one. Icons inside standard buttons are
+16px (A4: the existing `.btn-* svg` rule wins over SVG attributes).
+
+**Overrides to reconcile** so a button renders the 13px medium label wherever no size
+modifier applies:
 
 | Override | Location |
 |---|---|
-| `.save-btn` | `components.css:984-986` |
-| `.delete-btn` | `components.css:1010` (pins body-sm and padding) |
+| `.save-btn` | `components.css:984-986` (primary) |
+| `.delete-btn` | `components.css:1010` (danger; pins body-sm and padding) |
 | area override | `studio.css:62` |
 | `.mcp-refresh-tools-btn` | `studio.css:407` |
+| `.mcp-source-tile-row1 .mcp-refresh-tools-btn` | `studio.css:473-476` (caption size on a secondary button) |
 
 (`chat.css:421` is only `[hidden]{display:none}` and needs no change.)
 
@@ -372,22 +412,34 @@ The band-pinned exception:
   against the fill), so the fill-to-surface edge is not the only cue.
 
 **Control boundaries reach 3:1 in this flight** (SC7 non-text; the library adopts these
-controls, so they are changed pairs). Today the unchecked `.checkbox-primary` border and
-the off-toggle track are `--border-strong`, which measures:
-- Dark: 2.18 / 2.05 / 1.95 against bg / surface / surface-elevated.
-- Light: 2.56 / 2.46 / 2.33.
-- The light thumb on the off track is 2.56.
+controls, so they are changed pairs). Three controls are affected:
+
+| Control | Off-state colours today | Measured |
+|---|---|---|
+| Unchecked `.checkbox-primary` | border `--border-strong` | dark 2.18 / 2.05 / 1.95, light 2.56 / 2.46 / 2.33 against bg / surface / surface-elevated |
+| Admin toggle `.tool-enable-switch-track` (`admin.css:276`) | off track `--border-strong`; thumb `--fg-on-accent` in both states | light thumb on off track 2.56 |
+| Studio tristate `.tool-switch` (`studio.css:65`) | off track `--surface-elevated`; thumb `--fg-tertiary` | track ~1.05–1.1:1 against surfaces |
+
+The new `.ui-toggle` adopts the corrected treatment from the start.
 
 The fix:
-- Give the unchecked checkbox border and the off-toggle track a colour that clears 3.0
-  against `bg`, `surface` and `surface_elevated` in both themes.
-- Give the toggle thumb a colour that clears 3.0 against its track in **both** states.
-- The leg picks the token, reusing `--fg-faint` (already gated ≥3.0) or adding a
-  dedicated `--control-border` hex pair. It gates every pair, mirroring as needed.
+- A new dedicated hex token pair `--control-border` gives the unchecked checkbox border
+  and every toggle's off track a colour that clears 3.0 against `bg`, `surface` and
+  `surface_elevated` in both themes. `--fg-faint` is not reused: its `tokens.css` comment
+  forbids it for interactive affordances.
+- Every toggle thumb clears 3.0 against its track in **both** states.
+- Each pair is gated, with a mirror entry and a CSS usage pin.
+- The studio `.tool-switch` is fixed here, since its on-track changes anyway. Its
+  separate keyboard debt (`.area-studio .tool-toggle { display: none }`, `studio.css:64`)
+  is not fixed; it is recorded in the inventory (DD11).
 
-Housekeeping:
-- Update the comment on the existing `fg_on_accent`/`accent` gate, since
-  `.btn-filled-primary` is no longer its consumer.
+Housekeeping (comments that the change makes untrue):
+- the existing `fg_on_accent`/`accent` gate: `.btn-filled-primary` is no longer its
+  consumer;
+- the danger-gate comment (`test_design_tokens_a11y.py:265`, "12px normal-weight", soft
+  fill at rest);
+- the `test_status_text_passes_body_aa` docstring ("surface-elevated deliberately NOT
+  gated"), now that a danger-only surface-elevated gate exists.
 - Any further failing pair the leg finds is fixed by token choice or raised as a
   flight-log anomaly before landing. It is never silently exempted.
 
@@ -406,10 +458,19 @@ What the library wrapper owns:
 - **Focus on open.** Focus moves explicitly to the `autofocus` element, else the first
   focusable element.
 - **Focus on close.** Focus returns explicitly to the recorded opener.
-- **Escape.** Handle it on `keydown` within the dialog: stop propagation and close the
-  **topmost** layer only. Treat `cancel` as a fallback that is prevented and routed
-  through the same close path. Chromium's CloseWatcher can group dialogs opened without
-  intervening user activation and make `cancel` uncancelable.
+- **Escape.** Handle it on `keydown` on the dialog itself, calling **both**
+  `preventDefault()` and `stopPropagation()`, and close the **topmost** layer only.
+  - Without `preventDefault()`, a real Escape still raises the browser's own close
+    request. That can peel a second layer, because Chromium's CloseWatcher groups dialogs
+    opened without intervening user activation and can make `cancel` uncancelable.
+  - Treat `cancel` as a fallback that is prevented and routed through the same close
+    path.
+  - Also listen for `close`, so the layer stack and focus restore stay in sync if the
+    browser closes a dialog anyway.
+- **Popups inside dialogs.** A popup (an `App.ui.menu`) handles Escape on its **own**
+  root, never through a document listener; its handler runs first and stops the event.
+  A popup stays a DOM descendant of its trigger's container, with no portal to `body`.
+  A node appended to `body` would sit outside the modal and be inert.
 - **Backdrop.** Use `::backdrop` with a token colour and no `backdrop-filter`.
   Custom-property inheritance into `::backdrop` shipped later than `<dialog>` itself
   (around Chrome 122 / Safari 17.4). Either use a literal-safe declaration or verify it
@@ -425,11 +486,15 @@ What the library wrapper owns:
 - If that confirm is dismissed, focus returns to the chooser's original opener.
 - A confirm may stack above a non-transient modal.
 
-**The spike tests**, in Chromium and WebKit:
+**The spike tests**, in Chromium and WebKit, through a test-only dialog harness:
 - Escape pressed twice over two stacked dialogs peels exactly one layer each time.
 - A confirm opened programmatically over a modal, without intervening user activation.
-- Escape on an open `App.ui.menu` inside a dialog closes only the menu.
 - Focus restore after mouse and keyboard opening.
+
+The checks live in a **reusable test module**, so Flight 2 can point them at the real
+dialog wrapper instead of the harness. "Escape on an open `App.ui.menu` inside a dialog
+closes only the menu" belongs to the menu contract tests in `core-controls`, since the
+menu does not exist at spike time.
 
 **Interim invariant**: no production surface opens a native modal until `App.confirmDialog`
 moves onto DD8. The legacy overlay is a div singleton (`dialog.js`, `z-index: 200`, 12 call
@@ -470,14 +535,38 @@ Local WebKit route (`ui-test-apparatus` establishes one, in order):
    - gstreamer bad and libav plugins
 
    The leg tries a **userland** fix: `apt-get download` plus `dpkg -x` into a cache
-   directory outside the repo (e.g. `~/.cache/the-one-webkit-deps`), exposed to the WebKit
-   launch only through `LD_LIBRARY_PATH`. If headless WebKit launches, this is the local
-   route. The setup is recorded in a committed script, `scripts/setup-webkit-userland.sh`,
-   which needs no sudo and is idempotent.
+   directory outside the repo (e.g. `~/.cache/the-one-webkit-deps`). If headless WebKit
+   launches, this is the local route. The setup is recorded in a committed script,
+   `scripts/setup-webkit-userland.sh`, which needs no sudo and is idempotent. Known
+   gotchas:
+   - **Host check.** Playwright validates host libraries using the *driver* process's
+     environment before launch. Set `LD_LIBRARY_PATH` before `sync_playwright()` starts,
+     or try `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1` first, rather than passing it
+     only through `launch(env=…)`.
+   - **gstreamer.** Plugins load from `GST_PLUGIN_PATH`, not `LD_LIBRARY_PATH`.
+   - **Cache discovery.** The engine fixture finds the cache through an env var
+     (`THE_ONE_WEBKIT_DEPS`) or the default path. Otherwise `make test-browser` keeps
+     skipping WebKit even after setup.
 2. Otherwise the **WebKitGTK probe** (below) is the local WebKit evidence for criteria 3
-   and 5 and the DD8 checks it can make. The Playwright-WebKit half of criterion 2 then
-   becomes **post-merge CI evidence**. The Flight Director records that decision in the
-   flight log and flags it at the post-Flight-3 operator checkpoint.
+   and 5, and for whatever it can check without real input. The probe can only fire
+   synthetic events. These never raise the browser's own close request, and never
+   exercise WebKit's click-focus behaviour.
+
+   So under route 2, three things become **post-merge evidence**:
+   - the Playwright-WebKit half of criterion 2;
+   - the spike's WebKit DD8 checks: Escape peel, programmatic confirm, focus restore
+     after a mouse open;
+   - the `<dialog>` divert criterion's WebKit half.
+
+   **Flight 2's first native modal is gated on that post-merge WebKit run passing.** The
+   evidence route:
+   - Concourse while it is reachable.
+   - Otherwise the GitHub break-glass `workflow_dispatch` of `.github/workflows/test.yml`
+     on the merged commit, which also gets `THE_ONE_REQUIRE_WEBKIT=1` and the webkit
+     install.
+
+   The Flight Director records the route in the flight log and flags it at the
+   post-Flight-3 operator checkpoint.
 
    At planning, the local Concourse (`127.0.0.1:8080`) is unreachable and WSL Docker
    integration is off. Re-check both whenever the post-merge route is relied on: an
@@ -488,7 +577,14 @@ real desktop engine.
 - **Runtime.** It runs with **system** `python3`, which has `gi` and WebKit2 4.1
   (2.52.6). The repo venv has neither, and system python cannot import `the_one`.
 - **Arguments.** It takes explicit `--url` and `--data-dir`. It refuses port 8484 and the
-  platformdirs default data dir.
+  platformdirs default data dir. System python cannot import `the_one`, so the default is
+  derived by running `.venv/bin/python -c 'from the_one.config import settings;
+  print(settings.data_dir)'` with `THE_ONE_DATA_DIR` stripped from the environment. It is
+  never hardcoded (squawk 0084).
+- **Interpretation.** The mission's exit criterion 5 reads "a manual pass in the packaged
+  WebKitGTK app". This flight satisfies it with an automated probe on the same system
+  WebKitGTK engine. That interpretation is flagged at the post-Flight-3 operator
+  checkpoint.
 - **Auth.** It reads `<data-dir>/api-credential`, mints a handoff through
   `POST /api/session/handoff`, and loads the handoff URL.
 - **Environment pinned and recorded in its output:**
@@ -594,11 +690,28 @@ Structure:
 Rows:
 - Each row is an `<a href>`, or a `<button>` when there is no URL.
 - The open item has `aria-current="page"`.
-- Row anatomy: primary text, an optional meta line, optional trailing badges or counts.
-- The selected-row treatment and every text-on-row colour pair are gated. On the board,
-  muted caption text on a selected row measures 4.43:1 in light (reference spec §15), so
-  the meta line on a selected row uses a colour that passes 4.5:1 on the composited
-  selection wash.
+- Row anatomy: an optional leading icon (reference spec §7.1), primary text, an optional
+  meta line, and optional trailing badges or counts.
+- **No information by colour alone** (A31): a coloured provider dot or LED is decorative
+  and paired with the provider named in text, either visible or visually hidden.
+- **Density** (A8): the board's row geometry varies per list, so the list pane offers a
+  `density` option:
+  - `regular`: `8px 10px`, 2px gap; the Chats and Library rows;
+  - `compact`: `6px 10px` at 12px type; the Settings nav items.
+
+  Consuming flights pick per list, and may add a density only with a reason recorded.
+  Agents rows (`7px 10px`, 0 gap) are a Flight 3 call between the two.
+- **One selected marker** (A9): the translucent accent wash plus a 1px `--accent` ring
+  drawn as an inset `box-shadow`, so selection causes no layout shift. It is used for
+  every row, and for the rail in Flight 2.
+- **Hover and focus** (A10), which the board never drew:
+  - hover is a `--surface-elevated` fill;
+  - focus-visible is the standard focus ring, inset so the scroll container does not
+    clip it.
+- **Contrast** (A24): the selected-row treatment and every text-on-row colour pair are
+  gated in `core-controls`. On the board, muted caption text on a selected row measures
+  4.43:1 in light, so the meta line on a selected row uses a colour that passes 4.5:1 on
+  the composited selection wash.
 
 Keyboard:
 - Tab enters the list at the current row, or the first row.
@@ -614,6 +727,24 @@ What the library does **not** do: it is router-agnostic (rows carry `href` and/o
 The searchable **selection** list behind the agent picker and the jump-to palette is a
 combobox plus a listbox (`aria-activedescendant`, `aria-selected`). It is a different
 control, built in Flight 4 where consumed.
+
+**DD15 — Disposition of the reference spec's Flight-1-owned ambiguities** (§15). Items owned
+by later flights stay in the register for those flights.
+
+| Item | Disposition |
+|---|---|
+| A1 — B3 shows the old button treatment | Appearance comes from the Buttons board (DD6); placement from B3 |
+| A4 — SVG size attributes overridden | 16px icons in standard buttons; the existing `.btn-* svg` rule stands (DD6) |
+| A5 — icon-only buttons not square | `.btn-icon`: 32×32, or 24×24 with `.btn-sm` (DD6) |
+| A6 — `.btn-sm` undefined in Deep violet | Keep 24px with a 10px label; flagged at the operator checkpoint (DD6) |
+| A7 — primary padding | `0 12px` for all variants; `.btn-lg` keeps `0 20px` (DD6) |
+| A8 — row geometry per list | List-pane `density` option; consuming flights pick (DD14) |
+| A9 — two selected markers | One: wash plus inset `box-shadow` ring (DD14) |
+| A10 — no hover, focus or active styles | Library defines hover and focus-visible (DD14). The keyboard-active row of the selection listbox is Flight 4 |
+| A11 — script binds no keys | Library controls bind their own keys (DD1, DD14). Shell shortcuts (Ctrl K, `/`) are Flights 2–4. The "Esc" buttons' accessible name is Flight 4 |
+| A24 — 4.43:1 meta on selected row | Gated colour for meta on selected rows (DD14), in `core-controls` |
+| A30 — literal scrim, focusable scrim button | Modal backdrop is a non-focusable `::backdrop` with a token colour (DD8). Drawer overlay (if any) is Flight 4 |
+| A31 — colour-only provider dots | Never colour alone; the provider is named in text (DD14) |
 
 ### Citation Audit
 
@@ -712,7 +843,9 @@ the Architect at design review:
 - [ ] Guard extensions and probes green; resolver helper and engine policy in place; local
   WebKit route established or post-merge route recorded (`ui-test-apparatus`)
 - [ ] Mechanism decided with evidence against all six criteria; `<dialog>` chaining,
-  Escape and focus restore verified in Chromium and WebKit (`control-mechanism-spike`)
+  Escape and focus restore verified in Chromium, and in WebKit locally or (under DD9
+  route 2) recorded as post-merge evidence that gates Flight 2's first native modal
+  (`control-mechanism-spike`)
 - [ ] Deep violet app-wide; control boundaries at 3:1; mirror in sync; gates and band
   exception green (`deep-violet-tokens`)
 - [ ] Core controls complete with contract tests in both engines (`core-controls`)
@@ -732,7 +865,9 @@ the Architect at design review:
   recorded as an explicit convention change in `the_one/agents.md`.
 - Native `<dialog>` misbehaves in WebKitGTK 2.52 or Playwright WebKit (stacking, Escape,
   inertness, focus restore). DD8 is re-ruled, with an overlay plus manual `inert` as the
-  fallback, before Flight 2 consumes it.
+  fallback, before Flight 2 consumes it. Under DD9 route 2, the WebKit half of this
+  check is the post-merge run; a failure there re-rules DD8 before Flight 2's first
+  native modal.
 - A DD6 or DD7 pair fails a gate and no token choice within the operator's approved hexes
   fixes it. This needs an operator decision; record it and hold the leg.
 - The WebKitGTK probe cannot create a WebView on WSLg. Record it; the WebKit evidence then
