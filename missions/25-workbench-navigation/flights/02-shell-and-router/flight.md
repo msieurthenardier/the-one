@@ -1,18 +1,18 @@
 # Flight: Shell and Router
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] **SC1 — Workbench navigation**: the primary navigation becomes a rail with four
+- [x] **SC1 — Workbench navigation**: the primary navigation becomes a rail with four
   destinations: Chats, Agents, Library and Settings.
   - Every existing page is reachable from one of them.
   - Every previously valid deep link, including agent editor tabs, lands on its
     equivalent.
   - *(behavior-test-backed: `workbench-navigation`, plus the updated
     `shell-navigation-smoke`)*
-- [ ] **SC2 — Work is never lost** (leave-guard half): leaving unsaved changes always asks
+- [x] **SC2 — Work is never lost** (leave-guard half): leaving unsaved changes always asks
   first, by any route the browser page controls: the rail, section nav, an in-app link,
   browser Back/Forward, a typed URL, or reloading or closing the page. "Continue" really
   discards.
@@ -20,9 +20,9 @@
     **Quit** is unguarded, and `beforeunload` may not run under pywebview. Both are
     recorded as out of scope for this flight.
   - The list/detail half of SC2 is Flight 3's.
-- [ ] **SC6 — Control library** (continued): the confirm dialog, the modal it is built on,
+- [x] **SC6 — Control library** (continued): the confirm dialog, the modal it is built on,
   and the rail come from the library.
-- [ ] **SC10 — Operable and regression-safe**:
+- [x] **SC10 — Operable and regression-safe**:
   - the central test navigation helper;
   - lane re-mapping;
   - migration of the browser tests and the behavior specs that use the old navigation;
