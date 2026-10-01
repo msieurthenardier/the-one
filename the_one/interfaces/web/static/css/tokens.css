@@ -89,10 +89,27 @@
     --fg-on-danger: #101114;
     --fg-tool-msg: #8f919c;
 
-    /* accent — violet-400 (brand continuity); interactive/selected states
-       ONLY. accent-api is badge-tier (chat user-vs-API differentiation),
+    /* accent — violet-400 (brand continuity); focus, links, selection,
+       washes, meters and other NON-fill interactive states. Solid control
+       fills use --accent-fill (below). accent-api is badge-tier (chat user-vs-API differentiation),
        not an interactive accent. */
     --accent: #a78bfa;
+    /* Deep-violet SOLID CONTROL FILL family (M25 F1 L3, DD6). --accent stays
+       for focus rings, links, selection borders, washes and meters; solid
+       control fills (primary button, checked checkbox, on toggle, ...) use
+       --accent-fill and the ink on them uses --fg-on-accent-fill. All gated
+       in tests/test_design_tokens_a11y.py (dark fill vs elevated surface is a
+       band-pinned DELIBERATE EXCEPTION, 2.95:1). --accent-fill-hover is
+       transient and not used by any state-bearing control. */
+    --accent-fill: #7c3aed;
+    --accent-fill-hover: #6d28d9;
+    --fg-on-accent-fill: #ffffff;
+    /* Control boundary + toggle thumb (M25 F1 L3, DD7): unchecked checkbox
+       border and every toggle's off track clear 3.0:1 non-text against
+       bg/surface/surface-elevated (3.87/3.64/3.45); the thumb is white in
+       both states. Gated. --fg-faint is not reused (never interactive). */
+    --control-border: #6e717a;
+    --control-thumb: #ffffff;
     --accent-api: #22d3ee;
     --accent-translucent: rgba(167, 139, 250, 0.10);
     --accent-translucent-hover: rgba(167, 139, 250, 0.16);
@@ -216,9 +233,19 @@
     --fg-on-danger: #ffffff;
     --fg-tool-msg: #5f5f68;
 
-    /* accent — violet-700 (7.10:1 for white-on-accent, 7.10:1 on bg);
-       interactive/selected states ONLY. accent-api is badge-tier. */
+    /* accent — violet-700 (7.10:1 on bg); focus, links, selection, washes,
+       meters and other NON-fill interactive states. Solid control fills use
+       --accent-fill (below). accent-api is badge-tier. */
     --accent: #6d28d9;
+    /* Deep-violet solid control fill family (see the dark block). Light
+       --accent-fill equals --accent today but migrates by token name so a
+       later retune of either stays independent. */
+    --accent-fill: #6d28d9;
+    --accent-fill-hover: #5b21b6;
+    --fg-on-accent-fill: #ffffff;
+    /* Control boundary + toggle thumb (3.60/3.45/3.28 vs bg/surface/elevated). Gated. */
+    --control-border: #868690;
+    --control-thumb: #ffffff;
     --accent-api: #0e7490;
     --accent-translucent: rgba(109, 40, 217, 0.08);
     --accent-translucent-hover: rgba(109, 40, 217, 0.13);

@@ -176,6 +176,10 @@ def test_body_text_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         # below), so it's no longer an example consumer of this UI-threshold
         # pair.
         "status_danger_muted",
+        # control_border: unchecked-checkbox border + off track of every toggle
+        # (M25 F1 L3, DD7) — a control boundary is non-text UI, 3.0 on all
+        # three ladder surfaces.
+        "control_border",
     ],
 )
 @pytest.mark.parametrize("theme", THEMES)
@@ -196,13 +200,19 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
 @pytest.mark.parametrize(
     "fg_key,bg_key,threshold",
     [
-        # Text on primary accent — body threshold. Consumer today is
-        # .btn-filled-primary (accent fill + --fg-on-accent text). NOTE
-        # (M17 F04 L02): the chat .msg.user bubble NO LONGER uses this pair —
-        # it was retuned from a saturated --accent fill to an
-        # --accent-translucent tint (see test_tinted_user_bubble_text_passes_body_aa
-        # below). The pair stays gated because .btn-filled-primary still uses it.
+        # Text on --accent. M25 F1 L3: NO solid-fill consumer remains —
+        # .btn-filled-primary and every other solid control fill moved to
+        # --accent-fill / --fg-on-accent-fill (gated just below). The pair
+        # keeps guarding the token (--fg-on-accent still pairs with --accent
+        # for any future accent-coloured surface) but is no longer pinned to a
+        # CSS site. (M17 F04 L02: the chat .msg.user bubble is a tint, see
+        # test_tinted_user_bubble_text_passes_body_aa.)
         ("fg_on_accent", "accent", 4.5),
+        # Deep-violet fills (M25 F1 L3, DD6/DD7): white ink on the solid
+        # control fill (rest) and on its hover fill. Each migrated CSS site
+        # is pinned to this pair by the usage-pin tests below.
+        ("fg_on_accent_fill", "accent_fill", 4.5),
+        ("fg_on_accent_fill", "accent_fill_hover", 4.5),
         # accent_api is the SATURATED marker fill for API-sourced user
         # messages (.msg.user.api, chat.css). Post-M17-F04-L02 the plain
         # .msg.user bubble is a tint, so .msg.user.api PINS its own
@@ -229,6 +239,68 @@ def test_text_on_color(theme: str, fg_key: str, bg_key: str, threshold: float) -
 
 
 @pytest.mark.parametrize("bg_key", ("bg", "surface"))
+@pytest.mark.parametrize("theme", THEMES)
+def test_accent_fill_vs_bg_and_surface_passes_ui_aa(theme: str, bg_key: str) -> None:
+    """`--accent-fill` ≥ 3.0:1 against bg and surface (checked checkbox / on toggle
+    identify state by the fill). surface_elevated is handled separately below
+    (light gated, dark band-pinned) — it cannot share this two-surface list.
+
+    NOTE: `accent_fill_hover` vs surfaces is deliberately NOT gated: it is below
+    3.0 in dark, and no state-bearing control uses the hover fill (checked
+    checkboxes and on toggles never take it; only the transient primary-button
+    hover does, and the button label carries the meaning)."""
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette["accent_fill"], palette[bg_key])
+    assert ratio >= 3.0, f"{theme}: accent_fill on {bg_key} = {ratio:.2f}:1 (need ≥ 3.0:1)"
+
+
+def test_accent_fill_vs_surface_elevated_light_passes_ui_aa() -> None:
+    """Light `--accent-fill` ≥ 3.0:1 against surface-elevated (6.46:1)."""
+    ratio = contrast_ratio(LIGHT["accent_fill"], LIGHT["surface_elevated"])
+    assert ratio >= 3.0, f"light: accent_fill on surface_elevated = {ratio:.2f}:1"
+
+
+def test_accent_fill_vs_surface_elevated_dark_band_exception() -> None:
+    """DELIBERATE EXCEPTION (M25 F1 L3, DD7) — dark `--accent-fill` (#7c3aed) on
+    `--surface-elevated` is 2.95:1, a hair under the 3.0 UI threshold. Band-pinned
+    2.9 ≤ r < 3.0 so a retune that drifts either way fails loudly.
+
+    Rationale: the checked/on state is carried by the WHITE tick or thumb
+    (`--fg-on-accent-fill`, 5.70:1 against the fill), so the fill-to-surface edge
+    is not the only cue. The same band also covers `.chip-attached` on elevated
+    tiles: it carries text, and white on `accent_fill` is 5.70:1, so the text is
+    fine. Retuning the fill lighter would break the approved deep-violet look; the
+    operator approved the hexes."""
+    ratio = contrast_ratio(DARK["accent_fill"], DARK["surface_elevated"])
+    assert 2.9 <= ratio < 3.0, (
+        f"dark accent_fill on surface_elevated drifted out of the deliberate-exception "
+        f"band: {ratio:.2f}:1 (band: 2.9 ≤ r < 3.0)"
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_status_danger_on_surface_elevated_passes_body_aa(theme: str) -> None:
+    """Danger-only: `status_danger` ≥ 4.5:1 on surface-elevated. The danger label
+    sits on a transparent `.btn-muted-destructive`, which can rest on an elevated
+    tile; the shared status test deliberately excludes elevated for success and
+    warning (their light hexes sit ≈4.4 there)."""
+    palette = _palette(theme)
+    ratio = contrast_ratio(palette["status_danger"], palette["surface_elevated"])
+    assert ratio >= 4.5, f"{theme}: status_danger on surface_elevated = {ratio:.2f}:1"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_toggle_thumb_pairs_hold_ui_contrast(theme: str) -> None:
+    """Every toggle thumb (`--control-thumb`) ≥ 3.0:1 against its track in BOTH
+    states: off track `control_border`, on track `accent_fill`."""
+    palette = _palette(theme)
+    off = contrast_ratio(palette["control_thumb"], palette["control_border"])
+    on = contrast_ratio(palette["control_thumb"], palette["accent_fill"])
+    assert off >= 3.0, f"{theme}: control_thumb on control_border (off) = {off:.2f}:1"
+    assert on >= 3.0, f"{theme}: control_thumb on accent_fill (on) = {on:.2f}:1"
+
+
+@pytest.mark.parametrize("bg_key", ("bg", "surface"))
 @pytest.mark.parametrize("fg_key", ("status_success", "status_warning", "status_danger"))
 @pytest.mark.parametrize("theme", THEMES)
 def test_status_text_passes_body_aa(theme: str, fg_key: str, bg_key: str) -> None:
@@ -237,10 +309,13 @@ def test_status_text_passes_body_aa(theme: str, fg_key: str, bg_key: str) -> Non
     v3 retuned both themes' status families to clear BODY AA on bg and
     surface (dark: Tailwind-400 brights; light: deep 600/700s), so the
     previous dark-theme 3.0:1 UI carve-out is retired. Status text on
-    --surface-elevated is deliberately NOT gated: the light 600/700
-    family sits at ≈4.4:1 there and no production consumer puts status
-    text on an elevated surface today — introducing one requires either
-    a deeper status hex or an explicit exception here.
+    --surface-elevated is deliberately NOT gated for success and warning:
+    the light 600/700 family sits at ≈4.4:1 there and no production
+    consumer puts that status text on an elevated surface today —
+    introducing one requires either a deeper status hex or an explicit
+    exception here. DANGER is the one exception: its label on a transparent
+    danger button can rest on an elevated tile, so
+    test_status_danger_on_surface_elevated_passes_body_aa gates it there.
     """
     palette = _palette(theme)
     ratio = contrast_ratio(palette[fg_key], palette[bg_key])
@@ -262,9 +337,13 @@ def test_status_text_passes_body_aa(theme: str, fg_key: str, bg_key: str) -> Non
 # --status-danger at the theme's soft alpha over each ladder surface, then
 # asserts --status-danger text clears body AA on that fill.
 #
-# This gates .btn-muted-destructive (components.css) — the real destructive
-# button (Danger Zone / delete across provider/mcp-server editors,
-# general-tab, system-page): 12px normal-weight = body text needing ≥4.5:1.
+# This gates the SOFT-FILL hover of .btn-muted-destructive (components.css) —
+# the real destructive button (Danger Zone / delete across provider/mcp-server
+# editors, general-tab, system-page). Since M25 F1 L3 (DD6) the button rests
+# transparent and the soft fill appears on HOVER only; the label is 13px
+# medium-weight = body text needing ≥4.5:1, so the composite pair is still the
+# one that matters (the at-rest transparent pair is test_status_text_passes_body_aa
+# and test_status_danger_on_surface_elevated_passes_body_aa).
 # The light-theme #dc2626 → #b91c1c deepening (M17 F3 accessibility fix)
 # cleared it; this test fails loudly if a future retune lightens it back.
 #
@@ -462,6 +541,181 @@ def test_tool_switch_indeterminate_thumb_holds_ui_contrast(theme: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CSS usage pins — deep-violet fills, control boundaries, thumbs (M25 F1 L3)
+# ---------------------------------------------------------------------------
+#
+# The contrast gates above test TOKEN pairs, not CSS rules. A site that moved
+# its background to --accent-fill but kept `color: var(--fg-on-accent)` would
+# pass every gate while rendering failing text (dark #101114 on #7c3aed =
+# 3.31:1). Each pin below asserts a rule block consumes the gated tokens, in the
+# manner of test_editor_error_banner_consumes_the_gated_danger_pair.
+
+_CSS_DIR = Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/css"
+_RULE_RE = re.compile(r"([^{}]+)\{([^{}]*)\}", re.S)
+
+
+def _rule_bodies(css_file: str, selector: str) -> list[str]:
+    """Declaration bodies of every rule in ``css_file`` whose comma-separated
+    selector list contains ``selector`` (whitespace-normalised, exact match)."""
+    css = re.sub(r"/\*.*?\*/", "", (_CSS_DIR / css_file).read_text(encoding="utf-8"), flags=re.S)
+    want = " ".join(selector.split())
+    out = []
+    for m in _RULE_RE.finditer(css):
+        sels = [" ".join(x.split()) for x in m.group(1).split(",")]
+        if want in sels:
+            out.append(m.group(2))
+    return out
+
+
+_ON_TRACK = (
+    '.area-{0} .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track'
+)
+
+# (css file, selector, tokens the block must consume, tokens it must NOT consume)
+_FILL_SITES = [
+    (
+        "components.css",
+        ".btn-filled-primary",
+        ("--accent-fill", "--fg-on-accent-fill"),
+        ("var(--accent)", "var(--fg-on-accent)"),
+    ),
+    ("components.css", ".btn-filled-primary:hover", ("--accent-fill-hover",), ("opacity:",)),
+    ("components.css", ".checkbox-primary:checked", ("--accent-fill",), ("var(--accent)",)),
+    (
+        "components.css",
+        ".checkbox-primary:checked::after",
+        ("--fg-on-accent-fill",),
+        ("var(--fg-on-accent)",),
+    ),
+    (
+        "components.css",
+        ".skip-link",
+        ("--accent-fill", "--fg-on-accent-fill"),
+        ("var(--accent)", "var(--fg-on-accent)"),
+    ),
+    (
+        "admin.css",
+        ".area-admin .admin-theme-option.active",
+        ("--accent-fill", "--fg-on-accent-fill"),
+        ("var(--accent)", "var(--fg-on-accent)"),
+    ),
+    (
+        "admin.css",
+        _ON_TRACK.format("admin"),
+        ("--accent-fill",),
+        ("var(--accent)",),
+    ),
+    (
+        "admin.css",
+        _ON_TRACK.format("studio"),
+        ("--accent-fill",),
+        ("var(--accent)",),
+    ),
+    (
+        "studio.css",
+        ".area-studio .tool-toggle:checked + .tool-switch",
+        ("--accent-fill",),
+        ("var(--accent)",),
+    ),
+    (
+        "studio.css",
+        ".area-studio .tool-toggle:checked + .tool-switch::after",
+        ("--control-thumb",),
+        ("var(--fg-on-accent)",),
+    ),
+    (
+        "studio.css",
+        ".area-studio .mcp-attach-chip-list .chip-attached",
+        ("--accent-fill", "--fg-on-accent-fill"),
+        ("var(--accent)", "var(--fg-on-accent)", "white"),
+    ),
+    (
+        "chat.css",
+        ".area-chat .msg-pending-approval-approve",
+        ("--accent-fill", "--fg-on-accent-fill"),
+        ("var(--accent)", "var(--fg-on-accent)"),
+    ),
+    # Boundaries and thumbs (DD7).
+    ("components.css", ".checkbox-primary", ("--control-border",), ("--border-strong",)),
+    (
+        "admin.css",
+        ".area-admin .tool-enable-switch-track",
+        ("--control-border",),
+        ("--border-strong",),
+    ),
+    (
+        "admin.css",
+        ".area-admin .tool-enable-switch-track::after",
+        ("--control-thumb",),
+        ("--fg-on-accent",),
+    ),
+    ("studio.css", ".area-studio .tool-switch", ("--control-border",), ("--surface-elevated",)),
+    ("studio.css", ".area-studio .tool-switch::after", ("--control-thumb",), ("--fg-tertiary",)),
+    # M25 F1 L4: the indeterminate dash and the library toggle consume the same
+    # gated pairs as the tick and the legacy switches.
+    (
+        "components.css",
+        ".checkbox-primary:indeterminate",
+        ("--accent-fill",),
+        ("var(--accent)",),
+    ),
+    (
+        "components.css",
+        ".checkbox-primary:indeterminate::after",
+        ("--fg-on-accent-fill",),
+        ("var(--fg-on-accent)",),
+    ),
+    ("components.css", ".ui-toggle-track", ("--control-border",), ("--border-strong",)),
+    ("components.css", ".ui-toggle-track::after", ("--control-thumb",), ("--fg-on-accent",)),
+    (
+        "components.css",
+        ".ui-toggle-input:checked + .ui-toggle-track",
+        ("--accent-fill",),
+        ("var(--accent)",),
+    ),
+    # M25 F1 L4: a selected list-pane row's meta, neutral badges and counts use
+    # --fg-secondary (gated by test_selected_row_meta_passes_body_aa).
+    (
+        "components.css",
+        '.ui-list-pane-row[aria-current="page"] .ui-list-pane-meta',
+        ("--fg-secondary",),
+        ("--fg-muted",),
+    ),
+    (
+        "components.css",
+        '.ui-list-pane-row[aria-current="page"] .ui-list-pane-badge',
+        ("--fg-secondary",),
+        ("--fg-muted",),
+    ),
+    (
+        "components.css",
+        '.ui-list-pane-row[aria-current="page"] .ui-list-pane-count',
+        ("--fg-secondary",),
+        ("--fg-muted",),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "css_file,selector,must,must_not",
+    _FILL_SITES,
+    ids=[f"{f}:{sel}" for f, sel, _, _ in _FILL_SITES],
+)
+def test_migrated_site_consumes_the_gated_tokens(
+    css_file: str, selector: str, must: tuple, must_not: tuple
+) -> None:
+    """Every migrated fill / boundary / thumb rule consumes its gated tokens and
+    none of the superseded ones (so a fill cannot move without its ink)."""
+    bodies = _rule_bodies(css_file, selector)
+    assert bodies, f"{selector!r} rule not found in {css_file}"
+    body = " ".join(bodies)
+    for tok in must:
+        assert tok in body, f"{selector} must consume {tok}: {body.strip()}"
+    for tok in must_not:
+        assert tok not in body, f"{selector} must not use {tok}: {body.strip()}"
+
+
+# ---------------------------------------------------------------------------
 # Chat washed surfaces (composited-a11y gates) — M17 F04 L02
 # ---------------------------------------------------------------------------
 #
@@ -495,6 +749,56 @@ _SURFACE_TRANSLUCENT = {
 }
 # Telemetry overlay resting opacity (chat.css .telemetry-overlay { opacity }).
 _TELEMETRY_RESTING_OPACITY = 0.7
+
+
+@pytest.mark.parametrize("bg_key", ("bg", "surface"))
+@pytest.mark.parametrize("theme", THEMES)
+def test_selected_row_meta_passes_body_aa(theme: str, bg_key: str) -> None:
+    """M25 F1 L4: --fg-secondary (a selected list-pane row's meta, neutral badges
+    and counts) >= 4.5:1 on the composited --accent-translucent wash over --bg and
+    over --surface, both themes. --fg-muted fails three of these four cases, which
+    is why the selected-row rule uses --fg-secondary."""
+    palette = _palette(theme)
+    fill = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], palette[bg_key])
+    ratio = contrast_ratio(palette["fg_secondary"], fill)
+    assert ratio >= 4.5, (
+        f"{theme} selected-row meta fails body AA: fg_secondary on accent-translucent "
+        f"over {bg_key} = {ratio:.2f}:1 (need >= 4.5:1)"
+    )
+
+
+@pytest.mark.parametrize("kind", ("approved", "dismissed"))
+def test_badge_semantic_kinds_sit_on_the_gated_ladder(kind: str) -> None:
+    """`.badge--approved` / `.badge--dismissed` paint --fg / --fg-secondary on
+    --surface-elevated (both swept by test_body_text_passes_aa), never a novel pair."""
+    body = " ".join(_rule_bodies("components.css", f".badge--{kind}"))
+    assert "var(--surface-elevated)" in body, body
+    assert ("var(--fg)" if kind == "approved" else "var(--fg-secondary)") in body, body
+
+
+_TOKEN_BADGE_KINDS = (
+    "anthropic",
+    "anthropic-plan",
+    "connectors",
+    "execution",
+    "filesystem",
+    "mock",
+    "ollama",
+    "openai",
+    "openai-compatible",
+    "openrouter",
+    "unknown",
+    "web",
+)
+
+
+@pytest.mark.parametrize("kind", _TOKEN_BADGE_KINDS)
+def test_badge_kind_rules_consume_the_gated_pair(kind: str) -> None:
+    """Each token-backed `.badge--<kind>` rule uses its --badge-<kind> fill with
+    its --badge-ink-<kind> ink (the pair test_badge_ink_passes_body_aa gates)."""
+    body = " ".join(_rule_bodies("components.css", f".badge--{kind}"))
+    assert f"background: var(--badge-{kind})" in body, body
+    assert f"color: var(--badge-ink-{kind})" in body, body
 
 
 @pytest.mark.parametrize("theme", THEMES)
@@ -692,7 +996,10 @@ def test_fg_faint_band_exception(theme: str, bg_key: str) -> None:
 #     (``test_badge_ink_passes_body_aa``, every fill × ink both themes); a
 #     completeness net over them would duplicate that gate.
 #   - geometry / motion tokens — no color content.
-_FG_ROLE_PREFIXES = ("--fg", "--accent", "--status", "--code-block")
+#   - ``--control-*`` IS in scope (added M25 F1 L3): --control-border and
+#     --control-thumb are non-text control-boundary / toggle-thumb colours that
+#     must clear the 3:1 UI threshold, so the net requires each to be gated.
+_FG_ROLE_PREFIXES = ("--fg", "--accent", "--status", "--code-block", "--control")
 
 # Matches a full literal-hex value (``#rgb`` … ``#rrggbbaa``). rgba()/var()
 # values do NOT match — an rgba wash has no flat WCAG ratio, so it can only be

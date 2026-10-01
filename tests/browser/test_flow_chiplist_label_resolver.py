@@ -26,44 +26,30 @@ Covers both cross-area consumers of the fix:
 from __future__ import annotations
 
 import pytest
+from browser._a11y_resolvers import assert_controls_labelled_and_described
 from playwright.sync_api import Page, expect
-
-# JS run in the page: for each expected id, resolve the <label for=id> through
-# the DOM's HTMLLabelElement.control property (null when the target is missing
-# or not a labelable element) and report what getElementById(id) points at.
-_RESOLVE_JS = """(ids) => ids.map((id) => {
-    const label = document.querySelector('label[for="' + id + '"]');
-    const control = label ? label.control : null;
-    const byId = document.getElementById(id);
-    return {
-        id: id,
-        labelFound: !!label,
-        controlResolved: !!control,
-        controlTag: control ? control.tagName : null,
-        controlClass: control ? control.className : null,
-        byIdTag: byId ? byId.tagName : null,
-    };
-})"""
 
 
 def _assert_labels_resolve_to_chip_input(page: Page, ids: list[str]) -> None:
-    """Every ``<label for=id>`` must resolve (via label.control) to the real
-    focusable ``.chip-list-input``, not the non-labelable wrapper div."""
-    results = page.evaluate(_RESOLVE_JS, ids)
-    for r in results:
-        assert r["labelFound"], f'no <label for="{r["id"]}"> present in the mounted DOM'
-        assert r["controlResolved"], (
-            f'label[for="{r["id"]}"] resolves to NO labelable control at runtime '
-            f"(getElementById tag={r['byIdTag']}) — the chip-list label[for] dangle "
-            "regressed (F5 carry-forward / F6 L3 systemic fix)"
+    """Every control with ``id`` must be labelled (shared DD3 resolver: a
+    ``<label for>`` that dangles leaves it nameless) AND be the real focusable
+    ``.chip-list-input``, not the non-labelable wrapper div."""
+    selector = ", ".join(f'[id="{i}"]' for i in ids)
+    assert_controls_labelled_and_described(page, selector)
+    for i in ids:
+        info = page.evaluate(
+            "(id) => { const e = document.getElementById(id);"
+            " return e ? {tag: e.tagName, cls: e.className} : null; }",
+            i,
         )
-        assert r["controlTag"] == "INPUT", (
-            f'label[for="{r["id"]}"] control is <{r["controlTag"]}>, expected the '
-            f"<input class=chip-list-input> (got class={r['controlClass']!r})"
+        assert info is not None, f'no element with id="{i}" in the mounted DOM'
+        assert info["tag"] == "INPUT", (
+            f'id="{i}" is <{info["tag"]}>, expected the <input class=chip-list-input> '
+            f"(got class={info['cls']!r}) — the chip-list label[for] dangle regressed "
+            "(F5 carry-forward / F6 L3 systemic fix)"
         )
-        assert "chip-list-input" in (r["controlClass"] or ""), (
-            f'label[for="{r["id"]}"] control is not the .chip-list-input '
-            f"(class={r['controlClass']!r})"
+        assert "chip-list-input" in info["cls"], (
+            f'id="{i}" is not the .chip-list-input (class={info["cls"]!r})'
         )
 
 

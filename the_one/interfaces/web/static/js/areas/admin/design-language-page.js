@@ -9,40 +9,49 @@
   // ./design-language/<slug>-section.js, registered on
   // window.App.admin.designLanguage[<slug>Section].
   function renderDesignLanguagePage(container) {
-    container.innerHTML =
-      '<div class="page-header">' +
-        '<h1 class="page-title">Design Language</h1>' +
-      '</div>' +
-      '<div class="admin-content-body design-language-sections" id="design-language-sections"></div>';
+    var el = window.App.ui.util.el;
+    var sectionsHost = el('div', {
+      className: 'admin-content-body design-language-sections',
+      id: 'design-language-sections'
+    });
+    container.textContent = '';
+    container.appendChild(el('div', { className: 'page-header' }, [
+      el('h1', { className: 'page-title', text: 'Design Language' })
+    ]));
+    container.appendChild(sectionsHost);
 
-    var sectionsHost = container.querySelector('#design-language-sections');
-
+    // M25 F1 L6 (DD10): the six ui-* sections are the control library's living
+    // reference, one [data-ui-demo] root per App.ui factory.
     var SECTIONS = [
-      { slug: 'tokens',     title: 'Tokens' },
-      { slug: 'typography', title: 'Typography' },
-      { slug: 'buttons',    title: 'Buttons' },
-      { slug: 'fields',     title: 'Fields' },
-      { slug: 'surfaces',   title: 'Surfaces' },
-      { slug: 'status',     title: 'Status' },
-      { slug: 'tabs',       title: 'Tabs' },
-      { slug: 'modal',      title: 'Modal' },
-      { slug: 'markdown',   title: 'Markdown' }
+      { slug: 'tokens',      title: 'Tokens' },
+      { slug: 'typography',  title: 'Typography' },
+      { slug: 'uiButtons',   title: 'Library: buttons' },
+      { slug: 'uiFields',    title: 'Library: fields' },
+      { slug: 'uiChoices',   title: 'Library: checkbox and toggle' },
+      { slug: 'uiFeedback',  title: 'Library: badges and empty states' },
+      { slug: 'uiLists',     title: 'Library: list pane' },
+      { slug: 'uiMenus',     title: 'Library: menu' },
+      { slug: 'surfaces',    title: 'Surfaces' },
+      { slug: 'status',      title: 'Status' },
+      { slug: 'tabs',        title: 'Tabs' },
+      { slug: 'modal',       title: 'Modal' },
+      { slug: 'markdown',    title: 'Markdown' }
     ];
 
     for (var i = 0; i < SECTIONS.length; i++) {
       var section = SECTIONS[i];
-      var sectionEl = document.createElement('section');
-      sectionEl.className = 'design-language-section';
-      sectionEl.setAttribute('data-section', section.slug);
-      sectionEl.innerHTML =
-        '<div class="section-title">' + section.title + '</div>' +
-        '<div class="design-language-section-body"></div>';
-      sectionsHost.appendChild(sectionEl);
+      var body = el('div', { className: 'design-language-section-body' });
+      sectionsHost.appendChild(el('section', {
+        className: 'design-language-section',
+        dataset: { section: section.slug }
+      }, [
+        el('div', { className: 'section-title', text: section.title }),
+        body
+      ]));
 
-      var moduleName = section.slug + 'Section';
-      var module = window.App.admin.designLanguage[moduleName];
+      var module = window.App.admin.designLanguage[section.slug + 'Section'];
       if (module && typeof module.render === 'function') {
-        module.render(sectionEl.querySelector('.design-language-section-body'));
+        module.render(body);
       }
     }
   }

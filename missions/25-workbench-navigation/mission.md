@@ -268,7 +268,7 @@ history but do not appear in the picker, and their drawer shows no settings link
 
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] Flight 1: **Control library foundation** — commit the board references and derived
+- [x] Flight 1: **Control library foundation** — commit the board references and derived
   spec; spike and settle the control mechanism against the exit criteria; set the
   modal/drawer stacking rule; deep-violet tokens applied app-wide (mirror and contrast
   gates updated); the core controls the shell needs (button, field, select, toggle,

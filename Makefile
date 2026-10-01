@@ -79,15 +79,18 @@ restart: ## Restart host-native (picks up source edits — `serve` has no --relo
 logs: ## Follow the host log file
 	@tail -f $(THE_ONE_LOGFILE)
 
-# Internal target: install Playwright Chromium into the host Playwright cache
-# (idempotent — ``playwright install chromium`` is a no-op when already present).
-# Run ``make _ensure-playwright`` before browser/pixel targets.
-# Note: ``playwright install-deps chromium`` requires sudo on some hosts — if
+# Internal target: install Playwright Chromium and WebKit into the host Playwright
+# cache (idempotent — ``playwright install`` is a no-op when already present).
+# Run ``make _ensure-playwright`` before browser/pixel targets. WebKit backs the
+# engine-parametrized ``App.ui`` contract tests only (M25 F1).
+# Note: ``playwright install-deps chromium webkit`` requires sudo on some hosts — if
 # browser tests fail with missing shared-library errors, run that command once
-# manually as a host-setup prerequisite.
+# manually as a host-setup prerequisite. Without sudo, WebKit's missing libraries
+# can be unpacked into userland with ``bash scripts/setup-webkit-userland.sh``;
+# otherwise the WebKit params skip (unless THE_ONE_REQUIRE_WEBKIT=1).
 .PHONY: _ensure-playwright
 _ensure-playwright:
-	$(PY) -m playwright install chromium
+	$(PY) -m playwright install chromium webkit
 
 .PHONY: reset-db
 reset-db: ## Wipe the host data dir + restart (DESTRUCTIVE — requires CONFIRM=1)
@@ -148,7 +151,7 @@ verify-serving: ## Sanity-check that the host-native app serves the current sour
 		sleep 1; \
 	done; \
 	echo "Verifying admin sub-modules served ..."; \
-	for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js admin/design-language-page.js admin/design-language/tokens-section.js admin/design-language/typography-section.js admin/design-language/buttons-section.js admin/design-language/fields-section.js admin/design-language/surfaces-section.js admin/design-language/status-section.js admin/design-language/tabs-section.js admin/design-language/modal-section.js layout/section-nav.js; do \
+	for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js admin/design-language-page.js admin/design-language/tokens-section.js admin/design-language/typography-section.js admin/design-language/ui-demo.js admin/design-language/ui-buttons-section.js admin/design-language/ui-fields-section.js admin/design-language/ui-choices-section.js admin/design-language/ui-feedback-section.js admin/design-language/ui-lists-section.js admin/design-language/ui-menus-section.js admin/design-language/surfaces-section.js admin/design-language/status-section.js admin/design-language/tabs-section.js admin/design-language/modal-section.js layout/section-nav.js; do \
 		code=$$(curl -s --config "$$cfgfile" -o /dev/null -w "%{http_code}" http://localhost:$(THE_ONE_PORT)/static/js/areas/$$f); \
 		if [ "$$code" = "200" ]; then echo "  ✓ $$f served (200)"; \
 		else echo "  ✗ $$f returned $$code — not serving; check 'make logs' / 'make restart'" && exit 1; fi; \

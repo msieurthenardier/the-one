@@ -1,11 +1,11 @@
 # Flight: Control Library Foundation
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] **SC6 — One reusable control library** (foundation):
+- [x] **SC6 — One reusable control library** (foundation):
   - the mechanism is settled;
   - the core controls the shell needs exist as one library: button, field, select,
     toggle, checkbox, list pane, menu, badge, empty state;
@@ -17,13 +17,13 @@
 
   Modal, drawer and palette are *ruled* here (DD8) and *built* where they are consumed
   (Flights 2 and 4).
-- [ ] **SC7 — Deep-violet design language**: tokens, the four button treatments and every
+- [x] **SC7 — Deep-violet design language**: tokens, the four button treatments and every
   solid accent fill, applied app-wide; control boundaries brought to non-text AA; mirror
   and contrast gates; in-repo reference and published design system updated.
-- [ ] **SC8 — Matches the approved samples** (prerequisite only): the board source, its
+- [x] **SC8 — Matches the approved samples** (prerequisite only): the board source, its
   provenance and the derived reference spec are committed with the mission
   (`reference/`).
-- [ ] **SC10 — Operable and regression-safe** (per-leg gate): every library control is
+- [x] **SC10 — Operable and regression-safe** (per-leg gate): every library control is
   keyboard-operable with visible focus; library controls are exercised in a WebKit engine
   as well as Chromium; unit, browser and guard suites stay green.
 
@@ -788,7 +788,7 @@ the Architect at design review:
 - [x] Squawk 0106 crew-prompt edit applied (2026-09-30)
 - [x] WSLg display and system WebKitGTK 2.52.6 present (probed 2026-09-30). A WebView has
   **not** yet been created on it. **Re-verify at every leg that runs the probe.**
-- [ ] A local WebKit route established, or the post-merge CI route recorded (DD9). Done in
+- [x] A local WebKit route established, or the post-merge CI route recorded (DD9). Done in
   `ui-test-apparatus`.
 - [x] Port 8485 free for a dev instance with a scratch data directory. Never 8484 or the
   default data directory. **Re-verify per leg.**
@@ -840,17 +840,17 @@ the Architect at design review:
 
 ### Checkpoints
 
-- [ ] Guard extensions and probes green; resolver helper and engine policy in place; local
+- [x] Guard extensions and probes green; resolver helper and engine policy in place; local
   WebKit route established or post-merge route recorded (`ui-test-apparatus`)
-- [ ] Mechanism decided with evidence against all six criteria; `<dialog>` chaining,
+- [x] Mechanism decided with evidence against all six criteria; `<dialog>` chaining,
   Escape and focus restore verified in Chromium, and in WebKit locally or (under DD9
   route 2) recorded as post-merge evidence that gates Flight 2's first native modal
   (`control-mechanism-spike`)
-- [ ] Deep violet app-wide; control boundaries at 3:1; mirror in sync; gates and band
+- [x] Deep violet app-wide; control boundaries at 3:1; mirror in sync; gates and band
   exception green (`deep-violet-tokens`)
-- [ ] Core controls complete with contract tests in both engines (`core-controls`)
-- [ ] Living reference and control inventory with their guards (`living-reference-and-inventory`)
-- [ ] Flight close:
+- [x] Core controls complete with contract tests in both engines (`core-controls`)
+- [x] Living reference and control inventory with their guards (`living-reference-and-inventory`)
+- [x] Flight close:
   - full unit tier and `make lint`;
   - all four browser lanes;
   - WebKit contract tests;
@@ -885,20 +885,23 @@ the Architect at design review:
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created
 > one at a time as the flight progresses.
 
-- [ ] `ui-test-apparatus` - Extractor `relpath` fix and DD2 patterns with probes; shared
+- [x] `ui-test-apparatus` - Extractor `relpath` fix and DD2 patterns with probes; shared
   DD3 resolver JS and Playwright helper; DD4 zero-token guard; engine-parametrized fixture
   with skip/require policy; Makefile, CI and break-glass WebKit installs; local WebKit route
   (userland deps) and `scripts/webkitgtk_probe.py`; squawk 0105.
-- [ ] `control-mechanism-spike` - `App.ui.util` core; `button` and `field`; list pane both
+- [x] `control-mechanism-spike` - `App.ui.util` core; `button` and `field`; list pane both
   ways; judged against six criteria; `<dialog>` stacking, Escape and focus-restore
   verification in both engines; decision record; `agents.md` Modals bullet.
-- [ ] `deep-violet-tokens` - `--accent-fill*` tokens in both themes; four button treatments
+- [x] `deep-violet-tokens` - `--accent-fill*` tokens in both themes; four button treatments
   app-wide; solid control fills migrated; control boundaries at 3:1; mirror, gates and
   dark band exception; design-language doc updates in `agents.md`.
-- [ ] `core-controls` - Complete the core set on the settled mechanism (select, textarea,
-  checkbox, toggle, menu, badge, empty state; harden button, field, list pane). Keyboard
-  behaviour, visible focus, the DD3 helper, and contract tests in Chromium and WebKit.
-- [ ] `living-reference-and-inventory` - Design-language page rebuilt from the library in
+- [x] `core-controls` - Complete the core set on the settled mechanism (select, textarea,
+  checkbox, toggle, badge, empty state; harden field, list pane). Keyboard behaviour,
+  visible focus, the DD3 helper, and contract tests in Chromium and WebKit.
+- [x] `menu-control` - `App.ui.menu` (APG menu button): keyboard-complete, dialog-safe
+  (DD8), and leak-free (DD1). Split from `core-controls` at its design review
+  (2026-09-30); see the flight log.
+- [x] `living-reference-and-inventory` - Design-language page rebuilt from the library in
   both themes; `docs/ui-control-inventory.md`; demo and inventory guards; control-library
   docs in `the_one/agents.md` and a CLAUDE.md pointer; flight-close verification.
 
@@ -908,14 +911,14 @@ the Architect at design review:
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged to `main` (per-flight branch, mission decision 8)
-- [ ] Tests passing:
+- [x] Tests passing:
   - `make lint`;
   - `make test-unit`;
   - all four browser lanes;
   - WebKit contract tests (locally or post-merge, per DD9).
-- [ ] Documentation updated:
+- [x] Documentation updated:
   - `the_one/agents.md`;
   - `CLAUDE.md`;
   - `docs/ui-testid-registry.md`;
@@ -923,7 +926,7 @@ the Architect at design review:
 - [ ] Published design system updated by the Flight Director
   (https://claude.ai/artifact/51jpj1RcXp18MehEQAteWs): tokens, plus the Button, Checkbox
   and Toggle components, for deep violet and the boundary fix.
-- [ ] Squawks 0105 and 0106 closed in the flight commit
+- [x] Squawks 0105 and 0106 closed in the flight commit
 
 ### Verification
 

@@ -68,13 +68,14 @@ jobs:
       - name: Install dependencies
         if: steps.changes.outputs.ui == 'true'
         run: pip install -e ".[all-llms,dev]"
-      - name: Provision Chromium
+      - name: Provision Chromium and WebKit
         if: steps.changes.outputs.ui == 'true'
-        run: python -m playwright install --with-deps chromium
+        run: python -m playwright install --with-deps chromium webkit
       - name: Run browser tests (host-native)
         if: steps.changes.outputs.ui == 'true'
         env:
           THE_ONE_DEV_MODE: "true"
+          THE_ONE_REQUIRE_WEBKIT: "1"
         run: python -m pytest -m browser tests/browser/ --timeout=300 --tb=short
 
   windows:

@@ -1,10 +1,10 @@
 # Squawk 0106: Verification of JS changes can skip the `test_ui_guards.py` unit guards
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-09-30
-**Completed**: —
+**Completed**: 2026-10-01
 
 ## Report
 
@@ -22,7 +22,7 @@ guards when a change touches only frontend files.
 
 ## Corrective Action
 
-*(written at completion)*
+The Flight Director added the static-guard lines to the `.flightops/agent-crews/leg-execution.md` "Developer: Implement" and "Reviewer: Review" prompts at the start of M25 Flight 1: a change under `the_one/interfaces/web/static/` must also run `tests/test_ui_guards.py`, `tests/test_token_definitions.py` and `tests/test_design_tokens_a11y.py`, not only a browser lane.
 
 Add one line to the leg-execution crew prompts (Developer: Implement and
 Reviewer: Review): a change under `the_one/interfaces/web/static/` must also
@@ -33,8 +33,10 @@ file, and if so make sure the edit survives or record it as a project override.
 
 ## Verification
 
-*(written at completion)*
+Every crew prompt in M25 Flight 1 used the new lines, and the flight-close `make test-unit` (4929 passed) ran the static guards. `grep -n "test_ui_guards" .flightops/agent-crews/leg-execution.md` shows the lines in both prompts.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: Flight 1 Reviewer agent (Sonnet) — flight-scoped review
+**Verdict**: confirmed
+**Commit**: `flight/1: control library foundation — App.ui factories, deep violet, WebKit apparatus` on branch `flight/01-control-library-foundation`

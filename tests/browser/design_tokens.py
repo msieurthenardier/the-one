@@ -83,6 +83,12 @@ DARK: dict[str, str] = {
     # accent — violet-400 (brand continuity per mission constraint);
     # accent_api is badge-tier cyan (chat user-vs-API differentiation).
     "accent": "#a78bfa",
+    # Deep-violet solid control fills + control boundary/thumb (M25 F1 L3).
+    "accent_fill": "#7c3aed",
+    "accent_fill_hover": "#6d28d9",
+    "fg_on_accent_fill": "#ffffff",
+    "control_border": "#6e717a",
+    "control_thumb": "#ffffff",
     "accent_api": "#22d3ee",
     # status — Tailwind-400 family; all >= 4.5:1 on bg/surface.
     "status_success": "#4ade80",
@@ -155,6 +161,12 @@ LIGHT: dict[str, str] = {
     # accent — violet-700 (white-on-accent 7.10:1); accent_api cyan-700
     # badge-tier (white-on-accent-api 5.36:1, accent-api-on-bg 5.36:1).
     "accent": "#6d28d9",
+    # Deep-violet solid control fills + control boundary/thumb (M25 F1 L3).
+    "accent_fill": "#6d28d9",
+    "accent_fill_hover": "#5b21b6",
+    "fg_on_accent_fill": "#ffffff",
+    "control_border": "#868690",
+    "control_thumb": "#ffffff",
     "accent_api": "#0e7490",
     # status — deep 600/700 family; all >= 4.5:1 on bg/surface.
     "status_success": "#15803d",
