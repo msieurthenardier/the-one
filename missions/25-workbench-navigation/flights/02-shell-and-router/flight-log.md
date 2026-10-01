@@ -440,6 +440,64 @@ Reviewer and Accessibility Reviewer feedback; no blockers, all fixed.
 
 **Verification.** Static guards (ui_guards, token definitions, a11y, cache-busting) 229 passed; `make lint` clean; `make test-unit` 5001 passed; lanes (netns, one at a time) chats 42, agents 97 (+2 skipped), settings 125 passed; shared (WebKit required) 722 passed, 1 failed (`test_shell_rail` body-children, caused by the announcer; test updated, rerun with the new router tests: 20 passed).
 
+### Flight-close behavior tests (2026-10-01)
+
+The Flight Director ran the behavior tests against `4828d53` on a dedicated dev instance (port 8485, scratch data dir `/tmp/the-one-wbnav-scratch`, dev mode on). Port 8484 and the default data dir were never used.
+
+**Results: all pass.**
+
+| Spec | Result | Run log |
+|---|---|---|
+| `workbench-navigation` | 28/28 (Dark 14 + Light 14) | `tests/behavior/workbench-navigation/runs/2026-10-01-21-03-48.md` |
+| `shell-navigation-smoke` | 8/8 | `tests/behavior/shell-navigation-smoke/runs/2026-10-01-21-46-12.md` |
+| `studio-agent-crud` | 18/18 (Light 9 + Dark 9) | `tests/behavior/studio-agent-crud/runs/2026-10-01-21-46-12.md` |
+| `system-provider-config` | 18/18 (Light 9 + Dark 9) | `tests/behavior/system-provider-config/runs/2026-10-01-21-46-12.md` |
+
+**Apparatus**
+
+- **Goldfinch input outage.** After the `workbench-navigation` Dark variant, goldfinch stopped delivering synthetic input on this host. Clicks and key presses returned ok, but no events reached the page. The Flight Director reproduced this. Window tools are admin-only, so the cause could not be diagnosed. This needs operator attention.
+- **Replacement apparatus.** Every later run used a headless Chromium 147 (Playwright `chromium-1217`) driven over CDP, with these properties:
+  - persistent raw-CDP contexts;
+  - real input events;
+  - screenshots as primary evidence;
+  - one Chromium per concurrent run.
+
+  `system-provider-config` mandates chrome-devtools. No such MCP is registered, and this CDP-driven Chromium meets the spec's intent.
+- **Concurrent runs.** The three later specs ran in parallel against one instance. Their Executors shared a scratchpad, and generic script names collided: two Executors each ran another run's script once. Each affected step was re-done with uniquely named scripts, disclosed to the Validators, and confirmed against server state. **Lesson:** give concurrent Executors per-run scratch subdirectories.
+
+**Re-runs**
+
+- `workbench-navigation` D13: an unrequested full-document probe left a cross-document history entry behind the editor, so `beforeunload` blocked the Back press. The step was re-run on same-document history.
+- `shell-navigation-smoke` step 9: the first attempt was a same-document hash change. The step was re-run as a true fresh-document load of `#admin/providers`, which redirected during boot within about 100 ms.
+
+**Spec fixes applied**
+
+- `workbench-navigation`:
+  - uses `aria-checked` instead of `aria-pressed`;
+  - states where the theme switch happens;
+  - adds evidence notes on `dialog[open]`, aria `current` and values, and rendered banners;
+  - forbids history-altering probes;
+  - clarifies the step 15 wording.
+- `shell-navigation-smoke`:
+  - uses `aria-checked`;
+  - makes step 9 an explicit fresh-document load;
+  - accepts a CDP/Playwright apparatus.
+- `studio-agent-crud`: after a delete, step 9 now expects a return to the Agents grid.
+- `system-provider-config`:
+  - accepts a CDP apparatus;
+  - steps 11 and 12 match the provider by name prefix, because step 7 renames it.
+
+**Observations (no Flight 2 regression)**
+
+- **Route announcer after provider create.** After a provider save-create, the editor canonicalises the URL through `App.router.sync()`, which re-titles but never announces. The visually-hidden route announcer therefore keeps reading "Settings — Providers — New". Agent save-create uses `go(replace)` and does announce. This is a small accessibility inconsistency and a candidate squawk for Flight 3's create flows.
+- **Leave guard on cross-document Back.** With a dirty editor, a Back press that would leave the document is silently blocked by `beforeunload` in goldfinch (Electron). This is correct.
+- **Pre-existing inputs for Flight 3**, which rebuilds the Library and Settings lists:
+  - the Connectors empty-state "New Connector" button is unstyled (`connector-editor.js` lacks `btn-outlined-primary`);
+  - a long provider name in a tile runs under the absolutely-positioned type badge;
+  - section-nav items are `<button>`s, not links.
+- **Asynchronous delete arm.** The provider Delete arm waits on an agent-usage pre-fetch, so it arms after about 57–130 ms. Probes must poll for "Confirm Delete?".
+- **Not an app race.** The `workbench-navigation` D11 lost-first-keystroke hypothesis was falsified. MutationObserver probes found no editor re-render, even when typing 59 ms after mount. The lost input came from goldfinch's hidden-tab handling.
+
 ## Flight Director Notes
 
 - 2026-10-01: Flight design review.

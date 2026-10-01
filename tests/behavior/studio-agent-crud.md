@@ -3,7 +3,7 @@
 **Slug**: `studio-agent-crud`
 **Status**: active
 **Created**: 2026-07-05
-**Last Run**: 2026-07-06-06-06-19 (pass — DARK 9/9 full flow; cap-chip quiet non-regression confirmed on studio agent-tiles; F7 re-run; see runs/)
+**Last Run**: 2026-10-01-21-46-12 (pass — LIGHT 9/9 + DARK 9/9; first run on the workbench rail; see runs/)
 
 ## Intent
 
@@ -65,7 +65,7 @@ theme-coupled render regression in the editor surfaces.
 | 6 | Return to / observe the **Agents grid** (hard-reload if navigating through a client-cached view). | A tile for `Behave CRUD Agent` is present in the grid — visible, labelled with the agent's name. |
 | 7 | Re-select the `Behave CRUD Agent` tile to open its editor; on the **General** tab change a field (e.g. edit the Description text); click **Save** (`save-agent-btn`). | While the field is dirty the Save button enables; after save it disables again (no unsaved changes) and no error flash appears. The edited value persists in the field. |
 | 8 | Scroll to the General-tab **Danger Zone**; click **Delete Agent** (`delete-agent-btn`) **once** (arm). | [a11y] The Delete button enters its armed state: its visible label changes to **"Confirm Delete?"** and it takes the armed destructive styling. The agent is **not** yet deleted (this is the intermediate two-step checkpoint the Validator judges — a single click must NOT destroy the agent). |
-| 9 | Click the armed **Confirm Delete?** button a second time (within the ~3s revert window) to fire the delete. | The DELETE succeeds; the editor leaves the deleted agent (falls through to the first remaining agent, or the empty editor if none) with no error flash. |
+| 9 | Click the armed **Confirm Delete?** button a second time (within the ~3s revert window) to fire the delete. | The DELETE succeeds; the editor leaves the deleted agent and returns to the Agents grid (`#agents`), with no error flash. |
 | 10 | Observe the **Agents grid** (hard-reload if the view is client-cached). | No tile labelled `Behave CRUD Agent` remains in the grid — the agent is gone. |
 | 11 | (Teardown, no judgment) `DELETE /api/providers/{id}` for the seeded mock provider; if any test agent remains (partial run), delete it. | (empty) |
 

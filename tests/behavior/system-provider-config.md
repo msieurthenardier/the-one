@@ -3,7 +3,7 @@
 **Slug**: `system-provider-config`
 **Status**: active
 **Created**: 2026-07-05
-**Last Run**: 2026-07-30-17-45-00 — pass (20/20; light 10/10 incl. row 9 upgraded via filmstrip re-capture, dark 10/10; post-M19-F01 provider-editor.js re-run) — [run log](system-provider-config/runs/2026-07-30-17-45-00.md)
+**Last Run**: 2026-10-01-21-46-12 (pass — LIGHT 9/9 + DARK 9/9; first run on the workbench rail; CDP-driven Chromium; see runs/)
 
 > **Apparatus note (from run 2026-07-30)**: for the row-9 armed state (or any sub-3s transient UI state), single-shot screenshot round-trips lose the race to the revert window. Use the **filmstrip technique**: `performance_start_trace` with screenshots enabled → drive arm(+fire) in ONE `evaluate_script` call (no inter-call gaps) → `performance_stop_trace` → extract the embedded Screenshot frame from the repaint burst as the rendered-state evidence. Proven in both themes.
 
@@ -56,7 +56,7 @@ the editor surfaces.
 
 - browser (rendered Settings › LLM Providers UI (`#settings/providers`): grid `provider-card` tiles + quiet type badge,
   editor `.field-group` fields, field values, button label text, the armed
-  "Confirm Delete?" state, the Test-Connection result flash — measured via chrome-devtools;
+  "Confirm Delete?" state, the Test-Connection result flash — measured via chrome-devtools or any CDP-driven Chromium with real input and ignore-cache reloads (e.g. Playwright `connect_over_cdp` + `Page.reload {ignoreCache:true}`);
   a11y-tree + screenshot as primary rendered-state evidence, CDP `evaluate`/focus as
   supplementary). Per the frame discipline, verdicts rest on rendered state (what a user
   sees), not on queryable-but-invisible DOM.
@@ -77,8 +77,8 @@ the editor surfaces.
 | 8 | Click **Test** (`test-connection-btn`). | A connection-test result is surfaced as a flash/status (the mock provider resolves its test deterministically); **no unhandled error banner** appears. |
 | 9 | Scroll to the editor's **Danger Zone**; click **Delete Provider** (`delete-provider-btn`) **once** (arm). | [a11y] The Delete button enters its **armed** state: its visible label changes to **"Confirm Delete?"** and it takes the armed destructive styling. The provider is **not** yet deleted (the agent-usage pre-gate passes — no agent uses this fresh provider — then `App.confirmDelete` arms; a single click must NOT destroy the provider). This intermediate two-step state is the judged checkpoint. |
 | 10 | Click the armed **Confirm Delete?** button a second time (within the ~3s revert window) to fire the delete. | The DELETE succeeds; the editor leaves the deleted provider (returns to the grid / falls through to the remaining providers) with no error flash. |
-| 11 | Observe the **LLM Providers** grid (`ignoreCache` reload if the view is client-cached). | No `provider-card` labelled `Mock (system-provider-config)` remains — the provider is gone. |
-| 12 | (Teardown, no judgment) If any `Mock (system-provider-config)` provider remains (partial run), `DELETE /api/providers/{id}`. Restore the operator's original theme preference. | (empty) |
+| 11 | Observe the **LLM Providers** grid (`ignoreCache` reload if the view is client-cached). | No `provider-card` whose label starts with `Mock (system-provider-config)` remains (step 7 renamed it with a ` — edited` suffix). The provider is gone. |
+| 12 | (Teardown, no judgment) If any provider whose name starts with `Mock (system-provider-config)` remains (partial run; step 7 renames it), `DELETE /api/providers/{id}`. Restore the operator's original theme preference. | (empty) |
 
 **Row conventions:** one row = one logical checkpoint. `[a11y]`-marked expectations are the
 assistive-tech / rendered-state surface for the optional Accessibility Validator.
