@@ -912,7 +912,7 @@ the Architect at design review:
 ### Completion Checklist
 
 - [x] All legs completed
-- [ ] Code merged to `main` (per-flight branch, mission decision 8)
+- [ ] Code merged to `main` (per-flight branch, mission decision 8) — PR #217 awaiting the operator's merge (autonomous merge to `main` was blocked by the session's permission policy, 2026-10-01)
 - [x] Tests passing:
   - `make lint`;
   - `make test-unit`;
@@ -923,7 +923,7 @@ the Architect at design review:
   - `CLAUDE.md`;
   - `docs/ui-testid-registry.md`;
   - `docs/ui-control-inventory.md`.
-- [ ] Published design system updated by the Flight Director
+- [x] Published design system updated by the Flight Director
   (https://claude.ai/artifact/51jpj1RcXp18MehEQAteWs): tokens, plus the Button, Checkbox
   and Toggle components, for deep violet and the boundary fix.
 - [x] Squawks 0105 and 0106 closed in the flight commit

@@ -359,6 +359,24 @@ The four historically flaky tests (`test_agent_item_keyboard_select`, `test_edit
   `tests/behavior/shell-navigation-smoke/runs/2026-10-01-06-30-02.md`. goldfinch
   screenshots were unavailable, so the doctrine's PDF + AX + computed-style evidence
   path was used.
+- 2026-10-01: The **published design system** was updated by the Flight Director
+  (https://claude.ai/artifact/51jpj1RcXp18MehEQAteWs, version 5). Changes:
+  - tokens.json gains the five new tokens, and the `accent`, `border-strong` and
+    `fg-on-accent` usage text is corrected;
+  - bundle.css carries the button, checkbox and toggle rules, plus the forced-colors
+    block;
+  - the Button, Checkbox and Toggle READMEs and previews are updated;
+  - README covers the Color, Typography and Accessibility changes and gains a Control
+    library section.
+
+  A crew agent prepared the files; the Flight Director reviewed the diffs and published.
+- 2026-10-01: PR #217 opened (https://github.com/msieurthenardier/the-one/pull/217). The
+  Flight Director's attempt to merge it to `main` (mission decision 8) was **denied by
+  the session's permission policy** ("merge without review"). The PR is left for the
+  operator to review and merge.
+  - Flight 2 proceeds on a branch **stacked on** `flight/01-control-library-foundation`,
+    so autonomous work continues without merging.
+  - Its PR will target `main` once #217 is merged, or this branch until then.
 
 ## Decisions
 
