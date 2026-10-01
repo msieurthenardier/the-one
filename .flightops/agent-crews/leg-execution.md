@@ -2,7 +2,7 @@
 
 Crew definitions and interaction protocol for implementing flight legs.
 The Flight Director (Mission Control) orchestrates this phase using the
-/agentic-workflow skill.
+/mission-control:agentic-workflow skill.
 
 ## Crew
 
@@ -28,7 +28,7 @@ The Flight Director (Mission Control) orchestrates this phase using the
 - **Model**: Sonnet
 - **Role**: Reviews UI changes for accessibility compliance. Evaluates against
   WCAG 2.1 AA standards, screen reader compatibility, keyboard navigation,
-  color contrast, ARIA usage, and semantic HTML. Only spawn when the leg
+  color contrast, ARIA usage, and semantic HTML. Only spawn when the flight
   involves user-facing interface changes.
 - **Actions**: review-accessibility
 
@@ -38,7 +38,7 @@ The Flight Director (Mission Control) orchestrates this phase using the
 - Reviewer has NO knowledge of Developer's reasoning — only resulting changes
 - Each agent instance gets fresh context (no carryover between legs)
 
-**Note:** Handoff signals (`[HANDOFF:review-needed]`, `[HANDOFF:confirmed]`, `[BLOCKED:reason]`, `[COMPLETE:leg]`) are defined by the Flight Control methodology in the agentic-workflow skill, not in this file. Do not modify signal names here — they must match what the Flight Director expects.
+**Note:** Handoff signals (`[HANDOFF:review-needed]`, `[HANDOFF:confirmed]`, `[BLOCKED:reason]`, `[LAND:leg]`) are defined by the Flight Control methodology in the agentic-workflow skill, not in this file. Do not modify signal names here — they must match what the Flight Director expects.
 
 ## Interaction Protocol
 
@@ -50,19 +50,20 @@ The Flight Director (Mission Control) orchestrates this phase using the
 
 ### Implementation
 1. Flight Director spawns **Developer** to implement
-2. Developer implements to acceptance criteria, updates flight log
-3. Developer signals [HANDOFF:review-needed] — does NOT commit
+2. Developer implements to acceptance criteria, marks the leg `landed`, updates flight log
+3. Developer signals [LAND:leg]; the Flight Director proceeds to the next leg
 
-### Code Review
-1. Flight Director spawns **Reviewer** to evaluate all uncommitted changes
-2. If **Accessibility Reviewer** is enabled and leg involves UI changes,
+### Code Review (once per flight)
+1. After the last autonomous leg lands, Flight Director spawns **Reviewer** to
+   evaluate all uncommitted changes from every leg
+2. If **Accessibility Reviewer** is enabled and any leg involves UI changes,
    spawn in parallel with Reviewer
 3. If issues: Flight Director spawns new **Developer** to fix
 4. Loop until all reviewers signal [HANDOFF:confirmed] — max 3 cycles
 
-### Commit
-1. Flight Director spawns **Developer** to commit
-2. Developer commits code + artifacts, signals [COMPLETE:leg]
+### Commit (once per flight)
+1. Flight Director spawns **Developer** to commit the whole flight
+2. Developer commits code + artifacts in one commit, reports the commit ref
 
 ## Template Variables
 
@@ -72,7 +73,7 @@ The Flight Director substitutes these variables in prompts at runtime:
 |----------|-------------|-------------|
 | `{project-slug}` | Project identifier — the repository directory name, or the name from the git remote | All prompts |
 | `{flight-number}` | Current flight number | All prompts |
-| `{leg-number}` | Current leg number | Leg-scoped prompts |
+| `{leg-number}` | Current leg number | review-leg-design, implement |
 | `{leg-artifact-path}` | Path to the leg artifact file | review-leg-design |
 | `{working-directory}` | Resolved working directory for the agent (project root for branch strategy, worktree path for worktree strategy) | All prompts |
 | `{reviewer-issues}` | Full text of reviewer feedback (dynamic) | fix-review-issues |
@@ -141,29 +142,37 @@ teardown can wedge on orphaned tasks; `--timeout` prevents single-test hangs
 from eating the whole budget. Scope iterations to the test file(s) you're
 changing; run the broader suite once at leg-end.
 
+A change under `the_one/interfaces/web/static/` must also run the static JS/CSS
+guards — `tests/test_ui_guards.py`, `tests/test_token_definitions.py` and
+`tests/test_design_tokens_a11y.py` — not only a browser lane (squawk 0106).
+
 If a test hangs, isolate and fix it — do not paper over with `xfail` or skips
 unless the leg artifact explicitly authorizes that. Update flight log with
 outcomes. Propagate changes to artifacts (flight, mission, leg), CLAUDE.md,
-README, and other project documentation as needed. Do NOT commit yet — signal
-[HANDOFF:review-needed] when implementation is complete.
+README, and other project documentation as needed. When done, update leg status
+to landed and report what you implemented and how you verified it. Do not commit.
+Signal [LAND:leg].
 ```
 
 ### Reviewer: Review
 
 ```
 role: reviewer
-phase: leg-review
+phase: flight-review
 project: {project-slug}
 flight: {flight-number}
-leg: {leg-number}
 action: review
 
-Review all changes since the last commit. Evaluate against:
-1. Leg acceptance criteria — are all criteria met?
+Review all changes on the flight branch relative to its base — they span every leg
+implemented in this flight. Evaluate against:
+1. Acceptance criteria — are all criteria of every landed leg met?
 2. Code quality — style, clarity, maintainability
 3. Correctness — edge cases, error handling, security
-4. Tests — coverage, meaningful assertions, no regressions
-5. Artifacts — flight log updated, leg status correct
+4. Tests — coverage, meaningful assertions, no regressions. If the diff touches
+   `the_one/interfaces/web/static/`, confirm the static JS/CSS guards
+   (`tests/test_ui_guards.py`, `tests/test_token_definitions.py`,
+   `tests/test_design_tokens_a11y.py`) were run and pass (squawk 0106).
+5. Artifacts — flight log updated for every leg, leg statuses correct
 
 Signal [HANDOFF:confirmed] if all changes are satisfactory.
 If issues found, list them with severity (blocking/non-blocking) and specific
@@ -174,13 +183,13 @@ file:line references.
 
 ```
 role: accessibility-reviewer
-phase: leg-review
+phase: flight-review
 project: {project-slug}
 flight: {flight-number}
-leg: {leg-number}
 action: review-accessibility
 
-Review all UI changes since the last commit for accessibility compliance.
+Review all UI changes on the flight branch relative to its base for accessibility
+compliance.
 
 Evaluate against:
 1. WCAG 2.1 AA — do changes meet Level AA success criteria?
@@ -199,10 +208,9 @@ reference, and specific file:line references.
 
 ```
 role: developer
-phase: leg-implementation
+phase: flight-review
 project: {project-slug}
 flight: {flight-number}
-leg: {leg-number}
 action: fix-review-issues
 
 Address the following review feedback:
@@ -216,19 +224,13 @@ note as accepted. Signal [HANDOFF:review-needed] when fixes are complete.
 
 ```
 role: developer
-phase: leg-implementation
+phase: flight-commit
 project: {project-slug}
 flight: {flight-number}
-leg: {leg-number}
 action: commit
 
-Review has passed. Before committing, complete ALL post-completion checklist items
-in the leg artifact:
-1. Check off all acceptance criteria in the leg artifact
-2. Update leg status to completed
-3. Check off this leg in flight.md
-4. If final leg: update flight.md status to landed, check off flight in mission.md
-
-Then commit all changes (code + artifacts) with appropriate message.
-Signal [COMPLETE:leg].
+Review has passed for the whole flight. Commit all uncommitted changes (code +
+artifacts) in a single commit, following the Git Conventions in .flightops/ARTIFACTS.md.
+Include the artifact updates the Flight Director listed when spawning you.
+Report the commit ref.
 ```

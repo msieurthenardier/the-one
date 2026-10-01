@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chat first: jump to</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/gleepglorp/tokens.css">
+<link rel="stylesheet" href="ds/gleepglorp/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="width: 1440px; height: 900px; overflow: hidden; display: flex; background: var(--bg); color: var(--fg); font-family: var(--font-family-sans); font-size: var(--font-size-body)">
+<nav aria-label="Conversations" style="width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; padding: 12px 10px; background: var(--surface); border-right: 1px solid var(--border)">
+  <div style="display: flex; align-items: center; gap: 10px; padding: 4px 6px"><img src="/_blob/84cc497525576d6498f3b4c9e77f9514" alt="" style="width: 24px; height: 24px; image-rendering: pixelated"><span style="font-size: var(--font-size-h3); font-weight: 600; color: var(--fg)">GleepGlorp AI</span></div>
+  <div style="padding: 8px 0 6px"><button class="btn-filled-primary" style="width: 100%"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>New chat</button></div>
+  <div style="display: flex; gap: 4px; padding-bottom: 4px">
+    <button class="chip" style="cursor: pointer">All agents</button>
+    <button class="chip" style="cursor: pointer; background: transparent">Research assistant</button>
+  </div>
+  <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Today</div>
+  <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg); background: var(--accent-translucent); box-shadow: inset 0 0 0 1px var(--accent); text-decoration: none"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">DPR paper summary</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">RA</span></a>
+  <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Fix flaky pty test</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">LC</span></a>
+  <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Yesterday</div>
+  <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">RAG reading list</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">RA</span></a>
+  <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Weekly inbox sweep</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">IT</span></a>
+  <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">#general relay</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">DC</span></a>
+  <div style="font-size: var(--font-size-caption); font-weight: 500; color: var(--fg-muted); padding: 12px 10px 4px">Last 7 days</div>
+  <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Citation format check</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">RA</span></a>
+  <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Port bench to Windows</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">LC</span></a>
+  <div style="margin-top: auto; border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 2px">
+    <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></svg><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Agents</span></a>
+    <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Library</span></a>
+    <a href="#" style="display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-decoration: none"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Settings</span></a>
+  </div>
+</nav>
+<main style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; position: relative">
+  <header style="height: var(--topbar-h); flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--border)">
+    <h1 style="margin: 0; font-size: var(--font-size-body); font-weight: 600">DPR paper summary</h1>
+    <span style="font-size: var(--font-size-body-sm); color: var(--fg-muted)">with Research assistant</span>
+  </header>
+  <div style="flex-grow: 1; overflow: hidden; padding: 24px; opacity: 0.35">
+    <div style="max-width: 720px; margin: 0 auto"><div class="messages" style="gap: 16px">
+  <div class="msg user">Find the three most cited papers on retrieval-augmented generation in my notes, and tell me which one to read first.</div>
+  <div class="msg tool">kb__research_notes__search(query="retrieval-augmented generation", limit=10)</div>
+  <div class="msg assistant">I found three papers in Research notes that are cited most often in your other notes:
+
+1. Lewis et al., 2020 — Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks
+2. Karpukhin et al., 2020 — Dense Passage Retrieval
+3. Izacard and Grave, 2021 — Leveraging Passage Retrieval with Generative Models
+
+Read Lewis et al. first. It defines the RAG architecture the other two build on, and your notes on it are the most complete.</div>
+  <div class="msg user">Summarize the Dense Passage Retrieval notes in five bullets.</div>
+</div></div>
+  </div>
+  <div style="position: absolute; inset: 0; background: rgba(0, 0, 0, 0.3); display: flex; justify-content: center; padding-top: 96px">
+    <div role="dialog" aria-modal="true" aria-label="Jump to" style="width: 600px; height: fit-content; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); display: flex; flex-direction: column; overflow: hidden">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border)">
+        <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <label for="q" style="position: absolute; left: -9999px">Search</label>
+        <input id="q" value="know" style="flex-grow: 1; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: var(--font-size-body-lg); outline: none">
+        <span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px">Esc</span>
+      </div>
+      <div style="padding: 8px; display: flex; flex-direction: column; gap: 2px">
+        <div style="font-size: var(--font-size-caption); color: var(--fg-muted); padding: 6px 12px">Knowledge bases</div>
+        <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); text-decoration: none; color: var(--fg); font-size: var(--font-size-body); background: var(--accent-translucent)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span>Research notes</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">Library</span></a>
+        <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); text-decoration: none; color: var(--fg); font-size: var(--font-size-body)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg><span>the-one docs</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">Library</span></a>
+        <div style="font-size: var(--font-size-caption); color: var(--fg-muted); padding: 10px 12px 6px">Settings</div>
+        <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); text-decoration: none; color: var(--fg); font-size: var(--font-size-body)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span>Knowledge indexing</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">Settings › Defaults for agents</span></a>
+        <div style="font-size: var(--font-size-caption); color: var(--fg-muted); padding: 10px 12px 6px">Actions</div>
+        <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); text-decoration: none; color: var(--fg); font-size: var(--font-size-body)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Add a folder to a knowledge base…</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">Action</span></a>
+        <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); text-decoration: none; color: var(--fg); font-size: var(--font-size-body)"><svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></svg><span>Attach knowledge to Research assistant</span><span style="margin-left: auto; font-size: var(--font-size-caption); color: var(--fg-muted)">Action</span></a>
+      </div>
+      <div style="display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--border); font-size: var(--font-size-caption); color: var(--fg-muted)">
+        <span>Enter to open</span><span>Up/Down to move</span><span>Type &gt; for actions</span>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return { theme: this.props.theme ?? 'dark' };
+}
+}
+</script>
+</body>
+</html>

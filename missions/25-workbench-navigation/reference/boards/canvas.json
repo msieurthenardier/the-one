@@ -1,0 +1,153 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "A2-agent-page.dc.html": {
+      "h": 900,
+      "title": "A2 \u00b7 Agents first \u2014 agent page",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "B1-agents.dc.html": {
+      "h": 900,
+      "title": "B1 \u00b7 Workbench \u2014 agents",
+      "w": 1440,
+      "x": 0,
+      "y": 1320
+    },
+    "B2-settings.dc.html": {
+      "h": 900,
+      "title": "B2 \u00b7 Workbench \u2014 one Settings",
+      "w": 1440,
+      "x": 1520,
+      "y": 1320
+    },
+    "B3-workbench-clickable.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "title": "B \u00b7 Workbench \u2014 clickable (28 agents)",
+      "w": 1440,
+      "x": 0,
+      "y": -1440
+    },
+    "C1-chat-inspector.dc.html": {
+      "h": 900,
+      "title": "C1 \u00b7 Chat-first \u2014 inspector",
+      "w": 1440,
+      "x": 0,
+      "y": 2640
+    },
+    "C2-jump-to.dc.html": {
+      "h": 900,
+      "title": "C2 \u00b7 Chat-first \u2014 jump to anything",
+      "w": 1440,
+      "x": 1520,
+      "y": 2640
+    },
+    "Main.dc.html": {
+      "h": 900,
+      "title": "A1 \u00b7 Agents first \u2014 chat",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Buttons.dc.html": {
+      "x": 2040,
+      "y": -1440,
+      "w": 1440,
+      "h": 1120,
+      "title": "Button treatments"
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-30T18:30:00Z",
+    "v": 1
+  },
+  "designSystems": [
+    {
+      "artifact": "https://claude.ai/artifact/51jpj1RcXp18MehEQAteWs",
+      "copiedAt": "2026-09-30T18:30:00Z",
+      "namespace": "gleepglorp",
+      "title": "GleepGlorp AI",
+      "version": "1790808967-8eb7"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "sa": {
+      "fill": "purple",
+      "text": "A: Conversations nest under their agent in the sidebar. Studio and System disappear: Library holds knowledge bases, MCP servers and connectors; Settings holds the rest. The agent page merges built-in tools, MCP servers and knowledge into one Capabilities list.",
+      "w": 360,
+      "x": 3040,
+      "y": 0
+    },
+    "sb": {
+      "fill": "blue",
+      "text": "B: A slim rail (Chats, Agents, Library, Settings) plus a list column that stays visible while you edit, so there is no grid-then-editor swap and no Back button. The editor is one scrolling page with an outline instead of tabs. Settings is one place, and every provider shows which agents use it.",
+      "w": 360,
+      "x": 3040,
+      "y": 1320
+    },
+    "sb3": {
+      "fill": "blue",
+      "text": "Press Play. Try: on Chats press New chat, find an agent in the picker, and pick it to start a fresh chat with it. The drawer always shows the current chat's agent, with a link to its settings. Agents has a filter (name, model or provider); the search button at the bottom of the rail is Ctrl K.",
+      "w": 400,
+      "x": 1520,
+      "y": -1440
+    },
+    "sc": {
+      "fill": "green",
+      "text": "C: Chat is home. One conversation list across all agents, filterable by agent. An inspector beside the chat shows and edits what this agent can use without leaving the conversation. Ctrl K jumps to any agent, knowledge base, setting or action.",
+      "w": 360,
+      "x": 3040,
+      "y": 2640
+    },
+    "ta": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "A \u00b7 Agents first: agents are the navigation",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "tb": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "B \u00b7 Workbench: rail, list, detail",
+      "w": 240,
+      "x": 0,
+      "y": 1020
+    },
+    "tb3": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "Chosen direction \u00b7 B Workbench, clickable",
+      "w": 240,
+      "x": 0,
+      "y": -1740
+    },
+    "tc": {
+      "kind": "title1",
+      "maxW": 2960,
+      "text": "C \u00b7 Chat first: inspector and jump-to",
+      "w": 240,
+      "x": 0,
+      "y": 2340
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "A2-agent-page.dc.html",
+    "B1-agents.dc.html",
+    "B2-settings.dc.html",
+    "C1-chat-inspector.dc.html",
+    "C2-jump-to.dc.html",
+    "B3-workbench-clickable.dc.html",
+    "Buttons.dc.html"
+  ],
+  "pages": [],
+  "title": "GleepGlorp Navigation Prototypes"
+}
