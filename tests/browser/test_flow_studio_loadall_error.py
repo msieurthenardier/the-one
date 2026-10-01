@@ -25,6 +25,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page, expect
 
 
@@ -41,7 +42,7 @@ def test_loadall_failure_on_init_shows_visible_error(app_clean: str, page: Page)
     instead of leaving the area silently blank."""
     page.route("**/api/knowledge-bases", lambda route: _fail_knowledge_bases(route))
 
-    page.goto(f"{app_clean}#studio")
+    _nav.goto(page, app_clean, "agents")
 
     error_line = page.locator(".studio-loadall-error")
     expect(error_line).to_be_visible(timeout=8000)
@@ -53,7 +54,7 @@ def test_loadall_failure_on_init_shows_visible_error(app_clean: str, page: Page)
 def test_loadall_healthy_renders_normally(app_clean: str, page: Page) -> None:
     """Baseline: with all routes healthy, the area renders as normal and
     the new error line never appears."""
-    page.goto(f"{app_clean}#studio")
+    _nav.goto(page, app_clean, "agents")
 
     expect(page.locator('[data-testid="new-agent-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator(".studio-loadall-error")).to_have_count(0)
@@ -66,7 +67,7 @@ def test_refresh_failure_shows_error_without_blanking_content(app_clean: str, pa
     shows a non-destructive error and does NOT blank the already-rendered
     area."""
     # 1. Healthy first mount.
-    page.goto(f"{app_clean}#studio")
+    _nav.goto(page, app_clean, "agents")
     new_agent_btn = page.locator('[data-testid="new-agent-btn"]')
     expect(new_agent_btn).to_be_visible(timeout=8000)
 
@@ -74,8 +75,8 @@ def test_refresh_failure_shows_error_without_blanking_content(app_clean: str, pa
     #    return to studio — `activate()` calls `self._refresh()`, which
     #    calls loadAll() again.
     page.route("**/api/knowledge-bases", lambda route: _fail_knowledge_bases(route))
-    page.locator('.app-picker-button[data-area="chat"]').click()
-    page.locator('.app-picker-button[data-area="studio"]').click()
+    _nav.open_destination(page, "chats")
+    _nav.open_destination(page, "agents")
 
     # 3. Non-destructive error surfaces...
     expect(page.locator(".app-flash.error")).to_be_visible(timeout=8000)
@@ -85,3 +86,24 @@ def test_refresh_failure_shows_error_without_blanking_content(app_clean: str, pa
     #    that was visible before the refresh is still there.
     expect(new_agent_btn).to_be_visible()
     expect(page.locator(".studio-loadall-error")).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_loadall_rejects_on_agents_list_500(app_clean: str, page: Page) -> None:
+    """M25 F2 L7 (AC5a): App.store.get rejects on a non-2xx LIST response, so
+    loadAll() rejects and the load-error line shows -- no tile or save is
+    offered (squawk 0014). Only the exact list route fails."""
+
+    def fail(route) -> None:
+        if route.request.method == "GET" and route.request.url.split("?")[0].endswith(
+            "/api/agents"
+        ):
+            route.fulfill(status=500, content_type="application/json", body='{"detail": "boom"}')
+        else:
+            route.continue_()
+
+    page.route("**/api/agents", fail)
+    _nav.goto(page, app_clean, "agents")
+    error_line = page.locator(".studio-loadall-error")
+    expect(error_line).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)

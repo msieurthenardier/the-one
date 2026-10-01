@@ -28,6 +28,7 @@ import re
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
@@ -62,7 +63,7 @@ def _list_sources(base_url: str) -> list[dict]:
 @pytest.mark.browser
 def test_create_stdio_source(app_clean: str, page: Page) -> None:
     """Fill the create form for a stdio source, save, see it in the grid."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("github-mcp")
@@ -99,7 +100,7 @@ def test_edit_stdio_source_preserves_unchanged_secrets(app_clean: str, page: Pag
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Sensitive env var pre-fills with the masked tail (***...alue).
@@ -139,7 +140,7 @@ def test_edit_streamable_http_source_changes_one_secret(app_clean: str, page: Pa
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Identify which row is which by inspecting the key inputs.
@@ -175,7 +176,7 @@ def test_delete_stdio_source(app_clean: str, page: Page) -> None:
             "secrets": {},
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     delete_btn = page.locator('[data-testid="delete-mcp-source-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
     # First click arms.
@@ -200,7 +201,7 @@ def test_delete_streamable_http_source(app_clean: str, page: Page) -> None:
             "secrets": {},
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     delete_btn = page.locator('[data-testid="delete-mcp-source-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
     delete_btn.click()
@@ -224,7 +225,7 @@ def test_delete_mcp_source_confirm_lapse_is_visually_distinct(app_clean: str, pa
             "secrets": {},
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     delete_btn = page.locator('[data-testid="delete-mcp-source-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
@@ -240,7 +241,7 @@ def test_delete_mcp_source_confirm_lapse_is_visually_distinct(app_clean: str, pa
 @pytest.mark.browser
 def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
     """Dirty editor + Back → confirmDialog; Cancel keeps editor mounted."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Make the form dirty.
@@ -262,7 +263,7 @@ def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
 def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
     """Switch type stdio→streamable-http: command hidden, url visible,
     kv-label changes."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("stdio")
@@ -286,7 +287,7 @@ def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
 def test_save_with_empty_kv_key_row_silently_skips(app_clean: str, page: Page) -> None:
     """Add an empty kv row PLUS a populated row; save; only the populated
     row persists. Empty key is dropped at partition time."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("test-skip-empty")
@@ -321,7 +322,7 @@ def test_save_with_empty_kv_key_row_silently_skips(app_clean: str, page: Page) -
 @pytest.mark.browser
 def test_sandbox_section_renders_for_stdio_mode(app_clean: str, page: Page) -> None:
     """Selecting stdio reveals the Sandbox section with checkbox + chip-list."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("stdio")
@@ -337,7 +338,7 @@ def test_sandbox_section_renders_for_stdio_mode(app_clean: str, page: Page) -> N
 @pytest.mark.browser
 def test_sandbox_section_hidden_for_streamable_http_mode(app_clean: str, page: Page) -> None:
     """Selecting streamable-http hides the Sandbox section."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("streamable-http")
@@ -349,7 +350,7 @@ def test_sandbox_section_hidden_for_streamable_http_mode(app_clean: str, page: P
 @pytest.mark.browser
 def test_sandbox_section_visibility_toggles_on_transport_switch(app_clean: str, page: Page) -> None:
     """Switch type stdio→streamable-http→stdio; Sandbox section follows."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     section = page.locator('[data-testid="mcp-sandbox-section"]')
@@ -367,7 +368,7 @@ def test_sandbox_section_visibility_toggles_on_transport_switch(app_clean: str, 
 @pytest.mark.browser
 def test_sandbox_save_round_trip(app_clean: str, page: Page) -> None:
     """Set network_allowed=true + writable_paths=[/data,/cache]; save; API GET round-trips."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("sandbox-stdio")
@@ -412,7 +413,7 @@ def test_sandbox_edit_round_trip_populates_fields(app_clean: str, page: Page) ->
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     expect(page.locator('[data-field="sandbox-network-allowed"]')).to_be_checked()
@@ -432,7 +433,7 @@ def test_sandbox_empty_defaults_for_new_stdio_source(app_clean: str, page: Page)
     to `True` for new sources only; existing sources preserve their
     stored value.
     """
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("stdio")
@@ -448,7 +449,7 @@ def test_sandbox_save_emits_explicit_defaults(app_clean: str, page: Page) -> Non
     F9 L2 vibing: form-default for new sources is ``network_allowed=True``
     so lazy-install runtimes can fetch their packages on first spawn.
     """
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("default-sandbox")
@@ -471,7 +472,7 @@ def test_sandbox_save_emits_explicit_defaults(app_clean: str, page: Page) -> Non
 @pytest.mark.browser
 def test_streamable_http_source_has_no_sandbox_key(app_clean: str, page: Page) -> None:
     """streamable-http source created via the editor has no config.sandbox."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("remote-no-sandbox")
@@ -499,7 +500,7 @@ def test_sandbox_checkbox_toggle_marks_form_dirty(app_clean: str, page: Page) ->
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
     expect(save_btn).to_be_visible(timeout=8000)
     expect(save_btn).to_be_disabled()
@@ -521,7 +522,10 @@ def test_sandbox_chip_add_remove_marks_form_dirty(app_clean: str, page: Page) ->
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    # The editor mounts only after GET /api/mcp-sources resolves (deep-link
+    # hydration waits on the list); under load that response can outlast a
+    # fixed 8s `expect`. Wait for the app's fetch activity to go quiet first.
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
     expect(save_btn).to_be_visible(timeout=8000)
     expect(save_btn).to_be_disabled()
@@ -562,7 +566,7 @@ def test_sandbox_cancel_revert_restores_state(app_clean: str, page: Page) -> Non
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Pre-cancel state: checkbox checked, single chip /x.
@@ -608,7 +612,7 @@ def test_kv_thead_hidden_when_table_is_empty(app_clean: str, page: Page) -> None
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     rows = page.locator(".mcp-kv-table tbody tr.mcp-kv-row")
@@ -630,7 +634,7 @@ def test_kv_thead_reveals_when_first_row_added(app_clean: str, page: Page) -> No
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     thead = page.locator('[data-testid="mcp-kv-thead"]')
@@ -662,7 +666,7 @@ def test_kv_sensitive_header_carries_info_icon_with_tooltip(app_clean: str, page
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     info_btn = page.locator('[data-testid="mcp-kv-sensitive-info"]')
@@ -686,7 +690,7 @@ def test_kv_remove_row_uses_trash_icon(app_clean: str, page: Page) -> None:
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     remove_btn = page.locator(".mcp-kv-table tbody tr.mcp-kv-row .kv-remove-row-btn").first
@@ -710,7 +714,7 @@ def test_kv_sensitive_toggle_reuses_studio_switch_pattern(app_clean: str, page: 
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     row = page.locator(".mcp-kv-table tbody tr.mcp-kv-row").first
@@ -741,7 +745,7 @@ def test_custom_headers_section_lands_below_tools_section(app_clean: str, page: 
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Both section titles must exist; Tools must precede Custom Headers in
@@ -803,7 +807,7 @@ def test_cached_tools_render_on_initial_mount(app_clean: str, page: Page) -> Non
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Tools list rendered without clicking Refresh.
@@ -845,7 +849,7 @@ def test_last_updated_renders_relative_time_format(app_clean: str, page: Page) -
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     last_updated = page.locator('[data-testid="mcp-tools-last-updated"]')
@@ -889,7 +893,7 @@ def test_server_info_website_and_icon_reject_unsafe_schemes(app_clean: str, page
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     section = page.locator('[data-testid="mcp-server-info-section"]')
@@ -932,7 +936,7 @@ def test_server_info_website_and_icon_allow_https(app_clean: str, page: Page) ->
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     section = page.locator('[data-testid="mcp-server-info-section"]')
@@ -1003,7 +1007,7 @@ def test_server_info_section_repaints_after_refresh(app_clean: str, page: Page) 
     page.route(f"**/api/mcp-sources/{sid}", handle_get)
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     refresh_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(refresh_btn).to_be_visible(timeout=8000)
     section = page.locator('[data-testid="mcp-server-info-section"]')
@@ -1036,7 +1040,7 @@ def test_reset_button_hidden_for_stdio_source(app_clean: str, page: Page) -> Non
             "secrets": {},
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="delete-mcp-source-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0)
 
@@ -1053,7 +1057,7 @@ def test_reset_button_hidden_for_streamable_http_without_oauth(app_clean: str, p
             "secrets": {},
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="delete-mcp-source-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0)
 
@@ -1074,7 +1078,7 @@ def test_reset_button_visible_for_streamable_http_with_oauth(app_clean: str, pag
             },
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="delete-mcp-source-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_be_visible(timeout=8000)
 
@@ -1104,7 +1108,7 @@ def test_reset_button_two_step_confirmation(app_clean: str, page: Page) -> None:
             },
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     reset_btn = page.locator('[data-testid="reset-mcp-connection-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
 
@@ -1147,7 +1151,7 @@ def test_reset_mcp_connection_confirm_lapse_is_visually_distinct(
             },
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     reset_btn = page.locator('[data-testid="reset-mcp-connection-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
     expect(reset_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
@@ -1197,7 +1201,7 @@ def test_reset_button_renders_in_connection_block_not_danger_zone(
             },
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_be_visible(timeout=8000)
 
     # Reset is inside the connection-actions cluster.
@@ -1241,7 +1245,7 @@ def test_reset_button_two_step_confirmation_in_connection_block(app_clean: str, 
             },
         },
     )
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     reset_btn = page.locator('.mcp-connection-actions [data-testid="reset-mcp-connection-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
 
@@ -1333,7 +1337,7 @@ def test_reset_button_reappears_after_post_oauth_refresh(app_clean: str, page: P
     page.route(f"**/api/mcp-sources/{sid}", handle_get)
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_visible(timeout=8000)
 
     # Pre-Refresh: no OAuth state → no Reset button.
@@ -1386,7 +1390,7 @@ def test_create_streamable_http_auto_runs_refresh(app_clean: str, page: Page) ->
 
     page.route("**/api/mcp-sources/*/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("auto-refresh-source")
@@ -1435,7 +1439,7 @@ def test_create_streamable_http_auto_run_auth_required_does_not_open_popup(
 
     page.route("**/api/mcp-sources/*/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Spy on window.open BEFORE Save fires; record any invocation.
@@ -1480,7 +1484,7 @@ def test_create_streamable_http_auto_run_error_renders_inline(app_clean: str, pa
 
     page.route("**/api/mcp-sources/*/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("auto-error-source")
@@ -1504,7 +1508,7 @@ def test_create_stdio_does_not_attempt_auto_run(app_clean: str, page: Page) -> N
     Refresh button + empty Tools section, but the status panel still
     reads the empty-state prompt (auto-run did NOT fire — no
     "Testing connection…" / "✓ Connected" banner)."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("stdio-no-auto")
@@ -1574,7 +1578,7 @@ def test_test_connection_500_response_renders_useful_error(app_clean: str, page:
 
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
@@ -1603,7 +1607,7 @@ def test_stdio_command_runtime_default_selection_is_uvx(app_clean: str, page: Pa
     """New stdio source: dropdown defaults to `uvx`, the Custom-command
     free-text field is hidden, and the helper text under args reads the
     uvx hint."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("stdio")
@@ -1631,7 +1635,7 @@ def test_stdio_command_runtime_switching_updates_hint_and_saves(app_clean: str, 
     `pipx run` saves as command='pipx', args=['run', ...userArgs] —
     NOT command='pipx run' verbatim, which would FileNotFoundError on
     spawn (the dropdown literal is not a binary)."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("pipx-source")
@@ -1682,7 +1686,7 @@ def test_stdio_command_runtime_pipx_run_round_trip_collapses_to_dropdown(
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Dropdown re-collapses to the `pipx run` literal.
@@ -1703,7 +1707,7 @@ def test_stdio_command_runtime_custom_escape_round_trips(app_clean: str, page: P
     bare command; save persists it to config.command verbatim; reopen
     the source and the dropdown lands on Custom… with the saved value
     restored to the free-text field."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("custom-cmd-source")
@@ -1725,7 +1729,7 @@ def test_stdio_command_runtime_custom_escape_round_trips(app_clean: str, page: P
 
     # Reload the editor; dropdown should land on Custom… with the saved
     # value visible in the free-text field.
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     expect(page.locator('[data-field="command-runtime"]')).to_have_value("__custom__")
@@ -1750,7 +1754,7 @@ def test_stdio_command_runtime_round_trip_canonical_uvx(app_clean: str, page: Pa
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     expect(page.locator('[data-field="command-runtime"]')).to_have_value("uvx")
@@ -1778,7 +1782,7 @@ def test_stdio_command_runtime_round_trip_custom_value(app_clean: str, page: Pag
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     expect(page.locator('[data-field="command-runtime"]')).to_have_value("__custom__")
@@ -1791,7 +1795,7 @@ def test_stdio_command_runtime_npx_y_save_split(app_clean: str, page: Page) -> N
     """Selecting `npx -y` and saving splits the literal into
     command='npx', args=['-y', ...userArgs] (option (b) per leg spec).
     The implicit `-y` lives in args; the saved command is just `npx`."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("npx-y-source")
@@ -1836,7 +1840,7 @@ def test_stdio_command_runtime_npx_y_round_trip_collapses_to_dropdown(
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Dropdown re-collapses to the `npx -y` literal.
@@ -1849,3 +1853,38 @@ def test_stdio_command_runtime_npx_y_round_trip_collapses_to_dropdown(
     chips = page.locator('[data-field="args"].chip-list-editor .chip')
     expect(chips).to_have_count(1)
     expect(chips.first).to_contain_text("@modelcontextprotocol/server-everything")
+
+
+_DELAY_MCP_LIST_JS = """
+(() => {
+  const orig = window.fetch.bind(window);
+  window.fetch = (u, ...a) => {
+    const s = String((u && u.url) || u);
+    if (/\\/api\\/mcp-sources(\\?|$)/.test(s)) {
+      return new Promise((r) => setTimeout(() => r(orig(u, ...a)), 10000));
+    }
+    return orig(u, ...a);
+  };
+})();
+"""
+
+
+@pytest.mark.browser
+def test_deep_linked_editor_mounts_after_slow_list_fetch(app_clean: str, page: Page) -> None:
+    """A deep-linked MCP editor mounts only after GET /api/mcp-sources resolves.
+
+    With that list held for 10s the editor still mounts (the app waits, it does
+    not drop the pending id), and goto_settled returns only once it has.
+    """
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "slow-list",
+            "type": "stdio",
+            "config": {"command": "x", "env": {}},
+            "secrets": {},
+        },
+    )
+    page.add_init_script(_DELAY_MCP_LIST_JS)
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=1000)

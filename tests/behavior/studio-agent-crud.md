@@ -7,7 +7,7 @@
 
 ## Intent
 
-Verify the core Agent Studio CRUD flow end-to-end in the real re-skinned UI: an
+Verify the core Agents-destination CRUD flow end-to-end in the real re-skinned UI: an
 operator can create an agent from the Agents grid, land in the General tab, fill its
 name / description / provider / model, save it, see it appear in the grid, re-select it,
 edit a field and re-save, then delete it through the General-tab Danger Zone's two-step
@@ -28,7 +28,7 @@ theme-coupled render regression in the editor surfaces.
   `GET http://localhost:8485/api/providers/types` returns a list that includes
   `{"value":"mock",...}`. If it does not, dev mode is off and the test cannot proceed.
 - **A `mock`-type LLM provider exists on 8485** (agent creation dead-ends on the disabled
-  "No provider — configure in Admin" option — general-tab.js:56 — when none exists). This
+  "No provider — configure in Admin" option (literal UI text) — general-tab.js:56 — when none exists). This
   is a **decay-prone fixture** — seed it immediately before the run and remove it after:
   - Seed: `POST http://localhost:8485/api/providers` with body
     `{"name":"Mock (studio-agent-crud)","type":"mock","base_url":"http://localhost","config":{"models":["mock-default"]}}`
@@ -58,7 +58,7 @@ theme-coupled render regression in the editor surfaces.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` includes `mock`; seed the mock provider via `POST /api/providers` (body above) and record its `id`. | (empty) |
-| 2 | Defeat client caching (fresh tab / hard reload, ignore cache), navigate to `http://localhost:8485/`, open **Agent Studio → Agents**. | The Agents grid renders — a page header plus either existing agent tiles or the empty-state canvas; no error banner. |
+| 2 | Defeat client caching (fresh tab / hard reload, ignore cache), navigate to `http://localhost:8485/`, click the rail's **Agents** link (`#agents`). | The Agents grid renders — a page header plus either existing agent tiles or the empty-state canvas; no error banner. |
 | 3 | Click the **New Agent** button (`new-agent-btn`). | The agent editor opens in create mode: the **General** tab (`tab-general`) is the selected tab panel, its fields (Name, Description, Provider, Model) are visible and empty/default, and the Create button (`save-agent-btn`) is present and **disabled** (nothing entered yet). |
 | 4 | In the General tab, type a distinctive Name (e.g. `Behave CRUD Agent`) and a Description; select the seeded **Mock (studio-agent-crud)** provider from the Provider dropdown; then select a Model (e.g. `mock-default`) from the now-populated Model dropdown. | The Name and Description fields show the typed text; the Provider dropdown shows the mock provider selected (the disabled "No provider" placeholder is gone); the Model dropdown is enabled and shows the chosen model; the Create/Save button (`save-agent-btn`) is now **enabled**. |
 | 5 | Click **Create/Save** (`save-agent-btn`). | The save succeeds (no error flash). The editor settles into edit mode for the new agent (the button reads "Save" and is disabled again — no unsaved changes). |
@@ -82,7 +82,7 @@ hard reload) so a stale in-memory list can't mask the mutation.
 
 ## Out of Scope
 
-- Provider configuration / the Admin providers surface — the mock provider is a seeded
+- Provider configuration / the Settings › LLM Providers surface — the mock provider is a seeded
   precondition, not under test here (covered by the system/provider browser lane).
 - The other agent-editor tabs' content (Knowledge stub, MCPs, Built-in Tools) — this flow
   only drives the General tab.

@@ -767,6 +767,36 @@ def test_selected_row_meta_passes_body_aa(theme: str, bg_key: str) -> None:
     )
 
 
+@pytest.mark.parametrize("theme", THEMES)
+def test_rail_label_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F2 L6: every text-on-surface pair the rail paints clears body AA (the
+    10px labels are small text): --fg-secondary on --surface at rest, --fg on
+    --surface-elevated on hover, and --fg on the composited --accent-translucent
+    wash over --surface when current."""
+    palette = _palette(theme)
+    wash = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], palette["surface"])
+    pairs = {
+        "rest (fg_secondary on surface)": (palette["fg_secondary"], palette["surface"]),
+        "hover (fg on surface_elevated)": (palette["fg"], palette["surface_elevated"]),
+        "current (fg on wash over surface)": (palette["fg"], wash),
+    }
+    for name, (ink, ground) in pairs.items():
+        ratio = contrast_ratio(ink, ground)
+        assert ratio >= 4.5, f"{theme} rail {name} = {ratio:.2f}:1 (need >= 4.5:1)"
+
+
+def test_rail_rules_consume_the_gated_pairs() -> None:
+    """The rail CSS paints exactly the pairs the test above gates (a rule that
+    drifts to an ungated token fails here)."""
+    rest = " ".join(_rule_bodies("components.css", ".ui-rail-item"))
+    assert "background: transparent" in rest and "color: var(--fg-secondary)" in rest, rest
+    assert "background: var(--surface)" in " ".join(_rule_bodies("components.css", ".ui-rail"))
+    hover = " ".join(_rule_bodies("components.css", ".ui-rail-item:hover"))
+    assert "background: var(--surface-elevated)" in hover and "color: var(--fg)" in hover, hover
+    cur = " ".join(_rule_bodies("components.css", '.ui-rail-item[aria-current="page"]'))
+    assert "background: var(--accent-translucent)" in cur and "color: var(--fg)" in cur, cur
+
+
 @pytest.mark.parametrize("kind", ("approved", "dismissed"))
 def test_badge_semantic_kinds_sit_on_the_gated_ladder(kind: str) -> None:
     """`.badge--approved` / `.badge--dismissed` paint --fg / --fg-secondary on

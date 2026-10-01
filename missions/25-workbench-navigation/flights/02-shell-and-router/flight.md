@@ -1,6 +1,6 @@
 # Flight: Shell and Router
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -700,7 +700,13 @@ Verified against `fe595cc` by the Flight-2 survey, then re-checked by the Archit
 2. **`confirm-dialog-native`.** `App.ui.modal` with the full factory checklist;
    `App.confirmDialog` as an adapter; the pinned-test dispositions; the DD8 checks run
    against the real wrapper. This leg is independent of the router.
-3. **`router-and-redirects`.**
+3. **`router-core` + `item-history-and-exact-rendering`** (split at leg design, 2026-10-01;
+   see the leg artifacts). The text below is the original single-leg plan, kept for
+   context. The live split is: router-core with the `replaceSub` → `sync` shim, then the
+   per-call-path migration. The **interim guard** is widened: the area's `confirmLeave`
+   runs on **every** `go()` unless `bypassGuard`, and on every traversal, and the in-area
+   section-nav and `setCategory` gates are deleted, so no path prompts twice.
+   **`router-and-redirects`** (original plan):
    - `router.js`, with `go` and `sync`, the destination table, the route builder, the
      redirect table, history seq stamps, popstate authority and rail-restore href state.
    - **Interim guard.** Until leg 4's `App.nav` lands, the router calls the existing area
@@ -734,16 +740,18 @@ Verified against `fe595cc` by the Flight-2 survey, then re-checked by the Archit
 
 ### Checkpoints
 
-- [ ] Four flakes fixed; every navigating test on `_nav.py`; lanes re-mapped; green (L1)
-- [ ] `App.ui.modal`; confirm on native `<dialog>`; dispositions done; DD8 checks pass on
+- [x] Four flakes fixed; every navigating test on `_nav.py`; lanes re-mapped; green (L1)
+- [x] `App.ui.modal`; confirm on native `<dialog>`; dispositions done; DD8 checks pass on
   the real wrapper in both engines (L2)
-- [ ] Router with `go`/`sync`, redirects and seq history; Agents→Library→Chats→Library
-  regression passes; 0082 closed (L3)
-- [ ] Every path guarded; Continue tears down; Stay restores URL and focus (L4)
-- [ ] Rail replaces the top bar; aside collapses on Agents; usable at 1024px (L5)
-- [ ] `App.store` for agents and providers; no in-place cache mutation; failures not
+- [x] Router with `go`/`sync`, redirects and seq history; Agents→Library→Chats→Library
+  regression passes; 0082 closed (L3 `router-core`)
+- [x] Every URL-writing call path dispositioned; item opens push; exact rendering; shim
+  deleted (L4 `item-history-and-exact-rendering`)
+- [x] Every path guarded; Continue tears down; Stay restores URL and focus (L4)
+- [x] Rail replaces the top bar; aside collapses on Agents; usable at 1024px (L5)
+- [x] `App.store` for agents and providers; no in-place cache mutation; failures not
   cached (L6)
-- [ ] Specs run and pass; full lanes green (L7)
+- [x] Specs run and pass; full lanes green (L7)
 
 ### Adaptation Criteria
 
@@ -769,22 +777,26 @@ Verified against `fe595cc` by the Flight-2 survey, then re-checked by the Archit
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created
 > one at a time as the flight progresses.
 
-- [ ] `test-navigation-helper` - Fix the four recurring lane flakes; `tests/browser/_nav.py`;
+- [x] `test-navigation-helper` - Fix the four recurring lane flakes; `tests/browser/_nav.py`;
   migrate every navigating browser test; legacy-URL set; lanes re-mapped with aliases;
   docs.
-- [ ] `confirm-dialog-native` - `App.ui.modal` (factory checklist); `App.confirmDialog`
+- [x] `confirm-dialog-native` - `App.ui.modal` (factory checklist); `App.confirmDialog`
   adapter on native `<dialog>`; pinned-test dispositions; DD8 checks on the real wrapper.
-- [ ] `router-and-redirects` - `router.js` (`go`/`sync`, destination table, route builder,
-  redirect table, seq history, popstate, rail-restore state); studio.js alias changes;
-  `replaceSub` → `sync`; interim four-button top bar; helper flip; pinned routing tests;
-  squawk 0082.
-- [ ] `unified-leave-guard` - `nav.js` (per-area sources, teardown discard, single-flight,
+- [x] `router-core` - `router.js` (tables, scheme, redirects, `go`/`sync`, seq history,
+  popstate, boot rules); `app.js` driven by the router; studio (a)–(c); the interim guard
+  on every `go()` and traversal, with the in-area gates deleted; shell bits; the
+  deprecated `replaceSub` shim over `sync` (closes 0082); the `_nav` flip and test
+  migrations. Split from `router-and-redirects` at its design review.
+- [x] `item-history-and-exact-rendering` - a per-call-path disposition table (about 40
+  rows); item opens push; section-root exact rendering; dead ids; Chats row → `go()`;
+  links and the MCP tab; the shim deleted.
+- [x] `unified-leave-guard` - `nav.js` (per-area sources, teardown discard, single-flight,
   focus rules); link interceptor; `beforeunload`; gate copies removed.
-- [ ] `rail-and-shell` - `App.ui.rail` and its icons; top bar removed; grid; aside
+- [x] `rail-and-shell` - `App.ui.rail` and its icons; top bar removed; grid; aside
   collapse and labels; widths; `.visually-hidden` lift; copy updates; inventory and demo.
-- [ ] `client-data-store` - `store.js` for agents and providers (copies, load state,
+- [x] `client-data-store` - `store.js` for agents and providers (copies, load state,
   invalidation map); consumers migrated.
-- [ ] `behavior-specs-and-close` - `shell-navigation-smoke` updated, `workbench-navigation`
+- [x] `behavior-specs-and-close` - `shell-navigation-smoke` updated, `workbench-navigation`
   authored; spec texts; runs (both themes); flight-close verification.
 
 ---
@@ -793,18 +805,18 @@ Verified against `fe595cc` by the Flight-2 survey, then re-checked by the Archit
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged to `main` (after #217; the operator merges)
-- [ ] Tests passing: `make lint`, `make test-unit`, all five lanes, library contract tests
+- [x] Tests passing: `make lint`, `make test-unit`, all five lanes, library contract tests
   in both engines
-- [ ] Documentation updated:
+- [x] Documentation updated:
   - `CLAUDE.md` (lanes, routes, shell)
   - `the_one/agents.md` (router, leave guard, store, rail, modal; hash-format section
     rewritten)
   - `docs/ui-testid-registry.md`
   - `docs/ui-control-inventory.md`
   - `tests/HAT.md` route references
-- [ ] Squawk 0082 closed in the flight commit
+- [x] Squawk 0082 closed in the flight commit
 
 ### Verification
 

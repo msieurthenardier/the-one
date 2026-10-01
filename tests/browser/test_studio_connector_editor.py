@@ -13,13 +13,14 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
 def test_studio_connectors_empty_grid_shows_cta(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#studio/connectors")
+    _nav.goto_settled(page, app_clean, "library/connectors")
     page.wait_for_selector(".area-studio .page-title", timeout=8000)
     assert page.locator(".area-studio .page-title").text_content().strip() == "Connectors"
     expect(page.locator('[data-testid="new-connector-btn"]')).to_be_visible()
@@ -32,7 +33,7 @@ def test_studio_create_connector_shows_masked_token_on_redisplay(
     """Create a connector with a real token; after save, the token field
     redisplays the MASKED shape, never the plaintext — the same contract
     `tests/test_api_secret_mask_roundtrip.py` pins at the API layer."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
 
     save_btn = page.locator('[data-testid="save-connector-btn"]')
@@ -74,7 +75,7 @@ def test_studio_connector_doctor_reports_plugin_failure_without_token(
     discord-typed connector, asserting the failed status + message SHAPE
     (not exact prose) per the leg's design.
     """
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     page.locator('[data-field="name"]').fill("Doctor Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
@@ -96,7 +97,7 @@ def test_studio_connector_create_form_shows_no_status_led(
     """Squawk 0045, pinned decision #1: the auto-probe (and its LED) is an
     edit-mode-only affordance — there is nothing to probe until the
     connector exists, so the create form must not render the LED at all."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
@@ -113,7 +114,7 @@ def test_studio_connector_status_led_reflects_doctor_result_on_open(
     deterministically fails doctor (same plugin behavior the existing
     manual-doctor test pins), which maps to the `indicator-led--danger`
     state and a non-empty accessible label."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     page.locator('[data-field="name"]').fill("LED Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
@@ -140,7 +141,7 @@ def test_studio_connector_enabled_checkbox_default_checked_and_persists(
     """AC-10 (Mission 23 Flight 3 Leg 2, DD-6): Enabled checkbox defaults to
     checked; saving without touching it omits ``config.enabled`` (sparse-
     config pattern) — reopening the saved connector shows it still checked."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     page.locator('[data-field="name"]').fill("Enabled Default Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
@@ -164,7 +165,7 @@ def test_studio_connector_enabled_checkbox_unchecked_persists_disabled(
     """Unchecking the Enabled checkbox saves ``enabled: false``; editing a
     disabled connector shows it unchecked (the checked-state trap: the
     render must key off ``!== false``, never a truthy check)."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     page.locator('[data-field="name"]').fill("Disabled Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
@@ -181,7 +182,7 @@ def test_studio_connector_enabled_checkbox_unchecked_persists_disabled(
 
 @pytest.mark.browser
 def test_studio_connector_pairing_code_generation(app_with_agent: SeededApp, page: Page) -> None:
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     page.locator('[data-field="name"]').fill("Pairing Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
@@ -202,7 +203,7 @@ def test_studio_connector_pairing_code_is_selectable_and_copyable(
     """Squawk 0043: the generated code must land in its own element (not
     fused into the surrounding "Code: ... (expires ...)" prose, which the
     operator could not select/copy) and carry a labelled copy affordance."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     page.locator('[data-field="name"]').fill("Copyable Pairing Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
@@ -238,7 +239,7 @@ def test_studio_connector_setup_steps_shown_per_type(app_with_agent: SeededApp, 
     mode) — plus a plain-text reference naming the full walkthrough doc's
     path (not a link: only `/static` is mounted, so an `<a href="docs/...">`
     would 404 — see squawk 0046's Corrective Action)."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
@@ -272,7 +273,7 @@ def test_delete_connector_confirm_lapse_is_visually_distinct(
     """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Danger Zone
     connector-delete confirm (`connector-editor.js:599`) is distinguishable
     on screen from one that was never armed, past the real 3s `revertMs`."""
-    page.goto(f"{app_with_agent.base_url}#studio/connectors")
+    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
     page.locator('[data-testid="new-connector-btn"]').click()
     page.locator('[data-field="name"]').fill("Lapse Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)

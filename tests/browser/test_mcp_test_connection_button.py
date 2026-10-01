@@ -23,6 +23,7 @@ import json
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
@@ -50,7 +51,7 @@ def test_test_connection_button_visible_for_streamable_http_edit_mode(
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # F9 L1: Refresh-connection button visible in edit-mode for streamable-http.
@@ -77,7 +78,7 @@ def test_test_connection_button_visible_for_streamable_http_edit_mode(
 @pytest.mark.browser
 def test_test_connection_button_absent_in_create_mode(app_clean: str, page: Page) -> None:
     """Test button is NOT rendered in create-mode (source has no id yet)."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Test button must NOT appear in create-mode.
@@ -107,7 +108,7 @@ def test_test_connection_button_present_for_stdio_source(app_clean: str, page: P
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # F9 L2 D1: Refresh button visible for stdio sources too.
@@ -169,7 +170,7 @@ def test_test_connection_button_click_shows_result(app_clean: str, page: Page) -
         },
     )
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(test_btn).to_be_visible(timeout=8000)
 
@@ -284,7 +285,7 @@ def test_capability_flags_render_for_announced_capabilities(app_clean: str, page
 
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
@@ -348,7 +349,7 @@ def test_input_schema_renders_pretty_json_in_tool_body(app_clean: str, page: Pag
 
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="mcp-test-connection"]').click()
@@ -407,7 +408,7 @@ def test_empty_input_schema_does_not_render_schema_details(app_clean: str, page:
 
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
 
-    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="mcp-test-connection"]').click()

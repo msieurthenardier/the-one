@@ -1,17 +1,18 @@
 """End-to-end flow test: first-start provider setup.
 
 Drives a real Chromium session through the empty-DB onboarding flow:
-- Welcome canvas guidance points to Settings + Agent Studio (no providers yet)
+- Welcome canvas guidance points to Settings + Agents (no providers yet)
 - Navigate to Admin → LLM Providers
 - Add a mock provider via the form
 - Verify it appears in the list with a mock badge
 - Edit it, click Test Connection, see success
-- Navigate back to Chat, welcome guidance now points only to Agent Studio
+- Navigate back to Chat, welcome guidance now points only to Agents
 """
 
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page, expect
 
 # History (M08 F4 → M17 F1 → M17 F3): this module was skipped as "hangs, root
@@ -29,15 +30,15 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     base_url = app_clean
 
     # 1. Open app (defaults to #chat). Welcome canvas guidance shows the
-    #    full setup path: Settings + Agent Studio.
+    #    full setup path: Settings + Agents.
     page.goto(base_url)
     welcome_guidance = page.locator(".chat-welcome-guidance")
     expect(welcome_guidance).to_be_visible(timeout=5000)
     expect(welcome_guidance).to_contain_text("Settings")
-    expect(welcome_guidance).to_contain_text("Agent Studio")
+    expect(welcome_guidance).to_contain_text("Agents")
 
     # 2. Navigate to Admin → LLM Providers.
-    page.goto(f"{base_url}#admin")
+    _nav.goto(page, base_url, "settings")
     page.locator(".section-nav-item", has_text="LLM Providers").click()
 
     # 3. Click the unified header CTA (+ New Provider). It is visible even
@@ -74,7 +75,7 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
 
     # 12. Navigate back to Chat. Welcome guidance now reflects the next setup
     #     gap (provider exists, agent does not).
-    page.goto(f"{base_url}#chat")
+    _nav.goto(page, base_url, "chats")
     expect(welcome_guidance).to_be_visible(timeout=5000)
-    expect(welcome_guidance).to_contain_text("Agent Studio")
+    expect(welcome_guidance).to_contain_text("Agents")
     expect(welcome_guidance).not_to_contain_text("Settings")

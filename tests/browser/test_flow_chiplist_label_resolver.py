@@ -26,6 +26,7 @@ Covers both cross-area consumers of the fix:
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from browser._a11y_resolvers import assert_controls_labelled_and_described
 from playwright.sync_api import Page, expect
 
@@ -58,7 +59,7 @@ def test_admin_tools_editor_chiplist_labels_resolve(app_clean: str, page: Page) 
     """The admin tools-editor's WebConfig array fields (``host_allowlist`` et al.)
     render chip-lists via the shared ``renderField``; each ``label[for=tef-{name}]``
     must resolve to the real ``.chip-list-input`` in the mounted tree."""
-    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     # The three WebConfig array fields render as chip-lists.
     for fname in ("host_allowlist", "host_denylist", "extra_allowed_hosts"):
@@ -78,7 +79,7 @@ def test_mcp_server_editor_chiplist_labels_resolve(app_clean: str, page: Page) -
     targeted a placeholder ``<div id="mf-{name}">`` that ``mountChipListEditors``
     replaces via ``outerHTML=``. Post-fix, ``controlId`` lands the id on the real
     ``.chip-list-input`` and the placeholder div carries no id."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    _nav.goto(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
     # Stdio exposes the args + sandbox-writable-paths chip-lists.
     page.locator('[data-field="type"]').select_option("stdio")

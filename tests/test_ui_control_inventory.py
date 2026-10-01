@@ -91,7 +91,7 @@ _RAW_CONTROL = re.compile(
 
 
 def test_library_sections_exist() -> None:
-    assert len(LIBRARY_SECTIONS) == 6
+    assert len(LIBRARY_SECTIONS) == 7
 
 
 @pytest.mark.parametrize("path", LIBRARY_SECTIONS, ids=lambda p: p.name)

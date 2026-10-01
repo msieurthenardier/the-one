@@ -95,14 +95,8 @@ KNOWN_DEAD_SELECTORS: set[str] = set()
 #    sites are exempt and not recorded.
 #    ─────────────────────────────────────────────────────────────────────────
 DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
-    "app.js": [
-        "topbar.innerHTML = '<div class=\"app-brand\">' + '<img src=\"/static/brand/topbar-i",
-    ],
     "areas/admin/design-language/markdown-section.js": [
         "' host.innerHTML = \\'<p>hello design language</p>\\';', ' }', '};', '```', '', 'A",
-    ],
-    "areas/admin/design-language/modal-section.js": [
-        "host.innerHTML = // --- Static dialog preview (no backdrop) --- '<div style=\"dis",
     ],
     "areas/admin/design-language/status-section.js": [
         "host.innerHTML = // --- badges (provider / tool category) --- // Per-badge ink (",

@@ -22,6 +22,7 @@ from __future__ import annotations
 import urllib.parse
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -43,14 +44,12 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     waits for the deep-linked tab's `aria-selected="true"` before returning,
     avoiding the race with the L5 async editor-mount wrapper.
     """
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     # If the URL hash deep-links into an agent (`#studio/agents/<name>...`),
     # the editor mount is already in flight via the async wrapper — wait for
     # it to complete instead of clicking a tile (the tile becomes hidden
     # the moment the editor renders, racing the click).
-    deep_linked = page.evaluate("() => /^#?studio\\/agents\\/[^/]/i.test(location.hash)")
+    deep_linked = _nav.current_route(page).startswith("agents/")
     if not deep_linked:
         editor_hidden = page.evaluate(
             "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
@@ -75,7 +74,7 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
     subsystem and removed it.)
     """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     tablist = page.locator('[role="tablist"]')
@@ -101,12 +100,11 @@ def test_default_tab_is_general_on_select(app_with_agent: SeededApp, page: Page)
     """Selecting an agent activates General; URL upgrades to .../general."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
-    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/general"
-    assert page.evaluate("location.hash") == expected
-
+    expected = f"agents/{_nav.seg(agent_name)}/general"
+    _nav.expect_route(page, expected)
     # General tab content is mounted (form fields visible).
     expect(page.locator('[data-field="description"]')).to_be_visible()
 
@@ -115,11 +113,10 @@ def test_default_tab_is_general_on_select(app_with_agent: SeededApp, page: Page)
 def test_arrow_keys_move_focus_only(app_with_agent: SeededApp, page: Page) -> None:
     """Arrow Left/Right move focus + visual highlight only; URL stays."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
-    initial_hash = page.evaluate("location.hash")
-
+    initial_route = _nav.current_route(page)
     # Focus the General tab.
     page.locator('[data-testid="tab-general"]').focus()
 
@@ -129,8 +126,7 @@ def test_arrow_keys_move_focus_only(app_with_agent: SeededApp, page: Page) -> No
     assert focused_id == "agent-tab-knowledge"
 
     # URL unchanged.
-    assert page.evaluate("location.hash") == initial_hash
-
+    _nav.expect_route(page, initial_route)
     # aria-selected unchanged (still General).
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
@@ -143,7 +139,7 @@ def test_enter_commits_focused_tab(app_with_agent: SeededApp, page: Page) -> Non
     """Enter on a focused tab commits — URL updates, aria-selected toggles."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     # Move focus to Knowledge then Enter.
@@ -151,9 +147,8 @@ def test_enter_commits_focused_tab(app_with_agent: SeededApp, page: Page) -> Non
     page.keyboard.press("ArrowRight")
     page.keyboard.press("Enter")
 
-    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
-    assert page.evaluate("location.hash") == expected
-
+    expected = f"agents/{_nav.seg(agent_name)}/knowledge"
+    _nav.expect_route(page, expected)
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "false")
 
@@ -170,7 +165,7 @@ def test_enter_commits_focused_tab(app_with_agent: SeededApp, page: Page) -> Non
 def test_home_end_jump_to_first_last(app_with_agent: SeededApp, page: Page) -> None:
     """Home/End jump focus to first/last tab (without committing)."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     page.locator('[data-testid="tab-general"]').focus()
@@ -189,13 +184,13 @@ def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
     """Clicking a tab commits — URL updates and panel becomes visible."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     page.locator('[data-testid="tab-tools"]').click()
 
-    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/tools"
-    assert page.evaluate("location.hash") == expected
+    expected = f"agents/{_nav.seg(agent_name)}/tools"
+    _nav.expect_route(page, expected)
     # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
     # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
     # the pill visual (.tool-switch). Assert the visible pill instead.
@@ -207,9 +202,11 @@ def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page
     """Refresh on /knowledge URL returns the user to the Knowledge tab."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
+    # legacy URL on purpose (AC6)
     target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
     page.goto(target)
     _wait_editor_ready(page, expected_tab="knowledge")
+    _nav.expect_route(page, f"agents/{_nav.seg(agent_name)}/knowledge")
 
     expect(page.locator('[data-testid="agent-knowledge-tab"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("aria-selected", "true")
@@ -220,8 +217,7 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
     """Refresh on /tools URL returns the user to the Built-in Tools tab."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
-    target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/tools"
-    page.goto(target)
+    _nav.goto(page, base_url, f"agents/{_nav.seg(agent_name)}/tools")
     _wait_editor_ready(page, expected_tab="tools")
 
     # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
@@ -235,7 +231,7 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
 def test_tools_tab_renders_builtin_checkboxes(app_with_agent: SeededApp, page: Page) -> None:
     """Tools tab contains built-in tool checkboxes; interactive."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     page.locator('[data-testid="tab-tools"]').click()
@@ -257,7 +253,7 @@ def test_knowledge_tab_renders_attach_surface(app_with_agent: SeededApp, page: P
     siblings above already establish as the pattern.
     """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     page.locator('[data-testid="tab-knowledge"]').click()
@@ -280,7 +276,7 @@ def test_advanced_section_visible_with_disabled_inputs(
 ) -> None:
     """Advanced section: visible disclosure, three disabled inputs, caption."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     advanced = page.locator('[data-testid="advanced-collapsible"]')
@@ -304,7 +300,7 @@ def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> No
     (the agent has a provider_config_id) since it's seeded.
     """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     test_btn = page.locator('[data-testid="test-provider-btn"]')
@@ -334,7 +330,7 @@ def test_retention_days_input_renders_above_max_iterations(
       (compareDocumentPosition idiom — see test_flow_studio_mcp_editor.py).
     """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     retention_input = page.locator('[data-field="chat_history_retention_days"]')

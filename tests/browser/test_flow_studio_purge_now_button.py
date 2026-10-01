@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -29,9 +30,7 @@ def _wait_editor_ready(page: Page) -> None:
     click the first tile to mount the editor, then wait for the General tab to
     be active (handles the L5 async editor-mount race).
     """
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
@@ -47,7 +46,7 @@ def _wait_editor_ready(page: Page) -> None:
 def test_purge_button_present_in_danger_zone(app_with_agent: SeededApp, page: Page) -> None:
     """Purge-now button renders in the Danger Zone, distinct from Delete Agent."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     purge_btn = page.locator('[data-testid="purge-history-btn"]')
@@ -81,7 +80,7 @@ def test_purge_button_arms_on_single_click(app_with_agent: SeededApp, page: Page
     fire -> history-gone flow is the behavior test's responsibility.
     """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     purge_btn = page.locator('[data-testid="purge-history-btn"]')
@@ -108,7 +107,7 @@ def test_purge_button_confirm_lapse_is_visually_distinct(
     test only exercises the timeout path, which never reaches `onConfirm`
     at all."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     purge_btn = page.locator('[data-testid="purge-history-btn"]')

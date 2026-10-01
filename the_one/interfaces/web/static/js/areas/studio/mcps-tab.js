@@ -37,13 +37,9 @@
     var fetchMcpSourceTools = callbacks.fetchMcpSourceTools;
     var onChange = callbacks.onChange || function () {};
     var onSelectedSourceChange = callbacks.onSelectedSourceChange || function () {};
-    var pendingSourceId = callbacks.pendingSourceId || _parseSourceIdFromHash();
-
-    // Remove stale hashchange listener if any.
-    if (panel._mcpsTabHashHandler) {
-      window.removeEventListener('hashchange', panel._mcpsTabHashHandler);
-      panel._mcpsTabHashHandler = null;
-    }
+    // The focused source is owned by studio (its hydrateState applies the
+    // URL's value); the tab never parses the URL itself.
+    var pendingSourceId = callbacks.pendingSourceId || null;
 
     if (!allSources || allSources.length === 0) {
       _renderEmptyState(panel);
@@ -53,17 +49,6 @@
     _renderSourcesList(panel, agent, allSources, fetchMcpSourceTools,
       onChange, onSelectedSourceChange, pendingSourceId);
 
-    // Hash-change listener: re-renders when operator deep-links/back-navigates.
-    function onHashChange() {
-      renderMcpsTab(panel, agent, allSources, {
-        fetchMcpSourceTools: fetchMcpSourceTools,
-        onChange: onChange,
-        onSelectedSourceChange: onSelectedSourceChange
-        // pendingSourceId omitted — re-parsed from hash on next render.
-      });
-    }
-    window.addEventListener('hashchange', onHashChange);
-    panel._mcpsTabHashHandler = onHashChange;
   }
 
   // ── Empty state ───────────────────────────────────────────────────────────
@@ -72,8 +57,11 @@
     var div = document.createElement('div');
     div.className = 'mcp-empty-state';
     div.setAttribute('data-testid', 'mcp-empty-state');
-    div.innerHTML = 'No MCP sources registered yet. ' +
-      '<a href="#studio/mcp-sources">Add one in MCP Sources.</a>';
+    div.appendChild(document.createTextNode('No MCP sources registered yet. '));
+    var addLink = document.createElement('a');
+    addLink.href = App.router.href({ destination: 'library', section: 'mcp' });
+    addLink.textContent = 'Add one in the Library.';
+    div.appendChild(addLink);
     panel.appendChild(div);
   }
 
@@ -587,7 +575,7 @@
     notice.setAttribute('data-testid', 'mcp-auth-required-notice-' + sourceId);
     notice.textContent = '“' + sourceName + '” needs Test/auth on the source-edit page first. ';
     var link = document.createElement('a');
-    link.href = '#studio/mcp-sources/' + encodeURIComponent(sourceId);
+    link.href = App.router.href({ destination: 'library', section: 'mcp', id: sourceId });
     link.textContent = 'Go to source settings';
     link.setAttribute('data-testid', 'mcp-auth-required-link-' + sourceId);
     notice.appendChild(link);
@@ -600,17 +588,6 @@
     var sourceIds = agent.mcp_source_ids || [];
     for (var i = 0; i < sourceIds.length; i++) ids[sourceIds[i]] = true;
     return ids;
-  }
-
-  function _parseSourceIdFromHash() {
-    var hash = window.location.hash;
-    if (hash.charAt(0) === '#') hash = hash.slice(1);
-    var mcpsIdx = hash.indexOf('/mcps/');
-    if (mcpsIdx === -1) return null;
-    var afterMcps = hash.slice(mcpsIdx + '/mcps/'.length);
-    if (!afterMcps) return null;
-    if (afterMcps.charAt(afterMcps.length - 1) === '/') afterMcps = afterMcps.slice(0, -1);
-    return afterMcps ? decodeURIComponent(afterMcps) : null;
   }
 
   function _slugify(name) {

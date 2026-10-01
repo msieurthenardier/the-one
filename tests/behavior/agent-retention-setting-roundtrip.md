@@ -47,7 +47,7 @@ value is refused at the surface they interact with.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Open `http://localhost:8484/`, navigate to Agent Studio, and open an existing agent's editor on the General tab. | The General tab renders. A "Behavior" section is visible containing a chat-history retention input (a number field) **positioned above** the Max Iterations input. The retention input shows an integer value within 1–365 (a freshly-migrated agent shows `30`). |
+| 1 | Open `http://localhost:8484/`, click the rail's "Agents" link, and open an existing agent's editor on the General tab. | The General tab renders. A "Behavior" section is visible containing a chat-history retention input (a number field) **positioned above** the Max Iterations input. The retention input shows an integer value within 1–365 (a freshly-migrated agent shows `30`). |
 | 2 | In the retention input, replace the value with `90`. Click Save. | A success indication appears (e.g. a "Saved" flash); no validation error is shown. |
 | 3 | Reload the page (full browser reload) and re-open the **same** agent's General tab. | The retention input shows `90` — the value survived the save and a fresh load from the server, confirming it persisted to storage (not just the in-memory form). Max Iterations is unchanged from its prior value. |
 | 4 | In the retention input, set the value to `400` (above the 365 maximum). Click Save. | The save is **rejected**: a validation error is surfaced in the editor (the error text references the retention field / an out-of-range condition). The agent is **not** updated to 400 — neither silently accepted nor clamped to 365. |

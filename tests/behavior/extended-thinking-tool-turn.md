@@ -48,7 +48,7 @@ is the acceptance gate for Mission 16's extended-thinking criterion.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Navigate the browser to the app chat area. Select (or create) the thinking-enabled Anthropic agent described in Preconditions. Start a new chat. | The chat area loads with the thinking-capable Anthropic agent active and an empty transcript. |
+| 1 | Navigate the browser to the Chats destination (rail "Chats", `#chats`). Select (or create) the thinking-enabled Anthropic agent described in Preconditions. Start a new chat. | The chat area loads with the thinking-capable Anthropic agent active and an empty transcript. |
 | 2 | (Setup) Confirm the agent's **Extended thinking** toggle is ON and a tool is enabled (via the agent/provider editor if needed). | (empty — setup only) |
 | 3 | Send a message that induces a single tool call and benefits from reasoning — e.g. a question the model must think through and then answer using the enabled tool (matched to that tool). | Within a reasonable time, the turn completes: an **answer bubble** is rendered, a **tool-call trace** appears for the turn, and **no error bubble** is shown. The turn's `done` fires. This completing at all is the primary witness — the tool round-trip is the follow-up turn, which the API rejects if thinking replay was wrong. |
 | 4 | Locate the thinking disclosure for that assistant turn. Expand it. | A collapsed-by-default **`Thinking` `<details>` disclosure** is present **with the turn's assistant output** (it renders interleaved per reasoning step on a multi-tool turn — Thinking→Tool→…→answer — not necessarily a single block above the answer); expanding it reveals non-empty reasoning text. `[a11y]` the disclosure is keyboard-focusable and toggles via Enter/Space — a native `<details>`/`<summary>` that is focusable satisfies this (native summary keyboard toggling is guaranteed by the HTML spec; empirical trusted-keypress actuation requires an apparatus with trusted-key injection, which goldfinch lacks). |
@@ -83,6 +83,6 @@ point. `[a11y]` marks the disclosure accessibility check.
 - **Plan provider (M19 F01):** input deltas — the agent uses an **Anthropic (Plan)**
   (`anthropic-plan`) provider that is connected (`oauth_active: true`, real Pro/Max sign-in)
   instead of the API-key provider; the "Anthropic API key stored" precondition is replaced by
-  "the plan provider shows connected in Administration". Everything else (steps, observables,
+  "the plan provider shows connected in Settings › LLM Providers". Everything else (steps, observables,
   expected results) is identical — this variant is the extended-thinking half of Mission 19's
   chat-parity criterion, run during the M19 F01 HAT session.

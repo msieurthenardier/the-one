@@ -408,6 +408,7 @@
           return r.json();
         })
         .then(function (updated) {
+          App.store.invalidate('providers');
           // Tokens are persisted server-side; refresh the local provider
           // reference in place (same object the orchestrator holds) and
           // DO NOT touch the form snapshot — no unsaved-changes trap.
@@ -430,6 +431,7 @@
           return r.json();
         })
         .then(function (updated) {
+          App.store.invalidate('providers');
           Object.assign(provider, updated);
           awaitingUrl = null;
           renderState();
@@ -784,6 +786,7 @@
           return r.json();
         })
         .then(function (updated) {
+          App.store.invalidate('providers');
           window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
           if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
           if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
@@ -901,6 +904,7 @@
         fetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
+            App.store.invalidate('providers');
             window.App.showFlash(container, 'Provider deleted');
             if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
           })

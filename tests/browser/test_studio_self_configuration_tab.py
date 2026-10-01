@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
@@ -29,7 +30,7 @@ def _seed_agent(base_url: str, name: str) -> dict:
 
 
 def _navigate_to_self_configuration_tab(page: Page, base_url: str, agent_name: str) -> None:
-    page.goto(f"{base_url}#studio/agents/{agent_name}/self-configuration")
+    _nav.goto(page, base_url, f"agents/{_nav.seg(agent_name)}/self-configuration")
     expect(page.locator('[data-testid="tab-self-configuration"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )

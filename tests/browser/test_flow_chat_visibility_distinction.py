@@ -37,6 +37,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from browser import _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -150,7 +151,7 @@ def test_chat_renders_operator_visibility_distinction(
 
     # Deep-link to the seeded session. The hash route triggers a WS join
     # which calls _restore_session → messages_to_ui_events → renderHistory.
-    page.goto(f"{base_url}#chat/sessions/{session_id}")
+    _nav.goto(page, base_url, f"chats/{_nav.seg(session_id)}")
 
     # Wait for the chat chrome (deep-link path renders straight into chrome).
     expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
@@ -288,7 +289,7 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
         messages_json=encoded,
     )
 
-    page.goto(f"{base_url}#chat/sessions/{session_id}")
+    _nav.goto(page, base_url, f"chats/{_nav.seg(session_id)}")
     expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
     expect(page.locator(".msg").first).to_be_visible(timeout=5000)
 

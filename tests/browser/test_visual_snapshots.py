@@ -47,6 +47,7 @@ import pytest
 Image = pytest.importorskip("PIL.Image")
 pixelmatch = pytest.importorskip("pixelmatch.contrib.PIL").pixelmatch
 
+from browser import _nav  # noqa: E402
 from browser.seeders import SeededApp  # noqa: E402
 from playwright.sync_api import Page, expect  # noqa: E402
 
@@ -221,7 +222,7 @@ def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, them
 def test_snapshot_studio_empty(app_with_provider: SeededApp, page: Page, theme: str) -> None:
     """Empty Studio — provider seeded, no agents yet."""
     page.set_viewport_size(VIEWPORT)
-    page.goto(f"{app_with_provider.base_url}#studio")
+    _nav.goto(page, app_with_provider.base_url, "agents")
     _set_theme(page, theme)
     expect(page.locator('[data-testid="agent-empty"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
@@ -233,7 +234,7 @@ def test_snapshot_studio_empty(app_with_provider: SeededApp, page: Page, theme: 
 def test_snapshot_studio_with_agent(app_with_agent: SeededApp, page: Page, theme: str) -> None:
     """Studio with one agent visible in sidebar."""
     page.set_viewport_size(VIEWPORT)
-    page.goto(f"{app_with_agent.base_url}#studio")
+    _nav.goto(page, app_with_agent.base_url, "agents")
     _set_theme(page, theme)
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(1, timeout=5000)
     _wait_for_render(page)
@@ -248,7 +249,7 @@ def test_snapshot_studio_with_agent(app_with_agent: SeededApp, page: Page, theme
 def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
     """Admin → LLM Providers, empty state (no providers seeded)."""
     page.set_viewport_size(VIEWPORT)
-    page.goto(f"{app_clean}#admin")
+    _nav.goto(page, app_clean, "settings")
     _set_theme(page, theme)
     page.locator(".section-nav-item", has_text="LLM Providers").click()
     expect(page.locator(".admin-provider-empty")).to_be_visible(timeout=5000)
@@ -261,7 +262,7 @@ def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
 def test_snapshot_admin_with_provider(app_with_provider: SeededApp, page: Page, theme: str) -> None:
     """Admin → LLM Providers with one mock provider card visible."""
     page.set_viewport_size(VIEWPORT)
-    page.goto(f"{app_with_provider.base_url}#admin")
+    _nav.goto(page, app_with_provider.base_url, "settings")
     _set_theme(page, theme)
     page.locator(".section-nav-item", has_text="LLM Providers").click()
     expect(page.locator('[data-testid="provider-card"]')).to_be_visible(timeout=5000)

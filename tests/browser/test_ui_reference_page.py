@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from browser._a11y_resolvers import assert_controls_labelled_and_described
 from browser.design_tokens import DARK, LIGHT
 from playwright.sync_api import Page, expect
@@ -38,7 +39,7 @@ def _hex_to_rgb(value: str) -> str:
 
 @pytest.fixture
 def reference_page(app_clean: str, page: Page) -> Page:
-    page.goto(f"{app_clean}#admin/design-language")
+    _nav.goto(page, app_clean, "settings/design-language")
     page.wait_for_selector("[data-ui-demo]")
     return page
 

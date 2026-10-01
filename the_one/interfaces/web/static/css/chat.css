@@ -303,26 +303,7 @@
     font-size: var(--font-size-tiny);
     color: var(--fg-tertiary);
   }
-  /* M11 F06 L04 a11y follow-up: visually-hidden utility — content exposed to
-     screen readers but not painted on screen. Used by .msg-from-peer-label
-     inside peer-attributed user bubbles so AT announces "From {peerName}: "
-     before the message body (WCAG 1.3.3 / 1.4.1 — color & position alone
-     cannot convey "who sent this"). Duplicated from admin.css:508 because
-     the SPA bundle currently loads both files, but the bare-class rule
-     belongs alongside the only chat-area consumer that depends on it; a
-     future a11y maintenance pass can lift this to base.css once a second
-     consumer surfaces. Standard sr-only pattern. */
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
+  /* .visually-hidden is a global utility defined once in components.css. */
   .area-chat .msg-attribution { font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-top: -6px; }
   .area-chat .msg-attribution.from-you { align-self: flex-end; }
   .area-chat .msg-attribution.from-agent { align-self: flex-start; }

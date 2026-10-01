@@ -2,7 +2,6 @@
   var areas = {};
   var order = [];
   var currentId = null;
-  var currentSub = null;
   var initialized = {};
 
   function registerArea(descriptor) {
@@ -11,91 +10,51 @@
     order.sort(function (a, b) { return a.order - b.order; });
   }
 
-  function renderTopBar() {
-    var topbar = document.getElementById('app-topbar');
-    // Build the area buttons by iterating registered areas in declared order.
-    // Each area becomes a flat top-bar button — direct-navigate, no popover.
-    // Active state is set in switchTo() via aria-current="page".
-    var buttonsHtml = '';
-    for (var i = 0; i < order.length; i++) {
-      var a = order[i];
-      // The Chat button gets a testid for browser-test targeting.
-      var extraAttrs = a.id === 'chat'
-        ? ' data-testid="nav-chat-btn"'
-        : '';
-      buttonsHtml +=
-        '<button class="app-picker-button" data-area="' + a.id + '" aria-label="Go to ' + a.label + '"' + extraAttrs + '>' +
-          '<span class="app-picker-button-icon">' + (a.icon || '') + '</span>' +
-          '<span class="app-picker-button-label">' + a.label + '</span>' +
-        '</button>';
+  // The workbench rail (M25 F2 L6): App.ui.rail mounted in #app-rail. The
+  // rail is plain <a href> links with no click handler: guarded navigation,
+  // modifier-click passthrough and restore all ride on App.nav's link
+  // interceptor. This keeps it in sync with the router on every commit: the
+  // current destination links to its root (clicking it resets to the root),
+  // every other destination to its last route (clicking it restores the item
+  // the user left). First-boot hrefs need no special case: lastRoute() falls
+  // back to the destination root.
+  function mountRail() {
+    var host = document.getElementById('app-rail');
+    var dests = App.router.destinations;
+    var items = [];
+    for (var i = 0; i < dests.length; i++) {
+      items.push({
+        id: dests[i].id,
+        label: dests[i].label,
+        icon: dests[i].iconKey,
+        href: '#' + App.router.lastRoute(dests[i].id),
+        testid: 'rail-' + dests[i].id
+      });
     }
-
-    // Brand lockup (M17 F3): set-type wordmark + compact mark. The <img>
-    // mark is decorative (aria-hidden, empty alt); the text carries the
-    // accessible name.
-    topbar.innerHTML =
-      '<div class="app-brand">' +
-        '<img src="/static/brand/topbar-icon-24.png" alt="" aria-hidden="true" class="app-brand-mark">' +
-        '<span class="app-brand-wordmark">GleepGlorp AI</span>' +
-      '</div>' +
-      '<div class="app-topbar-actions">' + buttonsHtml + '</div>';
-
-    // Wire each button to a direct hash navigation.
-    var buttons = topbar.querySelectorAll('.app-picker-button');
-    for (var j = 0; j < buttons.length; j++) {
-      (function (btn) {
-        var areaId = btn.dataset.area;
-        btn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          location.hash = areaId;
-        });
-      })(buttons[j]);
-    }
+    var rail = App.ui.rail({
+      items: items,
+      brand: { src: '/static/brand/topbar-icon-24.png', alt: 'GleepGlorp AI' }
+    });
+    host.textContent = '';
+    host.appendChild(rail.el);
+    App.router.onCommit(function (destId) {
+      rail.setCurrent(destId);
+      for (var k = 0; k < dests.length; k++) {
+        var route = dests[k].id === destId ? App.router.root(destId) : App.router.lastRoute(dests[k].id);
+        rail.setHref(dests[k].id, '#' + route);
+      }
+    });
   }
 
-  function parseHash(hashString) {
-    var raw = (hashString || '').replace(/^#/, '');
-    if (!raw) return { area: null, sub: null };
-    var slash = raw.indexOf('/');
-    if (slash === -1) return { area: raw, sub: null };
-    return { area: raw.slice(0, slash), sub: raw.slice(slash + 1) };
-  }
-
-  // Sync the URL hash with the area's serialized state when it diverges
-  // (e.g. user navigates to bare `#admin` and admin's default is `general`,
-  // so the URL should redirect to `#admin/general`). Called after hydrate
-  // in both same-area-sub-change and cross-area paths.
-  function syncUrlFromState(areaId, sub) {
-    if (typeof areas[areaId].serializeState !== 'function') return;
-    var serialized = areas[areaId].serializeState();
-    if (serialized && serialized !== sub) {
-      history.replaceState(null, '', '#' + areaId + '/' + serialized);
-      currentSub = serialized;
-    }
-  }
-
-  function switchTo(areaId, sub) {
-    if (!areas[areaId]) areaId = 'chat';
-    sub = (sub === undefined ? null : sub);
-
-    // Same-area sub-change: only hydrate
-    if (areaId === currentId && sub === currentSub) return;
-    if (areaId === currentId && sub !== currentSub) {
-      currentSub = sub;
-      if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
-      // After hydrate, let the area redirect bare `#admin` → `#admin/general`
-      // (or any other default-sub redirect) by syncing URL from serializeState.
-      syncUrlFromState(areaId, sub);
-      return;
-    }
-
-    // Cross-area navigation — optional `confirmLeave` hook on the outgoing
-    // area can defer/abort the transition. Used by admin to surface the
-    // dirty-editor confirm dialog before navigating away (covers topbar
-    // clicks AND browser back/forward AND direct hash typing). Areas
-    // without the hook proceed immediately. On abort, the hash is rolled
-    // back to the prior area's URL so the address bar stays consistent.
-    function performCrossAreaSwitch() {
+  // mountArea: the panel lifecycle only (commit-sequence step 6). The router
+  // decides WHAT to show; this makes the area module's panels the active ones.
+  // The module deactivates/activates only when the area module CHANGES, so
+  // Agents <-> Library (both studio) never re-activates it. The active content
+  // panel carries data-destination="<id>" (inactive panels have it removed),
+  // which is also the browser tests' readiness probe.
+  function mountArea(areaId, destinationId) {
+    var contentPanels = document.querySelectorAll('#main-content .content-panel');
+    if (areaId !== currentId) {
       App.perf.mark('area-switch:start');
       if (currentId && areas[currentId]) {
         areas[currentId].deactivate();
@@ -103,100 +62,57 @@
       App.perf.mark('area-switch:deactivated');
       App.perf.measure('area-switch.deactivate', 'area-switch:start', 'area-switch:deactivated');
 
-    // Hide all panels
-    var sidebarPanels = document.querySelectorAll('#app-sidebar .sidebar-panel');
-    var contentPanels = document.querySelectorAll('#main-content .content-panel');
-    for (var i = 0; i < sidebarPanels.length; i++) sidebarPanels[i].classList.remove('active');
-    for (var i = 0; i < contentPanels.length; i++) contentPanels[i].classList.remove('active');
+      // Hide all panels
+      var sidebarPanels = document.querySelectorAll('#app-sidebar .sidebar-panel');
+      var i;
+      for (i = 0; i < sidebarPanels.length; i++) sidebarPanels[i].classList.remove('active');
+      for (i = 0; i < contentPanels.length; i++) contentPanels[i].classList.remove('active');
 
-    // Init on first activation
-    if (!initialized[areaId]) {
-      var sidebarPanel = document.createElement('div');
-      sidebarPanel.className = 'sidebar-panel area-' + areaId;
-      document.getElementById('app-sidebar').appendChild(sidebarPanel);
+      // Init on first activation
+      if (!initialized[areaId]) {
+        var sidebarPanel = document.createElement('div');
+        sidebarPanel.className = 'sidebar-panel area-' + areaId;
+        document.getElementById('app-sidebar').appendChild(sidebarPanel);
 
-      var contentPanel = document.createElement('div');
-      contentPanel.className = 'content-panel area-' + areaId;
-      document.getElementById('main-content').appendChild(contentPanel);
+        var contentPanel = document.createElement('div');
+        contentPanel.className = 'content-panel area-' + areaId;
+        document.getElementById('main-content').appendChild(contentPanel);
 
-      areas[areaId].init(sidebarPanel, contentPanel);
-      initialized[areaId] = true;
+        areas[areaId].init(sidebarPanel, contentPanel);
+        initialized[areaId] = true;
+      }
+
+      // Show target panels
+      var targetSidebar = document.querySelector('#app-sidebar .area-' + areaId);
+      var targetContent = document.querySelector('#main-content .area-' + areaId);
+      if (targetSidebar) targetSidebar.classList.add('active');
+      if (targetContent) targetContent.classList.add('active');
     }
 
-    // Show target panels
-    var targetSidebar = document.querySelector('#app-sidebar .area-' + areaId);
-    var targetContent = document.querySelector('#main-content .area-' + areaId);
-    if (targetSidebar) targetSidebar.classList.add('active');
-    if (targetContent) targetContent.classList.add('active');
-
-    // Set aside aria-label for the active area
-    var asideEl = document.getElementById('app-sidebar');
-    var areaLabel = areas[areaId].sidebarLabel || (areas[areaId].label + ' sidebar');
-    asideEl.setAttribute('aria-label', areaLabel);
-
-    // Update top-bar button "you are here" state — each flat button gets
-    // aria-current="page" when its area is active, removed otherwise.
-    var topbarBtns = document.querySelectorAll('#app-topbar .app-picker-button');
-    for (var i = 0; i < topbarBtns.length; i++) {
-      if (topbarBtns[i].dataset.area === areaId) topbarBtns[i].setAttribute('aria-current', 'page');
-      else topbarBtns[i].removeAttribute('aria-current');
+    contentPanels = document.querySelectorAll('#main-content .content-panel');
+    for (var j = 0; j < contentPanels.length; j++) {
+      if (contentPanels[j].classList.contains('active')) {
+        contentPanels[j].setAttribute('data-destination', destinationId);
+      } else {
+        contentPanels[j].removeAttribute('data-destination');
+      }
     }
 
-    App.perf.mark('area-switch:activated');
-    App.perf.measure('area-switch.full', 'area-switch:start', 'area-switch:activated');
-
-    currentId = areaId;
-    currentSub = sub;
-    // Convention: activate() must refresh the area's data so changes made in
-    // other areas (e.g. adding a provider in Admin) are reflected immediately.
-    areas[areaId].activate();
-
-    if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
-
-    // If the area retained internal state across navigation (e.g. chat's
-    // currentSessionId after a studio side-trip), or has a default sub-state
-    // (admin's `general`), sync the URL hash from serializeState so the
-    // address bar reflects what's actually shown.
-    syncUrlFromState(areaId, sub);
-    }
-
-    // confirmLeave gate. Hook contract:
-    //   confirmLeave(proceed: () => void, abort: () => void): void
-    //   - Called BEFORE deactivating the outgoing area on cross-area
-    //     navigation. Clean: call proceed() immediately. Dirty: open
-    //     a confirm dialog; on user-confirm call proceed(), on user-
-    //     cancel call abort() (the gate restores the prior URL).
-    // Areas without the hook fall through to performCrossAreaSwitch().
-    if (currentId && areas[currentId] && typeof areas[currentId].confirmLeave === 'function') {
-      var priorHash = '#' + currentId + (currentSub ? '/' + currentSub : '');
-      areas[currentId].confirmLeave(
-        performCrossAreaSwitch,
-        function () {
-          // Roll back the URL. The triggering action (topbar click /
-          // browser back / hash typing) has already mutated location.hash;
-          // replaceState rewrites the current entry without firing
-          // hashchange (so we don't loop back into switchTo).
-          if (location.hash !== priorHash) {
-            history.replaceState(null, '', priorHash);
-          }
-        }
-      );
-    } else {
-      performCrossAreaSwitch();
+    if (areaId !== currentId) {
+      App.perf.mark('area-switch:activated');
+      App.perf.measure('area-switch.full', 'area-switch:start', 'area-switch:activated');
+      currentId = areaId;
+      // Convention: activate() must refresh the area's data so changes made in
+      // other areas (e.g. adding a provider in Settings) are reflected immediately.
+      areas[areaId].activate();
     }
   }
 
-  window.addEventListener('hashchange', function () {
-    var parsed = parseHash(location.hash);
-    if (!parsed.area || !areas[parsed.area]) return; // skip-link / unknown area
-    switchTo(parsed.area, parsed.sub);
-  });
-
   document.addEventListener('DOMContentLoaded', function () {
-    renderTopBar();
+    mountRail();
     // Boot-block on /api/config so window.App.config is populated before
     // any area.init() runs. Areas read App.config.dev_mode in their init
-    // closures (e.g. admin's sidebar categories list).
+    // closures (e.g. settings' category list).
     fetch('/api/config')
       .then(function (r) { return r.json(); })
       .then(function (config) {
@@ -212,9 +128,10 @@
         window.App.config = { dev_mode: false, version: 'unknown' };
       })
       .then(function () {
-        var parsed = parseHash(location.hash);
-        var area = (parsed.area && areas[parsed.area]) ? parsed.area : 'chat';
-        switchTo(area, parsed.sub);
+        App.router.start({
+          mountArea: mountArea,
+          getArea: function (id) { return areas[id] || null; }
+        });
       });
   });
 
@@ -297,22 +214,6 @@
     // (``areas: areas``) would mechanically fail. See flight log
     // ``Deviations`` for the rationale.
     areas: order,
-    router: {
-      parseHash: parseHash,
-      /**
-       * Update the URL sub-state without pushing history. Used by area code when
-       * the user navigates within an area (selects a different session/agent/category).
-       * The area is implicit (currentId) — only the sub portion is updated.
-       * Calling this does NOT fire hashchange (replaceState is silent), so it does
-       * not loop back through switchTo.
-       */
-      replaceSub: function (sub) {
-        if (!currentId) return;
-        var newHash = sub ? '#' + currentId + '/' + sub : '#' + currentId;
-        if (location.hash === newHash) return; // no-op
-        history.replaceState(null, '', newHash);
-      },
-    },
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
     safeUrl: safeUrl,

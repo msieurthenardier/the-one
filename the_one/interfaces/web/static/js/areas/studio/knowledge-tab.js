@@ -90,7 +90,7 @@
       });
       emptyEl.setAttribute('data-testid', 'agent-knowledge-empty-state');
       var link = document.createElement('a');
-      link.href = '#studio/knowledge';
+      link.href = App.router.href({ destination: 'library', section: 'knowledge' });
       link.textContent = 'Create one in Knowledge.';
       emptyEl.appendChild(link);
       root.appendChild(emptyEl);

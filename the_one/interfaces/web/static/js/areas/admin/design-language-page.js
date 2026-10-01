@@ -31,10 +31,10 @@
       { slug: 'uiFeedback',  title: 'Library: badges and empty states' },
       { slug: 'uiLists',     title: 'Library: list pane' },
       { slug: 'uiMenus',     title: 'Library: menu' },
+      { slug: 'uiModal',     title: 'Library: modal' },
       { slug: 'surfaces',    title: 'Surfaces' },
       { slug: 'status',      title: 'Status' },
       { slug: 'tabs',        title: 'Tabs' },
-      { slug: 'modal',       title: 'Modal' },
       { slug: 'markdown',    title: 'Markdown' }
     ];
 

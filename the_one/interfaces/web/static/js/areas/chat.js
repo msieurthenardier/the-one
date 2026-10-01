@@ -108,7 +108,9 @@ App.registerArea({
     // yet OPEN (e.g. during a brief reconnect cycle). Drained by the
     // session_list handler once the WS comes back up — takes priority over
     // the normal auto-join of the most-recent session.
-    var pendingStart = null; // { agentName: string|null }
+    var pendingStart = null; // { agentName: string|null, sent: boolean }
+    var pendingStartTimer = null; // bounded recovery for a new_session that never joins
+    var DEFAULT_START_JOIN_TIMEOUT_MS = 10000;
     var sessions = [];
     var currentAgentName = null;
     // M23 F02 L03 (behavior-test fix): the joined session's connector
@@ -401,26 +403,25 @@ App.registerArea({
       App.chat.renderWelcomeList(welcomeEl, welcomeListEl, availableAgents, setupState, { onStart: startSessionWith });
     }
 
-    function fetchAgents() {
-      return fetch('/api/agents').then(function (r) { return r.json(); }).then(function (agents) {
-        availableAgents = agents;
-        agentSelect.innerHTML = '';
-        if (agents.length === 0) {
-          agentSelect.innerHTML = '<option value="" disabled selected>No agents configured</option>';
-        } else {
-          // Disabled placeholder: hidden once an agent is set programmatically.
-          var placeholder = document.createElement('option');
-          placeholder.value = ''; placeholder.disabled = true; placeholder.textContent = 'Select agent…';
-          agentSelect.appendChild(placeholder);
-          for (var i = 0; i < agents.length; i++) {
-            var opt = document.createElement('option');
-            opt.value = agents[i].name; opt.textContent = agents[i].name;
-            agentSelect.appendChild(opt);
-          }
+    // Paint the agent <select> and the welcome list from an agents list.
+    function applyAgents(agents) {
+      availableAgents = agents;
+      agentSelect.innerHTML = '';
+      if (agents.length === 0) {
+        agentSelect.innerHTML = '<option value="" disabled selected>No agents configured</option>';
+      } else {
+        // Disabled placeholder: hidden once an agent is set programmatically.
+        var placeholder = document.createElement('option');
+        placeholder.value = ''; placeholder.disabled = true; placeholder.textContent = 'Select agent…';
+        agentSelect.appendChild(placeholder);
+        for (var i = 0; i < agents.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = agents[i].name; opt.textContent = agents[i].name;
+          agentSelect.appendChild(opt);
         }
-        syncDropdownToCurrent();
-        if (!welcomeEl.hidden) renderWelcome();
-      }).catch(function () { /* agents list is nice-to-have */ });
+      }
+      syncDropdownToCurrent();
+      if (!welcomeEl.hidden) renderWelcome();
     }
 
     function syncDropdownToCurrent() {
@@ -470,7 +471,8 @@ App.registerArea({
       // Record intent before sending so the WS reconnect path (session_list
       // handler) can honour it if the WS drops between the send and the
       // server's session_joined response. Cleared in session_joined handler.
-      pendingStart = { agentName: agentName || null };
+      clearPendingStartTimer();
+      pendingStart = { agentName: agentName || null, sent: false };
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         // WS is in a reconnect cycle — intent is queued; session_list handler
         // will drain it once the connection is restored (preempting auto-join).
@@ -483,10 +485,38 @@ App.registerArea({
         clearPendingQueued();
       }
       currentSessionId = null;
-      if (window.App && window.App.router) App.router.replaceSub(null);
+      if (window.App && window.App.router) App.router.sync('chat', null);
       var msg = { action: 'new_session' };
       if (agentName) msg.agent_name = agentName;
       ws.send(JSON.stringify(msg));
+      // Sent on an open socket: a session_list reply that lands before the
+      // session_joined must not re-send it (a duplicate session). onclose
+      // resets this so a dropped connection still re-drains.
+      pendingStart.sent = true;
+      armPendingStartTimer(pendingStart);
+    }
+
+    function clearPendingStartTimer() {
+      if (pendingStartTimer) { clearTimeout(pendingStartTimer); pendingStartTimer = null; }
+    }
+
+    // The protocol has no error frame for new_session, so a lost reply (the
+    // server never answers, the socket stays open) would leave `sent` true and
+    // block the re-drain until a reconnect. After a bounded wait, clear `sent`
+    // and ask for the session list again: its drain re-sends the new_session.
+    // `App.chatStartJoinTimeoutMs` overrides the wait (a test hook).
+    function armPendingStartTimer(intent) {
+      clearPendingStartTimer();
+      var ms = (window.App && typeof window.App.chatStartJoinTimeoutMs === 'number')
+        ? window.App.chatStartJoinTimeoutMs : DEFAULT_START_JOIN_TIMEOUT_MS;
+      pendingStartTimer = setTimeout(function () {
+        pendingStartTimer = null;
+        if (pendingStart !== intent || !intent.sent) return;
+        intent.sent = false;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: 'list_sessions' }));
+        }
+      }, ms);
     }
 
     function renderHistory(history, agentName) {
@@ -1011,15 +1041,19 @@ App.registerArea({
       inputEl.value = '';
     }
 
-    function checkSetupState() {
+    // One read per activation: agents + providers through App.store, deriving
+    // both the setup state and the agent list.  Errors are swallowed; on a
+    // failure the prior setup state is kept (never flips to "no setup").
+    function refreshAgentsAndSetup() {
       return Promise.all([
-        fetch('/api/providers').then(function (r) { return r.json(); }),
-        fetch('/api/agents').then(function (r) { return r.json(); })
+        App.store.get('providers', { force: true }),
+        App.store.get('agents', { force: true })
       ])
         .then(function (results) {
           setupState.hasProviders = results[0].length > 0;
           setupState.hasAgents = results[1].length > 0;
           setupIncomplete = !setupState.hasProviders || !setupState.hasAgents;
+          applyAgents(results[1]);
           // Refresh the welcome canvas so guidance tracks setupState changes.
           if (!currentSessionId && !welcomeEl.hidden) renderWelcome();
           // Setup-incomplete with no session → welcome canvas immediately.
@@ -1031,7 +1065,7 @@ App.registerArea({
     function setSessionHealth(status) {
       var msg = null;
       if (status === 'agent_deleted') msg = 'This agent has been deleted. Chat history is preserved but new messages cannot be sent.';
-      else if (status === 'provider_missing') msg = "This agent's provider is missing. Configure a provider in Studio to continue this conversation.";
+      else if (status === 'provider_missing') msg = "This agent's provider is missing. Add a provider in Settings to continue this conversation.";
       if (msg) {
         if (!sessionBannerEl) {
           sessionBannerEl = document.createElement('div');
@@ -1102,8 +1136,7 @@ App.registerArea({
       ws = new WebSocket(proto + '://' + location.host + '/ws');
 
       ws.onopen = function () {
-        checkSetupState()
-          .then(function () { return fetchAgents(); })
+        refreshAgentsAndSetup()
           .then(function () { ws.send(JSON.stringify({ action: 'list_sessions' })); });
       };
 
@@ -1111,6 +1144,10 @@ App.registerArea({
         // Drop "thinking…" + re-enable input so a mid-response disconnect doesn't
         // strand the UI; the auto-reconnect below brings the WS back.
         hideThinking();
+        // A new_session sent but not yet joined is lost with the socket — let the
+        // reconnect's session_list drain re-send it.
+        if (pendingStart) pendingStart.sent = false;
+        clearPendingStartTimer();
         // Disconnect drops every in-flight broadcast — clear both maps so neither
         // the one-slot queue guard nor the stop control get stuck after reconnect.
         for (var k in inFlightSessions) delete inFlightSessions[k];
@@ -1127,7 +1164,13 @@ App.registerArea({
         if (data.type === 'session_list') {
           sessions = data.sessions;
           var _sessionCallbacks = {
-            onJoin: joinSession,
+            // A session-row click is a user INTENT (M25 F2 L4): a pushed go()
+            // (Back returns to the previous session). The router's hydrate
+            // joins exactly once; this handler does not also call
+            // joinSession. session_joined only canonicalises (sync).
+            onJoin: function (id) {
+              App.router.go(App.router.href({ destination: 'chats', id: id }));
+            },
             onDelete: function (id, btn) {
               // Two-step confirm via the canonical App.confirmDelete helper
               // (F5 leg 02). WS delete is fire-and-forget so revertFn is
@@ -1149,11 +1192,17 @@ App.registerArea({
           // was reconnecting). Takes priority over pendingJoinId and
           // auto-join so the user's explicit "new chat / switch agent"
           // action is honoured after a brief reconnect.
+          if (pendingStart && pendingStart.sent) {
+            // The new_session is already in flight on this socket; its
+            // session_joined will land. No re-send and no auto-join (which
+            // would race the join).
+            return;
+          }
           if (pendingStart) {
             var startIntent = pendingStart;
             pendingStart = null;
             currentSessionId = null;
-            if (window.App && window.App.router) App.router.replaceSub(null);
+            if (window.App && window.App.router) App.router.sync('chat', null);
             var startMsg = { action: 'new_session' };
             if (startIntent.agentName) startMsg.agent_name = startIntent.agentName;
             ws.send(JSON.stringify(startMsg));
@@ -1181,10 +1230,11 @@ App.registerArea({
           // Clear the pending new-session intent: the intended session has
           // now joined successfully (either directly or after a WS reconnect).
           pendingStart = null;
+          clearPendingStartTimer();
           App.perf.mark('session-join:received');
           currentSessionId = data.session_id;
           if (window.App && window.App.router) {
-            App.router.replaceSub('sessions/' + currentSessionId);
+            App.router.sync('chat', 'sessions/' + currentSessionId);
           }
           currentAgentName = data.agent_name;
           // M23 F02 L03: capture the joined session's connector platform
@@ -1281,7 +1331,7 @@ App.registerArea({
             currentSessionId = null;
             currentAgentName = null;
             currentSessionPlatform = null;
-            if (window.App && window.App.router) App.router.replaceSub(null);
+            if (window.App && window.App.router) App.router.sync('chat', null);
             messagesEl.innerHTML = '';
             setSessionHealth('ok');
             syncDropdownToCurrent();
@@ -1613,8 +1663,7 @@ App.registerArea({
     var self = this;
     self._connect = connect;
     self._ws = function () { return ws; };
-    self._fetchAgents = fetchAgents;
-    self._checkSetupState = checkSetupState;
+    self._refreshAgentsAndSetup = refreshAgentsAndSetup;
     self._joinSession = function (id) { joinSession(id); };
     Object.defineProperty(self, '_currentSessionId', {
       get: function () { return currentSessionId; },
@@ -1631,8 +1680,7 @@ App.registerArea({
     if (!this._ws || !this._ws() || this._ws().readyState > 1) {
       this._connect();
     } else if (this._ws() && this._ws().readyState === WebSocket.OPEN) {
-      this._fetchAgents();
-      this._checkSetupState();
+      this._refreshAgentsAndSetup();
     }
   },
 

@@ -1,14 +1,12 @@
 """End-to-end flow tests: cross-area dirty-gate (F4 L5).
 
-Covers the confirmLeave hook on the area descriptor consumed by
-app.js:switchTo before deactivating the outgoing area. Both admin and
-studio expose the hook (admin shipped in F3 L06; studio gains parity in
-F4 L05). One parametrized test file amortizes fixture setup across both
-areas.
+Covers the dirty source each area registers with ``App.nav`` (consulted by the
+router on every go() and traversal). Both admin and studio register one. One parametrized test file
+amortizes fixture setup across both areas.
 
 Test matrix (2 base tests × 2 areas):
-  - dirty_editor_topbar_cancel_keeps_state
-  - dirty_editor_topbar_confirm_navigates_cleanly
+  - dirty_editor_rail_cancel_keeps_state
+  - dirty_editor_rail_confirm_navigates_cleanly
 
 Both parametrize across (area_id, fixture_name, editor_setup, dirty_helper).
 """
@@ -16,8 +14,12 @@ Both parametrize across (area_id, fixture_name, editor_setup, dirty_helper).
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp  # plus any area-specific helpers
 from playwright.sync_api import Page, expect
+
+# Internal area id (DOM `.area-*` classes) -> destination name for _nav.
+_DEST = {"studio": "agents", "admin": "settings"}
 
 # Per-area setup helpers — these abstract over the differences between
 # admin's provider-editor entry path and studio's agent-editor entry path
@@ -27,17 +29,14 @@ from playwright.sync_api import Page, expect
 def _setup_studio_editor(page: Page, app: SeededApp) -> None:
     """Navigate to studio + open the seeded agent in the editor.
 
-    Waits for `.section-nav[aria-label="Agent Studio sections"]` rather than
-    the `.section-nav-header` element, which is not rendered because studio.js
-    omits the `header:` option (sidebar header suppressed; topbar area button
-    already names the area). Falls through to entity-tile click when the editor
-    is still hidden (bare #studio/agents grid view — no auto-selection).
+    Waits for the Agents content panel (`.content-panel.active[data-destination
+    ="agents"]`) as the readiness signal. Falls through to entity-tile click
+    when the editor is still hidden (bare `agents` grid view — no
+    auto-selection).
     """
-    page.goto(f"{app.base_url}#studio")
+    _nav.goto(page, app.base_url, "agents")
     # Wait for the section-nav to mount (signals studio area init complete).
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
@@ -50,9 +49,9 @@ def _setup_admin_editor(page: Page, app: SeededApp) -> None:
     """Deep-link directly to admin provider editor — avoids tile-click
     ordering nondeterminism. Mirrors test_flow_provider_dirty_confirm.py:30's
     direct-hash-route pattern."""
-    page.goto(f"{app.base_url}#admin/providers/{app.provider_id}")
+    _nav.goto(page, app.base_url, f"settings/providers/{_nav.seg(app.provider_id)}")
     # Wait for the admin section-nav to mount (signals admin area init complete).
-    expect(page.locator('.section-nav[aria-label="System sections"]')).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Settings sections"]')).to_be_visible(timeout=8000)
     # The provider-editor's Name field (#pf-name) is the canonical
     # always-rendered signal — it appears for every provider type. Admin
     # uses ID selectors; studio's agent-editor uses data-field selectors.
@@ -106,30 +105,27 @@ AREA_MATRIX = [
 
 @pytest.mark.browser
 @pytest.mark.parametrize("area,fixture_name,setup,dirty,target", AREA_MATRIX)
-def test_dirty_editor_topbar_cancel_keeps_state(
+def test_dirty_editor_rail_cancel_keeps_state(
     request, area, fixture_name, setup, dirty, target, page: Page
 ) -> None:
-    """Cross-area topbar click while dirty → confirm dialog → cancel →
+    """Cross-area rail click while dirty → confirm dialog → cancel →
     URL rolls back to source area, editor still mounted."""
     seeded = request.getfixturevalue(fixture_name)
 
     setup(page, seeded)
     dirty(page)
 
-    topbar_target = page.locator(f'#app-topbar .app-picker-button[data-area="{target}"]')
-    topbar_target.click()
+    _nav.open_destination(page, _DEST[target])
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible()
     page.locator('[data-testid="modal-cancel-btn"]').click()
 
     expect(overlay).to_have_count(0)
-    # URL rolled back to source area (app.js rolls back to the area root via
-    # priorHash — the sub-state written by replaceSub may differ from the
-    # full editor URL, but the area prefix is always correct after cancel).
-    current_hash = page.evaluate("location.hash")
-    assert current_hash.startswith(f"#{area}"), (
-        f"Expected hash to start with #{area} after cancel, got {current_hash}"
+    # URL stays on the source destination after cancel.
+    current_route = _nav.current_route(page)
+    assert current_route.startswith(_DEST[area]), (
+        f"Expected route to start with {_DEST[area]} after cancel, got {current_route}"
     )
     # The target-area content panel must NOT be active (we cancelled, so we
     # stayed on the source area). Wait briefly for any async transitions.
@@ -142,17 +138,17 @@ def test_dirty_editor_topbar_cancel_keeps_state(
 
 @pytest.mark.browser
 @pytest.mark.parametrize("area,fixture_name,setup,dirty,target", AREA_MATRIX)
-def test_dirty_editor_topbar_confirm_navigates_cleanly(
+def test_dirty_editor_rail_confirm_navigates_cleanly(
     request, area, fixture_name, setup, dirty, target, page: Page
 ) -> None:
-    """Cross-area topbar click while dirty → confirm dialog → confirm →
+    """Cross-area rail click while dirty → confirm dialog → confirm →
     URL is target area → return to source area → no stale editor mount."""
     seeded = request.getfixturevalue(fixture_name)
 
     setup(page, seeded)
     dirty(page)
 
-    page.locator(f'#app-topbar .app-picker-button[data-area="{target}"]').click()
+    _nav.open_destination(page, _DEST[target])
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible()
@@ -160,13 +156,13 @@ def test_dirty_editor_topbar_confirm_navigates_cleanly(
 
     expect(overlay).to_have_count(0)
     # URL is target area.
-    target_hash = page.evaluate("location.hash")
-    assert target_hash.startswith(f"#{target}"), (
-        f"Expected hash to start with #{target}, got {target_hash}"
+    target_route = _nav.current_route(page)
+    assert target_route.startswith(_DEST[target]), (
+        f"Expected route to start with {_DEST[target]}, got {target_route}"
     )
 
-    # Return to source area via topbar.
-    page.locator(f'#app-topbar .app-picker-button[data-area="{area}"]').click()
+    # Return to source area via the rail.
+    _nav.open_destination(page, _DEST[area])
 
     # No dialog should appear on the return navigation (the original dirty
     # editor is GONE; the source area should re-mount clean — verifies the

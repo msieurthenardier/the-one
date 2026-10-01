@@ -26,80 +26,83 @@
   }
   .skip-link:focus { top: 0; outline: 2px solid var(--fg); outline-offset: 2px; }
 
-  /* === Top Bar Components === */
-  /* Brand lockup (M17 F3) — set-type wordmark + compact mark, retiring the
-     pixel-font banner PNG. Wordmark ink is --fg on the --nav-bg rail: AA by
-     construction in both themes (--nav-bg aliases --surface; the fg ladder ×
-     surface sweep in test_design_tokens_a11y.py gates the pair at 4.5:1). */
-  .app-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
+  /* === Visually hidden (global utility) === */
+  /* Content exposed to assistive technology but not painted. Defined once, here:
+     the control library (labelHidden fields and choices) depends on it with
+     only tokens.css + components.css loaded. Standard sr-only pattern. */
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
-  .app-brand-mark {
+
+  /* === Rail (App.ui.rail) === */
+  /* The workbench rail: reference spec section 2. 72px wide, 60px items, 18px
+     icons, --font-size-tiny labels. The 1px right border is paid for by
+     padding-right so the 60px items centre on whole pixels (x 5..65). Colour
+     pairs (gated in test_design_tokens_a11y.py): --fg-secondary on --surface at
+     rest; --fg on --surface-elevated on hover; --fg on the composited
+     --accent-translucent wash over --surface when current. */
+  .ui-rail {
+    box-sizing: border-box;
+    width: 72px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 1px 12px 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+  .ui-rail-brand {
     width: 24px;
     height: 24px;
     display: block;
+    margin-bottom: 12px;
+    image-rendering: pixelated;
   }
-  .app-brand-wordmark {
-    font-size: var(--font-size-h3);
-    font-weight: var(--font-weight-semibold);
-    color: var(--fg);
-    line-height: 1;
-    white-space: nowrap;
-  }
-  .app-topbar-actions {
+  .ui-rail-item {
+    box-sizing: border-box;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 8px;
-  }
-
-  /* === Top-bar area buttons === */
-  /* Three flat nav buttons, one per registered area (Chat / Agent Studio /
-     System). v3 vocabulary: quiet ghost fill at rest (transparent,
-     fg-secondary ink); hover steps to --surface-elevated (--nav-bg aliases
-     --surface, so a --surface hover would be invisible on the rail); the
-     current area's button (aria-current="page") takes the accent-translucent
-     wash + accent border + --fg ink — the same selected-state shape as
-     .section-nav-item, keeping accent as border/wash rather than small-size
-     text ink. Pinned focus form. (Class name retained from the prior
-     app-picker popover affordance for gallery + test-selector continuity.) */
-  .app-picker-button {
-    height: 32px;
-    padding: 0 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-radius: var(--radius-sm);
-    background-color: transparent;
+    gap: 4px;
+    width: 60px;
+    padding: 8px 0;
     border: 1px solid transparent;
-    cursor: pointer;
+    border-radius: var(--radius-sm);
+    background: transparent;
     color: var(--fg-secondary);
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
+    font: inherit;
+    font-size: var(--font-size-tiny);
+    text-decoration: none;
+    cursor: pointer;
     transition:
       background-color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
       color var(--motion-base) var(--ease-tactile);
   }
-  .app-picker-button-icon { display: inline-flex; align-items: center; justify-content: center; }
-  .app-picker-button-icon svg { width: 18px; height: 18px; display: block; }
-  .app-picker-button-label { white-space: nowrap; }
-  .app-picker-button:hover {
-    background-color: var(--surface-elevated);
+  .ui-rail-icon { display: inline-flex; align-items: center; justify-content: center; }
+  .ui-rail-icon svg { width: 18px; height: 18px; display: block; }
+  .ui-rail-label { white-space: nowrap; }
+  .ui-rail-item:hover {
+    background: var(--surface-elevated);
     color: var(--fg);
     transition:
       background-color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
       color var(--motion-fast) var(--ease-tactile);
   }
-  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* "You are here" state — current area's button. */
-  .app-picker-button[aria-current="page"] {
-    background-color: var(--accent-translucent);
-    border-color: var(--accent);
+  .ui-rail-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* The one selected marker (DD14): accent wash plus an inset 1px accent ring. */
+  .ui-rail-item[aria-current="page"] {
+    background: var(--accent-translucent);
+    box-shadow: inset 0 0 0 1px var(--accent);
     color: var(--fg);
   }
 
@@ -1351,16 +1354,32 @@
                          no-op alias for documentation/grep-ability —
                          ensures every modal action cluster grep-matches
                          on .modal-actions. */
+  /* Native <dialog> (M25 F2 L2, DD6): the element fills the viewport and the inner
+     .modal-dialog is the visible card, so a click whose target is the <dialog>
+     itself is a backdrop click. Every UA dialog default is reset; display:flex
+     applies ONLY while [open] (a closed dialog must stay display:none). The scrim
+     is the ::backdrop (token --scrim), with no blur. */
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.3);
-    z-index: 200;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    overflow: hidden;
+  }
+  .modal-overlay[open] {
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 16px;
   }
+  .modal-overlay::backdrop { background: var(--scrim); }
   .modal-dialog {
     /* Floating surface: solid fill + hairline border + --radius-lg + the
        modal shadow (two-shadow system). radius-lg (12px) distinguishes the
@@ -1517,6 +1536,7 @@
     .checkbox-primary:checked::after,
     .checkbox-primary:indeterminate::after { border-color: HighlightText; }
     .ui-list-pane-row[aria-current="page"] { border: 1px solid Highlight; }
+    .ui-rail-item[aria-current="page"] { border-color: Highlight; }
     .ui-menu-item:focus,
     .ui-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
   }

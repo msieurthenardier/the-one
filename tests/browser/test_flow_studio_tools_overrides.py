@@ -47,6 +47,7 @@ import urllib.parse
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_tool_config
 from playwright.sync_api import Page, expect
@@ -60,7 +61,7 @@ def _open_tools_tab(app: SeededApp, page: Page) -> None:
     to the Tools panel directly — no intermediate tile click.
     """
     agent_name = urllib.parse.quote(app.agent_name or "")
-    page.goto(f"{app.base_url}#studio/agents/{agent_name}/tools")
+    _nav.goto(page, app.base_url, f"agents/{_nav.seg(agent_name)}/tools")
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )

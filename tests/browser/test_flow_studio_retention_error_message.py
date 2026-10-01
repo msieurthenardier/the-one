@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -30,9 +31,7 @@ def _wait_editor_ready(page: Page) -> None:
     click the first tile to mount the editor, then wait for the General tab to
     be active (handles the async editor-mount race).
     """
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
@@ -58,7 +57,7 @@ def test_retention_out_of_range_shows_readable_error(app_with_agent: SeededApp, 
        match on "365", "retention", or "less").
     """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     # Set the retention input to an out-of-range value (max is 365).

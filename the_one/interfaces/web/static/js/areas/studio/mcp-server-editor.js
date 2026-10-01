@@ -1304,6 +1304,7 @@
         fetch('/api/mcp-sources/' + encodeURIComponent(source.id), { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Delete failed'); });
+            App.store.invalidate('agents');
             window.App.showFlash(container, 'MCP Server deleted');
             if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
           })
@@ -1345,6 +1346,7 @@
       fetch('/api/mcp-sources/' + encodeURIComponent(source.id) + '/connection', { method: 'DELETE' })
         .then(function (r) {
           if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Reset failed'); });
+          App.store.invalidate('agents');
           return fetch('/api/mcp-sources/' + encodeURIComponent(source.id));
         })
         .then(function (r) {

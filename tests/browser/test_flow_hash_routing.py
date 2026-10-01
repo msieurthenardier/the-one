@@ -15,6 +15,7 @@ F5 leg 01 extends this with:
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -26,13 +27,11 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 1. Open app (lands on #chat by default).
     page.goto(base_url)
-    # Topbar readiness probe: wait for the chat picker button specifically.
-    # (.app-picker-button matches 3 elements in strict mode — use data-area to
-    # single out one deterministic handle.)
-    expect(page.locator('.app-picker-button[data-area="chat"]')).to_be_visible(timeout=5000)
+    # Rail readiness probe: wait for the Chats rail link specifically.
+    expect(_nav.destination_locator(page, "chats")).to_be_visible(timeout=5000)
 
-    # 2. Navigate to Admin via picker button (direct navigation, no dropdown).
-    page.locator('.app-picker-button[data-area="admin"]').click()
+    # 2. Navigate to Settings via the rail link.
+    _nav.open_destination(page, "settings")
 
     # 3. Admin area is now active — System category is the default (F6 leg 01).
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
@@ -43,7 +42,7 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
 
     # 5. URL should now be #admin/providers.
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")
 
     # 6. Refresh the page.
     page.reload()
@@ -75,11 +74,9 @@ def test_hash_routing_chat_session_persists_on_refresh(
     )
 
     # 3. URL should now be #chat/sessions/<id> (set by session_joined handler).
-    current_hash = page.evaluate("location.hash")
-    assert current_hash.startswith("#chat/sessions/"), (
-        f"Expected #chat/sessions/<id>, got: {current_hash}"
-    )
-    session_id = current_hash[len("#chat/sessions/") :]
+    current_route = _nav.current_route(page)
+    assert current_route.startswith("chats/"), f"Expected chats/<id>, got: {current_route}"
+    session_id = current_route[len("chats/") :]
     assert session_id, "Session ID should not be empty"
 
     # 4. A session item should be selected in the sidebar.
@@ -98,7 +95,7 @@ def test_hash_routing_chat_session_persists_on_refresh(
     expect(restored_item).to_be_visible(timeout=10000)
 
     # URL should still point to the same session.
-    assert page.evaluate("location.hash") == f"#chat/sessions/{session_id}"
+    _nav.expect_route(page, f"chats/{_nav.seg(session_id)}")
 
 
 @pytest.mark.browser
@@ -110,7 +107,7 @@ def test_hash_routing_studio_agent_persists_on_refresh(
     agent_name = app_with_agent.agent_name  # "test-agent"
 
     # 1. Navigate to Studio.
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
 
     # 2. Studio loads the seeded agent.
     agent_item = page.locator('[data-testid="agent-item"]')
@@ -122,11 +119,9 @@ def test_hash_routing_studio_agent_persists_on_refresh(
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
 
     # 4. URL should now be #studio/agents/<name>.
-    current_hash = page.evaluate("location.hash")
-    import urllib.parse
-
-    expected_hash = f"#studio/agents/{urllib.parse.quote(agent_name)}/general"
-    assert current_hash == expected_hash, f"Expected {expected_hash}, got: {current_hash}"
+    current_route = _nav.current_route(page)
+    expected_route = f"agents/{_nav.seg(agent_name)}/general"
+    assert current_route == expected_route, f"Expected {expected_route}, got: {current_route}"
 
     # 5. Refresh the page.
     page.reload()
@@ -141,50 +136,42 @@ def test_hash_routing_studio_agent_persists_on_refresh(
     )
 
     # URL should still be the same.
-    assert page.evaluate("location.hash") == expected_hash
+    _nav.expect_route(page, expected_route)
 
 
 @pytest.mark.browser
 def test_studio_root_redirects_to_agents(app_clean: str, page: Page) -> None:
-    """Navigating to #studio rewrites the URL to #studio/agents.
+    """Navigating to the legacy `#studio` rewrites the URL to `#agents`.
 
-    The redirect is a free side-effect of studio.serializeState() returning
-    'agents' (not null) when no agent is selected. The F3 router's
-    serialize-after-hydrate path at app.js:179-185 detects the mismatch
-    (sub=null vs serialized='agents') and calls history.replaceState.
+    A legacy-redirect proof (DD2): the router rewrites the hash with
+    replaceState before the unknown-route check.
     """
     base_url = app_clean
 
-    page.goto(f"{base_url}#studio")
+    page.goto(f"{base_url}#studio")  # legacy URL on purpose: proves the redirect (AC6)
     # Wait for studio to mount.
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
 
     # URL was rewritten by the F3 router (replaceState, not pushState).
-    assert page.evaluate("location.hash") == "#studio/agents"
+    _nav.expect_route(page, "agents")
 
 
 @pytest.mark.browser
 def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page) -> None:
-    """Navigating to #studio/knowledge shows the inventory; refresh preserves the section."""
+    """The legacy `#studio/knowledge` redirects to `#library/knowledge`; refresh preserves it."""
     base_url = app_clean
 
-    page.goto(f"{base_url}#studio/knowledge")
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    page.goto(f"{base_url}#studio/knowledge")  # legacy URL on purpose (AC6)
+    expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
 
     inventory = page.locator('[data-testid="studio-knowledge-inventory"]')
     expect(inventory).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/knowledge"
+    _nav.expect_route(page, "library/knowledge")
 
     page.reload()
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/knowledge"
+    _nav.expect_route(page, "library/knowledge")
 
 
 @pytest.mark.browser
@@ -196,69 +183,57 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
     """
     base_url = app_clean
 
-    page.goto(f"{base_url}#studio/mcp-sources")
+    _nav.goto(page, base_url, "library/mcp")
     expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=8000)
-    assert page.evaluate("location.hash") == "#studio/mcp-sources"
+    _nav.expect_route(page, "library/mcp")
 
     page.reload()
     expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=8000)
-    assert page.evaluate("location.hash") == "#studio/mcp-sources"
+    _nav.expect_route(page, "library/mcp")
 
 
 @pytest.mark.browser
-def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page) -> None:
-    """Sub-page navigation uses replaceState: history.length grows by 1 per cross-area nav only.
+def test_hash_routing_section_nav_pushes_history(app_clean: str, page: Page) -> None:
+    """Every user intent pushes one history entry; Back steps between them (DD4).
 
-    Design invariant: AREA-INTERNAL sub navigation (admin category clicks) uses
-    history.replaceState, which does NOT add to history. Only cross-area navigation
-    (picker click) pushes a new history entry.
+    This inverts the pre-router policy ("sub-page navigation uses replaceState"):
+    a rail click and each Settings section click are `go()` calls that push,
+    so Back walks Providers -> General -> Chats. Area-internal canonicalisation
+    (`sync`) stays replace and never grows history.
 
     Sequence:
-      - Start on chat (baseline history.length = N)
-      - Click picker → admin  (cross-area: pushes, length = N+1)
-      - Click Providers        (replaceState: no push, length = N+1)
-      - Click General          (replaceState: no push, length = N+1)
-
-    Final length must equal baseline + 1.
+      - Start on chats (baseline history.length = N)
+      - Click rail Settings   (push, N+1)
+      - Click Providers          (push, N+2)
+      - Click General            (push, N+3)
+      - Back, Back, Back         -> providers, general, then chats
     """
     base_url = app_clean
 
-    # 1. Open app.
     page.goto(base_url)
-    # Topbar readiness probe: use data-area="chat" to resolve to a single element.
-    expect(page.locator('.app-picker-button[data-area="chat"]')).to_be_visible(timeout=5000)
-
-    # 2. Capture baseline history.length (after initial load).
+    expect(_nav.destination_locator(page, "chats")).to_be_visible(timeout=5000)
     baseline = page.evaluate("history.length")
 
-    # 3. Navigate to Admin via picker (cross-area — pushes history).
-    page.locator('.app-picker-button[data-area="admin"]').click()
+    _nav.open_destination(page, "settings")
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    assert page.evaluate("history.length") == baseline + 1
 
-    after_cross_area = page.evaluate("history.length")
-    assert after_cross_area == baseline + 1, (
-        f"Cross-area navigation should push history: baseline={baseline}, "
-        f"after_cross_area={after_cross_area}"
-    )
-
-    # 4. Click Providers (sub-page change within admin — replaceState, no push).
     providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
     providers_item.click()
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
+    assert page.evaluate("history.length") == baseline + 2
 
-    after_providers = page.evaluate("history.length")
-    assert after_providers == baseline + 1, (
-        f"Admin sub-page click should NOT push history (replaceState): "
-        f"after_cross_area={after_cross_area}, after_providers={after_providers}"
-    )
-
-    # 5. Click General (another sub-page change — replaceState, no push).
     system_item = page.locator(".area-admin .section-nav-item").filter(has_text="General")
     system_item.click()
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    assert page.evaluate("history.length") == baseline + 3
 
-    after_system = page.evaluate("history.length")
-    assert after_system == baseline + 1, (
-        f"Admin sub-page click should NOT push history (replaceState): "
-        f"after_providers={after_providers}, after_system={after_system}"
-    )
+    page.go_back()
+    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
+    _nav.expect_route(page, "settings/providers")
+    page.go_back()
+    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    _nav.expect_route(page, "settings/general")
+    page.go_back()
+    expect(_nav.destination_panel(page, "chats")).to_be_visible(timeout=5000)
+    assert _nav.current_route(page).split("/")[0] == "chats"

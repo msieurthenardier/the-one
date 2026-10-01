@@ -53,7 +53,7 @@ Witnessed paradigm fits.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Open browser to `http://localhost:8485`. Navigate to Administration → Tools and open the `web_search` tool config. | The web_search config form renders with an engine selector (`search_backend`) as a **dropdown** (`<select>`), defaulting to DuckDuckGo. No API-key fields are visible for DuckDuckGo. |
+| 1 | Open browser to `http://localhost:8485`. Click the rail's "Settings" link, then "Built-in Tools" in "Settings sections" (`#settings/tools`), and open the `web_search` tool config. | The web_search config form renders with an engine selector (`search_backend`) as a **dropdown** (`<select>`), defaulting to DuckDuckGo. No API-key fields are visible for DuckDuckGo. |
 | 2 | In the engine dropdown, select **Brave**. | Exactly Brave's field appears — a `brave_api_key` input rendered as a **password** field (`type="password"`) with an **eye-toggle** button; SearXNG / Google PSE / Tavily fields stay hidden. `[a11y]` the eye button has an `aria-label` ("Show password"). |
 | 3 | Click the eye-toggle on the Brave key field. | The input flips to `type="text"` (value visible) and the button's `aria-label` switches to "Hide password". Clicking again flips it back. |
 | 4 | Select **Google PSE** in the dropdown. | Brave's field hides; Google PSE's **two** fields appear (`google_pse_api_key` masked + `google_pse_cse_id` plain). Switching engines reveals exactly the selected engine's fields. |

@@ -13,7 +13,8 @@ Covers:
   dirty-then-discard cycle (orchestrator's mirror reset).
 - Save resets dirty (subsequent Back has no dialog).
 - Cancel button resets dirty in edit mode (revert + Back has no dialog).
-- Dialog Escape dismisses; Enter confirms.
+- Dialog Escape dismisses; Enter activates the focused Stay (M25 F2 L2, DD6);
+  Tab to Continue then Enter confirms.
 - beforeunload listener: synthetic event with dirty=True → defaultPrevented;
   with dirty=False → not defaultPrevented.
 """
@@ -21,6 +22,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -36,7 +38,7 @@ _DIALOG_TIMEOUT = 8000
 
 def _open_editor(page: Page, app: SeededApp) -> None:
     """Navigate to the provider editor and wait for the Name input to mount."""
-    page.goto(f"{app.base_url}#admin/providers/{app.provider_id}")
+    _nav.goto(page, app.base_url, f"settings/providers/{_nav.seg(app.provider_id)}")
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
 
 
@@ -57,7 +59,7 @@ def test_back_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> 
     page.locator('[data-testid="back-provider-btn"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
@@ -75,7 +77,7 @@ def test_back_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) 
 def test_back_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Page) -> None:
     """Cancel ('Stay') in the Back-dirty dialog keeps the editor + URL."""
     _open_editor(page, app_with_provider)
-    initial_hash = page.evaluate("location.hash")
+    initial_route = _nav.current_route(page)
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
@@ -84,7 +86,7 @@ def test_back_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Pag
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(0)
     expect(page.locator(".editor-title")).to_be_visible()
-    assert page.evaluate("location.hash") == initial_hash
+    _nav.expect_route(page, initial_route)
 
 
 @pytest.mark.browser
@@ -99,7 +101,7 @@ def test_back_dialog_confirm_navigates_to_grid(app_with_provider: SeededApp, pag
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
     expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
@@ -108,7 +110,7 @@ def test_section_nav_when_clean_no_dialog(app_with_provider: SeededApp, page: Pa
     _open_editor(page, app_with_provider)
     page.locator('.section-nav-item[data-section="general"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    assert page.evaluate("location.hash") == "#admin/general"
+    _nav.expect_route(page, "settings/general")
 
 
 @pytest.mark.browser
@@ -126,7 +128,7 @@ def test_section_nav_when_dirty_shows_dialog(app_with_provider: SeededApp, page:
 def test_section_nav_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Page) -> None:
     """Stay on the section-nav dialog keeps the editor + hash."""
     _open_editor(page, app_with_provider)
-    initial_hash = page.evaluate("location.hash")
+    initial_route = _nav.current_route(page)
     _make_dirty(page)
     page.locator('.section-nav-item[data-section="general"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
@@ -135,7 +137,7 @@ def test_section_nav_dialog_cancel_keeps_editor(app_with_provider: SeededApp, pa
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(0)
     expect(page.locator(".editor-title")).to_be_visible()
-    assert page.evaluate("location.hash") == initial_hash
+    _nav.expect_route(page, initial_route)
 
 
 @pytest.mark.browser
@@ -151,7 +153,7 @@ def test_section_nav_dialog_confirm_navigates_to_system(
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
-    assert page.evaluate("location.hash") == "#admin/general"
+    _nav.expect_route(page, "settings/general")
 
 
 @pytest.mark.browser
@@ -168,7 +170,7 @@ def test_section_nav_from_grid_no_dialog_after_prior_discard(
     # Now navigate from the grid to System — no dialog because no editor.
     page.locator('.section-nav-item[data-section="general"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    assert page.evaluate("location.hash") == "#admin/general"
+    _nav.expect_route(page, "settings/general")
 
 
 @pytest.mark.browser
@@ -203,7 +205,7 @@ def test_cancel_button_resets_dirty_in_edit(app_with_provider: SeededApp, page: 
 def test_dialog_escape_cancels(app_with_provider: SeededApp, page: Page) -> None:
     """Escape closes the dialog without confirming; hash + editor preserved."""
     _open_editor(page, app_with_provider)
-    initial_hash = page.evaluate("location.hash")
+    initial_route = _nav.current_route(page)
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
@@ -211,22 +213,47 @@ def test_dialog_escape_cancels(app_with_provider: SeededApp, page: Page) -> None
 
     page.keyboard.press("Escape")
     expect(overlay).to_have_count(0)
-    assert page.evaluate("location.hash") == initial_hash
+    _nav.expect_route(page, initial_route)
     expect(page.locator(".editor-title")).to_be_visible()
 
 
 @pytest.mark.browser
-def test_dialog_enter_confirms(app_with_provider: SeededApp, page: Page) -> None:
-    """Enter confirms the dialog (focus on Cancel; Enter binding is global)."""
+def test_dialog_enter_activates_focused_stay(app_with_provider: SeededApp, page: Page) -> None:
+    """Enter activates the focused button, which is Stay by default (M25 F2 L2, DD6).
+
+    Renamed and inverted from ``test_dialog_enter_confirms``: the global
+    "Enter confirms" binding is gone. The dialog closes; the hash and editor stay.
+    """
+    _open_editor(page, app_with_provider)
+    initial_route = _nav.current_route(page)
+    _make_dirty(page)
+    page.locator('[data-testid="back-provider-btn"]').click()
+    overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
+    expect(page.locator('[data-testid="modal-cancel-btn"]')).to_be_focused()
+
+    page.keyboard.press("Enter")
+    expect(overlay).to_have_count(0)
+    _nav.expect_route(page, initial_route)
+    expect(page.locator(".editor-title")).to_be_visible()
+
+
+@pytest.mark.browser
+def test_dialog_tab_to_continue_then_enter_confirms(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """Companion: Tab to Continue, then Enter, confirms and navigates to the grid."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
+    page.keyboard.press("Tab")
+    expect(page.locator('[data-testid="modal-confirm-btn"]')).to_be_focused()
     page.keyboard.press("Enter")
     expect(overlay).to_have_count(0)
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
