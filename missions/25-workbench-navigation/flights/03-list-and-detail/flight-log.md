@@ -2771,6 +2771,37 @@ and their scratch directories were not touched; no instance was started or resta
     a reload (per-client freshness bound).
   - **Single-provider fixtures** auto-select the provider on `#agents/~new`.
 
+- 2026-10-02: **Flight landed** (`3e61968`). PR #219 is marked ready for review; the
+  operator merges.
+- 2026-10-02: **DD14 checkpoint package prepared.**
+  - **Instance.** A fresh dev instance on 8485, scratch data dir
+    `/tmp/the-one-f3-checkpoint`, with `THE_ONE_DEV_MODE=true` and
+    `THE_ONE_STUB_TEST_ENDPOINT=1`; the environment was verified from `/proc/<pid>/environ`.
+    The behavior instances on 8485 and 8486 were stopped first. It is seeded through the API
+    with:
+    - 32 agents across 4 providers (Anthropic and OpenAI with placeholder keys, Ollama, Mock);
+    - 3 knowledge bases;
+    - 2 MCP servers (stdio, the repo's `hello_server.py`);
+    - 2 disabled Discord connectors.
+  - **Screenshots.** 21 views × 2 themes × 2 sizes (1440×900, 1024×768) = 84 captures, with
+    no page errors and every route matching. The approved B3 board was rendered from its
+    committed source with a scratchpad stand-in for the canvas runtime (agents, library and
+    settings screens, both themes). Neither set is committed (reference README: screenshots
+    are flight-log evidence only).
+  - **Comparison page,** published as a private artifact:
+    https://claude.ai/artifact/A6PWRtnpDXtfwbLJnAumLw. It puts the board beside each
+    destination's build, shows every view, and lists eight explicit questions:
+    - DD7: items open below the list;
+    - DD2: the unsaved indicator;
+    - DD5: knowledge-base meta drops "files";
+    - DD4: "Chat" deferred to Flight 4;
+    - the breadcrumb-link refinement;
+    - the zero-margin row scroll;
+    - focus after create and save;
+    - provider dots per type.
+  - **Next.** STOP for the operator's go or no-go before Flight 4. The outcome will be
+    recorded here.
+
 ---
 
 ## Decisions

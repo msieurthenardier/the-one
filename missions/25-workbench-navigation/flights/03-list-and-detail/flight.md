@@ -728,7 +728,7 @@ into leg 5a, and split the Library and Settings legs (issues 2, 3 and 8).
 - [x] Library: breadcrumbs; no Back; create-opens-item checks for all three types (L4b)
 - [x] Settings: grouped nav of links, General split with redirects, page headers (L5a)
 - [x] Settings items open under their list, with no Back (L5b)
-- [ ] Specs pass in both themes; all lanes green; guard allow-list empty; checkpoint
+- [x] Specs pass in both themes; all lanes green; guard allow-list empty; checkpoint
   package ready (L6)
 
 ### Adaptation Criteria
