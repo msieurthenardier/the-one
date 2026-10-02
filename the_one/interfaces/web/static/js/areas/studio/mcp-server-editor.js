@@ -499,9 +499,13 @@
     // Action cluster. M25 F3 L4b (DD2): Back is retired (the breadcrumb's
     // group link closes the item); the cluster opens with the stable unsaved
     // caption, whose text wireEditorEvents' reportDirty sets or clears.
+    // Cancel on the create form abandons creation (DD8), so it is enabled
+    // from first render, clean or dirty (the M25 F3 behavior-gate fix); in
+    // edit mode it reverts, and stays disabled while there is nothing to
+    // revert.
     html += '<div class="form-actions">';
     html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-mcp-source-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-mcp-source-btn"' + (isCreate ? '' : ' disabled') + '>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-mcp-source-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     html += '<span class="editor-error"></span>';
     html += '</div>';
@@ -1057,7 +1061,8 @@
       var saveBtn = container.querySelector('.save-btn');
       var cancelBtn = container.querySelector('.cancel-btn');
       if (saveBtn) saveBtn.disabled = !dirty;
-      if (cancelBtn) cancelBtn.disabled = !dirty;
+      // Edit mode only: the create form's Cancel (abandon, DD8) stays enabled.
+      if (cancelBtn) cancelBtn.disabled = isEdit && !dirty;
       reportDirty(dirty);
     }
 
@@ -1067,7 +1072,7 @@
       var saveBtn = container.querySelector('.save-btn');
       var cancelBtn = container.querySelector('.cancel-btn');
       if (saveBtn) saveBtn.disabled = true;
-      if (cancelBtn) cancelBtn.disabled = true;
+      if (cancelBtn) cancelBtn.disabled = isEdit;
       reportDirty(false);
     }
 
@@ -1196,6 +1201,10 @@
     }
 
     // ── Cancel ────────────────────────────────────────────────────────
+    // Edit mode reverts in place; create mode hands over to onCancel (the
+    // orchestrator discards and returns to the section root). The create
+    // form's Cancel is enabled from first render, so onCancel runs on a
+    // pristine form as well as a dirty one.
     var cancelBtn = container.querySelector('.cancel-btn');
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {

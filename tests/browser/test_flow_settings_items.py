@@ -8,9 +8,11 @@ tool editor opens below the list. Both editors carry the breadcrumb ("Settings
 
 AC1 the table; AC2 a provider below it (visibility at 1440x900, focus, the
 breadcrumb, a dirty editor asks once on another row); AC3 create, Cancel and
-delete (focus); AC4 tools (link, selection, toggle isolation, deep-link
-category, scroll and focus); AC5 the unsaved caption; plus the focus discipline
-(a store notification or refresh never moves focus) and the keyboard order.
+delete (focus), with the flight's behavior-gate fix (the create form's Cancel is
+enabled from first render, typed into or not); AC4 tools (link, selection,
+toggle isolation, deep-link category, scroll and focus); AC5 the unsaved
+caption; plus the focus discipline (a store notification or refresh never moves
+focus) and the keyboard order.
 Settings lane (``test_flow_settings_*`` in ``scripts/run-tests.sh``).
 """
 
@@ -319,9 +321,17 @@ def test_add_provider_opens_the_form_below_and_save_create_keeps_it(
     expect(page.locator(DIALOG)).to_have_count(0)
 
 
-def test_cancel_on_create_returns_to_the_root_focusing_add_provider(
+def test_cancel_on_create_returns_to_the_root_focusing_the_first_row(
     app_with_provider: SeededApp, page: Page
 ) -> None:
+    """DD8's one focus rule (Cancel, close and delete): a create form has no
+    row of its own, so Cancel focuses the nearest surviving row, the table's
+    first provider link; "Add provider" only when the table is empty
+    (`test_cancel_on_a_pristine_create_form_abandons_it[app_clean]`,
+    `test_flow_provider_editor.py::test_create_cancel_navigates_to_grid_when_dirty`).
+    Leg 5b pinned "Add provider" here; the flight's behavior-gate fix aligned it
+    with DD8."""
+    seed_mock_provider(app_with_provider.base_url, name="Alpha")  # sorts before "mock"
     _ready(page, app_with_provider.base_url, "settings/providers")
     page.locator('[data-testid="new-provider-btn"]').click()
     expect(page.locator(ITEM_TITLE)).to_have_text("New Provider", timeout=8000)
@@ -330,7 +340,8 @@ def test_cancel_on_create_returns_to_the_root_focusing_add_provider(
     page.locator('[data-testid="cancel-provider-btn"]').click()
     _nav.expect_route(page, "settings/providers")
     expect(page.locator(ITEM_TITLE)).to_have_count(0, timeout=5000)
-    expect(page.locator('[data-testid="new-provider-btn"]')).to_be_focused()
+    expect(_lists.list_row(page, "settings/providers", "Alpha")).to_be_focused()
+    expect(page.locator('[data-testid="new-provider-btn"]')).not_to_be_focused()
     expect(page.locator(DIALOG)).to_have_count(0)
     assert page.evaluate("App.nav.isDirty()") is False
     expect(_lists.list_row(page, "settings/providers", "never saved")).to_have_count(0)
@@ -339,6 +350,95 @@ def test_cancel_on_create_returns_to_the_root_focusing_add_provider(
     page.go_back()
     _nav.expect_route(page, "settings/providers")
     expect(page.locator(ITEM_TITLE)).to_have_count(0)
+
+
+@pytest.mark.parametrize("fixture_name", ["app_with_provider", "app_clean"])
+def test_cancel_on_a_pristine_create_form_abandons_it(
+    request: pytest.FixtureRequest, page: Page, fixture_name: str
+) -> None:
+    """Behavior-gate fix (list-and-detail L6): on `~new` with nothing typed,
+    Cancel is enabled and abandons creation (DD8) -- no dialog, a replace to
+    the page root (the table, else the zero-providers empty state), focus on
+    the table's first provider link, else "Add provider"."""
+    seeded = request.getfixturevalue(fixture_name)
+    base = seeded if isinstance(seeded, str) else seeded.base_url
+    if fixture_name == "app_with_provider":
+        seed_mock_provider(base, name="Alpha")  # sorts before "mock"
+    _ready(page, base, "settings/providers")
+    page.locator('[data-testid="new-provider-btn"]').click()
+    expect(page.locator(ITEM_TITLE)).to_have_text("New Provider", timeout=8000)
+    cancel = page.locator('[data-testid="cancel-provider-btn"]')
+    expect(cancel).to_be_enabled()  # nothing typed
+    expect(page.locator(UNSAVED)).to_have_text("")
+    assert page.evaluate("App.nav.isDirty()") is False
+    before = page.evaluate("history.length")
+    cancel.click()
+    _nav.expect_route(page, "settings/providers")
+    expect(page.locator(ITEM_TITLE)).to_have_count(0, timeout=5000)
+    if fixture_name == "app_with_provider":
+        expect(_lists.providers_table(page)).to_be_visible()
+        expect(_lists.list_row(page, "settings/providers", "mock")).to_be_visible()
+        _lists.expect_none_selected(page, "settings/providers")
+        expect(_lists.list_row(page, "settings/providers", "Alpha")).to_be_focused()
+    else:
+        expect(page.locator('[data-testid="providers-empty"]')).to_be_visible()
+        expect(page.locator('[data-testid="new-provider-btn"]')).to_be_focused()
+    assert page.evaluate("history.length") == before  # replaced, not pushed
+    expect(page.locator("dialog[open]")).to_have_count(0)
+    expect(page.locator(DIALOG)).to_have_count(0)
+
+
+@pytest.mark.parametrize("fixture_name", ["app_with_provider", "app_clean"])
+def test_breadcrumb_close_of_the_create_form_focuses_the_first_row(
+    request: pytest.FixtureRequest, page: Page, fixture_name: str
+) -> None:
+    """DD8's one focus rule covers close as well as Cancel: the breadcrumb's
+    "Providers" link closes a clean `~new` form with no dialog, and, with no
+    row of its own, focus goes to the table's first provider link, else "Add
+    provider" when the table is empty. (Leg 5b focused "Add provider" always;
+    the behavior-gate fix aligned it with Agents and Library.)"""
+    seeded = request.getfixturevalue(fixture_name)
+    base = seeded if isinstance(seeded, str) else seeded.base_url
+    if fixture_name == "app_with_provider":
+        seed_mock_provider(base, name="Alpha")  # sorts before "mock"
+    _ready(page, base, "settings/providers/~new")
+    expect(page.locator(ITEM_TITLE)).to_have_text("New Provider", timeout=8000)
+    _lists.close_item(page)
+    _nav.expect_route(page, "settings/providers")
+    expect(page.locator(ITEM_TITLE)).to_have_count(0, timeout=5000)
+    if fixture_name == "app_with_provider":
+        _lists.expect_none_selected(page, "settings/providers")
+        expect(_lists.list_row(page, "settings/providers", "Alpha")).to_be_focused()
+        expect(page.locator('[data-testid="new-provider-btn"]')).not_to_be_focused()
+    else:
+        expect(page.locator('[data-testid="providers-empty"]')).to_be_visible()
+        expect(page.locator('[data-testid="new-provider-btn"]')).to_be_focused()
+    expect(page.locator("dialog[open]")).to_have_count(0)
+    expect(page.locator(DIALOG)).to_have_count(0)
+
+
+def test_provider_create_form_cancel_stays_enabled_when_the_form_is_clean_again(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """An edit undone on the create form leaves it clean (Create disabled, no
+    caption) but Cancel enabled. (Edit mode's clean-disabled Cancel is pinned by
+    `test_flow_provider_editor.py::test_save_and_cancel_disabled_when_clean`.)"""
+    _ready(page, app_with_provider.base_url, "settings/providers")
+    page.locator('[data-testid="new-provider-btn"]').click()
+    expect(page.locator(ITEM_TITLE)).to_have_text("New Provider", timeout=8000)
+    name = page.locator("#pf-name")
+    cancel = page.locator('[data-testid="cancel-provider-btn"]')
+    name.fill("x")
+    expect(page.locator(UNSAVED)).to_have_text("Unsaved changes")
+    expect(cancel).to_be_enabled()
+    name.fill("")
+    expect(page.locator(UNSAVED)).to_have_text("")
+    expect(page.locator('[data-testid="save-provider-btn"]')).to_be_disabled()
+    expect(cancel).to_be_enabled()
+    cancel.click()
+    _nav.expect_route(page, "settings/providers")
+    expect(page.locator(ITEM_TITLE)).to_have_count(0, timeout=5000)
+    expect(page.locator("dialog[open]")).to_have_count(0)
 
 
 @pytest.mark.parametrize(

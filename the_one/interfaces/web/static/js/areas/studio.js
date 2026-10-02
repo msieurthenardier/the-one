@@ -2815,16 +2815,18 @@ App.registerArea({
     // ── Action-cluster handlers ──────────────────────────────────────
 
     // Cancel discards in-progress edits and restores the editor to the
-    // current agent's saved state. The button only fires when dirty
-    // (disabled by checkDirty otherwise), so no extra guard.
+    // current agent's saved state. On an open agent the button only fires
+    // when dirty (disabled by checkDirty otherwise), so no extra guard.
     function cancelEdit() {
       if (self._createMode) {
         // Create-form Cancel (M25 F3 L3, DD8): there is no saved state to
-        // revert to. The studio discard teardown runs first, then a bypass
-        // go() (the user already chose to discard) REPLACES the create entry
-        // with the Agents root, so Back never lands on a stale create form.
-        // Focus: there is no row of its own, so the list's tab stop (the
-        // nearest row), else "New".
+        // revert to. The button is enabled from first render, so this runs on
+        // a pristine form as well as a dirty one, and assumes neither: the
+        // studio discard teardown runs first, then a bypass go() (the user
+        // already chose to discard) REPLACES the create entry with the Agents
+        // root, so Back never lands on a stale create form. Focus: there is
+        // no row of its own, so the list's tab stop (the nearest row), else
+        // "New".
         discardOpen_();
         replaceWithAgentsRoot_();
         focusAgentRowNear(0);
@@ -3187,8 +3189,13 @@ App.registerArea({
       var saveBlocked = !self._createMode && self._selectedAgentLoaded === false;
       var saveBtn = editorEl.querySelector('.save-btn');
       if (saveBtn) saveBtn.disabled = !dirty || saveBlocked;
+      // Cancel follows `dirty` on an open agent only (it reverts in place,
+      // and there is nothing to revert while clean). On the create form it
+      // abandons creation (DD8), so it stays enabled whether or not anything
+      // was typed (the M25 F3 behavior-gate fix; the knowledge-base `~new`
+      // form's Cancel is the model).
       var cancelBtn = editorEl.querySelector('.cancel-btn');
-      if (cancelBtn) cancelBtn.disabled = !dirty;
+      if (cancelBtn) cancelBtn.disabled = !dirty && !self._createMode;
     }
 
     // F6 L3 (L3-D3, DD-13) — the ungated-prefix `disabled_tools` union.

@@ -505,15 +505,20 @@ App.registerArea({
       return {
         onCancel: function () {
           // Create-mode Cancel (the editor's Cancel only calls onCancel when
-          // isCreate; edit mode reverts in place). Cancel-when-dirty is an
-          // intentional discard -- no gate -- so: discard, then a bypass
-          // go() REPLACING the create entry (Back must not land on a stale
-          // create form). No row exists for a create form, so focus goes to
-          // "Add provider" (DD8).
+          // isCreate; edit mode reverts in place). It is enabled from first
+          // render, so this runs on a pristine form as well as a dirty one;
+          // either way it is an intentional discard -- no gate -- so:
+          // discard, then a bypass go() REPLACING the create entry (Back must
+          // not land on a stale create form). Focus (DD8's one rule for Cancel,
+          // close and delete): a create form has no row of its own, so the
+          // nearest surviving row -- the table's first provider link -- else
+          // "Add provider" when the table is empty. (Leg 5b sent it to "Add
+          // provider" always; the behavior-gate fix aligned it with DD8, as
+          // Agents and Library already were.)
           if (mountGen !== editorGen) return;
           self._discardEditor();
           App.router.go(rootHref('providers'), { replace: true, bypassGuard: true }).then(function () {
-            focusAddProvider();
+            focusProviderRowNear(0);
           });
         },
         onSaveSuccess: function (updated, isCreate) {
@@ -880,8 +885,10 @@ App.registerArea({
     //   an intent go() to the page root, so the router's guard asks once
     //   about a dirty editor and the root hydrate closes the item in place.
     //   Once it has navigated, focus goes to the closed item's row (DD8); a
-    //   create form has no row, so "Add provider". The focus waits one task:
-    //   after a Continue, nav.js focuses <main> from a setTimeout.
+    //   create form has no row, so the nearest surviving row (the table's
+    //   first provider link), else "Add provider". The focus waits one task:
+    //   after a Continue, nav.js focuses <main> from a setTimeout. Built-in
+    //   tools have no create form, and a closed tool always has its own tile.
     // * a list link to the item ALREADY open (its row, its tool name): no
     //   navigation (nothing to ask about, nothing to re-mount); the item is
     //   just brought into view and focused.
@@ -899,7 +906,11 @@ App.registerArea({
       var sc = scaffoldFor(closing.category);
       if (!sc || providerFormMode || toolFormMode) return; // the user moved on
       if (closing.category === 'providers') {
-        if (closing.create || !closing.providerId) { focusAddProvider(); return; }
+        // DD8's one rule for Cancel, close and delete: a `~new` form has no row
+        // of its own, so the first row, else "Add provider" when the table is
+        // empty (as the create-form Cancel; leg 5b focused "Add provider"
+        // always, and the behavior-gate fix aligned it with Agents/Library).
+        if (closing.create || !closing.providerId) { focusProviderRowNear(0); return; }
         var idx = App.admin.providerRowIndex(sc.listEl, closing.providerId);
         focusProviderRowNear(idx);
         return;

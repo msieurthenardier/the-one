@@ -143,8 +143,10 @@ def test_provider_detail_url_refresh_preserves_editor(
 
 @pytest.mark.browser
 def test_cancel_from_create_returns_to_grid(app_clean: str, page: Page) -> None:
-    """A clean create form (Cancel disabled) closes through the breadcrumb's
-    "Providers" link (Back is retired, leg 5b)."""
+    """A clean create form closes through the breadcrumb's "Providers" link
+    (Back is retired, leg 5b). Cancel is enabled on it too since the flight's
+    behavior-gate fix; focus after either close is pinned in
+    `test_flow_settings_items.py`."""
     _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     _lists.close_item(page)

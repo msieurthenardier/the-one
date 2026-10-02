@@ -9,7 +9,7 @@
 //     </div>
 //     <div class="form-actions">
 //       <span class="editor-unsaved" role="status"></span>
-//       <button class="cancel-btn" disabled>Cancel</button>
+//       <button class="cancel-btn">Cancel</button>  (disabled while clean, edit only)
 //       <button class="save-btn" disabled>{Save | Create}</button>
 //       <button class="test-provider-btn">Test</button>  (edit only)
 //       <span class="editor-error"></span>
@@ -70,10 +70,14 @@
 
     // ── Action cluster ──────────────────────────────────────────────
     // M25 F3 L5b (DD2): Back is retired; the cluster opens with the stable
-    // unsaved caption (checkDirty sets or clears its text).
+    // unsaved caption (checkDirty sets or clears its text). Cancel on the
+    // create form abandons creation (DD8), so it is enabled from first
+    // render, clean or dirty (the M25 F3 behavior-gate fix); in edit mode it
+    // reverts, and checkDirty keeps it disabled while there is nothing to
+    // revert.
     html += '<div class="form-actions">';
     html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-provider-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-provider-btn"' + (isCreate ? '' : ' disabled') + '>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-provider-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     if (!isCreate) {
       html += '<button type="button" class="btn-outlined-primary test-provider-btn" data-testid="test-connection-btn">Test</button>';
@@ -698,7 +702,10 @@
       var saveBtn = container.querySelector('.save-btn');
       var cancelBtn = container.querySelector('.cancel-btn');
       if (saveBtn) saveBtn.disabled = !dirty;
-      if (cancelBtn) cancelBtn.disabled = !dirty;
+      // Cancel follows `dirty` in edit mode only; the create form's Cancel
+      // (abandon creation, DD8) stays enabled whether or not anything was
+      // typed.
+      if (cancelBtn) cancelBtn.disabled = isEdit && !dirty;
       // The header's unsaved caption (M25 F3 DD2) follows the same value.
       var unsavedEl = container.querySelector('.editor-unsaved');
       if (unsavedEl) unsavedEl.textContent = dirty ? 'Unsaved changes' : '';
@@ -765,7 +772,9 @@
     }
 
     /* Cancel: edit mode reverts in place; create mode delegates to onCancel
-       (the orchestrator discards and returns to the page root). */
+       (the orchestrator discards and returns to the page root). The create
+       form's Cancel is enabled from first render, so onCancel runs on a
+       pristine form as well as a dirty one. */
     var cancelBtn = container.querySelector('.cancel-btn');
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {

@@ -38,7 +38,8 @@
 // it is a link to `#agents` (testid `editor-breadcrumb-link`). The
 // `editor-unsaved` span is part of the header markup and is never created or
 // removed afterwards: studio.js's checkDirty sets its text ("Unsaved
-// changes") or clears it, from the same dirty flag as Save and Cancel.
+// changes") or clears it, from the same dirty flag as Save and (on an open
+// agent) Cancel; the create form's Cancel is always enabled.
 //
 // Editor Delete button: uses App.confirmDelete via studio.js's
 // handleDeleteEditor (F6 leg 04 migration). Capital-D "Confirm Delete?"
@@ -83,13 +84,16 @@
     // === Action cluster ===========================================
     // F5 leg 05: Delete moved into the General tab's Danger Zone (only
     // for existing agents). The header carries the unsaved caption, Cancel
-    // and Save. Save and Cancel share `disabled` as the SINGLE source of
-    // truth — checkDirty() flips both (and the caption) to mirror the dirty
-    // flag.
+    // and Save. `disabled` is the SINGLE source of truth for both buttons --
+    // checkDirty() sets them (and the caption) from the dirty flag. Cancel
+    // follows `dirty` on an open agent only (it reverts; nothing to revert
+    // while clean). On the create form it abandons creation (DD8), so it is
+    // enabled from first render, typed into or not (the M25 F3 behavior-gate
+    // fix); Save still waits for a change.
     html += '<div class="form-actions">';
     html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
     html += '<button type="button" class="btn-outlined-primary cancel-btn" ' +
-      'data-testid="cancel-agent-btn" disabled>Cancel</button>';
+      'data-testid="cancel-agent-btn"' + (isCreate ? '' : ' disabled') + '>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" ' +
       'data-testid="save-agent-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     html += '<span class="editor-error"></span>';

@@ -276,12 +276,15 @@
 
     // The cluster opens with the stable unsaved caption (DD2, A15): its text
     // follows the editor's dirty reports (reportDirty below). Back is retired.
+    // Cancel on the create form abandons creation (DD8), so it is enabled
+    // from first render, clean or dirty (the M25 F3 behavior-gate fix); in
+    // edit mode it reverts, and stays disabled until a field changes.
     var actions = _el('div', { className: 'form-actions' });
     var unsavedEl = _el('span', { className: 'editor-unsaved' });
     unsavedEl.setAttribute('role', 'status');
     unsavedEl.setAttribute('data-testid', 'editor-unsaved');
     var cancelBtn = _btn('btn-outlined-primary cancel-btn', 'cancel-connector-btn', 'Cancel');
-    cancelBtn.disabled = true;
+    cancelBtn.disabled = !isCreate;
     var saveBtn = _btn('btn-filled-primary save-btn', 'save-connector-btn', isCreate ? 'Create' : 'Save');
     saveBtn.disabled = true;
     var errorEl = _el('span', { className: 'editor-error' });

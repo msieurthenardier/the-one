@@ -15,8 +15,9 @@ is open. ``#agents/~new`` is the create route.
 * AC3 -- the two empty-state copies;
 * AC4 -- create: entry points, focus, a repeated "New", the leave guard,
   save-create (replace + announce; no replace for a user who moved on while
-  it was in flight, the flight-end review), Cancel, names that look like
-  create;
+  it was in flight, the flight-end review), Cancel (enabled on the create form
+  from first render, typed into or not, and disabled on a clean open agent:
+  the behavior-gate fix), names that look like create;
 * AC5 -- the unsaved indicator;
 * AC6 -- delete: the root, the row, focus, the announcement.
 
@@ -513,6 +514,79 @@ def test_cancel_on_the_create_form_with_no_agents_focuses_new(
     _nav.expect_route(page, "agents")
     expect(page.locator('[data-testid="agent-empty"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="new-agent-btn"]')).to_be_focused()
+
+
+@pytest.mark.parametrize("with_agent", [True, False], ids=["focuses-first-row", "focuses-new"])
+def test_cancel_on_a_pristine_create_form_abandons_it(
+    app_with_provider: SeededApp, page: Page, with_agent: bool
+) -> None:
+    """Behavior-gate fix (list-and-detail L6): on `#agents/~new` with nothing
+    typed, Cancel is enabled and abandons creation (DD8) -- no dialog, a replace
+    to `#agents`, the empty state, and focus on the first row, else "New"."""
+    base = app_with_provider.base_url
+    if with_agent:
+        seed_mock_agent(base, app_with_provider.provider_id, name="Existing agent")
+    _nav.goto_settled(page, base, "agents")
+    _lists.agents_new(page)
+    cancel = page.locator('[data-testid="cancel-agent-btn"]')
+    expect(cancel).to_be_enabled()  # nothing typed
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
+    assert page.evaluate("App.nav.isDirty()") is False
+    before = page.evaluate("history.length")
+    cancel.click()
+    _nav.expect_route(page, "agents")
+    expect(_lists.agents_empty_state(page)).to_be_visible(timeout=8000)
+    expect(page.locator(".editor-title")).to_have_count(0)
+    _lists.expect_none_selected(page, "agents")
+    if with_agent:
+        expect(_lists.list_row(page, "agents", "Existing agent")).to_be_focused()
+    else:
+        expect(page.locator('[data-testid="agent-empty"]')).to_be_visible()
+        expect(page.locator('[data-testid="new-agent-btn"]')).to_be_focused()
+    assert page.evaluate("history.length") == before  # replaced, not pushed
+    expect(page.locator("dialog[open]")).to_have_count(0)
+    expect(page.locator(DIALOG)).to_have_count(0)
+
+
+def test_create_form_cancel_stays_enabled_when_the_form_is_clean_again(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """An edit undone on the create form leaves it clean (Create disabled, no
+    caption) but Cancel enabled: it abandons creation, dirty or not."""
+    _nav.goto_settled(page, app_with_provider.base_url, "agents")
+    _lists.agents_new(page)
+    name = page.locator('[data-field="name"]')
+    cancel = page.locator('[data-testid="cancel-agent-btn"]')
+    unsaved = page.locator('[data-testid="editor-unsaved"]')
+    name.fill("x")
+    expect(unsaved).to_have_text("Unsaved changes")
+    expect(cancel).to_be_enabled()
+    name.fill("")
+    expect(unsaved).to_have_text("")
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled()
+    expect(cancel).to_be_enabled()
+    cancel.click()
+    _nav.expect_route(page, "agents")
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=8000)
+    expect(page.locator("dialog[open]")).to_have_count(0)
+
+
+def test_cancel_on_a_clean_open_agent_stays_disabled(app_with_agent: SeededApp, page: Page) -> None:
+    """Edit mode is unchanged: Cancel reverts, so it is disabled while the open
+    agent is clean, enabled by an edit, and disabled again after the revert."""
+    base, name = app_with_agent.base_url, app_with_agent.agent_name
+    _open_editor(page, base, name)
+    cancel = page.locator('[data-testid="cancel-agent-btn"]')
+    expect(cancel).to_be_disabled()
+    desc = page.locator('[data-field="description"]')
+    original = desc.input_value()
+    route = _nav.current_route(page)
+    desc.fill("an edit")
+    expect(cancel).to_be_enabled()
+    cancel.click()
+    expect(desc).to_have_value(original)
+    expect(cancel).to_be_disabled()
+    _nav.expect_route(page, route)  # reverted in place: the agent stays open
 
 
 def test_names_that_look_like_the_create_segment_round_trip(

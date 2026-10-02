@@ -35,6 +35,11 @@ Leg 4b (the editors' chrome, DD2/DD8):
 * AC4 -- create opens the item for each type, with the preservation checks and
   no prompt on the next row click.
 
+The flight's behavior-gate fix (list-and-detail L6): the MCP and connector
+create forms' Cancel is enabled from first render, typed into or not, and
+abandons creation (DD8: no dialog, a replace to the section root, focus on the
+group's first row, else Add); on a clean open item it stays disabled.
+
 Chromium only. Falls in the ``library`` lane (``library_pat`` in
 ``scripts/run-tests.sh``).
 """
@@ -1165,6 +1170,113 @@ def test_unsaved_indicator_on_the_connector_editor(app_with_agent: SeededApp, pa
     _continue_to_row(page, "library/knowledge", "Alpha KB")
     _expect_unsaved(page, "")
     assert page.evaluate("App.nav.isDirty()") is False
+
+
+# Behavior-gate fix (list-and-detail L6): Cancel on a create form abandons it
+# (DD8), so it is enabled from first render, typed into or not. Edit mode is
+# unchanged: Cancel reverts, and is disabled while the item is clean.
+
+_CREATE_FORM = {
+    "mcp": ("New MCP Server", "cancel-mcp-source-btn", "first-mcp"),
+    "connectors": ("New Connector", "cancel-connector-btn", "First connector"),
+}
+
+
+@pytest.mark.parametrize(
+    ("kind", "with_row"),
+    [("mcp", True), ("mcp", False), ("connectors", True), ("connectors", False)],
+    ids=[
+        "mcp-focuses-first-row",
+        "mcp-focuses-add",
+        "connector-focuses-first-row",
+        "connector-focuses-add",
+    ],
+)
+def test_cancel_on_a_pristine_create_form_abandons_it(
+    app_with_agent: SeededApp, page: Page, kind: str, with_row: bool
+) -> None:
+    """Nothing typed: Cancel is enabled; it opens no dialog, replaces the route
+    with the section root, shows its empty state and focuses the group's first
+    row, else Add (DD8)."""
+    base = app_with_agent.base_url
+    title, cancel_testid, row_name = _CREATE_FORM[kind]
+    if with_row:
+        if kind == "mcp":
+            seed_mcp_source(base, row_name)
+        else:
+            seed_connector(base, row_name)
+    _ready(page, base, f"library/{kind}")
+    _lists.library_add(page, kind)
+    expect(page.locator(TITLE)).to_have_text(title, timeout=8000)
+    cancel = page.locator(f'[data-testid="{cancel_testid}"]')
+    expect(cancel).to_be_enabled()  # nothing typed
+    _expect_unsaved(page, "")
+    assert page.evaluate("App.nav.isDirty()") is False
+    before = page.evaluate("history.length")
+    cancel.click()
+    _nav.expect_route(page, f"library/{kind}")
+    expect(_lists.library_empty_state(page, kind)).to_be_visible(timeout=8000)
+    expect(page.locator(TITLE)).to_have_count(0)
+    _lists.expect_none_selected(page, f"library/{kind}")
+    if with_row:
+        expect(_lists.list_row(page, f"library/{kind}", row_name)).to_be_focused()
+    else:
+        expect(page.locator('[data-testid="library-add-btn"]')).to_be_focused()
+    assert page.evaluate("history.length") == before  # replaced, not pushed
+    expect(page.locator("dialog[open]")).to_have_count(0)
+    expect(page.locator(DIALOG)).to_have_count(0)
+
+
+def test_mcp_create_form_cancel_stays_enabled_when_the_form_is_clean_again(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """An edit undone on the MCP create form leaves it clean (Create disabled,
+    no caption) but Cancel enabled. (The connector form has no clean-again
+    state: its dirty mark is one-way.)"""
+    _ready(page, app_with_agent.base_url, "library/mcp")
+    _lists.library_add(page, "mcp")
+    expect(page.locator(TITLE)).to_have_text("New MCP Server", timeout=8000)
+    name = page.locator('[data-field="name"]')
+    cancel = page.locator('[data-testid="cancel-mcp-source-btn"]')
+    name.fill("x")
+    _expect_unsaved(page, "Unsaved changes")
+    expect(cancel).to_be_enabled()
+    name.fill("")
+    _expect_unsaved(page, "")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_disabled()
+    expect(cancel).to_be_enabled()
+    cancel.click()
+    _nav.expect_route(page, "library/mcp")
+    expect(page.locator(TITLE)).to_have_count(0, timeout=8000)
+    expect(page.locator("dialog[open]")).to_have_count(0)
+
+
+@pytest.mark.parametrize(
+    ("kind", "name", "cancel_testid"),
+    [
+        ("mcp", "alpha-mcp", "cancel-mcp-source-btn"),
+        ("connectors", "Team chat", "cancel-connector-btn"),
+    ],
+    ids=["mcp", "connector"],
+)
+def test_cancel_on_a_clean_open_item_stays_disabled(
+    app_with_agent: SeededApp, page: Page, kind: str, name: str, cancel_testid: str
+) -> None:
+    """Edit mode is unchanged: disabled while clean, enabled by an edit, and
+    disabled again once Cancel has reverted it in place."""
+    _seed_full(app_with_agent)
+    _ready(page, app_with_agent.base_url, "library/knowledge")
+    _lists.open_item(page, f"library/{kind}", name)
+    expect(page.locator(TITLE)).to_have_text(name, timeout=8000)
+    cancel = page.locator(f'[data-testid="{cancel_testid}"]')
+    expect(cancel).to_be_disabled()
+    route = _nav.current_route(page)
+    page.locator('[data-field="name"]').fill(name + " edited")
+    expect(cancel).to_be_enabled()
+    cancel.click()
+    expect(page.locator('[data-field="name"]')).to_have_value(name, timeout=8000)
+    expect(page.locator(f'[data-testid="{cancel_testid}"]')).to_be_disabled()
+    _nav.expect_route(page, route)
 
 
 # AC4: create opens the item (DD8 per-type checks).
