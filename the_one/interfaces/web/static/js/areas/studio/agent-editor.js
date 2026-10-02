@@ -3,12 +3,14 @@
 // Builds the editor surface:
 //   <div class="editor-header">
 //     <div class="editor-header-text">
+//       <div class="editor-breadcrumb"><a href="#agents">Agents</a></div>
+//         (DOM-inserted, M25 F3 L3; a link to the root since L4b)
 //       <h1>Agent name</h1>
 //       <p>Description</p>
 //     </div>
 //     <div class="form-actions">
-//       <button>← Back</button>
-//       <button>Delete</button>
+//       <span class="editor-unsaved" role="status"></span>
+//       <button>Cancel</button>
 //       <button>Save</button>
 //     </div>
 //   </div>
@@ -28,8 +30,15 @@
 // synchronously before this function returns so test_flow_agent_crud.py's
 // form-field tests find [data-field="..."] selectors immediately.
 //
-// callbacks: { onBack, onDelete, onPurge, onSave, onTabChange, onTestProvider,
+// callbacks: { onDelete, onPurge, onSave, onCancel, onTabChange, onTestProvider,
 //              toolCategories, allTools, initialTab }
+//
+// M25 F3 L3 (DD2): the editor is hosted beside the Agents list, so Back is
+// retired; the "Agents" breadcrumb is the header's first line, and since L4b
+// it is a link to `#agents` (testid `editor-breadcrumb-link`). The
+// `editor-unsaved` span is part of the header markup and is never created or
+// removed afterwards: studio.js's checkDirty sets its text ("Unsaved
+// changes") or clears it, from the same dirty flag as Save and Cancel.
 //
 // Editor Delete button: uses App.confirmDelete via studio.js's
 // handleDeleteEditor (F6 leg 04 migration). Capital-D "Confirm Delete?"
@@ -73,13 +82,12 @@
 
     // === Action cluster ===========================================
     // F5 leg 05: Delete moved into the General tab's Danger Zone (only
-    // for existing agents). The header carries Back / Cancel / Save.
-    // Save and Cancel share `disabled` as the SINGLE source of truth —
-    // checkDirty() flips both to mirror the dirty flag.
+    // for existing agents). The header carries the unsaved caption, Cancel
+    // and Save. Save and Cancel share `disabled` as the SINGLE source of
+    // truth — checkDirty() flips both (and the caption) to mirror the dirty
+    // flag.
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" ' +
-      'data-testid="back-agent-btn" aria-label="Back to agents list">' +
-      window.App.icon('arrow-left') + ' Back</button>';
+    html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
     html += '<button type="button" class="btn-outlined-primary cancel-btn" ' +
       'data-testid="cancel-agent-btn" disabled>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" ' +
@@ -129,11 +137,23 @@
 
     container.innerHTML = html;
 
+    // The breadcrumb (M25 F3 DD2), built with DOM APIs after the markup is in
+    // place: the first child of .editor-header-text. Its one segment links to
+    // the destination root (the DD2 refinement, leg 4b): with Back retired it
+    // is the visible way to close the item. studio.js routes the click and
+    // focuses the agent's row after the close (DD8).
+    var headerText = container.querySelector('.editor-header-text');
+    var crumb = document.createElement('div');
+    crumb.className = 'editor-breadcrumb';
+    var crumbLink = document.createElement('a');
+    crumbLink.className = 'editor-breadcrumb-link';
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'agents' }));
+    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
+    crumbLink.textContent = 'Agents';
+    crumb.appendChild(crumbLink);
+    headerText.insertBefore(crumb, headerText.firstChild);
+
     // Wire action-cluster buttons — handlers from callbacks.
-    var backBtn = container.querySelector('.back-btn');
-    if (backBtn && callbacks.onBack) {
-      backBtn.addEventListener('click', function () { callbacks.onBack(); });
-    }
     var cancelBtn = container.querySelector('.cancel-btn');
     if (cancelBtn && callbacks.onCancel) {
       cancelBtn.addEventListener('click', function () { callbacks.onCancel(); });

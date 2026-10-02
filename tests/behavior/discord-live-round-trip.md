@@ -4,6 +4,7 @@
 **Status**: active
 **Created**: 2026-09-01
 **Last Run**: 2026-09-01-19-19-17 (pass — see runs/)
+**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
 
 ## Intent
 Proves the Mission 23 channel contract against REAL Discord infrastructure — the hand-rolled Gateway v10 + REST client, not the stub: a driver bot's @mention in the test channel reaches the attached agent and the reply lands back in the same channel; the always-listen channel answers unprompted messages; an untracked channel stays silent; the agent can speak first into a channel via the send tool (baseline-visible per mission RQ8 — this spec carries NO tool-use nudge, which is itself the mechanical-fallback proof); and the connection resumes after a forced disconnect. The DM/pairing half of the mission criterion is NOT here (bots cannot DM bots) — it belongs to the flight's guided HAT leg.
@@ -36,7 +37,7 @@ Proves the Mission 23 channel contract against REAL Discord infrastructure — t
     config names (step 4).
   - `THE_ONE_HAT_UNTRACKED_CHANNEL_ID` — a channel the connector does NOT track (step 3).
 - **MAIN bot**: application + token with Message Content intent, joined to the operator's
-  test guild; a Discord connector row created for it (Studio) with `default_agent:
+  test guild; a Discord connector row created for it (Library › Connectors) with `default_agent:
   test-agent`, `config.always_listen` containing `THE_ONE_HAT_ALWAYS_LISTEN_CHANNEL_ID`, and
   the driver bot's Discord user id on `allowlist.peers` (the driver posts as itself, not as
   the operator, so it needs admission the same way any peer does).

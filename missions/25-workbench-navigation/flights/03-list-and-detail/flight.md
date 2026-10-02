@@ -1,6 +1,6 @@
 # Flight: List and Detail
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -104,6 +104,14 @@ Editor internals are out of scope; the next mission redesigns them (mission deci
   - Flight 3 adds the **breadcrumb** (11px, `--fg-muted`) as the first child of
     `.editor-header-text`: "Agents", "Library / {Group}" or "Settings / Providers". It is
     built with DOM APIs, with no new HTML-string sink.
+  - **Refinement** (leg 4a design review, recorded in the flight log): the breadcrumb's
+    last segment links to its section or destination root.
+    - "Agents" links to `#agents`; "{Group}" to `#library/{section}`; "Providers" and
+      "Built-in tools" to their `#settings/…` page.
+    - "Library" and "Settings" stay plain text.
+    - With Back retired, this is the visible way to close an item. Leg 4b implements it
+      for Agents and Library, and leg 5b for Settings.
+    - It is raised at the DD14 operator checkpoint.
   - **Where it is inserted** (cycle 2, issue 5):
     - **String-built editors** (`agent-editor.js:66-67`, `mcp-server-editor.js:475-476`,
       the provider editor): insert it **after** `innerHTML` is set.
@@ -708,18 +716,18 @@ into leg 5a, and split the Library and Settings legs (issues 2, 3 and 8).
 
 ### Checkpoints
 
-- [ ] `listPane` additions, `navGroups`, tokens, `_lists.py` and the guard shipped with
+- [x] `listPane` additions, `navGroups`, tokens, `_lists.py` and the guard shipped with
   demos, inventory and contract tests in both engines (L1)
-- [ ] Library collections in the store, `App.usage` and item-named announcements;
+- [x] Library collections in the store, `App.usage` and item-named announcements;
   provider and MCP create announce the item (L2)
-- [ ] Agents: list beside the editor, no Back, `~new` create, 30+ agents responsive, leak
+- [x] Agents: list beside the editor, no Back, `~new` create, 30+ agents responsive, leak
   regression passes, no tab wrap at 1024px (L3)
-- [ ] Library: grouped list plus Add; every row and Add item resolves; all three editors
+- [x] Library: grouped list plus Add; every row and Add item resolves; all three editors
   hosted beside the list; connector deep links; knowledge-base create opens the item
   (0101) (L4a)
-- [ ] Library: breadcrumbs; no Back; create-opens-item checks for all three types (L4b)
-- [ ] Settings: grouped nav of links, General split with redirects, page headers (L5a)
-- [ ] Settings items open under their list, with no Back (L5b)
+- [x] Library: breadcrumbs; no Back; create-opens-item checks for all three types (L4b)
+- [x] Settings: grouped nav of links, General split with redirects, page headers (L5a)
+- [x] Settings items open under their list, with no Back (L5b)
 - [ ] Specs pass in both themes; all lanes green; guard allow-list empty; checkpoint
   package ready (L6)
 
@@ -749,25 +757,25 @@ into leg 5a, and split the Library and Settings legs (issues 2, 3 and 8).
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created
 > one at a time as the flight progresses.
 
-- [ ] `list-controls`: `listPane` additions (focus preservation), `navGroups`, width
+- [x] `list-controls`: `listPane` additions (focus preservation), `navGroups`, width
   tokens and the `data-destination` hook, `_lists.py` with the guard allow-list, A24, and
   the factory checklist.
-- [ ] `data-and-announcer`: store collections, the invalidation map, `App.usage`,
+- [x] `data-and-announcer`: store collections, the invalidation map, `App.usage`,
   fetch-site migration, `describeRoute` names, and `sync` announcing on an item-key
   change.
-- [ ] `agents-list-detail`: the list column, breadcrumb, empty state, unsaved indicator,
+- [x] `agents-list-detail`: the list column, breadcrumb, empty state, unsaved indicator,
   `~new` and Cancel, Back and grid retired, the DD3 regression, the ratio filter check
   and the tab-wrap gate.
-- [ ] `library-list`: the grouped list, Add menu, intro, meta and empty states; the
+- [x] `library-list`: the grouped list, Add menu, intro, meta and empty states; the
   sections nav retired; all three editors hosted beside the list; connector routes and
   pending state; the knowledge-base `~new` form (0101); interim Back to the section root.
-- [ ] `library-editors`: breadcrumbs, Back retired, and the create-opens-item and
+- [x] `library-editors`: breadcrumbs, Back retired, and the create-opens-item and
   preservation checks.
-- [ ] `settings-nav-and-general`: the `navGroups` Settings nav, section-nav deleted, the
+- [x] `settings-nav-and-general`: the `navGroups` Settings nav, section-nav deleted, the
   General split with every reference and redirect, and page headers.
-- [ ] `settings-items`: the Providers table with the item below it, Built-in tools with
+- [x] `settings-items`: the Providers table with the item below it, Built-in tools with
   the item below it, and provider and tool Back retired.
-- [ ] `behavior-specs-and-close`: `list-and-detail`, spec updates, gates and runs, and
+- [x] `behavior-specs-and-close`: `list-and-detail`, spec updates, gates and runs, and
   the checkpoint package.
 
 ---
@@ -776,19 +784,19 @@ into leg 5a, and split the Library and Settings legs (issues 2, 3 and 8).
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged to `main` (after #217 and #218; the operator merges)
-- [ ] Tests passing:
+- [x] Tests passing:
   - `make lint` and `make test-unit`;
   - all five lanes (with `THE_ONE_TEST_NETNS=1`);
   - the library contract tests in both engines.
-- [ ] Documentation updated:
+- [x] Documentation updated:
   - `CLAUDE.md` (routes, the store collections, `_lists.py`);
   - `the_one/agents.md` (list/detail shell, the invalidation map, create routes, the
     retired section-nav);
   - `docs/ui-testid-registry.md` (retired Back testids, new testids);
   - `docs/ui-control-inventory.md`.
-- [ ] Squawk 0101 closed in the flight commit
+- [x] Squawk 0101 closed in the flight commit
 - [ ] Operator checkpoint held, and its outcome recorded in the flight log
 
 ### Verification

@@ -30,7 +30,7 @@
 
     container.innerHTML =
       '<div class="page-header">' +
-        '<h1 class="page-title">Knowledge</h1>' +
+        '<h1 class="page-title">Knowledge indexing</h1>' +
       '</div>' +
       '<div class="admin-form" data-testid="knowledge-settings-panel">' +
         '<div class="banner banner-error" role="alert" hidden data-testid="knowledge-settings-load-error">' +

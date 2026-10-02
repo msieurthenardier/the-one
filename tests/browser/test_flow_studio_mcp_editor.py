@@ -15,7 +15,8 @@ Covers:
   changed-one is overwritten + unchanged-one preserved
 - Delete stdio source via App.confirmDelete two-click flow
 - Delete streamable-http source via App.confirmDelete two-click flow
-- Dirty Back surfaces App.confirmDialog; Cancel keeps the editor mounted
+- A dirty close (the breadcrumb's root link) surfaces App.confirmDialog;
+  Cancel keeps the editor mounted
 - Type change swaps transport-specific field visibility + kv label +
   OAuth section
 - Save with empty kv key row silently skips that row (no "" key persisted)
@@ -28,7 +29,7 @@ import re
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
@@ -62,7 +63,7 @@ def _list_sources(base_url: str) -> list[dict]:
 
 @pytest.mark.browser
 def test_create_stdio_source(app_clean: str, page: Page) -> None:
-    """Fill the create form for a stdio source, save, see it in the grid."""
+    """Fill the create form for a stdio source, save, see it in the Library list."""
     _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
@@ -78,13 +79,16 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
     expect(save_btn).not_to_be_disabled()
     save_btn.click()
 
-    # Save flash + create→edit transition: Danger Zone now visible.
+    # Save flash + create→edit transition: Danger Zone now visible, and the
+    # new row is in the Library list beside the editor (M25 F3 L4a).
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+    _lists.expect_selected(page, "library/mcp", "github-mcp")
 
-    # Back to grid.
-    page.locator('[data-testid="back-mcp-source-btn"]').click()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
-    expect(page.locator('[data-testid="mcp-source-card"]', has_text="github-mcp")).to_be_visible()
+    # Close to the section root through the breadcrumb's "MCP servers" link
+    # (M25 F3 L4b retired Back).
+    _lists.close_item(page)
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
+    expect(_lists.list_row(page, "library/mcp", "github-mcp")).to_be_visible()
 
 
 @pytest.mark.browser
@@ -185,8 +189,10 @@ def test_delete_stdio_source(app_clean: str, page: Page) -> None:
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
     # Second click commits.
     delete_btn.click()
-    # Land back on the grid; tile is gone.
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    # Land on the section root; the row is gone.
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library/mcp")
+    expect(page.locator('[data-testid="mcp-source-card"]')).to_have_count(0)
     assert _list_sources(app_clean) == []
 
 
@@ -207,7 +213,7 @@ def test_delete_streamable_http_source(app_clean: str, page: Page) -> None:
     delete_btn.click()
     expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
     delete_btn.click()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=5000)
     assert _list_sources(app_clean) == []
 
 
@@ -239,8 +245,9 @@ def test_delete_mcp_source_confirm_lapse_is_visually_distinct(app_clean: str, pa
 
 
 @pytest.mark.browser
-def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
-    """Dirty editor + Back → confirmDialog; Cancel keeps editor mounted."""
+def test_dirty_breadcrumb_close_confirm_dialog(app_clean: str, page: Page) -> None:
+    """Dirty editor + the breadcrumb's root link (Back is retired, M25 F3 L4b)
+    → confirmDialog; Cancel keeps editor mounted."""
     _nav.goto_settled(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
@@ -248,8 +255,8 @@ def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
     page.locator('[data-field="name"]').fill("typed-name")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).not_to_be_disabled()
 
-    # Click Back; modal appears.
-    page.locator('[data-testid="back-mcp-source-btn"]').click()
+    # Click the breadcrumb's "MCP servers" link; modal appears.
+    _lists.close_item(page)
     expect(page.locator(".modal-overlay")).to_be_visible(timeout=5000)
     # Cancel (Stay) — editor stays mounted.
     page.locator('[data-testid="modal-cancel-btn"]').click()

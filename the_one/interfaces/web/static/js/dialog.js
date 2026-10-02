@@ -2,8 +2,9 @@
 //
 // A thin adapter over App.ui.modal (M25 F2 L2, DD6): a native <dialog> with
 // showModal(), Escape-cancel, a manual Tab wrap and restore-focus-on-close. Used
-// by studio's dirty-state navigation gates (Back, section-nav, tile click,
-// tab change). Distinct from App.confirmDelete (in-place two-step destructive
+// by the leave guard (App.nav, nav.js), which the router runs on every guarded
+// navigation (a list row; a nav, breadcrumb or rail link; Back/Forward).
+// Distinct from App.confirmDelete (in-place two-step destructive
 // confirm) — App.confirmDialog is the BLOCKING modal primitive for the
 // "you are about to lose unsaved work" decision.
 //

@@ -1,9 +1,10 @@
-// App.studio.renderConnectorsGrid / renderConnectorEditor — Studio
-// connector-editor section (Mission 23 Flight 2 Leg 2, DD-9).
+// App.studio.renderConnectorEditor — Studio connector-editor section
+// (Mission 23 Flight 2 Leg 2, DD-9). Since M25 F3 L4a connectors are rows of
+// the Library list (studio.js) and routed (`#library/connectors/~new|{id}`);
+// the tile grid is retired.
 //
-// One file, mirroring the mcp-servers-grid.js + mcp-server-editor.js split
-// but SMALLER — a minimal CRUD form, not a live-status/discoverable-tool
-// surface. Fields: name, type, token (masked, per-key __MASKED__ round-
+// One file, mirroring mcp-server-editor.js but SMALLER — a minimal CRUD
+// form, not a live-status/discoverable-tool surface. Fields: name, type, token (masked, per-key __MASKED__ round-
 // trip via the SAME `_looks_masked` contract the backend uses), default
 // agent (dropdown sourced from the live agents list), allowlist (peers +
 // channels, newline-separated), always-listen channels, channel→agent map
@@ -20,6 +21,11 @@
 // and agent-editor.js (grandfathered baseline entries). The container
 // clears below assign a bare empty string literal to the sink property,
 // which the guard's own rule classifies as static (exempt), not dynamic.
+//
+// M25 F3 L4b (DD2): Back (`onBack`) is retired. The header carries the
+// breadcrumb "Library / Connectors" (its group a link to
+// `#library/connectors`) and the unsaved caption at the start of
+// `.form-actions`, whose text follows the editor's dirty reports.
 //
 // Mission 23 Flight 3 Leg 2 (DD-6): `config.enabled` is now a persisted
 // key (default true, absent key = enabled, no migration). Every connector
@@ -209,63 +215,6 @@
     return (arr || []).join('\n');
   }
 
-  // ── Grid ──────────────────────────────────────────────────────────────
-
-  function renderConnectorsGrid(container, connectors, callbacks) {
-    callbacks = callbacks || {};
-    var onSelect = callbacks.onSelectConnector || function () {};
-    var onCreate = callbacks.onCreateConnector || function () {};
-    var selectedId = callbacks.selectedId || null;
-
-    container.innerHTML = ''; // static clear — exempt from the sink freeze
-
-    var header = _el('div', { className: 'page-header' });
-    header.appendChild(_el('h1', { className: 'page-title', text: 'Connectors' }));
-    var newBtn = _btn('btn-outlined-primary', 'new-connector-btn', 'New Connector');
-    newBtn.addEventListener('click', function () { onCreate(); });
-    header.appendChild(newBtn);
-    container.appendChild(header);
-
-    var gridEl = _el('div', { className: 'entity-tile-grid' });
-    gridEl.setAttribute('role', 'listbox');
-    gridEl.setAttribute('aria-label', 'Connectors');
-    container.appendChild(gridEl);
-
-    if (connectors === null || connectors === undefined) {
-      gridEl.appendChild(_el('div', { className: 'admin-loading', text: 'Loading connectors…' }));
-      return;
-    }
-
-    if (connectors.length === 0) {
-      var empty = _el('div', { className: 'empty-canvas' });
-      var inner = _el('div', { className: 'empty-canvas-inner admin-provider-empty' });
-      inner.appendChild(_el('div', { text: 'No connectors configured. Add one to get started.' }));
-      var emptyBtn = _btn('empty-canvas-cta', null, 'New Connector');
-      emptyBtn.addEventListener('click', function () { onCreate(); });
-      inner.appendChild(emptyBtn);
-      empty.appendChild(inner);
-      gridEl.appendChild(empty);
-      return;
-    }
-
-    connectors.forEach(function (c) {
-      var tile = _el('button', { className: 'entity-tile connector-tile' });
-      tile.type = 'button';
-      tile.setAttribute('role', 'option');
-      tile.setAttribute('data-testid', 'connector-card');
-      tile.setAttribute('data-id', c.id);
-      tile.setAttribute('aria-selected', selectedId === c.id ? 'true' : 'false');
-      tile.appendChild(_el('span', { className: 'entity-tile-badge admin-mcp-badge', text: c.type }));
-      tile.appendChild(_el('span', { className: 'entity-tile-name', text: c.name }));
-      tile.appendChild(_el('span', {
-        className: 'entity-tile-meta',
-        text: (c.config && c.config.default_agent) || '—'
-      }));
-      tile.addEventListener('click', function () { onSelect(c.id); });
-      gridEl.appendChild(tile);
-    });
-  }
-
   // ── Editor ────────────────────────────────────────────────────────────
 
   function renderConnectorEditor(container, connector, connectorTypes, agents, callbacks) {
@@ -284,8 +233,20 @@
     container.innerHTML = ''; // static clear — exempt from the sink freeze
 
     // ── Header ────────────────────────────────────────────────────────
+    // M25 F3 L4b (DD2): the breadcrumb "Library / Connectors" is the first
+    // child of .editor-header-text (built here, during construction), in edit
+    // and create modes. Its group segment links to the section root: with Back
+    // retired it is the visible way to close the item. studio.js routes the
+    // click (the router's guard asks once about a dirty editor) and focuses
+    // the item's row after the close (DD8).
     var header = _el('div', { className: 'editor-header' });
     var headerText = _el('div', { className: 'editor-header-text' });
+    var crumb = _el('div', { className: 'editor-breadcrumb', text: 'Library / ' });
+    var crumbLink = _el('a', { className: 'editor-breadcrumb-link', text: 'Connectors' });
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library', section: 'connectors' }));
+    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
+    crumb.appendChild(crumbLink);
+    headerText.appendChild(crumb);
     headerText.appendChild(_el('h1', {
       className: 'editor-title',
       text: isCreate ? 'New Connector' : (cfg.name || '')
@@ -313,15 +274,18 @@
     }
     header.appendChild(headerText);
 
+    // The cluster opens with the stable unsaved caption (DD2, A15): its text
+    // follows the editor's dirty reports (reportDirty below). Back is retired.
     var actions = _el('div', { className: 'form-actions' });
-    var backBtn = _btn('btn-outlined-primary back-btn', 'back-connector-btn', '← Back');
-    backBtn.setAttribute('aria-label', 'Back to connectors list');
+    var unsavedEl = _el('span', { className: 'editor-unsaved' });
+    unsavedEl.setAttribute('role', 'status');
+    unsavedEl.setAttribute('data-testid', 'editor-unsaved');
     var cancelBtn = _btn('btn-outlined-primary cancel-btn', 'cancel-connector-btn', 'Cancel');
     cancelBtn.disabled = true;
     var saveBtn = _btn('btn-filled-primary save-btn', 'save-connector-btn', isCreate ? 'Create' : 'Save');
     saveBtn.disabled = true;
     var errorEl = _el('span', { className: 'editor-error' });
-    actions.appendChild(backBtn);
+    actions.appendChild(unsavedEl);
     actions.appendChild(cancelBtn);
     actions.appendChild(saveBtn);
     actions.appendChild(errorEl);
@@ -600,6 +564,7 @@
           fetch('/api/connectors/' + encodeURIComponent(cfg.id), { method: 'DELETE' })
             .then(function (r) {
               if (!r.ok) throw new Error('Delete failed');
+              App.store.invalidate('connectors'); // the Library list loses a row (DD9)
               if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
             })
             .catch(function (err) {
@@ -611,17 +576,22 @@
     }
 
     // ── Dirty tracking — any top-level field change enables Save/Cancel.
+    // The unsaved caption follows the same reports that feed studio's
+    // `dirty` through onDirtyChange (M25 F3 L4b).
+    function reportDirty(d) {
+      unsavedEl.textContent = d ? 'Unsaved changes' : '';
+      if (callbacks.onDirtyChange) callbacks.onDirtyChange(d);
+    }
     function markDirty() {
       saveBtn.disabled = false;
       cancelBtn.disabled = false;
-      if (callbacks.onDirtyChange) callbacks.onDirtyChange(true);
+      reportDirty(true);
     }
     container.querySelectorAll('[data-field]').forEach(function (el) {
       el.addEventListener('input', markDirty);
       el.addEventListener('change', markDirty);
     });
 
-    if (callbacks.onBack) backBtn.addEventListener('click', function () { callbacks.onBack(); });
     if (callbacks.onCancel) cancelBtn.addEventListener('click', function () { callbacks.onCancel(); });
 
     // ── Save ─────────────────────────────────────────────────────────
@@ -705,14 +675,24 @@
         }
         return r.json();
       }).then(function (updated) {
+        App.store.invalidate('connectors'); // the Library list shows it (DD9)
         window.App.showFlash(container, isCreate ? 'Connector created' : 'Connector saved');
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, isCreate);
+        // An edit save keeps this editor (a create re-renders it in edit
+        // mode): the form now matches the saved row, so it reads clean again
+        // -- the caption clears and Save/Cancel disable, as in the other
+        // editors (M25 F3 L4b). studio's onSaveSuccess has cleared its own
+        // `dirty` under its generation guard, so no onDirtyChange here.
+        if (!isCreate) {
+          unsavedEl.textContent = '';
+          saveBtn.disabled = true;
+          cancelBtn.disabled = true;
+        }
       }).catch(function (err) {
         errorEl.textContent = err.message || String(err);
       });
     });
   }
 
-  window.App.studio.renderConnectorsGrid = renderConnectorsGrid;
   window.App.studio.renderConnectorEditor = renderConnectorEditor;
 })();

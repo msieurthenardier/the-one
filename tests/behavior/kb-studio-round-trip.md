@@ -3,6 +3,7 @@
 **Slug**: `kb-studio-round-trip`
 **Status**: active *(re-authored five times; reverted to `draft` on 2026-09-21 to repair defects #7-#11, all of which held on the 2026-09-22 run. Returned to `active` on 2026-09-22 after that run scored **17 pass / 1 inconclusive / 0 fail** and the single inconclusive — a step 12->13 sequencing gap, **defect #15** — was fixed below. That fix's corrected sequence was itself executed during the run as step 13-bis and passed, so it ships verified rather than merely reasoned. See `runs/2026-09-22-01-05-35.md`.)*
 **Created**: 2026-09-17
+**Updated**: 2026-10-02 (M25 F3: "inventory" mapped onto the Library list and detail shell; see the note under Preconditions)
 **Last Run**: 2026-09-22-01-05-35 — **17 pass / 1 inconclusive / 0 fail** across all 18 checkpoints, run strictly one-at-a-time in live two-agent mode. Step 5's `[continuous-session]` clause and step 9's full step-2-to-9 continuity span were **exercised for the first time** rather than recorded UNEXERCISED. The sole inconclusive (step 13) was a spec-sequencing gap, now fixed as defect #15. See `kb-studio-round-trip/runs/2026-09-22-01-05-35.md`.
 
 ## Intent
@@ -138,6 +139,21 @@ ratchet would pass every other step in this table.
   Every settle window below is expressed as a multiple of the **configured**
   interval, never as a bare "reasonable window" — otherwise a step that is
   really waiting 5 minutes on the walk reads as a watcher failure.
+
+> **Since Mission 25 Flight 3: what "the inventory" means in this shell.** Knowledge bases
+> are rows in the **"Knowledge bases" group of the Library list** (the aside). An open
+> knowledge base's items, chunks, source text and search are in the **detail pane** beside
+> it.
+>
+> - **Creating** (step 2) is **Add → Knowledge base**. It opens a create form at
+>   `#library/knowledge/~new`, and **Create opens the new knowledge base's detail view**
+>   (squawk 0101), so the next action starts there.
+> - **Closing a knowledge base** uses the breadcrumb link "Knowledge bases" in its header.
+>   There is no Back button.
+> - **"Appears in the inventory"** means a row in that group, and "the inventory shows
+>   only …" means that group's rows.
+>
+> The step table's assertions are unchanged.
 
 ## Observables Required
 

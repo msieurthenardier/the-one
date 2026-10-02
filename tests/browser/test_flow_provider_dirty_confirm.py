@@ -1,18 +1,23 @@
 """End-to-end flow tests: provider editor dirty-state + App.confirmDialog modal (F6 leg 04).
 
 Mirrors test_flow_dirty_confirm.py (F5 leg 04 studio dirty-confirm tests) for
-the provider editor's three navigation gates (Back, section-nav, beforeunload).
+the provider editor's navigation gates (the breadcrumb's "Providers" link, the
+Settings nav, beforeunload). Since M25 F3 leg 5b the provider editor opens
+below the Providers table and Back is retired: the item header's breadcrumb
+link (``_lists.close_item``) is the close, routed through the same leave guard.
 
 Covers:
 
-- Back-when-clean does not show dialog.
-- Back-when-dirty shows dialog; cancel keeps editor; confirm navigates to grid.
-- Section-nav-when-clean does not show dialog.
-- Section-nav-when-dirty shows dialog; cancel keeps editor; confirm navigates.
-- Section-nav from grid (no editor) does not show dialog even after a prior
-  dirty-then-discard cycle (orchestrator's mirror reset).
-- Save resets dirty (subsequent Back has no dialog).
-- Cancel button resets dirty in edit mode (revert + Back has no dialog).
+- Breadcrumb-when-clean does not show dialog.
+- Breadcrumb-when-dirty shows dialog; cancel keeps editor; confirm closes it.
+- Settings-nav-link-when-clean does not show dialog.
+- Settings-nav-link-when-dirty shows dialog; cancel keeps editor; confirm
+  navigates (to Appearance: since M25 F3 leg 5a the nav is
+  ``App.ui.navGroups`` links, reached through ``_lists.settings_nav_link``).
+- A Settings nav link from the page root (no editor) does not show dialog even
+  after a prior dirty-then-discard cycle (orchestrator's mirror reset).
+- Save resets dirty (a subsequent close has no dialog).
+- Cancel button resets dirty in edit mode (revert + close has no dialog).
 - Dialog Escape dismisses; Enter activates the focused Stay (M25 F2 L2, DD6);
   Tab to Continue then Enter confirms.
 - beforeunload listener: synthetic event with dirty=True → defaultPrevented;
@@ -22,7 +27,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -53,33 +58,34 @@ def _make_dirty(page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_back_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
-    """Back when clean does NOT open dialog; navigates to grid immediately."""
+def test_breadcrumb_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
+    """The breadcrumb when clean does NOT open dialog; closes the editor at once."""
     _open_editor(page, app_with_provider)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
+    expect(_lists.providers_table(page)).to_be_visible()
     _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
-def test_back_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) -> None:
-    """Back when dirty opens the App.confirmDialog modal."""
+def test_breadcrumb_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) -> None:
+    """The breadcrumb when dirty opens the App.confirmDialog modal."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
         timeout=_DIALOG_TIMEOUT
     )
 
 
 @pytest.mark.browser
-def test_back_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Page) -> None:
-    """Cancel ('Stay') in the Back-dirty dialog keeps the editor + URL."""
+def test_breadcrumb_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Page) -> None:
+    """Cancel ('Stay') in the breadcrumb-dirty dialog keeps the editor + URL."""
     _open_editor(page, app_with_provider)
     initial_route = _nav.current_route(page)
     _make_dirty(page)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
@@ -90,47 +96,55 @@ def test_back_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Pag
 
 
 @pytest.mark.browser
-def test_back_dialog_confirm_navigates_to_grid(app_with_provider: SeededApp, page: Page) -> None:
-    """Confirm ('Continue') in the Back-dirty dialog navigates to the grid."""
+def test_breadcrumb_dialog_confirm_closes_the_editor(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """Confirm ('Continue') in the breadcrumb-dirty dialog closes the editor;
+    the table stays."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
+    expect(_lists.providers_table(page)).to_be_visible()
     _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
-def test_section_nav_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
-    """Section-nav click when editor is clean does NOT open dialog."""
+def test_settings_nav_link_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
+    """A Settings nav link click when the editor is clean does NOT open dialog."""
     _open_editor(page, app_with_provider)
-    page.locator('.section-nav-item[data-section="general"]').click()
+    _lists.settings_nav_link(page, "appearance").click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    _nav.expect_route(page, "settings/general")
+    _nav.expect_route(page, "settings/appearance")
 
 
 @pytest.mark.browser
-def test_section_nav_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) -> None:
-    """Section-nav click when editor is dirty opens the modal."""
+def test_settings_nav_link_when_dirty_shows_dialog(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """A Settings nav link click when the editor is dirty opens the modal."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('.section-nav-item[data-section="general"]').click()
+    _lists.settings_nav_link(page, "appearance").click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
         timeout=_DIALOG_TIMEOUT
     )
 
 
 @pytest.mark.browser
-def test_section_nav_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Page) -> None:
-    """Stay on the section-nav dialog keeps the editor + hash."""
+def test_settings_nav_link_dialog_cancel_keeps_editor(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """Stay on the Settings-nav-link dialog keeps the editor + hash."""
     _open_editor(page, app_with_provider)
     initial_route = _nav.current_route(page)
     _make_dirty(page)
-    page.locator('.section-nav-item[data-section="general"]').click()
+    _lists.settings_nav_link(page, "appearance").click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
@@ -141,55 +155,56 @@ def test_section_nav_dialog_cancel_keeps_editor(app_with_provider: SeededApp, pa
 
 
 @pytest.mark.browser
-def test_section_nav_dialog_confirm_navigates_to_system(
+def test_settings_nav_link_dialog_confirm_navigates_to_appearance(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """Continue on the section-nav dialog navigates to System."""
+    """Continue on the Settings-nav-link dialog navigates to Appearance."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('.section-nav-item[data-section="general"]').click()
+    _lists.settings_nav_link(page, "appearance").click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
-    _nav.expect_route(page, "settings/general")
+    _nav.expect_route(page, "settings/appearance")
 
 
 @pytest.mark.browser
-def test_section_nav_from_grid_no_dialog_after_prior_discard(
+def test_settings_nav_link_from_grid_no_dialog_after_prior_discard(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """After Back-dirty-discard returns to grid, section-nav from grid does
-    NOT show a dialog (orchestrator mirror is reset on doHandleBack)."""
+    """After a breadcrumb-dirty discard closes the editor, a Settings nav link
+    from the page root does NOT show a dialog (the orchestrator mirror is reset
+    by the discard)."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
-    # Now navigate from the grid to System — no dialog because no editor.
-    page.locator('.section-nav-item[data-section="general"]').click()
+    expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
+    # Now navigate from the page root to Appearance — no dialog: no editor.
+    _lists.settings_nav_link(page, "appearance").click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    _nav.expect_route(page, "settings/general")
+    _nav.expect_route(page, "settings/appearance")
 
 
 @pytest.mark.browser
 def test_save_resets_dirty(app_with_provider: SeededApp, page: Page) -> None:
-    """Successful Save clears dirty; subsequent Back does not show dialog."""
+    """Successful Save clears dirty; a subsequent close does not show dialog."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     page.locator('[data-testid="save-provider-btn"]').click()
     # Save flash signals success; then the editor stays mounted in edit mode.
     expect(page.locator('[data-testid="save-provider-btn"]')).to_be_disabled(timeout=5000)
 
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
 
 
 @pytest.mark.browser
 def test_cancel_button_resets_dirty_in_edit(app_with_provider: SeededApp, page: Page) -> None:
-    """Cancel button reverts form + clears dirty; subsequent Back has no dialog."""
+    """Cancel button reverts form + clears dirty; a subsequent close has no dialog."""
     _open_editor(page, app_with_provider)
     original_name = page.locator("#pf-name").input_value()
     _make_dirty(page)
@@ -197,7 +212,7 @@ def test_cancel_button_resets_dirty_in_edit(app_with_provider: SeededApp, page: 
     expect(page.locator("#pf-name")).to_have_value(original_name)
     expect(page.locator('[data-testid="save-provider-btn"]')).to_be_disabled()
 
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
 
 
@@ -207,7 +222,7 @@ def test_dialog_escape_cancels(app_with_provider: SeededApp, page: Page) -> None
     _open_editor(page, app_with_provider)
     initial_route = _nav.current_route(page)
     _make_dirty(page)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
@@ -227,7 +242,7 @@ def test_dialog_enter_activates_focused_stay(app_with_provider: SeededApp, page:
     _open_editor(page, app_with_provider)
     initial_route = _nav.current_route(page)
     _make_dirty(page)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
     expect(page.locator('[data-testid="modal-cancel-btn"]')).to_be_focused()
@@ -242,10 +257,10 @@ def test_dialog_enter_activates_focused_stay(app_with_provider: SeededApp, page:
 def test_dialog_tab_to_continue_then_enter_confirms(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """Companion: Tab to Continue, then Enter, confirms and navigates to the grid."""
+    """Companion: Tab to Continue, then Enter, confirms and closes the editor."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 

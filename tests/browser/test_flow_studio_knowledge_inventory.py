@@ -57,6 +57,13 @@ the old text glyph); and the folder one's arming click still does not
 toggle its `<details>`, which only became breakable once the target was an
 `<svg>` rather than the `<button>`.
 
+Mission 25 Flight 3 Leg 4a: the tile grid and its inline create form are
+retired. Knowledge bases are rows of the Library list (``knowledge-base-card``
+on an ``<a href>``), the create form lives at ``#library/knowledge/~new`` (Add
+-> "Knowledge base") and creating OPENS the new knowledge base (squawk 0101),
+so ``_create_knowledge_base`` leaves the test on the new item's detail view.
+The section root shows the Knowledge empty state beside the list.
+
 Mission 24 Flight 6 Leg 6 HAT pass 2 (2026-09-19) — two browser-layer gaps
 closed by strengthening the pipeline test rather than adding a parallel
 suite (the unit layer already covers walking, chunking and seq ordering;
@@ -79,8 +86,9 @@ from pathlib import Path
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
+from browser.seeders import seed_mcp_source
 from playwright.sync_api import Page, expect
 
 # Sized DELIBERATELY against the chunker's shipped defaults (1000 chars,
@@ -99,35 +107,62 @@ _MULTI_CHUNK_BODY = "\n\n".join(
 
 
 def _wait_studio_ready(page: Page) -> None:
-    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="library-list"] .ui-list-pane-caption').first).to_be_visible(
+        timeout=8000
+    )
 
 
 def _goto_knowledge_grid(app_clean: str, page: Page) -> None:
-    # State-driven readiness (fetch activity quiet) rather than a fixed 8s
-    # section-nav wait: under load the boot outlasted it once in the leg-1 lane
-    # run (same slow-boot class as the four fixed flakes).
+    """The Knowledge section root: the Library list and the empty detail state.
+
+    State-driven readiness (fetch activity quiet) rather than a fixed wait:
+    under load the boot outlasted one once in the leg-1 lane run (same
+    slow-boot class as the four fixed flakes)."""
     _nav.goto_settled(page, app_clean, "library/knowledge")
     _wait_studio_ready(page)
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=5000)
 
 
-def _create_knowledge_base(page: Page, name: str) -> None:
-    page.locator('[data-testid="new-knowledge-base-btn"]').click()
+def _wait_kb_open(page: Page, name: str) -> str:
+    """Wait for a knowledge base's detail view at its item route; return its id."""
+    page.wait_for_function(
+        "p => location.hash.startsWith(p) && !location.hash.endsWith('/~new')",
+        arg=_nav.href("library/knowledge") + "/",
+        timeout=8000,
+    )
+    expect(page.locator(".studio-section-content .editor-title")).to_have_text(name, timeout=8000)
+    return _nav.current_route(page).rsplit("/", 1)[1]
+
+
+def _create_knowledge_base(page: Page, name: str) -> str:
+    """Create through the UI (Add -> "Knowledge base"): the new knowledge base's
+    detail view opens (squawk 0101). Returns its id."""
+    _lists.library_add(page, "knowledge")
     page.locator('[data-testid="kb-create-name-input"]').fill(name)
     page.locator('[data-testid="kb-create-submit-btn"]').click()
-    expect(page.locator('[data-testid="knowledge-base-card"]', has_text=name)).to_be_visible(
-        timeout=5000
-    )
+    kb_id = _wait_kb_open(page, name)
+    expect(_lists.list_row(page, "library/knowledge", name)).to_be_visible(timeout=5000)
+    return kb_id
 
 
 @pytest.mark.browser
 def test_knowledge_grid_renders_real_inventory_no_stub(app_clean: str, page: Page) -> None:
-    """AC-1: a page header, an always-visible create CTA, and an empty
-    state — the F5 stub sentence and testid are gone."""
+    """AC-1 (M25 F3 L4a shape): the Knowledge bases group with its empty line,
+    the always-visible Add, and the section root's empty state whose action
+    opens the create form — the F5 stub sentence and testid are gone."""
     _goto_knowledge_grid(app_clean, page)
 
-    expect(page.locator(".area-studio .page-title")).to_have_text("Knowledge")
-    expect(page.locator('[data-testid="new-knowledge-base-btn"]')).to_be_visible()
+    library = page.locator('[data-testid="library-list"]')
+    expect(library.locator(".ui-list-pane-group-empty").first).to_have_text(
+        "No knowledge bases yet."
+    )
+    expect(page.locator('[data-testid="library-add-btn"]')).to_be_visible()
+    expect(_lists.library_empty_state(page, "knowledge")).to_contain_text(
+        "Select a knowledge base, or add one."
+    )
+    page.locator('[data-testid="library-empty-knowledge-add"]').click()
+    _nav.expect_route(page, "library/knowledge/~new")
+    expect(page.locator('[data-testid="kb-create-name-input"]')).to_be_focused()
     expect(page.get_by_text("in a future mission")).to_have_count(0)
     expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_have_count(0)
 
@@ -138,7 +173,7 @@ def test_create_knowledge_base_hint_and_empty_name_refused(app_clean: str, page:
     (creation still succeeds); an empty name is refused client-side and
     no request is sent."""
     _goto_knowledge_grid(app_clean, page)
-    page.locator('[data-testid="new-knowledge-base-btn"]').click()
+    _lists.library_add(page, "knowledge")
 
     name_input = page.locator('[data-testid="kb-create-name-input"]')
     hint = page.locator('[data-testid="kb-create-name-hint"]')
@@ -162,9 +197,8 @@ def test_create_knowledge_base_hint_and_empty_name_refused(app_clean: str, page:
     name_input.fill(long_name)
     expect(hint).to_be_visible()
     page.locator('[data-testid="kb-create-submit-btn"]').click()
-    expect(page.locator('[data-testid="knowledge-base-card"]', has_text=long_name)).to_be_visible(
-        timeout=5000
-    )
+    _wait_kb_open(page, long_name)
+    expect(_lists.list_row(page, "library/knowledge", long_name)).to_be_visible(timeout=5000)
     assert len(create_requests) == 1
 
 
@@ -174,8 +208,6 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
     control; the knowledge base disappears from the list."""
     _goto_knowledge_grid(app_clean, page)
     _create_knowledge_base(page, "Delete Me")
-
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Delete Me").click()
     delete_btn = page.locator('[data-testid="delete-knowledge-base-btn"]')
     expect(delete_btn).to_be_visible(timeout=5000)
 
@@ -199,10 +231,11 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
     # The detail view's root ALSO carries the shared inventory testid
     # (L1-D5) — that locator alone can't prove we left the detail view, it
     # is already satisfied before the delete round-trip resolves. Wait for
-    # the detail-only Back button to disappear instead, which only happens
-    # once onDeleteSuccess has actually run.
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_have_count(0, timeout=5000)
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible()
+    # the detail-only Save button to disappear instead, which only happens
+    # once onDeleteSuccess has actually run (M25 F3 L4b retired Back, the
+    # marker this used to wait on).
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0, timeout=5000)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
     _nav.expect_route(page, "library/knowledge")
     expect(page.locator('[data-testid="knowledge-base-card"]', has_text="Delete Me")).to_have_count(
         0
@@ -211,22 +244,21 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
 
 @pytest.mark.browser
 def test_detail_view_routing_full_reload_and_back(app_clean: str, page: Page) -> None:
-    """AC-4: selecting opens `#studio/knowledge/{kb_id}`; a full page
-    load of that URL lands directly on it; Back returns to the grid."""
+    """AC-4: selecting opens `#library/knowledge/{kb_id}`; a full page
+    load of that URL lands directly on it; the breadcrumb's "Knowledge bases"
+    link returns to the section root (M25 F3 L4b retired Back)."""
     _goto_knowledge_grid(app_clean, page)
     _create_knowledge_base(page, "Routing KB")
-
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Routing KB").click()
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=5000)
     detail_route = _nav.current_route(page)
     assert detail_route.startswith("library/knowledge/")
 
     page.reload()
     _wait_studio_ready(page)
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=5000)
     _nav.expect_route(page, detail_route)
-    page.locator('[data-testid="back-knowledge-btn"]').click()
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_have_count(0)
+    _lists.close_item(page)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0)
     _nav.expect_route(page, "library/knowledge")
 
 
@@ -242,7 +274,6 @@ def test_folder_registration_data_dir_refusal_renders_message(
     base_url, data_dir = app_with_data_dir
     _goto_knowledge_grid(base_url, page)
     _create_knowledge_base(page, "Refusal KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Refusal KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(data_dir))
@@ -432,7 +463,6 @@ def test_detail_view_indexing_poll_reindex_and_search(
 
     _goto_knowledge_grid(base_url, page)
     _create_knowledge_base(page, "Pipeline KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Pipeline KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
@@ -597,15 +627,16 @@ def test_poll_stops_on_same_area_and_cross_area_navigation(
     app_with_data_dir: tuple[str, Path], page: Page
 ) -> None:
     """AC-13b: with a detail view open and polling, navigating to another
-    Studio section AND to another area entirely (Chat) each stop the
-    poll — the two disjoint clear sites (L1-D2). Re-entering
-    #studio/knowledge mounts the grid, not the previously-selected detail
-    view."""
+    Library section (an MCP server row) AND to another area entirely
+    (Chat) each stop the poll — the two disjoint clear sites (L1-D2).
+    Re-entering #library/knowledge mounts the section root, not the
+    previously-selected detail view."""
     base_url, _data_dir = app_with_data_dir
     headers = auth_headers_for(base_url)
     kb_id = httpx.post(
         f"{base_url}/api/knowledge-bases", headers=headers, json={"name": "Poll KB"}
     ).json()["id"]
+    seed_mcp_source(base_url, "poll-mcp")
 
     status_requests: list[str] = []
 
@@ -617,23 +648,25 @@ def test_poll_stops_on_same_area_and_cross_area_navigation(
 
     _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=5000)
     # The initial mount fetch.
     assert len(status_requests) >= 1
 
-    # Same-area section change (Knowledge detail -> MCP Servers).
-    page.locator('.section-nav-item[data-section="mcp-sources"]').click()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    # Same-area section change (Knowledge detail -> an MCP server row).
+    _lists.open_item(page, "library/mcp", "poll-mcp")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=5000)
     count_after_section_switch = len(status_requests)
     time.sleep(6)  # longer than one 5s poll interval
     assert len(status_requests) == count_after_section_switch, (
         "a same-area section change must stop the Knowledge poll"
     )
 
-    # Re-enter Knowledge: mounts the grid, not the previously-selected detail.
-    page.locator('.section-nav-item[data-section="knowledge"]').click()
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_have_count(0)
+    # Re-enter Knowledge (the rail's Library link goes to its root): mounts the
+    # section root, not the previously-selected detail.
+    _nav.open_destination(page, "library")
+    _nav.expect_route(page, "library/knowledge")
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0)
 
     # Re-open the detail view (in-app click, not a fresh page.goto — a
     # second goto to the exact hash already visited earlier in this test
@@ -641,7 +674,7 @@ def test_poll_stops_on_same_area_and_cross_area_navigation(
     # separate, pre-existing router property this leg does not touch),
     # then cross-area switch (Knowledge -> Chat).
     page.locator('[data-testid="knowledge-base-card"]', has_text="Poll KB").click()
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=5000)
     count_before_area_switch = len(status_requests)
 
     _nav.open_destination(page, "chats")
@@ -789,7 +822,6 @@ def test_folder_remove_two_step_confirm_cascade_hint_and_immediate_refresh(
 
     _goto_knowledge_grid(base_url, page)
     _create_knowledge_base(page, "Remove Folder KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Remove Folder KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     # AC-2: the cascade hint is present BEFORE any folder even exists —
@@ -871,9 +903,9 @@ def test_folder_remove_two_step_confirm_cascade_hint_and_immediate_refresh(
 
     # AC-3: the knowledge base itself is NOT deleted — still on its detail
     # view, still addressable, with the folder gone and nothing else.
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible()
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible()
     expect(page.locator(".editor-title")).to_have_text("Remove Folder KB")
-    page.locator('[data-testid="back-knowledge-btn"]').click()
+    _lists.close_item(page)
     expect(
         page.locator('[data-testid="knowledge-base-card"]', has_text="Remove Folder KB")
     ).to_be_visible()
@@ -905,7 +937,6 @@ def test_folder_panel_open_state_survives_poll_ticks(
 
     _goto_knowledge_grid(base_url, page)
     _create_knowledge_base(page, "Open State KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Open State KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
@@ -945,20 +976,19 @@ def test_folder_panel_open_state_survives_poll_ticks(
 @pytest.mark.browser
 def test_create_form_description_persisted(app_clean: str, page: Page) -> None:
     """Leg 5 AC-4: the create form accepts a description, and it survives
-    the round trip (`GET /api/knowledge-bases/{id}` returns it) — rendered
-    on the grid tile without a page reload."""
+    the round trip (`GET /api/knowledge-bases/{id}` returns it) — shown in
+    the new knowledge base's detail view, which creating opens (M25 F3 L4a)."""
     _goto_knowledge_grid(app_clean, page)
-    page.locator('[data-testid="new-knowledge-base-btn"]').click()
+    _lists.library_add(page, "knowledge")
     page.locator('[data-testid="kb-create-name-input"]').fill("Described KB")
     page.locator('[data-testid="kb-create-description-input"]').fill("A description for testing.")
     page.locator('[data-testid="kb-create-submit-btn"]').click()
 
-    card = page.locator('[data-testid="knowledge-base-card"]', has_text="Described KB")
-    expect(card).to_be_visible(timeout=5000)
-    expect(card.locator(".entity-tile-meta")).to_have_text("A description for testing.")
-
-    kb_id = card.get_attribute("data-id")
-    assert kb_id is not None
+    kb_id = _wait_kb_open(page, "Described KB")
+    expect(page.locator('[data-testid="kb-description-input"]')).to_have_value(
+        "A description for testing."
+    )
+    expect(_lists.list_row(page, "library/knowledge", "Described KB")).to_be_visible()
     body = httpx.get(
         f"{app_clean}/api/knowledge-bases/{kb_id}", headers=auth_headers_for(app_clean), timeout=5.0
     ).json()
@@ -973,30 +1003,24 @@ def test_always_live_fields_join_dirty_confirm(app_clean: str, page: Page) -> No
     non-goal for the single-field create/register forms) — clean
     navigation (fields untouched since mount) does not prompt, since there
     is no edit-form toggle left to open."""
+    seed_mcp_source(app_clean, "dirty-mcp")
     _goto_knowledge_grid(app_clean, page)
     _create_knowledge_base(page, "Dirty Confirm KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Dirty Confirm KB").click()
     expect(page.locator('[data-testid="kb-name-input"]')).to_be_visible(timeout=5000)
 
-    # Clean: navigating away without touching the always-live fields must
-    # NOT gate navigation.
-    mcp_nav = page.locator('.section-nav-item[data-section="mcp-sources"]')
-    mcp_nav.click()
+    # Clean: navigating away (an MCP server row) without touching the
+    # always-live fields must NOT gate navigation.
+    mcp_row = _lists.list_row(page, "library/mcp", "dirty-mcp")
+    mcp_row.click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=5000)
 
-    # Dirty: back to the same knowledge base, edit the name, then try to
-    # leave — the dialog gates it. In-app click, not a fresh page.goto — a
-    # second goto to the exact hash already visited earlier in this test
-    # would collide with app.js's own `currentSub` cache and no-op (the
-    # same pre-existing router property test_poll_stops_on_same_area_and_
-    # cross_area_navigation works around above).
-    page.locator('.section-nav-item[data-section="knowledge"]').click()
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Dirty Confirm KB").click()
+    # Dirty: back to the same knowledge base (its row), edit the name, then
+    # try to leave — the dialog gates it.
+    _lists.open_item(page, "library/knowledge", "Dirty Confirm KB")
     page.locator('[data-testid="kb-name-input"]').fill("Dirty Confirm KB Edited")
 
-    mcp_nav.click()
+    mcp_row.click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=8000)
 
@@ -1006,10 +1030,10 @@ def test_always_live_fields_join_dirty_confirm(app_clean: str, page: Page) -> No
     expect(page.locator('[data-testid="kb-name-input"]')).to_have_value("Dirty Confirm KB Edited")
 
     # Confirm: discards and navigates.
-    mcp_nav.click()
+    mcp_row.click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=5000)
 
 
 @pytest.mark.browser
@@ -1104,7 +1128,6 @@ def test_content_only_edit_updates_item_freshness_with_no_reload(
 
     _goto_knowledge_grid(app_clean, page)
     _create_knowledge_base(page, "Freshness KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Freshness KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
@@ -1187,11 +1210,7 @@ def test_armed_folder_confirm_survives_items_signature_tick(
     (fixture_dir / "note.txt").write_text("short")
 
     _goto_knowledge_grid(base_url, page)
-    _create_knowledge_base(page, "Lapse Invariant KB")
-    card = page.locator('[data-testid="knowledge-base-card"]', has_text="Lapse Invariant KB")
-    kb_id = card.get_attribute("data-id")
-    assert kb_id is not None
-    card.click()
+    kb_id = _create_knowledge_base(page, "Lapse Invariant KB")
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
@@ -1323,7 +1342,6 @@ def test_folder_delete_confirm_lapse_is_visually_distinct(
 
     _goto_knowledge_grid(base_url, page)
     _create_knowledge_base(page, "Folder Lapse KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="Folder Lapse KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
@@ -1363,7 +1381,6 @@ def test_kb_delete_confirm_lapse_is_visually_distinct(app_clean: str, page: Page
     special-cased (AC-5)."""
     _goto_knowledge_grid(app_clean, page)
     _create_knowledge_base(page, "KB Delete Lapse KB")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="KB Delete Lapse KB").click()
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     delete_btn = page.locator('[data-testid="delete-knowledge-base-btn"]')

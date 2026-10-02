@@ -4,6 +4,7 @@
 **Status**: active
 **Created**: 2026-07-10
 **Last Run**: 2026-07-10-20-09-44 (pass, 7/7; Step 4 required an apparatus-fix rerun — see run log)
+**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
 
 ## Intent
 
@@ -29,7 +30,7 @@ adapted here into re-runnable spec form.
   probe** (decay-prone precondition: credentials expire/rotate): `POST
   /api/providers/{anthropic_provider_id}/test` returns a success result. If it fails, the test
   cannot proceed — this is a live-model test, not something a mock provider can substitute for.
-- An agent exists (or is created via the Admin UI / API) using that Anthropic provider, with
+- An agent exists (or is created via the Agents destination's "New" / API) using that Anthropic provider, with
   default tool/thinking settings — no special configuration needed for vision.
 - A test image fixture is available locally with an unambiguous, describable subject (e.g. a
   photo of a red bicycle, or any image whose content a human reviewer can independently confirm

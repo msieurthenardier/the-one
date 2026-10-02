@@ -1,10 +1,11 @@
-"""Browser flow: Admin → System page → Rotate Encryption Key flash states.
+"""Browser flow: Settings → Encryption page → Rotate Encryption Key flash states.
 
 Covers squawk 0022: `POST /api/encryption/rotate` returns
 `{"status": "ok", "key_file": "promoted" | "staged"}`. "staged" means the DB
 and in-memory key rotated but the on-disk key file could not be promoted
-(the `.next` sidecar stays and reconciles at the next start). The System
-page must show a distinct, non-dismissing warning flash for "staged" rather
+(the `.next` sidecar stays and reconciles at the next start). The Encryption
+page (the System/General page's Encryption block until M25 F3 leg 5a split
+General into three pages) must show a distinct, non-dismissing warning flash for "staged" rather
 than the ordinary (auto-dismissing) success flash — and must keep treating
 "promoted" (and any other/missing `key_file`) as success.
 
@@ -49,7 +50,7 @@ def test_rotate_staged_shows_warning_flash(app_clean: str, page: Page) -> None:
     """`key_file: "staged"` renders a distinct warning flash, not success."""
     _mock_rotate_response(page, "staged")
 
-    _nav.goto(page, app_clean, "settings/general")
+    _nav.goto(page, app_clean, "settings/encryption")
     _arm_and_commit_rotate(page)
 
     flash = page.locator(".admin-system-flash")
@@ -70,7 +71,7 @@ def test_rotate_promoted_shows_success_flash(app_clean: str, page: Page) -> None
     """`key_file: "promoted"` keeps the existing success flash."""
     _mock_rotate_response(page, "promoted")
 
-    _nav.goto(page, app_clean, "settings/general")
+    _nav.goto(page, app_clean, "settings/encryption")
     _arm_and_commit_rotate(page)
 
     flash = page.locator(".admin-system-flash")
@@ -91,7 +92,7 @@ def test_rotate_confirm_lapse_is_visually_distinct(app_clean: str, page: Page) -
         lambda r: rotate_requests.append(r.url) if "/api/encryption/rotate" in r.url else None,
     )
 
-    _nav.goto(page, app_clean, "settings/general")
+    _nav.goto(page, app_clean, "settings/encryption")
     rotate_btn = page.locator('[data-testid="rotate-key-btn"]')
     expect(rotate_btn).to_be_visible(timeout=8000)
     expect(rotate_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
@@ -108,7 +109,7 @@ def test_rotate_confirm_lapse_is_visually_distinct(app_clean: str, page: Page) -
 @pytest.mark.browser
 def test_rotate_success_never_carries_the_lapse_cue(app_clean: str, page: Page) -> None:
     """AC-6a: `revert()` has three callers — timer expiry (a true lapse),
-    a transport-failure `.catch`, and `system-page.js:87-91`'s SUCCESS
+    a transport-failure `.catch`, and the Encryption page's (`system-page.js`) SUCCESS
     path, which also calls `revertFn()` (with a comment saying so). Only
     the timer's own callback marks `.confirm-lapsed` (confirm.js's
     `lapse()`) — the shared `revert()` never does. This is exactly the
@@ -117,7 +118,7 @@ def test_rotate_success_never_carries_the_lapse_cue(app_clean: str, page: Page) 
     app's highest-consequence confirm."""
     _mock_rotate_response(page, "promoted")
 
-    _nav.goto(page, app_clean, "settings/general")
+    _nav.goto(page, app_clean, "settings/encryption")
     _arm_and_commit_rotate(page)
 
     flash = page.locator(".admin-system-flash")

@@ -44,7 +44,7 @@ import re
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
@@ -102,17 +102,19 @@ def _open_agent_editor(base_url: str, page: Page) -> None:
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
     if editor_hidden:
-        page.locator("button.entity-tile").first.click()
+        _lists.first_row(page, "agents").click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
 
 
 def _reselect_agent(page: Page) -> None:
-    """Return to the agents grid and click the same (only) tile again —
-    the real operator affordance that re-triggers `doSelect`'s edit-mount
-    refresh (L3-D1's knowledge-base refresh, L3-D3's fresh-agent fetch).
-    Only safe to call when the editor is NOT dirty (no confirm dialog)."""
-    page.locator('[data-testid="back-agent-btn"]').click()
-    page.locator("button.entity-tile").first.click()
+    """Return to the Agents root (the rail's current-destination link, which
+    closes the editor) and click the same (only) list row again — the real
+    operator affordance that re-triggers `doSelect`'s edit-mount refresh
+    (L3-D1's knowledge-base refresh, L3-D3's fresh-agent fetch). Only safe to
+    call when the editor is NOT dirty (no confirm dialog)."""
+    _nav.open_destination(page, "agents")
+    expect(page.locator('[data-testid="tab-general"]')).to_have_count(0, timeout=8000)
+    _lists.first_row(page, "agents").click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
 
 
@@ -421,8 +423,7 @@ def test_create_mode_attach_sends_no_stored_union(app_with_provider: SeededApp, 
     kb = _create_kb(base_url, "Create-mode KB")
 
     _nav.goto(page, base_url, "agents")
-    page.locator('[data-testid="new-agent-btn"]').click()
-    expect(page.locator(".editor-title")).to_have_text("New Agent")
+    _lists.agents_new(page)
     page.locator('[data-field="name"]').fill("create-mode-attach-agent")
     expect(page.locator("#studio-provider")).to_have_value(app_with_provider.provider_id)
     expect(page.locator('#studio-model option[value="mock-default"]')).to_be_attached(timeout=5000)
@@ -477,7 +478,7 @@ def test_rename_hint_and_empty_refusal_mirror_create_form(app_clean: str, page: 
     empty refused client-side, over-length warned but accepted."""
     kb = _create_kb(app_clean, "Rename Me")
     _nav.goto(page, app_clean, f"library/knowledge/{_nav.seg(kb['id'])}")
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=8000)
 
     name_input = page.locator('[data-testid="kb-name-input"]')
     hint = page.locator('[data-testid="kb-name-hint"]')
@@ -530,7 +531,7 @@ def test_rename_updates_tool_name_and_disabled_tools_on_agent_editor(
     # Name + Description fields, restyling M24 F06 L05's edit form, itself
     # a replacement of the F06 L03 rename-only affordance).
     _nav.goto(page, base_url, f"library/knowledge/{_nav.seg(kb['id'])}")
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="kb-name-input"]').fill("Post-Rename Name")
     page.locator('[data-testid="save-knowledge-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("Post-Rename Name", timeout=5000)

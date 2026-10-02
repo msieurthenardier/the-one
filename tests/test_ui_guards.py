@@ -120,14 +120,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "listEl.innerHTML = html;",
         "listEl.innerHTML = '<span class=\"test-result-fail\">' + escapeHtml(err.message ||",
     ],
-    "areas/admin/providers-grid.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">LLM ',
-        "gridEl.innerHTML = '<div class=\"empty-canvas\">' + '<div class=\"empty-canvas-inne",
-        "gridEl.innerHTML = html;",
-    ],
-    "areas/admin/system-page.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Gene',
-    ],
     "areas/admin/tools-editor.js": [
         "container.innerHTML = html;",
         "eyeBtn.innerHTML = window.App.icon('eye-off');",
@@ -137,8 +129,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "resultEl.innerHTML = '<span class=\"test-result-fail\">✗ ' + window.App.escapeHtml",
     ],
     "areas/admin/tools-grid.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Buil',
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">Buil',
         "container.innerHTML = html;",
     ],
     "areas/chat.js": [
@@ -150,9 +140,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     ],
     "areas/studio.js": [
         "content.innerHTML = '<div class=\"studio-section-content\"></div>' + '<div class=\"",
-        "agentsContentEl.innerHTML = '<div class=\"page-header\">' + '<h1 class=\"page-title",
-        "emptyBtn.innerHTML = App.icon('square-pen') + '<span>New Agent</span>';",
-        "capsWrap.innerHTML = renderer(caps);",
         "capsEl.innerHTML = parts.join(' &middot; ');",
         "selectEl.innerHTML = optsHtml;",
         "selectEl.insertAdjacentHTML('beforeend', customOpt);",
@@ -184,11 +171,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "listEl.innerHTML = renderToolsListHtml(data.tools);",
         "statusEl.innerHTML = '<span class=\"mcp-tools-error\">✗ Error:</span> ' + escapeHt",
         "statusEl.innerHTML = '<span class=\"mcp-tools-error\">✗ Network error:</span> ' + ",
-    ],
-    "areas/studio/mcp-servers-grid.js": [
-        'container.innerHTML = \'<div class="page-header">\' + \'<h1 class="page-title">MCP ',
-        "gridEl.innerHTML = '<div class=\"empty-canvas\">' + '<div class=\"empty-canvas-inne",
-        "gridEl.innerHTML = html;",
     ],
     "areas/studio/mcps-tab.js": [
         "div.innerHTML = 'No MCP sources registered yet. ' + '<a href=\"#studio/mcp-source",

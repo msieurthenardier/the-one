@@ -1,6 +1,6 @@
 # Leg: list-controls
 
-**Status**: ready
+**Status**: completed
 **Flight**: [List and Detail](../flight.md)
 
 ## Objective

@@ -1,12 +1,20 @@
 @layer areas {
   /* === Studio Area: Sidebar === */
-  /* Studio sidebar layout: section-nav at top + section-content below. The
-     section-nav primitive is canonical (see components.css); only the per-area
-     section-content host + its agents-section overrides live here. */
+  /* The studio sidebar panel holds two sibling list hosts, one visible at a
+     time (setActiveSection toggles .is-hidden): the Agents list column
+     (.studio-agents-list; M25 F3 L3) and the Library list column
+     (.studio-library-list; L4a), each an App.ui.listPane. The panel is a
+     column with overflow: hidden, so a list host must take the remaining
+     height and pass a bounded height down: only the list pane's body
+     scrolls. */
+  .area-studio .studio-agents-list,
+  .area-studio .studio-library-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .area-studio .studio-agents-list > .ui-list-pane,
+  .area-studio .studio-library-list > .ui-list-pane { flex: 1; }
+  /* The detail pane: the section content hosts the Agents empty state (no
+     agent open) and the Library detail (an editor, the knowledge-base create
+     form or a section root's empty state). */
   .area-studio .studio-section-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  /* Pass the column-flex chain through to .entity-tile-grid so it (and its
-     `.empty-canvas` empty state) can fill the remaining vertical space. */
-  .area-studio .studio-agents-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
   /* === Studio Area: Editor === */
   /* `.editor-header` lifted to components.css in F5 leg 03 (canonical
@@ -108,23 +116,6 @@
      operator scans through a model list. */
   .area-studio .model-ctx-chip { font-family: var(--font-family-mono); font-variant-numeric: tabular-nums; color: var(--fg-secondary); padding: 1px 6px; border-radius: 3px; background: var(--surface-elevated); }
 
-  /* Capability chips on agent tiles — sit below the meta line. */
-  .area-studio .agent-tile-caps { margin-top: 4px; }
-
-  /* F9 L3 (A-L3-3) — Tool-count metric lines on agent tiles. Rendered
-     between the provider · model meta line and the capability chips.
-     Match the meta line's visual weight (secondary, monospaced caption)
-     so the tile reads as a coherent stack of dim metadata under the
-     bold name + 2-line description. Always-present (even at 0) so tile
-     heights stay uniform across the agents grid. */
-  .area-studio .entity-tile-tool-count {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-caption);
-    color: var(--fg-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   /* === Studio Area: Tools tab — operator-disabled rows + override panels === */
   /* F6 leg 05. Operator-disabled tools: dim row + cursor:not-allowed +
@@ -1192,11 +1183,10 @@
   }
 
   /* === Studio Knowledge section (Mission 24 Flight 6 Leg 1) ===========
-     The inventory grid + detail view reuse the existing `.entity-tile-
-     grid` / `.editor-section` / `.field-group` / `.chip` / `.field-error`
+     The create form + detail view reuse the existing `.editor-header` /
+     `.editor-section` / `.field-group` / `.chip` / `.field-error`
      vocabulary wholesale (knowledge-section.js); these rules cover only
      the row/badge layouts that vocabulary doesn't already provide. */
-  .area-studio .knowledge-create-form[hidden] { display: none; }
   .area-studio .kb-status-counts {
     display: flex;
     flex-wrap: wrap;

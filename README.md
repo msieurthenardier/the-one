@@ -10,7 +10,7 @@
 
 ## What this is
 
-GleepGlorp AI lets you orchestrate your own constellation of AI agents — the kind that live on your laptop, talk to whichever LLM you point them at, and reach into your filesystem, your shell, and the open web through a rich set of built-in tools. You give an agent a goal in plain English; it figures out which tools to use, calls them, reads the results, and keeps going until the work is done. Configure agents in Agent Studio (system prompts, which tools they can touch, which model powers them), talk to them in Chat (per-session, with the full execution trace one click away), and manage providers and built-in-tool defaults in System. No agent framework — the agent loop, tool registry, and LLM abstraction are written from scratch in plain Python on top of a small set of well-known libraries: FastAPI + uvicorn + websockets + Jinja2 for the web layer, Rich + prompt-toolkit for the CLI, Pydantic for config, aiosqlite for persistence, cryptography for at-rest secrets, httpx for HTTP, and the official MCP SDK for Model Context Protocol clients.
+GleepGlorp AI lets you orchestrate your own constellation of AI agents — the kind that live on your laptop, talk to whichever LLM you point them at, and reach into your filesystem, your shell, and the open web through a rich set of built-in tools. You give an agent a goal in plain English; it figures out which tools to use, calls them, reads the results, and keeps going until the work is done. Configure agents in Agents (system prompts, which tools they can touch, which model powers them), talk to them in Chats (per-session, with the full execution trace one click away), keep knowledge bases, MCP servers and connectors in Library, and manage providers and built-in-tool defaults in Settings. No agent framework — the agent loop, tool registry, and LLM abstraction are written from scratch in plain Python on top of a small set of well-known libraries: FastAPI + uvicorn + websockets + Jinja2 for the web layer, Rich + prompt-toolkit for the CLI, Pydantic for config, aiosqlite for persistence, cryptography for at-rest secrets, httpx for HTTP, and the official MCP SDK for Model Context Protocol clients.
 
 ## Screenshots
 
@@ -21,18 +21,18 @@ GleepGlorp AI lets you orchestrate your own constellation of AI agents — the k
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/studio-dark.png" alt="Agent Studio — agent editor showing provider, model, capability chips, and max-context resolution" width="900">
+  <img src="docs/screenshots/studio-dark.png" alt="Agents — the agent editor showing provider, model, capability chips, and max-context resolution (an earlier screenshot, from before the agent list column)" width="900">
   <br>
-  <em>Agent Studio — configuring an agent: provider, model, capability chips, system prompt.</em>
+  <em>Agents — configuring an agent: provider, model, capability chips, system prompt.</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/admin-dark.png" alt="System — LLM Providers grid with a configured Ollama tile" width="900">
+  <img src="docs/screenshots/admin-dark.png" alt="Settings — the Providers page in an earlier screenshot, when providers showed as a grid of tiles, with one configured Ollama tile (the page is now a table)" width="900">
   <br>
-  <em>System — managing LLM providers, built-in tools, encryption, theme.</em>
+  <em>Settings — managing providers, built-in tools, encryption, appearance. (Screenshot predates the current Providers table.)</em>
 </p>
 
-(Dark theme is the default — System → General → Appearance has light / dark / auto.)
+(Dark theme is the default — Settings → Appearance has light / dark / auto.)
 
 ## Quickstart
 
@@ -104,7 +104,7 @@ GleepGlorp AI talks to four LLM providers out of the box. Pick whichever fits yo
 - **OpenAI** — cloud GPT models. Needs an API key from platform.openai.com.
 - **OpenRouter** — model marketplace fronting many providers. Needs an API key from openrouter.ai.
 
-Once the app is up, configure each provider in **System → LLM Providers** — paste the URL and (for cloud providers) the API key into the editor. Keys are encrypted at rest in the local database via Fernet symmetric encryption; the encryption key lives at `{data_dir}/encryption.key` and can be rotated from System → General. Then create an agent in **Agent Studio** that uses the provider.
+Once the app is up, configure each provider in **Settings → Providers** ("Add provider") — paste the URL and (for cloud providers) the API key into the editor. Keys are encrypted at rest in the local database via Fernet symmetric encryption; the encryption key lives at `{data_dir}/encryption.key` and can be rotated from Settings → Encryption. Then create an agent in **Agents** that uses the provider.
 
 ## Architecture
 
@@ -120,7 +120,7 @@ Once the app is up, configure each provider in **System → LLM Providers** — 
 
 **MCP** (`the_one/mcp/`) — Model Context Protocol client (M07). Talks to external MCP servers over stdio or streamable-HTTP; sandboxed with bubblewrap by default; OAuth pause-and-replay for servers requiring user authorization. Built-in execution tools (`shell`, `python_exec`) route through the same bubblewrap seam via a host-workspace profile (M14).
 
-**Connectors** (`the_one/connectors/`) — Bridges external chat platforms to the agent loop (Mission 23 Flight 2 reset the pre-reset framework — a message-routing layer, ACLs, manual peer-approval flows, slash commands — down to a small, platform-agnostic core: a `ConnectorPlugin`/`ConnectorClient` Protocol pair, one supervised listener task per connector with reconnect/backoff, an inbound pipeline (allowlist admission → optional pairing-code consumption → reply-policy filter → session resolution → agent dispatch), and three built-in tools — `send_to_platform_channel` (agent-initiated sends), `find_platform_destination` (the passively-populated name directory, so an agent can address "Chuck R on discord" without knowing ids), and `fetch_channel_history` — while an admitted peer's inbound message gets the agent's reply delivered back to the originating channel or DM mechanically (Flight 3's auto-reply fallback); operator-typed console messages never reach the platform. Discord (Flight 3) and Telegram (Flight 4) are the two real plugins; the Studio "Connectors" section manages accounts, with an in-process stub plugin standing in for dev/test. See `the_one/connectors/README.md` for the full contract, [`docs/connector-setup.md`](docs/connector-setup.md) for the per-platform operator walkthrough, and [SECURITY-MODEL.md](SECURITY-MODEL.md) for admission/authorization.
+**Connectors** (`the_one/connectors/`) — Bridges external chat platforms to the agent loop (Mission 23 Flight 2 reset the pre-reset framework — a message-routing layer, ACLs, manual peer-approval flows, slash commands — down to a small, platform-agnostic core: a `ConnectorPlugin`/`ConnectorClient` Protocol pair, one supervised listener task per connector with reconnect/backoff, an inbound pipeline (allowlist admission → optional pairing-code consumption → reply-policy filter → session resolution → agent dispatch), and three built-in tools — `send_to_platform_channel` (agent-initiated sends), `find_platform_destination` (the passively-populated name directory, so an agent can address "Chuck R on discord" without knowing ids), and `fetch_channel_history` — while an admitted peer's inbound message gets the agent's reply delivered back to the originating channel or DM mechanically (Flight 3's auto-reply fallback); operator-typed console messages never reach the platform. Discord (Flight 3) and Telegram (Flight 4) are the two real plugins; the Library's Connectors group manages accounts, with an in-process stub plugin standing in for dev/test. See `the_one/connectors/README.md` for the full contract, [`docs/connector-setup.md`](docs/connector-setup.md) for the per-platform operator walkthrough, and [SECURITY-MODEL.md](SECURITY-MODEL.md) for admission/authorization.
 
 **Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connectors, chat sessions, and a Knowledge Base index live here. API keys, MCP secrets, and connector secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts every encrypted corpus (seven columns).
 
@@ -130,7 +130,7 @@ GleepGlorp AI is a single-user local tool — no auth on routes by design. See [
 
 ## Accessibility
 
-GleepGlorp AI targets WCAG 2.1 AA. The UI is keyboard-operable end-to-end, honors `prefers-reduced-motion` (continuous animations collapse to a static rest state), and meets minimum contrast on both light and dark themes. The Design Language gallery (System → Design Language, available in dev mode) is the canonical reference for tokens, components, and indicator vocabulary.
+GleepGlorp AI targets WCAG 2.1 AA. The UI is keyboard-operable end-to-end, honors `prefers-reduced-motion` (continuous animations collapse to a static rest state), and meets minimum contrast on both light and dark themes. The Design language gallery (Settings → Design language, available in dev mode) is the canonical reference for tokens, components, and indicator vocabulary.
 
 Known gaps and ongoing accessibility work are tracked in [`missions/`](missions/) under each mission's maintenance report. To report an accessibility issue, [open a GitHub issue](https://github.com/msieurthenardier/the-one/issues) with the `accessibility` label.
 

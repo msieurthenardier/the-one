@@ -15,7 +15,7 @@ are NOT operator-configurable. No UI fields exist for them.
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from playwright.sync_api import Page, expect
 
 
@@ -78,8 +78,9 @@ def test_openrouter_create_and_round_trip(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_openrouter_create_navigate_back_and_reopen(app_clean: str, page: Page) -> None:
-    """After saving, navigate back to the provider grid and re-click the tile
-    to confirm the provider is persisted and round-trips on second open."""
+    """After saving, close the editor (its breadcrumb link) and re-open the
+    provider from its table row to confirm it is persisted and round-trips on
+    a second open."""
     _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
 
@@ -92,18 +93,18 @@ def test_openrouter_create_navigate_back_and_reopen(app_clean: str, page: Page) 
     page.locator('[data-testid="save-provider-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("OR Persisted", timeout=5000)
 
-    # Navigate back to the provider grid.
-    page.locator('[data-testid="back-provider-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    # Close the editor: the table stays (M25 F3 leg 5b).
+    _lists.close_item(page)
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
 
-    # The tile should be visible.
-    tile = page.locator('[data-testid="provider-card"]')
-    expect(tile).to_be_visible(timeout=5000)
-    expect(tile.locator(".entity-tile-name")).to_have_text("OR Persisted")
-    expect(tile.locator(".entity-tile-badge")).to_contain_text("openrouter")
+    # The row is in the table, with its openrouter type badge.
+    link = _lists.list_row(page, "settings/providers", "OR Persisted")
+    expect(link).to_be_visible(timeout=5000)
+    row = _lists.providers_table(page).locator("tbody tr").filter(has=link)
+    expect(row.locator(".badge")).to_contain_text("openrouter")
 
-    # Click the tile to re-open in edit mode.
-    tile.click()
+    # Click the name to re-open it in edit mode.
+    _lists.open_item(page, "settings/providers", "OR Persisted")
     expect(page.locator(".editor-title")).to_have_text("OR Persisted", timeout=5000)
 
     # Round-trip assertions.

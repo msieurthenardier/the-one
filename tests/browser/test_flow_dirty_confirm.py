@@ -6,13 +6,15 @@ Covers the dirty-state UX introduced in F5 leg 04:
   removed the `.clean` / `.dirty` class machinery in favor of the
   [disabled] attribute)
 - Save becomes enabled after a field changes
-- Back-when-dirty triggers App.confirmDialog (cancel keeps state, confirm
-  navigates to the Agents root)
+- "New" (the agents list's title-row action) when dirty triggers
+  App.confirmDialog through the router's leave guard (Stay keeps state and
+  URL, Continue opens the create form at ``#agents/~new``). M25 F3 L3 retired
+  the editor's Back button, which these tests used to drive; "New" is a
+  pushed go() like Back was, so the same guard contract is exercised.
 - Leaving a dirty agent editor for Library (rail) triggers exactly one
   dialog (Agents has no section nav any more; the router's guard asks once)
-- Tile-click-when-dirty triggers the dialog (routes through selectAgent —
-  inherits the dirty gate for free)
-- Tab-click-when-dirty triggers the dialog
+- A sibling agent's list row / hash route when dirty triggers the dialog
+- Tab-click-when-dirty does NOT trigger the dialog
 - Arrow-key tab navigation does NOT trigger the dialog (focus only)
 - Modal full Tab/Shift-Tab focus-trap cycles forward + backward
 - Modal Escape cancels and restores focus to the trigger
@@ -20,7 +22,7 @@ Covers the dirty-state UX introduced in F5 leg 04:
   then Enter confirms). M25 F2 L2 (DD6): Enter is native, no global Enter->confirm
 - Modal ARIA contract: role=dialog, aria-modal=true, aria-labelledby,
   aria-describedby
-- Clean-state navigation does NOT open any dialogs (all four paths)
+- Clean-state navigation does NOT open any dialogs (New, tab click)
 - beforeunload listener: synthetic event with dirty=true → defaultPrevented
   is True; with dirty=false → defaultPrevented is False
 - Singleton modal: second call while one is open is a no-op + console.warn
@@ -29,7 +31,7 @@ Covers the dirty-state UX introduced in F5 leg 04:
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
 
@@ -49,19 +51,24 @@ _DIALOG_TIMEOUT = 8000
 def _wait_editor_ready(page: Page) -> None:
     """Wait for the agent editor to be the visible child in the main panel.
 
-    Bare `#studio/agents` lands on the tile grid with no agent auto-selected
-    (F5 leg 05 design): the section-content (tile grid) is visible and the
-    editor is hidden. Click the first tile to swap them. Deep-link
-    navigations (`#studio/agents/<name>/...`) hydrate the selection and the
-    editor is already visible — skip the click.
+    Bare `#agents` shows the agents list beside an empty detail pane, with no
+    agent auto-selected (F5 leg 05 design; M25 F3 L3): the editor is hidden.
+    Click the first list row to open it. Deep-link navigations
+    (`#agents/<name>/...`) hydrate the selection and the editor is already
+    visible — skip the click.
     """
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
     if editor_hidden:
-        page.locator("button.entity-tile").first.click()
+        _lists.first_row(page, "agents").click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
+
+
+# The leave trigger these tests drive: the list's "New" -- a pushed go(), so the
+# router's leave guard runs exactly as it did for the retired Back button.
+NEW_BTN = '[data-testid="new-agent-btn"]'
 
 
 def _make_dirty(page: Page) -> None:
@@ -97,8 +104,9 @@ def test_save_button_enabled_after_field_change(app_with_agent: SeededApp, page:
 
 
 @pytest.mark.browser
-def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Page) -> None:
-    """Back when dirty opens dialog; clicking Cancel keeps state + URL."""
+def test_new_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Page) -> None:
+    """ "New" when dirty opens the dialog; Stay keeps state + URL, and the
+    unsaved indicator stays up (renamed from the Back-button test, M25 F3 L3)."""
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
@@ -106,7 +114,7 @@ def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Pag
     initial_route = _nav.current_route(page)
     _make_dirty(page)
 
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -116,19 +124,21 @@ def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Pag
     expect(overlay).to_have_count(0)
     # URL unchanged.
     _nav.expect_route(page, initial_route)
-    # Editor still mounted.
+    # Editor still mounted, still dirty.
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
 
 
 @pytest.mark.browser
-def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page) -> None:
-    """Back when dirty + Confirm navigates to #studio/agents."""
+def test_new_when_dirty_confirm_opens_create_form(app_with_agent: SeededApp, page: Page) -> None:
+    """ "New" when dirty + Continue discards the edit and opens the create form
+    at #agents/~new (renamed from the Back-button test, M25 F3 L3)."""
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -136,11 +146,11 @@ def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page
     page.locator('[data-testid="modal-confirm-btn"]').click()
 
     expect(overlay).to_have_count(0)
-    # URL is now #studio/agents (no agent selected).
-    _nav.expect_route(page, "agents")
-    # Main panel returned to the tile grid; editor is hidden.
-    expect(page.locator(".entity-tile-grid")).to_be_visible()
-    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
+    _nav.expect_route(page, "agents/~new")
+    expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
+    # The discarded edit is gone: the fresh create form is clean.
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
+    expect(page.locator('[data-testid="agent-item"][aria-current="page"]')).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -181,20 +191,17 @@ def test_section_nav_clean_does_not_open_dialog(app_with_provider: SeededApp, pa
     _nav.open_destination(page, "library")
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible()
+    expect(page.locator('[data-testid="library-empty-knowledge"]')).to_be_visible()
 
 
 @pytest.mark.browser
 def test_hash_change_to_other_agent_when_dirty_opens_dialog(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Hash-route navigation to a different agent while dirty opens the dialog.
-
-    With F5 leg 05's main-panel layout, the tile grid is hidden while an
-    agent is being edited, so a direct tile click cannot reach a sibling
-    agent. The equivalent path is a hash-route navigation (deep link or
-    history navigation) which routes through `selectAgent` via
-    `tryConsumePendingSelect`, inheriting the dirty gate.
+    """Navigation to a different agent while dirty opens the dialog, by a
+    hash route (deep link or history navigation) and by the sibling's list
+    row (the list stays beside the editor since M25 F3 L3). Both route
+    through the router's leave guard.
     """
     base_url = app_with_agent.base_url
     provider_id = app_with_agent.provider_id
@@ -204,9 +211,8 @@ def test_hash_change_to_other_agent_when_dirty_opens_dialog(
     _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
-    # Pick the agent that ISN'T the one currently in the editor — the
-    # tile-grid sort order is not guaranteed, so deriving from the editor
-    # title makes the test deterministic.
+    # Pick the agent that ISN'T the one currently in the editor, derived
+    # from the editor title so the test stays deterministic.
     current = page.locator(".editor-title").inner_text()
     other_name = "test-agent" if current == "second-agent" else "second-agent"
 
@@ -215,6 +221,15 @@ def test_hash_change_to_other_agent_when_dirty_opens_dialog(
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(overlay).to_have_count(0)
+
+    # The sibling's list row asks too (once); Stay keeps the editor.
+    _lists.list_row(page, "agents", other_name).click()
+    expect(overlay).to_have_count(1, timeout=_DIALOG_TIMEOUT)
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(overlay).to_have_count(0)
+    expect(page.locator(".editor-title")).to_have_text(current)
 
 
 @pytest.mark.browser
@@ -272,7 +287,7 @@ def test_modal_focus_trap_tab_cycles_forward(app_with_agent: SeededApp, page: Pa
     _wait_editor_ready(page)
 
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -300,7 +315,7 @@ def test_modal_focus_trap_shift_tab_cycles_backward(app_with_agent: SeededApp, p
     _wait_editor_ready(page)
 
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
         timeout=_DIALOG_TIMEOUT
@@ -324,7 +339,7 @@ def test_modal_escape_cancels(app_with_agent: SeededApp, page: Page) -> None:
 
     initial_route = _nav.current_route(page)
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -350,7 +365,7 @@ def test_modal_enter_activates_focused_stay(app_with_agent: SeededApp, page: Pag
 
     initial_route = _nav.current_route(page)
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -371,7 +386,7 @@ def test_modal_tab_to_continue_then_enter_confirms(app_with_agent: SeededApp, pa
     _wait_editor_ready(page)
 
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -381,7 +396,7 @@ def test_modal_tab_to_continue_then_enter_confirms(app_with_agent: SeededApp, pa
     page.keyboard.press("Enter")
 
     expect(overlay).to_have_count(0)
-    _nav.expect_route(page, "agents")
+    _nav.expect_route(page, "agents/~new")
 
 
 @pytest.mark.browser
@@ -392,7 +407,7 @@ def test_modal_aria_contract(app_with_agent: SeededApp, page: Page) -> None:
     _wait_editor_ready(page)
 
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -419,10 +434,10 @@ def test_modal_restore_focus_on_close(app_with_agent: SeededApp, page: Page) -> 
 
     _make_dirty(page)
 
-    back_btn = page.locator('[data-testid="back-agent-btn"]')
-    back_btn.focus()
-    expect(back_btn).to_be_focused()
-    back_btn.click()
+    new_btn = page.locator(NEW_BTN)
+    new_btn.focus()
+    expect(new_btn).to_be_focused()
+    new_btn.click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -430,21 +445,22 @@ def test_modal_restore_focus_on_close(app_with_agent: SeededApp, page: Page) -> 
     page.keyboard.press("Escape")
     expect(overlay).to_have_count(0)
 
-    # Focus should be restored to the Back button.
-    expect(back_btn).to_be_focused()
+    # Focus should be restored to the "New" button (the opener).
+    expect(new_btn).to_be_focused()
 
 
 @pytest.mark.browser
-def test_clean_state_does_not_open_dialog_on_back(app_with_agent: SeededApp, page: Page) -> None:
-    """Back when clean navigates immediately — no dialog."""
+def test_clean_state_does_not_open_dialog_on_new(app_with_agent: SeededApp, page: Page) -> None:
+    """ "New" when clean navigates immediately — no dialog (renamed from the
+    Back-button test, M25 F3 L3)."""
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    _nav.expect_route(page, "agents")
+    _nav.expect_route(page, "agents/~new")
 
 
 @pytest.mark.browser
@@ -517,7 +533,7 @@ def test_second_confirm_stacks_above_first(app_with_agent: SeededApp, page: Page
     _wait_editor_ready(page)
 
     _make_dirty(page)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    page.locator(NEW_BTN).click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_have_count(1, timeout=_DIALOG_TIMEOUT)

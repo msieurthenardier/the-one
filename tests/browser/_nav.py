@@ -21,26 +21,40 @@ Route table (new scheme -> legacy hash)::
     agents                         -> #studio          (app redirects to #studio/agents)
     agents/{name}[/{tab}[/{sid}]]  -> #studio/agents/{name}[/...]
     library                        -> #studio/knowledge
-    library/knowledge[/{kbId}]     -> #studio/knowledge[/...]
+    library/knowledge              -> #studio/knowledge
+    library/knowledge/~new         -> #studio/knowledge/new
+    library/knowledge/{kbId}       -> #studio/knowledge/{kbId}
     library/mcp                    -> #studio/mcp-sources
     library/mcp/~new               -> #studio/mcp-sources/new
     library/mcp/{id}               -> #studio/mcp-sources/{id}
     library/connectors             -> #studio/connectors
-    settings                       -> #admin           (app redirects to #admin/general)
-    settings/general               -> #admin/general
+    library/connectors/~new        -> #studio/connectors/new
+    library/connectors/{id}        -> #studio/connectors/{id}
+    settings                       -> #admin           (app redirects to #settings/appearance)
+    settings/appearance            -> #admin/appearance
+    settings/prompts               -> #admin/prompts
+    settings/encryption            -> #admin/encryption
     settings/providers[/~new|/{id}]-> #admin/providers[/new|/{id}]
     settings/tools[/{name}]        -> #admin/tools[/...]
     settings/knowledge-indexing    -> #admin/knowledge
     settings/design-language       -> #admin/design-language
 
 ``~new`` is the reserved create segment (DD1) and is rewritten to ``/new`` ONLY
-for providers and MCP sources; ``agents/new/general`` is an agent NAMED "new"
-and passes through untouched.
+for providers and the three Library sections (knowledge bases, MCP sources and,
+since M25 F3 leg 4a, connectors); ``agents/new/general`` is an agent NAMED
+"new" and passes through untouched.
 
 Canonicalisation (``canonical``) folds the app's own default redirects, so
 ``expect_route`` / ``current_route`` accept either form: ``#studio`` ==
-``#studio/agents`` (both are ``agents``), ``#admin`` == ``#admin/general``
-(``settings`` == ``settings/general``) and ``library`` == ``library/knowledge``.
+``#studio/agents`` (both are ``agents``), ``settings`` == ``settings/appearance``
+and ``library`` == ``library/knowledge``.  Since M25 F3 leg 5a the former single
+General page is three (Appearance, Prompts, Encryption): the app redirects
+``settings/general`` (any suffix) and the legacy ``#admin``, ``#admin/system`` and
+``#admin/general`` to ``settings/appearance``.  The legacy observations fold
+there (``route_from_hash`` under ``SCHEME = "legacy"``), but ``canonical`` does
+NOT fold ``settings/general``: a page left on it never equals
+``settings/appearance``, so ``expect_route`` catches a missing redirect, and
+``legacy_hash`` rejects it as an unknown route.
 Routes compare PER SEGMENT after ``unquote`` so a ``%2F`` inside an id stays
 distinct from a path separator while ``%20`` and a space compare equal.
 
@@ -61,8 +75,9 @@ They are the only functions the migration guard
 (``tests/test_nav_helper.py::test_no_raw_route_hashes_in_browser_tests``)
 lets use raw route hashes:
 
-* test_flow_admin_navigation.py::test_admin_redirect_root_to_general
-* test_flow_admin_navigation.py::test_admin_legacy_system_redirects_to_general
+* test_flow_admin_navigation.py::test_admin_redirect_root_to_appearance
+* test_flow_admin_navigation.py::test_admin_legacy_system_redirects_to_appearance
+* test_flow_admin_settings_nav.py::test_legacy_general_hashes_redirect_directly
 * test_flow_admin_tools_grid.py::test_admin_tools_deep_link_to_tool_loads_editor
 * test_flow_agent_tabs.py::test_refresh_on_knowledge_tab_persists
 * test_flow_chat_peer_attribution.py::test_chat_renders_peer_attribution
@@ -85,8 +100,9 @@ SCHEME = "new"
 # file::function identifiers (see module docstring).
 LEGACY_URL_TESTS: frozenset[str] = frozenset(
     {
-        "test_flow_admin_navigation.py::test_admin_redirect_root_to_general",
-        "test_flow_admin_navigation.py::test_admin_legacy_system_redirects_to_general",
+        "test_flow_admin_navigation.py::test_admin_redirect_root_to_appearance",
+        "test_flow_admin_navigation.py::test_admin_legacy_system_redirects_to_appearance",
+        "test_flow_admin_settings_nav.py::test_legacy_general_hashes_redirect_directly",
         "test_flow_admin_tools_grid.py::test_admin_tools_deep_link_to_tool_loads_editor",
         "test_flow_agent_tabs.py::test_refresh_on_knowledge_tab_persists",
         "test_flow_chat_peer_attribution.py::test_chat_renders_peer_attribution",
@@ -145,7 +161,7 @@ def canonical(route: str) -> str:
     if head == "library" and len(s) == 1:
         return "library/knowledge"
     if head == "settings" and len(s) == 1:
-        return "settings/general"
+        return "settings/appearance"
     return _join(s)
 
 
@@ -178,10 +194,10 @@ def legacy_hash(route: str) -> str:
         if not rest:
             return "#studio/knowledge"
         sec, tail = rest[0], rest[1:]
+        tail = ["new" if (i == 0 and t == _RESERVED_NEW) else t for i, t in enumerate(tail)]
         if sec == "knowledge":
             return "#" + _join(["studio", "knowledge", *tail])
         if sec == "mcp":
-            tail = ["new" if (i == 0 and t == _RESERVED_NEW) else t for i, t in enumerate(tail)]
             return "#" + _join(["studio", "mcp-sources", *tail])
         if sec == "connectors":
             return "#" + _join(["studio", "connectors", *tail])
@@ -190,8 +206,8 @@ def legacy_hash(route: str) -> str:
         if not rest:
             return "#admin"
         sec, tail = rest[0], rest[1:]
-        if sec == "general":
-            return "#" + _join(["admin", "general", *tail])
+        if sec in ("appearance", "prompts", "encryption"):
+            return "#" + _join(["admin", sec, *tail])
         if sec == "providers":
             tail = ["new" if (i == 0 and t == _RESERVED_NEW) else t for i, t in enumerate(tail)]
             return "#" + _join(["admin", "providers", *tail])
@@ -221,20 +237,20 @@ def _from_legacy(hash_: str) -> str:
         sec, tail = rest[0], rest[1:]
         if sec == "agents":
             return canonical(_join(["agents", *tail]))
+        library_tail = [_RESERVED_NEW if (i == 0 and t == "new") else t for i, t in enumerate(tail)]
         if sec == "knowledge":
-            return canonical(_join(["library", "knowledge", *tail]))
+            return canonical(_join(["library", "knowledge", *library_tail]))
         if sec == "mcp-sources":
-            tail = [_RESERVED_NEW if (i == 0 and t == "new") else t for i, t in enumerate(tail)]
-            return canonical(_join(["library", "mcp", *tail]))
+            return canonical(_join(["library", "mcp", *library_tail]))
         if sec == "connectors":
-            return canonical(_join(["library", "connectors", *tail]))
+            return canonical(_join(["library", "connectors", *library_tail]))
         return canonical(hash_)
     if head == "admin":
         if not rest:
-            return "settings/general"
+            return "settings/appearance"
         sec, tail = rest[0], rest[1:]
-        if sec == "system":
-            return "settings/general"
+        if sec in ("system", "general"):
+            return "settings/appearance"
         if sec == "providers":
             tail = [_RESERVED_NEW if (i == 0 and t == "new") else t for i, t in enumerate(tail)]
             return canonical(_join(["settings", "providers", *tail]))

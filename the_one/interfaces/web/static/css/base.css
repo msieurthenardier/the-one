@@ -12,7 +12,8 @@
   /* === App Shell Row (rail + sidebar + content) === */
   /* A flex row, not a grid: a hidden aside would otherwise let <main>
      auto-place into the aside's track. The rail mounts in #app-rail; the
-     aside is [hidden] on destinations with no sidebar content (Agents). */
+     aside is [hidden] on a destination with no sidebar content (none since
+     M25 F3 L3 gave Agents its list column). */
   .app-shell-row {
     display: flex;
     flex: 1;
@@ -32,8 +33,8 @@
     overflow: hidden;
     padding-top: 10px;
   }
-  /* The router hides the aside on destinations with no sidebar content
-     (Agents); the author display above would otherwise defeat [hidden]. */
+  /* The router hides the aside on a destination with no sidebar content; the
+     author display above would otherwise defeat [hidden]. */
   #app-sidebar[hidden] { display: none; }
   /* Design target is >= 1280px (aside 240px). Down to the 1024px supported
      minimum the aside narrows to 200px; below 1024px is unsupported (body
@@ -41,6 +42,20 @@
   @media (max-width: 1279px) {
     #app-sidebar { width: 200px; }
   }
+  /* The router stamps the destination on the aside (applyShell). Agents and
+     Library host a list column, Settings its nav: fixed widths that do not
+     narrow under 1280px (M25 F3 DD1; the detail pane gives up the width).
+     (1,1,0) beats the media rule's (1,0,0) and ties #app-sidebar[hidden], so
+     these rules must never set display, so [hidden] still wins. Chats keeps
+     --sidebar-w. A list column and the Settings nav set their own top padding
+     (sections 3 and 8.1), so the aside's 10px is zeroed where they are the
+     column (Agents, M25 F3 L3; Library, L4a; Settings, L5a). */
+  #app-sidebar[data-destination="agents"],
+  #app-sidebar[data-destination="library"] { width: var(--list-w); }
+  #app-sidebar[data-destination="settings"] { width: var(--settings-nav-w); }
+  #app-sidebar[data-destination="agents"],
+  #app-sidebar[data-destination="library"],
+  #app-sidebar[data-destination="settings"] { padding-top: 0; }
   .sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
   .sidebar-panel.active { display: flex; }
 

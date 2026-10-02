@@ -4,10 +4,12 @@
 sources, knowledge bases, providers). Neither call site
 (`init()`, `self._refresh`) had a `.catch` — a rejection (network blip,
 non-JSON error body) left the area silently blank / stuck, with nothing
-shown to the operator. None of the five fetch helpers check `r.ok`, so a
-JSON error body does NOT reject `.json()`; only a non-JSON body (the
-realistic shape of an unhandled-exception 500 page) or a network failure
-does. The stubs below return a plain-text 500 body to reproduce that.
+shown to the operator. The tools and agent-editor MCP fetches do not check
+`r.ok`, so for them only a non-JSON body (the realistic shape of an
+unhandled-exception 500 page) or a network failure rejects; agents,
+providers and knowledge bases read through App.store (M25 F2 L7, F3 L2),
+whose `fetchJson` rejects on any non-2xx. The stubs below return a
+plain-text 500 body, which rejects on either path.
 
 Covers:
 - `init()` path: loadAll rejects on first mount — a visible, persistent
@@ -18,8 +20,8 @@ Covers:
   itself misfiring.
 - `_refresh` path (triggered by `activate()` on area re-entry): loadAll
   rejects on a SECOND studio mount — a non-destructive `App.showFlash`
-  toast appears WITHOUT blanking the already-rendered area (the header +
-  "New Agent" button stay visible throughout).
+  toast appears WITHOUT blanking the already-rendered area (the agents
+  list's title row and its "New" button stay visible throughout).
 """
 
 from __future__ import annotations
@@ -30,9 +32,9 @@ from playwright.sync_api import Page, expect
 
 
 def _fail_knowledge_bases(route) -> None:
-    """Return a non-JSON 500 body — the shape that actually makes
-    `r.json()` reject (a JSON error body would resolve fine, since none
-    of loadAll's five fetch helpers check `r.ok`)."""
+    """Return a non-JSON 500 body — it rejects whether the list is read with
+    a bare `r.json()` or through App.store's `fetchJson` (which, since M25 F3
+    L2, is how loadAll reads the knowledge-base list)."""
     route.fulfill(status=500, content_type="text/plain", body="Internal Server Error")
 
 
@@ -66,8 +68,11 @@ def test_refresh_failure_shows_error_without_blanking_content(app_clean: str, pa
     """A rejected loadAll() from `_refresh` (area re-entry via activate())
     shows a non-destructive error and does NOT blank the already-rendered
     area."""
-    # 1. Healthy first mount.
-    _nav.goto(page, app_clean, "agents")
+    # 1. Healthy first mount, settled: its list loads must have FINISHED before
+    #    the stub goes in. App.store (M25 F3 L2) joins an in-flight request, so
+    #    a re-entry while the first mount's knowledge-base load is still in
+    #    flight would share that (unstubbed) request instead of issuing one.
+    _nav.goto_settled(page, app_clean, "agents")
     new_agent_btn = page.locator('[data-testid="new-agent-btn"]')
     expect(new_agent_btn).to_be_visible(timeout=8000)
 
@@ -82,8 +87,8 @@ def test_refresh_failure_shows_error_without_blanking_content(app_clean: str, pa
     expect(page.locator(".app-flash.error")).to_be_visible(timeout=8000)
     expect(page.locator(".app-flash.error")).to_contain_text("Unable to load Studio data")
 
-    # 4. ...and the already-rendered area is NOT blanked — the header/CTA
-    #    that was visible before the refresh is still there.
+    # 4. ...and the already-rendered area is NOT blanked — the list's "New"
+    #    action that was visible before the refresh is still there.
     expect(new_agent_btn).to_be_visible()
     expect(page.locator(".studio-loadall-error")).to_have_count(0)
 
@@ -91,7 +96,7 @@ def test_refresh_failure_shows_error_without_blanking_content(app_clean: str, pa
 @pytest.mark.browser
 def test_loadall_rejects_on_agents_list_500(app_clean: str, page: Page) -> None:
     """M25 F2 L7 (AC5a): App.store.get rejects on a non-2xx LIST response, so
-    loadAll() rejects and the load-error line shows -- no tile or save is
+    loadAll() rejects and the load-error line shows -- no list row or save is
     offered (squawk 0014). Only the exact list route fails."""
 
     def fail(route) -> None:

@@ -5,8 +5,9 @@ Guards the null-``found`` fallback added to the agent-editor save re-select
 ``else``: if a concurrent DELETE removed the agent between the PUT resolving and
 the follow-up ``loadAll()``, ``found`` came back null and the block silently
 no-op'd, stranding a stale editor over a now-gone agent. ``handleDeleteEditor``
-and ``_refresh`` already fell through to first-agent / empty; the fix gives save
-the same fallback.
+and ``_refresh`` already fell through to first-agent / empty; the fix gave save
+the same fallback. Since M25 F3 L3 (DD8) every one of these lands on the Agents
+root (the empty detail state), never on another agent.
 
 This is NOT a wall-clock race (the F1-debrief reviewer confirmed the interleave
 is inherently racy at the Witnessed/browser level). Instead the post-PUT
@@ -22,7 +23,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -35,8 +36,7 @@ def test_save_after_concurrent_delete_falls_back_to_empty(
 
     # 1. Create an agent through the normal flow so it exists + is selected.
     _nav.goto(page, base_url, "agents")
-    page.locator('[data-testid="new-agent-btn"]').click()
-    expect(page.locator(".editor-title")).to_have_text("New Agent")
+    _lists.agents_new(page)
     page.locator('[data-field="name"]').fill("race-agent")
     page.locator('[data-field="description"]').fill("Original")
     expect(page.locator("#studio-provider")).to_have_value(app_with_provider.provider_id)
@@ -70,9 +70,11 @@ def test_save_after_concurrent_delete_falls_back_to_empty(
     #    editor mounted over a now-gone agent.
     save_btn.click()
 
-    # 5. Empty state restored, editor hidden — the null-found fallback fired.
+    # 5. Empty state restored at the Agents root, editor hidden — the
+    #    null-found fallback fired.
     empty = page.locator('[data-testid="agent-empty"]')
     expect(empty).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "agents")
     expect(page.locator(".studio-editor")).to_have_class(re.compile(r"\bis-hidden\b"))
     # The stale editor for the vanished agent is NOT still showing.
     expect(page.locator(".editor-title")).to_have_count(0)

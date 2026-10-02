@@ -2,17 +2,17 @@
 
 Drives a real Chromium session through the empty-DB onboarding flow:
 - Welcome canvas guidance points to Settings + Agents (no providers yet)
-- Navigate to Admin → LLM Providers
-- Add a mock provider via the form
-- Verify it appears in the list with a mock badge
-- Edit it, click Test Connection, see success
+- Navigate to Settings → Providers
+- Add a mock provider via the form (the form opens below the Providers table)
+- Create keeps the editor open in edit mode; click Test Connection, see success
+- Verify it appears in the table with a mock badge (selected: it is open)
 - Navigate back to Chat, welcome guidance now points only to Agents
 """
 
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from playwright.sync_api import Page, expect
 
 # History (M08 F4 → M17 F1 → M17 F3): this module was skipped as "hangs, root
@@ -37,11 +37,11 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     expect(welcome_guidance).to_contain_text("Settings")
     expect(welcome_guidance).to_contain_text("Agents")
 
-    # 2. Navigate to Admin → LLM Providers.
+    # 2. Navigate to Settings → Providers (the Settings nav link).
     _nav.goto(page, base_url, "settings")
-    page.locator(".section-nav-item", has_text="LLM Providers").click()
+    _lists.open_settings_page(page, "providers")
 
-    # 3. Click the unified header CTA (+ New Provider). It is visible even
+    # 3. Click the unified header CTA (+ Add provider). It is visible even
     #    with an empty DB (M17 F3 L3 CTA unification).
     page.locator('[data-testid="new-provider-btn"]').click()
 
@@ -64,14 +64,18 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     test_btn.click()
     expect(page.locator(".test-result")).to_contain_text("Mock", timeout=5000)
 
-    # 10. Clean form (just tested, no edits) — Cancel is disabled; use Back to return.
-    page.locator('[data-testid="back-provider-btn"]').click()
+    # 10. The new provider's row is in the table above the editor, selected
+    #     (it is the open item), with its mock type badge (M25 F3 leg 5b).
+    link = _lists.list_row(page, "settings/providers", "Mock Test")
+    expect(link).to_be_visible()
+    _lists.expect_selected(page, "settings/providers", "Mock Test")
+    row = _lists.providers_table(page).locator("tbody tr").filter(has=link)
+    expect(row.locator(".badge")).to_have_text("mock")
 
-    # 11. Provider card visible with name "Mock Test" and mock badge.
-    card = page.locator('[data-testid="provider-card"]')
-    expect(card).to_be_visible()
-    expect(card.locator(".entity-tile-name")).to_have_text("Mock Test")
-    expect(card.locator(".admin-provider-badge")).to_have_text("mock")
+    # 11. Clean form (just tested, no edits): the breadcrumb closes it.
+    _lists.close_item(page)
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
+    expect(link).to_be_visible()
 
     # 12. Navigate back to Chat. Welcome guidance now reflects the next setup
     #     gap (provider exists, agent does not).

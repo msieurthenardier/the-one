@@ -19,7 +19,16 @@
 // _originalMasked AND sensitive=true, payload sends '__MASKED__' for that key
 // and the L3 endpoint preserves the stored secret.
 //
-// callbacks: { onBack, onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange }
+// callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange,
+//              onListStale }
+// M25 F3 L4b (DD2): Back (`onBack`) is retired. The header carries the
+// breadcrumb "Library / MCP servers" (its group a link to `#library/mcp`)
+// and the unsaved caption, whose text follows every onDirtyChange report.
+// onListStale (M25 F3 L4a) fires after each 'mcp-sources' invalidation that
+// is not a save or delete: a connect success (the manual Refresh, the
+// auto-run after create, Phase 2 after sign-in) and Reset connection. Both
+// rewrite config._cache server-side, so the Library list's tool count is
+// stale; the caller reloads the list.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -487,9 +496,11 @@
     }
     html += '</div>';
 
-    // Action cluster
+    // Action cluster. M25 F3 L4b (DD2): Back is retired (the breadcrumb's
+    // group link closes the item); the cluster opens with the stable unsaved
+    // caption, whose text wireEditorEvents' reportDirty sets or clears.
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-mcp-source-btn" aria-label="Back to MCP server list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
     html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-mcp-source-btn" disabled>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-mcp-source-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     html += '<span class="editor-error"></span>';
@@ -696,6 +707,25 @@
     }
 
     container.innerHTML = html;
+
+    // The breadcrumb (M25 F3 DD2): "Library / MCP servers", inserted with DOM
+    // APIs after the markup is in place (this editor is string-built), as the
+    // first child of .editor-header-text, in edit and create modes. Its group
+    // segment links to the section root (the DD2 refinement, leg 4b): with
+    // Back retired it is the visible way to close the item. studio.js routes
+    // the click (the router's guard asks once about a dirty editor) and
+    // focuses the item's row after the close (DD8).
+    var headerText = container.querySelector('.editor-header-text');
+    var crumb = document.createElement('div');
+    crumb.className = 'editor-breadcrumb';
+    crumb.appendChild(document.createTextNode('Library / '));
+    var crumbLink = document.createElement('a');
+    crumbLink.className = 'editor-breadcrumb-link';
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'library', section: 'mcp' }));
+    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
+    crumbLink.textContent = 'MCP servers';
+    crumb.appendChild(crumbLink);
+    headerText.insertBefore(crumb, headerText.firstChild);
 
     mountChipListEditors(container, source);
     wireEditorEvents(container, source, mcpTypes, callbacks);
@@ -1012,6 +1042,15 @@
     var dirty = false;
     var nextRowIdx = container.querySelectorAll('.mcp-kv-table tbody tr.mcp-kv-row').length;
 
+    // Every dirty report goes through here: the header's unsaved caption
+    // (M25 F3 DD2, a stable span in the markup) follows the same value that
+    // feeds studio's `dirty` through onDirtyChange.
+    function reportDirty(d) {
+      var unsavedEl = container.querySelector('.editor-unsaved');
+      if (unsavedEl) unsavedEl.textContent = d ? 'Unsaved changes' : '';
+      if (callbacks.onDirtyChange) callbacks.onDirtyChange(d);
+    }
+
     function checkDirty() {
       var current = getFormSnapshot(container);
       dirty = (current !== snapshot);
@@ -1019,7 +1058,7 @@
       var cancelBtn = container.querySelector('.cancel-btn');
       if (saveBtn) saveBtn.disabled = !dirty;
       if (cancelBtn) cancelBtn.disabled = !dirty;
-      if (callbacks.onDirtyChange) callbacks.onDirtyChange(dirty);
+      reportDirty(dirty);
     }
 
     function recaptureSnapshot() {
@@ -1029,7 +1068,7 @@
       var cancelBtn = container.querySelector('.cancel-btn');
       if (saveBtn) saveBtn.disabled = true;
       if (cancelBtn) cancelBtn.disabled = true;
-      if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
+      reportDirty(false);
     }
 
     // ── Static field listeners ────────────────────────────────────────
@@ -1156,12 +1195,6 @@
       });
     }
 
-    // ── Back ──────────────────────────────────────────────────────────
-    var backBtn = container.querySelector('.back-btn');
-    if (backBtn && callbacks.onBack) {
-      backBtn.addEventListener('click', function () { callbacks.onBack(); });
-    }
-
     // ── Cancel ────────────────────────────────────────────────────────
     var cancelBtn = container.querySelector('.cancel-btn');
     if (cancelBtn) {
@@ -1228,6 +1261,9 @@
             return r.json();
           })
           .then(function (updated) {
+            // The Library list shows the source (DD9). Invalidated BEFORE
+            // onSaveSuccess, whose router sync names the new item.
+            App.store.invalidate('mcp-sources');
             window.App.showFlash(container, isEdit ? 'MCP Server saved' : 'MCP Server created');
             if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
             if (isEdit) {
@@ -1238,7 +1274,7 @@
               if (saveBtn) saveBtn.disabled = true;
               var c2 = container.querySelector('.cancel-btn');
               if (c2) c2.disabled = true;
-              if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
+              reportDirty(false);
             }
           })
           .catch(function (err) {
@@ -1259,6 +1295,9 @@
       // reloads. Targeted DOM mutation keeps in-flight form edits intact
       // (a full re-render would clobber dirty form state).
       function onTestConnectSuccess() {
+        // handleTestConnection invalidated 'mcp-sources' just before calling
+        // this (the connect rewrote config._cache): the list reloads.
+        if (callbacks.onListStale) callbacks.onListStale();
         fetch('/api/mcp-sources/' + encodeURIComponent(source.id))
           .then(function (r) { return r && r.ok ? r.json() : null; })
           .then(function (refreshed) {
@@ -1304,6 +1343,7 @@
         fetch('/api/mcp-sources/' + encodeURIComponent(source.id), { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Delete failed'); });
+            App.store.invalidate('mcp-sources');
             App.store.invalidate('agents');
             window.App.showFlash(container, 'MCP Server deleted');
             if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
@@ -1346,7 +1386,10 @@
       fetch('/api/mcp-sources/' + encodeURIComponent(source.id) + '/connection', { method: 'DELETE' })
         .then(function (r) {
           if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Reset failed'); });
+          // The reset drops config._cache (the list's tool count) server-side.
+          App.store.invalidate('mcp-sources');
           App.store.invalidate('agents');
+          if (callbacks.onListStale) callbacks.onListStale();
           return fetch('/api/mcp-sources/' + encodeURIComponent(source.id));
         })
         .then(function (r) {
@@ -1951,6 +1994,10 @@
       })
       .then(function (data) {
         if (data.status === 'ok') {
+          // A successful connect rewrote config._cache server-side (Refresh,
+          // the auto-run after create, Phase 2 after sign-in): the Library
+          // list's tool count is stale (DD9).
+          App.store.invalidate('mcp-sources');
           // Render summary + collapsible tool list. Cloudflare-class servers
           // ship verbose multi-paragraph descriptions; <details> keeps the
           // section scannable while preserving full content.

@@ -3,25 +3,26 @@
 **Slug**: `system-provider-config`
 **Status**: active
 **Created**: 2026-07-05
+**Updated**: 2026-10-02 (M25 F3: Providers table, items open below it, breadcrumb, no Back)
 **Last Run**: 2026-10-01-21-46-12 (pass — LIGHT 9/9 + DARK 9/9; first run on the workbench rail; CDP-driven Chromium; see runs/)
 
 > **Apparatus note (from run 2026-07-30)**: for the row-9 armed state (or any sub-3s transient UI state), single-shot screenshot round-trips lose the race to the revert window. Use the **filmstrip technique**: `performance_start_trace` with screenshots enabled → drive arm(+fire) in ONE `evaluate_script` call (no inter-call gaps) → `performance_stop_trace` → extract the embedded Screenshot frame from the repaint burst as the rendered-state evidence. Proven in both themes.
 
 ## Intent
 
-Verify the core Settings › LLM Providers CRUD flow end-to-end in the real re-skinned
-Settings surface: an operator can create a provider from the LLM Providers grid via the
+Verify the core Settings › Providers CRUD flow end-to-end in the real re-skinned
+Settings surface: an operator can create a provider from the Providers page's "Add provider" via the
 **full UI create** (not the API seed helper), land in the provider editor, fill its
 Name and set Type = **Mock (dev)** — a cred-less type whose create form is name + type
-only — save it, see it appear in the grid as a `provider-card`, re-select it, edit a
+only — save it, see it appear as a row in the Providers table (its name link is the `provider-card`), re-select it, edit a
 field and re-save, run **Test Connection**, then delete it through the editor's Danger
 Zone via the two-step agent-usage-pre-gated `App.confirmDelete` arm-then-fire. This needs
 a **behavior test** rather than a unit test because the observable is the rendered
-re-skinned admin surface across a multi-step navigation flow (grid → editor field-groups
-→ grid) plus a stateful two-click confirm affordance whose armed intermediate
+re-skinned admin surface across a multi-step navigation flow (table → editor field-groups below the table
+→ table) plus a stateful two-click confirm affordance whose armed intermediate
 ("Confirm Delete?") state is a rendered, user-perceivable checkpoint — not a DOM invariant
 a single-service test can assert. It is the SC7 (behavior-verified core flows) gate for
-Flight 06 (System / Admin Re-skin), exercising the provider grid + editor that Legs 1–4
+Flight 06 (System / Admin Re-skin), exercising the provider table + editor (the grid until Mission 25 Flight 3) that Legs 1–4
 rebuilt onto the v3 quiet vocabulary (`.field-group` label-association, quieted badges,
 `.btn-*`). Runs in **both themes** (light + dark) so a theme-coupled render regression in
 the editor surfaces.
@@ -54,7 +55,7 @@ the editor surfaces.
 
 ## Observables Required
 
-- browser (rendered Settings › LLM Providers UI (`#settings/providers`): grid `provider-card` tiles + quiet type badge,
+- browser (rendered Settings › Providers UI (`#settings/providers`): the table's `provider-card` name links + quiet type badge,
   editor `.field-group` fields, field values, button label text, the armed
   "Confirm Delete?" state, the Test-Connection result flash — measured via chrome-devtools or any CDP-driven Chromium with real input and ignore-cache reloads (e.g. Playwright `connect_over_cdp` + `Page.reload {ignoreCache:true}`);
   a11y-tree + screenshot as primary rendered-state evidence, CDP `evaluate`/focus as
@@ -68,30 +69,30 @@ the editor surfaces.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` and confirm it includes `mock`. Open a fresh chrome-devtools page and hard-reload with `ignoreCache` to defeat static-asset cache. If a provider named `Mock (system-provider-config)` already exists (`GET /api/providers`), `DELETE` it. | (empty) |
-| 2 | Navigate to `http://localhost:8485/#settings/providers` (Settings in the rail, section "LLM Providers"). | The **LLM Providers** grid renders — the page header "LLM Providers", a **New Provider** button, and either existing `provider-card` tiles or the empty-state canvas; no error banner. |
-| 3 | Click **New Provider** (`new-provider-btn`). | The provider editor opens in **create mode**: the **Connection** section shows a stacked **Name** `.field-group` (label above input) and a **Type** `.field-group`; the **Create** button (`save-provider-btn`) is present and **disabled** (nothing entered yet). |
+| 2 | Navigate to `http://localhost:8485/#settings/providers` (Settings in the rail, then "Providers" in the Settings nav). | The **Providers** page renders with the page header `h1` "Providers" and an **Add provider** button (`new-provider-btn`). Below it there is either a table of providers (columns Name, Type, Used by; each name a link with testid `provider-card`), or the empty state "No providers yet." (`providers-empty`). No error banner, and no provider editor open. |
+| 3 | Click **Add provider** (`new-provider-btn`). | The hash is `#settings/providers/~new`. The provider editor opens in **create mode** **below the table or empty state** (the page still shows it above), with the breadcrumb "Settings / Providers": <ul><li>the **Connection** section shows a stacked **Name** `.field-group` (label above input) and a **Type** `.field-group`;</li><li>the **Create** button (`save-provider-btn`) is present and **disabled** (nothing entered yet).</li></ul> |
 | 4 | Type the Name `Mock (system-provider-config)`; select **Type = "Mock (dev)"**. | The Name field shows the typed text; the Type control shows "Mock (dev)" selected; because `mock` is cred-less, the **Base URL and API Key rows are hidden** — the visible form is Name + Type only; the **Create** button (`save-provider-btn`) is now **enabled**. |
 | 5 | Click **Create** (`save-provider-btn`). | The create succeeds (no error flash). The editor settles into **edit mode** for the new provider: the primary button now reads **Save** and is disabled (no unsaved changes), and the **Test** (`test-connection-btn`) and **Delete Provider** (`delete-provider-btn`) buttons are now present. |
-| 6 | Observe the **LLM Providers** grid (open it fresh / `ignoreCache` reload if navigating through a client-cached view). | A `provider-card` labelled **`Mock (system-provider-config)`** is present in the grid — visible, with the quiet **mock** type badge (lowercase, no uppercase eyebrow). |
-| 7 | Re-select the `Mock (system-provider-config)` card to open its editor; in the **Name** field append distinctive text (e.g. ` — edited`); click **Save** (`save-provider-btn`). | While the Name is dirty the Save button enables; after save it disables again (no unsaved changes) and no error flash appears. The edited name persists in the field. |
+| 6 | Observe the **Providers** table (no reload needed). | A row for **`Mock (system-provider-config)`** is present in the table, in A–Z position: its name link (`provider-card`), the type `mock` shown as the quiet lowercase type badge (no uppercase eyebrow), and "Used by" reading "0 agents". The row is marked current (`aria-current="page"` on its link), and the editor stays open below the table. |
+| 7 | Click the breadcrumb link **Providers** to close the item, then click the `Mock (system-provider-config)` name link in the table to re-open it. In the **Name** field append distinctive text (for example ` — edited`), then click **Save** (`save-provider-btn`). | **The breadcrumb** closes the editor (hash `#settings/providers`, nothing below the table), and the name link re-opens it below the table. **While the Name is dirty,** the Save button enables and the editor shows "Unsaved changes". **After save,** it disables again, the text clears, and no error flash appears. The edited name persists in the field, and the table row shows the edited name. |
 | 8 | Click **Test** (`test-connection-btn`). | A connection-test result is surfaced as a flash/status (the mock provider resolves its test deterministically); **no unhandled error banner** appears. |
 | 9 | Scroll to the editor's **Danger Zone**; click **Delete Provider** (`delete-provider-btn`) **once** (arm). | [a11y] The Delete button enters its **armed** state: its visible label changes to **"Confirm Delete?"** and it takes the armed destructive styling. The provider is **not** yet deleted (the agent-usage pre-gate passes — no agent uses this fresh provider — then `App.confirmDelete` arms; a single click must NOT destroy the provider). This intermediate two-step state is the judged checkpoint. |
-| 10 | Click the armed **Confirm Delete?** button a second time (within the ~3s revert window) to fire the delete. | The DELETE succeeds; the editor leaves the deleted provider (returns to the grid / falls through to the remaining providers) with no error flash. |
-| 11 | Observe the **LLM Providers** grid (`ignoreCache` reload if the view is client-cached). | No `provider-card` whose label starts with `Mock (system-provider-config)` remains (step 7 renamed it with a ` — edited` suffix). The provider is gone. |
+| 10 | Click the armed **Confirm Delete?** button a second time (within the ~3s revert window) to fire the delete. | The DELETE succeeds. The editor closes and the hash returns to `#settings/providers`, with nothing below the table or empty state, and no error flash. Focus is on a neighbouring provider name link, or on **Add provider** when no providers remain. |
+| 11 | Observe the **Providers** table (no reload needed). | No row whose name starts with `Mock (system-provider-config)` remains (step 7 renamed it with a ` — edited` suffix). The provider is gone. |
 | 12 | (Teardown, no judgment) If any provider whose name starts with `Mock (system-provider-config)` remains (partial run; step 7 renames it), `DELETE /api/providers/{id}`. Restore the operator's original theme preference. | (empty) |
 
 **Row conventions:** one row = one logical checkpoint. `[a11y]`-marked expectations are the
 assistive-tech / rendered-state surface for the optional Accessibility Validator.
-**Locators (apparatus-agnostic — the Executor maps to its MCP):** New Provider
-`data-testid="new-provider-btn"` (providers-grid.js); Create/Save `data-testid="save-provider-btn"`,
+**Locators (apparatus-agnostic — the Executor maps to its MCP):** Add provider
+`data-testid="new-provider-btn"` (providers-table.js); Create/Save `data-testid="save-provider-btn"`,
 Test `data-testid="test-connection-btn"`, Delete `data-testid="delete-provider-btn"` in the
-editor Danger Zone (provider-editor.js); grid tile `data-testid="provider-card"`
-(providers-grid.js); the two-step arm/fire is `App.confirmDelete` with the `Confirm Delete?`
+editor Danger Zone (provider-editor.js); table name link `data-testid="provider-card"`
+(providers-table.js); the breadcrumb link `data-testid="editor-breadcrumb-link"`; the two-step arm/fire is `App.confirmDelete` with the `Confirm Delete?`
 label (provider-editor.js), gated by an agent-usage pre-fetch (`GET /api/providers/{id}/agents`).
 Mock is name+type only because `TYPE_DEFAULTS.mock` sets `showBaseUrl:false, showApiKey:false`
-(admin.js). **Cache discipline:** the grid is a client-rendered SPA view — after each
-create/delete mutation, re-observe the grid via a deliberate cache defeat (fresh tab or
-`ignoreCache` reload) so a stale in-memory list can't mask the mutation.
+(admin.js). **List freshness:** since Mission 25 Flight 3 the table re-renders from `App.store`
+after each mutation, so steps 6 and 11 read it without a reload. A stale table is a failure to
+report, not something to reload away.
 
 ## Out of Scope
 
@@ -112,4 +113,4 @@ create/delete mutation, re-observe the grid via a deliberate cache defeat (fresh
 - **theme=light** and **theme=dark** — run the full step table once per theme (set the theme
   preference before Step 2; restore the operator's original preference on teardown, Step 12).
   Overall verdict passes only if the flow passes in **both** themes, so a theme-coupled render
-  regression in the re-skinned provider grid/editor is caught.
+  regression in the provider table/editor is caught.

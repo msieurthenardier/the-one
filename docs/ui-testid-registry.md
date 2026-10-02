@@ -28,24 +28,22 @@ caught — but it cannot see where the attribute is emitted.
 
 | Testid | Surface | Notes |
 |--------|---------|-------|
-| `agent-empty` | studio | |
-| `agent-item` | studio | |
+| `agent-empty` | studio | Agents detail pane empty state with NO agents ("No agents yet. Create one to get started."), an `App.ui.emptyState` pane (M25 F3 L3; kept from the retired grid's empty canvas) |
+| `agent-empty-new` | studio | Agents detail empty-state action "New agent" (both copies) -> `#agents/~new` (M25 F3 L3) |
+| `agent-item` | studio | Agents list row: an `App.ui.listPane` `<a href="#agents/{name}">` (M25 F3 L3; kept from the retired tile grid) |
 | `agent-knowledge-empty-state` | studio | Agent editor Knowledge tab — no knowledge bases exist, marker still set (M24 F06 L03) |
 | `agent-knowledge-list` | studio | Agent editor Knowledge tab — attach-row list container (M24 F06 L03) |
 | `agent-knowledge-load-error` | studio | Agent editor Knowledge tab — the knowledge-base fetch failed; no `data-kb-list-loaded` marker (DD-4, L3-D1, M24 F06 L03) |
 | `agent-knowledge-tab` | studio | Agent editor Knowledge tab root; carries `data-kb-list-loaded="true"` on a successful fetch (DD-4, M24 F06 L03) |
 | `agent-load-error` | studio | Agent editor — the fresh `GET /api/agents/{name}` failed; the editor renders the last-known copy and Save is disabled (squawk 0090) |
 | `agent-select` | chat | |
-| `agent-tile-mcp-tool-count` | studio | |
-| `agent-tile-tool-count` | studio | |
+| `agent-select-empty` | studio | Agents detail pane empty state WITH agents ("Select an agent to edit it, or create a new one.") (M25 F3 L3) |
+| `agents-filter` | studio | Agents list filter input ("Filter agents"; matches name, model id and provider type slug) (M25 F3 L3) |
+| `agents-list` | studio | Agents list column root, the `App.ui.listPane` `<section>` in the aside (M25 F3 L3) |
 | `approval-mode-error` | studio | Self-configuration tab approval-mode toggle (M21 F02 L02) |
 | `approval-mode-status` | studio | Self-configuration tab approval-mode status line (M21 F02 L02) |
 | `approval-mode-toggle-btn` | studio | Self-configuration tab approval-mode on/off (M21 F02 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
-| `back-agent-btn` | studio | |
-| `back-mcp-source-btn` | studio | |
-| `back-provider-btn` | admin | |
-| `back-tool-btn` | admin | |
-| `base-prompt-content` | admin | |
+| `base-prompt-content` | admin | The Prompts page's read-only base prompt (`#settings/prompts`; on the single General page until M25 F3 L5a) |
 | `cancel-agent-btn` | studio | |
 | `cancel-mcp-source-btn` | studio | |
 | `cancel-provider-btn` | admin | |
@@ -62,7 +60,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-welcome` | chat | |
 | `chat-welcome-mascot` | chat | |
 | `confirm-dialog-overlay` | shell | |
-| `connector-card` | studio | Connectors grid tile (M23 F02 L02); `data-id` carries the connector id |
+| `connector-card` | studio | Library list connector row (an `<a href="#library/connectors/{id}">`, M25 F3 L4a; was the Connectors grid tile, M23 F02 L02) |
 | `connector-channel-map-row` | studio | Connector-editor channel→agent map, one row (M23 F02 L02) |
 | `connector-doctor-result` | studio | Connector-editor doctor probe result region (M23 F02 L02) |
 | `connector-pairing-code` | studio | Connector-editor pairing-code result — the code itself, in its own selectable `<code>` element (Squawk 0043) |
@@ -77,13 +75,15 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `delete-mcp-source-btn` | studio | |
 | `delete-provider-btn` | admin | |
+| `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's last segment, a link to its root: "Agents" -> `#agents` (agent editor), "Knowledge bases" -> `#library/knowledge` (knowledge-base detail and `~new` form), "MCP servers" -> `#library/mcp`, "Connectors" -> `#library/connectors`; studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings (L5b): "Settings / Providers" -> `#settings/providers` (provider editor, edit and `~new`), "Settings / Built-in tools" -> `#settings/tools` (tool editor); admin routes it the same way (focus: the closed provider's row or tool's name link, "Add provider" after a `~new` form) |
+| `editor-unsaved` | studio, admin | Item header "Unsaved changes" caption, a stable `role=status` span at the start of `.form-actions` whose text the editor's dirty report sets or clears: the agent editor (`checkDirty`, M25 F3 DD2, L3), the knowledge-base detail and `~new` form, the MCP and connector editors (L4b), the provider and tool editors (L5b; the tool editor's Cancel re-mount keeps the same span node) |
 | `kb-chunk-count` | studio | Knowledge detail view status summary — chunk count (M24 F06 L01) |
 | `kb-chunk-row` | studio | Knowledge detail view chunks panel — one row per chunk, `seq` order (DD-8, M24 F06 L01) |
 | `kb-chunks-panel` | studio | Knowledge detail view — an item's chunks, opened on demand (DD-8, M24 F06 L01) |
-| `kb-create-description-input` | studio | Knowledge grid create-form description field (AC-4, M24 F06 L05) |
-| `kb-create-error` | studio | Knowledge grid create-form submission error (M24 F06 L01) |
-| `kb-create-name-hint` | studio | Knowledge grid create-form advisory name-length hint, shown over 43 code points (DD-16, M24 F06 L01) |
-| `kb-create-name-input` | studio | Knowledge grid create-form name field (M24 F06 L01) |
+| `kb-create-description-input` | studio | Knowledge-base create form description field (AC-4, M24 F06 L05; the form moved to `#library/knowledge/~new` in M25 F3 L4a) |
+| `kb-create-error` | studio | Knowledge-base create form submission error line ("Name is required.", or the server's message) (M24 F06 L01; M25 F3 L4a) |
+| `kb-create-name-hint` | studio | Knowledge-base create form advisory name-length hint, shown over 43 code points (DD-16, M24 F06 L01; M25 F3 L4a) |
+| `kb-create-name-input` | studio | Knowledge-base create form name field (M24 F06 L01; M25 F3 L4a) |
 | `kb-description-input` | studio | Knowledge detail view always-live description field, header region (L6-D1, M24 F06 L06) |
 | `kb-folder-add-error` | studio | Knowledge detail view Folders section "Add folder" submission error, renders the route's `detail` message (DD-10, M24 F06 L01; renamed from `kb-folder-register-error` in M24 F06 L06) |
 | `kb-folder-delete-btn` | studio | Knowledge detail view folder panel summary — trash-icon delete behind the canonical two-step `App.confirmDelete` (armed on the `<summary>`, folder-path span as `[data-confirm-title]`). Takes only its VISUAL form from the Custom Headers row; that row's bare click does not carry, because this one is an irreversible server-side cascading DELETE (amended L6-D3, M24 F06 L06; replaces the labelled two-step `kb-folder-remove-btn`) |
@@ -115,7 +115,7 @@ caught — but it cannot see where the attribute is emitted.
 | `kb-source-text` | studio | Knowledge detail view — the fetched source text itself (M24 F06 L01) |
 | `kb-status-count` | studio | Knowledge detail view status summary — one per-status file count chip (M24 F06 L01) |
 | `kb-status-summary` | studio | Knowledge detail view status summary container (M24 F06 L01) |
-| `knowledge-base-card` | studio | Knowledge grid tile; `data-id` carries the knowledge base id (M24 F06 L01) |
+| `knowledge-base-card` | studio | Library list knowledge-base row (an `<a href="#library/knowledge/{id}">`, M25 F3 L4a; was the Knowledge grid tile, M24 F06 L01) |
 | `knowledge-chunking-note` | admin | Knowledge settings panel — states chunking applies to future indexing only (L4-D2, M24 F06 L04) |
 | `knowledge-embedding-backend` | admin | Knowledge settings panel — read-only embedding backend value (DD-7, M24 F06 L04) |
 | `knowledge-embedding-dim` | admin | Knowledge settings panel — read-only embedding dimensions value (DD-7, M24 F06 L04) |
@@ -142,6 +142,11 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-vector-store-readonly-reason` | admin | Knowledge settings panel — states why vector store is read-only, not a disabled input (L4-D1, M24 F06 L04) |
 | `knowledge-watch-enabled-toggle` | admin | Knowledge settings panel — `monitoring.watch_enabled` toggle (M24 F06 L04) |
 | `kv-add-row-btn` | studio | |
+| `library-add-btn` | studio | Library list title-row "Add" (`App.ui.menu` trigger, small outlined, plus icon; the menu opens with `align: 'end'`) (M25 F3 L4a, DD5) |
+| `library-add-connector` | studio | Library Add menu item "Connector" -> `#library/connectors/~new` (M25 F3 L4a) |
+| `library-add-knowledge` | studio | Library Add menu item "Knowledge base" -> `#library/knowledge/~new` (M25 F3 L4a) |
+| `library-add-mcp` | studio | Library Add menu item "MCP server" -> `#library/mcp/~new` (M25 F3 L4a) |
+| `library-list` | studio | Library list column root, the grouped `App.ui.listPane` `<section>` in the aside (M25 F3 L4a, DD5) |
 | `mcp-command-custom` | studio | |
 | `mcp-command-hint` | studio | |
 | `mcp-command-runtime` | studio | |
@@ -156,7 +161,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-server-info-section` | studio | |
 | `mcp-server-instructions` | studio | |
 | `mcp-server-meta` | studio | |
-| `mcp-source-card` | studio | |
+| `mcp-source-card` | studio | Library list MCP-server row (an `<a href="#library/mcp/{id}">`, M25 F3 L4a; was the MCP Servers grid tile) |
 | `mcp-sources-list` | studio | |
 | `mcp-test-connection` | studio | |
 | `mcp-test-status` | studio | |
@@ -167,10 +172,9 @@ caught — but it cannot see where the attribute is emitted.
 | `modal-confirm-btn` | shell | |
 | `model-capabilities` | studio | |
 | `model-ctx-chip` | studio | |
-| `new-agent-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
+| `new-agent-btn` | studio | Unified create CTA (M17 F3 L3); since M25 F3 L3 the Agents list's title-row "New" (`App.ui.button`, small outlined, plus icon) -> `#agents/~new` |
 | `new-chat-btn` | chat | |
-| `new-mcp-source-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
-| `new-provider-btn` | admin | Unified create CTA (M17 F3 L3) — always-visible header button |
+| `new-provider-btn` | admin | Unified create CTA (M17 F3 L3) — always-visible header button; since M25 F3 L5a the Providers page header's "Add provider" (`App.ui.button`, outlined, plus icon) |
 | `pending-count` | studio | Self-configuration tab per-agent pending-revision count (M21 F02 L02) |
 | `pending-queue` | studio | Self-configuration tab pending-revision queue container (M21 F02 L02) |
 | `pending-queue-empty` | studio | Self-configuration tab empty-queue notice (M21 F02 L02) |
@@ -189,7 +193,9 @@ caught — but it cannot see where the attribute is emitted.
 | `plan-signin-open-btn` | admin | anthropic-plan sign-in: gesture-context popup opener |
 | `plan-signin-url` | admin | anthropic-plan sign-in: copyable authorize URL (readonly input) |
 | `plan-test-reauth` | admin | provider /test result: distinct reauth_required message span |
-| `provider-card` | admin | |
+| `provider-card` | admin | Since M25 F3 L5b the Providers table's Name-cell link (`<a href="#settings/providers/{id}" data-id>`, `aria-current="page"` on the open provider's; the cell is the row header, `th scope="row"`), was the tile; one per provider row |
+| `providers-empty` | admin | Providers page empty state (`App.ui.emptyState`, pane size, "No providers yet.") at zero providers (M25 F3 L5b) |
+| `providers-empty-add` | admin | Its "Add provider" action (opens `#settings/providers/~new`; the page header's `new-provider-btn` stays the unified CTA) (M25 F3 L5b) |
 | `purge-history-btn` | studio | |
 | `reset-mcp-connection-btn` | studio | |
 | `revision-approve-btn` | studio | Self-configuration pending-revision card approve (M21 F02 L02) |
@@ -213,7 +219,7 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-restore-node` | studio | Self-configuration revision-history distinct value-node row (M21 F02 L03) |
 | `revision-stale` | studio | Self-configuration staleness (409) panel (M21 F02 L02) |
 | `revision-stale-proposed` | studio | Self-configuration staleness panel proposed value (M21 F02 L02) |
-| `rotate-key-btn` | admin | |
+| `rotate-key-btn` | admin | The Encryption page's rotate control (`#settings/encryption`; on the single General page until M25 F3 L5a) |
 | `route-announcer` | shell | Visually-hidden polite live region (`role=status`) written by `js/router.js` on a commit that changes destination/section/item (flight 02 review, WCAG 4.1.3) |
 | `save-agent-btn` | studio | |
 | `save-mcp-source-btn` | studio | |
@@ -239,7 +245,8 @@ caught — but it cannot see where the attribute is emitted.
 | `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
 | `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
-| `studio-knowledge-inventory` | studio | Knowledge section root — rendered by both the grid and detail branches (L1-D5, M24 F06 L01; retires the F5 placeholder testid) |
+| `settings-nav` | admin | The Settings nav (`<nav aria-label="Settings">`, an `App.ui.navGroups` in the Settings column, reference spec section 8.1); its items are `settings-nav-{section}` links (M25 F3 L5a, DD6) |
+| `studio-knowledge-inventory` | studio | Knowledge-base detail view root (L1-D5, M24 F06 L01; retires the F5 placeholder testid). Since M25 F3 L4a it marks the detail view only: the grid is retired, and the create form at `#library/knowledge/~new` does not carry it |
 | `tab-general` | studio | |
 | `tab-knowledge` | studio | |
 | `tab-mcps` | studio | |
@@ -251,8 +258,8 @@ caught — but it cannot see where the attribute is emitted.
 | `test-tool-btn` | admin | |
 | `thinking-disclosure` | chat | |
 | `thinking-indicator` | chat | |
-| `tool-card` | admin | |
-| `tool-toggle` | admin | |
+| `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
+| `tool-toggle` | admin | The tile's enable switch; it never navigates (M25 F3 L5b) |
 | `trace-shell` | chat | |
 | `ui-demo-modal` | admin | Design language reference page — the live `App.ui.modal` demo's `<dialog>` (M25 F2 L2) |
 
@@ -264,6 +271,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
 | `connector-setup-steps-list-` | studio | Connector-editor inline setup-steps `<ul>`, suffixed with the selected connector type (e.g. `-discord`) (Squawk 0046) |
+| `library-empty-` | studio | Library detail pane empty state at a section root, suffixed with the group (`library-empty-knowledge`, `library-empty-mcp`, `library-empty-connectors`), and its action that opens the section's `~new` (`library-empty-{group}-add`) (M25 F3 L4a, DD5) |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |
 | `mcp-no-tools-msg-` | studio | |
@@ -279,14 +287,13 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-checkbox-group-` | studio | |
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
+| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-providers`, `-tools`, `-knowledge-indexing`, and `-design-language` in dev mode); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
 | `tab-` | admin | |
 
 ## Manual exceptions (variable-carried literals)
 
 | Testid | Surface | Notes |
 |--------|---------|-------|
-| `back-connector-btn` | studio | Connector-editor header — passed through the local `_btn(className, testid, text)` helper's `testid` parameter (M23 F02 L02) |
-| `back-knowledge-btn` | studio | Knowledge detail view header — passed through the local `_btn(className, testid, text)` helper's `testid` parameter (M24 F06 L01) |
 | `cancel-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |
 | `cancel-knowledge-btn` | studio | Knowledge detail view header Cancel, disabled until dirty, same `_btn` indirection (L6-D1, M24 F06 L06) |
 | `connector-channel-map-add-btn` | studio | Connector-editor channel→agent map add-row, same `_btn` indirection (M23 F02 L02) |
@@ -295,13 +302,35 @@ caught — but it cannot see where the attribute is emitted.
 | `connector-pairing-btn` | studio | Connector-editor pairing-code generation, same `_btn` indirection (M23 F02 L02) |
 | `connector-pairing-copy-btn` | studio | Connector-editor pairing-code copy-to-clipboard button, same `_btn` indirection (Squawk 0043) |
 | `kb-add-folder-btn` | studio | Knowledge detail view Folders section "Add folder" submit, same `_btn` indirection (M24 F06 L01; renamed from `kb-register-folder-btn`, and the button's own text from "Register folder", in M24 F06 L06) |
-| `kb-create-submit-btn` | studio | Knowledge grid create-form submit, same `_btn` indirection (M24 F06 L01) |
+| `kb-create-cancel-btn` | studio | Knowledge-base create form Cancel: discards and replaces to `#library/knowledge`, same `_btn` indirection (M25 F3 L4a, DD8) |
+| `kb-create-submit-btn` | studio | Knowledge-base create form Create (stays enabled; disabled from submit until the request fails), same `_btn` indirection (M24 F06 L01; M25 F3 L4a) |
 | `kb-item-chunks-btn` | studio | Knowledge detail view item row overflow menu — "View chunks" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 | `kb-item-source-btn` | studio | Knowledge detail view item row overflow menu — "View source" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 | `kb-reindex-all-btn` | studio | Knowledge detail view Status section re-index control (`scope=all`), same `_btn` indirection (M24 F06 L01; label "Re-index all" -> "Re-index all files" and moved from Folders into Status in the L06 HAT polish pass) |
 | `kb-reindex-changed-btn` | studio | Knowledge detail view Status section re-index control (`scope=changed`), same `_btn` indirection (M24 F06 L01; label "Re-index changed" -> "Re-index changed files" and moved from Folders into Status in the L06 HAT polish pass) |
 | `kb-search-btn` | studio | Knowledge detail view search control submit, same `_btn` indirection (M24 F06 L01) |
-| `new-connector-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M23 F02 L02) |
-| `new-knowledge-base-btn` | studio | Unified create CTA (M17 F3 L3 pattern), same `_btn` indirection (M24 F06 L01) |
 | `save-connector-btn` | studio | Connector-editor header, same `_btn` indirection (M23 F02 L02) |
 | `save-knowledge-btn` | studio | Knowledge detail view header Save, disabled until dirty, same `_btn` indirection (L6-D1, M24 F06 L06; replaces `kb-edit-save-btn`) |
+
+## Retired testids (not extracted; kept for the record)
+
+The registry guard ignores this table. Ids here no longer exist in the UI. The
+retired-selector guard (`tests/test_nav_helper.py` `RETIRED_SELECTORS`) fails if
+any browser test or helper module names one, with no per-file exemption (M25 F3
+L6), and `test_retired_selectors_cover_the_registry_retired_table` fails if an
+id here is missing from `RETIRED_SELECTORS` or is registered in a live table
+again. A retired id cannot come back.
+
+| Retired id | Surface | Retired by |
+|------------|---------|------------|
+| `agent-tile-mcp-tool-count` | studio | M25 F3 L3 — the agents tile grid (its per-tile MCP tool count) is replaced by the Agents list |
+| `agent-tile-tool-count` | studio | M25 F3 L3 — the agents tile grid (its per-tile built-in tool count) is replaced by the Agents list |
+| `back-agent-btn` | studio | M25 F3 L3 (DD2) — the agent editor is hosted beside the Agents list; the "Agents" breadcrumb replaces Back |
+| `back-connector-btn` | studio | M25 F3 L4b (DD2) — the connector editor is hosted beside the Library list; the breadcrumb's "Connectors" link (`editor-breadcrumb-link`) replaces Back |
+| `back-knowledge-btn` | studio | M25 F3 L4b (DD2) — the knowledge-base detail is hosted beside the Library list; the breadcrumb's "Knowledge bases" link (`editor-breadcrumb-link`) replaces Back |
+| `back-mcp-source-btn` | studio | M25 F3 L4b (DD2) — the MCP server editor is hosted beside the Library list; the breadcrumb's "MCP servers" link (`editor-breadcrumb-link`) replaces Back |
+| `back-provider-btn` | admin | M25 F3 L5b (DD2, DD7) — the provider editor opens below the Providers table; the breadcrumb's "Providers" link (`editor-breadcrumb-link`) replaces Back |
+| `back-tool-btn` | admin | M25 F3 L5b (DD2, DD7) — the tool editor opens below the tool list; the breadcrumb's "Built-in tools" link (`editor-breadcrumb-link`) replaces Back |
+| `new-connector-btn` | studio | M25 F3 L4a (DD5) — the Connectors grid is retired; the Library list's Add menu (`library-add-connector`) replaces it |
+| `new-knowledge-base-btn` | studio | M25 F3 L4a (DD5) — the Knowledge grid and its inline create form are retired; the Library list's Add menu (`library-add-knowledge`) opens the `~new` form |
+| `new-mcp-source-btn` | studio | M25 F3 L4a (DD5) — the MCP Servers grid is retired; the Library list's Add menu (`library-add-mcp`) replaces it |

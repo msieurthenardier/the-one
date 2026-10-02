@@ -8,13 +8,24 @@ The leave guard (``App.nav``, leg 5): the router consults it on EVERY ``go()``
 (unless bypassed) and on every traversal. The in-area section-nav / category
 gates are gone, so a dirty editor prompts exactly once on any path; a Continue
 resets the dirty mirror so no phantom prompt follows it.
+
+M25 F3 L4a: the Library section nav is retired (the grouped Library list
+replaces it), so the Library "current section closes the editor" tests go to
+the section root. Leg 4b retired the editors' interim Back: they go through the
+item header breadcrumb's group link (``editor-breadcrumb-link``) -- the same
+pushed go() to ``#library/<section>``. M25 F3 L5a: the Settings section nav is
+retired too; a Settings item closes through the Settings nav's link to its page
+(``_lists.settings_nav_link``), a pushed go() to ``#settings/<section>``. Leg 5b
+opens Settings items below their list and retires their Back: the item headers'
+"Settings / Providers" and "Settings / Built-in tools" breadcrumb links close
+them too.
 """
 
 from __future__ import annotations
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
@@ -203,20 +214,21 @@ def test_current_destination_click_while_dirty_one_dialog_continue_closes_editor
 def test_current_section_click_while_dirty_one_dialog_continue_closes_editor(
     app_clean: str, page: Page
 ) -> None:
-    """Library: a dirty MCP create form, then a click on the MCP Servers section."""
+    """Library: a dirty MCP create form, then a go() to the MCP section root
+    through the breadcrumb's group link (M25 F3 L4b; Back is retired)."""
     _nav.goto_settled(page, app_clean, "library/mcp/~new")
     name = page.locator('[data-field="name"]')
     expect(name).to_be_visible(timeout=8000)
     name.fill("dirty-source")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_enabled()
 
-    page.locator('.section-nav-item[data-section="mcp-sources"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(STAY).click()
     _no_second_dialog(page)
     expect(name).to_have_value("dirty-source")
 
-    page.locator('.section-nav-item[data-section="mcp-sources"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
@@ -270,6 +282,9 @@ def test_dirty_agent_create_form_prompts_on_leaving(app_with_agent: SeededApp, p
 
 
 # ── (i): clean same-section re-click closes the open item ───────────────────
+# Library items close through the item header breadcrumb's group link (M25 F3
+# L4b retired Back); Settings items through the Settings nav's link to their
+# page (M25 F3 L5a; leg 5b adds their breadcrumbs).
 
 
 def _post(base: str, path: str, payload: dict) -> dict:
@@ -286,31 +301,32 @@ def test_clean_reclick_closes_mcp_editor(app_clean: str, page: Page) -> None:
     )["id"]
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
-    page.locator('.section-nav-item[data-section="mcp-sources"]').click()
+    _lists.close_item(page)
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_have_count(0, timeout=5000)
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers")
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible()
     _nav.expect_route(page, "library/mcp")
     expect(page.locator(DIALOG)).to_have_count(0)
 
 
 def test_clean_reclick_closes_connector_editor(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _lists.library_add(page, "connectors")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
-    page.locator('.section-nav-item[data-section="connectors"]').click()
+    _lists.close_item(page)
     expect(page.locator('[data-testid="save-connector-btn"]')).to_have_count(0, timeout=5000)
-    expect(page.locator('[data-testid="new-connector-btn"]')).to_be_visible()
+    expect(_lists.library_empty_state(page, "connectors")).to_be_visible()
     _nav.expect_route(page, "library/connectors")
+    expect(page.locator(DIALOG)).to_have_count(0)
     assert page.evaluate("App.areas.find(a => a.id === 'studio')._dirty") is False
 
 
 def test_clean_reclick_closes_kb_detail(app_clean: str, page: Page) -> None:
     kb = _post(app_clean, "/api/knowledge-bases", {"name": "Reclick KB"})
     _nav.goto_settled(page, app_clean, f"library/knowledge/{_nav.seg(kb['id'])}")
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
-    page.locator('.section-nav-item[data-section="knowledge"]').click()
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_have_count(0, timeout=5000)
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible()
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=8000)
+    _lists.close_item(page)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0, timeout=5000)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
     _nav.expect_route(page, "library/knowledge")
     assert _studio_state(page)["kb"] is None
 
@@ -322,18 +338,44 @@ def test_clean_reclick_closes_provider_editor(app_with_provider: SeededApp, page
         f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
-    page.locator(".area-admin .section-nav-item", has_text="LLM Providers").click()
+    _lists.settings_nav_link(page, "providers").click()
     expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    expect(page.locator(".page-title")).to_have_text("LLM Providers")
+    expect(page.locator(".page-title")).to_have_text("Providers")
     _nav.expect_route(page, "settings/providers")
     expect(page.locator(DIALOG)).to_have_count(0)
+    # The table stays; nothing is selected any more (M25 F3 leg 5b).
+    _lists.expect_none_selected(page, "settings/providers")
 
 
 def test_clean_reclick_closes_tool_editor(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, "settings/tools/web_search")
-    expect(page.locator('[data-testid="back-tool-btn"]')).to_be_visible(timeout=8000)
-    page.locator(".area-admin .section-nav-item", has_text="Built-in Tools").click()
-    expect(page.locator('[data-testid="back-tool-btn"]')).to_have_count(0, timeout=5000)
+    expect(page.locator('[data-testid="save-tool-btn"]')).to_be_visible(timeout=8000)
+    _lists.settings_nav_link(page, "tools").click()
+    expect(page.locator('[data-testid="save-tool-btn"]')).to_have_count(0, timeout=5000)
+    _nav.expect_route(page, "settings/tools")
+    expect(page.locator(DIALOG)).to_have_count(0)
+    _lists.expect_none_selected(page, "settings/tools")
+
+
+def test_clean_breadcrumb_closes_provider_and_tool_editors(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """M25 F3 leg 5b: the Settings item headers' breadcrumb links close the
+    item to the page root like the Library ones (no dialog when clean)."""
+    _nav.goto_settled(
+        page,
+        app_with_provider.base_url,
+        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+    )
+    expect(_lists.breadcrumb_link(page)).to_have_text("Providers", timeout=8000)
+    _lists.close_item(page)
+    expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
+    _nav.expect_route(page, "settings/providers")
+    expect(page.locator(DIALOG)).to_have_count(0)
+    _nav.goto_settled(page, app_with_provider.base_url, "settings/tools/web_search")
+    expect(_lists.breadcrumb_link(page)).to_have_text("Built-in tools", timeout=8000)
+    _lists.close_item(page)
+    expect(page.locator('[data-testid="save-tool-btn"]')).to_have_count(0, timeout=5000)
     _nav.expect_route(page, "settings/tools")
     expect(page.locator(DIALOG)).to_have_count(0)
 
@@ -375,16 +417,16 @@ def test_agents_library_chats_library_does_not_leak_agent_state(
     assert st["section"] == "knowledge", st
     assert item_gets == [], f"an agent item was re-fetched: {item_gets}"
     expect(page.locator(DIALOG)).to_have_count(0)
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible()
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible()
     _nav.expect_route(page, "library/knowledge")
 
 
 def test_restore_to_deleted_item_heals_the_url(app_clean: str, page: Page) -> None:
     """Restoring lastRoute(library) to a knowledge base deleted meanwhile does
-    not hang: the item route falls back to the grid and the URL heals."""
+    not hang: the item route falls back to the section root and the URL heals."""
     kb = _post(app_clean, "/api/knowledge-bases", {"name": "Doomed KB"})
     _nav.goto_settled(page, app_clean, f"library/knowledge/{_nav.seg(kb['id'])}")
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=8000)
     _nav.open_destination(page, "settings")
     expect(_nav.destination_panel(page, "settings")).to_be_visible(timeout=8000)
 
@@ -396,6 +438,6 @@ def test_restore_to_deleted_item_heals_the_url(app_clean: str, page: Page) -> No
     assert r.status_code in (200, 204), r.text
 
     _nav.open_destination(page, "library")  # restores the dead item route
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=8000)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
     _nav.expect_route(page, "library/knowledge")
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_have_count(0)
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_have_count(0)

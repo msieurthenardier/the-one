@@ -1,6 +1,9 @@
 # ruff: noqa: E501  (inline JS snippets are evaluated verbatim; wrapping them hurts readability)
 """Engine-parametrized contract tests for the committed ``App.ui`` factories
-(M25 F1 L2): core helpers, ``button``, ``textInput`` / ``field`` and ``listPane``.
+(M25 F1 L2): core helpers, ``button``, ``textInput`` / ``field`` and ``listPane``,
+plus the M25 F3 L1 ``listPane`` additions (title count, intro, per-group empty
+text, row styles, ``scrollToSelected``, the accessible-name suffix and focus kept
+across ``setItems``) and the L4a ``scrollToGroup`` with its optional group ids.
 
 Every test runs in Chromium and WebKit through ``engine_page`` + ``load_harness``
 (no app spawn). Falls in the ``shared`` browser lane.
@@ -8,9 +11,12 @@ Every test runs in Chromium and WebKit through ``engine_page`` + ``load_harness`
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from browser._a11y_resolvers import assert_controls_labelled_and_described
 from browser._ui_engines import STATIC_DIR, load_harness
+from browser.design_tokens import DARK
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
@@ -434,6 +440,26 @@ def test_list_pane_structure_and_row_kinds(engine_page: Page) -> None:
     assert_controls_labelled_and_described(engine_page, "[data-testid=lp-root]")
 
 
+def test_list_pane_aria_current_value_follows_the_row_kind(engine_page: Page) -> None:
+    """Flight-end review: a selected link row is the current PAGE
+    (``aria-current="page"``); a selected button row (onSelect) is the current
+    item in a set (``"true"``), with the same selected look."""
+    _mount_pane(engine_page)
+    p = engine_page
+    probe = """() => Array.from(document.querySelectorAll('[data-testid=lp-root] li > .ui-list-pane-row'))
+      .map((r) => { const s = getComputedStyle(r);
+        return [r.tagName, r.getAttribute('aria-current'), s.backgroundColor, s.boxShadow]; })"""
+    on_link = p.evaluate(probe)
+    assert [r[:2] for r in on_link] == [["BUTTON", None], ["A", "page"], ["BUTTON", None]]
+    p.evaluate("() => window.__pane.setSelected('alpha')")
+    on_button = p.evaluate(probe)
+    assert [r[:2] for r in on_button] == [["BUTTON", "true"], ["A", None], ["BUTTON", None]]
+    # The selected look is the same for both kinds (wash and ring).
+    assert on_button[0][2:] == on_link[1][2:], (on_button, on_link)
+    assert on_button[0][2:] != on_button[1][2:], on_button
+    expect(p.get_by_role("button", name="Alpha")).to_have_attribute("aria-current", "true")
+
+
 def test_list_pane_strict_locators_filter_and_activation(engine_page: Page) -> None:
     _mount_pane(engine_page)
     p = engine_page
@@ -503,9 +529,11 @@ def test_list_pane_set_selected_unknown_clears_and_first_row_is_stop(engine_page
     _mount_pane(engine_page)
     p = engine_page
     p.evaluate("() => window.__pane.setSelected('gamma')")
-    assert p.evaluate("() => document.querySelector('[aria-current=page]').textContent").startswith(
+    # gamma is a BUTTON row: aria-current="true", not "page" (the flight-end review).
+    assert p.evaluate("() => document.querySelector('[aria-current=true]').textContent").startswith(
         "Gamma"
     )
+    assert p.evaluate("() => document.querySelectorAll('[aria-current=page]').length") == 0
     p.evaluate("() => window.__pane.setSelected('no-such-id')")
     state = p.evaluate(
         "() => ({cur: document.querySelectorAll('[aria-current]').length,"
@@ -602,6 +630,694 @@ def test_list_pane_row_accessible_with_icon_badges_and_resolver(engine_page: Pag
     )
     assert out == {"icon": True, "badge": "3"}
     assert_controls_labelled_and_described(engine_page, "#harness-root")
+
+
+# ── listPane additions (M25 F3 L1) ──────────────────────────────────────────
+
+
+def _rgb(hex_: str) -> str:
+    h = hex_.lstrip("#")
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    return f"rgb({r}, {g}, {b})"
+
+
+# Items a..f (links, so roving and focus act on real anchors), a pane with a
+# count, a filter and an action, mounted after a focusable "outside" button.
+MOUNT_COUNTED_JS = """(opts) => {
+  const mk = (ids) => ids.map((id) => ({id, label: 'Item ' + id, meta: 'meta ' + id,
+                                        href: '#' + id, testid: 'cp-row-' + id}));
+  window.__mk = mk;
+  const root = document.getElementById('harness-root');
+  const outside = document.createElement('button');
+  outside.textContent = 'Outside'; outside.setAttribute('data-testid', 'cp-outside');
+  root.appendChild(outside);
+  const c = App.ui.listPane(Object.assign({
+    title: 'Agents', testid: 'cp-root', count: true, emptyText: 'No agents match',
+    actions: [App.ui.button({label: 'New', size: 'sm', testid: 'cp-new'})],
+    filter: {label: 'Filter agents', testid: 'cp-filter'},
+    items: mk(['a', 'b', 'c', 'd', 'e', 'f']),
+  }, opts || {}));
+  window.__pane = c;
+  root.appendChild(c.el);
+  return true;
+}"""
+
+
+def _mount_counted(page: Page, opts: str = "{}") -> None:
+    _load(page)
+    page.evaluate(f"({MOUNT_COUNTED_JS})({opts})")
+
+
+def _count_text(page: Page) -> str:
+    return page.evaluate("() => document.querySelector('.ui-list-pane-total').textContent")
+
+
+def _focused_testid(page: Page) -> str | None:
+    return page.evaluate("() => document.activeElement && document.activeElement.dataset.testid")
+
+
+def _tab_stops(page: Page) -> list[str]:
+    return page.evaluate(
+        "() => Array.from(document.querySelectorAll('[data-testid=cp-root] .ui-list-pane-row'))"
+        ".filter((r) => r.tabIndex === 0).map((r) => r.dataset.testid)"
+    )
+
+
+def test_list_pane_title_row_matches_reference_spec(engine_page: Page) -> None:
+    """Section 3 title row: 14px 16px 10px padding, 8px gap, a 16px/600 --fg h2,
+    then the 11px --fg-muted count, then the actions pushed to the right edge."""
+    _mount_counted(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const root = document.querySelector('[data-testid=cp-root]');
+          const header = root.querySelector('header'), hs = getComputedStyle(header);
+          const h2 = header.querySelector('h2'), ts = getComputedStyle(h2);
+          const count = header.querySelector('.ui-list-pane-total'), cs = getComputedStyle(count);
+          const actions = header.querySelector('.ui-list-pane-actions');
+          return {order: Array.from(header.children).map((n) => n.className),
+                  pad: hs.padding, gap: hs.columnGap,
+                  title: [ts.fontSize, ts.fontWeight, ts.color, ts.margin],
+                  count: [cs.fontSize, cs.color],
+                  actionsGap: header.getBoundingClientRect().right - actions.getBoundingClientRect().right,
+                  countToActions: actions.getBoundingClientRect().left - count.getBoundingClientRect().right};
+        }"""
+    )
+    assert out["order"] == ["ui-list-pane-title", "ui-list-pane-total", "ui-list-pane-actions"]
+    assert out["pad"] == "14px 16px 10px" and out["gap"] == "8px"
+    assert out["title"] == ["16px", "600", _rgb(DARK["fg"]), "0px"]
+    assert out["count"] == ["11px", _rgb(DARK["fg_muted"])]
+    assert abs(out["actionsGap"] - 16) <= 0.5  # pushed right, inside the 16px padding
+    assert out["countToActions"] > 8  # margin-left: auto, not just the gap
+
+
+def test_list_pane_count_reads_shown_of_total(engine_page: Page) -> None:
+    _mount_counted(engine_page)
+    p = engine_page
+    assert _count_text(p) == "6 of 6"  # on load
+    assert_controls_labelled_and_described(p, "[data-testid=cp-root]")
+    flt = p.get_by_test_id("cp-filter")
+    flt.fill("item a")
+    assert _count_text(p) == "1 of 6"  # after a filter
+    flt.fill("zzz")
+    assert _count_text(p) == "0 of 6"  # no match
+    expect(p.get_by_role("heading", name="No agents match")).to_be_visible()
+    flt.fill("meta")
+    assert _count_text(p) == "6 of 6"
+    # setItems with an active query keeps the query, re-runs it and recounts.
+    flt.fill("item b")
+    p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'b', 'c', 'bb', 'x', 'y', 'z']))")
+    assert flt.input_value() == "item b"
+    assert _count_text(p) == "2 of 7"
+    expect(p.locator("[data-testid=cp-root] .ui-list-pane-row:visible")).to_have_count(2)
+    flt.fill("")
+    p.evaluate("() => window.__pane.setItems(window.__mk(['a']))")
+    assert _count_text(p) == "1 of 1"  # after setItems
+    p.evaluate("() => window.__pane.setItems([])")
+    assert _count_text(p) == ""  # nothing to count: empty (an accepted variation)
+
+
+def test_list_pane_count_is_opt_in(engine_page: Page) -> None:
+    _mount_pane(engine_page)
+    assert (
+        engine_page.evaluate("() => document.querySelectorAll('.ui-list-pane-total').length") == 0
+    )
+
+
+def test_list_pane_intro_paragraph(engine_page: Page) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const c = App.ui.listPane({title: 'Library', intro: 'Things agents can use.',
+            items: [{id: 'k', label: 'KB', href: '#k'}]});
+          document.getElementById('harness-root').appendChild(c.el);
+          const p = c.el.querySelector('.ui-list-pane-intro'), s = getComputedStyle(p);
+          const none = App.ui.listPane({title: 'T', items: []});
+          return {tag: p.tagName, text: p.textContent, after: p.previousElementSibling.tagName,
+                  style: [s.margin, s.padding, s.fontSize, s.color],
+                  absent: none.el.querySelectorAll('.ui-list-pane-intro').length};
+        }"""
+    )
+    assert out["tag"] == "P" and out["text"] == "Things agents can use."
+    assert out["after"] == "HEADER"  # directly below the title row
+    assert out["style"] == ["0px", "0px 16px 8px", "11px", _rgb(DARK["fg_muted"])]
+    assert out["absent"] == 0
+
+
+GROUPS_JS = """() => {
+  const it = (id) => ({id, label: 'Row ' + id, href: '#' + id, testid: 'gp-' + id});
+  const c = App.ui.listPane({title: 'Library', filter: {label: 'Filter library', testid: 'gp-filter'},
+    emptyText: 'Nothing matches',
+    groups: [
+      {label: 'Knowledge bases', emptyText: 'No knowledge bases yet.', items: [it('k1'), it('k2')]},
+      {label: 'MCP servers', emptyText: 'No MCP servers yet.', items: []},
+      {label: 'Silent', items: []},
+      {label: 'Connectors', emptyText: 'No connectors yet.', items: [it('c1')]},
+    ]});
+  window.__pane = c;
+  document.getElementById('harness-root').appendChild(c.el);
+  return true;
+}"""
+
+
+def _groups(page: Page) -> list[list]:
+    return page.evaluate(
+        """() => Array.from(document.querySelectorAll('.ui-list-pane-group')).map((g) => [
+          g.querySelector('.ui-list-pane-caption').textContent, g.hidden,
+          g.querySelector('.ui-list-pane-group-empty') ? g.querySelector('.ui-list-pane-group-empty').textContent : null])"""
+    )
+
+
+def test_list_pane_group_empty_text(engine_page: Page) -> None:
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(GROUPS_JS)
+    # A zero-item group with emptyText keeps its caption and shows its line; a
+    # zero-item group without one stays hidden.
+    assert _groups(p) == [
+        ["Knowledge bases", False, None],
+        ["MCP servers", False, "No MCP servers yet."],
+        ["Silent", True, None],
+        ["Connectors", False, None],
+    ]
+    line = p.locator(".ui-list-pane-group-empty")
+    expect(line).to_be_visible()
+    s = p.evaluate(
+        "() => { const s = getComputedStyle(document.querySelector('.ui-list-pane-group-empty'));"
+        " return [s.fontSize, s.color]; }"
+    )
+    assert s == ["11px", _rgb(DARK["fg_muted"])]
+    # The empty line is not a row: no tabindex, not a list item, and roving skips it.
+    assert p.evaluate(
+        "() => { const l = document.querySelector('.ui-list-pane-group-empty');"
+        " return [l.tagName, l.hasAttribute('tabindex'), !!l.closest('li'), l.tabIndex]; }"
+    ) == ["P", False, False, -1]
+    p.get_by_test_id("gp-k2").focus()
+    p.keyboard.press("ArrowDown")
+    assert _focused_testid(p) == "gp-c1"
+    assert_controls_labelled_and_described(p, ".ui-list-pane")
+    # A group whose rows are all filtered out hides, caption included; empty-group
+    # lines hide while a query is active (they have nothing to match).
+    p.get_by_test_id("gp-filter").fill("Row c1")
+    assert _groups(p) == [
+        ["Knowledge bases", True, None],
+        ["MCP servers", True, "No MCP servers yet."],
+        ["Silent", True, None],
+        ["Connectors", False, None],
+    ]
+    p.get_by_test_id("gp-filter").fill("")
+    assert [g[1] for g in _groups(p)] == [False, False, True, False]
+
+
+def test_list_pane_all_groups_empty_shows_the_group_lines(engine_page: Page) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const c = App.ui.listPane({title: 'Library', count: true, emptyText: 'Nothing at all',
+            groups: [{label: 'A', emptyText: 'No A yet.', items: []}, {label: 'B', emptyText: 'No B yet.', items: []}]});
+          document.getElementById('harness-root').appendChild(c.el);
+          return {body: c.el.querySelector('.ui-list-pane-body').hidden,
+                  empty: c.el.querySelector('.ui-list-pane-empty').hidden,
+                  lines: Array.from(c.el.querySelectorAll('.ui-list-pane-group-empty')).map((n) => n.textContent),
+                  rows: c.el.querySelectorAll('.ui-list-pane-row').length,
+                  count: c.el.querySelector('.ui-list-pane-total').textContent};
+        }"""
+    )
+    assert out == {
+        "body": False,
+        "empty": True,
+        "lines": ["No A yet.", "No B yet."],
+        "rows": 0,
+        "count": "",
+    }
+
+
+ROW_STYLE_JS = """(opts, kind) => {
+  const items = ['a', 'b', 'c'].map((id) => Object.assign({id, label: 'Name ' + id, meta: 'model-' + id},
+    kind === 'button' ? {onSelect: () => {}} : {href: '#' + id}));
+  const c = App.ui.listPane(Object.assign({title: 'Styled', items, testid: 'rs-root'}, opts));
+  window.__pane = c;
+  document.getElementById('harness-root').appendChild(c.el);
+  const rows = () => Array.from(c.el.querySelectorAll('.ui-list-pane-row'));
+  const probe = () => rows().map((r) => {
+    const s = getComputedStyle(r);
+    return {pad: s.padding, h: r.getBoundingClientRect().height, border: s.borderTopWidth + ' ' + s.borderTopStyle + ' ' + s.borderTopColor,
+            shadow: s.boxShadow, bg: s.backgroundColor, font: s.fontSize, gap: s.columnGap};
+  });
+  const before = probe();
+  c.setSelected('b');
+  const after = probe();
+  const list = getComputedStyle(c.el.querySelector('.ui-list-pane-list'));
+  return {before, after, listGap: list.rowGap};
+}"""
+
+
+@pytest.mark.parametrize(
+    ("row_style", "pad", "list_gap"),
+    [("agents", "7px 10px", "0px"), ("library", "8px 10px", "2px")],
+)
+def test_list_pane_row_style_geometry_and_border_selection(
+    engine_page: Page, row_style: str, pad: str, list_gap: str
+) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(f"({ROW_STYLE_JS})({{rowStyle: '{row_style}'}})")
+    accent = _rgb(DARK["accent"])
+    assert out["listGap"] == list_gap
+    for row in out["before"]:
+        assert row["pad"] == pad and row["font"] == "13px" and row["gap"] == "10px", row
+        assert row["border"] == "1px solid rgba(0, 0, 0, 0)", row  # transparent at rest
+        assert row["shadow"] == "none", row
+    sel = out["after"][1]
+    assert sel["border"] == f"1px solid {accent}" and sel["shadow"] == "none", sel
+    assert sel["bg"] != "rgba(0, 0, 0, 0)", sel
+    # Selecting changes no row's height (the rest border is already paid for).
+    assert [r["h"] for r in out["after"]] == [r["h"] for r in out["before"]]
+
+
+def test_list_pane_forced_colors_cover_both_selection_models(engine_page: Page) -> None:
+    """Forced colours drop the default model's box-shadow ring and colour the
+    opt-in model's border: either way the selected row carries a solid 1px
+    border that NO other row shows, and the rowStyle row keeps its height.
+
+    The flight-end review: link and button rows alike; and a rowStyle rest
+    border is forced to Canvas, since its transparent colour was forced to the
+    row's text colour (every row read as selected) and the rowStyle selected
+    rule outranked the forced-colours one."""
+    if engine_page.context.browser.browser_type.name != "chromium":
+        pytest.skip(
+            "WebKit has no forced-colors emulation in Playwright; asserted in chromium only"
+        )
+    _load(engine_page)
+    engine_page.emulate_media(forced_colors="active")
+    styled = engine_page.evaluate(f"({ROW_STYLE_JS})({{rowStyle: 'library'}})")
+    plain = engine_page.evaluate(f"({ROW_STYLE_JS})({{}})")
+    engine_page.evaluate("() => { document.getElementById('harness-root').textContent = ''; }")
+    # Button rows (aria-current="true", the flight-end review) get the same cue.
+    styled_btn = engine_page.evaluate(f"({ROW_STYLE_JS})({{rowStyle: 'library'}}, 'button')")
+    plain_btn = engine_page.evaluate(f"({ROW_STYLE_JS})({{}}, 'button')")
+    for out in (styled, plain, styled_btn, plain_btn):
+        sel = out["after"][1]
+        assert sel["border"].startswith("1px solid"), sel
+        for rest in (out["after"][0], out["after"][2]):
+            assert rest["border"] != sel["border"], out
+    assert [r["h"] for r in styled["after"]] == [r["h"] for r in styled["before"]]
+    assert [r["h"] for r in styled_btn["after"]] == [r["h"] for r in styled_btn["before"]]
+
+
+def test_list_pane_row_style_wins_over_compact_density(engine_page: Page) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(f"({ROW_STYLE_JS})({{rowStyle: 'agents', density: 'compact'}})")
+    assert {r["pad"] for r in out["before"]} == {"7px 10px"}
+
+
+def test_list_pane_default_row_style_is_unchanged(engine_page: Page) -> None:
+    """Without rowStyle: no border, 8px 10px, 2px list gap, and the inset ring."""
+    _load(engine_page)
+    out = engine_page.evaluate(f"({ROW_STYLE_JS})({{}})")
+    assert out["listGap"] == "2px"
+    for row in out["before"]:
+        assert row["pad"] == "8px 10px" and row["border"].startswith("0px"), row
+    sel = out["after"][1]
+    assert "inset" in sel["shadow"] and _rgb(DARK["accent"]) in sel["shadow"], sel
+    assert _throws(engine_page, "App.ui.listPane({title: 'T', rowStyle: 'chats'})") == (
+        'App.ui.listPane: unknown rowStyle "chats"'
+    )
+
+
+SCROLL_JS = """() => {
+  const host = document.createElement('div');
+  host.style.cssText = 'display:flex;flex-direction:column;height:240px;width:300px;overflow:hidden';
+  document.getElementById('harness-root').appendChild(host);
+  const items = [];
+  for (let i = 0; i < 30; i++) items.push({id: 'r' + i, label: 'Row ' + i, meta: 'meta', href: '#r' + i, testid: 'sc-' + i});
+  const c = App.ui.listPane({title: 'Thirty', count: true, rowStyle: 'agents', selectedId: 'r25',
+    filter: {label: 'Filter thirty', testid: 'sc-filter'}, items});
+  window.__pane = c;
+  host.appendChild(c.el);
+  window.__boxes = () => {
+    const body = c.el.querySelector('.ui-list-pane-body').getBoundingClientRect();
+    const row = c.el.querySelector('[data-testid=sc-25]').getBoundingClientRect();
+    return {inside: row.top >= body.top - 0.5 && row.bottom <= body.bottom + 0.5,
+            bottomGap: body.bottom - row.bottom, scrollTop: c.el.querySelector('.ui-list-pane-body').scrollTop,
+            hostTop: host.scrollTop, docTop: document.scrollingElement.scrollTop};
+  };
+  return true;
+}"""
+
+
+def test_list_pane_scroll_to_selected(engine_page: Page) -> None:
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(SCROLL_JS)
+    before = p.evaluate("() => window.__boxes()")
+    assert before["inside"] is False and before["scrollTop"] == 0  # row 25 starts below the fold
+    p.evaluate("() => window.__pane.scrollToSelected()")
+    after = p.evaluate("() => window.__boxes()")
+    assert after["inside"] is True, after
+    # block: 'nearest' scrolls the least: the row lands on the body's bottom edge
+    # (within the body's 12px bottom padding), and only the body scrolls.
+    assert after["bottomGap"] <= 12.5, after
+    assert after["hostTop"] == 0 and after["docTop"] == 0, after
+
+
+def test_list_pane_scroll_to_selected_no_ops(engine_page: Page) -> None:
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(SCROLL_JS)
+    # The filter hides the selected row: a no-op (the tab stop moves to row 1).
+    p.get_by_test_id("sc-filter").fill("Row 1")
+    p.evaluate("() => window.__pane.scrollToSelected()")
+    assert p.evaluate("() => window.__boxes().scrollTop") == 0
+    # The filter clears: the caller can bring the row back into view.
+    p.get_by_test_id("sc-filter").fill("")
+    p.evaluate("() => window.__pane.scrollToSelected()")
+    assert p.evaluate("() => window.__boxes().inside") is True
+    # No selection: a no-op.
+    p.evaluate(
+        "() => { const b = document.querySelector('.ui-list-pane-body'); b.scrollTop = 0;"
+        " window.__pane.setSelected(null); window.__pane.scrollToSelected(); }"
+    )
+    assert p.evaluate("() => window.__boxes().scrollTop") == 0
+
+
+GROUPS_SCROLL_JS = """() => {
+  const host = document.createElement('div');
+  host.style.cssText = 'display:flex;flex-direction:column;height:240px;width:300px;overflow:hidden';
+  document.getElementById('harness-root').appendChild(host);
+  const group = (id, n) => {
+    const items = [];
+    for (let i = 0; i < n; i++) items.push({id: id + i, label: id.toUpperCase() + ' row ' + i, href: '#' + id + i});
+    return {id, label: 'Group ' + id.toUpperCase(), emptyText: 'Nothing in ' + id, items};
+  };
+  const c = App.ui.listPane({title: 'Grouped', rowStyle: 'library',
+    filter: {label: 'Filter grouped', testid: 'sg-filter'},
+    groups: [group('a', 8), group('b', 8), group('c', 8), {id: 'd', label: 'Group D', emptyText: 'Nothing in d', items: []}]});
+  window.__pane = c;
+  host.appendChild(c.el);
+  const body = c.el.querySelector('.ui-list-pane-body');
+  window.__groupBox = (label) => {
+    const cap = Array.from(c.el.querySelectorAll('.ui-list-pane-caption')).find((n) => n.textContent === label);
+    const b = body.getBoundingClientRect(), g = cap.parentElement.getBoundingClientRect();
+    return {topGap: g.top - b.top, visible: g.top >= b.top - 0.5 && g.bottom <= b.bottom + 0.5,
+            scrollTop: body.scrollTop, hostTop: host.scrollTop, docTop: document.scrollingElement.scrollTop};
+  };
+  return true;
+}"""
+
+
+def test_list_pane_scroll_to_group(engine_page: Page) -> None:
+    """``scrollToGroup(id)`` brings a group below the fold to the body's top,
+    scrolling the body only; a group already wholly visible is left alone."""
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(GROUPS_SCROLL_JS)
+    before = p.evaluate("() => window.__groupBox('Group C')")
+    assert before["scrollTop"] == 0 and before["topGap"] > 240, before
+    p.evaluate("() => window.__pane.scrollToGroup('c')")
+    after = p.evaluate("() => window.__groupBox('Group C')")
+    assert abs(after["topGap"]) <= 0.5, after
+    assert after["scrollTop"] > 0, after
+    assert after["hostTop"] == 0 and after["docTop"] == 0, after
+    # An empty group (its caption and empty line) scrolls the same way.
+    p.evaluate("() => window.__pane.scrollToGroup('d')")
+    d = p.evaluate("() => window.__groupBox('Group D')")
+    assert d["visible"] is True, d
+    # Back up to the first group: its top meets the body's top (scrollTop 0).
+    p.evaluate("() => window.__pane.scrollToGroup('a')")
+    a = p.evaluate("() => window.__groupBox('Group A')")
+    assert a["scrollTop"] == 0 and abs(a["topGap"]) <= 0.5, a
+    # Already wholly visible (the small group D, nudged 3px down): no scroll.
+    p.evaluate("() => window.__pane.scrollToGroup('d')")
+    p.evaluate(
+        "() => { const b = document.querySelector('.ui-list-pane-body'); b.scrollTop -= 3; }"
+    )
+    nudged = p.evaluate("() => document.querySelector('.ui-list-pane-body').scrollTop")
+    assert p.evaluate("() => window.__groupBox('Group D').visible") is True
+    p.evaluate("() => window.__pane.scrollToGroup('d')")
+    assert p.evaluate("() => document.querySelector('.ui-list-pane-body').scrollTop") == nudged
+
+
+def test_list_pane_scroll_to_group_no_ops(engine_page: Page) -> None:
+    """Unknown ids, a missing id and a group hidden by the filter are no-ops."""
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(GROUPS_SCROLL_JS)
+    body_top = "() => document.querySelector('.ui-list-pane-body').scrollTop"
+    for expr in (
+        "scrollToGroup('nope')",
+        "scrollToGroup()",
+        "scrollToGroup(null)",
+        "scrollToGroup('')",
+    ):
+        p.evaluate(f"() => window.__pane.{expr}")
+        assert p.evaluate(body_top) == 0, expr
+    # The filter hides every row of group C (and the empty lines): a no-op.
+    p.get_by_test_id("sg-filter").fill("A row")
+    p.evaluate("() => window.__pane.scrollToGroup('c')")
+    assert p.evaluate(body_top) == 0
+    assert p.evaluate("() => window.__groupBox('Group C').visible") is False
+
+
+def test_list_pane_group_ids_are_optional_and_unique(engine_page: Page) -> None:
+    """``group.id`` is optional; a duplicate id throws before any DOM change."""
+    _load(engine_page)
+    assert (
+        _throws(
+            engine_page,
+            "App.ui.listPane({title: 'T', groups: [{id: 'a', label: 'A', items: []},"
+            " {id: 'a', label: 'B', items: []}]});",
+        )
+        == "listPane duplicate group id a"
+    )
+    # Mixed: one group with an id, one without, is fine.
+    assert (
+        _throws(
+            engine_page,
+            "App.ui.listPane({title: 'T', groups: [{id: 'a', label: 'A', items: []},"
+            " {label: 'B', items: []}]});",
+        )
+        == ""
+    )
+    engine_page.evaluate(
+        "() => { window.__c = App.ui.listPane({title: 'T', groups: [{id: 'g', label: 'G',"
+        " items: [{id: 'ok', label: 'OK', href: '#'}]}]}); }"
+    )
+    msg = engine_page.evaluate(
+        "() => { try { window.__c.setItems([{id: 'x', label: 'X', items: []},"
+        " {id: 'x', label: 'Y', items: []}]); } catch (e) { return e.message; } }"
+    )
+    assert msg == "listPane duplicate group id x"
+    assert engine_page.evaluate("() => window.__c.el.querySelectorAll('li').length") == 1
+
+
+def test_list_pane_name_suffix_extends_the_accessible_name_only(engine_page: Page) -> None:
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(
+        """() => {
+          const c = App.ui.listPane({title: 'Agents', items: [
+            {id: 'r', label: 'Research assistant', nameSuffix: ', Claude Max', href: '#r', testid: 'ns-link'},
+            {id: 'b', label: 'Builder', nameSuffix: ', Local Ollama', onSelect: () => {}, testid: 'ns-button'},
+            {id: 'p', label: 'Plain', href: '#p', testid: 'ns-plain'},
+            {id: 'm', label: 'Mixer', meta: 'gpt-4.1-mini', nameSuffix: ', OpenAI,', href: '#m', testid: 'ns-meta'},
+          ]});
+          document.getElementById('harness-root').appendChild(c.el);
+          return true;
+        }"""
+    )
+    # The suffix is its own (visually hidden, so blockified) text run: the
+    # accessible-name algorithm may separate it from the label with a space, so
+    # the order is pinned, not the separator.
+    link_snapshot = p.get_by_test_id("ns-link").aria_snapshot()
+    button_snapshot = p.get_by_test_id("ns-button").aria_snapshot()
+    assert re.search(r'^- link "Research assistant\s*, Claude Max"', link_snapshot), link_snapshot
+    assert re.search(r'^- button "Builder\s*, Local Ollama"', button_snapshot), button_snapshot
+    # With meta after it, the suffix carries a trailing separator too, so the
+    # name reads "label, Provider, meta" (the Agents rows; the flight-end review).
+    meta_snapshot = p.get_by_test_id("ns-meta").aria_snapshot()
+    assert re.search(r'^- link "Mixer\s*, OpenAI,\s*gpt-4\.1-mini"', meta_snapshot), meta_snapshot
+    named = re.compile(r"^Research assistant\s*, Claude Max$")
+    expect(p.get_by_role("link", name=named)).to_have_count(1)
+    expect(p.get_by_role("link", name="Plain", exact=True)).to_have_count(1)
+    out = p.evaluate(
+        """() => {
+          const row = document.querySelector('[data-testid=ns-link]');
+          const span = row.querySelector('.visually-hidden'), r = span.getBoundingClientRect();
+          const label = row.querySelector('.ui-list-pane-label');
+          return {aria: row.hasAttribute('aria-label'), text: span.textContent, w: r.width, h: r.height,
+                  label: label.textContent, plain: document.querySelectorAll('[data-testid=ns-plain] .visually-hidden').length};
+        }"""
+    )
+    # Never aria-label (it would replace the visible name for voice control).
+    assert out["aria"] is False and out["text"] == ", Claude Max"
+    assert out["w"] <= 1 and out["h"] <= 1  # not shown
+    assert out["label"] == "Research assistant" and out["plain"] == 0
+
+
+def test_list_pane_set_items_keeps_focus_on_the_same_row(engine_page: Page) -> None:
+    """Focus on 'b' (NOT the selected row): a rebuild that keeps 'b' keeps focus
+    on the new 'b' row and makes it the single tab stop."""
+    _mount_counted(engine_page, "{selectedId: 'a'}")
+    p = engine_page
+    p.get_by_test_id("cp-row-b").focus()
+    p.evaluate("() => { window.__old = document.activeElement; }")
+    p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'x', 'b', 'c']))")
+    assert _focused_testid(p) == "cp-row-b"
+    assert p.evaluate("() => document.activeElement !== window.__old")  # really rebuilt
+    assert _tab_stops(p) == ["cp-row-b"]
+    assert p.evaluate("() => document.querySelector('[aria-current=page]').dataset.testid") == (
+        "cp-row-a"
+    )
+
+
+def test_list_pane_set_items_without_the_focused_row(engine_page: Page) -> None:
+    _mount_counted(engine_page, "{selectedId: 'c'}")
+    p = engine_page
+    p.get_by_test_id("cp-row-b").focus()
+    p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'c', 'd']))")
+    assert _focused_testid(p) == "cp-row-c"  # the selected row
+    assert _tab_stops(p) == ["cp-row-c"]
+    # No selection: the first row.
+    p.evaluate("() => window.__pane.setSelected(null)")
+    p.get_by_test_id("cp-row-d").focus()
+    p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'c']))")
+    assert _focused_testid(p) == "cp-row-a"
+    assert _tab_stops(p) == ["cp-row-a"]
+
+
+def test_list_pane_store_notification_mid_roving_keeps_focus(engine_page: Page) -> None:
+    """A store notification (async, after a keydown) rebuilds the rows while the
+    user roves: focus stays on the roved-to row and roving carries on from it."""
+    _mount_counted(engine_page, "{selectedId: 'a'}")
+    p = engine_page
+    p.get_by_test_id("cp-row-a").focus()
+    p.keyboard.press("ArrowDown")
+    assert _focused_testid(p) == "cp-row-b"
+    p.evaluate(
+        """() => new Promise((resolve) => {
+          setTimeout(() => { window.__pane.setItems(window.__mk(['a', 'b', 'c', 'd', 'e', 'f', 'g'])); resolve(); }, 0);
+        })"""
+    )
+    assert _focused_testid(p) == "cp-row-b"
+    assert _tab_stops(p) == ["cp-row-b"]
+    p.keyboard.press("ArrowDown")
+    assert _focused_testid(p) == "cp-row-c"
+    p.keyboard.press("End")
+    assert _focused_testid(p) == "cp-row-g"  # the new row is reachable
+
+
+def test_list_pane_set_items_with_no_visible_row_focuses_the_filter(engine_page: Page) -> None:
+    """The rebuild leaves no row matching the active query: focus goes to the
+    filter rather than dropping to <body>."""
+    _mount_counted(engine_page)
+    p = engine_page
+    p.get_by_test_id("cp-filter").fill("item b")
+    p.get_by_test_id("cp-row-b").focus()
+    p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'c']))")
+    assert _focused_testid(p) == "cp-filter"
+    assert _count_text(p) == "0 of 2"
+
+
+def test_list_pane_set_items_leaves_outside_focus_alone(engine_page: Page) -> None:
+    _mount_counted(engine_page, "{selectedId: 'c'}")
+    p = engine_page
+    p.get_by_test_id("cp-outside").focus()
+    p.evaluate("() => window.__pane.setItems(window.__mk(['a', 'b', 'c']))")
+    assert _focused_testid(p) == "cp-outside"
+    assert _tab_stops(p) == ["cp-row-c"]  # the normal rule: the selected row
+
+
+def test_list_pane_set_items_keeps_the_scroll_position(engine_page: Page) -> None:
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(SCROLL_JS)
+    p.evaluate("() => window.__pane.scrollToSelected()")
+    top = p.evaluate("() => window.__boxes().scrollTop")
+    assert top > 0
+    p.evaluate("() => window.__pane.setItems(window.__pane.getItems())")
+    assert p.evaluate("() => window.__boxes().scrollTop") == top
+
+
+def test_list_pane_get_items_returns_the_current_items(engine_page: Page) -> None:
+    _mount_counted(engine_page)
+    p = engine_page
+    assert p.evaluate("() => window.__pane.getItems().map((i) => i.id)") == list("abcdef")
+    p.evaluate(
+        "() => window.__pane.setItems([{label: 'G', items: window.__mk(['z'])},"
+        " {label: 'H', emptyText: 'none', items: []}, {label: 'I', items: window.__mk(['y'])}])"
+    )
+    assert p.evaluate("() => window.__pane.getItems().map((i) => i.id)") == ["z", "y"]
+
+
+def test_list_pane_item_lead_sits_before_the_text_and_never_shrinks(engine_page: Page) -> None:
+    """M25 F3 L3: ``item.lead`` is a caller node placed directly before the
+    row's text (after an icon), in a ``.ui-list-pane-lead`` wrapper that does
+    not shrink; it is not part of the name; a non-node lead throws."""
+    _load(engine_page)
+    p = engine_page
+    out = p.evaluate(
+        """() => {
+          const dot = () => { const s = document.createElement('span');
+            s.className = 'probe-dot'; s.setAttribute('aria-hidden', 'true');
+            s.style.cssText = 'display:inline-block;width:8px;height:8px'; return s; };
+          const c = App.ui.listPane({title: 'Leads', items: [
+            {id: 'a', label: 'A very long agent name that has to ellipsize in a narrow row', meta: 'model-x',
+             lead: dot(), href: '#a', testid: 'ld-a'},
+            {id: 'b', label: 'With icon', icon: 'chat', lead: dot(), href: '#b', testid: 'ld-b'},
+            {id: 'c', label: 'No lead', href: '#c', testid: 'ld-c'},
+          ]});
+          const host = document.getElementById('harness-root');
+          host.style.width = '200px';
+          host.appendChild(c.el);
+          const kids = (id) => Array.from(document.querySelector('[data-testid=' + id + ']').children)
+            .map((n) => n.className);
+          const wrap = document.querySelector('[data-testid=ld-a] .ui-list-pane-lead');
+          return {a: kids('ld-a'), b: kids('ld-b'), c: kids('ld-c'), flex: getComputedStyle(wrap).flexShrink,
+                  w: wrap.getBoundingClientRect().width, inner: wrap.firstElementChild.className};
+        }"""
+    )
+    assert out["a"] == ["ui-list-pane-lead", "ui-list-pane-text"], out
+    assert out["b"] == ["ui-list-pane-icon", "ui-list-pane-lead", "ui-list-pane-text"], out
+    assert out["c"] == ["ui-list-pane-text"], out
+    assert out["flex"] == "0" and out["w"] == 8 and out["inner"] == "probe-dot", out
+    # The lead is not part of the row's name.
+    expect(p.get_by_role("link", name="No lead", exact=True)).to_have_count(1)
+    expect(p.get_by_role("link", name="With icon", exact=True)).to_have_count(1)
+    assert "lead must be a node" in _throws(
+        p, "App.ui.listPane({title: 'x', items: [{id: 'a', label: 'a', href: '#a', lead: 'dot'}]})"
+    )
+
+
+def test_list_pane_empty_text_function_names_the_query(engine_page: Page) -> None:
+    """M25 F3 L3: ``emptyText`` may be a function of the TRIMMED query; the
+    empty state's title and the filter status both follow it ('' = no query)."""
+    _load(engine_page)
+    p = engine_page
+    p.evaluate(
+        """() => {
+          window.__calls = [];
+          const c = App.ui.listPane({title: 'Agents', count: true,
+            filter: {label: 'Filter agents', testid: 'et-filter'},
+            emptyText: (q) => { window.__calls.push(q); return q ? 'No agents match "' + q + '".' : 'No agents yet.'; },
+            items: [{id: 'a', label: 'alpha', href: '#a'}, {id: 'b', label: 'beta', href: '#b'}]});
+          document.getElementById('harness-root').appendChild(c.el);
+          window.__et = c;
+          return true;
+        }"""
+    )
+    title = p.locator(".ui-list-pane-empty .ui-empty-title")
+    status = p.locator(".ui-list-pane-status")
+    p.get_by_test_id("et-filter").fill("  zz  ")
+    expect(title).to_have_text('No agents match "zz".')
+    expect(p.locator(".ui-list-pane-empty")).to_be_visible()
+    expect(status).to_have_text('No agents match "zz".')
+    assert p.evaluate("() => window.__calls.includes('zz')") is True
+    p.get_by_test_id("et-filter").fill("al")
+    expect(p.locator(".ui-list-pane-empty")).to_be_hidden()
+    expect(status).to_have_text("1 result")
+    p.get_by_test_id("et-filter").fill("")
+    p.evaluate("() => window.__et.setItems([])")
+    expect(title).to_have_text("No agents yet.")
+    expect(p.locator(".ui-list-pane-empty")).to_be_visible()
 
 
 # ── probe mount script ──────────────────────────────────────────────────────

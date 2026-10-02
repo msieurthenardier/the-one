@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -27,8 +27,9 @@ from playwright.sync_api import Page, expect
 def _wait_editor_ready(page: Page) -> None:
     """Wait for the agent editor (General tab) to be the visible main-panel child.
 
-    Bare `#studio/agents` lands on the tile grid with no agent auto-selected;
-    click the first tile to mount the editor, then wait for the General tab to
+    Bare `#agents` shows the list beside an empty detail pane, with no agent
+    auto-selected; click the first list row to mount the editor, then wait for
+    the General tab to
     be active (handles the async editor-mount race).
     """
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
@@ -36,7 +37,7 @@ def _wait_editor_ready(page: Page) -> None:
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
     if editor_hidden:
-        page.locator("button.entity-tile").first.click()
+        _lists.first_row(page, "agents").click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
