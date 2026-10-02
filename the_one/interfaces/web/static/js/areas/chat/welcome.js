@@ -3,10 +3,11 @@
   window.App = window.App || {};
   window.App.chat = window.App.chat || {};
 
-  function welcomeLink(text, areaId) {
+  // `href` is a router href (App.router.href), e.g. '#settings/providers'.
+  function welcomeLink(text, href) {
     var a = document.createElement('a');
     a.className = 'chat-welcome-link';
-    a.href = '#' + areaId;
+    a.href = href;
     a.textContent = text;
     return a;
   }
@@ -29,17 +30,17 @@
       guidance.className = 'chat-welcome-guidance';
       if (!setupState.hasProviders && !setupState.hasAgents) {
         guidance.appendChild(document.createTextNode('Add a provider in '));
-        guidance.appendChild(welcomeLink('LLM Settings', 'admin/providers'));
+        guidance.appendChild(welcomeLink('Settings', App.router.href({ destination: 'settings', section: 'providers' })));
         guidance.appendChild(document.createTextNode(', then create an agent in '));
-        guidance.appendChild(welcomeLink('Agent Studio', 'studio'));
+        guidance.appendChild(welcomeLink('Agents', App.router.href({ destination: 'agents' })));
         guidance.appendChild(document.createTextNode(' to start chatting.'));
       } else if (!setupState.hasProviders) {
         guidance.appendChild(document.createTextNode('Add a provider in '));
-        guidance.appendChild(welcomeLink('LLM Settings', 'admin/providers'));
+        guidance.appendChild(welcomeLink('Settings', App.router.href({ destination: 'settings', section: 'providers' })));
         guidance.appendChild(document.createTextNode(' to start chatting.'));
       } else {
         guidance.appendChild(document.createTextNode('Create an agent in '));
-        guidance.appendChild(welcomeLink('Agent Studio', 'studio'));
+        guidance.appendChild(welcomeLink('Agents', App.router.href({ destination: 'agents' })));
         guidance.appendChild(document.createTextNode(' to start chatting.'));
       }
       welcomeListEl.appendChild(guidance);

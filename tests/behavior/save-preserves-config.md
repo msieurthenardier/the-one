@@ -7,7 +7,7 @@
 
 ## Intent
 
-Verify that saving a provider through the Admin UI editor — which only exposes a subset of
+Verify that saving a provider through the Settings › LLM Providers editor — which only exposes a subset of
 `LLMProviderConfig.config` fields (today: `reasoning_effort`; NOT `response_format` or `stop`,
 which are config/env-only) — does not silently drop config keys that were set out-of-band via
 the API. This is the regression net for the `seed-before-overlay for partial-field UI saves`
@@ -42,7 +42,7 @@ POSTing.
 
 - http (provider create/PUT/GET response status + body — measured via curl/Bash; used for setup,
   the out-of-band config write, and the final re-fetch verification).
-- browser (rendered admin/providers UI: the provider editor's `.field-group` fields, the
+- browser (rendered Settings › LLM Providers UI (`#settings/providers`): the provider editor's `.field-group` fields, the
   Reasoning Effort `<select>`, the Save button's enabled/disabled state — measured via
   chrome-devtools; a11y-tree + screenshot as primary rendered-state evidence).
 
@@ -53,7 +53,7 @@ POSTing.
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` for 200. If a provider named `SPC-test-provider` already exists (`GET /api/providers`), `DELETE` it. Via the API, `POST /api/providers` with `{"name": "SPC-test-provider", "type": "openai-compatible", "base_url": "https://example.invalid/v1", "api_key": "sk-test-not-real"}`. | (empty) |
 | 2 | (Setup, no judgment) Via the API, `PUT /api/providers/{id}` (the id from Step 1) with `{"config": {"response_format": "json_object", "stop": ["END"]}}`. | (empty) |
 | 3 | (Setup, no judgment) `GET /api/providers/{id}` and confirm the response's `config` contains `response_format: "json_object"` and `stop: ["END"]` — establishes the out-of-band baseline the rest of the test protects. | (empty) |
-| 4 | Open a fresh chrome-devtools page at `http://localhost:8485/#admin/providers` with an `ignoreCache` hard-reload. Re-select the `SPC-test-provider` card to open its editor. | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning Effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
+| 4 | Open a fresh chrome-devtools page at `http://localhost:8485/#settings/providers` with an `ignoreCache` hard-reload. Re-select the `SPC-test-provider` card to open its editor. | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning Effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
 | 5 | In the Reasoning Effort select, choose **"high"**. | The select shows "high" selected; the **Save** button is now enabled (the form is dirty). |
 | 6 | Click **Save**. | The save succeeds (no error flash). The Save button returns to disabled (no unsaved changes); the Reasoning Effort select still shows "high". |
 | 7 | Via the API, `GET /api/providers/{id}` and inspect the `config` object. | `config.reasoning_effort` is `"high"` (the UI-edited field), AND `config.response_format` is still `"json_object"`, AND `config.stop` is still `["END"]` — all three keys survive the UI-triggered save together. |

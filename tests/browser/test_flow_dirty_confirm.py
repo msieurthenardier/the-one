@@ -7,16 +7,17 @@ Covers the dirty-state UX introduced in F5 leg 04:
   [disabled] attribute)
 - Save becomes enabled after a field changes
 - Back-when-dirty triggers App.confirmDialog (cancel keeps state, confirm
-  navigates to #studio/agents)
-- Section-nav-when-dirty triggers the dialog (only in agents+selected
-  context — Knowledge → Tools navigations don't prompt)
+  navigates to the Agents root)
+- Leaving a dirty agent editor for Library (rail) triggers exactly one
+  dialog (Agents has no section nav any more; the router's guard asks once)
 - Tile-click-when-dirty triggers the dialog (routes through selectAgent —
   inherits the dirty gate for free)
 - Tab-click-when-dirty triggers the dialog
 - Arrow-key tab navigation does NOT trigger the dialog (focus only)
 - Modal full Tab/Shift-Tab focus-trap cycles forward + backward
 - Modal Escape cancels and restores focus to the trigger
-- Modal Enter confirms (when focus is not in a textarea)
+- Modal Enter activates the focused button (Stay by default; Tab to Continue
+  then Enter confirms). M25 F2 L2 (DD6): Enter is native, no global Enter->confirm
 - Modal ARIA contract: role=dialog, aria-modal=true, aria-labelledby,
   aria-describedby
 - Clean-state navigation does NOT open any dialogs (all four paths)
@@ -27,9 +28,8 @@ Covers the dirty-state UX introduced in F5 leg 04:
 
 from __future__ import annotations
 
-import urllib.parse
-
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
 
@@ -55,9 +55,7 @@ def _wait_editor_ready(page: Page) -> None:
     navigations (`#studio/agents/<name>/...`) hydrate the selection and the
     editor is already visible — skip the click.
     """
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
@@ -77,7 +75,7 @@ def _make_dirty(page: Page) -> None:
 def test_save_button_disabled_when_clean(app_with_agent: SeededApp, page: Page) -> None:
     """On agent select, the Save button is initially disabled (clean)."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
@@ -88,7 +86,7 @@ def test_save_button_disabled_when_clean(app_with_agent: SeededApp, page: Page) 
 def test_save_button_enabled_after_field_change(app_with_agent: SeededApp, page: Page) -> None:
     """Editing a field flips the Save button to enabled."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
@@ -102,10 +100,10 @@ def test_save_button_enabled_after_field_change(app_with_agent: SeededApp, page:
 def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Page) -> None:
     """Back when dirty opens dialog; clicking Cancel keeps state + URL."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
-    initial_hash = page.evaluate("location.hash")
+    initial_route = _nav.current_route(page)
     _make_dirty(page)
 
     page.locator('[data-testid="back-agent-btn"]').click()
@@ -117,7 +115,7 @@ def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Pag
 
     expect(overlay).to_have_count(0)
     # URL unchanged.
-    assert page.evaluate("location.hash") == initial_hash
+    _nav.expect_route(page, initial_route)
     # Editor still mounted.
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible()
 
@@ -126,7 +124,7 @@ def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Pag
 def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page) -> None:
     """Back when dirty + Confirm navigates to #studio/agents."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -139,7 +137,7 @@ def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page
 
     expect(overlay).to_have_count(0)
     # URL is now #studio/agents (no agent selected).
-    assert page.evaluate("location.hash") == "#studio/agents"
+    _nav.expect_route(page, "agents")
     # Main panel returned to the tile grid; editor is hidden.
     expect(page.locator(".entity-tile-grid")).to_be_visible()
     expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
@@ -147,39 +145,40 @@ def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page
 
 @pytest.mark.browser
 def test_section_nav_when_dirty_opens_dialog(app_with_agent: SeededApp, page: Page) -> None:
-    """Clicking a section button when dirty + selected-agent opens dialog."""
+    """Leaving a dirty agent editor for Library (rail) opens exactly one dialog.
+
+    Agents has no section nav any more (M25 F2 L3 (c)); Agents -> Library is a
+    destination change. Stay keeps the editor and the route.
+    """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
+    route_before = _nav.current_route(page)
 
     _make_dirty(page)
 
-    # Click the Knowledge section button in the sidebar.
-    knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
-    expect(knowledge_btn).to_be_visible()
-    knowledge_btn.click()
+    _nav.open_destination(page, "library")
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
+    expect(overlay).to_have_count(1, timeout=_DIALOG_TIMEOUT)
+    expect(overlay).to_be_visible()
 
     # Cancel keeps us on agents.
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(0)
-    # Agents tab still active.
+    # Agents tab still active, the route is unchanged.
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible()
+    _nav.expect_route(page, route_before)
 
 
 @pytest.mark.browser
 def test_section_nav_clean_does_not_open_dialog(app_with_provider: SeededApp, page: Page) -> None:
-    """Clean state: section nav clicks navigate immediately, no dialog."""
+    """Clean state: leaving Agents for Library navigates immediately, no dialog."""
     base_url = app_with_provider.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     expect(page.locator('[data-testid="agent-empty"]')).to_be_visible(timeout=8000)
 
-    # No agent selected — knowledge nav should NOT prompt even if
-    # somehow dirty (and it's clean here).
-    knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
-    knowledge_btn.click()
+    _nav.open_destination(page, "library")
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible()
@@ -202,7 +201,7 @@ def test_hash_change_to_other_agent_when_dirty_opens_dialog(
 
     seed_mock_agent(base_url, provider_id, name="second-agent")
 
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     # Pick the agent that ISN'T the one currently in the editor — the
@@ -212,7 +211,7 @@ def test_hash_change_to_other_agent_when_dirty_opens_dialog(
     other_name = "test-agent" if current == "second-agent" else "second-agent"
 
     _make_dirty(page)
-    page.evaluate(f"location.hash = '#studio/agents/{other_name}/general'")
+    _nav.set_route(page, f"agents/{_nav.seg(other_name)}/general")
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
@@ -231,7 +230,7 @@ def test_tab_click_when_dirty_switches_without_dialog(
     """
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -239,8 +238,8 @@ def test_tab_click_when_dirty_switches_without_dialog(
 
     # No dialog appears; tab switches directly.
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
-    assert page.evaluate("location.hash") == expected
+    expected = f"agents/{_nav.seg(agent_name)}/knowledge"
+    _nav.expect_route(page, expected)
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("aria-selected", "true")
     # Dirty state survives the tab switch (Save remains enabled).
     expect(page.locator('[data-testid="save-agent-btn"]')).to_be_enabled()
@@ -250,7 +249,7 @@ def test_tab_click_when_dirty_switches_without_dialog(
 def test_arrow_keys_in_tablist_do_not_open_dialog(app_with_agent: SeededApp, page: Page) -> None:
     """Arrow-key tab navigation moves focus only, never opens dialog."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -269,7 +268,7 @@ def test_arrow_keys_in_tablist_do_not_open_dialog(app_with_agent: SeededApp, pag
 def test_modal_focus_trap_tab_cycles_forward(app_with_agent: SeededApp, page: Page) -> None:
     """Tab from the last focusable wraps to the first."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -297,7 +296,7 @@ def test_modal_focus_trap_tab_cycles_forward(app_with_agent: SeededApp, page: Pa
 def test_modal_focus_trap_shift_tab_cycles_backward(app_with_agent: SeededApp, page: Page) -> None:
     """Shift+Tab from the first focusable wraps to the last."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -320,10 +319,10 @@ def test_modal_focus_trap_shift_tab_cycles_backward(app_with_agent: SeededApp, p
 def test_modal_escape_cancels(app_with_agent: SeededApp, page: Page) -> None:
     """Escape closes the dialog without confirming."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
-    initial_hash = page.evaluate("location.hash")
+    initial_route = _nav.current_route(page)
     _make_dirty(page)
     page.locator('[data-testid="back-agent-btn"]').click()
 
@@ -334,14 +333,41 @@ def test_modal_escape_cancels(app_with_agent: SeededApp, page: Page) -> None:
 
     expect(overlay).to_have_count(0)
     # URL unchanged — the cancel path doesn't navigate.
-    assert page.evaluate("location.hash") == initial_hash
+    _nav.expect_route(page, initial_route)
 
 
 @pytest.mark.browser
-def test_modal_enter_confirms(app_with_agent: SeededApp, page: Page) -> None:
-    """Enter (when focus is on a button) confirms via onConfirm."""
+def test_modal_enter_activates_focused_stay(app_with_agent: SeededApp, page: Page) -> None:
+    """Enter activates the focused button, which is Stay by default (M25 F2 L2, DD6).
+
+    Renamed and inverted from ``test_modal_enter_confirms``: the old document-level
+    "Enter fires Continue" handler is gone, because a visibly focused Stay must
+    never discard work. The dialog closes, the route and the editor are unchanged.
+    """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
+    _wait_editor_ready(page)
+
+    initial_route = _nav.current_route(page)
+    _make_dirty(page)
+    page.locator('[data-testid="back-agent-btn"]').click()
+
+    overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
+    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
+    expect(page.locator('[data-testid="modal-cancel-btn"]')).to_be_focused()
+
+    page.keyboard.press("Enter")
+
+    expect(overlay).to_have_count(0)
+    _nav.expect_route(page, initial_route)
+    expect(page.locator('[data-testid="tab-general"]')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_modal_tab_to_continue_then_enter_confirms(app_with_agent: SeededApp, page: Page) -> None:
+    """Companion: Tab to Continue, then Enter, confirms and navigates."""
+    base_url = app_with_agent.base_url
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -350,19 +376,19 @@ def test_modal_enter_confirms(app_with_agent: SeededApp, page: Page) -> None:
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
 
-    # Cancel is focused; press Enter — should fire onConfirm and close.
+    page.keyboard.press("Tab")
+    expect(page.locator('[data-testid="modal-confirm-btn"]')).to_be_focused()
     page.keyboard.press("Enter")
 
     expect(overlay).to_have_count(0)
-    # URL navigated to #studio/agents.
-    assert page.evaluate("location.hash") == "#studio/agents"
+    _nav.expect_route(page, "agents")
 
 
 @pytest.mark.browser
 def test_modal_aria_contract(app_with_agent: SeededApp, page: Page) -> None:
     """Modal has role=dialog, aria-modal=true, aria-labelledby, aria-describedby."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -388,7 +414,7 @@ def test_modal_aria_contract(app_with_agent: SeededApp, page: Page) -> None:
 def test_modal_restore_focus_on_close(app_with_agent: SeededApp, page: Page) -> None:
     """After close, focus returns to the trigger element."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -412,13 +438,13 @@ def test_modal_restore_focus_on_close(app_with_agent: SeededApp, page: Page) -> 
 def test_clean_state_does_not_open_dialog_on_back(app_with_agent: SeededApp, page: Page) -> None:
     """Back when clean navigates immediately — no dialog."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     page.locator('[data-testid="back-agent-btn"]').click()
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    assert page.evaluate("location.hash") == "#studio/agents"
+    _nav.expect_route(page, "agents")
 
 
 @pytest.mark.browser
@@ -428,21 +454,21 @@ def test_clean_state_does_not_open_dialog_on_tab_click(
     """Tab click when clean commits immediately — no dialog."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     page.locator('[data-testid="tab-knowledge"]').click()
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
-    assert page.evaluate("location.hash") == expected
+    expected = f"agents/{_nav.seg(agent_name)}/knowledge"
+    _nav.expect_route(page, expected)
 
 
 @pytest.mark.browser
 def test_beforeunload_listener_prevents_when_dirty(app_with_agent: SeededApp, page: Page) -> None:
     """Synthetic beforeunload when dirty has defaultPrevented = True."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     _make_dirty(page)
@@ -467,7 +493,7 @@ def test_beforeunload_listener_does_not_prevent_when_clean(
 ) -> None:
     """Synthetic beforeunload when clean has defaultPrevented = False."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
     # Form is clean — no edits made.
@@ -482,29 +508,33 @@ def test_beforeunload_listener_does_not_prevent_when_clean(
 
 
 @pytest.mark.browser
-def test_singleton_modal_second_call_warns(app_with_agent: SeededApp, page: Page) -> None:
-    """Calling App.confirmDialog while one is open is a no-op + console.warn."""
+def test_second_confirm_stacks_above_first(app_with_agent: SeededApp, page: Page) -> None:
+    """A second App.confirmDialog stacks above the first (no singleton); isOpen()
+    stays true until BOTH close. Production never stacks two (App.nav owns
+    de-duplication); this drives a synthetic double call."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
-
-    # Capture console warnings.
-    warnings: list[str] = []
-    page.on("console", lambda msg: warnings.append(msg.text) if msg.type == "warning" else None)
 
     _make_dirty(page)
     page.locator('[data-testid="back-agent-btn"]').click()
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible(timeout=_DIALOG_TIMEOUT)
+    expect(overlay).to_have_count(1, timeout=_DIALOG_TIMEOUT)
+    assert page.evaluate("window.App.confirmDialog.isOpen()") is True
 
-    # Try to open a second dialog while one is already open.
-    page.evaluate("window.App.confirmDialog({})")
+    # A synthetic second dialog stacks above the leave dialog.
+    page.evaluate("window.App.confirmDialog({title: 'Second'})")
+    expect(overlay).to_have_count(2)
+    top = overlay.last
+    expect(top.locator(".modal-dialog-title")).to_have_text("Second")
 
-    # Still exactly ONE overlay (singleton).
+    # Close the top one: isOpen() stays true, the first is still there.
+    top.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(1)
+    assert page.evaluate("window.App.confirmDialog.isOpen()") is True
 
-    # The warning should have been logged.
-    assert any("already open" in w for w in warnings), (
-        f"Expected 'already open' console.warn, got: {warnings}"
-    )
+    # Close the last one (Stay): now closed.
+    overlay.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(overlay).to_have_count(0)
+    assert page.evaluate("window.App.confirmDialog.isOpen()") is False

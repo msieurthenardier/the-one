@@ -15,15 +15,14 @@ editor's General-tab Danger Zone — see `test_flow_agent_crud.py`.
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
 
 
 def _wait_studio_ready(page: Page) -> None:
     """Wait for the studio area to mount (section-nav visible)."""
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
@@ -32,7 +31,7 @@ def test_agent_tile_grid_renders(app_with_agent: SeededApp, page: Page) -> None:
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_studio_ready(page)
 
     grid = page.locator(".entity-tile-grid")
@@ -49,7 +48,7 @@ def test_agent_tile_click_opens_editor(app_with_agent: SeededApp, page: Page) ->
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_studio_ready(page)
 
     tile = page.locator(f'button.entity-tile[data-name="{agent_name}"]')
@@ -67,7 +66,7 @@ def test_multiple_tiles_render_in_grid(app_with_provider: SeededApp, page: Page)
     seed_mock_agent(base_url, app_with_provider.provider_id, name="agent-alpha")
     seed_mock_agent(base_url, app_with_provider.provider_id, name="agent-beta")
 
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     _wait_studio_ready(page)
 
     grid = page.locator(".entity-tile-grid")

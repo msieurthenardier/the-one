@@ -28,11 +28,12 @@ Covers the leg's acceptance criteria (AC-1 through AC-9):
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page, expect
 
 
 def _goto_knowledge(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/knowledge")
+    _nav.goto(page, app_clean, "settings/knowledge-indexing")
     expect(page.locator(".page-title")).to_have_text("Knowledge", timeout=8000)
     expect(page.locator('[data-testid="knowledge-size-chars-input"]')).to_have_value(
         "1000", timeout=8000
@@ -41,22 +42,22 @@ def _goto_knowledge(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_knowledge_category_reachable_on_full_page_load(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/knowledge")
+    _nav.goto(page, app_clean, "settings/knowledge-indexing")
     expect(page.locator(".page-title")).to_have_text("Knowledge", timeout=8000)
-    assert page.evaluate("location.hash") == "#admin/knowledge"
+    _nav.expect_route(page, "settings/knowledge-indexing")
     nav = page.locator(".area-admin .section-nav")
     expect(nav.locator(".section-nav-item", has_text="Knowledge")).to_be_visible()
 
 
 @pytest.mark.browser
 def test_other_categories_still_route(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
-    page.goto(f"{app_clean}#admin/providers")
+    _nav.goto(page, app_clean, "settings/providers")
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
-    page.goto(f"{app_clean}#admin/tools")
+    _nav.goto(page, app_clean, "settings/tools")
     expect(page.locator(".page-title")).to_have_text("Built-in Tools", timeout=8000)
-    page.goto(f"{app_clean}#admin/knowledge")
+    _nav.goto(page, app_clean, "settings/knowledge-indexing")
     expect(page.locator(".page-title")).to_have_text("Knowledge", timeout=8000)
 
 
@@ -269,7 +270,7 @@ def test_load_failure_renders_error_state_not_empty_form(app_clean: str, page: P
         route.fulfill(status=500, content_type="application/json", body='{"detail": "boom"}')
 
     page.route("**/api/knowledge-settings", fulfill_500)
-    page.goto(f"{app_clean}#admin/knowledge")
+    _nav.goto(page, app_clean, "settings/knowledge-indexing")
 
     expect(page.locator('[data-testid="knowledge-settings-load-error"]')).to_be_visible(
         timeout=8000
@@ -282,13 +283,10 @@ def test_dirty_confirm_on_navigate_away(app_clean: str, page: Page) -> None:
     """AC-9: navigating away with unsaved changes raises the confirm
     dialog; navigating away with no changes does not (L4-D4).
 
-    Returns to Knowledge via the in-SPA section-nav click, NOT a second
-    `page.goto()` — a raw `goto()` back to an already-visited sub-state
-    within the same area hits a pre-existing `app.js` router staleness
-    (`App.router.replaceSub` silently updates the URL via `replaceState`
-    without updating the router's own closure-held `currentSub`, so a
-    same-document `hashchange` back to that exact sub no-ops as a false
-    "no-op, already there"). Not scoped to this leg — filed as squawk 0082.
+    Returns to Knowledge with a second `page.goto()` (a same-document fragment
+    navigation back to an already-visited route). The router's current route
+    updates on every URL write, so a hashchange back to a route the area has
+    already left is treated as a real traversal, not "already there".
     """
     _goto_knowledge(app_clean, page)
 
@@ -297,11 +295,7 @@ def test_dirty_confirm_on_navigate_away(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
 
-    page.locator(".area-admin .section-nav-item", has_text="Knowledge").click()
-    expect(page.locator(".page-title")).to_have_text("Knowledge", timeout=8000)
-    expect(page.locator('[data-testid="knowledge-size-chars-input"]')).to_have_value(
-        "1000", timeout=8000
-    )
+    _goto_knowledge(app_clean, page)
     page.locator('[data-testid="knowledge-size-chars-input"]').fill("1200")
     expect(page.locator('[data-testid="knowledge-settings-save-btn"]')).to_be_enabled()
 

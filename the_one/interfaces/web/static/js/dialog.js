@@ -1,7 +1,7 @@
 // App.confirmDialog — modal blocking-decision helper (F5 leg 04).
 //
-// Mirrors the F4-debrief-queued recommendation: a true modal dialog with
-// focus-trap + Escape-cancel + Enter-confirm + restore-focus-on-close. Used
+// A thin adapter over App.ui.modal (M25 F2 L2, DD6): a native <dialog> with
+// showModal(), Escape-cancel, a manual Tab wrap and restore-focus-on-close. Used
 // by studio's dirty-state navigation gates (Back, section-nav, tile click,
 // tab change). Distinct from App.confirmDelete (in-place two-step destructive
 // confirm) — App.confirmDialog is the BLOCKING modal primitive for the
@@ -9,7 +9,7 @@
 //
 // Signature:
 //   App.confirmDialog({title, message, confirmText, cancelText,
-//                      onConfirm, onCancel})
+//                      opener, onConfirm, onCancel})
 //   - All fields optional; defaults below.
 //   - Returns void (callback-driven, NOT a promise).
 //
@@ -22,204 +22,98 @@
 //   confirmText = 'Continue'
 //   cancelText = 'Stay'
 //
-// DOM:
-//   <div class="modal-overlay" role="dialog" aria-modal="true"
-//        aria-labelledby="<title-id>" aria-describedby="<message-id>">
-//     <div class="modal-dialog">
-//       <h2 class="modal-dialog-title" id="<title-id>">{title}</h2>
-//       <p class="modal-dialog-message" id="<message-id>">{message}</p>
+// DOM (built by App.ui.modal):
+//   <dialog class="modal-overlay" role="dialog" aria-modal="true"
+//           data-testid="confirm-dialog-overlay" aria-labelledby aria-describedby>
+//     <div class="modal-dialog" tabindex="-1">
+//       <h2 class="modal-dialog-title">{title}</h2>
+//       <p class="modal-dialog-message">{message}</p>
 //       <div class="modal-actions form-actions">
-//         <button class="btn-outlined-primary" data-testid="modal-cancel-btn">
-//           {cancelText}
-//         </button>
-//         <button class="btn-filled-primary" data-testid="modal-confirm-btn">
-//           {confirmText}
-//         </button>
+//         <button data-testid="modal-cancel-btn">{cancelText}</button>
+//         <button data-testid="modal-confirm-btn">{confirmText}</button>
 //       </div>
 //     </div>
-//   </div>
+//   </dialog>
 //
 // Behavior:
-//   - On open: append overlay to document.body, capture document.activeElement
-//     as the trigger (for restore-on-close), focus the Cancel button (safer
-//     default for destructive-discard prompts).
-//   - On Escape: onCancel() then close.
-//   - On Enter (when focus is NOT in a textarea — let textareas keep their
-//     newline behavior): onConfirm() then close.
-//   - On Tab/Shift-Tab: full focus-trap — wrap focus within the dialog's
-//     focusable descendants.
-//   - On Cancel-button click: onCancel() then close.
-//   - On Confirm-button click: onConfirm() then close.
-//   - On overlay click (outside the dialog): no-op (does NOT call onCancel).
-//     Prevents accidental dismissal when user accidentally taps outside.
-//   - On close: remove overlay from DOM, restore focus to the captured
-//     trigger element.
+//   - Opener: opts.opener (an element; focus returns to it on close), else
+//     document.activeElement when it is not <body>, else #main-content. Cancel
+//     (Stay) is focused on open: the safer default for a destructive-discard
+//     prompt.
+//   - Escape: onCancel(). Cancel button: onCancel(). Confirm button: onConfirm().
+//   - Enter is NATIVE: it activates the focused button (Stay by default). There
+//     is no document-level Enter handler (a visibly focused Stay must never
+//     discard work).
+//   - Tab / Shift+Tab wrap inside the dialog. A backdrop click does nothing
+//     (the modal is not dismissible).
+//   - The dialog is removed from the DOM on close, then focus is restored,
+//     then the callback runs.
 //
-// Singleton: a module-level `openDialog` ref ensures only one dialog is open
-// at a time. Second call while one is open is a no-op + console.warn —
-// surfaces spurious double-dispatch in dev/test without crashing or queuing.
-//
-// Capture-phase keydown listener (`document.addEventListener(..., true)`)
-// ensures the modal sees keys before any focused-field listener can swallow
-// them.
+// No singleton (M25 F2 L5): a second call stacks above the first, like
+// App.ui.modal. Production code never stacks two -- App.nav (nav.js) is the only
+// caller of guard dialogs and owns de-duplication -- but isOpen() is backed by an
+// open COUNT so it stays true while any confirm is open and closing the top one
+// never clears the one beneath.
 (function (window, document) {
   'use strict';
   window.App = window.App || {};
 
-  var openDialog = null;
+  var openCount = 0;
 
   window.App.confirmDialog = function (opts) {
-    if (openDialog) {
-      if (window.console && console.warn) {
-        console.warn('App.confirmDialog: already open; second call ignored.');
-      }
-      return;
-    }
     opts = opts || {};
-    var title = opts.title || 'Unsaved changes';
-    var message = opts.message ||
-      'You have unsaved changes. Continue without saving?';
-    var confirmText = opts.confirmText || 'Continue';
-    var cancelText = opts.cancelText || 'Stay';
     var onConfirm = typeof opts.onConfirm === 'function' ? opts.onConfirm : function () {};
     var onCancel = typeof opts.onCancel === 'function' ? opts.onCancel : function () {};
 
-    var trigger = document.activeElement;
+    var active = document.activeElement;
+    var opener = opts.opener ||
+      (active && active !== document.body && active !== document.documentElement
+        ? active
+        : document.getElementById('main-content'));
 
-    var overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('data-testid', 'confirm-dialog-overlay');
-
-    // Unique ids per-open so multiple sequential opens don't collide and
-    // aria-labelledby/describedby always point at the right elements.
-    var stamp = String(Date.now()) + '-' + Math.floor(Math.random() * 100000);
-    var titleId = 'modal-title-' + stamp;
-    var msgId = 'modal-msg-' + stamp;
-    overlay.setAttribute('aria-labelledby', titleId);
-    overlay.setAttribute('aria-describedby', msgId);
-
-    var dlg = document.createElement('div');
-    dlg.className = 'modal-dialog';
-    overlay.appendChild(dlg);
-
-    var titleEl = document.createElement('h2');
-    titleEl.className = 'modal-dialog-title';
-    titleEl.id = titleId;
-    titleEl.textContent = title;
-    dlg.appendChild(titleEl);
-
-    var msgEl = document.createElement('p');
-    msgEl.className = 'modal-dialog-message';
-    msgEl.id = msgId;
-    msgEl.textContent = message;
-    dlg.appendChild(msgEl);
-
-    var actions = document.createElement('div');
-    actions.className = 'modal-actions form-actions';
-    dlg.appendChild(actions);
-
-    var cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'btn-outlined-primary';
-    cancelBtn.textContent = cancelText;
-    cancelBtn.setAttribute('data-testid', 'modal-cancel-btn');
-    actions.appendChild(cancelBtn);
-
-    var confirmBtn = document.createElement('button');
-    confirmBtn.type = 'button';
-    confirmBtn.className = 'btn-filled-primary';
-    confirmBtn.textContent = confirmText;
-    confirmBtn.setAttribute('data-testid', 'modal-confirm-btn');
-    actions.appendChild(confirmBtn);
-
-    function close() {
-      document.removeEventListener('keydown', onKey, true);
-      overlay.removeEventListener('click', onOverlayClick);
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-      openDialog = null;
-      // Restore focus. If the trigger was removed from the DOM (e.g., a
-      // deleted tile), .focus() is a no-op (browser falls back to body).
-      if (trigger && typeof trigger.focus === 'function') {
-        try { trigger.focus(); } catch (e) { /* ignore */ }
-      }
-    }
-
-    cancelBtn.addEventListener('click', function () {
-      onCancel();
-      close();
-    });
-    confirmBtn.addEventListener('click', function () {
-      onConfirm();
-      close();
-    });
-
-    function focusables() {
-      var sel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-      var nodes = dlg.querySelectorAll(sel);
-      var arr = Array.prototype.slice.call(nodes);
-      return arr.filter(function (n) {
-        return !n.disabled && n.offsetParent !== null;
-      });
-    }
-
-    function onKey(e) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onCancel();
-        close();
-        return;
-      }
-      if (e.key === 'Enter') {
-        var tag = e.target && e.target.tagName;
-        // Let textareas keep newline behavior. Inputs commit; the dialog
-        // body has no inputs by default, so this just affects future
-        // modals that grow form fields.
-        if (tag === 'TEXTAREA') return;
-        e.preventDefault();
-        onConfirm();
-        close();
-        return;
-      }
-      if (e.key === 'Tab') {
-        var fs = focusables();
-        if (fs.length === 0) {
-          e.preventDefault();
-          return;
+    var modal = window.App.ui.modal({
+      title: opts.title || 'Unsaved changes',
+      body: opts.message || 'You have unsaved changes. Continue without saving?',
+      testid: 'confirm-dialog-overlay',
+      cancelValue: 'cancel',
+      actions: [
+        {
+          label: opts.cancelText || 'Stay',
+          variant: 'secondary',
+          value: 'cancel',
+          testid: 'modal-cancel-btn',
+          autofocus: true
+        },
+        {
+          label: opts.confirmText || 'Continue',
+          variant: 'primary',
+          value: 'confirm',
+          testid: 'modal-confirm-btn'
         }
-        var first = fs[0];
-        var last = fs[fs.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
+      ],
+      onClose: function (value) {
+        openCount = Math.max(0, openCount - 1);
+        if (value === 'confirm') onConfirm();
+        else onCancel();
       }
+    });
+    // showModal() can throw (e.g. a detached element). modal.open() has by then
+    // registered its session, so close it: that runs onClose exactly once, which
+    // drops the count and settles the caller as Stay (onCancel), then rethrow.
+    // If onClose somehow did not run, drop the count here so isOpen() cannot
+    // stay stuck true and make every later navigation resolve Stay.
+    openCount += 1;
+    try {
+      modal.open(opener);
+    } catch (err) {
+      var before = openCount;
+      modal.close('cancel');
+      if (openCount === before) openCount = Math.max(0, openCount - 1);
+      throw err;
     }
-
-    function onOverlayClick(e) {
-      // Click on the overlay itself (NOT a descendant) is a no-op. This is
-      // a deliberate choice — we require explicit Cancel/Escape to dismiss.
-      // Prevents accidental loss of work from a stray outside-click.
-      if (e.target === overlay) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    }
-
-    // Capture-phase keydown so the modal sees keys before any focused-field
-    // handler can swallow them.
-    document.addEventListener('keydown', onKey, true);
-    overlay.addEventListener('click', onOverlayClick);
-
-    openDialog = { close: close };
-    document.body.appendChild(overlay);
-
-    // Focus Cancel by default — safer for destructive-discard prompts (the
-    // user must move focus to Confirm explicitly).
-    cancelBtn.focus();
   };
+
+  // True while any dialog opened through this adapter is open. The router's
+  // guard adapter uses it to resolve Stay when a dialog is already in charge.
+  window.App.confirmDialog.isOpen = function () { return openCount > 0; };
 })(window, document);

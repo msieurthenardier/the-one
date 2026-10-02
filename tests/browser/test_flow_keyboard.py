@@ -17,6 +17,7 @@ Design choices:
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -129,7 +130,16 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
     pattern was retired in favor of a more direct keyboard model.
     """
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
+    _nav.goto_settled(page, base_url, "agents")
+
+    # Studio's first activation loads the inventory twice (init() and
+    # activate()->_refresh() each run loadAll(), and each pass re-renders the
+    # tile grid with fresh nodes). Focusing a tile rendered by the FIRST pass
+    # and pressing Enter after the SECOND pass has replaced it sends the key
+    # to a detached node (aria-selected stays "false"); under load the first
+    # tile can also appear later than a fixed 5s. goto_settled waits for the
+    # app's fetch activity to go quiet, so both passes have rendered before we
+    # touch a tile.
 
     # Wait for the tile grid to render.
     agent_item = page.locator('[data-testid="agent-item"]').first
@@ -153,7 +163,7 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
 @pytest.mark.browser
 def test_admin_category_keyboard_select(app_clean: str, page: Page) -> None:
     """Tab into section-nav-item, press Enter; aria-current becomes 'page'."""
-    page.goto(f"{app_clean}#admin")
+    _nav.goto(page, app_clean, "settings")
 
     # Wait for admin section nav to render (scoped under .area-admin so studio
     # nav buttons cannot match if both areas are mounted in DOM).
@@ -166,7 +176,7 @@ def test_admin_category_keyboard_select(app_clean: str, page: Page) -> None:
     section_nav = page.locator(".area-admin .section-nav")
     expect(section_nav).to_be_visible()
     assert section_nav.evaluate("el => el.tagName") == "NAV"
-    expect(section_nav).to_have_attribute("aria-label", "System sections")
+    expect(section_nav).to_have_attribute("aria-label", "Settings sections")
 
     # Active section-nav item has tabindex=0 (roving tabindex contract)
     expect(category_item).to_have_attribute("tabindex", "0")

@@ -3,7 +3,6 @@ App.registerArea({
   label: 'System',
   icon: App.icons.admin,
   order: 30,
-  sidebarLabel: 'System categories',
 
   serializeState: function () {
     if (this._currentCategory === 'general') return 'general';
@@ -31,7 +30,14 @@ App.registerArea({
     }
     return this._currentCategory || 'general';
   },
-  hydrateState: function (sub) {
+  // hydrateState(sub, {fresh}) renders exactly `sub`. `fresh` is the router's
+  // hydrate ORIGIN (M25 F2 L4): true for a traversal, a typed hash and boot --
+  // an item named by the URL may have been deleted since, so it is resolved
+  // against a FRESH fetch and a dead id heals to the section root; false for an
+  // intent go() (a click on a row), which opens the item from the cached list
+  // without re-rendering the grid or refetching.
+  hydrateState: function (sub, opts) {
+    var fresh = !!(opts && opts.fresh);
     // Empty sub (user navigated to bare `#admin`) → reset to default 'general'.
     // Without this, currentCategory retains whatever it was (e.g. 'providers')
     // and the router's syncUrlFromState would rewrite the URL to that retained
@@ -94,7 +100,17 @@ App.registerArea({
 
     // Set category FIRST — _setCategory wipes pending state on category change,
     // so we must set pending AFTER it to survive the wipe.
-    if (this._setCategory) this._setCategory(sub);
+    //
+    // An ITEM sub inside the category that is already showing does not go
+    // through _setCategory: it would re-render the grid (and refetch the list)
+    // only for the item to replace it. The open item is closed in state and
+    // the consume paths below render the item directly.
+    var itemSub = !!(pendingFormMode || pendingToolFormMode_local);
+    if (itemSub && this._currentCategory === sub) {
+      if (this._closeOpenItem) this._closeOpenItem();
+    } else if (this._setCategory) {
+      this._setCategory(sub);
+    }
 
     // Always overwrite pending state — including with nulls when the new
     // sub does not match providers/... — so navigating from
@@ -108,8 +124,15 @@ App.registerArea({
     // #admin/providers → #admin/providers/new) do NOT trigger _setCategory's
     // re-render path because currentCategory is unchanged. Fire consume
     // unconditionally so within-admin sub navigation actually opens the
-    // editor.
-    if (this._tryConsumePendingProvider) this._tryConsumePendingProvider();
+    // editor -- an existing provider from the cache only for a non-fresh
+    // (intent) hydrate.
+    if (this._tryConsumePendingProvider) this._tryConsumePendingProvider(!fresh);
+    // A provider still pending needs the list: a fresh hydrate always refetches
+    // (the fetch also heals a dead id); an intent hydrate only when the cache
+    // could not resolve it.
+    if (this._pendingFormMode === 'edit' && this._pendingProviderId && this._fetchProviders) {
+      this._fetchProviders();
+    }
     if (this._tryConsumePendingTool) this._tryConsumePendingTool();
   },
 
@@ -147,10 +170,18 @@ App.registerArea({
     // Orchestrator's mirror of the provider-editor sub-module's local `dirty`
     // flag (F6 leg 04). The editor sub-module is the source of truth for the
     // disabled-button flip; the orchestrator mirror is the source of truth
-    // for the navigation gates (Back / section-nav / beforeunload). The
+    // for the leave guard (App.nav source, registered below). The
     // bridge is the onDirtyChange callback in renderProviderEditor's
     // callbacks object.
     var dirty = false;
+    // Discard generation (M25 F2 L5): the App.nav discard() bumps it; an async
+    // resolver captured under an older generation (an in-flight save, the
+    // provider-types wait) must not resurrect the editor state it tore down.
+    var editorGen = 0;
+    // Set by a discard that tore an editor down in STATE only: the editor DOM is
+    // still mounted, so the next _setCategory must re-render even though no item
+    // is open any more. Cleared by every panel render.
+    var editorDomStale = false;
 
     // Provider type list — fetched from /api/providers/types so dev-mode gating
     // for the `mock` type is enforced server-side. Populated by fetchProviderTypes().
@@ -199,25 +230,6 @@ App.registerArea({
       'openrouter': { base_url: 'https://openrouter.ai/api/v1', showBaseUrl: true, showApiKey: true, showReasoningEffort: true }
     };
 
-    // ── beforeunload listener (F6 leg 04) ──────────────────────────────
-    //
-    // Registered ONCE at init() time (init runs once per area lifetime,
-    // gated by app.js's initialized[areaId] check). The closure `dirty`
-    // flag is the sole gate — when in another area, dirty is false (the
-    // editor isn't mounted); when in admin with an unsaved provider edit,
-    // dirty is true and the listener calls e.preventDefault() to surface
-    // the browser's native "Leave site?" prompt.
-    //
-    // Do NOT remove on deactivate() — closure-flag gate handles all cross-
-    // area transitions. Mirrors studio.js:127-149.
-    window.addEventListener('beforeunload', function (e) {
-      if (dirty) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    });
-
     // Build sidebar via the shared section-nav primitive (F6 leg 01).
     // Mount on a child div (not the sidebar panel itself) so the panel's
     // .area-admin class is preserved — the helper sets className on its
@@ -228,42 +240,24 @@ App.registerArea({
     // was a plain <div>) — nav role is now load-bearing.
     sidebar.innerHTML = '<nav class="admin-section-nav"></nav>';
     var sectionNavEl = sidebar.querySelector('.admin-section-nav');
-    function doSetCategory(catId) {
-      currentCategory = catId;
-      providerFormMode = null;
-      editingProvider = null;
-      pendingProviderId = null;
-      pendingFormMode = null;
-      toolFormMode = null;
-      editingTool = null;
-      pendingToolName = null;
-      pendingToolFormMode = null;
-      dirty = false;
-      if (window.App && window.App.router) App.router.replaceSub(currentCategory);
-      App.layout.updateActiveSection(categoryListEl, currentCategory);
-      renderContent();
-    }
+    // Section nav is a user INTENT: it routes through the router (M25 F2 L3),
+    // whose leave guard asks about unsaved changes exactly once. The former
+    // in-area dirty gate here is gone, so a dirty editor never prompts twice.
+    // A click on the current category goes to that category's root, which
+    // closes an open editor (_setCategory's same-category close).
+    var CATEGORY_ROUTE_SECTION = { knowledge: 'knowledge-indexing' };
     function setCategory(catId) {
-      // Dirty gate fires only when leaving an editor-mounted context.
-      // Same-category clicks short-circuit naturally (no state change).
-      // Mirrors studio.js's setActiveSection dirty gate.
-      var inEditor = (currentCategory === 'providers' && providerFormMode)
-                  || (currentCategory === 'tools' && toolFormMode)
-                  // Knowledge (L4-D4) has no separate grid/editor mode — the
-                  // whole panel is the form, so `dirty` alone is the marker.
-                  || currentCategory === 'knowledge';
-      if (dirty && inEditor) {
-        App.confirmDialog({ onConfirm: function () { doSetCategory(catId); } });
-        return;
-      }
-      doSetCategory(catId);
+      App.router.go(App.router.href({
+        destination: 'settings',
+        section: CATEGORY_ROUTE_SECTION[catId] || catId
+      }));
     }
     App.layout.renderSectionNav(sectionNavEl, categories, currentCategory, {
       onSelect: setCategory,
-      // Sidebar header omitted — the topbar's area buttons already name the
-      // active area (highlighted via aria-current="page"), so a duplicate
+      // Sidebar header omitted — the top bar's destination buttons already
+      // name the active destination (aria-current="page"), so a duplicate
       // <h2> in the sidebar is redundant.
-      ariaLabel: 'System sections'
+      ariaLabel: 'Settings sections'
     });
     categoryListEl = sectionNavEl; // helper rendered into the container
 
@@ -290,6 +284,7 @@ App.registerArea({
     // ── Providers Panel ───────────────────────────────────────────────
 
     function renderProvidersPanel() {
+      editorDomStale = false;
       // Editor branch: delegate to provider-editor sub-module (F6 leg 03).
       if (providerFormMode) {
         // Reset orchestrator's dirty mirror BEFORE editor mount (F6 leg 04).
@@ -303,36 +298,28 @@ App.registerArea({
         // dropdown depends on PROVIDER_TYPES). The gate moved here from
         // renderProviderForm() which the leg deleted.
         var ready = providerTypesReady || fetchProviderTypes();
+        var mountGen = editorGen;
         ready.then(function () {
-          // doHandleBack hoisted into ready.then closure (per leg-04 OQ1
-          // resolution: simpler placement; body uses orchestrator
-          // closure-locals which mutate globally).
-          function doHandleBack() {
-            providerFormMode = null;
-            editingProvider = null;
-            dirty = false;
-            if (window.App && window.App.router) App.router.replaceSub('providers');
-            renderProvidersPanel();
-          }
+          if (mountGen !== editorGen) return; // discarded while the types loaded
           App.admin.renderProviderEditor(contentEl, editingProvider, PROVIDER_TYPES, {
+            // Back is a user INTENT (M25 F2 L4): a pushed go() to the section
+            // root. The router's leave guard is the only prompt (the former
+            // inline App.confirmDialog is gone, so Continue never asks
+            // twice); the root hydrate closes the editor and resets `dirty`.
             onBack: function () {
-              if (dirty) {
-                App.confirmDialog({ onConfirm: doHandleBack });
-                return;
-              }
-              doHandleBack();
+              App.router.go(App.router.href({ destination: 'settings', section: 'providers' }));
             },
             onCancel: function () {
-              // Create-mode Cancel: navigate back to grid (the editor's
-              // Cancel handler only invokes onCancel when isCreate).
-              // Cancel-when-dirty is intentional discard \u2014 no dialog gate.
-              providerFormMode = null;
-              editingProvider = null;
-              dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('providers');
-              renderProvidersPanel();
+              // Create-mode Cancel: back to the grid (the editor's Cancel
+              // handler only invokes onCancel when isCreate). Cancel-when-dirty
+              // is intentional discard -- no gate -- so this is a bypass go()
+              // REPLACING the create entry (Back must not land on a stale
+              // create form).
+              App.router.go(App.router.href({ destination: 'settings', section: 'providers' }),
+                { replace: true, bypassGuard: true });
             },
             onSaveSuccess: function (updated, isCreate) {
+              if (mountGen !== editorGen) return; // discarded mid-save: no resurrection
               // Editor sub-module owns the fetch; this callback only mutates
               // orchestrator state on success. For create\u2192edit transition,
               // re-render the editor with the new provider so Models +
@@ -341,7 +328,7 @@ App.registerArea({
               providerFormMode = 'edit';
               dirty = false; // Save cleared dirty (sub-module recaptures snapshot).
               if (window.App && window.App.router) {
-                App.router.replaceSub(self.serializeState());
+                App.router.sync('admin', self.serializeState());
               }
               if (isCreate) {
                 renderProvidersPanel();
@@ -350,11 +337,13 @@ App.registerArea({
               // snapshot recapture handles dirty reset. No re-render needed.
             },
             onDeleteSuccess: function () {
-              providerFormMode = null;
-              editingProvider = null;
-              dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('providers');
-              renderProvidersPanel();
+              if (mountGen !== editorGen) return;
+              // Post-delete navigation: a bypass go() replacing the deleted
+              // provider's entry. Discard first so a stray dirty flag cannot
+              // outlive the deleted item.
+              self._discardEditor();
+              App.router.go(App.router.href({ destination: 'settings', section: 'providers' }),
+                { replace: true, bypassGuard: true });
             },
             onDirtyChange: function (d) { dirty = d; },
             getTypeDefaults: function (type) { return TYPE_DEFAULTS[type]; }
@@ -374,13 +363,32 @@ App.registerArea({
       fetchProviders();
     }
 
+    // One list request at a time: a render's grid fetch and a fresh hydrate's
+    // fetch (hydrateState) are the same request.
+    var providersInFlight = null;
     function fetchProviders() {
-      return fetch('/api/providers')
-        .then(function (r) { return r.json(); })
+      if (providersInFlight) return providersInFlight;
+      var p = fetchProvidersNow();
+      providersInFlight = p;
+      var clear = function () { if (providersInFlight === p) providersInFlight = null; };
+      p.then(clear, clear);
+      return p;
+    }
+
+    function fetchProvidersNow() {
+      return App.store.get('providers', { force: true })
         .then(function (data) {
           providers = data;
           populateProviderGrid();
           self._tryConsumePendingProvider();
+          // A pending id absent from a FRESH fetch is dead (deleted meanwhile,
+          // or a stale link): never keep it in the URL. Heal to the section
+          // root in place.
+          if (pendingFormMode === 'edit' && pendingProviderId && !findProvider(pendingProviderId)) {
+            pendingProviderId = null;
+            pendingFormMode = null;
+            if (window.App && window.App.router) App.router.sync('admin', self.serializeState());
+          }
         })
         .catch(function () {
           var gridEl = contentEl.querySelector('.entity-tile-grid');
@@ -406,28 +414,15 @@ App.registerArea({
       });
     }
 
+    // Opening a provider / the create form from the grid are user INTENTS:
+    // pushed go()s (Back returns to the grid), hydrated with the cached list.
     function selectProvider(id) {
-      var provider = findProvider(id);
-      if (!provider) return; // pending-id race; will be re-attempted after fetch
-      providerFormMode = 'edit';
-      editingProvider = provider;
-      pendingProviderId = null;
-      pendingFormMode = null;
-      if (window.App && window.App.router) {
-        App.router.replaceSub(self.serializeState());
-      }
-      renderProvidersPanel();
+      if (!findProvider(id)) return; // pending-id race; will be re-attempted after fetch
+      App.router.go(App.router.href({ destination: 'settings', section: 'providers', id: id }));
     }
 
     function enterCreateMode() {
-      providerFormMode = 'add';
-      editingProvider = null;
-      pendingProviderId = null;
-      pendingFormMode = null;
-      if (window.App && window.App.router) {
-        App.router.replaceSub(self.serializeState());
-      }
-      renderProvidersPanel();
+      App.router.go(App.router.href({ destination: 'settings', section: 'providers', create: true }));
     }
 
     function findProvider(id) {
@@ -441,6 +436,7 @@ App.registerArea({
     // ── Tools Panel (F6 leg 02 / leg 03 editor) ───────────────────────
 
     function renderToolsPanel() {
+      editorDomStale = false;
       // Editor branch (F6 leg 03): delegate to tools-editor sub-module.
       if (toolFormMode === 'edit' && editingTool) {
         // Reset orchestrator's dirty mirror BEFORE editor mount (mirrors
@@ -448,13 +444,13 @@ App.registerArea({
         // editor closure starts at dirty=false; the onDirtyChange bridge
         // only fires on the first user input.
         dirty = false;
+        var toolGen = editorGen;
         App.admin.renderToolsEditor(contentEl, editingTool, {
+          // Back is a user INTENT (M25 F2 L4): a pushed go() to the section
+          // root. The router's leave guard is the only prompt (no inline
+          // App.confirmDialog); the root hydrate closes the editor.
           onBack: function () {
-            if (dirty) {
-              App.confirmDialog({ onConfirm: function () { exitEditor(); } });
-              return;
-            }
-            exitEditor();
+            App.router.go(App.router.href({ destination: 'settings', section: 'tools' }));
           },
           onCancel: function () {
             // Cancel sub-module restores original DOM (re-mounts with the
@@ -464,6 +460,7 @@ App.registerArea({
             dirty = false;
           },
           onSaveSuccess: function (updated) {
+            if (toolGen !== editorGen || !editingTool) return; // discarded mid-save
             // Update the grid cache so an immediate Back lands on a current
             // grid (post-leg-02 cache fields: name, description, enabled, config).
             if (toolConfigs) {
@@ -499,17 +496,16 @@ App.registerArea({
       App.admin.renderToolsGrid(contentEl, toolConfigs, {
         onToggle: handleToolToggle,
         inFlight: toolsInFlight,
-        onSelectTool: selectTool
+        onSelectTool: openTool
       });
       fetchToolConfigs();
     }
 
-    function exitEditor() {
-      toolFormMode = null;
-      editingTool = null;
-      dirty = false;
-      if (window.App && window.App.router) App.router.replaceSub('tools');
-      renderToolsPanel();
+    // A tool row click is a user INTENT: a pushed go() (Back returns to the
+    // grid). selectTool (below) is the hydrate/consume path that loads the
+    // tool's detail.
+    function openTool(name) {
+      App.router.go(App.router.href({ destination: 'settings', section: 'tools', id: name }));
     }
 
     function selectTool(name) {
@@ -517,6 +513,7 @@ App.registerArea({
       // short-circuit would always fall through to fetch anyway.
       return fetch('/api/tools/configs/' + encodeURIComponent(name))
         .then(function (r) {
+          if (r.status === 404) { var gone = new Error('tool not found'); gone.gone = true; throw gone; }
           if (!r.ok) throw new Error('Fetch failed: ' + r.status);
           return r.json();
         })
@@ -534,12 +531,25 @@ App.registerArea({
           pendingToolName = null;
           pendingToolFormMode = null;
           if (window.App && window.App.router) {
-            App.router.replaceSub(self.serializeState());
+            App.router.sync('admin', self.serializeState());
           }
           renderToolsPanel();
         })
-        .catch(function () {
+        .catch(function (err) {
           if (currentCategory !== 'tools') return;
+          if (err && err.gone) {
+            // Dead id (an unknown name in the URL, or a tool removed while its
+            // editor was open): close any editor and heal the URL to the
+            // section root in place -- nothing is left pending.
+            pendingToolName = null;
+            pendingToolFormMode = null;
+            toolFormMode = null;
+            editingTool = null;
+            dirty = false;
+            App.router.sync('admin', 'tools');
+            renderToolsPanel();
+            return;
+          }
           App.showFlash(contentEl, 'Failed to load ' + name + '.', true);
         });
     }
@@ -569,7 +579,7 @@ App.registerArea({
       App.admin.renderToolsGrid(contentEl, toolConfigs, {
         onToggle: handleToolToggle,
         inFlight: toolsInFlight,
-        onSelectTool: selectTool
+        onSelectTool: openTool
       });
     }
 
@@ -611,6 +621,7 @@ App.registerArea({
     // straight to the sub-module and bridges its dirty state onto the shared
     // `dirty` mirror exactly as the provider/tools editors do.
     function renderKnowledgePanel() {
+      editorDomStale = false;
       dirty = false;
       App.admin.renderKnowledgeSettingsPage(contentEl, {
         onDirtyChange: function (d) { dirty = d; }
@@ -658,19 +669,41 @@ App.registerArea({
         renderKnowledgePanel();
       }
     };
-    // confirmLeave wired here so it can close over the local `dirty` flag.
-    // Gate semantics mirror the sidebar setCategory dirty-gate: dirty AND
-    // in-editor → confirm dialog; otherwise → proceed immediately.
-    self._confirmLeaveImpl = function (proceed, abort) {
-      var inEditor = (currentCategory === 'providers' && providerFormMode)
-                  || (currentCategory === 'tools' && toolFormMode)
-                  || currentCategory === 'knowledge';
-      if (dirty && inEditor) {
-        App.confirmDialog({ onConfirm: proceed, onCancel: abort });
-      } else {
-        proceed();
+    // Leave-guard source (M25 F2 L5, DD5). `isDirty` is the
+    // editor-open predicate registered via App.nav.registerSource: the shared `dirty` flag AND an editor actually
+    // open, so a stale flag can never raise a phantom prompt or beforeunload.
+    // `discard` is teardown only (never a URL write) and bumps editorGen.
+    function editorOpen() {
+      return (currentCategory === 'providers' && !!providerFormMode)
+        || (currentCategory === 'tools' && !!toolFormMode)
+        || currentCategory === 'knowledge';
+    }
+    self._discardEditor = function () {
+      editorGen += 1;
+      try {
+        // Knowledge settings is one form: discard is just dirty=false (re-entry
+        // re-renders from the saved settings). Otherwise tear the item down.
+        if (currentCategory !== 'knowledge') {
+          self._closeOpenItem();
+          editorDomStale = true;
+        }
+      } finally {
+        dirty = false;
       }
     };
+    if (window.App && window.App.nav) {
+      window.App.nav.registerSource('admin', {
+        isDirty: function () { return dirty && editorOpen(); },
+        discard: function () { self._discardEditor(); }
+      });
+    }
+    // View of the shared dirty mirror (browser tests). The setter is a TEST SEAM
+    // only: it plants a stale flag with no editor open (App.nav must ignore it).
+    Object.defineProperty(self, '_dirty', {
+      get: function () { return dirty; },
+      set: function (v) { dirty = !!v; },
+      configurable: true
+    });
     Object.defineProperty(self, '_currentCategory', {
       get: function () { return currentCategory; },
       configurable: true
@@ -715,8 +748,16 @@ App.registerArea({
       set: function (v) { pendingToolFormMode = v; },
       configurable: true
     });
+    // Section-root semantics: hydrating a category renders exactly that
+    // category. A category CHANGE resets everything; the SAME category with an
+    // item open (provider editor/create, tool editor) closes it, so clicking
+    // the current category -- or going to its root -- returns to the grid.
     self._setCategory = function (sub) {
-      if (currentCategory !== sub) {
+      // Knowledge has no grid/editor split (the whole panel is the form), so
+      // re-hydrating it re-renders from the saved settings: Continue discards.
+      var itemOpen = !!(providerFormMode || toolFormMode || currentCategory === 'knowledge');
+      if (currentCategory !== sub || itemOpen || editorDomStale) {
+        editorGen += 1;
         currentCategory = sub;
         providerFormMode = null;
         editingProvider = null;
@@ -726,11 +767,30 @@ App.registerArea({
         editingTool = null;
         pendingToolName = null;
         pendingToolFormMode = null;
+        dirty = false;
         App.layout.updateActiveSection(categoryListEl, currentCategory);
         renderContent();
       }
     };
-    self._tryConsumePendingProvider = function () {
+    // Close the open provider/tool item in STATE only (no render): an item
+    // hydrate inside the category that is already showing replaces it.
+    self._closeOpenItem = function () {
+      editorGen += 1; // a teardown invalidates any in-flight editor resolver
+      providerFormMode = null;
+      editingProvider = null;
+      pendingProviderId = null;
+      pendingFormMode = null;
+      toolFormMode = null;
+      editingTool = null;
+      pendingToolName = null;
+      pendingToolFormMode = null;
+      dirty = false;
+    };
+    self._fetchProviders = function () { return fetchProviders(); };
+    // `allowCache` false (a fresh hydrate) leaves an existing provider pending:
+    // the cached list may hold one deleted since, so fetchProviders resolves it.
+    // A create form needs no list and always opens.
+    self._tryConsumePendingProvider = function (allowCache) {
       if (!pendingProviderId && !pendingFormMode) return;
       if (pendingFormMode === 'add') {
         providerFormMode = 'add';
@@ -740,7 +800,7 @@ App.registerArea({
         renderProvidersPanel();
         return;
       }
-      if (pendingFormMode === 'edit' && pendingProviderId) {
+      if (pendingFormMode === 'edit' && pendingProviderId && allowCache !== false) {
         var found = findProvider(pendingProviderId);
         if (found) {
           providerFormMode = 'edit';
@@ -756,10 +816,10 @@ App.registerArea({
     self._tryConsumePendingTool = function () {
       if (!pendingToolName && !pendingToolFormMode) return;
       if (pendingToolFormMode === 'edit' && pendingToolName) {
-        var name = pendingToolName;
-        pendingToolName = null;
-        pendingToolFormMode = null;
-        selectTool(name);
+        // The pending slot stays set until the detail loads (selectTool clears
+        // it on success, or heals on a 404), so serializeState keeps the URL
+        // on `tools/{name}` meanwhile instead of flickering to the root.
+        selectTool(pendingToolName);
       }
     };
 
@@ -772,21 +832,6 @@ App.registerArea({
   activate: function () {
     if (this._refresh) {
       this._refresh();
-    }
-  },
-
-  // confirmLeave: cross-area dirty-gate hook (F3 L06). Called by app.js
-  // switchTo() BEFORE deactivation on cross-area navigation. Clean →
-  // immediate proceed; dirty → confirm dialog gates the transition.
-  // Mirrors the existing sidebar setCategory dirty-gate so internal
-  // (sidebar) + external (topbar/back/hash) nav paths share the contract.
-  // The handle is attached inside init() so it can close over the local
-  // `dirty` flag.
-  confirmLeave: function (proceed, abort) {
-    if (this._confirmLeaveImpl) {
-      this._confirmLeaveImpl(proceed, abort);
-    } else {
-      proceed();
     }
   },
 

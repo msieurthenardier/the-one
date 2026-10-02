@@ -18,6 +18,7 @@ import re
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
@@ -25,12 +26,26 @@ from playwright.sync_api import Page, expect
 # ── Welcome canvas: state-aware content ──────────────────────────────────
 
 
+def _welcome_link(route: str) -> str:
+    """Selector for a welcome-canvas link to *route*.
+
+    The welcome links keep their legacy hrefs until the item-history leg
+    converts them to the new scheme, so either form matches (the router
+    redirects the legacy one).
+    """
+    return (
+        f'.chat-welcome-link[href="{_nav.href(route)}"], '
+        f'.chat-welcome-link[href="{_nav.legacy_hash(route)}"]'
+    )
+
+
 @pytest.mark.browser
 def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
-    """No providers and no agents → guidance points to LLM Settings AND Agent Studio.
+    """No providers and no agents → guidance points to Settings AND Agents.
 
-    Link updated from '#admin' → '#admin/providers' (text: 'Settings' → 'LLM Settings')
-    per the chore commit 717cfa5 (UI cleanups + Ollama tool-capability handling).
+    Link updated from '#admin' → '#admin/providers' per the chore commit 717cfa5
+    (UI cleanups + Ollama tool-capability handling); its text 'LLM Settings' became
+    'Settings' with the rail (M25 F2 L6).
     """
     page.goto(app_clean)
     welcome = page.locator('[data-testid="chat-welcome"]')
@@ -41,22 +56,22 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
     expect(page.locator(".chat-welcome-prompt")).to_be_hidden()
 
     # Both deep-links present.
-    settings_link = page.locator('.chat-welcome-link[href="#admin/providers"]')
-    studio_link = page.locator('.chat-welcome-link[href="#studio"]')
-    expect(settings_link).to_have_text("LLM Settings")
-    expect(studio_link).to_have_text("Agent Studio")
+    settings_link = page.locator(_welcome_link("settings/providers"))
+    studio_link = page.locator(_welcome_link("agents"))
+    expect(settings_link).to_have_text("Settings")
+    expect(studio_link).to_have_text("Agents")
 
 
 @pytest.mark.browser
 def test_welcome_provider_only_shows_studio_link(app_with_provider: SeededApp, page: Page) -> None:
-    """Provider seeded, no agents → guidance only points to Agent Studio."""
+    """Provider seeded, no agents → guidance only points to Agents."""
     page.goto(app_with_provider.base_url)
     welcome = page.locator('[data-testid="chat-welcome"]')
     expect(welcome).to_be_visible(timeout=5000)
 
     expect(page.locator(".chat-welcome-prompt")).to_be_hidden()
-    expect(page.locator('.chat-welcome-link[href="#studio"]')).to_have_text("Agent Studio")
-    expect(page.locator('.chat-welcome-link[href="#admin"]')).to_have_count(0)
+    expect(page.locator(_welcome_link("agents"))).to_have_text("Agents")
+    expect(page.locator(_welcome_link("settings"))).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -125,8 +140,8 @@ def test_dropdown_change_starts_new_session(app_with_provider: SeededApp, page: 
     expect(page.locator(".session-agent-badge")).to_have_text("agent-a", timeout=8000)
 
     # Capture session id from the URL hash so we can assert it changes.
-    first_hash = page.evaluate("location.hash")
-    assert first_hash.startswith("#chat/sessions/")
+    first_route = _nav.current_route(page)
+    assert first_route.startswith("chats/")
 
     # Change the dropdown to agent-b — this fires the change handler which
     # sends `new_session` with agent_name=agent-b.
@@ -136,9 +151,9 @@ def test_dropdown_change_starts_new_session(app_with_provider: SeededApp, page: 
     expect(page.locator(".session-agent-badge")).to_have_text("agent-b", timeout=8000)
 
     # Hash should now point at a different session id.
-    second_hash = page.evaluate("location.hash")
-    assert second_hash.startswith("#chat/sessions/")
-    assert second_hash != first_hash, "dropdown change should produce a fresh session id"
+    second_route = _nav.current_route(page)
+    assert second_route.startswith("chats/")
+    assert second_route != first_route, "dropdown change should produce a fresh session id"
 
 
 # ── Header "New Chat" → new conversation, same agent ─────────────────────
@@ -156,8 +171,8 @@ def test_header_new_chat_button_starts_session_with_current_agent(
         app_with_agent.agent_name, timeout=8000
     )
 
-    first_hash = page.evaluate("location.hash")
-    assert first_hash.startswith("#chat/sessions/")
+    first_route = _nav.current_route(page)
+    assert first_route.startswith("chats/")
 
     page.locator('[data-testid="new-chat-btn"]').click()
 
@@ -167,15 +182,7 @@ def test_header_new_chat_button_starts_session_with_current_agent(
     )
 
     # New session id, though.
-    def hash_changed() -> bool:
-        h = page.evaluate("location.hash")
-        return h.startswith("#chat/sessions/") and h != first_hash
-
-    page.wait_for_function(
-        f"() => location.hash.startsWith('#chat/sessions/') && location.hash !== {first_hash!r}",
-        timeout=8000,
-    )
-    assert hash_changed()
+    _nav.wait_for_route_prefix(page, "chats/", not_equal=first_route, timeout=8000)
 
 
 # ── Last-session-delete returns to welcome ───────────────────────────────

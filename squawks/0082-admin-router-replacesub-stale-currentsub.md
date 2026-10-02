@@ -1,10 +1,10 @@
 # Squawk 0082: `App.router.replaceSub` leaves the router's `currentSub` stale, so a same-document `hashchange` back to that exact URL no-ops
 
-**Status**: deferred
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-18
-**Completed**: —
+**Completed**: 2026-10-01
 
 ## Report
 
@@ -77,3 +77,41 @@ narrowest fix — it already knows the target sub); or fold `switchTo`'s
 same-area-sub-change branch to re-derive its dedup check from
 `location.hash` instead of the closure variable, since the closure is what
 actually goes stale.
+
+## Corrective Action
+
+Fixed by construction in M25 Flight 2 Leg 3 (`router-core`), with no patch to
+`replaceSub`: `app.js`'s `switchTo`/`currentSub` machinery and
+`App.router.replaceSub` are removed, and `static/js/router.js` replaces them.
+
+- The router keeps ONE `current` route (`{route, destination, area, sub}`) that
+  is updated on EVERY write: `go()` commits it before hydrating, and the
+  `sync(areaId, sub)` that replaced every `replaceSub` call site (28 sites,
+  each with its own explicit area: `chat`, `studio`, `admin`) updates it as part
+  of the write. There is no separate closure copy that can go stale.
+- A `hashchange`/`popstate` is judged against the router's current route
+  (`sameRoute(r.route, current.route)`), so a navigation back to the PREVIOUS
+  sub after an in-area `sync` is a real traversal and is honoured, not swallowed
+  as "already there".
+- The `app.js` cross-area abort rollback, which also used the stale
+  `currentSub` (`priorHash`), is gone: Stay after a traversal reverts with
+  `history.go(-delta)` from the seq stamps, or re-pushes the live current route.
+
+## Verification
+
+- `tests/browser/test_router_core.py::test_hashchange_back_to_previous_sub_after_sync_is_honoured`
+  reproduces the report on the router: land on `#settings/knowledge-indexing`,
+  `sync('admin', 'providers')`, then a `hashchange` back to the previous sub is
+  honoured (the router's current route and the visible panel both follow).
+- The workaround is removed:
+  `tests/browser/test_flow_admin_knowledge_settings.py::test_dirty_confirm_on_navigate_away`
+  now returns to Knowledge with a second `page.goto()` (a raw same-document
+  fragment navigation back to an already-visited sub-state) instead of the
+  in-SPA click, and passes.
+- Closed in the Flight 2 commit.
+
+## Sign-Off
+
+**Reviewer**: Flight 2 Reviewer agent — flight-end review
+**Verdict**: confirmed
+**Commit**: the flight/2 commit (see `git log -- squawks/0082*`)

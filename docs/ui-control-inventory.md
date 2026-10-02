@@ -79,7 +79,7 @@ Paths below are relative to `the_one/interfaces/web/static/`.
 | Entity tile and tile grid (`.entity-tile`) | `providers-grid.js`, `knowledge-section.js`, `css/components.css` | not yet defined | Flights 2-3 retire tiles | Tile grid carries `role=listbox` in providers |
 | Category tile (`.tools-category-tile`, `.mcp-source-tile`) | `js/areas/studio/tools-tab.js`, `mcps-tab.js` | not yet defined | Studio tabs, next mission | Master toggle is the legacy pill |
 | Section nav (`.section-nav-item`) | `App.layout.renderSectionNav` in `js/areas/layout/section-nav.js` | not yet defined | Shell, Flight 2 | None recorded |
-| App picker (top bar) | `js/app.js` (`.app-picker-button`) | not yet defined | Shell, Flight 2 | None recorded |
+| Rail (destination links) | `js/ui/rail.js`; mounted in `#app-rail` by `js/app.js` | library: App.ui.rail | Replaced the interim top bar and `.app-picker-button` (Flight 2 L6) | Jump-to control is Flight 4 |
 | Tabs (W3C tablist) | `App.tabs` in `js/tabs.js`; used by `agent-editor.js`, `tools-grid.js` | not yet defined | Studio, next mission | None recorded |
 | Chip and chip list (`.chip-list-editor`, queued-message chip) | `js/areas/admin/tools-form-helpers.js`, `js/areas/chat.js` (`.pending-queued-chip`) | not yet defined | Tool editors, next mission | `.chip-remove` buttons are hand-built |
 | Key-value table (`renderKvTable`, `.admin-kv-row`) | `mcp-server-editor.js`, `knowledge-settings-page.js` | not yet defined | MCP editor, next mission | Sensitive-value rows carry an info-icon |
@@ -91,5 +91,6 @@ Paths below are relative to `the_one/interfaces/web/static/`.
 |---|---|---|---|---|
 | Menu (APG menu button) | `js/ui/menu.js` | library: App.ui.menu | Consumed from Flight 2 | No edge flipping; popup always opens downward |
 | KB item menu (`buildItemMenu`) | `js/areas/studio/knowledge-section.js` | not yet defined | Superseded by the library menu; migrates with the KB editor internals, next mission | Hand-built popup, not the APG pattern |
-| Dialog (`App.confirmDialog`) | `js/dialog.js` | not yet defined | Moves to the DD8 dialog rule in Flight 2 | 12 call sites; the reference page's modal section still demonstrates it |
+| Modal (native `<dialog>`, DD8) | `js/ui/modal.js` | library: App.ui.modal | Consumed from Flight 2 | None |
+| Dialog (`App.confirmDialog`) | `js/dialog.js` | library: App.ui.modal | Library-backed adapter over `App.ui.modal`; guard sites move to `App.nav` in Flight 2 L5 | 11 guard call sites; keeps a single-open policy until then |
 | Two-step confirm (`App.confirmDelete`) | `js/confirm.js` | not yet defined | Shell, Flight 2 or later | 13 call sites; feedback-only `.confirm-lapsed` cue |

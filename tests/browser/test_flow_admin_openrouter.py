@@ -15,13 +15,14 @@ are NOT operator-configurable. No UI fields exist for them.
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
 def test_openrouter_type_prefills_base_url(app_clean: str, page: Page) -> None:
     """Picking openrouter type pre-fills the Base URL to openrouter.ai/api/v1."""
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
 
     page.locator("#pf-type").select_option("openrouter")
@@ -36,7 +37,7 @@ def test_openrouter_type_prefills_base_url(app_clean: str, page: Page) -> None:
 def test_openrouter_create_and_round_trip(app_clean: str, page: Page) -> None:
     """Create an openrouter provider, save, re-open and assert all fields
     round-tripped."""
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
 
     # 1. Select openrouter type — triggers base_url pre-fill.
@@ -55,11 +56,11 @@ def test_openrouter_create_and_round_trip(app_clean: str, page: Page) -> None:
 
     # 4. After save, editor transitions to edit mode: title = provider name.
     expect(page.locator(".editor-title")).to_have_text("OR Test", timeout=5000)
-    current_hash = page.evaluate("location.hash")
-    assert current_hash.startswith("#admin/providers/"), (
-        f"expected #admin/providers/<id>, got {current_hash!r}"
+    current_route = _nav.current_route(page)
+    assert current_route.startswith("settings/providers/"), (
+        f"expected settings/providers/<id>, got {current_route!r}"
     )
-    assert current_hash != "#admin/providers/new", "hash must not remain /new after save"
+    assert current_route != "settings/providers/~new", "route must not remain create after save"
 
     # 5. Test button is present in edit mode.
     expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible()
@@ -79,7 +80,7 @@ def test_openrouter_create_and_round_trip(app_clean: str, page: Page) -> None:
 def test_openrouter_create_navigate_back_and_reopen(app_clean: str, page: Page) -> None:
     """After saving, navigate back to the provider grid and re-click the tile
     to confirm the provider is persisted and round-trips on second open."""
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
 
     page.locator("#pf-type").select_option("openrouter")

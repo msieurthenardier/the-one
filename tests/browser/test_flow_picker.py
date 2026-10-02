@@ -1,60 +1,10 @@
-"""Picker + skip-link browser tests (F3 leg 02)."""
+"""Skip-link browser test (F3 leg 02; the dead picker tests retired with the
+top bar in M25 F2 leg 6)."""
 
 from __future__ import annotations
 
 import pytest
-from playwright.sync_api import Page, expect
-
-
-@pytest.mark.browser
-@pytest.mark.skip(
-    reason=(
-        "Leg 02 topbar redesign replaced the single dropdown picker with 3 independent "
-        "area buttons (data-area='chat|studio|admin'). The aria-expanded / .app-picker-popover "
-        "/ .app-picker-option UX no longer exists. Topbar UX evolution deferred to Flight 6 "
-        "Chat Polish (or a dedicated topbar polish flight). See mission 08 Known Issues."
-    )
-)
-def test_picker_renders_closed(app_clean: str, page: Page) -> None:
-    page.goto(app_clean)
-    expect(page.locator(".app-picker-button")).to_have_attribute("aria-expanded", "false")
-    expect(page.locator(".app-picker-popover")).to_have_attribute("data-open", "false")
-
-
-@pytest.mark.browser
-@pytest.mark.skip(
-    reason=(
-        "Leg 02 topbar redesign replaced the single dropdown picker with 3 independent "
-        "area buttons (data-area='chat|studio|admin'). The aria-expanded / .app-picker-popover "
-        "/ .app-picker-option UX no longer exists. Topbar UX evolution deferred to Flight 6 "
-        "Chat Polish (or a dedicated topbar polish flight). See mission 08 Known Issues."
-    )
-)
-def test_picker_opens_on_click(app_clean: str, page: Page) -> None:
-    page.goto(app_clean)
-    page.click(".app-picker-button")
-    expect(page.locator(".app-picker-button")).to_have_attribute("aria-expanded", "true")
-    expect(page.locator(".app-picker-popover")).to_have_attribute("data-open", "true")
-    options = page.locator(".app-picker-option")
-    expect(options).to_have_count(3)
-
-
-@pytest.mark.browser
-@pytest.mark.skip(
-    reason=(
-        "Leg 02 topbar redesign replaced the single dropdown picker with 3 independent "
-        "area buttons (data-area='chat|studio|admin'). The aria-expanded / .app-picker-popover "
-        "/ .app-picker-option UX no longer exists. Topbar UX evolution deferred to Flight 6 "
-        "Chat Polish (or a dedicated topbar polish flight). See mission 08 Known Issues."
-    )
-)
-def test_picker_keyboard_open_close(app_clean: str, page: Page) -> None:
-    page.goto(app_clean)
-    page.locator(".app-picker-button").focus()
-    page.keyboard.press("Enter")
-    expect(page.locator(".app-picker-popover")).to_have_attribute("data-open", "true")
-    page.keyboard.press("Escape")
-    expect(page.locator(".app-picker-popover")).to_have_attribute("data-open", "false")
+from playwright.sync_api import Page
 
 
 @pytest.mark.browser

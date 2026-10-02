@@ -30,6 +30,7 @@ import json
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
@@ -61,7 +62,7 @@ def _get_agent(base_url: str, name: str) -> dict:
 
 
 def _navigate_to_agent_mcps_tab(page: Page, base_url: str, agent_name: str) -> None:
-    page.goto(f"{base_url}#studio/agents/{agent_name}/mcps")
+    _nav.goto(page, base_url, f"agents/{_nav.seg(agent_name)}/mcps")
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
@@ -147,7 +148,7 @@ def test_attach_source_persists(app_clean: str, page: Page) -> None:
     )
 
     page.reload()
-    page.goto(f"{app_clean}#studio/agents/attach-test-agent/mcps")
+    _nav.goto(page, app_clean, "agents/attach-test-agent/mcps")
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
@@ -210,7 +211,7 @@ def test_detach_source_persists(app_clean: str, page: Page) -> None:
     )
 
     page.reload()
-    page.goto(f"{app_clean}#studio/agents/detach-test-agent/mcps")
+    _nav.goto(page, app_clean, "agents/detach-test-agent/mcps")
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
@@ -277,7 +278,7 @@ def test_per_tool_toggle_persists(app_clean: str, page: Page) -> None:
     # Reload + deep-link to auto-open the panel.
     page.reload()
     _mock_tools_connect(page, sid, tools_payload)
-    page.goto(f"{app_clean}#studio/agents/toggle-test-agent/mcps/{sid}")
+    _nav.goto(page, app_clean, f"agents/toggle-test-agent/mcps/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
@@ -314,10 +315,13 @@ def test_empty_state_when_no_sources(app_clean: str, page: Page) -> None:
     empty = page.locator('[data-testid="mcp-empty-state"]')
     expect(empty).to_be_visible(timeout=4000)
     expect(empty).to_contain_text("No MCP sources registered yet")
-    expect(empty).to_contain_text("Add one in MCP Sources")
+    expect(empty).to_contain_text("Add one in the Library.")
 
     link = empty.locator("a")
-    expect(link).to_have_attribute("href", "#studio/mcp-sources")
+    # In-app links keep their legacy form until the item-history leg converts them;
+    # either form reaches Library > MCP servers (the router redirects the legacy one).
+    href = link.get_attribute("href")
+    assert href in (_nav.href("library/mcp"), _nav.legacy_hash("library/mcp")), href
 
 
 # ── Test 6: Hash routing — deep-link auto-expands details ─────────────────────
@@ -352,7 +356,7 @@ def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
         ],
     )
 
-    page.goto(f"{app_clean}#studio/agents/deeplink-agent/mcps/{sid}")
+    _nav.goto(page, app_clean, f"agents/deeplink-agent/mcps/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
@@ -423,7 +427,9 @@ def test_auth_required_inline_notice_no_popup(app_clean: str, page: Page) -> Non
     auth_link = page.locator(f'[data-testid="mcp-auth-required-link-{sid}"]')
     expect(auth_link).to_be_visible()
     href = auth_link.get_attribute("href") or ""
-    assert "mcp-sources" in href, f"Link should point to mcp-sources, got: {href}"
+    assert "mcp-sources" in href or "library/mcp" in href, (
+        f"Link should point to the MCP servers section, got: {href}"
+    )
     assert sid in href, f"Link should contain source id {sid}, got: {href}"
 
     page.wait_for_timeout(500)

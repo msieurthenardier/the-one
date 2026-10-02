@@ -31,6 +31,7 @@ import re
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
@@ -56,7 +57,7 @@ def _enable_self_configuration(base_url: str, name: str) -> None:
 
 
 def _navigate_to_self_configuration_tab(page: Page, base_url: str, agent_name: str) -> None:
-    page.goto(f"{base_url}#studio/agents/{agent_name}/self-configuration")
+    _nav.goto(page, base_url, f"agents/{_nav.seg(agent_name)}/self-configuration")
     expect(page.locator('[data-testid="tab-self-configuration"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
@@ -327,7 +328,7 @@ def test_create_mode_shows_save_first(app_with_provider: object, page: Page) -> 
     notice and no External access section."""
     base_url = app_with_provider.base_url  # type: ignore[attr-defined]
 
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent")
 

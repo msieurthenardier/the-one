@@ -528,20 +528,7 @@
   }
   /* Section-title-row info-icon — base reset lives in components.css; no
      admin-specific overrides needed. */
-  /* Visually hidden utility — used by aria-describedby description spans
-     (a11y leg 02). Content is exposed to screen readers but not visible
-     on screen. Standard sr-only pattern. */
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
+  /* .visually-hidden is a global utility defined once in components.css. */
   /* F6 HAT inline tweak — `.test-tool-btn` SVG icon + label baselines were
      mis-aligned because the canonical `.btn-outlined-primary` rule does not
      opinionate on inline-flex/SVG sizing. Pin inline-flex centering + the

@@ -475,11 +475,11 @@
     header.appendChild(actions);
     root.appendChild(header);
 
-    // AC-5/L5-D3 (carried): the dirty GATE for this click lives in
-    // studio.js's `onBack` (mirrors mcp-sources' own onBack, which checks
-    // the orchestrator's `dirty` closure var and shows App.confirmDialog
-    // itself before proceeding) — this module only ever requests the
-    // navigation, never decides to discard unsaved edits on its own.
+    // AC-5/L5-D3 (carried): the dirty GATE for this click is the router's
+    // leave guard (App.nav, nav.js): studio.js's `onBack` is a go() to the
+    // section root, so a dirty edit form is asked about exactly once. This
+    // module only ever requests the navigation, never decides to discard
+    // unsaved edits on its own.
     backBtn.addEventListener('click', function () {
       if (callbacks.onBack) callbacks.onBack();
     });
@@ -567,6 +567,8 @@
         }
         return r.json();
       }).then(function (updated) {
+        // A KB rename rewrites agents' kb_ids / KB tool references (DD8).
+        App.store.invalidate('agents');
         // L3-D5 (carried): the caller re-mounts the whole detail view from
         // the saved object — refreshes the header title/subtitle and
         // re-fetches status/items — and updates the grid's section-local
@@ -1444,6 +1446,7 @@
         fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id), { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) throw new Error('Delete failed');
+            App.store.invalidate('agents');
             if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
           })
           .catch(function () {

@@ -43,6 +43,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from cryptography.fernet import Fernet
 from playwright.sync_api import Page, expect
@@ -135,7 +136,7 @@ def test_plan_type_selectable_with_no_api_key_no_base_url_and_autosave_signin(
     auto-saves the provider through the exact Create path, transitions the
     editor to edit mode, and immediately enters the awaiting-code state."""
     _block_claude_ai(page)
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     # Picker label follows the parenthetical precedent.
     expect(page.locator('#pf-type option[value="anthropic-plan"]')).to_have_text("Anthropic (Plan)")
@@ -186,7 +187,7 @@ def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
     """Clicking the create-mode sign-in affordance with an empty Name shows
     the editor's normal inline validation, saves nothing, and does NOT
     enter the awaiting-code state."""
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic-plan")
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
@@ -210,7 +211,7 @@ def test_create_mode_signin_with_empty_name_validates_and_creates_nothing(
 def test_plan_section_hides_when_type_switched_away(app_clean: str, page: Page) -> None:
     """Type switched away from anthropic-plan mid-create: the plan section
     hides via the existing is-hidden toggle pattern (leg edge case)."""
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic-plan")
     expect(page.locator(".admin-pf-plan-signin")).not_to_have_class(re.compile(r"\bis-hidden\b"))
@@ -233,7 +234,7 @@ def test_create_save_enables_signin_and_click_shows_consent_ui(app_clean: str, p
     field with its confirm control. Popup blocking (or the abort here)
     degrades to the copyable URL without error."""
     _block_claude_ai(page)
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.locator("#pf-name").fill("My Plan")
     page.locator("#pf-type").select_option("anthropic-plan")
@@ -293,7 +294,7 @@ def test_code_submit_success_shows_connected_state_without_dirty_trap(
         ),
     )
 
-    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible(timeout=8000)
     signin_btn.click()
@@ -329,7 +330,7 @@ def test_code_submit_error_renders_inline_and_field_remains_usable(
     exchange, so no network leaves the box."""
     provider_id = _seed_plan_provider(app_clean)
     _block_claude_ai(page)
-    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
     signin_btn = page.locator('[data-testid="plan-signin-btn"]')
     expect(signin_btn).to_be_visible(timeout=8000)
     signin_btn.click()
@@ -380,7 +381,7 @@ def test_seeded_tokens_render_connected_state_and_stubbed_reauth_message(
         ),
     )
 
-    page.goto(f"{base_url}#admin/providers/{provider_id}")
+    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
     # Connected state renders from oauth_active (standing affordance present).
     expect(page.locator('[data-testid="plan-connected-indicator"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="plan-reauth-btn"]')).to_be_visible()
@@ -408,7 +409,7 @@ def test_reauthenticate_runs_consent_flow_over_connected_state(
     _stub_models(page, provider_id)
     _block_claude_ai(page)
 
-    page.goto(f"{base_url}#admin/providers/{provider_id}")
+    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
     reauth_btn = page.locator('[data-testid="plan-reauth-btn"]')
     expect(reauth_btn).to_be_visible(timeout=8000)
     reauth_btn.click()
@@ -438,7 +439,7 @@ def test_reset_returns_to_signin_state_and_survives_reload(
     _seed_plan_tokens(data_dir, provider_id)
     _stub_models(page, provider_id)
 
-    page.goto(f"{base_url}#admin/providers/{provider_id}")
+    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
     reset_btn = page.locator('[data-testid="plan-reset-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
     # Two-step inline confirm (canonical destructive-confirm helper).
@@ -460,7 +461,7 @@ def test_reset_returns_to_signin_state_and_survives_reload(
         is False
     )
     # Respected after reload too.
-    page.goto(f"{base_url}#admin/providers/{provider_id}")
+    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
     expect(page.locator('[data-testid="plan-signin-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="plan-connected-indicator"]')).to_have_count(0)
 
@@ -478,7 +479,7 @@ def test_plan_reset_confirm_lapse_is_visually_distinct(
     _seed_plan_tokens(data_dir, provider_id)
     _stub_models(page, provider_id)
 
-    page.goto(f"{base_url}#admin/providers/{provider_id}")
+    _nav.goto(page, base_url, f"settings/providers/{_nav.seg(provider_id)}")
     reset_btn = page.locator('[data-testid="plan-reset-btn"]')
     expect(reset_btn).to_be_visible(timeout=8000)
     expect(reset_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
@@ -520,7 +521,7 @@ def test_legacy_anthropic_provider_renders_no_plan_ui(app_clean: str, page: Page
     )
     assert r.status_code == 201, r.text
     provider_id = r.json()["id"]
-    page.goto(f"{app_clean}#admin/providers/{provider_id}")
+    _nav.goto(page, app_clean, f"settings/providers/{_nav.seg(provider_id)}")
     expect(page.locator(".editor-title")).to_have_text("Claude API", timeout=8000)
     expect(page.locator(".admin-pf-plan-signin")).to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator(".admin-pf-api-key")).not_to_have_class(re.compile(r"\bis-hidden\b"))
@@ -538,7 +539,7 @@ def test_studio_agent_can_select_plan_provider_and_models_populate(
     With no tokens seeded, the backend serves the static-catalog fallback —
     acceptable per the leg spec."""
     provider_id = _seed_plan_provider(app_clean)
-    page.goto(f"{app_clean}#studio")
+    _nav.goto(page, app_clean, "agents")
     page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
     # Sole provider auto-selected (agent-crud precedent).

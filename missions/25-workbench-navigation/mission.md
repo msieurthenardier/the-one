@@ -275,7 +275,7 @@ history but do not appear in the picker, and their drawer shows no settings link
   checkbox, list pane, menu, badge, empty state) with guard extensions; the Design
   language page rebuilt as the library's living reference; the app-wide control
   inventory; the published design system updated.
-- [ ] Flight 2: **Shell and router** — router contract (URL scheme, legacy redirects,
+- [x] Flight 2: **Shell and router** — router contract (URL scheme, legacy redirects,
   history policy); one leave guard covering every navigation path, replacing the
   per-orchestrator copies; the rail; the shared client data layer; the central test
   navigation helper, lane re-mapping and migration of tests and the nine existing behavior

@@ -167,7 +167,6 @@ caught — but it cannot see where the attribute is emitted.
 | `modal-confirm-btn` | shell | |
 | `model-capabilities` | studio | |
 | `model-ctx-chip` | studio | |
-| `nav-chat-btn` | shell | |
 | `new-agent-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
 | `new-chat-btn` | chat | |
 | `new-mcp-source-btn` | studio | Unified create CTA (M17 F3 L3) — always-visible header button |
@@ -215,6 +214,7 @@ caught — but it cannot see where the attribute is emitted.
 | `revision-stale` | studio | Self-configuration staleness (409) panel (M21 F02 L02) |
 | `revision-stale-proposed` | studio | Self-configuration staleness panel proposed value (M21 F02 L02) |
 | `rotate-key-btn` | admin | |
+| `route-announcer` | shell | Visually-hidden polite live region (`role=status`) written by `js/router.js` on a commit that changes destination/section/item (flight 02 review, WCAG 4.1.3) |
 | `save-agent-btn` | studio | |
 | `save-mcp-source-btn` | studio | |
 | `save-provider-btn` | admin | |
@@ -254,6 +254,7 @@ caught — but it cannot see where the attribute is emitted.
 | `tool-card` | admin | |
 | `tool-toggle` | admin | |
 | `trace-shell` | chat | |
+| `ui-demo-modal` | admin | Design language reference page — the live `App.ui.modal` demo's `<dialog>` (M25 F2 L2) |
 
 ## Parametric prefix families
 
@@ -277,6 +278,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-body-` | studio | |
 | `mcp-tools-checkbox-group-` | studio | |
 | `mcp-tools-error-` | studio | |
+| `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
 | `tab-` | admin | |
 
 ## Manual exceptions (variable-carried literals)

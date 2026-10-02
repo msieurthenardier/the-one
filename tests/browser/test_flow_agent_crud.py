@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -28,12 +29,28 @@ from playwright.sync_api import Page, expect
 # testid throughout.
 
 
+def _is_agents_list_get(r) -> bool:
+    return r.request.method == "GET" and r.url.split("?")[0].endswith("/api/agents")
+
+
+def _is_agents_post(r) -> bool:
+    return r.request.method == "POST" and r.url.split("?")[0].endswith("/api/agents")
+
+
 @pytest.mark.browser
 def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> None:
     base_url = app_with_provider.base_url
 
     # 1. Open Studio. Empty state shows "No agents yet".
-    page.goto(f"{base_url}#studio")
+    #    Wait for the network to settle, not just for the empty state to show:
+    #    the empty canvas is painted by the area's init() BEFORE any fetch
+    #    resolves (self._agents starts as []), so "agent-empty visible" is not a
+    #    readiness signal. First activation also runs loadAll() twice (init()
+    #    and activate()->_refresh()); a slow second pass lands after the
+    #    create/delete below and re-renders the grid from a stale list, and a
+    #    click on "New Agent" before loadAll() resolves mounts the create form
+    #    with no providers yet. goto_settled lets both passes finish first.
+    _nav.goto_settled(page, base_url, "agents")
     empty = page.locator('[data-testid="agent-empty"]')
     expect(empty).to_be_visible()
     expect(empty).to_contain_text("No agents yet")
@@ -58,8 +75,14 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     # 8. Fill system prompt.
     page.locator('[data-field="system_prompt"]').fill("You are a test agent.")
 
-    # 9. Click Create.
-    page.locator('[data-testid="save-agent-btn"]').click()
+    # 9. Click Create. The grid is repainted by the loadAll() that follows the
+    #    POST, so wait for that list refetch (a network response, not a timeout).
+    with (
+        page.expect_response(_is_agents_post) as create_resp,
+        page.expect_response(_is_agents_list_get),
+    ):
+        page.locator('[data-testid="save-agent-btn"]').click()
+    assert create_resp.value.status == 201, f"POST failed: {create_resp.value.status}"
 
     # 10. Sidebar contains exactly one new agent item with our name.
     agent_item = page.locator('[data-testid="agent-item"]')
@@ -100,9 +123,14 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     #     expect_response makes a silent re-arm (revert-window expiry under
     #     load) fail loudly as a missing-DELETE timeout instead of a
     #     confusing downstream visibility failure.
-    with page.expect_response(
-        lambda r: "/api/agents/" in r.url and r.request.method == "DELETE"
-    ) as delete_resp:
+    #     The list refetch that repaints the (now empty) grid follows the DELETE;
+    #     wait for it too so the visibility checks below race nothing.
+    with (
+        page.expect_response(
+            lambda r: "/api/agents/" in r.url and r.request.method == "DELETE"
+        ) as delete_resp,
+        page.expect_response(_is_agents_list_get),
+    ):
         delete_btn.click()
     assert delete_resp.value.status == 200, (
         f"DELETE failed: {delete_resp.value.status} {delete_resp.value.text()}"
@@ -123,10 +151,8 @@ def test_delete_agent_confirm_lapse_is_visually_distinct(
     Delete confirm (`studio.js:2080`) is distinguishable on screen from one
     that was never armed, past the real 3s `revertMs`."""
     base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    _nav.goto(page, base_url, "agents")
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )

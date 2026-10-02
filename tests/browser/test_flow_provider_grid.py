@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -32,7 +33,7 @@ from playwright.sync_api import Page, expect
 def test_provider_grid_page_header_empty_state(app_clean: str, page: Page) -> None:
     """EMPTY state: the unified header CTA is visible with its text label;
     the empty canvas renders a second instance of the same component."""
-    page.goto(f"{app_clean}#admin/providers")
+    _nav.goto(page, app_clean, "settings/providers")
     expect(page.locator(".area-admin .page-header")).to_be_visible(timeout=8000)
     expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers")
     header_cta = page.locator('[data-testid="new-provider-btn"]')
@@ -46,7 +47,7 @@ def test_provider_grid_page_header_empty_state(app_clean: str, page: Page) -> No
 @pytest.mark.browser
 def test_provider_grid_page_header_populated(app_with_provider: SeededApp, page: Page) -> None:
     """POPULATED state: the same unified header CTA is visible."""
-    page.goto(f"{app_with_provider.base_url}#admin/providers")
+    _nav.goto(page, app_with_provider.base_url, "settings/providers")
     expect(page.locator(".area-admin .page-header")).to_be_visible(timeout=8000)
     expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers")
     header_cta = page.locator('[data-testid="new-provider-btn"]')
@@ -56,7 +57,7 @@ def test_provider_grid_page_header_populated(app_with_provider: SeededApp, page:
 
 @pytest.mark.browser
 def test_provider_grid_empty_state(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/providers")
+    _nav.goto(page, app_clean, "settings/providers")
     expect(page.locator(".admin-provider-empty")).to_be_visible(timeout=8000)
     expect(page.locator(".admin-provider-empty")).to_contain_text("No providers configured")
 
@@ -64,7 +65,7 @@ def test_provider_grid_empty_state(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_provider_grid_renders_tiles(app_with_provider: SeededApp, page: Page) -> None:
     """The seed_mock_provider helper creates a provider named 'mock' (default)."""
-    page.goto(f"{app_with_provider.base_url}#admin/providers")
+    _nav.goto(page, app_with_provider.base_url, "settings/providers")
     tile = page.locator('[data-testid="provider-card"]')
     expect(tile).to_be_visible(timeout=8000)
     expect(tile).to_have_class(re.compile(r"\bentity-tile\b"))
@@ -79,12 +80,12 @@ def test_provider_grid_renders_tiles(app_with_provider: SeededApp, page: Page) -
 def test_new_provider_canvas_cta_navigates_to_new_url(app_clean: str, page: Page) -> None:
     """EMPTY state: the in-canvas duplicate CTA opens the create editor
     (same handler as the header CTA)."""
-    page.goto(f"{app_clean}#admin/providers")
+    _nav.goto(page, app_clean, "settings/providers")
     expect(page.locator(".empty-canvas .empty-canvas-cta")).to_be_visible(timeout=8000)
     page.locator(".empty-canvas .empty-canvas-cta").click()
     # Editor opens (post-leg-03 uses .editor-title with "New Provider").
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/providers/new"
+    _nav.expect_route(page, "settings/providers/~new")
 
 
 @pytest.mark.browser
@@ -92,79 +93,76 @@ def test_new_provider_header_cta_navigates_to_new_url(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     """POPULATED state: the unified header CTA opens the create editor."""
-    page.goto(f"{app_with_provider.base_url}#admin/providers")
+    _nav.goto(page, app_with_provider.base_url, "settings/providers")
     expect(page.locator('[data-testid="new-provider-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="new-provider-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/providers/new"
+    _nav.expect_route(page, "settings/providers/~new")
 
 
 @pytest.mark.browser
 def test_create_url_refresh_preserves_create_mode(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.reload()
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
-    assert page.evaluate("location.hash") == "#admin/providers/new"
+    _nav.expect_route(page, "settings/providers/~new")
 
 
 @pytest.mark.browser
 def test_tile_click_navigates_to_provider_detail(app_with_provider: SeededApp, page: Page) -> None:
-    page.goto(f"{app_with_provider.base_url}#admin/providers")
+    _nav.goto(page, app_with_provider.base_url, "settings/providers")
     tile = page.locator('[data-testid="provider-card"]')
     expect(tile).to_be_visible(timeout=8000)
     tile.click()
     # Post-leg-03: editor title is the provider name (seeded "mock"), not "Edit Provider".
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=5000)
-    current_hash = page.evaluate("location.hash")
-    assert current_hash.startswith("#admin/providers/"), (
-        f"expected /providers/<id>, got {current_hash}"
-    )
-    # The id portion should not be 'new' (we clicked an existing tile)
-    suffix = current_hash[len("#admin/providers/") :]
-    assert suffix != "new"
+    route = _nav.current_route(page)
+    assert route.startswith("settings/providers/"), f"expected /providers/<id>, got {route}"
+    # The id portion should not be the create segment (we clicked an existing tile)
+    suffix = route[len("settings/providers/") :]
+    assert suffix != "~new"
 
 
 @pytest.mark.browser
 def test_provider_detail_url_refresh_preserves_editor(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    page.goto(f"{app_with_provider.base_url}#admin/providers")
+    _nav.goto(page, app_with_provider.base_url, "settings/providers")
     tile = page.locator('[data-testid="provider-card"]')
     expect(tile).to_be_visible(timeout=8000)
     tile.click()
     # Post-leg-03: editor title is the provider name (seeded "mock").
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=5000)
-    saved_hash = page.evaluate("location.hash")
+    saved_route = _nav.current_route(page)
     page.reload()
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=8000)
-    assert page.evaluate("location.hash") == saved_hash
+    _nav.expect_route(page, saved_route)
 
 
 @pytest.mark.browser
 def test_cancel_from_create_returns_to_grid(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/providers/new")
+    _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     # Clean form — Cancel disabled, use Back to return to the grid.
     page.locator('[data-testid="back-provider-btn"]').click()
     expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
 def test_unknown_provider_id_falls_back_to_grid(app_clean: str, page: Page) -> None:
-    """Unknown id keeps URL stable; grid renders with no tile selected."""
+    """An unknown provider id (legacy deep link) redirects, then heals to the grid.
+
+    The legacy `#admin/providers/<bogus>` redirects to `settings/providers/<bogus>`;
+    the id is absent from the fresh provider fetch, so the dead pending id is
+    never kept: the URL heals to `settings/providers` and the grid renders with
+    no tile selected.
+    """
+    # legacy URL on purpose (AC6)
     page.goto(f"{app_clean}#admin/providers/00000000-bogus-id-0000-000000000000")
-    # No providers exist (app_clean), so the grid renders empty state and
-    # the unknown id is held in pending-state pending future fetch resolution.
+    # No providers exist (app_clean), so the grid renders the empty state.
     # The page should NOT crash; either grid or empty-state should show.
     fallback = page.locator(".area-admin .page-header, .editor-error").first
     expect(fallback).to_be_visible(timeout=8000)
-    # URL is not silently overwritten — the pending-id is held
-    current_hash = page.evaluate("location.hash")
-    # Either the URL stays at the unknown id, or the F3 router replaceState
-    # rewrites to #admin/providers (no editor open). Both are acceptable.
-    assert current_hash in (
-        "#admin/providers/00000000-bogus-id-0000-000000000000",
-        "#admin/providers",
-    )
+    _nav.expect_route(page, "settings/providers")

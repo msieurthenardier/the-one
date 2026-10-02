@@ -44,6 +44,7 @@ import re
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
@@ -95,10 +96,8 @@ def _create_kb(base_url: str, name: str) -> dict:
 
 
 def _open_agent_editor(base_url: str, page: Page) -> None:
-    page.goto(f"{base_url}#studio")
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
-        timeout=8000
-    )
+    _nav.goto(page, base_url, "agents")
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
@@ -421,7 +420,7 @@ def test_create_mode_attach_sends_no_stored_union(app_with_provider: SeededApp, 
     base_url = app_with_provider.base_url
     kb = _create_kb(base_url, "Create-mode KB")
 
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent")
     page.locator('[data-field="name"]').fill("create-mode-attach-agent")
@@ -477,7 +476,7 @@ def test_rename_hint_and_empty_refusal_mirror_create_form(app_clean: str, page: 
     refusal behave exactly like the inventory create form's (Leg 1) —
     empty refused client-side, over-length warned but accepted."""
     kb = _create_kb(app_clean, "Rename Me")
-    page.goto(f"{app_clean}#studio/knowledge/{kb['id']}")
+    _nav.goto(page, app_clean, f"library/knowledge/{_nav.seg(kb['id'])}")
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
 
     name_input = page.locator('[data-testid="kb-name-input"]')
@@ -530,7 +529,7 @@ def test_rename_updates_tool_name_and_disabled_tools_on_agent_editor(
     # Rename via the inventory's own UI control (M24 F06 L06's always-live
     # Name + Description fields, restyling M24 F06 L05's edit form, itself
     # a replacement of the F06 L03 rename-only affordance).
-    page.goto(f"{base_url}#studio/knowledge/{kb['id']}")
+    _nav.goto(page, base_url, f"library/knowledge/{_nav.seg(kb['id'])}")
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="kb-name-input"]').fill("Post-Rename Name")
     page.locator('[data-testid="save-knowledge-btn"]').click()

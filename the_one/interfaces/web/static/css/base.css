@@ -6,28 +6,20 @@
      page-level vertical scrolling. Without this, flex children with
      min-height: auto can push body's content past 100vh, surfacing a
      document-level scrollbar that runs the full viewport height (visible
-     even behind the topbar). */
+     even behind the rail). */
   body { font-family: var(--font-family-sans); background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-  /* === Top Bar === */
-  #app-topbar {
-    height: var(--topbar-h);
-    background: var(--nav-bg);
-    border-bottom: 1px solid var(--nav-border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 16px;
-    flex-shrink: 0;
-  }
-
-  /* === App Shell Row (sidebar + content) === */
+  /* === App Shell Row (rail + sidebar + content) === */
+  /* A flex row, not a grid: a hidden aside would otherwise let <main>
+     auto-place into the aside's track. The rail mounts in #app-rail; the
+     aside is [hidden] on destinations with no sidebar content (Agents). */
   .app-shell-row {
     display: flex;
     flex: 1;
     min-height: 0;
     overflow: hidden;
   }
+  #app-rail { display: flex; flex-shrink: 0; min-height: 0; }
 
   /* === Sidebar === */
   #app-sidebar {
@@ -39,6 +31,15 @@
     flex-shrink: 0;
     overflow: hidden;
     padding-top: 10px;
+  }
+  /* The router hides the aside on destinations with no sidebar content
+     (Agents); the author display above would otherwise defeat [hidden]. */
+  #app-sidebar[hidden] { display: none; }
+  /* Design target is >= 1280px (aside 240px). Down to the 1024px supported
+     minimum the aside narrows to 200px; below 1024px is unsupported (body
+     keeps overflow: hidden, so there is no horizontal scroll). */
+  @media (max-width: 1279px) {
+    #app-sidebar { width: 200px; }
   }
   .sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
   .sidebar-panel.active { display: flex; }

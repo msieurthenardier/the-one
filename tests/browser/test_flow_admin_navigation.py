@@ -13,36 +13,37 @@ Covers:
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
 def test_admin_redirect_root_to_general(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin")
+    page.goto(f"{app_clean}#admin")  # legacy URL on purpose: proves the redirect (AC6)
     expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
-    assert page.evaluate("location.hash") == "#admin/general"
+    _nav.expect_route(page, "settings/general")
 
 
 @pytest.mark.browser
 def test_admin_legacy_system_redirects_to_general(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/system")
+    page.goto(f"{app_clean}#admin/system")  # legacy URL on purpose: proves the redirect (AC6)
     expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
-    assert page.evaluate("location.hash") == "#admin/general"
+    _nav.expect_route(page, "settings/general")
 
 
 @pytest.mark.browser
 def test_admin_picker_click_from_providers_redirects_to_general(app_clean: str, page: Page) -> None:
-    """Clicking the Settings picker while already in admin (from /providers)
+    """Clicking the Settings rail link while already in admin (from /providers)
     sets bare `#admin` — must redirect to `#admin/general`, not strand the URL.
 
     Regression test for the F6 HAT bug: same-area sub-change skipped the
     serialize-replace block, leaving the URL at bare `#admin`.
     """
-    page.goto(f"{app_clean}#admin/providers")
+    _nav.goto(page, app_clean, "settings/providers")
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
-    page.evaluate("location.hash = '#admin'")
+    _nav.set_route(page, "settings")
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/general"
+    _nav.expect_route(page, "settings/general")
 
 
 @pytest.mark.browser
@@ -60,7 +61,7 @@ def test_admin_section_nav_renders_three_sections(app_clean: str, page: Page) ->
     studio = user-managed). Design Language is a dev_mode-only 4th entry.
     This test asserts the 3 always-present sections by label.
     """
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     nav = page.locator(".area-admin .section-nav")
     expect(nav).to_be_visible(timeout=5000)
     # Assert the 3 stable (non-dev-mode) sections are present in order.
@@ -73,26 +74,26 @@ def test_admin_section_nav_renders_three_sections(app_clean: str, page: Page) ->
 
 @pytest.mark.browser
 def test_admin_section_nav_click_changes_url(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
     page.locator(".area-admin .section-nav-item", has_text="LLM Providers").click()
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
 def test_admin_refresh_preserves_section(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/providers")
+    _nav.goto(page, app_clean, "settings/providers")
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
     page.reload()
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")
 
 
 @pytest.mark.browser
 def test_admin_section_nav_keyboard(app_clean: str, page: Page) -> None:
     """Tab into nav, Down arrow moves focus, Enter activates."""
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
 
     # Tab focuses the active item (General).
@@ -108,4 +109,4 @@ def test_admin_section_nav_keyboard(app_clean: str, page: Page) -> None:
     # Enter activates.
     page.keyboard.press("Enter")
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/providers"
+    _nav.expect_route(page, "settings/providers")

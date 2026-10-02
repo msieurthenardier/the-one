@@ -131,7 +131,7 @@ def test_chat_renders_peer_attribution(
     )
 
     # Deep-link to the seeded session.
-    page.goto(f"{base_url}#chat/sessions/{session_id}")
+    page.goto(f"{base_url}#chat/sessions/{session_id}")  # legacy URL on purpose (AC6)
 
     # Wait for the chat chrome (deep-link path renders straight into chrome).
     expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)

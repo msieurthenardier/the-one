@@ -79,6 +79,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from browser import _nav
 from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
@@ -102,7 +103,10 @@ def _wait_studio_ready(page: Page) -> None:
 
 
 def _goto_knowledge_grid(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#studio/knowledge")
+    # State-driven readiness (fetch activity quiet) rather than a fixed 8s
+    # section-nav wait: under load the boot outlasted it once in the leg-1 lane
+    # run (same slow-boot class as the four fixed flakes).
+    _nav.goto_settled(page, app_clean, "library/knowledge")
     _wait_studio_ready(page)
     expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
 
@@ -199,7 +203,7 @@ def test_delete_knowledge_base_via_confirm_affordance(app_clean: str, page: Page
     # once onDeleteSuccess has actually run.
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_have_count(0, timeout=5000)
     expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible()
-    assert page.evaluate("location.hash") == "#studio/knowledge"
+    _nav.expect_route(page, "library/knowledge")
     expect(page.locator('[data-testid="knowledge-base-card"]', has_text="Delete Me")).to_have_count(
         0
     )
@@ -214,17 +218,16 @@ def test_detail_view_routing_full_reload_and_back(app_clean: str, page: Page) ->
 
     page.locator('[data-testid="knowledge-base-card"]', has_text="Routing KB").click()
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
-    detail_hash = page.evaluate("location.hash")
-    assert detail_hash.startswith("#studio/knowledge/")
+    detail_route = _nav.current_route(page)
+    assert detail_route.startswith("library/knowledge/")
 
     page.reload()
     _wait_studio_ready(page)
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == detail_hash
-
+    _nav.expect_route(page, detail_route)
     page.locator('[data-testid="back-knowledge-btn"]').click()
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_have_count(0)
-    assert page.evaluate("location.hash") == "#studio/knowledge"
+    _nav.expect_route(page, "library/knowledge")
 
 
 @pytest.mark.browser
@@ -305,7 +308,7 @@ def test_item_row_failed_status_error_and_standalone_badge(
         },
     )
 
-    page.goto(f"{base_url}#studio/knowledge/{kb_id}")
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): neither item has a real `parent_id`, so both land in
     # the trailing "Other items" panel (L6-D2 chosen option (a)) rather
@@ -376,7 +379,7 @@ def test_chunks_open_in_seq_order_and_source_not_prefetched(
 
     page.on("request", _on_request)
 
-    page.goto(f"{base_url}#studio/knowledge/{kb_id}")
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): no `parent_id` set, so the item lands in the
     # trailing "Other items" panel — expand it before interacting with the
@@ -612,7 +615,7 @@ def test_poll_stops_on_same_area_and_cross_area_navigation(
 
     page.on("request", _on_request)
 
-    page.goto(f"{base_url}#studio/knowledge/{kb_id}")
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
     # The initial mount fetch.
@@ -641,7 +644,7 @@ def test_poll_stops_on_same_area_and_cross_area_navigation(
     expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=5000)
     count_before_area_switch = len(status_requests)
 
-    page.locator('[data-testid="nav-chat-btn"]').click()
+    _nav.open_destination(page, "chats")
     expect(page.locator('[data-testid="chat-welcome"]')).to_be_visible(timeout=8000)
     time.sleep(6)  # longer than one 5s poll interval
     assert len(status_requests) == count_before_area_switch, (
@@ -700,7 +703,7 @@ def test_items_list_catches_up_when_backend_changes_while_mounted(
 
     page.on("request", _on_request)
 
-    page.goto(f"{base_url}#studio/knowledge/{kb_id}")
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): no `parent_id` set, so the item lands in the
     # trailing "Other items" panel — expand it so its row is interactable.
@@ -1034,7 +1037,7 @@ def test_item_overflow_menu_keyboard_operable(
         },
     )
 
-    page.goto(f"{base_url}#studio/knowledge/{kb_id}")
+    _nav.goto_settled(page, base_url, f"library/knowledge/{_nav.seg(kb_id)}")
     _wait_studio_ready(page)
     # Leg 6 (restyle): no `parent_id` set, so the item lands in the
     # trailing "Other items" panel — expand it before interacting.

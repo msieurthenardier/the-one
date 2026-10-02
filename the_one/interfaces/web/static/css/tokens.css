@@ -58,6 +58,9 @@
        would surface a light scrollbar on the dark app, and vice-versa. */
     color-scheme: dark;
 
+    /* modal scrim (::backdrop): an rgba wash, so it stays out of the hex mirror */
+    --scrim: rgba(0, 0, 0, 0.5);
+
     /* surfaces — lifted charcoal ladder (bg → surface → surface-elevated) */
     --bg: #101114;
     --surface: #17181c;
@@ -195,8 +198,6 @@
 
     /* density-and-geometry */
     --sidebar-w: 240px;
-    /* topbar height — chrome strip across the top of the shell */
-    --topbar-h: 48px;
     /* toggle control width — used by admin toggle inputs (e.g. built-in tools,
        system settings) for padding-left alignment of adjacent labels. */
     --toggle-width: 36px;
@@ -204,6 +205,8 @@
 
   [data-theme="light"] {
     color-scheme: light;
+
+    --scrim: rgba(0, 0, 0, 0.3);
 
     /* surfaces — white/near-white neutral ladder */
     --bg: #ffffff;
@@ -341,8 +344,6 @@
 
     /* density-and-geometry */
     --sidebar-w: 240px;
-    /* topbar height — chrome strip across the top of the shell */
-    --topbar-h: 48px;
     /* toggle control width — matches dark theme definition */
     --toggle-width: 36px;
   }

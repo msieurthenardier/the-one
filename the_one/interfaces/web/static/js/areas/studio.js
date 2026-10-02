@@ -3,7 +3,6 @@ App.registerArea({
   label: 'Agent Studio',
   icon: App.icons.studio,
   order: 20,
-  sidebarLabel: 'Agent list',
 
   // ── Hash-routing serialize/hydrate ──────────────────────────────────
   //
@@ -44,6 +43,16 @@ App.registerArea({
       }
       return 'mcp-sources';
     }
+    // A pending selection wins over the agent currently open: an item hydrate
+    // (go(), traversal, typed hash) names the target BEFORE doSelect seats it,
+    // and a fresh hydrate resolves it only after the list fetch, so the open
+    // agent must not overwrite the URL that was just written.
+    if (this._activeSection === 'agents' && this._pendingSelectName) {
+      return 'agents/' + encodeURIComponent(this._pendingSelectName) +
+        '/' + (this._activeTab || 'general') +
+        (this._activeTab === 'mcps' && this._pendingMcpAgentSourceId
+          ? '/' + encodeURIComponent(this._pendingMcpAgentSourceId) : '');
+    }
     if (this._activeSection === 'agents' && this._selectedAgent && !this._createMode) {
       var base = 'agents/' + encodeURIComponent(this._selectedAgent.name) +
         '/' + (this._activeTab || 'general');
@@ -54,24 +63,26 @@ App.registerArea({
       }
       return base;
     }
-    // Hydrate-before-loadAll race: when the user lands on
-    // #studio/agents/{name}/{tab} but agents fetch hasn't completed,
-    // _selectedAgent is null even though we already know the target.
-    // Without this branch, the F3 router's serialize-after-hydrate would
-    // clobber the URL to #studio/agents before tryConsumePendingSelect
-    // resolves. Returning the deep form keeps the URL stable.
-    if (this._activeSection === 'agents' && this._pendingSelectName) {
-      return 'agents/' + encodeURIComponent(this._pendingSelectName) +
-        '/' + (this._activeTab || 'general');
-    }
     return 'agents';
   },
 
-  // hydrateState parses sub and updates the area's _activeSection + pending
-  // agent selection state. After hydrate returns, the F3 router at
-  // app.js:179-185 calls serializeState and writes URL via replaceState if
-  // serialized !== sub (idempotent). Therefore hydrate MUST NOT call
-  // _writeUrl itself — pass {writeUrl: false} when calling setActiveSection.
+  // hydrateState parses sub and drives the area to exactly that sub. It is
+  // called by the router (App.router, commit-sequence step 7) with the AREA-level
+  // sub of the destination being shown: `agents[/...]` (Agents destination) or
+  // `knowledge|mcp-sources|connectors[/...]` (Library). After hydrate returns,
+  // the router calls serializeState and `sync`s the URL (idempotent), so
+  // hydrate MUST NOT write the URL itself -- hence {writeUrl: false}.
+  //
+  // Section-root subs ('agents', 'knowledge', 'mcp-sources', 'connectors')
+  // render EXACTLY the root: any open item or create form is closed
+  // (closeOpenItem), including URL-less ones. Item subs open the item through
+  // the pending-* paths.
+  //
+  // M25 F2 L3 (a): the previous section is captured BEFORE the section
+  // changes and passed to _setActiveSection, which owns the outgoing-section
+  // cleanup. hydrateState used to assign `_activeSection` itself, so inside
+  // _setActiveSection prevSection always equalled section on this path and the
+  // cleanup never ran -- the root of the Agents/Library leak.
   //
   // F5 leg 03: extended to parse 'agents/<name>/<tab>'. Four cases:
   //   - 'agents/{name}'         → activeTab='general' (router rewrites URL)
@@ -81,24 +92,31 @@ App.registerArea({
   // Encoding note: agent names with literal '/' are encoded as '%2F' by
   // encodeURIComponent, so rest.indexOf('/') unambiguously finds the segment
   // separator.
-  hydrateState: function (sub) {
+  hydrateState: function (sub, opts) {
+    // `fresh` is the router's hydrate ORIGIN (M25 F2 L4): true for a traversal,
+    // a typed hash and boot -- an item named by the URL may have been deleted
+    // since, so it is resolved against a FRESH fetch (a dead id heals to the
+    // section root); false for an intent go() -- the cached list the user just
+    // clicked in is used, nothing is refetched and the section root is not
+    // re-rendered.
+    var fresh = !!(opts && opts.fresh);
     var section = 'agents';
+    var prev = this._activeSection;
+    var pendingMcpAgentSourceId = null;
     var pending = null;
     var pendingTab = 'general';
     var pendingMcpSourceId_local = null;
     var pendingMcpSourceFormMode_local = null;
+    var closeOpenItem = this._closeOpenItem || function () {};
     if (sub === 'knowledge') {
       section = 'knowledge';
-      // F4 L7-style bare-URL defensive clear (mirrors the 'agents'/
-      // '!sub' branch below): re-entering the bare section always shows
-      // the grid, never a stale detail-view selection from a prior
-      // navigation within the same area lifecycle.
-      this._selectedKbId = null;
+      closeOpenItem();
     } else if (sub && sub.indexOf('knowledge/') === 0) {
       // Flight 6 leg 1 (L1-D1): direct-load on knowledge/{kb_id} — parse
       // the id so the detail view opens on refresh, mirroring the
       // mcp-sources/{id} parsing immediately below.
       section = 'knowledge';
+      this._kbFresh = fresh;  // read once by renderKnowledgeDetailView
       var krest = sub.slice('knowledge/'.length);
       if (krest.charAt(krest.length - 1) === '/') krest = krest.slice(0, -1);
       var kslashIdx = krest.indexOf('/');
@@ -106,8 +124,10 @@ App.registerArea({
       this._selectedKbId = krest ? decodeURIComponent(krest) : null;
     } else if (sub === 'connectors') {
       section = 'connectors';
+      closeOpenItem();
     } else if (sub === 'mcp-sources') {
       section = 'mcp-sources';
+      closeOpenItem();
     } else if (sub === 'mcp-sources/new') {
       section = 'mcp-sources';
       pendingMcpSourceFormMode_local = 'add';
@@ -141,7 +161,6 @@ App.registerArea({
         // four-tab whitelist check. Without this, the whitelist would
         // reject "mcps/some-uuid" and default to "general", breaking
         // deep-link navigation (AC L3.6 + Browser Test 6).
-        var pendingMcpAgentSourceId = null;
         if (tab.indexOf('mcps/') === 0) {
           pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
           tab = 'mcps';
@@ -151,27 +170,24 @@ App.registerArea({
         } else {
           pendingTab = 'general';
         }
-        this._pendingMcpAgentSourceId = pendingMcpAgentSourceId;  // consumed by renderMcpsTab
       }
     } else if (sub === 'agents' || !sub) {
       section = 'agents';
-      // F4 L7 (M08): bare URL (#studio or #studio/agents) means "show the
-      // grid" — clear any stale editor state from a prior navigation
-      // within the same area lifecycle. Without this, returning from
-      // another area (e.g. #chat) while Studio's last sub was an agent
-      // detail leaves the editor mounted even when the URL is bare.
-      this._selectedAgent = null;
-      this._createMode = false;
+      // Section root: show the grid -- close any open editor or create form
+      // and drop a stale pending selection (a hydrate-before-loadAll target
+      // would otherwise re-open its agent when the list arrives).
+      closeOpenItem();
+      this._pendingSelectName = null;
+      this._pendingTabName = null;
+      pendingTab = 'general';
     } else {
       // Defensive: unrecognized sub defaults to 'agents'. Do NOT throw.
       section = 'agents';
     }
-    this._activeSection = section;
     this._activeTab = pendingTab;
     if (pending) {
       this._pendingSelectName = pending;
       this._pendingTabName = pendingTab;
-      if (this._tryConsumePendingSelect) this._tryConsumePendingSelect();
     } else if (section !== 'agents') {
       this._pendingSelectName = null;
       this._pendingTabName = null;
@@ -180,14 +196,41 @@ App.registerArea({
     // not mcp-sources/...) so navigation away clears stale pending.
     this._pendingMcpSourceId = pendingMcpSourceId_local;
     this._pendingMcpSourceFormMode = pendingMcpSourceFormMode_local;
-    if (this._setActiveSection) {
-      this._setActiveSection(section, { writeUrl: false });
+    // The MCPs tab's source focus: the URL's value (or none) replaces the
+    // previous one, so `#agents/x/mcps/s2` while on s1 focuses s2.
+    this._pendingMcpAgentSourceId = pendingMcpAgentSourceId;
+    this._selectedMcpAgentSourceId = pendingMcpAgentSourceId;
+
+    // Item subs inside the section that is already showing do not re-render the
+    // section root (no grid flash, no list refetch): the consume paths below
+    // render the item themselves.
+    var skipSectionRender = false;
+    if (prev === section) {
+      if (pending) {
+        skipSectionRender = true;
+      } else if (section === 'mcp-sources' && pendingMcpSourceFormMode_local) {
+        if (fresh) {
+          // A fresh hydrate closes the open form so the section re-renders its
+          // grid, refetches, and resolves the id against the fetched list.
+          if (this._closeMcpForm) this._closeMcpForm();
+        } else if (this._tryConsumePendingMcpSource) {
+          skipSectionRender = this._tryConsumePendingMcpSource(true);
+        }
+      }
     }
+    // The section change (and the outgoing section's cleanup) happens HERE,
+    // before the pending agent is consumed: doSelect requires the Agents
+    // section to be active.
+    if (!skipSectionRender && this._setActiveSection) {
+      this._setActiveSection(section, { writeUrl: false, prev: prev });
+    }
+    if (pending && this._tryConsumePendingSelect) this._tryConsumePendingSelect(fresh);
     // Within-mcp-sources sub-navigation (e.g. mcp-sources → mcp-sources/new)
     // doesn't change _activeSection, so _setActiveSection's renderContent
-    // path won't re-enter the editor branch. Fire consume unconditionally
-    // so within-section direct-loads open the editor.
-    if (this._tryConsumePendingMcpSource) this._tryConsumePendingMcpSource();
+    // path won't re-enter the editor branch. Fire consume so within-section
+    // direct-loads open the editor -- a create form needs no list, an existing
+    // source is taken from the cache only for a non-fresh (intent) hydrate.
+    if (this._tryConsumePendingMcpSource) this._tryConsumePendingMcpSource(!fresh);
   },
 
   init: function (sidebar, content) {
@@ -232,7 +275,7 @@ App.registerArea({
     // and its poll-timer handle. `self._selectedKbId` may already be set
     // by a pre-init hydrateState call (mirrors `_pendingSelectName`'s
     // `|| null` preserve, though in this codebase's actual boot order
-    // init() always runs first — see app.js::switchTo).
+    // init() always runs first — app.js mounts the area before the router hydrates it).
     self._selectedKbId = self._selectedKbId || null;
     self._knowledgePollTimer = null;
     var dirty = false;
@@ -240,6 +283,13 @@ App.registerArea({
     // Tab handle returned by App.studio.renderAgentEditor — used for
     // imperative activate(tabId) calls after hydrate.
     var tabHandle = null;
+    // Monotonic token: an in-flight doSelect completes only while it is still
+    // the latest select AND the user is still on Agents (closeOpenItem and the
+    // outgoing-section cleanup bump it).
+    var selectSeq = 0;
+    // Discard generation (M25 F2 L5): closeOpenItem bumps it; async editor resolvers
+    // (saves, type waits) captured under an older one must not resurrect state.
+    var editorGen = 0;
 
     // ── MCP Sources state (post-F2 retrofit; relocated from admin.js) ───
     // The MCP Servers section was originally an admin.js sub-section
@@ -289,30 +339,6 @@ App.registerArea({
     var connectors = null; // null until first fetch resolves
     var connectorFormMode = null; // null | 'add' | 'edit'
     var editingConnector = null;
-
-    // ── beforeunload listener (F5 leg 04) ────────────────────────────────
-    //
-    // Registered ONCE at init() time (init runs once per area lifetime,
-    // gated by app.js's initialized[areaId] check). The closure `dirty` flag
-    // is the sole gate — when in another area, dirty is false because the
-    // editor isn't mounted; when in studio with unsaved changes, dirty is
-    // true and the listener calls e.preventDefault(); e.returnValue = ''.
-    //
-    // **Do NOT remove on deactivate()** — deactivate runs on every cross-area
-    // transition, so removing there would silently break tab-close
-    // protection after a chat → studio → chat round-trip. The closure-flag
-    // gate handles all cases.
-    //
-    // Modern browsers ignore the custom returnValue string and show a
-    // generic "Leave site?" dialog; setting returnValue = '' is the modern
-    // incantation that triggers the prompt.
-    window.addEventListener('beforeunload', function (e) {
-      if (dirty) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    });
 
     var TOOL_CATEGORIES = {
       'Filesystem': ['read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'mkdir', 'glob', 'grep', 'list_dir'],
@@ -366,90 +392,36 @@ App.registerArea({
 
     // ── Section navigation ─────────────────────────────────────────────
 
+    // M25 F2 L3 (c): the section nav serves LIBRARY only -- Knowledge, MCP
+    // servers and Connectors. Agents has no section nav (the aside is hidden
+    // on that destination). It is rendered ONCE (renderSectionNav is
+    // single-mount). A selection is a user INTENT routed through the router,
+    // whose leave guard asks about unsaved changes exactly once; the former
+    // in-area dirty gate and its commit() cleanup are gone (the cleanup now
+    // lives in setActiveSection / closeOpenItem). Clicking the current
+    // section goes to that section's root, which closes an open item.
+    var LIBRARY_ROUTE_SECTION = {
+      'knowledge': 'knowledge',
+      'mcp-sources': 'mcp',
+      'connectors': 'connectors'
+    };
     App.layout.renderSectionNav(sectionNavEl, [
-      { id: 'agents', label: 'Agents' },
       { id: 'knowledge', label: 'Knowledge' },
-      // Post-F2 retrofit: replaced 'Tools' stub (id: 'tools') with the
-      // real MCP Servers section (id: 'mcp-sources'). The URL slug uses
-      // 'mcp-sources' (matches the /api/mcp-sources REST path) while the
-      // user-facing label uses "MCP Servers" (mirrors the storage entity
-      // vs. UI label asymmetry from M07 F1).
+      // The URL slug uses 'mcp-sources' at the area level (matches the
+      // /api/mcp-sources REST path); the user-facing label is "MCP Servers".
       { id: 'mcp-sources', label: 'MCP Servers' },
-      // Mission 23 Flight 2 Leg 2: reinstates a "Connectors" nav entry
-      // (present M10 through Mission 23 Flight 1, which reset the
-      // connector subsystem and removed it along with the routes).
+      // Mission 23 Flight 2 Leg 2: reinstates a "Connectors" nav entry.
       { id: 'connectors', label: 'Connectors' }
     ], self._activeSection, {
       onSelect: function (section) {
-        // F4 L5: delegate to _confirmLeaveImpl (single source of truth).
-        // Mirrors admin.js's setCategory which also routes through
-        // _confirmLeaveImpl. The empty-function abort is intentional:
-        // same-area sidebar nav doesn't need to roll back state on cancel
-        // (the dialog just closes; setActiveSection never fires).
-        //
-        // F4 L7 (M08): clicking the same section's nav item while an
-        // editor is mounted should treat the click as "back to grid" —
-        // clear editor state so updateContentVisibility shows the grid.
-        // Without this, setActiveSection re-renders the grid behind a
-        // still-mounted editor and the operator sees no change.
-        var commit = function () {
-          // Clear editor state of the OUTGOING section when leaving
-          // (so re-entering lands on the grid, not the prior editor).
-          // M10 F6 L7 HAT: prior logic only cleared state on
-          // same-section reclicks, so re-entering Agents after visiting
-          // another section restored the previously-edited agent's editor
-          // (incl. tab). Routing should land on the listing instead.
-          var prev = self._activeSection;
-          if (prev !== section) {
-            if (prev === 'agents' && (self._selectedAgent || self._createMode)) {
-              self._selectedAgent = null;
-              self._createMode = false;
-              dirty = false;
-            } else if (prev === 'mcp-sources' && mcpSourceFormMode) {
-              mcpSourceFormMode = null;
-              editingMcpSource = null;
-              dirty = false;
-            } else if (prev === 'connectors' && connectorFormMode) {
-              connectorFormMode = null;
-              editingConnector = null;
-              dirty = false;
-            } else if (prev === 'knowledge' && self._selectedKbId) {
-              self._selectedKbId = null;
-              dirty = false;
-            }
-          } else {
-            // Same-section reclick: treat as "back to grid".
-            if (section === 'agents' && (self._selectedAgent || self._createMode)) {
-              self._selectedAgent = null;
-              self._createMode = false;
-              dirty = false;
-            } else if (section === 'mcp-sources' && mcpSourceFormMode) {
-              mcpSourceFormMode = null;
-              editingMcpSource = null;
-              dirty = false;
-            } else if (section === 'connectors' && connectorFormMode) {
-              connectorFormMode = null;
-              editingConnector = null;
-              dirty = false;
-            } else if (section === 'knowledge' && self._selectedKbId) {
-              // setActiveSection's own reset block only fires on a section
-              // CHANGE (prevSection !== section), so a same-section reclick
-              // needs the poll cleared here too — the grid render below
-              // would otherwise leave the detail view's timer running.
-              clearKnowledgePoll();
-              knowledgeDetailHandle = null;
-              self._selectedKbId = null;
-              dirty = false;
-            }
-          }
-          setActiveSection(section);
-        };
-        self._confirmLeaveImpl(commit, function () {});
+        App.router.go(App.router.href({
+          destination: 'library',
+          section: LIBRARY_ROUTE_SECTION[section]
+        }));
       },
-      // Sidebar header omitted — the topbar's area buttons already name the
-      // active area (highlighted via aria-current="page"), so a duplicate
-      // <h2> in the sidebar is redundant.
-      ariaLabel: 'Agent Studio sections'
+      // Sidebar header omitted — the top bar's destination buttons already
+      // name the active destination (aria-current="page").
+      ariaLabel: 'Library sections'
     });
 
     function renderAgentsSection() {
@@ -549,14 +521,27 @@ App.registerArea({
       return null;
     }
 
+    // A KB tile click is a user INTENT: a pushed history entry (Back returns to
+    // the grid), hydrated through the router with the cached list.
     function selectKnowledgeBase(id) {
-      self._selectedKbId = id;
-      if (window.App && window.App.router) App.router.replaceSub(self.serializeState());
-      renderKnowledgeSection();
+      App.router.go(App.router.href({ destination: 'library', section: 'knowledge', id: id }));
+    }
+
+    // Navigation away from a KB detail that is gone or finished (delete, a 404
+    // poll bounce): a bypass go() REPLACING the detail's entry, so Back does not
+    // land on a dead KB. No leave guard -- the user did not ask to leave.
+    function leaveKnowledgeDetail_() {
+      discardOpen_(); // the detail is for a gone item: tear it down first
+      App.router.go(App.router.href({ destination: 'library', section: 'knowledge' }),
+        { replace: true, bypassGuard: true });
     }
 
     function renderKnowledgeDetailView(kbId) {
-      var cached = findKnowledgeBase(kbId);
+      // A fresh hydrate (traversal, typed hash, boot) skips the cached list: the
+      // KB may have been deleted since it was cached, so it is fetched.
+      var skipCache = self._kbFresh === true;
+      self._kbFresh = false;
+      var cached = skipCache ? null : findKnowledgeBase(kbId);
       if (cached) {
         mountKnowledgeDetail(cached);
         return;
@@ -575,10 +560,11 @@ App.registerArea({
           mountKnowledgeDetail(kb);
         })
         .catch(function () {
-          // Unknown/deleted id — fall back to the grid rather than a dead view.
-          if (self._activeSection !== 'knowledge') return;
+          // Unknown/deleted id — heal the URL to the section root in place (a
+          // detail LOAD that finds the item gone) and show the grid.
+          if (self._activeSection !== 'knowledge' || self._selectedKbId !== kbId) return;
           self._selectedKbId = null;
-          if (window.App && window.App.router) App.router.replaceSub('knowledge');
+          App.router.sync('studio', 'knowledge');
           renderKnowledgeSection();
         });
     }
@@ -588,6 +574,7 @@ App.registerArea({
       Promise.all([
         fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id) + '/status')
           .then(function (r) {
+            if (r.status === 404) { var gone = new Error('knowledge base gone'); gone.gone = true; throw gone; }
             if (!r.ok) throw new Error('status fetch failed: HTTP ' + r.status);
             return r.json();
           }),
@@ -607,32 +594,20 @@ App.registerArea({
         // The fresh render closure starts clean; onDirtyChange only fires
         // on the operator's first edit-form input.
         dirty = false;
+        var kbGen = editorGen;
         knowledgeDetailHandle = App.studio.renderKnowledgeDetail(
           sectionContentEl, kb, { status: results[0], items: results[1] },
           {
-            // AC-8/L5-D3: mirrors mcp-sources' own onBack — the LOCAL
-            // Back button doesn't decide to discard on its own; a dirty
-            // edit form gates through App.confirmDialog here, same as
-            // section-nav/cross-area navigation gates through
-            // `_confirmLeaveImpl`.
+            // Back is a user INTENT (M25 F2 L4): a pushed go() to the
+            // section root. The router's leave guard is the only prompt for
+            // a dirty edit form -- the former inline App.confirmDialog is
+            // gone, so Continue never asks twice. The root hydrate closes
+            // the detail and resets `dirty`.
             onBack: function () {
-              function doBack() {
-                self._selectedKbId = null;
-                dirty = false;
-                if (window.App && window.App.router) App.router.replaceSub('knowledge');
-                renderKnowledgeSection();
-              }
-              if (dirty) {
-                App.confirmDialog({ onConfirm: doBack });
-                return;
-              }
-              doBack();
+              App.router.go(App.router.href({ destination: 'library', section: 'knowledge' }));
             },
             onDeleteSuccess: function () {
-              self._selectedKbId = null;
-              dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('knowledge');
-              renderKnowledgeSection();
+              leaveKnowledgeDetail_();
             },
             // F6 L3 (L3-D5), carried by F6 L5's Name+Description edit form
             // (L5-D2): re-mount the detail view from the saved object —
@@ -640,6 +615,7 @@ App.registerArea({
             // update the grid's section-local cache so navigating back
             // shows the new name without a second fetch.
             onSaveSuccess: function (updatedKb) {
+              if (kbGen !== editorGen) return; // discarded mid-save: no resurrection
               if (knowledgeBases) {
                 for (var ki = 0; ki < knowledgeBases.length; ki++) {
                   if (knowledgeBases[ki].id === updatedKb.id) { knowledgeBases[ki] = updatedKb; break; }
@@ -649,15 +625,22 @@ App.registerArea({
             },
             // F6 L5 (L5-D3): bridges the edit form's dirty state into the
             // orchestrator's closure `dirty`, consumed by
-            // `_confirmLeaveImpl`'s `inEditor` gate — mirrors the
+            // the App.nav source's `isDirty` (`editorOpen`) — mirrors the
             // mcp-sources/connectors `onDirtyChange: function (d) { dirty = d; }`
             // pattern already established below.
             onDirtyChange: function (d) { dirty = d; }
           }
         );
         startKnowledgePoll(kb.id);
-      }).catch(function () {
+      }).catch(function (err) {
         if (self._activeSection !== 'knowledge' || self._selectedKbId !== kb.id) return;
+        if (err && err.gone) {
+          // Cached KB deleted meanwhile: same heal as a 404 on the detail GET.
+          self._selectedKbId = null;
+          App.router.sync('studio', 'knowledge');
+          renderKnowledgeSection();
+          return;
+        }
         sectionContentEl.innerHTML = '<div class="admin-loading">Failed to load knowledge base.</div>';
       });
     }
@@ -686,9 +669,9 @@ App.registerArea({
               // return to the grid rather than leaving a dead view or
               // looping on the error.
               clearKnowledgePoll();
-              self._selectedKbId = null;
-              if (window.App && window.App.router) App.router.replaceSub('knowledge');
-              renderKnowledgeSection();
+              if (self._activeSection === 'knowledge' && self._selectedKbId === kbId) {
+                leaveKnowledgeDetail_();
+              }
               return null;
             }
             if (!r.ok) throw new Error('status poll failed: HTTP ' + r.status);
@@ -757,41 +740,36 @@ App.registerArea({
         // user input.
         dirty = false;
         var ready = mcpTypesReady || fetchMcpSourceTypes();
+        var mcpGen = editorGen;
         ready.then(function () {
+          if (mcpGen !== editorGen) return; // discarded while the types loaded
           // Re-check formMode at resolution time — operator may have
           // navigated away mid-fetch.
           if (mcpSourceFormMode == null || self._activeSection !== 'mcp-sources') return;
-          function doHandleBack() {
-            mcpSourceFormMode = null;
-            editingMcpSource = null;
-            dirty = false;
-            if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
-            renderMcpSourcesSection();
-          }
           App.studio.renderMcpSourceEditor(sectionContentEl, editingMcpSource, MCP_TYPES, {
+            // Back is a user INTENT (M25 F2 L4): a pushed go() to the section
+            // root. The router's leave guard is the only prompt (the former
+            // inline App.confirmDialog is gone, so Continue never asks
+            // twice); the root hydrate closes the editor and resets `dirty`.
             onBack: function () {
-              if (dirty) {
-                App.confirmDialog({ onConfirm: doHandleBack });
-                return;
-              }
-              doHandleBack();
+              App.router.go(App.router.href({ destination: 'library', section: 'mcp' }));
             },
             onCancel: function () {
-              // Create-mode Cancel: navigate back to grid. Cancel-when-dirty
-              // is intentional discard — no dialog gate. Edit-mode Cancel
-              // reverts the form in-place and never reaches this callback.
-              mcpSourceFormMode = null;
-              editingMcpSource = null;
-              dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
-              renderMcpSourcesSection();
+              // Create-mode Cancel: back to the grid. Cancel-when-dirty is
+              // intentional discard -- no gate -- so this is a bypass go()
+              // REPLACING the create entry (Back must not land on a stale
+              // create form). Edit-mode Cancel reverts the form in-place and
+              // never reaches this callback.
+              App.router.go(App.router.href({ destination: 'library', section: 'mcp' }),
+                { replace: true, bypassGuard: true });
             },
             onSaveSuccess: function (updated, isCreate) {
+              if (mcpGen !== editorGen) return; // discarded mid-save: no resurrection
               editingMcpSource = updated;
               mcpSourceFormMode = 'edit';
               dirty = false;
               if (window.App && window.App.router) {
-                App.router.replaceSub(self.serializeState());
+                App.router.sync('studio', self.serializeState());
               }
               if (isCreate) {
                 // create→edit transition: re-render so Danger Zone +
@@ -835,11 +813,11 @@ App.registerArea({
               }
             },
             onDeleteSuccess: function () {
-              mcpSourceFormMode = null;
-              editingMcpSource = null;
-              dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
-              renderMcpSourcesSection();
+              // Post-delete navigation: a bypass go() replacing the deleted
+              // source's entry (the dead item's editor is torn down first).
+              discardOpen_();
+              App.router.go(App.router.href({ destination: 'library', section: 'mcp' }),
+                { replace: true, bypassGuard: true });
             },
             onDirtyChange: function (d) { dirty = d; }
           });
@@ -852,13 +830,22 @@ App.registerArea({
         onSelectMcpSource: selectMcpSource,
         onCreateMcpSource: enterCreateMcpSourceMode
       });
-      fetchMcpSources_().then(function () {
+      fetchMcpSources_().then(function (loaded) {
         // F4 L5: stale-then guard — bail if user navigated away from
         // mcp-sources mid-fetch (mirrors fetchMcpSources_() internal guard).
         if (self._activeSection !== 'mcp-sources') return;
         // After fetch resolves, attempt to consume any pending hash-route
         // selection (e.g. direct-load on #studio/mcp-sources/{id}).
-        tryConsumePendingMcpSource();
+        tryConsumePendingMcpSource(true);
+        // A pending id absent from this FRESH list is dead (deleted meanwhile,
+        // or a stale link): never keep it in the URL -- heal to the section
+        // root in place, and drop the pending slot so nothing waits forever.
+        if (loaded && self._pendingMcpSourceFormMode === 'edit' && self._pendingMcpSourceId &&
+            !findMcpSource(self._pendingMcpSourceId)) {
+          self._pendingMcpSourceId = null;
+          self._pendingMcpSourceFormMode = null;
+          App.router.sync('studio', 'mcp-sources');
+        }
       });
     }
 
@@ -878,14 +865,16 @@ App.registerArea({
         .then(function (r) { return r.json(); })
         .then(function (data) {
           // Stale-then guard: bail if user navigated away mid-fetch.
-          if (self._activeSection !== 'mcp-sources') return;
+          if (self._activeSection !== 'mcp-sources') return false;
           mcpSources = data;
           populateMcpSourcesGrid();
+          return true;
         })
         .catch(function () {
-          if (self._activeSection !== 'mcp-sources') return;
+          if (self._activeSection !== 'mcp-sources') return false;
           var gridEl = sectionContentEl.querySelector('.entity-tile-grid');
           if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load MCP sources.</div>';
+          return false;
         });
     }
 
@@ -901,33 +890,24 @@ App.registerArea({
       });
     }
 
+    // Opening a source / the create form from the grid are user INTENTS: pushed
+    // go()s (Back returns to the grid), hydrated with the cached list.
     function selectMcpSource(id) {
-      var source = findMcpSource(id);
-      if (!source) return; // pending-id race; will be re-attempted after fetch
-      mcpSourceFormMode = 'edit';
-      editingMcpSource = source;
-      pendingMcpSourceId = null;
-      pendingMcpSourceFormMode = null;
-      self._pendingMcpSourceId = null;
-      self._pendingMcpSourceFormMode = null;
-      if (window.App && window.App.router) {
-        App.router.replaceSub(self.serializeState());
-      }
-      renderMcpSourcesSection();
+      if (!findMcpSource(id)) return; // pending-id race; will be re-attempted after fetch
+      App.router.go(App.router.href({ destination: 'library', section: 'mcp', id: id }));
     }
 
     function enterCreateMcpSourceMode() {
-      mcpSourceFormMode = 'add';
-      editingMcpSource = null;
-      pendingMcpSourceId = null;
-      pendingMcpSourceFormMode = null;
-      self._pendingMcpSourceId = null;
-      self._pendingMcpSourceFormMode = null;
-      if (window.App && window.App.router) {
-        App.router.replaceSub(self.serializeState());
-      }
-      renderMcpSourcesSection();
+      App.router.go(App.router.href({ destination: 'library', section: 'mcp', create: true }));
     }
+
+    // Hydrate-only: a fresh item hydrate closes the open form so the section
+    // re-renders its grid and resolves the id against a fetched list.
+    self._closeMcpForm = function () {
+      mcpSourceFormMode = null;
+      editingMcpSource = null;
+      dirty = false;
+    };
 
     function findMcpSource(id) {
       if (!mcpSources) return null;
@@ -937,21 +917,25 @@ App.registerArea({
       return null;
     }
 
-    function tryConsumePendingMcpSource() {
+    // Opens the pending MCP form (create, or an existing source from the cached
+    // list). `allowCache` false (a fresh hydrate) skips an existing source: the
+    // cache may hold a source deleted since, so the section's fetch resolves it.
+    // Returns true when it opened an editor.
+    function tryConsumePendingMcpSource(allowCache) {
       // Pull pending state from instance properties — hydrateState may have
       // set them after init() already captured the closure-locals.
       var pid = self._pendingMcpSourceId;
       var pmode = self._pendingMcpSourceFormMode;
-      if (!pid && !pmode) return;
+      if (!pid && !pmode) return false;
       if (pmode === 'add') {
         mcpSourceFormMode = 'add';
         editingMcpSource = null;
         self._pendingMcpSourceId = null;
         self._pendingMcpSourceFormMode = null;
         renderMcpSourcesSection();
-        return;
+        return true;
       }
-      if (pmode === 'edit' && pid) {
+      if (pmode === 'edit' && pid && allowCache !== false) {
         var found = findMcpSource(pid);
         if (found) {
           mcpSourceFormMode = 'edit';
@@ -959,12 +943,16 @@ App.registerArea({
           self._pendingMcpSourceId = null;
           self._pendingMcpSourceFormMode = null;
           renderMcpSourcesSection();
+          return true;
         }
         // else: not in cache; will retry after fetchMcpSources_ resolves.
       }
+      return false;
     }
     self._tryConsumePendingMcpSource = tryConsumePendingMcpSource;
 
+    // Connector open/create/back are URL-less in this flight (Flight 3 adds
+    // connector routes): they keep their INLINE dirty gate and write no URL.
     // ── Connectors section (Mission 23 Flight 2 Leg 2, DD-9) — one file,
     // no deep-link sub-paths (see serializeState). Mirrors the
     // mcp-sources grid/editor dispatch above, minus the pending-hash-
@@ -981,27 +969,28 @@ App.registerArea({
         // immediately (a real race, not just a theoretical one — caught
         // by tests/browser/test_studio_connector_editor.py). A dedicated
         // fetch here is always fresh and never depends on load order.
-        Promise.all([typesReady, fetchAgents()]).then(function (results) {
+        var connGen = editorGen;
+        Promise.all([typesReady, fetchAgents(true)]).then(function (results) {
+          if (connGen !== editorGen) return; // discarded while the lists loaded
           var agentsForDropdown = results[1];
           if (connectorFormMode == null || self._activeSection !== 'connectors') return;
           function doHandleBack() {
             connectorFormMode = null;
             editingConnector = null;
             dirty = false;
-            if (window.App && window.App.router) App.router.replaceSub('connectors');
             renderConnectorsSection();
           }
           App.studio.renderConnectorEditor(
             sectionContentEl, editingConnector, CONNECTOR_TYPES, agentsForDropdown, {
               onBack: function () {
-                if (dirty) {
-                  App.confirmDialog({ onConfirm: doHandleBack });
-                  return;
-                }
-                doHandleBack();
+                // Editor Back: one guard path (App.nav); clean -> immediate.
+                App.nav.confirmLeave({ opener: document.activeElement }).then(function (ok) {
+                  if (ok) doHandleBack();
+                });
               },
               onCancel: doHandleBack,
               onSaveSuccess: function (updated, isCreate) {
+                if (connGen !== editorGen) return; // discarded mid-save: no resurrection
                 editingConnector = updated;
                 connectorFormMode = 'edit';
                 dirty = false;
@@ -1064,26 +1053,81 @@ App.registerArea({
       if (!found) return;
       connectorFormMode = 'edit';
       editingConnector = found;
-      if (window.App && window.App.router) App.router.replaceSub(self.serializeState());
       renderConnectorsSection();
     }
 
     function enterCreateConnectorMode() {
       connectorFormMode = 'add';
       editingConnector = null;
-      if (window.App && window.App.router) App.router.replaceSub(self.serializeState());
       renderConnectorsSection();
     }
+
+    // closeOpenItem: tear every open item down to "nothing open" -- the agent
+    // editor and create form, MCP and connector form modes, the knowledge
+    // detail view (with its poll) -- and reset the dirty mirror. Called by
+    // hydrateState for a SECTION-ROOT route, so clicking the current section
+    // (or going to a destination root) still closes the open editor (F4 L7,
+    // M10 F6 L7). It is NOT part of setActiveSection, where it would close an
+    // item that is being opened. Bumping selectSeq invalidates an in-flight
+    // doSelect.
+    function closeOpenItem() {
+      selectSeq += 1;
+      editorGen += 1; // invalidates in-flight editor resolvers (saves, type waits)
+      // Unconditional: a caller may have cleared _selectedAgent already (post-
+      // delete, the save->delete race) while the stale editor DOM is mounted.
+      renderEmptyEditor();
+      self._selectedAgent = null;
+      self._selectedAgentLoaded = true;
+      self._createMode = false;
+      mcpSourceFormMode = null;
+      editingMcpSource = null;
+      connectorFormMode = null;
+      editingConnector = null;
+      clearKnowledgePoll();
+      knowledgeDetailHandle = null;
+      self._selectedKbId = null;
+      self._selectedMcpAgentSourceId = null;
+      self._pendingMcpAgentSourceId = null;
+      dirty = false;
+    }
+    self._closeOpenItem = closeOpenItem;
+
+    // The App.nav discard (M25 F2 L5, DD5): teardown to "nothing open" -- never
+    // a URL write. closeOpenItem empties the agent editor; the section-content
+    // editors (MCP, connector, KB detail) also leave their DOM in
+    // sectionContentEl, so clear it for non-agent editors.
+    function discardOpen_() {
+      var section = self._activeSection;
+      try {
+        closeOpenItem();
+        if (section !== 'agents' && sectionContentEl) sectionContentEl.innerHTML = '';
+      } finally {
+        dirty = false; // even a throwing teardown must not leave a phantom flag
+      }
+    }
+    self._discardOpen = discardOpen_;
 
     function setActiveSection(section, options) {
       options = options || {};
       var writeUrl = options.writeUrl !== false; // default true
-      var prevSection = self._activeSection;
+      // hydrateState captures the previous section and passes it in; it no
+      // longer assigns _activeSection itself.
+      var prevSection = options.prev !== undefined ? options.prev : self._activeSection;
       self._activeSection = section;
       App.layout.updateActiveSection(sectionNavEl, section);
-      // Reset MCP-section local state when leaving mcp-sources for another
-      // section — closes the editor + clears formMode so a re-entry
-      // re-mounts the grid.
+      // Outgoing-section cleanup (M25 F2 L3 (a)): the one place a section
+      // change tears down the section being left, shared by section nav,
+      // hydrateState and destination switches. Leaving Agents drops the
+      // selection and create mode and stops an in-flight select from
+      // completing (selectSeq).
+      if (prevSection === 'agents' && section !== 'agents') {
+        selectSeq += 1;
+        if (self._selectedAgent || self._createMode) renderEmptyEditor();
+        self._selectedAgent = null;
+        self._selectedAgentLoaded = true;
+        self._createMode = false;
+        dirty = false;
+      }
       if (prevSection === 'mcp-sources' && section !== 'mcp-sources') {
         mcpSourceFormMode = null;
         editingMcpSource = null;
@@ -1140,14 +1184,14 @@ App.registerArea({
     // ── Single URL-write call site ──────────────────────────────────────
     function writeUrl_() {
       if (window.App && window.App.router) {
-        App.router.replaceSub(self.serializeState());
+        App.router.sync('studio', self.serializeState());
       }
     }
     self._writeUrl = writeUrl_;
 
     // ── Data fetching ────────────────────────────────────────────────
 
-    function fetchAgents() { return fetch('/api/agents').then(function (r) { return r.json(); }); }
+    function fetchAgents(force) { return App.store.get('agents', { force: !!force }); }
     function fetchTools() { return fetch('/api/tools').then(function (r) { return r.json(); }); }
     // M21 F01 L02 (DD3): the editor's fetch — as opposed to the admin
     // grid's `fetchMcpSources_` below — includes per-agent
@@ -1168,6 +1212,9 @@ App.registerArea({
     }
 
     function _refreshAgentAfterSelfConfigurationChange(name) {
+      // Every self-configuration enable/disable/approval/revision write funnels
+      // here; the server-side agent changed, so the shared list is stale (DD8).
+      App.store.invalidate('agents');
       // Re-fetch both the MCP sources cache (the surface row was just
       // created/destroyed server-side) AND the agent itself (its
       // mcp_source_ids just changed server-side, outside the Save flow).
@@ -1346,7 +1393,7 @@ App.registerArea({
     }
 
     function fetchKnowledgeBases() { return fetch('/api/knowledge-bases').then(function (r) { return r.json(); }); }
-    function fetchProviders() { return fetch('/api/providers').then(function (r) { return r.json(); }); }
+    function fetchProviders(force) { return App.store.get('providers', { force: !!force }); }
 
     // ── F6 leg 05 — tool configs (operator state) + schema cache ──────
     //
@@ -1512,10 +1559,40 @@ App.registerArea({
       });
     }
 
-    function loadAll() {
+    // `force` (activation / refresh) joins an in-flight store request else
+    // refetches; post-mutation callers omit it -- the mutation already
+    // invalidated the store, so a plain get refetches anyway.
+    var loadAllDepth = 0;
+    function loadAll(force) {
+      loadAllDepth += 1;
+      var done = function () { loadAllDepth -= 1; };
+      var p = loadAllImpl(force);
+      p.then(done, done);
+      return p;
+    }
+
+    // Studio keeps its own copies (self._agents / self._allProviders), so a
+    // store load that Studio did not initiate (Chats activation, a Library KB
+    // rename that invalidated 'agents') would otherwise leave them stale.
+    // Studio's own loadAll assigns directly, so notifications are ignored
+    // while one is in flight.  Detail-shaped objects are never written back
+    // to the store: this only reads the notified (list-shaped) copy.
+    App.store.subscribe('agents', function (list) {
+      if (loadAllDepth > 0 || !self._agentsLoaded) return;
+      self._agents = list;
+      if (self._activeSection === 'agents' && !self._selectedAgent && !self._createMode) {
+        renderAgentList();
+      }
+    });
+    App.store.subscribe('providers', function (list) {
+      if (loadAllDepth > 0 || !self._agentsLoaded) return;
+      self._allProviders = list;
+    });
+
+    function loadAllImpl(force) {
       return Promise.all([
-        fetchAgents(), fetchTools(), fetchMcpSources(),
-        fetchKnowledgeBases(), fetchProviders()
+        fetchAgents(force), fetchTools(), fetchMcpSources(),
+        fetchKnowledgeBases(), fetchProviders(force)
       ])
         .then(function (results) {
           self._agents = results[0];
@@ -1523,6 +1600,7 @@ App.registerArea({
           self._allMcpSources = results[2];
           self._allKnowledgeBases = results[3];
           self._allProviders = results[4];
+          self._agentsLoaded = true;
           // Capability fetch chains off providers — separate Promise.all
           // because it depends on results[4]. Failures are non-fatal:
           // tiles render without chips rather than blocking the list.
@@ -1747,12 +1825,12 @@ App.registerArea({
             tileEl.appendChild(capsWrap);
           }
 
-          tileEl.onclick = function () { selectAgent(agent); };
+          tileEl.onclick = function () { openAgent(agent); };
           tileEl.addEventListener('keydown', function (e) {
             if (e.target !== tileEl) return;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              selectAgent(agent);
+              openAgent(agent);
             }
           });
 
@@ -1769,6 +1847,13 @@ App.registerArea({
     // dispatch the dialog and let onConfirm proceed (the synchronous
     // window.confirm guard-and-return pattern doesn't translate directly).
     function doSelect(agent) {
+      // M25 F2 L3 (a): refuse to force-switch sections. Only a user who is
+      // still on Agents may open an agent; an async caller (the
+      // self-configuration refresh, save-create, the delete fallback) whose
+      // user has since moved to another section or destination does nothing.
+      var routed = window.App && App.router && App.router.current && App.router.current();
+      if (self._activeSection !== 'agents' || (routed && routed.destination !== 'agents')) return;
+      var mySelect = ++selectSeq;
       // Preserve the current tab when re-selecting the same agent (e.g.,
       // when activate() triggers a refresh after the user is already
       // viewing this agent on a non-default tab). Honor any pending tab
@@ -1793,9 +1878,6 @@ App.registerArea({
       dirty = false;
       self._pendingTabName = null;
       self._activeTab = tabToActivate;
-      if (self._activeSection !== 'agents') {
-        setActiveSection('agents', { writeUrl: false });
-      }
       renderAgentList();
       // F6 leg 05 — refresh operator-state caches on every agent-edit
       // mount (operator may have flipped a toggle in another tab between
@@ -1844,6 +1926,9 @@ App.registerArea({
             return agent;
           })
       ]).then(function (results) {
+        // Stale-then guard (M25 F2 L3 (a)): the user may have left Agents, closed
+        // the editor or opened another agent while the fetches were in flight.
+        if (mySelect !== selectSeq || self._activeSection !== 'agents' || self._createMode) return;
         // L3-D3: the fetch is not enough on its own — reassign
         // self._selectedAgent (and the matching self._agents entry) and
         // render the FETCHED object, not the outer closure's `agent`, or
@@ -1860,12 +1945,24 @@ App.registerArea({
       });
     }
 
-    function selectAgent(agent) {
-      if (dirty) {
-        App.confirmDialog({ onConfirm: function () { doSelect(agent); } });
-        return;
-      }
-      doSelect(agent);
+    // Agent navigation (M25 F2 L4). Opening an agent is a user INTENT: a pushed
+    // go() whose leave guard is the only prompt for unsaved changes (the former
+    // inline App.confirmDialog in selectAgent is gone, so Continue never asks
+    // twice). Navigation that is a COMPLETION of something the user already did
+    // (save-create, post-delete, the save->delete race) is a bypass go() that
+    // REPLACES the current entry: no guard, no extra history entry.
+    function openAgent(agent) {
+      App.router.go(App.router.href({ destination: 'agents', id: agent.name }));
+    }
+
+    function replaceWithAgent_(agent) {
+      App.router.go(App.router.href({ destination: 'agents', id: agent.name }),
+        { replace: true, bypassGuard: true });
+    }
+
+    function replaceWithAgentsRoot_() {
+      App.router.go(App.router.href({ destination: 'agents' }),
+        { replace: true, bypassGuard: true });
     }
 
     function doEnterCreateMode() {
@@ -1888,7 +1985,9 @@ App.registerArea({
       // a manual page reload. F6 L3 (L3-D3): the fresh-agent refetch is
       // select-path only — create mode has no agent to fetch — but the
       // knowledge-base refresh goes into both sites.
+      var myCreate = ++selectSeq;
       Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshKnowledgeBasesCache()]).then(function () {
+        if (myCreate !== selectSeq || self._activeSection !== 'agents' || !self._createMode) return;
         renderEditor(null);
         updateContentVisibility();
         writeUrl_();
@@ -1896,11 +1995,11 @@ App.registerArea({
     }
 
     function enterCreateMode() {
-      if (dirty) {
-        App.confirmDialog({ onConfirm: doEnterCreateMode });
-        return;
-      }
-      doEnterCreateMode();
+      // One guard path (App.nav); clean -> immediate. Continue discards the
+      // open item, then the create form opens.
+      App.nav.confirmLeave({ opener: document.activeElement }).then(function (ok) {
+        if (ok) doEnterCreateMode();
+      });
     }
 
     // ── Editor rendering ─────────────────────────────────────────────
@@ -1947,12 +2046,15 @@ App.registerArea({
         // F8 L3 — MCP source list + per-source tools fetcher for MCPs tab.
         allMcpSources: self._allMcpSources,
         fetchMcpSourceTools: fetchMcpSourceTools,
-        pendingMcpAgentSourceId: self._pendingMcpAgentSourceId || null,
+        // The studio owns the source focus (hydrate applies the URL's value to
+        // both slots); the tab reads it from here, never from location.hash.
+        pendingMcpAgentSourceId: self._selectedMcpAgentSourceId || self._pendingMcpAgentSourceId || null,
         // Callback so renderMcpsTab can notify studio.js when the selected
         // source changes (chip click → per-attachment editor). studio.js
         // updates _selectedMcpAgentSourceId and syncs the URL.
         onSelectedMcpSourceChange: function (sourceId) {
           self._selectedMcpAgentSourceId = sourceId;
+          self._pendingMcpAgentSourceId = null;
           writeUrl_();
         },
         // M21 F01 L02 — Self-configuration tab network calls.
@@ -2016,7 +2118,10 @@ App.registerArea({
       var writeUrl = options.writeUrl !== false;
       // F8 L3: clear per-source selection when leaving the MCPs tab so the
       // URL doesn't carry a stale /{source-id} when switching to another tab.
-      if (tab !== 'mcps') self._selectedMcpAgentSourceId = null;
+      if (tab !== 'mcps') {
+        self._selectedMcpAgentSourceId = null;
+        self._pendingMcpAgentSourceId = null;
+      }
       self._activeTab = tab;
       if (tabHandle && tabHandle.getActive() !== tab) {
         tabHandle.activate(tab);
@@ -2027,30 +2132,12 @@ App.registerArea({
 
     // ── Action-cluster handlers ──────────────────────────────────────
 
-    // Back: clear selection, exit create mode, return to #studio/agents.
-    // F5 leg 04: dirty gate via App.confirmDialog. The async restructure
-    // mirrors selectAgent / enterCreateMode — extract the body past the
-    // dirty-check into doHandleBack so the dialog's onConfirm callback can
-    // invoke it.
-    function doHandleBack() {
-      self._selectedAgent = null;
-      self._createMode = false;
-      self._selectedAgentLoaded = true;  // squawk 0090: nothing selected, nothing stale
-      dirty = false;
-      self._activeTab = 'general';
-      self._selectedMcpAgentSourceId = null;  // F8 L3: clear per-source selection
-      renderEmptyEditor();
-      renderAgentList();
-      updateContentVisibility();
-      writeUrl_();
-    }
-
+    // Back is a user INTENT: a pushed go() to the Agents root (so Back from the
+    // list re-opens the agent -- the DD4 push-on-Back behaviour). The router's
+    // leave guard is the only prompt; the root hydrate closes the editor or
+    // the create form and resets `dirty`.
     function handleBack() {
-      if (dirty) {
-        App.confirmDialog({ onConfirm: doHandleBack });
-        return;
-      }
-      doHandleBack();
+      App.router.go(App.router.href({ destination: 'agents' }));
     }
 
     // Cancel discards in-progress edits and restores the editor to the
@@ -2059,7 +2146,10 @@ App.registerArea({
     // when dirty (disabled by checkDirty otherwise), so no extra guard.
     function cancelEdit() {
       if (self._createMode) {
-        doHandleBack();
+        // Create is URL-less, so the current route is already the Agents root:
+        // a bypass go() (discard is intentional, no gate) whose root hydrate
+        // closes the create form.
+        replaceWithAgentsRoot_();
         return;
       }
       if (self._selectedAgent) {
@@ -2083,17 +2173,19 @@ App.registerArea({
             if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
           })
           .then(function () {
+            App.store.invalidate('agents');
             self._selectedAgent = null;
             dirty = false;
             return loadAll();
           })
           .then(function () {
+            // Post-delete navigation: replace the deleted agent's entry. The
+            // deleted agent's editor is torn down first (vanish path).
+            discardOpen_();
             if (self._agents.length > 0) {
-              selectAgent(self._agents[0]);
+              replaceWithAgent_(self._agents[0]);
             } else {
-              renderEmptyEditor();
-              updateContentVisibility();
-              writeUrl_();
+              replaceWithAgentsRoot_();
             }
           })
           .catch(function (err) {
@@ -2663,6 +2755,7 @@ App.registerArea({
             return r.json();
           })
           .then(function (created) {
+            App.store.invalidate('agents');
             dirty = false;
             self._createMode = false;
             return loadAll().then(function () {
@@ -2670,7 +2763,9 @@ App.registerArea({
               for (var i = 0; i < self._agents.length; i++) {
                 if (self._agents[i].name === created.name) { found = self._agents[i]; break; }
               }
-              if (found) selectAgent(found);
+              // Save-create: replace the (URL-less) create entry with the new
+              // agent's route, so Back never returns to a stale create form.
+              if (found) replaceWithAgent_(found);
               showFlash('Agent created');
             });
           })
@@ -2720,6 +2815,7 @@ App.registerArea({
               return r.json();
             })
             .then(function (renamed) {
+              App.store.invalidate('agents');
               // Re-bind the in-closure "currently-editing" name so the
               // subsequent PUT targets the new PK and so the area's
               // URL state serialization reflects the rename.
@@ -2745,6 +2841,7 @@ App.registerArea({
             return r.json();
           })
           .then(function (updated) {
+            App.store.invalidate('agents');
             dirty = false;
             self._selectedAgent = updated;
             return loadAll().then(function () {
@@ -2777,12 +2874,12 @@ App.registerArea({
                 // this fallback the block silently no-ops, stranding a stale
                 // editor for a now-gone agent. Fall to the first agent (parity
                 // with handleDeleteEditor / _refresh).
-                selectAgent(self._agents[0]);
+                discardOpen_();
+                replaceWithAgent_(self._agents[0]);
               } else {
                 self._selectedAgent = null;
-                renderEmptyEditor();
-                updateContentVisibility();
-                if (typeof writeUrl_ === 'function') writeUrl_();
+                discardOpen_();
+                replaceWithAgentsRoot_();
               }
             });
           })
@@ -2920,30 +3017,78 @@ App.registerArea({
 
     // ── Init ─────────────────────────────────────────────────────────
 
-    function tryConsumePendingSelect() {
-      if (!self._pendingSelectName) return;
-      if (!self._agents || self._agents.length === 0) return;
+    // Resolves the pending agent (set by hydrateState) against the LOADED list.
+    // doSelect, not an inline-gated select: a hydrate is reached through the
+    // router, whose leave guard has already asked about unsaved changes, so it
+    // must never prompt a second time. Re-opening the same agent re-renders it
+    // fresh from the server (a restore after a discarded edit shows saved
+    // state, not the abandoned form).
+    //
+    // An id that is not in the loaded list is DEAD (deleted meanwhile, or a
+    // stale link): it is never kept pending -- the URL heals to the Agents root
+    // in place and the root renders (no editor, no endless pending state).
+    function resolvePendingAgent() {
+      var name = self._pendingSelectName;
+      if (!name) return;
+      if (self._activeSection !== 'agents') return;
       var target = null;
       for (var i = 0; i < self._agents.length; i++) {
-        if (self._agents[i].name === self._pendingSelectName) { target = self._agents[i]; break; }
+        if (self._agents[i].name === name) { target = self._agents[i]; break; }
       }
       self._pendingSelectName = null;
-      if (target && (!self._selectedAgent || self._selectedAgent.name !== target.name)) {
-        selectAgent(target);
+      if (target) {
+        doSelect(target);
+        return;
       }
+      self._pendingTabName = null;
+      self._pendingMcpAgentSourceId = null;
+      self._activeTab = 'general';
+      closeOpenItem();
+      renderAgentList();
+      updateContentVisibility();
+      App.router.sync('studio', 'agents');
+    }
+
+    // `fresh` (a traversal, a typed hash or boot) resolves against a FRESH list
+    // fetch -- the cached list may still hold an agent deleted since. A non-fresh
+    // (intent) hydrate uses the cached list; before the first load has resolved
+    // it waits for it.
+    var bootLoad = null;  // the init() load while it is in flight
+    function tryConsumePendingSelect(fresh) {
+      if (!self._pendingSelectName) return;
+      var name = self._pendingSelectName;
+      if (!fresh && self._agentsLoaded) {
+        resolvePendingAgent();
+        return;
+      }
+      var onLoaded = function () {
+        if (self._pendingSelectName !== name) return;  // superseded or already resolved
+        resolvePendingAgent();
+      };
+      if (bootLoad) {
+        // init()'s own load: it reports its failure itself.
+        bootLoad.then(onLoaded, function () {});
+        return;
+      }
+      loadAll().then(onLoaded).catch(function (err) {
+        showLoadAllError(err, { nonDestructive: true });
+      });
     }
 
     newAgentBtn.addEventListener('click', enterCreateMode);
 
     self._refresh = function () {
-      loadAll().then(function () {
-        if (self._selectedAgent) {
+      loadAll(true).then(function () {
+        // (b) Re-select ONLY on the Agents section: a refresh landing after
+        // the user moved to Library must not re-open the stale agent (and
+        // doSelect, not selectAgent -- a refresh never prompts).
+        if (self._activeSection === 'agents' && self._selectedAgent) {
           var found = null;
           for (var i = 0; i < self._agents.length; i++) {
             if (self._agents[i].name === self._selectedAgent.name) { found = self._agents[i]; break; }
           }
-          if (found) selectAgent(found);
-          else if (self._agents.length > 0) selectAgent(self._agents[0]);
+          if (found) doSelect(found);
+          else if (self._agents.length > 0) doSelect(self._agents[0]);
           else renderEmptyEditor();
         }
       }).catch(function (err) {
@@ -2955,34 +3100,33 @@ App.registerArea({
         fetchMcpSources_();
       }
     };
-    self._tryConsumePendingSelect = function () { tryConsumePendingSelect(); };
+    self._tryConsumePendingSelect = function (fresh) { tryConsumePendingSelect(fresh); };
+    // View of the shared dirty mirror (browser tests assert that a
+    // discard/teardown left it false). The setter is a TEST SEAM only: it lets a
+    // test plant a stale flag with no editor open to prove App.nav ignores it.
+    Object.defineProperty(self, '_dirty', {
+      get: function () { return dirty; },
+      set: function (v) { dirty = !!v; },
+      configurable: true
+    });
 
-    // F4 L5: confirmLeave wired here so it can close over the local `dirty` flag.
-    // Gate semantics mirror admin.js's _confirmLeaveImpl (admin.js:625-636): dirty
-    // AND in-editor → confirm dialog; otherwise → proceed immediately. The
-    // `inEditor` predicate covers every editor mount context (agents,
-    // mcp-sources, connectors, and — as of F6 L5 — knowledge).
-    self._confirmLeaveImpl = function (proceed, abort) {
-      var inEditor =
-        (self._activeSection === 'agents' && self._selectedAgent) ||
-        (self._activeSection === 'mcp-sources' && mcpSourceFormMode) ||
-        (self._activeSection === 'connectors' && connectorFormMode) ||
-        // F6 L5 (L5-D3): a reversal of Leg 3's stated non-goal — the
-        // inventory's create/register forms stay OUT of this gate
-        // (single-field, submit-immediately), but the detail view's
-        // Name+Description edit form (L5-D2) is multi-field with an
-        // explicit Save, the exact shape this dialog exists for. `dirty`
-        // can only become true while a detail view is mounted (the grid
-        // has no edit form), so gating on `self._selectedKbId` alone
-        // mirrors the `mcpSourceFormMode`/`connectorFormMode` shape above
-        // without needing a parallel "form open" flag.
-        (self._activeSection === 'knowledge' && self._selectedKbId);
-      if (dirty && inEditor) {
-        App.confirmDialog({ onConfirm: proceed, onCancel: abort });
-      } else {
-        proceed();
-      }
-    };
+    // Leave-guard source (M25 F2 L5, DD5). `isDirty` is the
+    // editor-open predicate registered via App.nav.registerSource: the shared `dirty` flag AND an editor open,
+    // so a stale flag can never raise a phantom prompt or beforeunload. The
+    // predicate covers every editor mount context: agents (incl. the create
+    // form), mcp-sources, connectors and the knowledge detail view (its
+    // Name+Description edit form is multi-field with an explicit Save; the
+    // grid has no edit form, so `_selectedKbId` alone marks "form open").
+    function editorOpen() {
+      return (self._activeSection === 'agents' && !!(self._selectedAgent || self._createMode)) ||
+        (self._activeSection === 'mcp-sources' && !!mcpSourceFormMode) ||
+        (self._activeSection === 'connectors' && !!connectorFormMode) ||
+        (self._activeSection === 'knowledge' && !!self._selectedKbId);
+    }
+    App.nav.registerSource('studio', {
+      isDirty: function () { return dirty && editorOpen(); },
+      discard: discardOpen_
+    });
 
     // Pre-fetch MCP source types so the editor mount path doesn't have to
     // wait on the first network round-trip when the operator clicks "New
@@ -2991,10 +3135,15 @@ App.registerArea({
 
     setActiveSection(self._activeSection || 'agents', { writeUrl: false });
 
-    loadAll().then(function () {
+    bootLoad = loadAll(true);
+    var bootSettled = function () { bootLoad = null; };
+    bootLoad.then(bootSettled, bootSettled);
+    bootLoad.then(function () {
       if (self._activeSection === 'agents') {
         if (self._pendingSelectName) {
-          tryConsumePendingSelect();
+          // This load is fresh (it just resolved), so a pending id absent from
+          // it is dead and heals to the Agents root.
+          resolvePendingAgent();
           if (self._selectedAgent) return;
         }
         // Guard: if the user entered create mode or selected an agent while
@@ -3017,27 +3166,14 @@ App.registerArea({
   activate: function () {
     if (this._refresh) this._refresh();
   },
-  // F4 L5: confirmLeave — cross-area dirty-gate hook consumed by
-  // app.js:switchTo before deactivating the outgoing area on cross-area
-  // navigation. Mirrors admin.js:748-754. The `_confirmLeaveImpl` handle
-  // is attached inside `init()` so it can close over the local `dirty`
-  // flag; this descriptor method just routes through it.
-  confirmLeave: function (proceed, abort) {
-    if (this._confirmLeaveImpl) {
-      this._confirmLeaveImpl(proceed, abort);
-    } else {
-      proceed();
-    }
-  },
-  // Flight 6 leg 1 (L1-D2 site 2): app.js's performCrossAreaSwitch calls
+  // Flight 6 leg 1 (L1-D2 site 2): app.js's mountArea calls
   // this on EVERY cross-area transition. Without it, opening a Knowledge
   // detail view and clicking e.g. Chat leaves the 5-second poll running
   // for the life of the page — this is the first Studio section to need a
   // real body here; every prior section issues one-shot fetches, not
   // intervals. Note the beforeunload listener registered inside init()
-  // is NOT touched here — the in-file warning at its registration site
-  // forbids removing that listener in deactivate(), not giving
-  // deactivate() a body.
+  // is gone (the one beforeunload lives in nav.js); this body only
+  // stops the knowledge poll.
   deactivate: function () {
     if (this._knowledgePollTimer) {
       clearInterval(this._knowledgePollTimer);

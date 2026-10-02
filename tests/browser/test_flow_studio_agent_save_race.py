@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -33,7 +34,7 @@ def test_save_after_concurrent_delete_falls_back_to_empty(
     base_url = app_with_provider.base_url
 
     # 1. Create an agent through the normal flow so it exists + is selected.
-    page.goto(f"{base_url}#studio")
+    _nav.goto(page, base_url, "agents")
     page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent")
     page.locator('[data-field="name"]').fill("race-agent")

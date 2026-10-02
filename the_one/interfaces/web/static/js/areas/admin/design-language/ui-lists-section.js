@@ -6,7 +6,8 @@
 
   // App.ui.listPane: groups, selection, filter, badges, count, density
   // regular and compact, and the empty state. Rows are buttons (onSelect), so
-  // the page never navigates.
+  // the page never navigates. App.ui.rail is demonstrated here too (links to
+  // the in-page skip target, so the demo never routes).
   function noop() {}
 
   function items(prefix) {
@@ -55,6 +56,25 @@
         items: []
       });
       pane.appendChild(empty.el);
+    });
+
+    // App.ui.rail: a non-routing demo. Every href is the in-page skip target
+    // (#main-content, which the link interceptor leaves to the browser), the
+    // second item is shown current statically, and the brand image carries
+    // its accessible name.
+    d.demo(host, 'rail', function (pane, theme) {
+      var rail = ui.rail({
+        label: 'Rail demo (' + theme + ')',
+        brand: { src: '/static/brand/topbar-icon-24.png', alt: 'GleepGlorp AI' },
+        currentId: 'agents',
+        items: [
+          { id: 'chats', label: 'Chats', icon: 'chat', href: '#main-content' },
+          { id: 'agents', label: 'Agents', icon: 'studio', href: '#main-content' },
+          { id: 'library', label: 'Library', icon: 'database', href: '#main-content' },
+          { id: 'settings', label: 'Settings', icon: 'admin', href: '#main-content' }
+        ]
+      });
+      pane.appendChild(d.row([rail.el]));
     });
   }
 

@@ -50,6 +50,7 @@ slightly off-target. Logged as a deviation in the flight log.
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page, expect
 
 # Per-tool field-set sanity for the WebConfig surface used across tests.
@@ -89,7 +90,10 @@ def test_editor_renders_prompt_block(app_clean: str, page: Page) -> None:
     Leg 02 polish — the code comment in tools-editor.js still uses '// prompt'
     terminology but the DOM label is now 'Prompt' via the shared section-title pattern.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    # The editor mounts only once GET /api/tools/configs/web_search resolves;
+    # under load that response can take longer than a fixed 8s `expect`. Wait
+    # for the app's own fetch activity to go quiet (state-driven), then assert.
+    _nav.goto_settled(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     block = page.locator(".editor-prompt-block")
     expect(block).to_be_visible()
@@ -109,7 +113,7 @@ def test_editor_connector_tool_shows_connectors_category(app_clean: str, page: P
     reads 'connectors' — not 'unknown', which is what the pre-fix
     tools-editor.js TOOL_CATEGORIES mirror gap produced.
     """
-    page.goto(f"{app_clean}#admin/tools/send_to_platform_channel")
+    _nav.goto(page, app_clean, "settings/tools/send_to_platform_channel")
     expect(page.locator(".editor-title")).to_have_text("send_to_platform_channel", timeout=8000)
     expect(page.locator(".editor-subtitle-meta")).to_have_text("connectors")
 
@@ -120,7 +124,7 @@ def test_editor_renders_enabled_toggle_inline(app_clean: str, page: Page) -> Non
     widget (`.tool-enable-switch`) — same visual as the grid tile.
     Confirms it's not an inert plain checkbox.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     row = page.locator(".tools-editor-enabled-row")
     expect(row).to_be_visible()
@@ -139,7 +143,7 @@ def test_editor_renders_all_web_config_fields(app_clean: str, page: Page) -> Non
     Exercised against `fetch_url` — `web_search` is no longer WebConfig-
     backed (M16 F08 leg 02 moved it to WebSearchConfig).
     """
-    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     for fname in _WEB_CONFIG_FIELDS:
         row = page.locator(f'.tools-editor-field[data-field-name="{fname}"]')
@@ -153,7 +157,7 @@ def test_editor_renders_web_search_config_fields(app_clean: str, page: Page) -> 
     The per-engine fields default-hidden (DuckDuckGo is the default
     backend, which has no fields) but stay in the DOM.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     for fname in _WEB_SEARCH_FIELDS:
         row = page.locator(f'.tools-editor-field[data-field-name="{fname}"]')
@@ -173,7 +177,7 @@ def test_editor_field_descriptions_are_info_icon_tooltips(app_clean: str, page: 
     confirms the inline `<p>` paragraph is gone. Re-homed to `fetch_url`
     (WebConfig-backed).
     """
-    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
 
     # Inline-paragraph form is gone — the regression check.
@@ -197,7 +201,7 @@ def test_editor_save_disabled_until_dirty(app_clean: str, page: Page) -> None:
     field). SearXNG must be selected first so the field is visible, then
     we type a URL into it.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     save_btn = page.locator(".save-btn")
     expect(save_btn).to_be_disabled()
@@ -219,7 +223,7 @@ def test_editor_cancel_restores_snapshot(app_clean: str, page: Page) -> None:
     L3 design); the modified field reverts to its prior value and Save
     returns to disabled. Exercised on `web_search`'s `searxng_base_url`.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('[data-field="search_backend"]').select_option("searxng")
     base_url = page.locator('input[data-field="searxng_base_url"]')
@@ -241,7 +245,7 @@ def test_editor_save_persists_across_reload(app_clean: str, page: Page) -> None:
     confirm the engine + URL persist. Exercises the WebSearchConfig
     surface (M16 F08).
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('[data-field="search_backend"]').select_option("searxng")
     page.locator('input[data-field="searxng_base_url"]').fill("https://searx.example.org")
@@ -267,7 +271,7 @@ def test_editor_model_validator_422_shows_banner(app_clean: str, page: Page) -> 
     timeout_seconds_max` validator lives on WebConfig, which `web_search`
     no longer uses (M16 F08 leg 02).
     """
-    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     page.locator('input[data-field="timeout_seconds_max"]').fill("10")
     page.locator(".save-btn").click()
@@ -297,7 +301,7 @@ def test_editor_field_change_clears_highlight(app_clean: str, page: Page) -> Non
     intent to fix). Other rows that are still in error keep theirs.
     Re-homed to `fetch_url` (WebConfig model-validator).
     """
-    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     page.locator('input[data-field="timeout_seconds_max"]').fill("10")
     page.locator(".save-btn").click()
@@ -321,7 +325,7 @@ def test_editor_back_button_dirty_gate(app_clean: str, page: Page) -> None:
     ([data-testid="confirm-dialog-overlay"], NOT native browser
     confirm). Cancel keeps the editor mounted; confirm exits to grid.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('[data-field="search_backend"]').select_option("searxng")
 
@@ -339,7 +343,7 @@ def test_editor_back_button_dirty_gate(app_clean: str, page: Page) -> None:
     expect(overlay).to_be_visible(timeout=5000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/tools"
+    _nav.expect_route(page, "settings/tools")
 
 
 @pytest.mark.browser
@@ -349,7 +353,7 @@ def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
     pattern as the Back button — admin.js routes both paths through
     `App.confirmDialog`.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('[data-field="search_backend"]').select_option("searxng")
 
@@ -375,11 +379,11 @@ def test_test_button_only_for_testable_tools(app_clean: str, page: Page) -> None
     tools (e.g. `shell`) have no test surface — `.test-tool-btn` not
     present.
     """
-    page.goto(f"{app_clean}#admin/tools/shell")
+    _nav.goto(page, app_clean, "settings/tools/shell")
     expect(page.locator(".editor-title")).to_have_text("shell", timeout=8000)
     expect(page.locator(".test-tool-btn")).to_have_count(0)
 
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     expect(page.locator(".test-tool-btn")).to_be_visible()
 
@@ -390,11 +394,11 @@ def test_test_button_input_pre_filled(app_clean: str, page: Page) -> None:
     fixture default. web_search → "the one cli agent"; fetch_url →
     "https://example.com/".
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     expect(page.locator(".test-tool-input")).to_have_value("the one cli agent")
 
-    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     expect(page.locator(".test-tool-input")).to_have_value("https://example.com/")
 
@@ -409,7 +413,7 @@ def test_test_button_click_fires_request(app_clean: str, page: Page) -> None:
     state is either `.test-result-ok` (HTTP 200) or `.test-result-fail`
     (network refusal / SSRF block); either is a valid terminal state.
     """
-    page.goto(f"{app_clean}#admin/tools/fetch_url")
+    _nav.goto(page, app_clean, "settings/tools/fetch_url")
     expect(page.locator(".editor-title")).to_have_text("fetch_url", timeout=8000)
     test_btn = page.locator(".test-tool-btn")
     expect(test_btn).to_be_visible()
@@ -437,7 +441,7 @@ def test_web_search_secret_field_masked_with_eye_toggle(app_clean: str, page: Pa
     between password/text and swaps its aria-label. Ported from the
     provider-editor eye-toggle pattern.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
 
     # Select Brave so its key field is revealed (show_if), then exercise
@@ -470,7 +474,7 @@ def test_web_search_show_if_reveals_only_selected_engine_fields(app_clean: str, 
     default) shows none. Hidden rows stay in the DOM and carry
     `aria-hidden="true"`.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
 
     backend = page.locator('[data-field="search_backend"]')
@@ -523,7 +527,7 @@ def test_web_search_secret_persists_encrypted_and_reloads_masked(
     reload the field shows the GET mask (`***...{tail4}`), NOT the
     plaintext key. End-to-end leg-3 contract from the UI.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
 
     page.locator('[data-field="search_backend"]').select_option("brave")
@@ -550,7 +554,7 @@ def test_web_search_engine_switch_preserves_entered_key(app_clean: str, page: Pa
     its value survives. Confirms the show_if mechanism never clears field
     values.
     """
-    page.goto(f"{app_clean}#admin/tools/web_search")
+    _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
 
     backend = page.locator('[data-field="search_backend"]')

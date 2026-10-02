@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page, expect
 
 
@@ -48,7 +49,7 @@ def test_rotate_staged_shows_warning_flash(app_clean: str, page: Page) -> None:
     """`key_file: "staged"` renders a distinct warning flash, not success."""
     _mock_rotate_response(page, "staged")
 
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     _arm_and_commit_rotate(page)
 
     flash = page.locator(".admin-system-flash")
@@ -69,7 +70,7 @@ def test_rotate_promoted_shows_success_flash(app_clean: str, page: Page) -> None
     """`key_file: "promoted"` keeps the existing success flash."""
     _mock_rotate_response(page, "promoted")
 
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     _arm_and_commit_rotate(page)
 
     flash = page.locator(".admin-system-flash")
@@ -90,7 +91,7 @@ def test_rotate_confirm_lapse_is_visually_distinct(app_clean: str, page: Page) -
         lambda r: rotate_requests.append(r.url) if "/api/encryption/rotate" in r.url else None,
     )
 
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     rotate_btn = page.locator('[data-testid="rotate-key-btn"]')
     expect(rotate_btn).to_be_visible(timeout=8000)
     expect(rotate_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
@@ -116,7 +117,7 @@ def test_rotate_success_never_carries_the_lapse_cue(app_clean: str, page: Page) 
     app's highest-consequence confirm."""
     _mock_rotate_response(page, "promoted")
 
-    page.goto(f"{app_clean}#admin/general")
+    _nav.goto(page, app_clean, "settings/general")
     _arm_and_commit_rotate(page)
 
     flash = page.locator(".admin-system-flash")

@@ -1,86 +1,99 @@
-"""End-to-end flow tests: studio section navigation (F5 leg 01).
+"""End-to-end flow tests: Library section navigation (F5 leg 01; M25 F2 L3).
 
-Covers the four-section sidebar (Agents / Knowledge / MCP Servers /
-Connectors). Post-F2 retrofit: the third section was originally a
-"Tools" stub and became the relocated "MCP Servers" surface (moved from
-the admin nav because MCP sources are user-managed entities, not system
-settings). M10 F2 leg 05 added a fourth section, "Connector Accounts"
-(later "Connectors"); Mission 23 Flight 1 reset the connector subsystem
-and removed it, returning the nav to three entries; Mission 23 Flight 2
-Leg 2 reinstates "Connectors" as the fourth (and, again, LAST) entry.
+Covers the Library section nav (Knowledge / MCP Servers / Connectors). Agents
+is its own destination with NO section nav, and its aside is hidden (M25 F2
+L3 (c)); the section nav is labelled "Library sections".
 
 - Section nav buttons render with correct ARIA + roving tabindex
-- Click navigation updates URL hash + active section
+- Click navigation updates the route + active section
 - Keyboard navigation: Up/Down/Home/End move focus between buttons,
   Enter/Space activate the focused button
 - Refreshing on each section URL returns to that section
 - aria-current="page" tracks the active section button
+- Each destination keeps its selection (rail-restore, DD4): leaving an open
+  agent for Library and returning restores the agent; clicking the CURRENT
+  destination goes to its root.
 """
 
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 
-def _wait_studio_ready(page: Page) -> None:
-    """Wait for the studio area to mount.
-
-    Sidebar headers were removed (commit 0d3d42e: "drop redundant sidebar
-    headers"); the topbar's app-picker pill names the active area instead.
-    Wait for the section-nav buttons to render — that's the canonical
-    "studio mounted" signal once the headers are gone.
-    """
+def _wait_library_ready(page: Page) -> None:
+    """Wait for the Library destination to mount (active panel + section nav)."""
+    expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
     expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
 
 
-@pytest.mark.browser
-def test_studio_section_nav_renders_four_buttons(app_clean: str, page: Page) -> None:
-    """The section-nav has four buttons (Agents / Knowledge / MCP Servers / Connectors)."""
-    page.goto(f"{app_clean}#studio")
-    _wait_studio_ready(page)
+def _wait_agents_ready(page: Page) -> None:
+    """Wait for the Agents destination to mount (the readiness probe)."""
+    expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
 
+
+@pytest.mark.browser
+def test_library_section_nav_renders_three_buttons(app_clean: str, page: Page) -> None:
+    """The Library section nav has three buttons (Knowledge / MCP Servers / Connectors)."""
+    _nav.goto(page, app_clean, "library")
+    _wait_library_ready(page)
+
+    expect(page.locator('.section-nav[aria-label="Library sections"]')).to_be_visible()
     buttons = page.locator(".section-nav-item")
-    expect(buttons).to_have_count(4)
-    expect(buttons.nth(0)).to_have_text("Agents")
-    expect(buttons.nth(1)).to_have_text("Knowledge")
-    expect(buttons.nth(2)).to_have_text("MCP Servers")
-    expect(buttons.nth(3)).to_have_text("Connectors")
+    expect(buttons).to_have_count(3)
+    expect(buttons.nth(0)).to_have_text("Knowledge")
+    expect(buttons.nth(1)).to_have_text("MCP Servers")
+    expect(buttons.nth(2)).to_have_text("Connectors")
+    # The aside is labelled by the destination, the nav inside by its sections.
+    expect(page.locator("#app-sidebar")).to_have_attribute("aria-label", "Library")
 
 
 @pytest.mark.browser
-def test_studio_default_section_is_agents(app_clean: str, page: Page) -> None:
-    """Landing on #studio defaults to the Agents section with aria-current='page'.
+def test_agents_has_no_section_nav_and_hidden_aside(app_clean: str, page: Page) -> None:
+    """Agents is its own destination: no section nav, and the aside is hidden."""
+    _nav.goto(page, app_clean, "agents")
+    _wait_agents_ready(page)
 
-    The redirect from #studio to #studio/agents is performed by the F3 router's
-    serialize-after-hydrate path (no new redirect logic in studio.js).
+    expect(page.locator("#app-sidebar")).to_be_hidden()
+    expect(page.locator("#app-sidebar")).to_have_attribute("hidden", "")
+    # No active section button anywhere on Agents.
+    expect(page.locator('.section-nav-item[aria-current="page"]')).to_have_count(0)
+    _nav.expect_route(page, "agents")
+
+    # ...and the aside comes back, labelled, on Library.
+    _nav.open_destination(page, "library")
+    _wait_library_ready(page)
+    expect(page.locator("#app-sidebar")).to_be_visible()
+
+
+@pytest.mark.browser
+def test_library_default_section_is_knowledge(app_clean: str, page: Page) -> None:
+    """Landing on bare `library` defaults to Knowledge with aria-current='page'.
+
+    The bare destination redirects to `library/knowledge` (replaceState).
     """
-    page.goto(f"{app_clean}#studio")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library")
+    _wait_library_ready(page)
 
-    # Active section is Agents — the only button with aria-current="page".
     active = page.locator('.section-nav-item[aria-current="page"]')
     expect(active).to_have_count(1)
-    expect(active).to_have_text("Agents")
-
-    # URL was rewritten to #studio/agents.
-    assert page.evaluate("location.hash") == "#studio/agents"
+    expect(active).to_have_text("Knowledge")
+    assert page.evaluate("location.hash") == _nav.href("library/knowledge")
 
 
 @pytest.mark.browser
-def test_studio_section_nav_roving_tabindex(app_clean: str, page: Page) -> None:
+def test_library_section_nav_roving_tabindex(app_clean: str, page: Page) -> None:
     """Only the active section button has tabindex='0'; others have tabindex='-1'."""
-    page.goto(f"{app_clean}#studio")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library")
+    _wait_library_ready(page)
 
-    agents_btn = page.locator('.section-nav-item[data-section="agents"]')
     knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
     mcp_btn = page.locator('.section-nav-item[data-section="mcp-sources"]')
     connectors_btn = page.locator('.section-nav-item[data-section="connectors"]')
 
-    expect(agents_btn).to_have_attribute("tabindex", "0")
-    expect(knowledge_btn).to_have_attribute("tabindex", "-1")
+    expect(knowledge_btn).to_have_attribute("tabindex", "0")
     expect(mcp_btn).to_have_attribute("tabindex", "-1")
     expect(connectors_btn).to_have_attribute("tabindex", "-1")
 
@@ -88,13 +101,13 @@ def test_studio_section_nav_roving_tabindex(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_studio_click_knowledge_section(app_clean: str, page: Page) -> None:
     """Clicking the Knowledge section button updates URL and shows the inventory."""
-    page.goto(f"{app_clean}#studio")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library/mcp")
+    _wait_library_ready(page)
 
     page.locator('.section-nav-item[data-section="knowledge"]').click()
 
     # URL updated.
-    assert page.evaluate("location.hash") == "#studio/knowledge"
+    _nav.expect_route(page, "library/knowledge")
 
     # Inventory rendered.
     inventory = page.locator('[data-testid="studio-knowledge-inventory"]')
@@ -114,12 +127,12 @@ def test_studio_click_mcp_sources_section(app_clean: str, page: Page) -> None:
     "Tools" stub. The grid renders a page-header with title "MCP Servers"
     and either an empty-state CTA or a tile grid depending on inventory.
     """
-    page.goto(f"{app_clean}#studio")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library")
+    _wait_library_ready(page)
 
     page.locator('.section-nav-item[data-section="mcp-sources"]').click()
 
-    assert page.evaluate("location.hash") == "#studio/mcp-sources"
+    _nav.expect_route(page, "library/mcp")
 
     expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
 
@@ -135,85 +148,71 @@ def test_studio_keyboard_arrow_navigation(app_clean: str, page: Page) -> None:
     Manual-activation contract: arrow keys move focus + visual highlight, but do
     NOT mutate URL or activate the section. Enter/Space commits.
     """
-    page.goto(f"{app_clean}#studio")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library")
+    _wait_library_ready(page)
 
-    # Focus the active (Agents) button explicitly.
-    page.locator('.section-nav-item[data-section="agents"]').focus()
+    def focused() -> str | None:
+        return page.evaluate("() => document.activeElement?.dataset?.section")
 
-    # ArrowDown → focus moves to Knowledge.
-    page.keyboard.press("ArrowDown")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "knowledge"
+    # Focus the active (Knowledge) button explicitly.
+    page.locator('.section-nav-item[data-section="knowledge"]').focus()
 
-    # ArrowDown → MCP Servers.
-    page.keyboard.press("ArrowDown")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "mcp-sources"
+    page.keyboard.press("ArrowDown")  # -> MCP Servers
+    assert focused() == "mcp-sources"
 
-    # ArrowDown → Connectors (the last entry).
-    page.keyboard.press("ArrowDown")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connectors"
+    page.keyboard.press("ArrowDown")  # -> Connectors (the last entry)
+    assert focused() == "connectors"
 
-    # ArrowDown wraps → Agents.
-    page.keyboard.press("ArrowDown")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "agents"
+    page.keyboard.press("ArrowDown")  # wraps -> Knowledge
+    assert focused() == "knowledge"
 
-    # ArrowUp wraps backward → Connectors (last entry).
-    page.keyboard.press("ArrowUp")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connectors"
+    page.keyboard.press("ArrowUp")  # wraps backward -> Connectors
+    assert focused() == "connectors"
 
-    # Home → Agents.
     page.keyboard.press("Home")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "agents"
+    assert focused() == "knowledge"
 
-    # End → Connectors (the last entry).
     page.keyboard.press("End")
-    focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connectors"
+    assert focused() == "connectors"
 
-    # Focus moved but URL did NOT change (manual activation).
-    assert page.evaluate("location.hash") == "#studio/agents"
+    # Focus moved but the route did NOT change (manual activation).
+    _nav.expect_route(page, "library/knowledge")
 
 
 @pytest.mark.browser
 def test_studio_keyboard_enter_activates(app_clean: str, page: Page) -> None:
     """Pressing Enter on a focused section button activates it (URL + section change)."""
-    page.goto(f"{app_clean}#studio")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library")
+    _wait_library_ready(page)
 
-    page.locator('.section-nav-item[data-section="agents"]').focus()
-    page.keyboard.press("ArrowDown")  # focus → Knowledge
+    page.locator('.section-nav-item[data-section="knowledge"]').focus()
+    page.keyboard.press("ArrowDown")  # focus -> MCP Servers
     page.keyboard.press("Enter")
 
-    assert page.evaluate("location.hash") == "#studio/knowledge"
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=2000)
+    _nav.expect_route(page, "library/mcp")
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
 
     # Roving tabindex updated.
+    mcp_btn = page.locator('.section-nav-item[data-section="mcp-sources"]')
     knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
-    agents_btn = page.locator('.section-nav-item[data-section="agents"]')
-    expect(knowledge_btn).to_have_attribute("tabindex", "0")
-    expect(agents_btn).to_have_attribute("tabindex", "-1")
+    expect(mcp_btn).to_have_attribute("tabindex", "0")
+    expect(knowledge_btn).to_have_attribute("tabindex", "-1")
 
 
 @pytest.mark.browser
 def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page) -> None:
     """Navigating to #studio/knowledge directly + refreshing returns to that section."""
-    page.goto(f"{app_clean}#studio/knowledge")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library/knowledge")
+    _wait_library_ready(page)
 
     expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/knowledge"
+    _nav.expect_route(page, "library/knowledge")
 
     page.reload()
-    _wait_studio_ready(page)
+    _wait_library_ready(page)
 
     expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/knowledge"
+    _nav.expect_route(page, "library/knowledge")
 
     active = page.locator('.section-nav-item[aria-current="page"]')
     expect(active).to_have_text("Knowledge")
@@ -227,53 +226,75 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
     "Tools" stub persists on refresh. The MCP Servers section is the new
     third nav entry.
     """
-    page.goto(f"{app_clean}#studio/mcp-sources")
-    _wait_studio_ready(page)
+    _nav.goto(page, app_clean, "library/mcp")
+    _wait_library_ready(page)
 
     expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/mcp-sources"
+    _nav.expect_route(page, "library/mcp")
 
     page.reload()
-    _wait_studio_ready(page)
+    _wait_library_ready(page)
 
     expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/mcp-sources"
+    _nav.expect_route(page, "library/mcp")
 
     active = page.locator('.section-nav-item[aria-current="page"]')
     expect(active).to_have_text("MCP Servers")
 
 
 @pytest.mark.browser
-def test_studio_section_round_trip_returns_to_agent_listing(
+def test_agents_destination_restores_open_agent_after_library_trip(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Switching Agents → Knowledge → Agents lands on the agent listing.
+    """Agents -> Library -> Agents restores the open agent (DD4: each destination
+    keeps its selection).
 
-    M10 F6 L7 HAT (commit 93c4120) inverted the navigation contract: leaving
-    the Agents section clears the selected agent, so a return to Agents shows
-    the tile grid with the editor hidden — not the previously-edited agent.
+    This inverts the M10 F6 L7 contract ("return to the listing") for
+    OTHER-destination clicks; the authority is reference board B3 section 10
+    item 2. The Library trip tears the open agent down (outgoing-section
+    cleanup), and the restore re-opens it fresh through the pending path.
     """
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(f"{base_url}#studio")
-    _wait_studio_ready(page)
+    _nav.goto_settled(page, base_url, "agents")
+    _wait_agents_ready(page)
 
-    # Select the seeded agent.
+    page.locator('[data-testid="agent-item"]').click()
+    expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
+    agent_route = f"agents/{_nav.seg(agent_name)}/general"
+    _nav.expect_route(page, agent_route)
+
+    _nav.open_destination(page, "library")
+    _wait_library_ready(page)
+    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=3000)
+
+    _nav.open_destination(page, "agents")
+    expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
+    _nav.expect_route(page, agent_route)
+    expect(page.locator(".studio-editor")).not_to_have_class("studio-editor is-hidden")
+
+
+@pytest.mark.browser
+def test_current_destination_click_returns_to_agent_listing(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """A click on the CURRENT destination's button goes to its root: the editor
+    closes and the tile grid owns the main panel (kept from M10 F6 L7)."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+
+    _nav.goto_settled(page, base_url, "agents")
+    _wait_agents_ready(page)
     page.locator('[data-testid="agent-item"]').click()
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
 
-    # Switch to Knowledge.
-    page.locator('.section-nav-item[data-section="knowledge"]').click()
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=2000)
-
-    # Switch back to Agents — selection was cleared on leaving, so the editor
-    # is hidden and the tile grid (section-content) owns the main panel.
-    page.locator('.section-nav-item[data-section="agents"]').click()
-    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
+    _nav.open_destination(page, "agents")
+    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden", timeout=5000)
     expect(page.locator(".studio-section-content")).not_to_have_class(
         "studio-section-content is-hidden"
     )
+    _nav.expect_route(page, "agents")
 
 
 @pytest.mark.browser
@@ -281,8 +302,8 @@ def test_studio_editor_hidden_on_knowledge_section(app_with_agent: SeededApp, pa
     """When Knowledge or MCP Servers is active, the studio-editor is hidden."""
     base_url = app_with_agent.base_url
 
-    page.goto(f"{base_url}#studio/knowledge")
-    _wait_studio_ready(page)
+    _nav.goto(page, base_url, "library/knowledge")
+    _wait_library_ready(page)
 
     editor = page.locator(".studio-editor")
     expect(editor).to_have_class("studio-editor is-hidden", timeout=5000)
