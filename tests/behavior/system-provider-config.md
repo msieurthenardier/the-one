@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-05
 **Updated**: 2026-10-02 (M25 F3: Providers table, items open below it, breadcrumb, no Back)
-**Last Run**: 2026-10-01-21-46-12 (pass — LIGHT 9/9 + DARK 9/9; first run on the workbench rail; CDP-driven Chromium; see runs/)
+**Last Run**: 2026-10-02-12-46-53 (pass — LIGHT 10/10 + DARK 10/10, D10 judged on a recorded rerun; M25 F3 close gate; see runs/)
 
 > **Apparatus note (from run 2026-07-30)**: for the row-9 armed state (or any sub-3s transient UI state), single-shot screenshot round-trips lose the race to the revert window. Use the **filmstrip technique**: `performance_start_trace` with screenshots enabled → drive arm(+fire) in ONE `evaluate_script` call (no inter-call gaps) → `performance_stop_trace` → extract the embedded Screenshot frame from the repaint burst as the rendered-state evidence. Proven in both themes.
 

@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-01
 **Updated**: 2026-10-02 (M25 F3: list and detail shell, steps 3–8 and 10)
-**Last Run**: 2026-10-01-21-03-48 — pass (28/28; Dark + Light)
+**Last Run**: 2026-10-02-12-08-59 — pass (28/28; Light + Dark; first run on the list-and-detail shell; CDP-driven Chromium)
 
 ## Intent
 

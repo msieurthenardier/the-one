@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-05
 **Updated**: 2026-10-02 (M25 F3: list and detail; New → `#agents/~new`, list rows, breadcrumb, no Back)
-**Last Run**: 2026-10-01-21-46-12 (pass — LIGHT 9/9 + DARK 9/9; first run on the workbench rail; see runs/)
+**Last Run**: 2026-10-02-12-46-53 (pass — LIGHT 9/9 + DARK 9/9; M25 F3 close gate, list-and-detail shell; see runs/)
 
 ## Intent
 

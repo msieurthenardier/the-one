@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-03
 **Updated**: 2026-10-02 (M25 F3: the Agents list, the Library groups, the Providers table)
-**Last Run**: 2026-10-01-21-46-12 — pass (8/8)
+**Last Run**: 2026-10-02-12-46-53 — pass (8/8; M25 F3 close gate, list-and-detail shell)
 
 ## Intent
 

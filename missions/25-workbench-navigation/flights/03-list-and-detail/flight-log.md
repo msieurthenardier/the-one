@@ -1941,6 +1941,157 @@ the first full `test_ui_*` run on the strengthened forced-colours assertion (3b)
 `studio.js` slip (the anomaly). No dev instance was started (no WebKitGTK probe this pass); port 8484
 and the default data directory were not touched. Not committed.
 
+### Behavior-gate fix: create-form Cancel (2026-10-02)
+
+**The finding.** The `list-and-detail` behavior spec, checkpoint L6: on a pristine agent create
+form (`#agents/~new`, nothing typed) Cancel was **disabled**, so the operator could not use it to
+abandon creation. Every editor gated Cancel on `dirty`. That is right in edit mode (Cancel reverts,
+and a clean form has nothing to revert) but wrong in create mode, where DD8 makes Cancel "abandon":
+discard, replace to the destination root, focus. The knowledge-base `~new` form (`kb-create-cancel-btn`)
+never gated it and was the model. Nothing is committed.
+
+**The fix (the Flight Director's decision).** In create mode Cancel is enabled from first render and
+stays enabled for as long as the form is in create mode, dirty or not. Edit mode is unchanged
+(enabled iff dirty). Per editor:
+
+| Editor | Markup (first render) | Dirty recompute |
+|---|---|---|
+| Agent | `agent-editor.js`: `cancel-agent-btn` carries `disabled` only when `!isCreate` | `studio.js` `checkDirty`: `cancelBtn.disabled = !dirty && !self._createMode` (it runs at the end of every `renderEditor`, so the markup alone would not hold) |
+| MCP server | `mcp-server-editor.js`: `cancel-mcp-source-btn` `disabled` only when `!isCreate` | `checkDirty`: `isEdit && !dirty`; `recaptureSnapshot` (edit-only caller): `disabled = isEdit` |
+| Provider | `provider-editor.js`: `cancel-provider-btn` `disabled` only when `!isCreate` | `checkDirty`: `isEdit && !dirty` |
+| Connector | `connector-editor.js`: `cancelBtn.disabled = !isCreate` | `markDirty` only ever enables; the edit-save path that disables is `!isCreate` only (unchanged) |
+
+**The Cancel handlers assume nothing about `dirty`** (read against the code): the agent's
+`cancelEdit` create branch runs `discardOpen_()` (unconditional `closeOpenItem`, `dirty = false` in a
+`finally`), `go(#agents, {replace, bypassGuard})` and `focusAgentRowNear(0)`; the MCP and connector
+`onCancel`s run `discardOpen_()`, a bypass replace to `#library/mcp|connectors` and
+`focusLibraryGroupStart`; the provider's `onCancel` runs `_discardEditor()`, a bypass replace to
+`#settings/providers`, then focus (now `focusProviderRowNear(0)`, see "Provider focus" below). None
+has a dirty-only branch or a confirm, so the pristine path is the dirty path minus the typing. No
+handler's discard or navigation changed; the comments (the agent's "the button only fires when
+dirty", the provider's "Cancel-when-dirty is an intentional discard") now say the create form's
+Cancel runs clean or dirty.
+
+**Save-create windows checked.** Between a create POST's success and the edit-mode re-render the
+create form's DOM is still mounted. Agent: `_createMode` is cleared once the POST lands (when the user
+is still on the form), so `checkDirty` there would gate Cancel on `dirty` again, and `cancelEdit` with
+`_createMode` false and no `_selectedAgent` is a no-op, exactly as before (Cancel was already enabled
+in that window, since Save needs a dirty form). MCP re-renders on a resolved-promise microtask (no
+user click can interleave). Connector: `onCancel` checks `connectorFormMode === 'edit'`, already set by
+`onSaveSuccess`, so it re-renders rather than discards. Provider re-mounts in edit mode.
+
+**Provider focus: aligned with DD8 (the Flight Director's follow-up).** The first pass left the
+provider create form's Cancel focusing "Add provider" even when the table had rows. That was leg
+5b's reading (its spec: "Focus goes to 'Add provider', because no row exists"), pinned by
+`test_cancel_on_create_returns_to_the_root_focusing_add_provider`, and the first pass flagged it
+rather than change dirty-create behaviour. The Flight Director ruled that the flight DD governs. DD8's
+"Focus after Cancel, close or delete" is one rule for every list and table: a create form has no row
+of its own, so focus goes to the nearest surviving row (the first row), and the primary action only
+when the list is empty, as Agents and Library already did. `admin.js` `onCancel` now calls
+`focusProviderRowNear(0)` (the first `provider-card` link, else "Add provider") in place of
+`focusAddProvider()`; the discard, the bypass replace and the no-dialog path are unchanged. The leg
+5b pin is **renamed and inverted** (not deleted and re-added):
+`test_cancel_on_create_returns_to_the_root_focusing_the_first_row` seeds "Alpha" beside the
+fixture's "mock" and asserts "Alpha" (the first row, A–Z) is focused and "Add provider" is not. The
+empty-table case keeps "Add provider": `test_cancel_on_a_pristine_create_form_abandons_it[app_clean]`
+and `test_flow_provider_editor.py::test_create_cancel_navigates_to_grid_when_dirty`.
+
+**Breadcrumb close of `~new`: aligned too (the Flight Director's second follow-up).** The provider
+follow-up flagged that closing a provider `~new` form through its breadcrumb's "Providers" link still
+focused "Add provider" with rows present. The Flight Director ruled that DD8's single rule covers
+close as well as Cancel. In `admin.js` `focusClosedItem`, the `closing.create || !closing.providerId`
+branch now calls `focusProviderRowNear(0)` (the first `provider-card` link, else "Add provider"), with
+a DD8 comment; the header comment of the delegated click listener says the same. Built-in tools have
+no equivalent path: there is no tool create form, and a closed tool always has its own tile (its
+branch focuses that tile's name link). New test:
+`test_breadcrumb_close_of_the_create_form_focuses_the_first_row[app_with_provider | app_clean]`
+(a clean `~new` form; `close_item`; route `settings/providers`, no editor, no `dialog[open]` and no
+confirm overlay; with rows, no selection and focus on "Alpha" (seeded before "mock") with "Add
+provider" not focused; with none, the zero-providers empty state and "Add provider" focused). No
+existing test pinned focus after this close: `test_flow_provider_grid.py::test_cancel_from_create_returns_to_grid`
+closes the empty-table form but checks no focus. Its docstring said "(Cancel disabled)", stale since
+the fix, and now says Cancel is enabled and points to the focus pins.
+
+**Tests** (no mock libraries; `_lists` / `_nav` helpers):
+
+| File (lane) | New tests |
+|---|---|
+| `test_flow_agents_list.py` (agents) | `test_cancel_on_a_pristine_create_form_abandons_it[focuses-first-row \| focuses-new]` (enabled with nothing typed, no caption, `App.nav` clean; click: no `dialog[open]` and no confirm overlay, route `agents`, `history.length` unchanged, the empty state, no editor, no row selected, focus on the seeded row, else "New"); `test_create_form_cancel_stays_enabled_when_the_form_is_clean_again` (type, then clear: caption gone, Create disabled, Cancel enabled, and it still abandons); `test_cancel_on_a_clean_open_agent_stays_disabled` (edit pin: disabled clean, enabled by an edit, reverts in place and disables, route unchanged) |
+| `test_flow_studio_library_list.py` (library) | `test_cancel_on_a_pristine_create_form_abandons_it[mcp-focuses-first-row \| mcp-focuses-add \| connector-focuses-first-row \| connector-focuses-add]` (the same checks against `#library/mcp` / `#library/connectors`, the section empty state, focus on the group's first row, else Add); `test_mcp_create_form_cancel_stays_enabled_when_the_form_is_clean_again` (the connector form has no clean-again state: its dirty mark is one-way); `test_cancel_on_a_clean_open_item_stays_disabled[mcp \| connector]` (edit pins) |
+| `test_flow_settings_items.py` (settings) | `test_cancel_on_a_pristine_create_form_abandons_it[app_with_provider \| app_clean]` (the table with no selection and focus on its first link, "Alpha" seeded before "mock"; else the zero-providers empty state and "Add provider"); `test_provider_create_form_cancel_stays_enabled_when_the_form_is_clean_again`; the leg 5b pin renamed and inverted to `test_cancel_on_create_returns_to_the_root_focusing_the_first_row` (follow-up, above). The provider edit pin already existed: `test_flow_provider_editor.py::test_save_and_cancel_disabled_when_clean` and `test_cancel_reverts_in_edit_mode` |
+
+No existing test asserted a disabled Cancel on a create form (re-grepped every cancel testid,
+`.cancel-btn` and `to_be_disabled`; the remaining disabled assertions are all edit mode), so none
+changed. The three files' docstrings name the fix. The first run of the 14 new tests: all passed
+(35.9s).
+
+**Falsified** (each reverted, run, restored; `git diff --stat` confirmed the restore):
+- MCP: the markup's `disabled` and `checkDirty`'s `!dirty` put back. The three MCP tests failed
+  (`Locator expected to be enabled - unexpected value "disabled"`, at the pristine and clean-again
+  assertions); the connector variants passed. 3 failed, 2 passed.
+- Agent (the original finding): only `checkDirty` put back to `!dirty`, with the markup fix kept. Both
+  pristine variants and the clean-again test failed at the "enabled" assertion; the edit pin passed.
+  3 failed, 1 passed. This shows the markup alone does not hold: `renderEditor` ends with `checkDirty`.
+- Provider focus (the follow-up): `focusProviderRowNear(0)` put back to `focusAddProvider()`. The
+  inverted pin and the pristine `[app_with_provider]` variant failed (`Locator expected to be focused
+  - unexpected value "inactive"`); `[app_clean]` passed (an empty table focuses "Add provider"
+  either way). 2 failed, 1 passed.
+- Breadcrumb close of `~new` (the second follow-up): `focusProviderRowNear(0)` in `focusClosedItem`
+  put back to `focusAddProvider()`. `[app_with_provider]` failed (`Locator expected to be focused -
+  unexpected value "inactive"`); `[app_clean]` passed. 1 failed, 1 passed.
+
+**Docs.** `the_one/agents.md`: the agents unsaved-indicator bullet (Save's `disabled`, Cancel's only on
+an open agent), the agents Create bullet (create-form Cancel is never gated on `dirty`; the same for
+the MCP, connector and provider forms, as the knowledge-base form; the tests), and the provider
+bullet's Cancel (enabled from first render; since the follow-up, focus on the first provider link,
+else "Add provider", per DD8) and the Settings items "Opening, closing and focus" bullet (the
+breadcrumb close of a `~new` form, the same rule; tools have no create form). Code comments in the five files. `CLAUDE.md`, the testid registry and the behavior
+specs are unchanged (none described the gating; the specs are under a running gate).
+
+**Gates** (final tree, one at a time, `THE_ONE_TEST_NETNS=1` for every browser run):
+
+| Gate | Passed | Skipped | Duration |
+|---|---|---|---|
+| `make lint`, `ruff format --check the_one/ tests/ scripts/` | clean (496 files formatted) | | |
+| `make test-unit` | 5047 (unchanged; 1441 deselected = the flight-end 1427 plus the 14 new browser tests) | 10 | 656.8s |
+| static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_nav_helper`, `test_store_static`, `test_ui_control_inventory`, `test_index_asset_cache_busting`) | 344 (plus `test_ui_library_source`: 31) | 0 | 2.4s |
+| agents lane (`-q -x --timeout 60`) | 130 (126 plus 4 new) | 2 | 317.7s |
+| library lane | 145 (138 plus 7 new) | 1 | 480.2s |
+| settings lane | 173 (170 plus 3 new) | 0 | 330.4s |
+| shared lane (`TEST_TIMEOUT=3600`) | 867 (unchanged) | 3 | 763.1s |
+
+Every gate passed on its **first** run on the final tree: no reruns, no hang, even with three
+behavior-gate browsers running on the machine. The chats lane was not in the brief and was not run
+(no chats file or code path changed).
+
+**Gates after the provider-focus follow-up** (final tree; `admin.js` and
+`test_flow_settings_items.py` changed, so the settings lane was rerun):
+
+| Gate | Passed | Skipped | Duration |
+|---|---|---|---|
+| `make lint`, `ruff format --check the_one/ tests/ scripts/` | clean (496 files formatted) | | |
+| static guards (the seven files above plus `test_ui_library_source`) | 375 (344 + 31) | 0 | 2.4s |
+| settings lane (`-q -x --timeout 60`) | 173 (unchanged: one test renamed, none added) | 0 | 324.1s |
+
+Both passed on the first run. The other lanes and `make test-unit` were not rerun: no file they
+own changed (the `admin.js` edit is one focus call in the provider `onCancel`, exercised only by
+settings-lane tests).
+
+**Gates after the breadcrumb-close follow-up** (final tree; `admin.js`, `test_flow_settings_items.py`
+and the `test_flow_provider_grid.py` docstring changed):
+
+| Gate | Passed | Skipped | Duration |
+|---|---|---|---|
+| `make lint`, `ruff format --check the_one/ tests/ scripts/` | clean (496 files formatted) | | |
+| static guards (the seven files plus `test_ui_library_source`) | 375 | 0 | 2.4s |
+| settings lane (`-q -x --timeout 60`) | 175 (173 plus the 2 new breadcrumb-close cases) | 0 | 325.7s |
+
+All passed on the first run. Not rerun, for the same reason: the change is one focus call in the
+admin area's `focusClosedItem`, reached only by settings-lane tests.
+
+Port 8484, the default data directory and the three behavior-gate dev instances (8485, 8486, 8487)
+and their scratch directories were not touched; no instance was started or restarted. Not committed.
+
 ---
 
 ## Flight Director Notes
@@ -2530,6 +2681,76 @@ and the default data directory were not touched. Not committed.
   off. The L6 checkpoint stays open until the behavior runs pass and the checkpoint
   package is ready.
 - **Flight commit** on the stacked branch, then `git rebase --onto origin/main e6a3a90`.
+- 2026-10-02: **Flight commit `7aa490f`**, rebased onto `main` `560aa9b` after #218 was
+  squash-merged.
+- 2026-10-02: **Behavior close gate (DD12).** All six specs ran with live Executor and
+  Validator pairs (SendMessage), on CDP-driven Chromium (DD12's fallback; goldfinch's input
+  is still broken). Each spec had its own instance, port and workspace. Wave 1 started at
+  12:08:59Z and wave 2 at 12:46:53Z, both concurrent:
+
+  | Spec | Instance | Result |
+  |---|---|---|
+  | `workbench-navigation` | 8485 | 28/28 |
+  | `kb-studio-round-trip` | 8487 | 18/18 |
+  | `list-and-detail` | 8486, with the stub flag | 38/38 after one fix |
+  | `shell-navigation-smoke` | 8485 | 8/8 |
+  | `studio-agent-crud` | 8485 | 18/18 |
+  | `system-provider-config` | 8485 | 20/20 |
+
+  - **`kb-studio-round-trip` step 10.** My instruction (SIGTERM) let the graceful drain
+    finish the whole pass, so resume was not exercised. I re-ran the step with SIGKILL, and
+    it passed.
+  - **`list-and-detail` L6 FAILED, attempt 1.** Cancel was disabled on the pristine
+    `#agents/~new` form, against DD8. It is a real product defect, and the MCP, connector
+    and provider create forms had it too.
+  - **The Flight Director's call (autonomous):** fix the system, continue the run, and rerun
+    the checkpoint after the fix (Witnessed protocol: a failed checkpoint does not land).
+  - **The rest of `list-and-detail`.** After the fix, L6r passed on a cold reload, and the
+    Dark variant (D2–D20) ran on the fixed code.
+  - **`system-provider-config` D10.** The Executor's capture script crashed after the delete
+    fired, so the focus clause was unmeasured. D10 was rerun as **D10r** after an API
+    re-seed and passed; this is recorded in its run log as an apparatus deviation.
+  - **Run logs** are under each spec's `runs/`, and every spec's Last Run line is updated.
+    `list-and-detail` is now `active`.
+- 2026-10-02: **Behavior-gate fix** (Developer; see the "Behavior-gate fix: create-form
+  Cancel" entry). Create-mode Cancel is enabled from first render on all four editors.
+  - **Provider focus decisions (Flight Director, out loud).** The Developer flagged that the
+    provider create-form Cancel, and then its breadcrumb close, focused "Add provider" even
+    when the table has rows. Leg 5b's wording ("because no row exists") is a leg-level
+    reading that conflicts with **DD8's single rule**: when there is no row of the item's
+    own, focus the nearest surviving row, and use the primary action only when the list is
+    empty. **The flight DD governs**, and Agents and Library already comply. Both paths were
+    aligned to "first row, else Add provider"; the pinned test was inverted by renaming.
+  - **Gates, all green:**
+    - unit 5,047;
+    - agents lane 130;
+    - library lane 145;
+    - settings lane 175;
+    - shared lane 867;
+    - static guards 375;
+    - lint and format clean.
+  - **Focused review** (Sonnet): `[HANDOFF:confirmed]`, with no high or medium issues.
+- 2026-10-02: **Spec fixes from the runs** (Flight Director):
+  - `kb-studio-round-trip` step 10: stop with SIGKILL after at least one item is indexed,
+    and snapshot the indexed ids and hashes first.
+  - `list-and-detail` step 19: a new-document load from `about:blank`, because an in-app
+    hash change is redirected before any reload.
+  - The other spec-quality notes the Validators raised go to the debrief: `history.length`
+    capped at 50 in Chromium, focus targets after Stay and Continue, success toasts, a
+    second seeded provider/agent, and so on.
+- **Observations for the debrief and the DD14 checkpoint** (none spec-asserted, none
+  blocking):
+  - **Focus after Create and Save** (agent, provider) and **after Test** (provider) drops to
+    BODY, because the clicked button re-renders or disables.
+  - **Focus after Add → MCP server or Connector** stays on the Add menu trigger, not the
+    form's Name field. The knowledge-base form and Agents' New do focus Name.
+  - **Cancel on a create form** focuses the first row, not the previously open item.
+  - **A deep-linked selected row** scrolls flush to the list bottom, with zero margin.
+  - **Agent-row provider dots** are coloured per provider *type*, so two mock providers look
+    identical.
+  - **Cross-client staleness.** A tab's store does not see another client's new agent until
+    a reload (per-client freshness bound).
+  - **Single-provider fixtures** auto-select the provider on `#agents/~new`.
 
 ---
 
