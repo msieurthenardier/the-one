@@ -4,7 +4,26 @@
 
 ## Summary
 
-*(written at landing)*
+**Status**: landed (2026-10-02). PR #219, `7aa490f` + `56f7d75` + `9590984`.
+
+All eight legs landed, and both flight-end reviewers confirmed after a fix pass. Every gate
+is green: unit, all five lanes and both engines. All six close-gate behavior specs pass:
+
+| Spec | Result |
+|---|---|
+| `workbench-navigation` | 28/28 |
+| `kb-studio-round-trip` | 18/18 |
+| `list-and-detail` | 38/38 |
+| `shell-navigation-smoke` | 8/8 |
+| `studio-agent-crud` | 18/18 |
+| `system-provider-config` | 20/20 |
+
+The `list-and-detail` run caught one real defect: Cancel was disabled on a pristine create
+form. It was fixed in-flight (`56f7d75`) and re-verified. Squawk 0101 is closed.
+
+Still open:
+- the DD14 operator checkpoint (go or no-go before Flight 4);
+- the merge to `main` (the operator merges).
 
 ---
 

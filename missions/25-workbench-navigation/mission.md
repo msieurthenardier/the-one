@@ -280,7 +280,7 @@ history but do not appear in the picker, and their drawer shows no settings link
   per-orchestrator copies; the rail; the shared client data layer; the central test
   navigation helper, lane re-mapping and migration of tests and the nine existing behavior
   specs that use the old navigation. Pages move into their destinations one-to-one.
-- [ ] Flight 3: **List and detail** — Agents (alphabetical list with filter; current tabbed
+- [x] Flight 3: **List and detail** — Agents (alphabetical list with filter; current tabbed
   editor hosted beside it, chrome only), Library (grouped list, Add menu; knowledge base,
   MCP server and connector editors hosted beside it) and Settings (grouped nav; item pages
   keep their list visible); Back controls retired; create opens the new item (resolves
