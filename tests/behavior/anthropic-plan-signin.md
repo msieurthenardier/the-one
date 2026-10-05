@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-28
 **Last Run**: 2026-07-30-03-16-41 (PASS 6/6 — see `anthropic-plan-signin/runs/2026-07-30-03-16-41.md`)
-**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
+**Updated**: 2026-10-05 (M25 F3 surface rename, then Providers as tiles in leg 7; not re-run)
 
 ## Intent
 
@@ -32,7 +32,7 @@ Verify that an operator can create an Anthropic individual-plan provider in Sett
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Click the rail's "Settings" link, then "Providers" in the Settings nav (`#settings/providers`). Click "Add provider" to create a new provider (the form opens below the Providers table): choose the Anthropic individual-plan type and name it "Plan Test". Do NOT save manually. | The editor shows the plan-provider form: a sign-in affordance is visible and enabled in create mode (no prior save required), and no API-key input is presented for this type. |
+| 1 | Click the rail's "Settings" link, then "Providers" in the Settings nav (`#settings/providers`). Click "Add provider" to create a new provider (the form opens below the Providers tiles): choose the Anthropic individual-plan type and name it "Plan Test". Do NOT save manually. | The editor shows the plan-provider form: a sign-in affordance is visible and enabled in create mode (no prior save required), and no API-key input is presented for this type. |
 | 2 | Click the sign-in affordance. | The provider auto-saves without error (the editor transitions to the saved/edit view for "Plan Test"), and the editor enters a waiting-for-code state: a code-paste field is visible, and the Anthropic authorization URL is available (consent popup opened and/or the URL shown as copyable text). Navigating to that URL in a browser tab reaches an Anthropic authorization page. |
 | 3 | Operator signs in / consents on the Anthropic page and copies the displayed code. Paste the code into the provider editor and confirm. (Operator performs the consent; Executor performs the paste if the operator hands over the code.) | The editor shows "Plan Test" as connected: the sign-in affordance is replaced by a connected indicator plus a reset/re-authenticate control. No error banner appears, and no unsaved-changes warning is pending. |
 | 4 | Hard-reload the Settings page and reopen "Plan Test". | The connected state persists after reload — the editor still shows the provider as connected. |

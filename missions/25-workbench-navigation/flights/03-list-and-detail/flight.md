@@ -1,6 +1,6 @@
 # Flight: List and Detail
 
-**Status**: landed
+**Status**: in-flight
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -303,6 +303,17 @@ Editor internals are out of scope; the next mission redesigns them (mission deci
 
 **DD7 — Settings item pages keep their list visible: the table stays, and the item opens
 under it.**
+
+> **Amended at the DD14 operator checkpoint (2026-10-05).** The operator: "It works better
+> for built-in tools than it does for providers, maybe make the providers tiles instead of
+> rows to match."
+>
+> The Providers list renders as **tiles, matching Built-in tools**: the name link is the
+> item link, with a corner type badge, the base URL and "Used by". It replaces the §8.2
+> table, and leg 7 (`providers-tiles`) implements it. The item still opens **below** the
+> list, and every other rule in this DD stands. The original framing is kept below as the
+> record. The deviation from reference spec §8.2 is recorded in its §13 as operator-approved
+> (D5).
 
 - **Providers.**
   - **Page.** `#settings/providers` is the §8.2 page:
@@ -713,6 +724,10 @@ into leg 5a, and split the Library and Settings legs (issues 2, 3 and 8).
    - Assert the guard allow-list is empty.
    - The flight-close gates, and runs in both themes for the new spec.
    - The DD14 checkpoint package.
+9. **`providers-tiles`** (7), added after the DD14 checkpoint.
+   - The operator's decision: the Providers list renders as tiles, matching Built-in tools.
+   - The table is retired, and the item still opens below the list.
+   - The Flight Director re-authors the affected behavior specs and re-runs them.
 
 ### Checkpoints
 
@@ -777,6 +792,8 @@ into leg 5a, and split the Library and Settings legs (issues 2, 3 and 8).
   the item below it, and provider and tool Back retired.
 - [x] `behavior-specs-and-close`: `list-and-detail`, spec updates, gates and runs, and
   the checkpoint package.
+- [ ] `providers-tiles`: the Providers list as tiles matching Built-in tools (DD14
+  checkpoint outcome); the affected specs re-run.
 
 ---
 

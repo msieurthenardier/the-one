@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-10
 **Last Run**: 2026-07-30-17-37-08 (pass, 4/4 — post-M19-F01 provider-editor.js re-run; see `save-preserves-config/runs/2026-07-30-17-37-08.md`)
-**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
+**Updated**: 2026-10-05 (M25 F3 surface rename, then Providers as tiles in leg 7; not re-run)
 
 ## Intent
 
@@ -54,7 +54,7 @@ POSTing.
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` for 200. If a provider named `SPC-test-provider` already exists (`GET /api/providers`), `DELETE` it. Via the API, `POST /api/providers` with `{"name": "SPC-test-provider", "type": "openai-compatible", "base_url": "https://example.invalid/v1", "api_key": "sk-test-not-real"}`. | (empty) |
 | 2 | (Setup, no judgment) Via the API, `PUT /api/providers/{id}` (the id from Step 1) with `{"config": {"response_format": "json_object", "stop": ["END"]}}`. | (empty) |
 | 3 | (Setup, no judgment) `GET /api/providers/{id}` and confirm the response's `config` contains `response_format: "json_object"` and `stop: ["END"]` — establishes the out-of-band baseline the rest of the test protects. | (empty) |
-| 4 | Open a fresh chrome-devtools page at `http://localhost:8485/#settings/providers` with an `ignoreCache` hard-reload. Click the `SPC-test-provider` row's name link in the Providers table to open its editor (it opens below the table). | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning Effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
+| 4 | Open a fresh chrome-devtools page at `http://localhost:8485/#settings/providers` with an `ignoreCache` hard-reload. Click the `SPC-test-provider` tile's name link in the Providers list to open its editor (it opens below the tiles). | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning Effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
 | 5 | In the Reasoning Effort select, choose **"high"**. | The select shows "high" selected; the **Save** button is now enabled (the form is dirty). |
 | 6 | Click **Save**. | The save succeeds (no error flash). The Save button returns to disabled (no unsaved changes); the Reasoning Effort select still shows "high". |
 | 7 | Via the API, `GET /api/providers/{id}` and inspect the `config` object. | `config.reasoning_effort` is `"high"` (the UI-edited field), AND `config.response_format` is still `"json_object"`, AND `config.stop` is still `["END"]` — all three keys survive the UI-triggered save together. |
@@ -64,10 +64,10 @@ POSTing.
 assertion; a failure there (missing `response_format` or `stop`) is the exact seed-before-overlay
 regression this test exists to catch.
 
-**Locators (apparatus-agnostic — the Executor maps to its MCP):** Providers table row name link
-`data-testid="provider-card"` (providers-table.js); Reasoning Effort select
+**Locators (apparatus-agnostic — the Executor maps to its MCP):** Providers tile name link
+`data-testid="provider-card"` (providers-list.js); Reasoning Effort select
 `data-field="config.reasoning_effort"` / `id="pf-reasoning-effort"` (provider-editor.js); Save
-button `data-testid="save-provider-btn"` (provider-editor.js). **Cache discipline:** the table and
+button `data-testid="save-provider-btn"` (provider-editor.js). **Cache discipline:** the tiles and
 editor are client-rendered SPA views — hard-reload with `ignoreCache` before re-observing after
 the API-side mutations in Steps 1-3, so a stale in-memory provider list doesn't mask the setup.
 

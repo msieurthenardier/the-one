@@ -2111,6 +2111,73 @@ admin area's `focusClosedItem`, reached only by settings-lane tests.
 Port 8484, the default data directory and the three behavior-gate dev instances (8485, 8486, 8487)
 and their scratch directories were not touched; no instance was started or restarted. Not committed.
 
+### Leg 7: providers-tiles (landed, 2026-10-05)
+
+Settings > Providers renders as tiles matching Built-in tools, by the operator's DD14 checkpoint
+decision. Only the list's presentation changed; the item below the list, breadcrumb close, DD8
+focus, empty state and routes are as before.
+
+**Changed**
+- `git mv providers-table.js providers-list.js`; `renderProvidersTable` is `renderProvidersList`
+  (`renderProvidersTableNow` is `renderProvidersListNow` in `admin.js`); the other exports and the
+  `index.html` script tag follow. The row model now includes `base_url`, so an edited URL rebuilds
+  the tile. Tiles are DOM-built (`.entity-tile.provider-tile`, `role=listitem`) in an
+  `.entity-tile-grid.provider-tile-grid` (`role=list`, label "Providers"): the `App.ui.badge` with
+  `provider-tile-badge` added by `classList.add` (badge not extended), the name link
+  (`provider-card`), a one-line base URL (omitted when empty) and "Used by". Selection is `.active`
+  on the tile plus `aria-current` on the link, in place.
+- `admin.css`: the `.providers-table*` rules and the table's forced-colours block are deleted; a
+  separate `.provider-tile*` ruleset is added (corner badge placement only, link clearance
+  `max-width: calc(100% - 128px)`, `--fg-secondary` URL and "Used by" lines, `cursor: default`,
+  hover neutraliser). The link ink, hover and focus rules are grouped with `.tool-tile-link`, whose
+  `max-width: 100%` stays separate.
+- Tests: `_lists.providers_table` is `providers_list` (scoped inside `.settings-list`); the anatomy
+  test is renamed `test_providers_tile_anatomy_and_used_by_counts`; `test_flow_provider_grid`'s
+  anatomy inverted; `test_router_items` watch re-pointed at the grid's tiles (and now requires at
+  least one tile); the long-name test now also proves the link never crosses the badge's left edge
+  (badge forced to `openai-compatible` at 1024); the forced-colours probe is rewritten onto
+  `.provider-tile` / `.active`; new tests for the base URL line and for the two-column geometry at
+  1440x900 and 1024x768 (four providers: first two share a top, third below, tiles inside the list,
+  editor below the last tile). `test_design_tokens_a11y.py`: the two table tests became
+  `test_providers_tile_pairs_pass_body_aa` / `..._rules_consume_the_gated_pairs` (active inks on
+  `--accent-translucent-hover` at 0.16 dark / 0.13 light over both `--bg` and `--surface`); the two
+  table forced-colours parametrize entries are removed; the `_CONTRAST_EXEMPT` note for
+  `--accent-translucent-hover` cites the consumer. Mechanical `providers_list` updates in the other
+  listed files.
+- Docs: `CLAUDE.md` (Settings item pages paragraph, helper name), `the_one/agents.md` (line 148
+  and the Settings item pages bullets), `docs/ui-control-inventory.md` (table row kept, marked
+  retired; tile row extended), `docs/ui-testid-registry.md` (`provider-card`, breadcrumb and
+  retired `back-provider-btn` entries); `admin.js` "table" comments reworded.
+
+**Gates**
+- `make lint` and `ruff format --check`: clean.
+- Static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`,
+  `test_nav_helper`, `test_ui_library_source`, `test_index_asset_cache_busting`): 350 passed.
+- `make test-unit`: 5045 passed, 10 skipped, 11m32s.
+- Settings lane: 178 passed, 5m36s.
+- Shared lane: 867 passed, 3 skipped, 12m46s.
+
+**Falsifications** (each failed, then restored and re-run green)
+- Geometry: forcing `.provider-tile-grid` to one column failed both sizes of
+  `test_provider_grid_is_two_columns_and_the_editor_starts_below_it`. (The editor was not mounted
+  above the grid; a one-column grid breaks the same assertions.)
+- Anatomy: changing the grid's `aria-label` to "Provider" failed
+  `test_providers_tile_anatomy_and_used_by_counts`.
+
+**Review fixes** (post-review): (1) `Makefile` `verify-serving` listed `admin/providers-table.js`;
+now `admin/providers-list.js` (grep of `Makefile` and `scripts/` finds no other stale path;
+`make -n verify-serving` parses, nothing was run against 8485). (2) `.provider-tile-used` now holds a
+`.visually-hidden` "Used by " prefix plus `.provider-tile-used-value` with the unchanged visible
+text; the anatomy test asserts the hidden prefix and that the accessible text includes "Used by"
+(`test_flow_provider_grid` and `_tile_texts` read the value span). (3) `buildTile` appends the badge
+after the name link (DOM order link, badge, URL, used-by; the corner placement is unchanged
+`position:absolute`); the anatomy test asserts the order and the long-name clearance test still
+passes. Gates re-run: lint and format clean, static guards 350 passed, settings lane 178 passed
+(5m35s), `test_router_items` / `test_store` / `test_lists_helper` green.
+
+**Deviations**: none from the leg, except the geometry falsification mutation noted above. Port
+8484, the default data directory and the instance on 8485 were not touched. Not committed.
+
 ---
 
 ## Flight Director Notes
@@ -2801,6 +2868,75 @@ and their scratch directories were not touched; no instance was started or resta
     - provider dots per type.
   - **Next.** STOP for the operator's go or no-go before Flight 4. The outcome will be
     recorded here.
+
+- 2026-10-05: **DD14 operator checkpoint: outcome.** The operator reviewed the comparison
+  page and the live instance (a fresh handoff link was minted on request). Answers to the
+  questions:
+
+  | # | Question | Answer |
+  |---|---|---|
+  | 1 | Settings items below their list (DD7) | "It works better for built-in tools than it does for providers, maybe make the providers tiles instead of rows to match." A **change**. |
+  | 2 | The unsaved indicator (DD2) | Looks good. |
+  | 3 | Knowledge-base meta drops "files" (DD5) | OK. |
+  | 4 | "Chat" deferred to Flight 4 (DD4) | OK. |
+  | 5 | The breadcrumb-link refinement (DD2) | OK for now. |
+  | 6 | The zero-margin row scroll | OK (keep the bottom edge). |
+  | 7 | Focus after create and save | No preference. It is carried into later-flight planning (Flight 4 or 6), not fixed here. |
+  | 8 | Provider dots per type | OK. |
+
+  The Flight Director's call: the change lands in Flight 3, before PR #219 merges, as leg 7
+  `providers-tiles`, with re-runs of the affected behavior specs. Flight 4 starts after it
+  lands.
+  - **Flight status:** landed → in-flight (a leg added after landing; the PR stays open).
+  - **DD7** is amended, with the original kept as the record, and reference spec §13 gains
+    D5 (an operator-approved deviation).
+- **Leg 7 `providers-tiles`, risk tier: HIGH.** It reverses leg 5b's outcome (the §8.2
+  table) and renames a helper with eight test consumers, so it gets a per-leg design review
+  (Developer, Sonnet). The Flight Director re-authors and re-runs the behavior specs that
+  name the table: `system-provider-config`, `list-and-detail` (18 and 20),
+  `shell-navigation-smoke` (8 and 9), `workbench-navigation` (5 and 10) and
+  `save-preserves-config`, for Witnessed independence.
+
+- **Leg 7 design review** (Developer, Sonnet, two cycles; the maximum). Both cycles
+  returned "approve with changes", and every finding is folded in.
+  - **Cycle 1:**
+    - the selected-wash token;
+    - the `.entity-tile-badge` wrapper, which would have brought back the uppercase
+      eyebrow;
+    - the two-line clamp on the URL line;
+    - the badge overlapping long names;
+    - the forced-colours params, the probe, the router watch and other test consumers;
+    - the docs at `agents.md:148` and registry lines 78 and 332;
+    - `base_url` in the signature.
+  - **Cycle 2:**
+    - `--fg-muted` "Used by" text fails AA on the active wash (4.14 and 4.07), so it
+      becomes `--fg-secondary`;
+    - the wash composites over `--bg`, not `--surface`, so both are gated, with the
+      token's own alphas (0.16 and 0.13);
+    - `App.ui.badge` takes no class option, so the class is added with
+      `classList.add` and the factory is not extended;
+    - a 128px link clearance for the badge.
+  - Leg 7 → `ready`.
+
+- 2026-10-05: **Leg 7 landed** (`[LAND:leg]`). The Developer's gates: lint clean, static
+  guards 350, unit 5,045, settings lane 178, shared lane 867. Two falsifications done.
+- **Leg 7 review.** Reviewer (Sonnet; a UI diff, not security-sensitive) and Accessibility
+  Reviewer (Sonnet), in parallel.
+  - **Reviewer: one BLOCKING issue.** `Makefile:154`'s `verify-serving` loop still listed
+    `admin/providers-table.js`, so `make up` and `make restart` fail after the rename. The
+    leg's grep list had omitted `Makefile`.
+  - **The Flight Director hit the same thing independently.** A restart of the checkpoint
+    instance failed `verify-serving`. Before the restart, the tiles had rendered empty on
+    8485, because the process cached `index.html` with the old script tag (CLAUDE.md:
+    `index.html` is `lru_cache`d per process). That was not a code defect: browser tests
+    spawn fresh processes. 8485 was restarted with the same environment, and its data was
+    kept.
+  - **Accessibility Reviewer:** `[HANDOFF:confirmed]`. All contrast pairs were computed and
+    pass. Two non-blocking findings, both applied:
+    - "Used by" lost its header context, so it gets a visually-hidden prefix (SC 1.3.1);
+    - the badge is read before the name, so it moves after the link in the DOM
+      (SC 1.3.2).
+  - The fix pass goes to the same Developer.
 
 ---
 

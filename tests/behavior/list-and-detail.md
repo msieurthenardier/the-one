@@ -3,6 +3,7 @@
 **Slug**: `list-and-detail`
 **Status**: active
 **Created**: 2026-10-02
+**Updated**: 2026-10-05 (step 20: Providers tiles, M25 F3 leg 7)
 **Last Run**: 2026-10-02-12-08-59 (pass — LIGHT 19/19 + DARK 19/19; L6 failed attempt 1 on a create-form Cancel defect, fixed in-run, passed on rerun; see runs/)
 
 ## Intent
@@ -16,7 +17,7 @@ seeded with a realistically long list.
   new item.
 - **Settings.** A grouped nav of links. General is split into Appearance, Prompts and
   Encryption, with redirects from the old routes, and a provider opens under the
-  Providers table.
+  Providers tiles.
 - **Across all three:**
   - a dirty editor asks once when the operator clicks another row;
   - Cancel on a create form returns to the destination's empty state;
@@ -112,7 +113,7 @@ with the prefix `lnd-`.
 | 17 | [Breadcrumb close] and [delete the open item]: click the row `lnd-conn`, then click the breadcrumb link "Connectors". Read the hash, the detail and `document.activeElement`. Click the row `lnd-mcp`, then use Delete and confirm. Read the hash, the list, the detail and `document.activeElement`. | **After the breadcrumb:** hash `#library/connectors`; the empty state "Select a connector, or add one."; `document.activeElement` is the row link `lnd-conn`. [a11y] **After the delete:** <ul><li>hash `#library/mcp`;</li><li>the detail shows "Select an MCP server, or add one.";</li><li>the "MCP servers" group shows "No MCP servers yet.";</li><li>`document.activeElement` is the row link `lnd-conn`, the next row in list order;</li><li>`GET {base}/api/mcp-sources` lists no `lnd-mcp`.</li></ul> [a11y] |
 | 18 | [Library] -> [Settings]: click the rail's "Settings" link. Then click, in turn, each link in the Settings navigation. Read the hash, the current link and the page `h1` after each. | **The rail click:** hash `#settings/appearance`, only "Settings" current in the rail. **The nav.** A navigation landmark labelled "Settings" holds the heading "Settings" and grouped links, in this order: <ul><li>"General": Appearance, Prompts, Encryption;</li><li>"Models": Providers;</li><li>"Defaults for agents": Built-in tools, Knowledge indexing;</li><li>"Developer": Design language (dev mode is on).</li></ul> **Each link** gives its hash (`#settings/appearance`, `#settings/prompts`, `#settings/encryption`, `#settings/providers`, `#settings/tools`, `#settings/knowledge-indexing`, `#settings/design-language`). That link alone has `aria-current="page"`, and the page shows exactly one `h1` with the link's label. Appearance shows the theme control, Prompts the base prompt, and Encryption the rotate-key control. No error banners. |
 | 19 | **Redirects.** Load `{base}/#settings/general` **as a new document** (navigate from `about:blank` or a fresh tab; an in-app hash change is redirected by the router before any reload, so it does not test the cold boot), then reload; read the hash. Do the same for `{base}/#admin/system`. | Each lands on `#settings/appearance`, rewritten in the address bar, with "Appearance" current and its `h1` "Appearance". Neither leaves the old form in the address bar. No error banners. |
-| 20 | [Providers table] -> [provider item under the table]: click "Providers" in the Settings nav. Read the table. Click the name `lnd-mock-b` in the table. Read the hash, the table, the item, the breadcrumb and `document.activeElement`. Then click the breadcrumb link "Providers". | **The table.** Columns "Name", "Type" and "Used by". The `lnd-mock-a` row reads type `mock` and "30 agents"; `lnd-mock-b` reads "1 agent". **After the name click:** <ul><li>the hash is `#settings/providers/{provB}`;</li><li>the table is still visible above, with the `lnd-mock-b` row marked current;</li><li>the provider editor renders below the table, with the breadcrumb "Settings / Providers" ("Providers" a link) above its title `lnd-mock-b`, an `h2`. The page keeps exactly one `h1`, "Providers";</li><li>`document.activeElement` is that `h2` title;</li><li>there is no Back button.</li></ul> **After the breadcrumb:** hash `#settings/providers`; no editor under the table; focus on the `lnd-mock-b` name link. [a11y] |
+| 20 | [Providers tiles] -> [provider item under the tiles]: click "Providers" in the Settings nav. Read the tiles. Click the name `lnd-mock-b` on its tile. Read the hash, the tiles, the item, the breadcrumb and `document.activeElement`. Then click the breadcrumb link "Providers". | **The tiles** (Mission 25 Flight 3 leg 7, by the operator's checkpoint decision): a grid of provider tiles, a list labelled "Providers", with no table. The `lnd-mock-a` tile shows the type badge `mock` and "30 agents"; the `lnd-mock-b` tile shows "1 agent". **After the name click:** <ul><li>the hash is `#settings/providers/{provB}`;</li><li>the tiles are still visible above, with the `lnd-mock-b` tile marked current (the selected treatment, and `aria-current="page"` on its link alone);</li><li>the provider editor renders below the tiles, with the breadcrumb "Settings / Providers" ("Providers" a link) above its title `lnd-mock-b`, an `h2`. The page keeps exactly one `h1`, "Providers";</li><li>`document.activeElement` is that `h2` title;</li><li>there is no Back button.</li></ul> **After the breadcrumb:** hash `#settings/providers`; no editor under the tiles; focus on the `lnd-mock-b` name link. [a11y] |
 | 21 | **Teardown (setup row).** With the credential, DELETE every `lnd-` item: <ul><li>the connector `lnd-conn`;</li><li>the knowledge bases `lnd-kb-alpha` and `lnd-kb-beta`;</li><li>the agents `lnd-agent-01` … `lnd-agent-30` and `lnd-zeta`;</li><li>the providers `{provA}` and `{provB}`.</li></ul> Then close the tab. Confirm each list endpoint shows no `lnd-` names. | (setup row, no judgment) |
 
 ## Out of Scope
@@ -146,7 +147,7 @@ with the prefix `lnd-`.
     tear down once, as long as no `lnd-` items remain at the end.
   - **In both themes:**
     - the selected row's wash and the list text are legible against the column ground;
-    - the dialog, the Add menu and the Providers table are legible;
+    - the dialog, the Add menu and the Providers tiles are legible;
     - the provider dots and the breadcrumb link are distinguishable from their ground.
 
     Evidence is screenshots, or computed colours when pixels are unavailable; the report
