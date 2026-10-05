@@ -72,9 +72,10 @@ Settings item pages (leg 5b) keep their list visible: opening a provider or a
 built-in tool renders its editor in an item section BELOW the list
 (``.settings-item``), and the editor header's breadcrumb ("Settings /
 Providers", "Settings / Built-in tools") closes it (``close_item``). The
-Providers list is a table whose Name cell is the item link (``provider-card``,
-now on that link); a tool tile keeps ``tool-card`` but only its tool NAME is a
-link (the tile is no click target, its toggle never navigates):
+Providers list is a tile grid (like Built-in tools, by the Flight 3 checkpoint
+decision) whose tile NAME is the item link (``provider-card``, on that link); a
+tool tile keeps ``tool-card`` but only its tool NAME is a link (the tile is no click
+target, its toggle never navigates):
 
 * ``list_row(page, "settings/providers", name)`` -- the provider's name link;
   ``list_row(page, "settings/tools", name)`` -- the tool's tile;
@@ -82,7 +83,8 @@ link (the tile is no click target, its toggle never navigates):
   every list but the tools, whose link is the tile's name);
 * ``open_item`` clicks that link; ``expect_selected`` checks ``aria-current``
   on it;
-* ``providers_table(page)`` -- the ``<table aria-label="Providers">``;
+* ``providers_list(page)`` -- the Providers tile grid (``role=list``,
+  ``aria-label="Providers"``), one ``role=listitem`` tile per provider;
 * ``settings_item(page)`` -- the page's item section (the open editor);
 * ``open_tool(page, name)`` -- select the tool's category tab, then open it;
 * ``tool_toggle(page, name)`` -- the tool tile's enable switch.
@@ -322,9 +324,10 @@ TOOL_TABS: dict[str, str] = {
 }
 
 
-def providers_table(page: Page) -> Locator:
-    """The Providers page's table (``<table aria-label="Providers">``)."""
-    return page.get_by_role("table", name="Providers")
+def providers_list(page: Page) -> Locator:
+    """The Providers page's tile grid (``role=list``, ``aria-label="Providers"``),
+    scoped inside ``.settings-list``; its children are ``role=listitem`` tiles."""
+    return page.locator(".area-admin .settings-list").get_by_role("list", name="Providers")
 
 
 def settings_item(page: Page) -> Locator:

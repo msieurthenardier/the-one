@@ -100,7 +100,7 @@ def test_openrouter_create_navigate_back_and_reopen(app_clean: str, page: Page) 
     # The row is in the table, with its openrouter type badge.
     link = _lists.list_row(page, "settings/providers", "OR Persisted")
     expect(link).to_be_visible(timeout=5000)
-    row = _lists.providers_table(page).locator("tbody tr").filter(has=link)
+    row = _lists.providers_list(page).get_by_role("listitem").filter(has=link)
     expect(row.locator(".badge")).to_contain_text("openrouter")
 
     # Click the name to re-open it in edit mode.

@@ -69,7 +69,7 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     link = _lists.list_row(page, "settings/providers", "Mock Test")
     expect(link).to_be_visible()
     _lists.expect_selected(page, "settings/providers", "Mock Test")
-    row = _lists.providers_table(page).locator("tbody tr").filter(has=link)
+    row = _lists.providers_list(page).get_by_role("listitem").filter(has=link)
     expect(row.locator(".badge")).to_have_text("mock")
 
     # 11. Clean form (just tested, no edits): the breadcrumb closes it.

@@ -230,7 +230,7 @@ def test_request_counts_per_activation(app_with_agent: SeededApp, page: Page) ->
     )
     _nav.wait_settled(page)
     _nav.set_route(page, "settings/providers")
-    _lists.providers_table(page).wait_for()
+    _lists.providers_list(page).wait_for()
     _nav.wait_settled(page)
     assert len(providers) <= 1, providers
 
@@ -248,7 +248,7 @@ def test_cold_boot_agents_one_read_each(app_with_agent: SeededApp, page: Page) -
 def test_cold_boot_providers_one_read(app_with_agent: SeededApp, page: Page) -> None:
     providers = _counter(page, "/api/providers")
     _nav.goto_settled(page, app_with_agent.base_url, "settings/providers")
-    _lists.providers_table(page).wait_for()
+    _lists.providers_list(page).wait_for()
     _nav.wait_settled(page)
     assert len(providers) == 1, providers
 

@@ -1,17 +1,18 @@
-"""Providers page: page header, table, empty state and hash routing.
+"""Providers page: page header, tile grid, empty state and hash routing.
 
 Rewritten against post-M08-F4-rebrand markup in M17 F1 L02; re-simplified to
-the unified create-CTA contract in M17 F3 L3; since M25 F3 leg 5b the tile grid
-is the reference spec section 8.2 TABLE (the file keeps its name). Covers:
+the unified create-CTA contract in M17 F3 L3; since M25 F3 leg 5b the list was the
+reference spec 8.2 table, and since leg 7 it is a tile grid again (the file keeps
+its name). Covers:
 
 - The Providers page renders .page-header with title "Providers" and the
   header "+ Add provider" CTA, ALWAYS visible (empty and populated states).
-- The table: intro, Name / Type / Used by columns, the name link
-  (``provider-card``, ``data-id``) and the type badge.
+- The tile grid: intro, one tile per provider with the name link
+  (``provider-card``, ``data-id``), the type badge and "Used by".
 - Clicking a name navigates to #settings/providers/{id}; refresh preserves.
 - "+ Add provider" navigates to #settings/providers/~new; refresh preserves.
 - The breadcrumb's "Providers" link closes a clean create form.
-- Unknown provider id keeps URL stable; the table renders.
+- Unknown provider id keeps URL stable; the grid renders.
 
 Unified create CTA (M17 F3 L3): one always-visible header button
 (``new-provider-btn``). The zero-providers empty state (``providers-empty``,
@@ -53,18 +54,18 @@ def test_provider_grid_page_header_populated(app_with_provider: SeededApp, page:
 
 @pytest.mark.browser
 def test_provider_grid_empty_state(app_clean: str, page: Page) -> None:
-    """Zero providers: a pane-size empty state, no table."""
+    """Zero providers: a pane-size empty state, no tile grid."""
     _nav.goto(page, app_clean, "settings/providers")
     empty = page.locator('[data-testid="providers-empty"]')
     expect(empty).to_be_visible(timeout=8000)
     expect(empty.get_by_role("heading", level=2)).to_have_text("No providers yet.")
-    expect(_lists.providers_table(page)).to_have_count(0)
+    expect(_lists.providers_list(page)).to_have_count(0)
 
 
 @pytest.mark.browser
 def test_provider_grid_renders_tiles(app_with_provider: SeededApp, page: Page) -> None:
     """The seed_mock_provider helper creates a provider named 'mock' (default):
-    its table row shows the name link, the type badge and the used-by count."""
+    its tile shows the name link, the type badge and the used-by count."""
     _nav.goto(page, app_with_provider.base_url, "settings/providers")
     link = _lists.list_row(page, "settings/providers", "mock")
     expect(link).to_be_visible(timeout=8000)
@@ -72,14 +73,14 @@ def test_provider_grid_renders_tiles(app_with_provider: SeededApp, page: Page) -
         "href", _nav.href(f"settings/providers/{app_with_provider.provider_id}")
     )
     expect(link).to_have_attribute("data-id", app_with_provider.provider_id)
-    row = _lists.providers_table(page).locator("tbody tr")
-    expect(row).to_have_count(1)
-    # The Name cell is the row header (th scope=row); Type and Used by are data cells.
-    expect(row.locator('th[scope="row"] [data-testid="provider-card"]')).to_have_count(1)
-    cells = row.locator("td")
-    expect(cells).to_have_count(2)
-    expect(cells.nth(0).locator(".badge.badge--mock")).to_have_text("mock")
-    expect(cells.nth(1)).to_have_text("0 agents")
+    tile = _lists.providers_list(page).get_by_role("listitem")
+    expect(tile).to_have_count(1)
+    # The tile: the name link is the item link; the badge and "Used by" are
+    # plain parts of the tile. No table anatomy.
+    expect(tile.locator('a[data-testid="provider-card"]')).to_have_count(1)
+    expect(tile.locator(".badge.badge--mock")).to_have_text("mock")
+    expect(tile.locator(".provider-tile-used-value")).to_have_text("0 agents")
+    expect(page.locator("table")).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -122,8 +123,8 @@ def test_tile_click_navigates_to_provider_detail(app_with_provider: SeededApp, p
     # Post-leg-03: editor title is the provider name (seeded "mock"), not "Edit Provider".
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=5000)
     _nav.expect_route(page, f"settings/providers/{_nav.seg(app_with_provider.provider_id)}")
-    # The table stays above the open provider (leg 5b).
-    expect(_lists.providers_table(page)).to_be_visible()
+    # The grid stays above the open provider (leg 5b).
+    expect(_lists.providers_list(page)).to_be_visible()
 
 
 @pytest.mark.browser

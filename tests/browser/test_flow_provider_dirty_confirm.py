@@ -3,7 +3,7 @@
 Mirrors test_flow_dirty_confirm.py (F5 leg 04 studio dirty-confirm tests) for
 the provider editor's navigation gates (the breadcrumb's "Providers" link, the
 Settings nav, beforeunload). Since M25 F3 leg 5b the provider editor opens
-below the Providers table and Back is retired: the item header's breadcrumb
+below the Providers tiles and Back is retired: the item header's breadcrumb
 link (``_lists.close_item``) is the close, routed through the same leave guard.
 
 Covers:
@@ -64,7 +64,7 @@ def test_breadcrumb_when_clean_no_dialog(app_with_provider: SeededApp, page: Pag
     _lists.close_item(page)
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    expect(_lists.providers_table(page)).to_be_visible()
+    expect(_lists.providers_list(page)).to_be_visible()
     _nav.expect_route(page, "settings/providers")
 
 
@@ -100,7 +100,7 @@ def test_breadcrumb_dialog_confirm_closes_the_editor(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     """Confirm ('Continue') in the breadcrumb-dirty dialog closes the editor;
-    the table stays."""
+    the tile grid stays."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     _lists.close_item(page)
@@ -110,7 +110,7 @@ def test_breadcrumb_dialog_confirm_closes_the_editor(
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=5000)
-    expect(_lists.providers_table(page)).to_be_visible()
+    expect(_lists.providers_list(page)).to_be_visible()
     _nav.expect_route(page, "settings/providers")
 
 

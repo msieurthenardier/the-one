@@ -64,7 +64,9 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # Leg 5a deletes areas/layout/section-nav.js, whose last caller (the
     # Settings section nav) App.ui.navGroups replaced, to 71; Leg 5b swaps
     # areas/admin/providers-grid.js for areas/admin/providers-table.js (the
-    # Providers tile grid became the reference spec 8.2 table), still 71.)
+    # Providers tile grid became the reference spec 8.2 table), still 71;
+    # Leg 7 renames it providers-list.js when the list returned to tiles by
+    # operator decision, still 71.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)

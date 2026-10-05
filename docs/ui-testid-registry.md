@@ -75,7 +75,7 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-knowledge-base-btn` | studio | Knowledge detail view Danger Zone (M24 F06 L01) |
 | `delete-mcp-source-btn` | studio | |
 | `delete-provider-btn` | admin | |
-| `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's last segment, a link to its root: "Agents" -> `#agents` (agent editor), "Knowledge bases" -> `#library/knowledge` (knowledge-base detail and `~new` form), "MCP servers" -> `#library/mcp`, "Connectors" -> `#library/connectors`; studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings (L5b): "Settings / Providers" -> `#settings/providers` (provider editor, edit and `~new`), "Settings / Built-in tools" -> `#settings/tools` (tool editor); admin routes it the same way (focus: the closed provider's row or tool's name link, "Add provider" after a `~new` form) |
+| `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's last segment, a link to its root: "Agents" -> `#agents` (agent editor), "Knowledge bases" -> `#library/knowledge` (knowledge-base detail and `~new` form), "MCP servers" -> `#library/mcp`, "Connectors" -> `#library/connectors`; studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings (L5b): "Settings / Providers" -> `#settings/providers` (provider editor, edit and `~new`), "Settings / Built-in tools" -> `#settings/tools` (tool editor); admin routes it the same way (focus: the closed provider's or tool's name link, "Add provider" after a `~new` form) |
 | `editor-unsaved` | studio, admin | Item header "Unsaved changes" caption, a stable `role=status` span at the start of `.form-actions` whose text the editor's dirty report sets or clears: the agent editor (`checkDirty`, M25 F3 DD2, L3), the knowledge-base detail and `~new` form, the MCP and connector editors (L4b), the provider and tool editors (L5b; the tool editor's Cancel re-mount keeps the same span node) |
 | `kb-chunk-count` | studio | Knowledge detail view status summary — chunk count (M24 F06 L01) |
 | `kb-chunk-row` | studio | Knowledge detail view chunks panel — one row per chunk, `seq` order (DD-8, M24 F06 L01) |
@@ -193,7 +193,7 @@ caught — but it cannot see where the attribute is emitted.
 | `plan-signin-open-btn` | admin | anthropic-plan sign-in: gesture-context popup opener |
 | `plan-signin-url` | admin | anthropic-plan sign-in: copyable authorize URL (readonly input) |
 | `plan-test-reauth` | admin | provider /test result: distinct reauth_required message span |
-| `provider-card` | admin | Since M25 F3 L5b the Providers table's Name-cell link (`<a href="#settings/providers/{id}" data-id>`, `aria-current="page"` on the open provider's; the cell is the row header, `th scope="row"`), was the tile; one per provider row |
+| `provider-card` | admin | The provider tile's name link (`<a class="provider-tile-link" href="#settings/providers/{id}" data-id>`, `aria-current="page"` on the open provider's; the tile carries `.active`); one per provider tile. Table-row link in L5b, tile name link since L7 (operator checkpoint decision) |
 | `providers-empty` | admin | Providers page empty state (`App.ui.emptyState`, pane size, "No providers yet.") at zero providers (M25 F3 L5b) |
 | `providers-empty-add` | admin | Its "Add provider" action (opens `#settings/providers/~new`; the page header's `new-provider-btn` stays the unified CTA) (M25 F3 L5b) |
 | `purge-history-btn` | studio | |
@@ -329,7 +329,7 @@ again. A retired id cannot come back.
 | `back-connector-btn` | studio | M25 F3 L4b (DD2) — the connector editor is hosted beside the Library list; the breadcrumb's "Connectors" link (`editor-breadcrumb-link`) replaces Back |
 | `back-knowledge-btn` | studio | M25 F3 L4b (DD2) — the knowledge-base detail is hosted beside the Library list; the breadcrumb's "Knowledge bases" link (`editor-breadcrumb-link`) replaces Back |
 | `back-mcp-source-btn` | studio | M25 F3 L4b (DD2) — the MCP server editor is hosted beside the Library list; the breadcrumb's "MCP servers" link (`editor-breadcrumb-link`) replaces Back |
-| `back-provider-btn` | admin | M25 F3 L5b (DD2, DD7) — the provider editor opens below the Providers table; the breadcrumb's "Providers" link (`editor-breadcrumb-link`) replaces Back |
+| `back-provider-btn` | admin | M25 F3 L5b (DD2, DD7) — the provider editor opens below the Providers tiles; the breadcrumb's "Providers" link (`editor-breadcrumb-link`) replaces Back |
 | `back-tool-btn` | admin | M25 F3 L5b (DD2, DD7) — the tool editor opens below the tool list; the breadcrumb's "Built-in tools" link (`editor-breadcrumb-link`) replaces Back |
 | `new-connector-btn` | studio | M25 F3 L4a (DD5) — the Connectors grid is retired; the Library list's Add menu (`library-add-connector`) replaces it |
 | `new-knowledge-base-btn` | studio | M25 F3 L4a (DD5) — the Knowledge grid and its inline create form are retired; the Library list's Add menu (`library-add-knowledge`) opens the `~new` form |

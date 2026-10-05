@@ -1,12 +1,13 @@
 """Settings item pages keep their list visible (M25 F3 leg 5b; flight DD7, DD2, DD8).
 
-Providers is the reference spec section 8.2 table (Name, Type, Used by) and a
-provider -- or the create form -- opens in an item section BELOW the table;
+Providers is a tile grid like Built-in tools (the Flight 3 checkpoint decision;
+reference spec 8.2 drew a table) and a provider -- or the create form -- opens in
+an item section BELOW the grid;
 Built-in tools keeps its tabs and tiles, the tool NAME is the item link and the
 tool editor opens below the list. Both editors carry the breadcrumb ("Settings
 / Providers", "Settings / Built-in tools"), no Back, and the unsaved caption.
 
-AC1 the table; AC2 a provider below it (visibility at 1440x900, focus, the
+AC1 the tile grid; AC2 a provider below it (visibility at 1440x900, focus, the
 breadcrumb, a dirty editor asks once on another row); AC3 create, Cancel and
 delete (focus), with the flight's behavior-gate fix (the create form's Cancel is
 enabled from first render, typed into or not); AC4 tools (link, selection,
@@ -52,10 +53,14 @@ def _seed_three(app: SeededApp) -> dict[str, str]:
     return ids
 
 
-def _row_texts(page: Page) -> list[list[str]]:
+def _tile_texts(page: Page) -> list[list[str]]:
+    """Each tile's [name, type badge, "Used by"] (the URL line, when set, is read
+    separately)."""
     return page.evaluate(
-        """() => [...document.querySelectorAll('table.providers-table tbody tr')].map(
-            (tr) => [...tr.cells].map((td) => td.textContent.trim()))"""
+        """() => [...document.querySelectorAll('.provider-tile-grid .provider-tile')].map(
+            (t) => [t.querySelector('.provider-tile-link').textContent.trim(),
+                    t.querySelector('.badge').textContent.trim(),
+                    t.querySelector('.provider-tile-used-value').textContent.trim()])"""
     )
 
 
@@ -94,55 +99,95 @@ def _ready(page: Page, base: str, route: str) -> None:
     expect(page.locator(".area-admin .page-title")).to_be_visible(timeout=8000)
 
 
-# ── AC1: the Providers table ────────────────────────────────────────────────
+# ── AC1: the Providers tile grid ────────────────────────────────────────────────
 
 
-def test_providers_table_anatomy_and_used_by_counts(
+def test_providers_tile_anatomy_and_used_by_counts(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     _seed_three(app_with_provider)
     _ready(page, app_with_provider.base_url, "settings/providers")
-    table = _lists.providers_table(page)
-    expect(table).to_be_visible(timeout=8000)
+    grid = _lists.providers_list(page)
+    expect(grid).to_be_visible(timeout=8000)
     expect(page.locator(".area-admin .settings-intro")).to_have_text(
         "A provider is an account or server that runs models."
         " Agents pick one in their Model section."
     )
-    heads = table.locator("thead th")
-    expect(heads).to_have_text(["Name", "Type", "Used by"])
-    # The rows sort A-Z; counts come from the agents list (singular for one).
-    expect(table.locator("tbody tr")).to_have_count(3, timeout=8000)
+    # The tiles sort A-Z; counts come from the agents list (singular for one).
+    tiles = grid.get_by_role("listitem")
+    expect(tiles).to_have_count(3, timeout=8000)
     page.wait_for_function(
-        "() => !document.querySelector('table.providers-table').textContent.includes('—')"
+        "() => ![...document.querySelectorAll('.provider-tile-used')]"
+        ".some((n) => n.textContent.includes('—'))"
     )
-    assert _row_texts(page) == [
+    assert _tile_texts(page) == [
         ["Alpha", "mock", "1 agent"],
         ["Bravo", "mock", "2 agents"],
         ["mock", "mock", "0 agents"],
     ]
-    # Name is a weight-600 link to the item; Type is the kind badge.
+    # The name is the item link (provider-card, href, data-id); no table anywhere.
     link = _lists.list_row(page, "settings/providers", "Bravo")
-    weight = link.evaluate("(a) => getComputedStyle(a).fontWeight")
-    assert weight == "600", weight
-    # The Name cell is the row header (th scope=row, the flight-end review,
-    # WCAG 1.3.1) with the body cells' look; Type is the first data cell.
-    first = table.locator("tbody tr").first
-    expect(first.locator('th[scope="row"] [data-testid="provider-card"]')).to_have_count(1)
-    expect(table.get_by_role("rowheader", name="Alpha")).to_have_count(1)
-    expect(first.locator("td").nth(0).locator(".badge.badge--mock")).to_have_count(1)
-    look = first.evaluate(
-        """(tr) => { const s = (el) => { const c = getComputedStyle(el);
-            return [c.textAlign, c.paddingTop, c.paddingLeft, c.borderBottomWidth,
-                    c.verticalAlign]; };
-          return { th: s(tr.querySelector('th')), td: s(tr.querySelector('td')),
-                   thWeight: getComputedStyle(tr.querySelector('th')).fontWeight }; }"""
+    expect(link).to_have_attribute("data-id", _seed_ids(page, "Bravo"))
+    expect(page.locator("table")).to_have_count(0)
+    expect(page.locator('th[scope="row"]')).to_have_count(0)
+    first = tiles.first
+    expect(first.locator('[data-testid="provider-card"]')).to_have_count(1)
+    expect(first.locator(".badge.badge--mock")).to_have_count(1)
+    # The type badge is quiet lowercase (the retired uppercase eyebrow stays retired).
+    badge = first.locator(".badge")
+    assert badge.evaluate("(b) => getComputedStyle(b).textTransform") == "none"
+    # "Used by" is one line, and carries a visually-hidden "Used by " prefix so a
+    # screen reader hears what the bare value means (SC 1.3.1); the visible
+    # value is unchanged.
+    used = first.locator(".provider-tile-used")
+    expect(used.locator(".visually-hidden")).to_have_text("Used by ")
+    assert "Used by" in used.text_content()
+    # Reading order: name link, then the badge, then (URL,) "Used by" (SC 1.3.2).
+    order = first.evaluate(
+        """(t) => [...t.children].map((c) => c.classList.contains('provider-tile-link') ? 'link'
+          : c.classList.contains('badge') ? 'badge'
+          : c.classList.contains('provider-tile-url') ? 'url' : 'used')"""
     )
-    assert look["th"] == look["td"], look
-    assert look["thWeight"] == "400", look
-    # Pre-accepted deviations D1/D2: no Status column, no health banner.
-    expect(table.get_by_role("columnheader", name="Status")).to_have_count(0)
+    assert order == ["link", "badge", "used"], order
+    assert used.evaluate("(n) => getComputedStyle(n).whiteSpace") == "nowrap"
+    # Pre-accepted deviations D1/D2: no Status, no health banner.
     expect(page.locator(".area-admin .banner-error:visible")).to_have_count(0)
     _lists.expect_none_selected(page, "settings/providers")
+
+
+def _seed_ids(page: Page, name: str) -> str:
+    """The data-id of the provider tile named *name*."""
+    return page.evaluate(
+        """(n) => [...document.querySelectorAll('a.provider-tile-link')]
+            .find((a) => a.textContent.trim() === n).getAttribute('data-id')""",
+        name,
+    )
+
+
+def test_provider_tile_base_url_line_present_when_set_absent_when_empty(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    base = app_with_provider.base_url
+    h = auth_headers_for(base)
+    r = httpx.post(
+        f"{base}/api/providers",
+        json={
+            "name": "Local",
+            "type": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "api_key": "",
+            "config": {},
+        },
+        headers=h,
+    )
+    assert r.status_code < 300, r.text
+    _ready(page, base, "settings/providers")
+    tiles = _lists.providers_list(page).get_by_role("listitem")
+    expect(tiles).to_have_count(2, timeout=8000)
+    local = tiles.filter(has=page.locator('[data-testid="provider-card"]', has_text="Local"))
+    expect(local.locator(".provider-tile-url")).to_have_text("http://localhost:11434/v1")
+    mock = tiles.filter(has=page.locator('[data-testid="provider-card"]', has_text="mock"))
+    expect(mock.locator(".provider-tile-url")).to_have_count(0)
 
 
 def test_used_by_reads_a_dash_until_agents_load(app_with_provider: SeededApp, page: Page) -> None:
@@ -150,52 +195,68 @@ def test_used_by_reads_a_dash_until_agents_load(app_with_provider: SeededApp, pa
     "Used by" cells read "—", never "0 agents" (A23)."""
     page.route("**/api/agents", lambda route: route.fulfill(status=500, body="{}"))
     _nav.goto_settled(page, app_with_provider.base_url, "settings/providers")
-    expect(_lists.providers_table(page).locator("tbody tr")).to_have_count(1, timeout=8000)
-    assert _row_texts(page) == [["mock", "mock", "—"]]
+    expect(_lists.providers_list(page).get_by_role("listitem")).to_have_count(1, timeout=8000)
+    assert _tile_texts(page) == [["mock", "mock", "—"]]
 
 
 def test_long_provider_name_ellipsizes(app_with_provider: SeededApp, page: Page) -> None:
-    name = "A provider with a very long name " * 6
-    seed_mock_provider(app_with_provider.base_url, name=name.strip())
+    """A long name ellipsizes inside its tile (full name in the title), the tile
+    stays inside the list, and the link never runs under the corner badge, here
+    the widest (openai-compatible) at 1024."""
+    name = ("A provider with a very long name " * 6).strip()
+    seed_mock_provider(app_with_provider.base_url, name=name)
     page.set_viewport_size({"width": 1024, "height": 768})
     _ready(page, app_with_provider.base_url, "settings/providers")
-    link = _lists.list_row(page, "settings/providers", name.strip())
+    link = _lists.list_row(page, "settings/providers", name)
     expect(link).to_be_visible(timeout=8000)
+    # Widen the badge to the worst case (the widest type label) so the
+    # clearance is proven, not just the mock badge's.
+    link.evaluate(
+        "(a) => { a.closest('.provider-tile').querySelector('.badge').textContent ="
+        " 'openai-compatible'; }"
+    )
     m = link.evaluate(
-        """(a) => { const t = a.closest('table'); const list = t.parentElement;
-          return { sw: a.scrollWidth, cw: a.clientWidth, cell: a.parentElement.clientWidth,
-                   table: t.getBoundingClientRect().right, list: list.getBoundingClientRect().right,
+        """(a) => { const tile = a.closest('.provider-tile');
+          const list = tile.closest('.settings-list');
+          const badge = tile.querySelector('.badge');
+          return { sw: a.scrollWidth, cw: a.clientWidth, title: a.title,
+                   tile: tile.getBoundingClientRect().right,
+                   list: list.getBoundingClientRect().right,
+                   link: a.getBoundingClientRect().right,
+                   badge: badge.getBoundingClientRect().left,
                    overflow: getComputedStyle(a).textOverflow }; }"""
     )
     assert m["overflow"] == "ellipsis", m
     assert m["sw"] > m["cw"], m  # truncated, not wrapped or overflowing
-    assert m["table"] <= m["list"] + 0.5, m
+    assert m["title"] == name, m
+    assert m["tile"] <= m["list"] + 0.5, m
+    assert m["link"] <= m["badge"], m
 
 
-# ── AC2: a provider opens below the table ──────────────────────────────────
+# ── AC2: a provider opens below the grid ──────────────────────────────────
 
 
-def test_provider_opens_below_the_table_with_focus_and_visibility(
+def test_provider_opens_below_the_grid_with_focus_and_visibility(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """At 1440x900 with 6 providers, opening the last row keeps the table above
-    the editor, the selected row and the editor header both in the viewport,
+    """At 1440x900 with 6 providers, opening the last tile keeps the grid above
+    the editor, the selected tile and the editor header both in the viewport,
     and focus on the editor's title (an h2)."""
     base = app_with_provider.base_url
     for name in ("p2", "p3", "p4", "p5", "zz last"):
         seed_mock_provider(base, name=name)
     page.set_viewport_size({"width": 1440, "height": 900})
     _ready(page, base, "settings/providers")
-    expect(_lists.providers_table(page).locator("tbody tr")).to_have_count(6, timeout=8000)
+    expect(_lists.providers_list(page).get_by_role("listitem")).to_have_count(6, timeout=8000)
     _lists.open_item(page, "settings/providers", "zz last")
     expect(page.locator(ITEM_TITLE)).to_have_text("zz last", timeout=8000)
-    expect(_lists.providers_table(page)).to_be_visible()
+    expect(_lists.providers_list(page)).to_be_visible()
     _lists.expect_selected(page, "settings/providers", "zz last")
     expect(page.locator(ITEM_TITLE)).to_be_focused()
-    table_bottom = _lists.providers_table(page).bounding_box()
+    grid_box = _lists.providers_list(page).bounding_box()
     header = page.locator(".area-admin .settings-item .editor-header").bounding_box()
-    assert table_bottom and header and header["y"] >= table_bottom["y"] + table_bottom["height"]
-    assert _in_viewport(page, "tr.providers-table-row.is-selected")
+    assert grid_box and header and header["y"] >= grid_box["y"] + grid_box["height"]
+    assert _in_viewport(page, ".provider-tile.active")
     assert _in_viewport(page, ".area-admin .settings-item .editor-header")
     # The item header: breadcrumb "Settings / Providers", no Back, one editor.
     expect(page.locator(".area-admin .settings-item .editor-breadcrumb")).to_have_text(
@@ -206,6 +267,41 @@ def test_provider_opens_below_the_table_with_focus_and_visibility(
     assert crumb_link.evaluate("(a) => getComputedStyle(a).textDecorationLine") == "underline"
     expect(page.locator(".back-btn")).to_have_count(0)
     expect(page.locator(".area-admin .settings-item .editor-header")).to_have_count(1)
+
+
+@pytest.mark.parametrize("size", [(1440, 900), (1024, 768)])
+def test_provider_grid_is_two_columns_and_the_editor_starts_below_it(
+    app_with_provider: SeededApp, page: Page, size: tuple[int, int]
+) -> None:
+    """Four providers lay out two columns (the first two tiles share a top, the
+    third starts below), every tile sits inside the list section, and the open
+    provider's editor starts below the last tile's bottom."""
+    base = app_with_provider.base_url
+    for name in ("p2", "p3", "p4"):
+        seed_mock_provider(base, name=name)
+    page.set_viewport_size({"width": size[0], "height": size[1]})
+    _ready(page, base, "settings/providers")
+    tiles = _lists.providers_list(page).get_by_role("listitem")
+    expect(tiles).to_have_count(4, timeout=8000)
+    boxes = [tiles.nth(i).bounding_box() for i in range(4)]
+    assert all(boxes), boxes
+    assert abs(boxes[0]["y"] - boxes[1]["y"]) < 1, boxes
+    assert boxes[2]["y"] >= boxes[0]["y"] + boxes[0]["height"] - 1, boxes
+    assert boxes[1]["x"] > boxes[0]["x"] + boxes[0]["width"] - 1, boxes
+    inside = page.evaluate(
+        """() => { const l = document.querySelector('.area-admin .settings-list')
+              .getBoundingClientRect();
+          return [...document.querySelectorAll('.provider-tile')].every((t) => {
+            const r = t.getBoundingClientRect();
+            return r.left >= l.left - 0.5 && r.right <= l.right + 0.5
+              && r.top >= l.top - 0.5 && r.bottom <= l.bottom + 0.5; }); }"""
+    )
+    assert inside
+    _lists.open_item(page, "settings/providers", "p4")
+    expect(page.locator(ITEM_TITLE)).to_have_text("p4", timeout=8000)
+    last_bottom = max(b["y"] + b["height"] for b in boxes)
+    header = page.locator(".area-admin .settings-item .editor-header").bounding_box()
+    assert header and header["y"] >= last_bottom, (header, boxes)
 
 
 def test_dirty_provider_and_another_row_asks_once(app_with_provider: SeededApp, page: Page) -> None:
@@ -289,11 +385,11 @@ def test_add_provider_opens_the_form_below_and_save_create_keeps_it(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     _ready(page, app_with_provider.base_url, "settings/providers")
-    expect(_lists.providers_table(page)).to_be_visible(timeout=8000)
+    expect(_lists.providers_list(page)).to_be_visible(timeout=8000)
     page.locator('[data-testid="new-provider-btn"]').click()
     _nav.expect_route(page, "settings/providers/~new")
     expect(page.locator(ITEM_TITLE)).to_have_text("New Provider", timeout=8000)
-    expect(_lists.providers_table(page)).to_be_visible()
+    expect(_lists.providers_list(page)).to_be_visible()
     expect(page.locator(ITEM_TITLE)).to_be_focused()
     page.locator("#pf-name").fill("Made provider")
     page.locator("#pf-type").select_option("mock")
@@ -310,9 +406,9 @@ def test_add_provider_opens_the_form_below_and_save_create_keeps_it(
     new_id = _lists.list_row(page, "settings/providers", "Made provider").get_attribute("data-id")
     _nav.expect_route(page, f"settings/providers/{new_id}")
     assert page.evaluate("history.length") == before
-    # The editor is now in edit mode (Test, Danger Zone), still under the table.
+    # The editor is now in edit mode (Test, Danger Zone), still under the grid.
     expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible()
-    expect(_lists.providers_table(page)).to_be_visible()
+    expect(_lists.providers_list(page)).to_be_visible()
     expect(page.locator(UNSAVED)).to_have_text("")
     assert page.evaluate("App.nav.isDirty()") is False
     # The next row click opens with no prompt.
@@ -325,8 +421,8 @@ def test_cancel_on_create_returns_to_the_root_focusing_the_first_row(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     """DD8's one focus rule (Cancel, close and delete): a create form has no
-    row of its own, so Cancel focuses the nearest surviving row, the table's
-    first provider link; "Add provider" only when the table is empty
+    row of its own, so Cancel focuses the nearest surviving row, the grid's
+    first provider link; "Add provider" only when the grid is empty
     (`test_cancel_on_a_pristine_create_form_abandons_it[app_clean]`,
     `test_flow_provider_editor.py::test_create_cancel_navigates_to_grid_when_dirty`).
     Leg 5b pinned "Add provider" here; the flight's behavior-gate fix aligned it
@@ -358,8 +454,8 @@ def test_cancel_on_a_pristine_create_form_abandons_it(
 ) -> None:
     """Behavior-gate fix (list-and-detail L6): on `~new` with nothing typed,
     Cancel is enabled and abandons creation (DD8) -- no dialog, a replace to
-    the page root (the table, else the zero-providers empty state), focus on
-    the table's first provider link, else "Add provider"."""
+    the page root (the grid, else the zero-providers empty state), focus on
+    the grid's first provider link, else "Add provider"."""
     seeded = request.getfixturevalue(fixture_name)
     base = seeded if isinstance(seeded, str) else seeded.base_url
     if fixture_name == "app_with_provider":
@@ -376,7 +472,7 @@ def test_cancel_on_a_pristine_create_form_abandons_it(
     _nav.expect_route(page, "settings/providers")
     expect(page.locator(ITEM_TITLE)).to_have_count(0, timeout=5000)
     if fixture_name == "app_with_provider":
-        expect(_lists.providers_table(page)).to_be_visible()
+        expect(_lists.providers_list(page)).to_be_visible()
         expect(_lists.list_row(page, "settings/providers", "mock")).to_be_visible()
         _lists.expect_none_selected(page, "settings/providers")
         expect(_lists.list_row(page, "settings/providers", "Alpha")).to_be_focused()
@@ -394,8 +490,8 @@ def test_breadcrumb_close_of_the_create_form_focuses_the_first_row(
 ) -> None:
     """DD8's one focus rule covers close as well as Cancel: the breadcrumb's
     "Providers" link closes a clean `~new` form with no dialog, and, with no
-    row of its own, focus goes to the table's first provider link, else "Add
-    provider" when the table is empty. (Leg 5b focused "Add provider" always;
+    row of its own, focus goes to the grid's first provider link, else "Add
+    provider" when the grid is empty. (Leg 5b focused "Add provider" always;
     the behavior-gate fix aligned it with Agents and Library.)"""
     seeded = request.getfixturevalue(fixture_name)
     base = seeded if isinstance(seeded, str) else seeded.base_url
@@ -634,7 +730,7 @@ def test_store_notification_and_refresh_never_move_focus(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     """A providers / agents store load, and the area's _refresh, re-render the
-    table body only: the editor is not re-mounted and focus stays put."""
+    tile grid only: the editor is not re-mounted and focus stays put."""
     ids = _seed_three(app_with_provider)
     _ready(
         page,
@@ -654,8 +750,8 @@ def test_store_notification_and_refresh_never_move_focus(
     expect(name).to_be_focused()
     assert _mark_of(page, ".area-admin .settings-item .editor-header") == "kept"
     _lists.expect_selected(page, "settings/providers", "mock")
-    # A focused row link keeps focus across a table re-render too (a renamed
-    # provider changes the rows, so the body is rebuilt).
+    # A focused tile link keeps focus across a grid re-render too (a renamed
+    # provider changes the tiles, so the grid is rebuilt).
     r = httpx.put(
         f"{app_with_provider.base_url}/api/providers/{ids['Bravo']}",
         json={"name": "Bravo two"},
@@ -689,26 +785,13 @@ def test_tab_order_runs_through_the_name_links_then_into_the_editor(
 
 # ── Forced colours (flight-end review, WCAG 1.4.11) ─────────────────────────
 
-_FORCED_PROBE_JS = """() => {
+_TILE_PROBE_JS = """(sel) => {
   const probe = document.createElement('span');
   probe.style.color = 'Highlight';
   document.body.appendChild(probe);
   const highlight = getComputedStyle(probe).color;
   probe.remove();
-  const edge = (el) => { const s = getComputedStyle(el);
-    return [s.borderTopWidth, s.borderTopStyle, s.borderTopColor === highlight]; };
-  const rows = [...document.querySelectorAll('tr.providers-table-row')].map((tr) => ({
-    selected: tr.classList.contains('is-selected'), cells: [...tr.cells].map(edge)}));
-  return {rows};
-}"""
-
-_TILE_PROBE_JS = """() => {
-  const probe = document.createElement('span');
-  probe.style.color = 'Highlight';
-  document.body.appendChild(probe);
-  const highlight = getComputedStyle(probe).color;
-  probe.remove();
-  return [...document.querySelectorAll('.area-admin .tool-tile')]
+  return [...document.querySelectorAll(sel)]
     .filter((t) => t.offsetParent !== null)
     .map((t) => { const s = getComputedStyle(t);
       return {active: t.classList.contains('active'),
@@ -721,9 +804,9 @@ def test_forced_colors_keep_the_open_provider_and_tool_distinct(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     """Chromium forced-colours emulation (WebKit has none in Playwright): the
-    wash is dropped, so the open provider's row cells carry a 2px Highlight
-    rule above (and below) that no other row has, and the open tool's tile a
-    Highlight border plus a 1px Highlight outline that no other tile has."""
+    wash is dropped, so the open provider's tile and the open tool's tile each
+    carry a Highlight border plus a 1px Highlight outline that no other tile
+    has (the shared ``.entity-tile.active`` forced-colours cue)."""
     ids = _seed_three(app_with_provider)
     # Reduced motion collapses the tile's border-color transition, so the
     # probe reads the settled colour.
@@ -731,19 +814,18 @@ def test_forced_colors_keep_the_open_provider_and_tool_distinct(
     _ready(page, app_with_provider.base_url, f"settings/providers/{_nav.seg(ids['Bravo'])}")
     expect(page.locator(ITEM_TITLE)).to_have_text("Bravo", timeout=8000)
     _lists.expect_selected(page, "settings/providers", "Bravo")
-    rows = page.evaluate(_FORCED_PROBE_JS)["rows"]
-    assert [r["selected"] for r in rows] == [False, True, False], rows
-    for row in rows:
-        for cell in row["cells"]:
-            if row["selected"]:
-                assert cell == ["2px", "solid", True], rows
-            else:
-                assert cell[0] == "0px", rows
+    provider_tiles = page.evaluate(_TILE_PROBE_JS, ".area-admin .provider-tile")
+    assert [t["active"] for t in provider_tiles] == [False, True, False], provider_tiles
+    for t in provider_tiles:
+        if t["active"]:
+            assert t == {"active": True, "outline": "1px solid", "border": True, "outlineHi": True}
+        else:
+            assert t["outline"].endswith("none") and not t["border"], provider_tiles
 
     _lists.open_settings_page(page, "tools")
     _lists.open_tool(page, "web_search")
     expect(page.locator(ITEM_TITLE)).to_have_text("web_search", timeout=8000)
-    tiles = page.evaluate(_TILE_PROBE_JS)
+    tiles = page.evaluate(_TILE_PROBE_JS, ".area-admin .tool-tile")
     active = [t for t in tiles if t["active"]]
     assert len(active) == 1, tiles
     assert active[0] == {"active": True, "outline": "1px solid", "border": True, "outlineHi": True}

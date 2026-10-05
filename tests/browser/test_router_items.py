@@ -108,19 +108,20 @@ def _watch_requests(page: Page) -> list[str]:
     return seen
 
 
-def _arm_providers_table_watch(page: Page) -> None:
-    """Flag ``window.__tableEmptied`` if the Providers table ever loses its rows
-    (or shows a "Loading" line), and mark every current row node so a rebuild
-    is visible (``_providers_rows_kept``). M25 F3 L5b: the table stays above
+def _arm_providers_grid_watch(page: Page) -> None:
+    """Flag ``window.__tableEmptied`` if the Providers grid ever loses its tiles
+    (or shows a "Loading" line), and mark every current tile node so a rebuild
+    is visible (``_providers_rows_kept``). M25 F3 L5b/L7: the grid stays above
     the open provider; selection is applied in place."""
     page.evaluate(
         """() => { window.__tableEmptied = false;
           const list = document.querySelector('.area-admin .settings-list');
-          document.querySelectorAll('table.providers-table tbody tr').forEach(
-            (tr) => { tr.__kept = true; });
+          document.querySelectorAll('.provider-tile-grid [role="listitem"]').forEach(
+            (t) => { t.__kept = true; });
           new MutationObserver(() => {
-            const t = list.querySelector('table.providers-table');
-            if (!t || !t.querySelector('tbody tr') || /Loading/.test(list.textContent || '')) {
+            const g = list.querySelector('.provider-tile-grid');
+            if (!g || !g.querySelector('[role="listitem"]')
+                || /Loading/.test(list.textContent || '')) {
               window.__tableEmptied = true;
             }
           }).observe(list, {childList: true, subtree: true}); }"""
@@ -129,8 +130,9 @@ def _arm_providers_table_watch(page: Page) -> None:
 
 def _providers_rows_kept(page: Page) -> bool:
     return page.evaluate(
-        "() => [...document.querySelectorAll('table.providers-table tbody tr')]"
-        ".every((tr) => tr.__kept === true)"
+        "() => { const t = [...document.querySelectorAll("
+        "'.provider-tile-grid [role=\"listitem\"]')];"
+        " return t.length > 0 && t.every((n) => n.__kept === true); }"
     )
 
 
@@ -567,16 +569,16 @@ def test_agent_row_open_no_refetch_no_flash(app_with_agent: SeededApp, page: Pag
 
 
 def test_provider_open_no_refetch_no_flash(app_with_provider: SeededApp, page: Page) -> None:
-    """Opening a provider from its table row refetches no list and never
-    rebuilds or empties the table (M25 F3 L5b: the table stays above the
-    editor; the row is selected in place)."""
+    """Opening a provider from its tile's name link refetches no list and never
+    rebuilds or empties the grid (M25 F3 L5b/L7: the grid stays above the
+    editor; the tile is selected in place)."""
     base = app_with_provider.base_url
     _nav.goto_settled(page, base, "settings/providers")
     card = page.locator('[data-testid="provider-card"]').first
     expect(card).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
     seen = _watch_requests(page)
-    _arm_providers_table_watch(page)
+    _arm_providers_grid_watch(page)
     card.click()
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
     _nav.wait_settled(page)

@@ -904,49 +904,62 @@ def test_nav_groups_rules_consume_the_gated_pairs() -> None:
     assert "color: var(--fg)" in heading, heading
 
 
+# --accent-translucent-hover's own alphas (tokens.css: 0.16 dark, 0.13 light);
+# .entity-tile.active paints it, replacing the tile's --surface.
+_ACCENT_TRANSLUCENT_HOVER_ALPHA = {"dark": 0.16, "light": 0.13}
+
+
 @pytest.mark.parametrize("theme", THEMES)
-def test_providers_table_pairs_pass_body_aa(theme: str) -> None:
-    """M25 F3 L5b: the Settings Providers page (reference spec section 8.2) sits
-    on the detail pane's --bg: the 12px intro and the 11px head cells in
-    --fg-muted, the cells and name links in --fg, and the open provider's row in
-    --fg on the composited --accent-translucent wash over --bg. Every pair
-    clears body AA in both themes."""
+def test_providers_tile_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F3 L7: a Settings Providers tile paints the intro in --fg-muted on
+    --bg, the name in --fg and the base URL / "Used by" lines in --fg-secondary
+    on the tile's --surface, and, on the open provider's tile, the same inks on
+    the composited --accent-translucent-hover wash. The wash replaces --surface,
+    so it is composited over both --bg and --surface (the worse ground gates).
+    Tightest pair: --fg-secondary on the wash over --surface, 5.49:1 dark and
+    6.01:1 light. Every pair clears body AA (4.5:1) in both themes. The badge
+    pairs are gated by the --badge-ink-* tests."""
     palette = _palette(theme)
-    wash = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], palette["bg"])
+    alpha = _ACCENT_TRANSLUCENT_HOVER_ALPHA[theme]
     pairs = {
-        "intro / head (fg_muted on bg)": (palette["fg_muted"], palette["bg"]),
-        "cells (fg on bg)": (palette["fg"], palette["bg"]),
-        "selected row (fg on wash over bg)": (palette["fg"], wash),
+        "intro (fg_muted on bg)": (palette["fg_muted"], palette["bg"]),
+        "name (fg on surface)": (palette["fg"], palette["surface"]),
+        "url / used by (fg_secondary on surface)": (palette["fg_secondary"], palette["surface"]),
     }
-    for name, (ink, ground) in pairs.items():
-        ratio = contrast_ratio(ink, ground)
-        assert ratio >= 4.5, f"{theme} providers table {name} = {ratio:.2f}:1 (need >= 4.5:1)"
+    for ground in ("bg", "surface"):
+        wash = _alpha_composite(palette["accent"], alpha, palette[ground])
+        pairs[f"active name (fg on wash over {ground})"] = (palette["fg"], wash)
+        pairs[f"active url / used by (fg_secondary on wash over {ground})"] = (
+            palette["fg_secondary"],
+            wash,
+        )
+    for name, (ink, ground_color) in pairs.items():
+        ratio = contrast_ratio(ink, ground_color)
+        assert ratio >= 4.5, f"{theme} providers tile {name} = {ratio:.2f}:1 (need >= 4.5:1)"
 
 
-def test_providers_table_rules_consume_the_gated_pairs() -> None:
-    """The table CSS (admin.css) paints exactly the pairs the test above gates,
-    and the name link's focus ring is the standard 2px --accent ring."""
+def test_providers_tile_rules_consume_the_gated_pairs() -> None:
+    """The tile CSS (admin.css) paints exactly the pairs the test above gates,
+    the name link's focus ring is the standard 2px --accent ring, and the open
+    tile's wash is the shared .entity-tile.active token."""
     intro = " ".join(_rule_bodies("admin.css", ".area-admin .settings-intro"))
     assert "color: var(--fg-muted)" in intro, intro
-    head = " ".join(_rule_bodies("admin.css", ".area-admin .providers-table thead th"))
-    assert "color: var(--fg-muted)" in head, head
-    assert "font-size: var(--font-size-caption)" in head, head
-    cell = " ".join(_rule_bodies("admin.css", ".area-admin .providers-table td"))
-    assert "color: var(--fg)" in cell, cell
-    # The Name cell is the row header (th scope=row, the flight-end review): it
-    # shares the body cells' rule, so it paints the same gated --fg pair.
-    row_head = " ".join(_rule_bodies("admin.css", ".area-admin .providers-table tbody th"))
-    assert "color: var(--fg)" in row_head and "padding: 12px" in row_head, row_head
-    link = " ".join(_rule_bodies("admin.css", ".area-admin .providers-table-link"))
+    link = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link"))
     assert "color: var(--fg)" in link, link
-    assert "font-weight: var(--font-weight-semibold)" in link, link
-    ring = " ".join(_rule_bodies("admin.css", ".area-admin .providers-table-link:focus-visible"))
+    assert "max-width: calc(100% - 128px)" in link, link
+    ring = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link:focus-visible"))
     assert "outline: 2px solid var(--accent)" in ring, ring
-    for cell_tag in ("td", "th"):
-        cur = " ".join(
-            _rule_bodies("admin.css", f".area-admin .providers-table-row.is-selected > {cell_tag}")
-        )
-        assert "background: var(--accent-translucent)" in cur and "color: var(--fg)" in cur, cur
+    used = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-used"))
+    assert "color: var(--fg-secondary)" in used, used
+    url = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-url"))
+    assert "color: var(--fg-secondary)" in url, url
+    badge = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-badge"))
+    assert "position: absolute" in badge, badge
+    assert "background" not in badge and "color" not in badge, badge
+    hover = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile:not(.active):hover"))
+    assert "background-color: var(--surface)" in hover, hover
+    active = " ".join(_rule_bodies("components.css", ".entity-tile.active"))
+    assert "background-color: var(--accent-translucent-hover)" in active, active
 
 
 def _forced_colors_rules(css_file: str) -> str:
@@ -961,16 +974,6 @@ def _forced_colors_rules(css_file: str) -> str:
 @pytest.mark.parametrize(
     ("css_file", "selector", "declaration"),
     [
-        (
-            "admin.css",
-            ".area-admin .providers-table-row.is-selected > td",
-            "border-block: 2px solid Highlight",
-        ),
-        (
-            "admin.css",
-            ".area-admin .providers-table-row.is-selected > th",
-            "border-block: 2px solid Highlight",
-        ),
         ("components.css", ".entity-tile.active", "outline: 1px solid Highlight"),
         ("components.css", ".entity-tile.active", "border-color: Highlight"),
         (
@@ -1266,9 +1269,10 @@ _CONTRAST_EXEMPT: dict[str, str] = {
         "test_tool_switch_indeterminate_thumb_holds_ui_contrast."
     ),
     "--accent-translucent-hover": (
-        "rgba hover wash of the gated --accent hue; a transient hover fill, no "
-        "text pair of its own (its resting sibling --accent-translucent carries "
-        "the gated consumer pairs)."
+        "rgba wash of the gated --accent hue (alphas 0.16 dark, 0.13 light); the "
+        "open tile's fill (.entity-tile.active), replacing --surface. Composited-"
+        "gated over both --bg and --surface at its consumer by "
+        "test_providers_tile_pairs_pass_body_aa."
     ),
     "--status-danger-bg-soft": (
         "rgba wash of the gated --status-danger hue; composited-gated by "

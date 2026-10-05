@@ -99,7 +99,7 @@ def test_lists_helper_settings(app_with_provider: SeededApp, page: Page) -> None
     base = app_with_provider.base_url
     other = seed_mock_provider(base, name="mock two")
     _nav.goto_settled(page, base, "settings/providers")
-    expect(_lists.providers_table(page)).to_be_visible(timeout=8000)
+    expect(_lists.providers_list(page)).to_be_visible(timeout=8000)
     # Both rows carry a "mock" type badge; only one is NAMED "mock".
     expect(_lists.list_row(page, "settings/providers", "mock")).to_have_count(1, timeout=8000)
     _lists.expect_none_selected(page, "settings/providers")

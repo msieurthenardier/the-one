@@ -217,7 +217,7 @@ App.registerArea({
 
     // The item-page scaffold (M25 F3 L5b, flight DD7): Providers and Built-in
     // tools render, once per category render, the page header, then
-    // `.settings-list` (the table / the tool list), then `.settings-item`
+    // `.settings-list` (the provider tiles / the tool list), then `.settings-item`
     // (the open item's editor). List renders target the list section only and
     // editors mount in the item section, so neither replaces the other.
     // { category, listEl, itemEl } | null (another page is showing).
@@ -260,7 +260,7 @@ App.registerArea({
     // providers (created when dev_mode was on) must still render correctly
     // when dev_mode is off. The dropdown filter prevents *new* mock
     // providers; it does not hide *existing* ones. The provider-type badge
-    // mapping (KNOWN_BADGE_TYPES) lives in providers-table.js (M25 F3 L5b).
+    // mapping (KNOWN_BADGE_TYPES) lives in providers-list.js (M25 F3 L5b).
     var TYPE_DEFAULTS = {
       'ollama': { base_url: 'http://localhost:11434/v1', showBaseUrl: true, showApiKey: false, showNumCtx: true, showReasoningEffort: true },
       'openai-compatible': { base_url: '', showBaseUrl: true, showApiKey: true, showReasoningEffort: true },
@@ -299,16 +299,16 @@ App.registerArea({
     content.innerHTML = '<div class="admin-content"></div>';
     contentEl = content.querySelector('.admin-content');
 
-    // The Providers table's data (M25 F3 L5b, DD9): lifetime subscriptions,
+    // The Providers list's data (M25 F3 L5b, DD9): lifetime subscriptions,
     // registered once. A load of either collection -- by this page or any
-    // other area -- re-renders the table BODY only (renderProvidersTableNow is
+    // other area -- re-renders the tile grid only (renderProvidersListNow is
     // a no-op unless the Providers page is showing); never the editor below.
     App.store.subscribe('providers', function (list) {
       providers = list;
       providersFailed = false;
-      renderProvidersTableNow();
+      renderProvidersListNow();
     });
-    App.store.subscribe('agents', function () { renderProvidersTableNow(); });
+    App.store.subscribe('agents', function () { renderProvidersListNow(); });
 
     // ── Rendering ─────────────────────────────────────────────────────
 
@@ -341,7 +341,7 @@ App.registerArea({
     // Providers and Built-in tools keep their list visible: the open item's
     // editor renders BELOW the list, in the same scrolling page. One scaffold
     // per category render: the section 4 page header, `.settings-list` (the
-    // Providers table or the tool list) and `.settings-item` (the editor).
+    // Providers tiles or the tool list) and `.settings-item` (the editor).
     // List renders target the list section only; editors mount in the item
     // section; closing an item empties the item section. The list therefore
     // refreshes while an editor is open (store notifications, toggles,
@@ -429,7 +429,7 @@ App.registerArea({
         var known = App.store.peek('providers');
         if (known.loaded) providers = known.value;
       }
-      renderProvidersTableNow();
+      renderProvidersListNow();
       // DD9 freshness bound: the page's mount re-reads both collections.
       fetchProviders();
       loadAgentsForTable();
@@ -437,15 +437,15 @@ App.registerArea({
     }
 
     // The agents list the "Used by" column counts, or null while it has never
-    // loaded (the cells then read "—", never "0 agents"). The admin area has
-    // no other use for agents; the table subscribes to the store.
+    // loaded (the tiles then read "—", never "0 agents"). The admin area has
+    // no other use for agents; the tiles subscribe to the store.
     function agentsForTable() {
       var known = App.store.peek('agents');
       return known.loaded ? known.value : null;
     }
 
     function loadAgentsForTable() {
-      App.store.get('agents', { force: true }).catch(function () { renderProvidersTableNow(); });
+      App.store.get('agents', { force: true }).catch(function () { renderProvidersListNow(); });
     }
 
     function selectedProviderId() {
@@ -455,10 +455,10 @@ App.registerArea({
     }
 
     // Re-render the Providers LIST section only (never the item section).
-    function renderProvidersTableNow() {
+    function renderProvidersListNow() {
       var sc = scaffoldFor('providers');
       if (!sc) return;
-      App.admin.renderProvidersTable(sc.listEl, {
+      App.admin.renderProvidersList(sc.listEl, {
         providers: providers,
         agents: agentsForTable(),
         failed: providersFailed,
@@ -511,8 +511,8 @@ App.registerArea({
           // discard, then a bypass go() REPLACING the create entry (Back must
           // not land on a stale create form). Focus (DD8's one rule for Cancel,
           // close and delete): a create form has no row of its own, so the
-          // nearest surviving row -- the table's first provider link -- else
-          // "Add provider" when the table is empty. (Leg 5b sent it to "Add
+          // nearest surviving row -- the first provider tile link -- else
+          // "Add provider" when the grid is empty. (Leg 5b sent it to "Add
           // provider" always; the behavior-gate fix aligned it with DD8, as
           // Agents and Library already were.)
           if (mountGen !== editorGen) return;
@@ -545,10 +545,10 @@ App.registerArea({
           if (window.App && window.App.router) {
             App.router.sync('admin', self.serializeState(), { name: updated.name });
           }
-          renderProvidersTableNow();
+          renderProvidersListNow();
           if (isCreate) {
             // Create -> edit: re-mount ONLY the item section in edit mode
-            // (Models, Danger Zone and Test now render); the table stays.
+            // (Models, Danger Zone and Test now render); the tile list stays.
             mountProviderItem({ keepFocus: true });
           }
           // Edit -> edit: the editor stays mounted; its own snapshot
@@ -570,7 +570,7 @@ App.registerArea({
             providers = providers.filter(function (p) { return p.id !== goneId; });
           }
           App.router.go(rootHref('providers'), { replace: true, bypassGuard: true }).then(function () {
-            renderProvidersTableNow();
+            renderProvidersListNow();
             focusProviderRowNear(idx);
           });
           reloadProviders();
@@ -585,8 +585,8 @@ App.registerArea({
       if (btn) btn.focus();
     }
 
-    // Focus the provider row link at `idx` (clamped to the last row), else
-    // "Add provider" when the table has no rows.
+    // Focus the provider tile link at `idx` (clamped to the last row), else
+    // "Add provider" when the grid has no tiles.
     function focusProviderRowNear(idx) {
       var sc = scaffoldFor('providers');
       if (!sc) return;
@@ -619,7 +619,7 @@ App.registerArea({
         .then(function (data) {
           providers = storeValue('providers', data);
           providersFailed = false;
-          renderProvidersTableNow();
+          renderProvidersListNow();
           self._tryConsumePendingProvider();
           // A pending id absent from a FRESH fetch is dead (deleted meanwhile,
           // or a stale link): never keep it in the URL. Heal to the section
@@ -628,7 +628,7 @@ App.registerArea({
             pendingProviderId = null;
             pendingFormMode = null;
             openIntent = false;
-            renderProvidersTableNow();
+            renderProvidersListNow();
             if (window.App && window.App.router) App.router.sync('admin', self.serializeState());
           }
         })
@@ -636,23 +636,23 @@ App.registerArea({
           // Only a list that never loaded reads as failed; a failed refresh
           // keeps the last good rows.
           if (providers === null) providersFailed = true;
-          renderProvidersTableNow();
+          renderProvidersListNow();
         });
     }
 
     // After a mutation (save, create, delete): re-read the list (the editor
     // already invalidated it), bypassing fetchProviders' one-at-a-time join
     // so a request from before the mutation is never reused. The store's
-    // subscription re-renders the table body; the editor is untouched.
+    // subscription re-renders the tile grid; the editor is untouched.
     function reloadProviders() {
       App.store.get('providers', { force: true }).then(function (data) {
         providers = storeValue('providers', data);
-        renderProvidersTableNow();
+        renderProvidersListNow();
       }, function () { /* keep the last good rows */ });
     }
 
     // Opening a provider / the create form is a user INTENT: a pushed go()
-    // (Back returns to the root), hydrated with the cached list. The table's
+    // (Back returns to the root), hydrated with the cached list. The tiles'
     // name links are plain links App.nav routes the same way.
     function enterCreateMode() {
       // The create form already open: just bring it into view (no go(), so a
@@ -885,7 +885,7 @@ App.registerArea({
     //   an intent go() to the page root, so the router's guard asks once
     //   about a dirty editor and the root hydrate closes the item in place.
     //   Once it has navigated, focus goes to the closed item's row (DD8); a
-    //   create form has no row, so the nearest surviving row (the table's
+    //   create form has no row, so the nearest surviving row (the grid's
     //   first provider link), else "Add provider". The focus waits one task:
     //   after a Continue, nav.js focuses <main> from a setTimeout. Built-in
     //   tools have no create form, and a closed tool always has its own tile.
@@ -907,7 +907,7 @@ App.registerArea({
       if (!sc || providerFormMode || toolFormMode) return; // the user moved on
       if (closing.category === 'providers') {
         // DD8's one rule for Cancel, close and delete: a `~new` form has no row
-        // of its own, so the first row, else "Add provider" when the table is
+        // of its own, so the first tile, else "Add provider" when the grid is
         // empty (as the create-form Cancel; leg 5b focused "Add provider"
         // always, and the behavior-gate fix aligned it with Agents/Library).
         if (closing.create || !closing.providerId) { focusProviderRowNear(0); return; }
@@ -928,7 +928,7 @@ App.registerArea({
 
     function openItemLink(target) {
       if (!scaffold) return null;
-      var row = target.closest('a.providers-table-link');
+      var row = target.closest('a.provider-tile-link');
       if (row && scaffold.listEl.contains(row)) {
         return providerFormMode === 'edit' && editingProvider && row.getAttribute('data-id') === editingProvider.id
           ? row : null;
@@ -998,7 +998,7 @@ App.registerArea({
         renderContent();
       } else if (currentCategory === 'providers') {
         // The list refreshes with an editor open too (M25 F3 L5b): only the
-        // table body re-renders, never the editor below it.
+        // tile grid re-renders, never the editor below it.
         fetchProviders().then(function () {
           self._tryConsumePendingProvider();
         });
@@ -1032,7 +1032,7 @@ App.registerArea({
         // re-renders from the saved settings). Otherwise tear the item down:
         // on an item page (Providers, Built-in tools) that empties the item
         // section below the list (M25 F3 L5b), so no discarded editor lingers
-        // under the table; anywhere else the next _setCategory re-renders.
+        // under the tiles; anywhere else the next _setCategory re-renders.
         if (currentCategory !== 'knowledge') {
           self._closeOpenItem();
           if (!scaffoldFor(currentCategory)) editorDomStale = true;

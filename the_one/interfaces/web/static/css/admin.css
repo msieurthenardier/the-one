@@ -129,55 +129,45 @@
   /* Intro copy (section 8.2): 12px --fg-muted on the page's --bg. */
   .area-admin .settings-intro { margin: 0 0 16px; font-size: var(--font-size-body-sm); color: var(--fg-muted); }
 
-  /* === Providers table (section 8.2; Name, Type, Used by) === */
-  .area-admin .providers-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--font-size-body); }
-  .area-admin .providers-table thead th {
-    text-align: left;
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    color: var(--fg-muted);
-    padding: 12px;
-    border-bottom: 1px solid var(--border);
-  }
-  .area-admin .providers-table .providers-col-type { width: 180px; }
-  .area-admin .providers-table .providers-col-used { width: 120px; }
-  /* Body cells. The Name cell is the row header (th scope="row", WCAG 1.3.1;
-     the flight-end review): it takes the body cells' look, not the column
-     headers', so th's own centring and bold are reset (the link sets 600). */
-  .area-admin .providers-table td,
-  .area-admin .providers-table tbody th {
-    padding: 12px;
-    border-bottom: 1px solid var(--border);
+  /* === Provider tiles (L7: tiles, by operator decision at the Flight 3
+     checkpoint, matching Built-in tools; reference spec 8.2 drew a table) ===
+     The tile is not a click target (its NAME is the item link), so it drops
+     the shared pointer cursor and hover wash like .tool-tile; the open
+     provider's tile keeps the selected wash (.entity-tile.active). No bottom
+     padding reserve: that is the tool toggle's corner and stays tools-only. */
+  .area-admin .provider-tile { position: relative; cursor: default; }
+  .area-admin .provider-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
+  /* The badge is App.ui.badge's own element (quiet, lowercase, per-type ink
+     from .badge--{kind}); this class only places it in the corner. */
+  .area-admin .provider-tile-badge { position: absolute; top: 8px; right: 8px; }
+  /* The name link (tool and provider tiles): the tile's title ink (it keeps
+     .entity-tile-name's size, weight and ellipsis), as wide as its text,
+     underlined on hover, with the standard accent ring on keyboard focus. The
+     provider link also clears the widest badge (openai-compatible, anthropic-plan:
+     about 115px plus the 8px offset). */
+  .area-admin .tool-tile-link,
+  .area-admin .provider-tile-link {
     color: var(--fg);
-    vertical-align: middle;
-  }
-  .area-admin .providers-table tbody th { text-align: start; font-weight: var(--font-weight-regular); }
-  /* The Name cell's link: weight 600, ellipsized on one line (a long name
-     never overflows the cell). */
-  .area-admin .providers-table-link {
-    display: block;
-    color: var(--fg);
-    font-weight: var(--font-weight-semibold);
     text-decoration: none;
+    border-radius: var(--radius-sm);
+    align-self: flex-start;
+  }
+  .area-admin .provider-tile-link { max-width: calc(100% - 128px); }
+  .area-admin .tool-tile-link { max-width: 100%; }
+  .area-admin .tool-tile-link:hover,
+  .area-admin .provider-tile-link:hover { text-decoration: underline; }
+  .area-admin .tool-tile-link:focus-visible,
+  .area-admin .provider-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Base URL and "Used by": single lines in --fg-secondary (gated AA on the
+     tile surface and on the active wash; --fg-muted is not). */
+  .area-admin .provider-tile-url,
+  .area-admin .provider-tile-used {
+    display: block;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    border-radius: var(--radius-sm);
-  }
-  .area-admin .providers-table-link:hover { text-decoration: underline; }
-  .area-admin .providers-table-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* The open provider's row: the selected wash (its link carries
-     aria-current="page"); --fg on the wash over --bg is gated body AA. */
-  .area-admin .providers-table-row.is-selected > td,
-  .area-admin .providers-table-row.is-selected > th { background: var(--accent-translucent); color: var(--fg); }
-  /* Forced colors (Windows High Contrast, SC 1.4.11): the wash is dropped, so
-     the open provider's row gains a 2px Highlight rule above and below, a cue
-     that is not colour alone. It lives here, not in components.css's
-     forced-colors block: this areas-layer file outranks the components layer,
-     so the cells' border-bottom above would beat a components-layer cue. */
-  @media (forced-colors: active) {
-    .area-admin .providers-table-row.is-selected > td,
-    .area-admin .providers-table-row.is-selected > th { border-block: 2px solid Highlight; }
   }
 
   /* === Provider List === */
@@ -331,18 +321,6 @@
     padding-bottom: 36px;
   }
   .area-admin .tool-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
-  /* The name link: the tile's title ink (it keeps .entity-tile-name's size,
-     weight and ellipsis), as wide as its text, underlined on hover, with the
-     standard accent ring on keyboard focus. */
-  .area-admin .tool-tile-link {
-    color: var(--fg);
-    text-decoration: none;
-    border-radius: var(--radius-sm);
-    align-self: flex-start;
-    max-width: 100%;
-  }
-  .area-admin .tool-tile-link:hover { text-decoration: underline; }
-  .area-admin .tool-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .area-admin .tool-enable-switch,
   .area-studio .tool-enable-switch {
     position: relative;
