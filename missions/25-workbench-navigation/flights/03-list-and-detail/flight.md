@@ -1,6 +1,6 @@
 # Flight: List and Detail
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria

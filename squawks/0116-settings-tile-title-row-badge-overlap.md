@@ -47,6 +47,14 @@ behavior re-runs, outside leg 7's charter.
   - `the_one/interfaces/web/static/js/areas/admin/tools-grid.js`: the
     `entity-tile-name tool-tile-link` anchor and the category badge.
 - The background is in `missions/25-workbench-navigation/flights/03-list-and-detail/legs/07-providers-tiles.md`.
+- **M25 F3 debrief.** The Architect and the Developer independently traced this to the two
+  tile builders: `providers-list.js` builds tiles with the DOM, while `tools-grid.js` uses
+  HTML strings and `innerHTML`.
+  - The structural fix is an `App.ui` entity-tile factory that both grids consume. It needs
+    design (a demo, an inventory row and contracts), so it is recommended for Flight 6 or
+    the next mission.
+  - This squawk stays the squawk-sized fix: a flex title row in both tile kinds. Fixing only
+    one kind leaves the other wrong.
 
 ## Corrective Action
 

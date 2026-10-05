@@ -4,7 +4,20 @@
 
 ## Summary
 
-**Status**: landed (2026-10-02). PR #219, `7aa490f` + `56f7d75` + `9590984`.
+**Status**: landed (2026-10-02). It landed again on 2026-10-05, after leg 7. PR #219:
+- `7aa490f`, `56f7d75` and `9590984` (the flight and its close gate);
+- `bf38096` and `61f6f12` (leg 7 and its specs);
+- `0392246` (leg 7's behavior re-runs).
+
+**Leg 7 (`providers-tiles`)** came from the DD14 operator checkpoint: the operator asked for
+the Providers list to be tiles matching Built-in tools. The four affected specs were re-run
+and pass 60/60:
+- `system-provider-config`: 20/20;
+- `workbench-navigation`: 28/28;
+- `shell-navigation-smoke`: 8/8;
+- `list-and-detail`, targeted: 4/4.
+
+The original close-gate summary follows.
 
 All eight legs landed, and both flight-end reviewers confirmed after a fix pass. Every gate
 is green: unit, all five lanes and both engines. All six close-gate behavior specs pass:
@@ -22,7 +35,8 @@ The `list-and-detail` run caught one real defect: Cancel was disabled on a prist
 form. It was fixed in-flight (`56f7d75`) and re-verified. Squawk 0101 is closed.
 
 Still open:
-- the DD14 operator checkpoint (go or no-go before Flight 4);
+- ~~the DD14 operator checkpoint (go or no-go before Flight 4)~~, held 2026-10-05. Its
+  one change became leg 7, now landed.
 - the merge to `main` (the operator merges).
 
 ---
@@ -2990,6 +3004,17 @@ passes. Gates re-run: lint and format clean, static guards 350 passed, settings 
   - **Flight status.** All four specs passed (60/60 checkpoints), which closes leg 7's
     acceptance. The flight goes in-flight → **landed**. PR #219 is updated, and Flight 4
     starts once it is merged.
+- 2026-10-05: **Flight debrief** (`flight-debrief.md`). Run autonomously, with no operator
+  interview; the DD14 answers stand in for the operator's view.
+  - **Developer (Sonnet).** A full sequential metrics run with 0 failures and 0 flakes:
+    - unit: 5,045 passed, 10 skipped, 654s;
+    - browser: 1,362 passed, 6 skipped, 33m;
+    - shared lane: 12m38s.
+  - **Architect (Sonnet).** The design-outcome review.
+  - **Squawks logged:** 0117 (split the `shared` lane) and 0118 (document the editor
+    Cancel and dirty contract). 0116 is annotated with the entity-tile finding.
+  - **Flight status → `completed`**, following the Flight 1 and Flight 2 precedent in this
+    autonomous mission. The merge of PR #219 is still the operator's.
 
 ---
 
