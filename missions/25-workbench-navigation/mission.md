@@ -263,6 +263,12 @@ history but do not appear in the picker, and their drawer shows no settings link
   `/mission-control:init-project`: methodology files synced, 008–012 applied (flight-end
   review and commit; Service Report section with upstream reporting enabled; Sortie
   artifact; Flight Director paragraph; leg checklist retired), crew customizations kept.
+- [ ] **Ctrl K in WebView2**, carried from Flight 4 DD9 to **Flight 5**.
+  - The jump-to shortcut is a page-level `keydown` listener.
+  - WebKitGTK is checked in Flight 4 (leg 5) with real key injection. WebView2 can only be
+    checked in the packaged Windows build: confirm that Ctrl K reaches the page and is not
+    taken by a browser accelerator.
+  - Flight 5's scope is window chrome, so it is listed here explicitly.
 
 ## Flights
 
