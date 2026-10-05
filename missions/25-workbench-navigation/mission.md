@@ -286,6 +286,10 @@ history but do not appear in the picker, and their drawer shows no settings link
   keep their list visible); Back controls retired; create opens the new item (resolves
   squawk 0101). Followed by an **operator checkpoint**: a running dev instance and
   screenshots; the operator says go or flags problems before Flight 4.
+  *Checkpoint held on 2026-10-05.* The operator approved the other items and asked for
+  Settings › Providers to be tiles matching Built-in tools. Flight 3 leg 7
+  (`providers-tiles`) delivered that, and its re-runs passed. The full record is in the
+  flight log.
 - [ ] Flight 4: **Chats and jump-to** — New chat with the agent picker, cross-agent
   history, the agent drawer, removal of the chat agent dropdown and welcome-screen agent
   list; the jump-to palette (sharing the picker's searchable-list control); new

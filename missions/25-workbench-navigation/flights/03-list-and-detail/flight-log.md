@@ -2937,6 +2937,59 @@ passes. Gates re-run: lint and format clean, static guards 350 passed, settings 
     - the badge is read before the name, so it moves after the link in the DOM
       (SC 1.3.2).
   - The fix pass goes to the same Developer.
+- **Leg 7 fix pass and re-review.** The Developer applied all three fixes:
+  - `Makefile` `verify-serving` now lists `admin/providers-list.js`;
+  - the visually-hidden "Used by " prefix;
+  - the badge now follows the link in the DOM.
+
+  Its gates re-ran green: lint and format clean, static guards 350, settings lane 178. The
+  details are in the leg 7 entry.
+  - A focused re-review of the fix diff (Sonnet) returned `[HANDOFF:confirmed]`.
+  - `make verify-serving` passes against the checkpoint instance on 8485.
+  - Leg 7 → `completed`.
+  - Committed as `bf38096` (code) and `61f6f12` (artifacts and re-authored specs), and pushed
+    to PR #219.
+- **Leg 7 behavior re-runs** (run `2026-10-05-14-53-19`, commit `61f6f12`). The Flight
+  Director ran these for Witnessed independence. Each spec ran on its own fresh dev instance,
+  with a CDP-driven Chromium, one Executor and one Validator, and live SendMessage
+  continuation. Port 8484, the default data directory and the checkpoint instance on 8485
+  were not touched.
+
+  | Spec | Instance | Scope | Result |
+  |---|---|---|---|
+  | `system-provider-config` | 8486, `/tmp/the-one-f3r-a` | full, Light and Dark | **20/20 pass** |
+  | `shell-navigation-smoke` | 8486, same | full | **8/8 pass** |
+  | `list-and-detail` | 8488, `/tmp/the-one-f3r-lnd` | targeted: steps 18 and 20 per theme | **4/4 pass** |
+  | `workbench-navigation` | 8487, `/tmp/the-one-f3r-wbn` | full, Light and Dark | **28/28 pass** |
+
+  - **Why `list-and-detail` was targeted.** Leg 7 changed only the Providers list. Step 20
+    was re-authored for tiles, and step 18 walks every Settings page. The other 34
+    checkpoints exercise surfaces leg 7 did not touch, and passed 38/38 in the full run
+    `2026-10-02-12-08-59`.
+  - **`save-preserves-config` and `anthropic-plan-signin`** had wording-only updates (table
+    → tiles) in steps that do not judge the list's presentation. They were not re-run; the
+    leg 7 browser lanes (settings 178, shared 867) cover their surfaces.
+  - **Apparatus deviations:**
+    - `workbench-navigation` Light L2–L5 ran with Appearance on Auto (resolving light),
+      because the Light choice made in an earlier context did not carry into the new tab.
+      Light was re-selected before L6, and the Dark variant switched theme inside its own
+      fresh context, before step 2.
+    - `list-and-detail`'s seed script overwrote the Light ids file with the Dark seed. The
+      Executor restored it by hand.
+  - **Observations** (no checkpoint failed):
+    - A tile name is ellipsis-truncated early, because the link reserves a fixed 128px for
+      the widest badge. The tool tile's name can run under its badge. Logged as **squawk
+      0116**, deferred.
+    - The intro line is absent in the empty state, so `system-provider-config` step 2's
+      "after the intro line" does not hold there.
+    - Focus drops to BODY after Save and Test. This is already checkpoint question 7,
+      deferred by the operator.
+  - The spec-quality notes are in each run log and go to the debrief.
+  - **Instances.** 8486, 8487 and 8488 were stopped with `make down` and their Chromiums
+    stopped. 8485, the operator's checkpoint instance, is still running.
+  - **Flight status.** All four specs passed (60/60 checkpoints), which closes leg 7's
+    acceptance. The flight goes in-flight → **landed**. PR #219 is updated, and Flight 4
+    starts once it is merged.
 
 ---
 

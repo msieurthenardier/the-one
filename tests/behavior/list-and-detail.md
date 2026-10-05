@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-02
 **Updated**: 2026-10-05 (step 20: Providers tiles, M25 F3 leg 7)
-**Last Run**: 2026-10-02-12-08-59 (pass — LIGHT 19/19 + DARK 19/19; L6 failed attempt 1 on a create-form Cancel defect, fixed in-run, passed on rerun; see runs/)
+**Last Run**: 2026-10-05-14-53-19 (targeted re-run after leg 7, steps 18 and 20 in both themes: 4/4 pass); full run 2026-10-02-12-08-59 (38/38; see runs/)
 
 ## Intent
 

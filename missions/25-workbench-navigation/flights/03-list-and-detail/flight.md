@@ -1,6 +1,6 @@
 # Flight: List and Detail
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -792,7 +792,7 @@ into leg 5a, and split the Library and Settings legs (issues 2, 3 and 8).
   the item below it, and provider and tool Back retired.
 - [x] `behavior-specs-and-close`: `list-and-detail`, spec updates, gates and runs, and
   the checkpoint package.
-- [ ] `providers-tiles`: the Providers list as tiles matching Built-in tools (DD14
+- [x] `providers-tiles`: the Providers list as tiles matching Built-in tools (DD14
   checkpoint outcome); the affected specs re-run.
 
 ---

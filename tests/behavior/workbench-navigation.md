@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-01
 **Updated**: 2026-10-05 (M25 F3: list and detail shell, steps 3–8 and 10; Providers as tiles, leg 7)
-**Last Run**: 2026-10-02-12-08-59 — pass (28/28; Light + Dark; first run on the list-and-detail shell; CDP-driven Chromium)
+**Last Run**: 2026-10-05-14-53-19 — pass (28/28; Light + Dark; re-run after M25 F3 leg 7, Providers tiles; step 10 as new-document loads)
 
 ## Intent
 
