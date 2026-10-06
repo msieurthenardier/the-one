@@ -2706,6 +2706,17 @@ set first. `vision-round-trip` needs a live Anthropic key (it cannot run on the 
   before PR #220 merges becomes a follow-up leg.
 - **Flight landed** (2026-10-06). Next: mark PR #220 ready, then the Flight 4 debrief.
 
+- **Flight debrief** (2026-10-06): `flight-debrief.md`.
+  - Inputs: a Developer interview with a full serial metrics run, and an Architect design
+    review. The operator was not interviewed (autonomous run).
+  - Metrics, all green with no flakes:
+    - unit 5,178 (715s);
+    - browser 1,727 in 39m;
+    - a full serial run is about 51m.
+  - Squawks 0121 (the CDP apparatus recipe in the crew file) and 0122 (spec wording from
+    the close-gate Validators) were logged.
+  - Flight status set to **completed**.
+
 ---
 
 ## Decisions
