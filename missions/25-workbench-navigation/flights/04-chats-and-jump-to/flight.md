@@ -1,6 +1,6 @@
 # Flight: Chats and Jump-to
 
-**Status**: completed
+**Status**: in-flight
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -583,6 +583,10 @@ action.**
   results are capped at 8. With an empty query the palette shows the first 8 candidates,
   which is the board as drawn: agents first. That is an explicit preview question (DD13),
   not a silent pick.
+  - *Superseded 2026-10-06 (DD13 preview, option C; leg 9 `palette-empty-mix`):* the empty
+    query now shows up to 3 recent chats, New chat…, up to 4 recently used agents (the
+    picker's `recentAgents`), then the board order as fill, 8 in total. A typed query is
+    unchanged.
 - **A Settings page table** is extracted into one shared module (`App.settingsPages`), used
   by the Settings nav, the router's labels and the palette, so the palette does not
   duplicate `admin.js:174-190`.
@@ -693,7 +697,7 @@ recommendation 1).**
   - a comparison page beside the board, published as a private artifact.
 - **Explicit questions:**
   - session delete as a row action (DD5);
-  - the palette's empty-query content (DD10);
+  - the palette's empty-query content (DD10) (resolved 2026-10-06: option C, leg 9);
   - the drawer closed by default below 1280px, and its overlay covering Send at 1024
     (DD7);
   - the 588px chat pane beside the open drawer at 1280 (DD7);
@@ -752,7 +756,7 @@ recommendation 1).**
 | A11 | Ctrl K, Escape and Enter are bound (DD9, DD10). The Esc button's name is "Close (Esc)". |
 | A13 | "What it can use" in the drawer (DD7). |
 | A16 | The picker matches name, model, provider type slug and description. **Filtered results are A–Z**, not data order, for consistency with the Agents list; a recorded deviation. "All agents" repeats the recent agents, as drawn. |
-| A17 | The palette: board order, cap 8, a new empty state, an active row (DD10). |
+| A17 | The palette: board order, cap 8, a new empty state, an active row (DD10). The empty query is a mix of recent chats, New chat… and recent agents since leg 9 (operator option C). |
 | A20 | Badge text as drawn: the welcome shows the model, the drawer the provider type. |
 | A21 | The drawer header is 48px and lines up with the chat header (DD7). |
 | A25 | `:focus-within` ring on the composer box. The palette input's ring is on its bar (DD6, DD14). |

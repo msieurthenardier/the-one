@@ -2055,6 +2055,25 @@ set first. `vision-round-trip` needs a live Anthropic key (it cannot run on the 
 
 ---
 
+### Leg 9: palette-empty-mix (landed, 2026-10-06)
+
+**Landed** 2026-10-06 (the Developer's acceptance criteria AC1-AC7). Follows the operator's DD13 preview decision (question 2, option C).
+
+**Implemented**
+- `jump-to.js`: a pure `emptyMix(all)` helper, called from `match()` when the trimmed query is empty. Up to 3 chats (`RECENT_CHATS`, from the board-order chat candidates), the New chat... action, up to 4 recently used agents (`RECENT_AGENTS`, from `App.chat.agentPicker.recentAgents`, fed the agents with nameless rows and the synthetic `default` dropped; guarded by a `typeof` check and try/catch), then the board-order fill, skipping anything already shown (by `kind` and `key`), `CAP` 8 in total. `candidates()` stays pure board order; a typed query is unchanged. `emptyMix`, `RECENT_CHATS` and `RECENT_AGENTS` are exported beside `CAP`. Rendering code is untouched.
+- Tests (`tests/browser/test_flow_jump_to.py`): renamed the empty-query test to `test_empty_query_mixes_recent_chats_new_chat_and_recent_agents` (exact 8 rows against `world`, polled to the final state); new cases for the 3/4 caps with 6 agents, a connector-only agent, no sessions, and a deleted agent's chat (the no-duplicate check is in the caps test). `test_palette_resolver_active_row_and_keys` also depended on the empty query's first rows (agents first), so it now expects the newest chat first and waits for the settled list. Module docstring updated.
+- Behavior spec `jump-to-palette.md`: step 2 re-authored (chat, New chat..., `jtp-agent-02`, then `jtp-agent-01`, `03`, `04`, `05`, `06`), Intent bullet, Preconditions line and `Updated` line. No other step reads the empty query's rows.
+- Docs: `CLAUDE.md`, `the_one/agents.md` (Candidates bullet and the Tests bullet), `jump-to.js` header, `docs/ui-control-inventory.md`, `flight.md` (DD10 dated note, DD13 question marked resolved, A17 row), reference spec section 9 line (one-line superseded note). `legs/07` left as the record.
+
+**Falsification.** With `match('')` temporarily returning the first `CAP` board-order candidates, `test_empty_query_mixes_recent_chats_new_chat_and_recent_agents` failed; the change was reverted (restored byte-identical from a backup) and the file passes again.
+
+**Gates**
+- `tests/browser/test_flow_jump_to.py` via the wrapper (it needs `-m browser` before the path, otherwise everything is deselected): 24 passed.
+- `ruff check` and `ruff format --check` over `the_one/ tests/ scripts/`: clean.
+- Static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_nav_helper`, `test_ui_control_inventory`, `test_run_tests_lanes`, `test_settings_pages_static`): 355 passed.
+- `shared` lane (`TEST_TIMEOUT=3600`): 465 passed in 12m04s. (A first attempt was killed by the background-task 30 minute limit, not by a test; rerun to completion.)
+- `chats` lane: 163 passed in 4m15s.
+
 ## Flight Director Notes
 
 - 2026-10-05: **Flight drafted** by the Flight Director, autonomously.
@@ -2717,6 +2736,63 @@ set first. `vision-round-trip` needs a live Anthropic key (it cannot run on the 
     the close-gate Validators) were logged.
   - Flight status set to **completed**.
 
+- **Operator answers to the DD13 preview** (2026-10-06, after landing):
+  1. Row delete: good, kept.
+  2. Palette empty query: the operator did not follow the question. It was re-asked in
+     plain terms and is still **open**.
+  3. Drawer closed below 1280, overlay covering Send at 1024: acceptable, so A4 is
+     accepted.
+  4. The 588px pane at 1280: acceptable.
+  5. "Attach images": fine for now if attachments really are image-only. Confirmed: the
+     picker is `accept="image/*"` and the server builds only `ImageContent` blocks. A
+     general file attachment would be a later feature.
+  6. Older recency groups: good.
+  7. Dark scrim 0.5: good.
+  8. The overlay closes through the header toggle: good as is.
+  9. `find_platform_destination` under Connectors: good.
+
+  No follow-up leg is needed unless question 2's answer changes the empty-query content.
+
+- **Question 2 answered: option C** (2026-10-06). The empty query is to show a few
+  recent chats, then New chat…, then the recently used agents.
+  - **Flight reopened**, completed → in-flight, as the Flight 3 checkpoint leg was (DD13:
+    feedback before PR merge becomes a leg).
+  - **Leg 9 `palette-empty-mix` designed:**
+    - up to 3 recent chats, New chat…, up to 4 recently used agents (the picker's
+      `recentAgents` rule), then fill to 8 from the board order without duplicates;
+    - a typed query is unchanged.
+  - **Risk tier: high.** It changes DD10's empty-query rule, a flight-spec decision, by
+    operator choice. A design review (Developer, Sonnet) runs before implementation.
+  - **Plan:** a targeted re-run of `jump-to-palette` steps 1–2 and 14 in both themes after
+    the commit.
+
+- **Leg 9 design review** (Developer, Sonnet): "approve with changes", with no high
+  issues.
+  - **The AC5 expected list is confirmed.**
+  - **Changes applied:**
+    - a stale-text list beyond AC6's files (`jump-to.js` comments, the test docstring,
+      the inventory, the spec's Preconditions, `flight.md` DD13 and A17, and a
+      reference-spec note);
+    - feed `recentAgents` the live agents without `default`, with a guard;
+    - the mix as a pure `emptyMix` called from `match()`;
+    - the world fixture's exact expected rows, with a poll-until-final wait;
+    - new fixtures for the larger and deleted-agent cases;
+    - the loading-state and whitespace-query behaviour stated.
+  - **Its questions, answered in the leg:** connector chats stay among the recent chats,
+    and connector-only agents are not recent agents. Fill rows keep board order.
+  - **No second cycle**, because the fixes are prescriptive. The leg is `ready`, and the
+    implementation (Developer, Sonnet) is spawned.
+
+- **Leg 9 landed** (Developer, Sonnet). Gates:
+  - `test_flow_jump_to.py` 24;
+  - static guards 355;
+  - `shared` 465 (12m04s);
+  - `chats` 163.
+
+  The falsification was done. **Review** (Sonnet): `[HANDOFF:confirmed]`, with no blocking
+  issues and one cosmetic comment-wrap nit, accepted. Leg 9 is set to `completed` and
+  committed; the targeted spec re-run follows.
+
 ---
 
 ## Decisions
@@ -2873,6 +2949,8 @@ set first. `vision-round-trip` needs a live Anthropic key (it cannot run on the 
   - the unit suite ran beside two browser lanes, with every number matching leg 7.
 
 ---
+
+- **Leg 9 (palette-empty-mix):** `test_palette_resolver_active_row_and_keys` also relied on the old empty-query order (first row an agent), which the leg did not list; it was updated to expect the newest chat first. The wrapper needs `-m browser` ahead of a bare file path.
 
 ## Anomalies
 

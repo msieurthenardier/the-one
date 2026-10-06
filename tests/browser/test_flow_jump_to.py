@@ -7,7 +7,9 @@ named by ``ariaLabel`` "Jump to" (``jump-to``, input ``jump-to-input``, rows
 ``jump-to-result``, its own "Esc" ``jump-to-close``). Candidates in board order
 (agents A-Z, chats newest first, New chat…, knowledge bases, MCP servers,
 connectors, Settings pages), the first 8 matches of a case-insensitive substring
-over ``label + " " + where``. A pick closes the palette FIRST, then goes through the
+over ``label + " " + where``. The EMPTY query is a mix instead (flight 4 leg 9, the
+operator's DD13 option C): up to 3 recent chats, New chat…, up to 4 recently used
+agents, then the board order, 8 in total. A pick closes the palette FIRST, then goes through the
 router's leave guard with the captured opener, so a dirty editor asks exactly once.
 
 Chromium; falls in the ``shared`` lane (the complement: no ``run-tests.sh`` glob
@@ -261,12 +263,17 @@ def test_palette_resolver_active_row_and_keys(world: dict, page: Page, theme: st
     _wait_for_rows(page, "agent", "chat")
     assert_controls_labelled_and_described(page, PALETTE)
     # The first row is active (A10): aria-activedescendant on the input, aria-selected on the row.
-    assert page.evaluate(_ACTIVE_JS) == ["agent", "Alpha", "true"]
+    # The empty query's mix starts with the newest chat (leg 9); wait for the
+    # recent agents so the list is settled.
+    _wait_for_rows(page, "action")
+    expect(page.locator(f'{RESULT}[data-kind="agent"][data-id="test-agent"]')).to_be_visible()
+    second = _rows(page)[1][:2]
+    assert page.evaluate(_ACTIVE_JS) == ["chat", world["newest"], "true"]
     assert page.locator(f'{RESULT}[aria-selected="true"]').count() == 1
     page.keyboard.press("ArrowDown")
-    assert page.evaluate(_ACTIVE_JS) == ["agent", "test-agent", "true"]
+    assert page.evaluate(_ACTIVE_JS) == [*second, "true"]
     page.keyboard.press("ArrowUp")
-    assert page.evaluate(_ACTIVE_JS) == ["agent", "Alpha", "true"]
+    assert page.evaluate(_ACTIVE_JS) == ["chat", world["newest"], "true"]
     # The pointer sets the active row too.
     page.locator(f'{RESULT}[data-kind="action"]').hover()
     assert page.evaluate(_ACTIVE_JS) == ["action", "new-chat", "true"]
@@ -477,38 +484,155 @@ def test_macos_takes_meta_k_and_shows_the_command_copy(
 # ── Candidates, order, cap and matching (AC7, AC8) ───────────────────────────
 
 
-def test_empty_query_shows_the_first_eight_candidates_in_board_order(
-    world: dict, page: Page
-) -> None:
+def _wait_for_exact_rows(page: Page, expected: list, timeout_ms: int = 8000) -> None:
+    """Poll until the palette's rows equal *expected* (the collections load
+    independently, so the empty-query mix changes as they arrive)."""
+    waited = 0
+    while _rows(page) != expected and waited < timeout_ms:
+        page.wait_for_timeout(100)
+        waited += 100
+    assert _rows(page) == expected
+
+
+def _chat_row(sid: str, title: str, agent: str) -> list:
+    return ["chat", sid, title, "Chat · " + agent]
+
+
+def _agent_row(name: str) -> list:
+    return ["agent", name, name, "Agent"]
+
+
+NEW_CHAT_ROW = ["action", "new-chat", "New chat…", "Action"]
+
+
+def test_empty_query_mixes_recent_chats_new_chat_and_recent_agents(world: dict, page: Page) -> None:
     _blank_title(page, world["untitled"])
     _boot(page, world["base"], "agents")
     _open_with_keys(page)
-    _wait_for_rows(page, "agent", "chat")
-    expect(
-        page.locator(f'{RESULT}[data-kind="chat"][data-id="{world["alpha_chat"]}"]')
-    ).to_be_visible()
-    # The first row is active once every collection has arrived (DD10).
-    assert page.evaluate(_ACTIVE_JS) == ["agent", "Alpha", "true"]
+    _wait_for_rows(page, "chat", "agent")  # the sessions store is loaded
     order = page.evaluate(
         """() => App.store.peek('sessions').value.filter((s) => s.title === 'Tie one' || s.title === 'Tie two').map((s) => s.title)"""
     )
     ties = {"Tie one": world["tie_one"], "Tie two": world["tie_two"]}
-    tie_rows = [
-        ["chat", ties[t], t, "Chat · " + ("Alpha" if t == "Tie two" else "test-agent")]
-        for t in order
-    ]
-    assert _rows(page) == [
-        ["agent", "Alpha", "Alpha", "Agent"],
-        ["agent", "test-agent", "test-agent", "Agent"],
-        ["chat", world["newest"], "Newest chat", "Chat · Alpha"],
-        *tie_rows,  # equal timestamps keep the store's order
-        ["chat", world["untitled"], "Untitled chat", "Chat · Default agent"],
-        ["chat", world["alpha_chat"], "Alpha", "Chat · test-agent"],
-        ["action", "new-chat", "New chat…", "Action"],
-    ]
+    tie_rows = [_chat_row(ties[t], t, "Alpha" if t == "Tie two" else "test-agent") for t in order]
+    _wait_for_exact_rows(
+        page,
+        [
+            _chat_row(world["newest"], "Newest chat", "Alpha"),
+            *tie_rows,  # equal timestamps keep the store's order
+            NEW_CHAT_ROW,
+            _agent_row("Alpha"),
+            _agent_row("test-agent"),
+            _chat_row(world["untitled"], "Untitled chat", "Default agent"),
+            _chat_row(world["alpha_chat"], "Alpha", "test-agent"),
+        ],
+    )
+    # The first row is active once every collection has arrived (DD10).
+    assert page.evaluate(_ACTIVE_JS) == ["chat", world["newest"], "true"]
     # No group captions (the board draws none); the where text is not mono.
     assert page.locator(f"{PALETTE} .ui-search-list-caption").count() == 0
     assert page.locator(f"{PALETTE} .ui-search-list-meta-mono").count() == 0
+
+
+def test_empty_query_caps_three_chats_and_four_recent_agents(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, pid = app_with_agent.base_url, app_with_agent.provider_id
+    names = ["test-agent", "Echo", "Delta", "Charlie", "Bravo", "Alpha"]
+    for n in names[1:]:
+        seed_mock_agent(base, pid, name=n)
+    sids = [
+        seed_session(base, n, f"chat-{i}", f"2026-10-0{6 - i}T10:00:00Z")
+        for i, n in enumerate(names)
+    ]
+    _boot(page, base, "chats")
+    _open_with_keys(page)
+    _wait_for_exact_rows(
+        page,
+        [
+            _chat_row(sids[0], "chat-0", "test-agent"),
+            _chat_row(sids[1], "chat-1", "Echo"),
+            _chat_row(sids[2], "chat-2", "Delta"),
+            NEW_CHAT_ROW,
+            _agent_row("test-agent"),
+            _agent_row("Echo"),
+            _agent_row("Delta"),
+            _agent_row("Charlie"),
+        ],
+    )
+    rows = _rows(page)
+    assert len({(r[0], r[1]) for r in rows}) == len(rows)  # no duplicate in the fill
+    assert page.evaluate("() => [App.jumpTo.RECENT_CHATS, App.jumpTo.RECENT_AGENTS]") == [3, 4]
+
+
+def test_empty_query_leaves_a_connector_only_agent_out_of_the_recent_agents(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, pid = app_with_agent.base_url, app_with_agent.provider_id
+    for n in ("Conn", "Web1", "Web2"):
+        seed_mock_agent(base, pid, name=n)
+    conn = seed_session(base, "Conn", "from discord", "2026-10-06T10:00:00Z", platform="discord")
+    w1 = seed_session(base, "Web1", "web one", "2026-10-05T10:00:00Z")
+    w2 = seed_session(base, "Web2", "web two", "2026-10-04T10:00:00Z")
+    _boot(page, base, "chats")
+    _open_with_keys(page)
+    # The connector chat is a recent chat; Conn is not a recent agent (it is
+    # only the A-Z fill, after Web1 and Web2).
+    _wait_for_exact_rows(
+        page,
+        [
+            _chat_row(conn, "from discord", "Conn"),
+            _chat_row(w1, "web one", "Web1"),
+            _chat_row(w2, "web two", "Web2"),
+            NEW_CHAT_ROW,
+            _agent_row("Web1"),
+            _agent_row("Web2"),
+            _agent_row("Conn"),
+            _agent_row("test-agent"),
+        ],
+    )
+
+
+def test_empty_query_with_no_sessions_is_new_chat_agents_then_the_board_order(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, pid = app_with_agent.base_url, app_with_agent.provider_id
+    for n in ("Alpha", "Bravo"):
+        seed_mock_agent(base, pid, name=n)
+    _boot(page, base, "chats")
+    _open_with_keys(page)
+    _wait_for_exact_rows(
+        page,
+        [
+            NEW_CHAT_ROW,
+            _agent_row("Alpha"),
+            _agent_row("Bravo"),
+            _agent_row("test-agent"),
+            *[["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:4]],
+        ],
+    )
+    assert page.evaluate(_ACTIVE_JS) == ["action", "new-chat", "true"]
+
+
+def test_empty_query_shows_a_deleted_agents_chat_but_not_the_agent(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base = app_with_agent.base_url
+    ghost = seed_session(base, "Ghost", "ghost chat", "2026-10-06T10:00:00Z")
+    mine = seed_session(base, app_with_agent.agent_name, "mine", "2026-10-05T10:00:00Z")
+    _boot(page, base, "chats")
+    _open_with_keys(page)
+    _wait_for_exact_rows(
+        page,
+        [
+            _chat_row(ghost, "ghost chat", "Ghost"),
+            _chat_row(mine, "mine", "test-agent"),
+            NEW_CHAT_ROW,
+            _agent_row("test-agent"),
+            *[["settings", s, label, where] for s, label, where in SETTINGS_PAGES[:4]],
+        ],
+    )
+    assert not [r for r in _rows(page) if r[0] == "agent" and r[1] == "Ghost"]
 
 
 def test_matching_finds_each_kind_case_insensitively_and_has_an_empty_state(

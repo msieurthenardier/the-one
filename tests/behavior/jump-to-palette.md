@@ -3,7 +3,7 @@
 **Slug**: `jump-to-palette`
 **Status**: active
 **Created**: 2026-10-05
-**Updated**: 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
+**Updated**: 2026-10-06 (M25 F4 leg 9: step 2's empty-query expectation re-authored for the recent-chats/New chat…/recent-agents mix); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
 **Last Run**: 2026-10-06-06-01-26 — pass (24/24; Light + Dark; first run, M25 F4 close gate)
 
 ## Intent
@@ -11,6 +11,7 @@
 Verify Mission 25 SC5 and the jump-to half of SC2:
 - a keyboard shortcut (**Ctrl K**) and a visible rail control (**Jump to**) open a jump-to
   palette, from any destination and from inside text fields;
+- with an empty query it lists a useful starting mix (recent chats, New chat…, recently used agents);
 - it finds agents, conversations, the New chat action, Library items (knowledge bases, MCP
   servers, connectors) and Settings pages, moves its active row with ↑ and ↓, and opens the
   one chosen with Enter;
@@ -37,7 +38,7 @@ It runs in both themes (see Variants) and creates data prefixed `jtp-`.
   "Behavior-test credential convention"). The orchestrator states `{base}` and the scratch
   directory at run time. The expectations are exact for a fresh instance: before step 1 it
   holds **no agents, chat sessions, knowledge bases, MCP servers or connectors** (the empty
-  query's first 8 results, and each typed query's matches, depend on it).
+  query's mix, and each typed query's matches, depend on it).
 - **Probes:** `GET {base}/api/live` returns 200, and `GET {base}/api/providers/types` (with
   the credential) lists `mock`.
 - **Credential.** As CLAUDE.md describes: the bearer for the API, and a handoff mint for each
@@ -81,7 +82,7 @@ It runs in both themes (see Variants) and creates data prefixed `jtp-`.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | **Seed (setup).** With the credential, expecting 201 for each POST: <ul><li>`POST {base}/api/providers` `{"name":"jtp-mock","type":"mock","base_url":"","config":{"models":["mock-default"]}}`; keep `{provId}`;</li><li>12 agents, `POST {base}/api/agents` `{"name":"jtp-agent-NN","provider_config_id":"{provId}","llm_model":"mock-default","system_prompt":"mock"}` for NN = 01…12 (zero-padded);</li><li>`POST {base}/api/knowledge-bases` `{"name":"jtp-kb"}`; keep `{kbId}`;</li><li>`POST {base}/api/mcp-sources` `{"name":"jtp-mcp","type":"stdio","config":{"command":"x","_cache":{"tools":[{"name":"echo","description":""}]}},"secrets":{}}`; keep `{mcpId}`;</li><li>a disabled Discord connector, `POST {base}/api/connectors` `{"name":"jtp-conn","type":"discord","config":{"enabled":false},"secrets":{}}` (it never reaches Discord); keep `{connId}`;</li><li>a session, `POST {base}/api/chat/sessions` `{"agent_name":"jtp-agent-02","title":"jtp chat about tiles","updated_at":U,"created_at":U,"platform":null}`, `U` an ISO-8601 UTC instant five minutes ago (the `seed_session` shape); keep `{chatId}`.</li></ul> | (setup row, no judgment) |
-| 2 | In the variant's fresh context (its theme already set, see Variants), navigate to `{base}/#agents` and reload (cold). With nothing focused, press **Ctrl+K**. | Exactly one dialog is open: the palette (`jump-to`), named "Jump to" by `aria-label`, with no visible title. Focus is in its input (`jump-to-input`, placeholder "Jump to an agent, chat, library item or setting"), and the input bar ends with an "Esc" button (`jump-to-close`, accessible name "Close (Esc)"). With the empty query it shows exactly **8** results, all agents (`data-kind="agent"`, where text "Agent"), A–Z: `jtp-agent-01` … `jtp-agent-08`. The first is active. The footer reads "Ctrl K from anywhere" and "Enter to open". [a11y] |
+| 2 | In the variant's fresh context (its theme already set, see Variants), navigate to `{base}/#agents` and reload (cold). With nothing focused, press **Ctrl+K**. | Exactly one dialog is open: the palette (`jump-to`), named "Jump to" by `aria-label`, with no visible title. Focus is in its input (`jump-to-input`, placeholder "Jump to an agent, chat, library item or setting"), and the input bar ends with an "Esc" button (`jump-to-close`, accessible name "Close (Esc)"). With the empty query it shows exactly **8** results, in this order: "jtp chat about tiles" (`data-kind="chat"`, where text "Chat · jtp-agent-02"), "New chat…" (where text "Action"), `jtp-agent-02` (the one recently used agent), then `jtp-agent-01`, `jtp-agent-03`, `jtp-agent-04`, `jtp-agent-05`, `jtp-agent-06` (`data-kind="agent"`, where text "Agent"). The first (the chat) is active. The footer reads "Ctrl K from anywhere" and "Enter to open". [a11y] |
 | 3 | Type `jtp-agent-1`. Press ↓ twice, read the active row; press ↑ once, read it; press ↓ three times, read it. Then select the whole query and type `tiles` in its place. | `jtp-agent-1` shows exactly 3 results, `jtp-agent-10`, `jtp-agent-11`, `jtp-agent-12`, with the first active. After ↓↓ the third (`jtp-agent-12`) is active; after ↑ the second (`jtp-agent-11`); after ↓↓↓ the third again: the active row stops at the last result, with no wrap. Each time `aria-activedescendant` names the row with `aria-selected="true"`, and focus stays in the input. `tiles` shows exactly one result, "jtp chat about tiles" with the where text "Chat · jtp-agent-02" (`data-kind="chat"`, `data-id` `{chatId}`), and it is active. [a11y] |
 | 4 | Press **Enter**. | The palette closes. The hash is `#chats/{chatId}`, Chats is the current rail link, and the conversation is open: the chat header (`chat-header`) shows the `h1` "jtp chat about tiles" with "with jtp-agent-02", and its row (`chat-row[data-id="{chatId}"]`) has `aria-current="page"`. |
 | 5 | Click the rail's **Jump to** control (`rail-jump-to`, accessible name "Jump to (Ctrl K)"). Type `jtp-kb` and press **Enter**. | The rail control opens the palette with focus in its input. `jtp-kb` shows one result, "jtp-kb" with the where text "Library · Knowledge base". After Enter the palette is closed, the hash is `#library/knowledge/{kbId}`, Library is the current rail link, and `jtp-kb` is open (its editor heading reads `jtp-kb`) beside the Library list, whose `jtp-kb` row (`knowledge-base-card`) has `aria-current="page"`. |

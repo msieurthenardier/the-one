@@ -16,7 +16,8 @@
 //                             palette is the topmost modal.
 //   App.jumpTo.candidates()   the full ordered candidate list (pure over the
 //                             store caches), and match(query) the first 8
-//                             matches: both exported for tests.
+//                             matches: both exported for tests. An empty
+//                             query shows emptyMix(candidates()) instead.
 //
 // The body: the input bar (the searchList's field wrapper, restyled: the
 // search icon, the visually hidden label "Jump to", the input `jump-to-input`
@@ -32,8 +33,11 @@
 // pages in nav order (App.settingsPages; a devOnly page only in dev mode).
 // Rows (testid `jump-to-result`, data-kind / data-id) show the label and the
 // "where" text (`meta`, not mono). Matching is a case-insensitive substring
-// over `label + " " + where`, trimmed; the first 8 matching candidates show,
-// so the empty query shows the first 8 (the board as drawn). No match reads
+// over `label + " " + where`, trimmed; the first 8 matching candidates show.
+// The EMPTY query is a mix instead (operator decision, DD13 preview option C,
+// flight 4 leg 9): up to 3 recent chats, New chat…, up to 4 recently used
+// agents (the picker's recentAgents), then the board-order fill, 8 in total.
+// No match reads
 // `No matches for "{q}".`
 //
 // Cold data (AC11): open() calls App.store.get for each collection (`sessions`
@@ -53,6 +57,8 @@
   window.App = window.App || {};
 
   var CAP = 8;
+  var RECENT_CHATS = 3;
+  var RECENT_AGENTS = 4;
   var COLLECTIONS = ['agents', 'sessions', 'knowledge-bases', 'mcp-sources', 'connectors'];
   var LIBRARY = [
     { kind: 'knowledge-base', collection: 'knowledge-bases', section: 'knowledge', where: 'Library · Knowledge base' },
@@ -158,15 +164,72 @@
     return out;
   }
 
+  // The recently used agents as candidates (the picker's rule, A32): live
+  // agents only (no nameless row, no synthetic `default`), at most
+  // RECENT_AGENTS. Empty when the picker is absent or throws.
+  function recentAgentCandidates() {
+    var out = [];
+    try {
+      var picker = App.chat && App.chat.agentPicker;
+      if (!picker || typeof picker.recentAgents !== 'function') return out;
+      var live = [];
+      var list = rows('agents');
+      for (var i = 0; i < list.length; i++) {
+        if (isNamed(list[i]) && list[i].name !== 'default') live.push(list[i]);
+      }
+      var recent = arr(picker.recentAgents(live, rows('sessions')));
+      for (var k = 0; k < recent.length && out.length < RECENT_AGENTS; k++) {
+        if (!isNamed(recent[k])) continue;
+        out.push({ kind: 'agent', key: String(recent[k].name), label: String(recent[k].name), where: 'Agent' });
+      }
+    } catch (e) {
+      return [];
+    }
+    return out;
+  }
+
+  // The empty query's list, given the board-order candidates: up to
+  // RECENT_CHATS chats, New chat…, up to RECENT_AGENTS recent agents, then
+  // the board order skipping what is shown, CAP in total.
+  function emptyMix(all) {
+    var out = [];
+    var seen = {};
+    function add(c) {
+      var id = c.kind + ':' + c.key;
+      if (out.length >= CAP || seen[id]) return;
+      seen[id] = true;
+      out.push(c);
+    }
+    var i;
+    var chats = 0;
+    for (i = 0; i < all.length && chats < RECENT_CHATS; i++) {
+      if (all[i].kind === 'chat') {
+        add(all[i]);
+        chats++;
+      }
+    }
+    for (i = 0; i < all.length; i++) {
+      if (all[i].kind === 'action') {
+        add(all[i]);
+        break;
+      }
+    }
+    var agents = recentAgentCandidates();
+    for (i = 0; i < agents.length; i++) add(agents[i]);
+    for (i = 0; i < all.length; i++) add(all[i]);
+    return out;
+  }
+
   // The first CAP candidates whose `label + " " + where` holds the trimmed
-  // query (case-insensitive); with an empty query, the first CAP.
+  // query (case-insensitive); with an empty query, the emptyMix.
   function match(query) {
     var q = String(query === undefined || query === null ? '' : query).trim().toLowerCase();
     var all = candidates();
+    if (!q) return emptyMix(all);
     var out = [];
     for (var i = 0; i < all.length && out.length < CAP; i++) {
       var c = all[i];
-      if (!q || (c.label + ' ' + c.where).toLowerCase().indexOf(q) !== -1) out.push(c);
+      if ((c.label + ' ' + c.where).toLowerCase().indexOf(q) !== -1) out.push(c);
     }
     return out;
   }
@@ -337,6 +400,9 @@
     focusInput: focusInput,
     candidates: candidates,
     match: match,
-    CAP: CAP
+    emptyMix: emptyMix,
+    CAP: CAP,
+    RECENT_CHATS: RECENT_CHATS,
+    RECENT_AGENTS: RECENT_AGENTS
   };
 })();

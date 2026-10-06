@@ -391,7 +391,7 @@ does not say this explicitly.
 | Results | `padding: 8px; display: flex; flex-direction: column; gap: 2px; max-height: 420px; overflow-y: auto` | `B3:L297` |
 | Result row | `<button>`: `display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-sm); border: 0; background: transparent; color: var(--fg); font-size: 13px; text-align: left`. Label `<span>`, then a "where" `<span>` (`margin-left: auto`, 11px, `--fg-muted`). Renders 33px | `B3:L299–L300` |
 | Result kinds and "where" copy | Agent → `Agent`; conversation → `Chat · {agent name}`; New chat action → label `New chat…`, where `Action`; knowledge base → `Library · Knowledge base`; MCP server → `Library · MCP server`; Settings page → `Settings` (Providers) or `Settings · {group}` (for example `Settings · Defaults for agents`) | `B3:L346–L354` |
-| Grouping and ordering | **No group headings.** The candidate order is every agent (data order), then chats, actions, Library and Settings. Results are **capped at 8**, so an empty query shows only the first 8 agents | `B3:L346–L355` |
+| Grouping and ordering | **No group headings.** The candidate order is every agent (data order), then chats, actions, Library and Settings. Results are **capped at 8**, so an empty query shows only the first 8 agents (superseded by Flight 4 leg 9: the empty query is a mix of recent chats, New chat… and recent agents) | `B3:L346–L355` |
 | Matching | case-insensitive substring over `label + " " + where`, trimmed | `B3:L355` |
 | Empty result | **none defined** (the list simply renders empty) | — |
 | Active row or highlight | **not defined** | — |
