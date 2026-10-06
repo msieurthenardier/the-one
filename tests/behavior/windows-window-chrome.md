@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-06 (Mission 25 Flight 5 planning)
 **Revised**: 2026-10-06 (Mission 25 Flight 5 leg 4: written against the real helper and the values legs 1-3 observed, and dry-run on the frozen test copy)
-**Last Run**: never
+**Last Run**: 2026-10-06-20-06-24 (pass, 11/11, frozen build — [run log](windows-window-chrome/runs/2026-10-06-20-06-24.md))
 
 ## Intent
 

@@ -4,7 +4,7 @@
 
 ## Summary
 
-**Status**: in-flight (planned 2026-10-06, after two Architect review cycles).
+**Status**: landed (2026-10-06). Five legs (leg 1 split into 1a and 1b at its design review), committed as `e91de9a` and opened as PR #221. The flight-end review was confirmed after two non-blocking fixes. The close gate `windows-window-chrome` passed 11 of 11 on the frozen build.
 
 ---
 
@@ -642,6 +642,32 @@ Result: no throw; the doctor exited 0 with `RESULT: PASS`, ten gates, and `windo
   - The plan: the commit and PR; the close-gate witnessed run on the frozen test copy;
     landing; the debrief; a squash merge; then release `v0.10.0` (a version-bump PR, an
     annotated tag, the GitHub installer workflow, and release notes).
+- **Commit and PR.** The flight was committed as `e91de9a` (by the Flight Director
+  directly, not a commit Developer: one `git add -A` of a reviewed tree, with the
+  pre-commit hook passing). It was pushed and opened as draft PR #221.
+- **The close gate: `windows-window-chrome` PASSED 11 of 11** (run
+  `2026-10-06-20-06-24`, live Executor and Validator, both Sonnet, on the frozen build of
+  `e91de9a`).
+  - **What it confirmed:**
+    - the first launch is light from its first frame, at 1440×900 centred;
+    - the read-back shows HRESULTs 0;
+    - a real Ctrl K reaches the page in WebView2 (the Known Issue's frozen re-check);
+    - in Dark, the caption, title, glyph and border are exact;
+    - inactive dimming is exact in both themes;
+    - Auto follows emulated media;
+    - a dark relaunch shows no light frame;
+    - the 640×360 floor holds through `resize`;
+    - maximize, minimize and restore, caption drag and close-to-tray work.
+  - **Safety:** the snapshot comparison was `ok` and focus was `already-foreground`.
+  - **Two Orchestrator rulings:** step 5 "close to" is ±8 per channel; own window A was
+    re-shown as setup for step 9's `front`.
+  - **Evidence gaps,** non-blocking: the step-3 and step-9 screenshots were not saved,
+    and the DOM reads carried both verdicts.
+  - **Squawk 0123** logs the spec wording fixes from both closings, including step 7's
+    flush poll, which cannot move when Dark is already stored.
+- **The flight is landed.** Flight 5 is checked off in `mission.md`, and the Ctrl K Known
+  Issue now waits only on the operator at Flight 6. The debrief is next, then the merge
+  and release.
 
 ---
 

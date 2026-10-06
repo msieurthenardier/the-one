@@ -287,9 +287,11 @@ history but do not appear in the picker, and their drawer shows no settings link
     `SendInput` Ctrl+K (a gated click on an empty page area, then `keys ^k`) opened Jump to
     in the WebView2 test copy: `[data-testid="jump-to"]` open with focus in
     `jump-to-input`, closed by a real Esc with focus back on `MAIN`. Leg 4's dry run
-    repeated it on the **frozen** build (the same result). **Still open** for the close
-    gate's frozen re-check (`windows-window-chrome` step 3) and the operator's own
-    confirmation at Flight 6 (`windows-native-frame-splash` step 18).
+    repeated it on the **frozen** build (the same result).
+  - **The close gate passed it on the frozen build,** 2026-10-06 (`windows-window-chrome`
+    run `2026-10-06-20-06-24`, steps 3 and 9).
+  - **Still open** only for the operator's own confirmation in the installed build at
+    Flight 6 (`windows-native-frame-splash` step 18).
 
 ## Flights
 
@@ -327,10 +329,19 @@ history but do not appear in the picker, and their drawer shows no settings link
   `chat-roundtrip`. The operator then answered the preview. Leg 9 changed the palette's
   empty query to recent chats, New chat… and recent agents (option C), and its targeted
   re-run passed. The flight is completed.
-- [ ] Flight 5: **Window chrome** — the WebView2 non-client-region spike; goldfinch-style
+- [x] Flight 5: **Window chrome** — the WebView2 non-client-region spike; goldfinch-style
   custom chrome if it holds, otherwise a native title bar tinted to the workbench and
   following the theme; first-launch window size that fits the workbench; verified in a
   Windows packaged build.
+  *Landed on 2026-10-06* (PR #221).
+  - **What shipped:** the spike was answered by research, and the operator chose a
+    tinted native title bar. It follows the theme, dims when inactive, and paints the
+    right colours from the first frame. A fresh install opens at 1440×900 with a 640×360
+    floor, and the-one doctor has a tenth gate.
+  - **How it was verified:** a new WSL-driven test-copy helper. The close gate,
+    `windows-window-chrome` on the frozen build, passed 11 of 11.
+  - **What remains:** SC9 stays open for the operator's packaged-build walk at
+    Flight 6.
 - [ ] Flight 6: **Alignment** — hands-on session with the operator in the running app and
   the packaged build: walk the surfaces against the samples, adjust, and fix or accept
   remaining deviations.
