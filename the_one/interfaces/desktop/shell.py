@@ -13,6 +13,7 @@ import uvicorn
 
 from the_one.api_credential import get_credential
 from the_one.config import settings
+from the_one.interfaces.desktop import chrome
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ _desktop_window = None
 # falls back to the text-only HTML and logs a warning — a splash-asset failure
 # must NEVER raise or hang boot.
 
-_SPLASH_TEXT_ONLY = """<!DOCTYPE html>
+_SPLASH_TEXT_ONLY_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -48,10 +49,10 @@ _SPLASH_TEXT_ONLY = """<!DOCTYPE html>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
     width: 100%; height: 100%;
-    background: #0f1117;
+    background: __BG__;
     display: flex; align-items: center; justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: #e8eaf0;
+    color: __FG__;
     user-select: none;
     -webkit-app-region: drag;
   }
@@ -69,15 +70,15 @@ _SPLASH_TEXT_ONLY = """<!DOCTYPE html>
   .name {
     font-size: 18px; font-weight: 600;
     letter-spacing: 0.02em;
-    color: #e8eaf0;
+    color: __FG__;
   }
   .status {
-    font-size: 12px; color: #6b7280;
+    font-size: 12px; color: __MUTED__;
     letter-spacing: 0.05em;
   }
   .bar {
     width: 120px; height: 2px;
-    background: #1e2130;
+    background: __TRACK__;
     border-radius: 1px;
     overflow: hidden;
   }
@@ -106,7 +107,21 @@ _SPLASH_TEXT_ONLY = """<!DOCTYPE html>
 """
 
 
-def _splash_html() -> str:
+def _splash_text_only(theme: str = "dark") -> str:
+    """The text-only splash for ``theme`` (colours from the chrome palette)."""
+    pal = chrome.PALETTE.get(theme) or chrome.PALETTE["dark"]
+    return (
+        _SPLASH_TEXT_ONLY_TEMPLATE.replace("__BG__", pal["bg"])
+        .replace("__FG__", pal["text"])
+        .replace("__MUTED__", pal["fg_secondary"])
+        .replace("__TRACK__", pal["border"])
+    )
+
+
+_SPLASH_TEXT_ONLY = _splash_text_only("dark")
+
+
+def _splash_html(theme: str = "dark") -> str:
     """Build the splash HTML, embedding the brand logo as a base64 data URI.
 
     Reads gleepglorp_med.png from the bundled static directory at runtime and
@@ -117,8 +132,15 @@ def _splash_html() -> str:
     Graceful fallback: any exception during asset resolution/encoding is caught,
     a warning is logged, and the text-only splash HTML is returned.  A
     splash-asset problem must never raise or hang boot.
+
+    ``theme`` ("light" | "dark") picks the colours from ``chrome.PALETTE``
+    (background ``--bg``, text ``--fg``, status ``--fg-secondary``, bar track
+    ``--border``); the brand gradients stay.
     """
     import base64
+
+    pal = chrome.PALETTE.get(theme) or chrome.PALETTE["dark"]
+    bg, fg, muted, track = pal["bg"], pal["text"], pal["fg_secondary"], pal["border"]
 
     try:
         from the_one.interfaces.web.app import STATIC_DIR  # lazy — safe post web.app import
@@ -130,7 +152,7 @@ def _splash_html() -> str:
         log.warning(
             "splash: could not load brand logo — falling back to text-only splash", exc_info=True
         )
-        return _SPLASH_TEXT_ONLY
+        return _splash_text_only(theme)
 
     return f"""<!DOCTYPE html>
 <html>
@@ -140,10 +162,10 @@ def _splash_html() -> str:
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   html, body {{
     width: 100%; height: 100%;
-    background: #0f1117;
+    background: {bg};
     display: flex; align-items: center; justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: #e8eaf0;
+    color: {fg};
     user-select: none;
     -webkit-app-region: drag;
   }}
@@ -159,15 +181,15 @@ def _splash_html() -> str:
   .name {{
     font-size: 18px; font-weight: 600;
     letter-spacing: 0.02em;
-    color: #e8eaf0;
+    color: {fg};
   }}
   .status {{
-    font-size: 12px; color: #6b7280;
+    font-size: 12px; color: {muted};
     letter-spacing: 0.05em;
   }}
   .bar {{
     width: 120px; height: 2px;
-    background: #1e2130;
+    background: {track};
     border-radius: 1px;
     overflow: hidden;
   }}
@@ -328,6 +350,21 @@ def focus_window() -> bool:
         return False
 
 
+def set_window_theme(theme: str) -> dict:
+    """Tell the shell the page's resolved theme (``POST /api/window/chrome``).
+
+    Records and persists it (desktop session only) and tints the native title
+    bar when a window is registered on Windows. Returns ``{"theme", "desktop",
+    "tinted"}`` (``tinted`` is True, False or ``"pending"``). Never raises:
+    failures are logged, as ``focus_window()`` does.
+    """
+    try:
+        return chrome.request(theme)
+    except Exception:
+        log.warning("set_window_theme: raised", exc_info=True)
+        return {"theme": theme, "desktop": False, "tinted": False}
+
+
 class DesktopSession:
     """Owns the per-launch window/tray/quit lifecycle for the desktop app.
 
@@ -395,6 +432,7 @@ class DesktopSession:
             # unrecoverable.
             global _really_quit
             _really_quit = True
+            chrome.deregister()
             if _desktop_window is not None:
                 _desktop_window.destroy()
             return False
@@ -442,12 +480,15 @@ class DesktopSession:
         self._save_current_geometry(_desktop_window)
 
         if _really_quit:
+            chrome.deregister()
             return True  # Quit callback already requested real destroy
 
         # Delegate to the shared close-to-tray body.
         # Returns True when hide succeeded (cancel destroy); False when
         # hide() raised or tray was absent (allow destroy).
         hidden = self._close_to_tray()
+        if not hidden:
+            chrome.deregister()  # allowing the destroy
         return not hidden  # True → allow destroy; False → cancel
 
     def _on_show(self, icon) -> None:
@@ -473,6 +514,7 @@ class DesktopSession:
         """
         global _really_quit
         _really_quit = True  # tell _on_closing to allow destroy
+        chrome.deregister()  # a request racing the destroy applies nothing
 
         # icon.stop() MUST run; guard so it survives even if destroy raises.
         try:
@@ -508,6 +550,7 @@ class DesktopSession:
         # more than once in tests after a reload).
         _really_quit = False
         _desktop_window = None
+        chrome.reset()
 
         host, port = settings.host, settings.port
         sel_port, is_ours = _select_port(host, port)
@@ -575,29 +618,57 @@ class DesktopSession:
                 # ── Window-state restore (pre-compute before _boot so _boot is
                 #    a plain closure with no GUI-thread work) ──────────────────
                 from the_one.interfaces.desktop.window_state import (
+                    MIN_SIZE,
+                    apply_floor,
                     clamp_to_bounds,
+                    first_launch_size,
                     load_state,
                 )
+
+                # ── Launch theme (M25 F5 L2): the persisted theme, else the OS app
+                #    theme (dark off Windows). Colours the splash and the main
+                #    window's first frame; the page's first post corrects a wrong
+                #    guess. ───────────────────────────────────────────────────
+                chrome.enable(settings.data_dir)
+                launch_theme = chrome.load_theme(settings.data_dir) or chrome.os_theme()
+                launch_bg = chrome.PALETTE[launch_theme]["bg"]
 
                 _saved_state = load_state()
                 _create_kwargs: dict = {
                     "frameless": False,
                     "resizable": True,
+                    "background_color": launch_bg,
+                    # Created hidden, tinted, then shown (first-paint order).
+                    "hidden": True,
+                    "min_size": MIN_SIZE,
                 }
-                if _saved_state is not None:
+
+                def _resolve_screens() -> list:
+                    # The installed pywebview exposes `webview.screens` as a
+                    # proxy_tools lazy property that *already evaluates to* the
+                    # list of Screen objects — it is NOT callable.  Other builds
+                    # (editable source installs, future versions) may expose it as
+                    # a function.  Resolve robustly so both forms work.
+                    _screens = webview.screens
+                    if not isinstance(_screens, (list, tuple)):
+                        try:
+                            _screens = list(_screens)  # proxy-list / iterable → materialise
+                        except TypeError:
+                            _screens = _screens()  # callable form
+                    return _screens
+
+                if _saved_state is None:
+                    # First launch: width and height only (no x/y, so WinForms'
+                    # CenterScreen places the window).
                     try:
-                        # The installed pywebview exposes `webview.screens` as a
-                        # proxy_tools lazy property that *already evaluates to* the
-                        # list of Screen objects — it is NOT callable.  Other builds
-                        # (editable source installs, future versions) may expose it as
-                        # a function.  Resolve robustly so both forms work.
-                        _screens = webview.screens
-                        if not isinstance(_screens, (list, tuple)):
-                            try:
-                                _screens = list(_screens)  # proxy-list / iterable → materialise
-                            except TypeError:
-                                _screens = _screens()  # callable form
-                        _clamped = clamp_to_bounds(_saved_state, _screens)
+                        _fw, _fh = first_launch_size(_resolve_screens(), sys.platform)
+                        _create_kwargs["width"] = _fw
+                        _create_kwargs["height"] = _fh
+                    except Exception:
+                        log.warning("window_state: sizing failed; using defaults", exc_info=True)
+                else:
+                    try:
+                        _clamped = clamp_to_bounds(apply_floor(_saved_state), _resolve_screens())
                         _create_kwargs["width"] = _clamped["width"]
                         _create_kwargs["height"] = _clamped["height"]
                         if "x" in _clamped:
@@ -614,17 +685,30 @@ class DesktopSession:
                 # the splash content must be self-contained (no localhost URL).
                 splash = webview.create_window(
                     "GleepGlorp AI — starting",
-                    html=_splash_html(),
+                    html=_splash_html(launch_theme),
                     frameless=True,
                     width=400,
                     height=300,
+                    background_color=launch_bg,
                 )
+
+                if sys.platform == "win32":
+                    # before_show is a locked event: it runs on the UI thread inside
+                    # create(), before the first Show. The parameter must be named
+                    # `window` for pywebview to pass the window.
+                    def _splash_border(window) -> None:
+                        chrome.apply_splash_border(window, launch_theme)
+
+                    splash.events.before_show += _splash_border
 
                 # Idempotent splash teardown: a threading.Event guards against a
                 # double-fire from the `loaded` handler racing the error path.
                 # (The loaded handler runs on a daemon thread; a plain bool flag
                 # has a TOCTOU window.)
                 _splash_closed = threading.Event()
+                # Set once the main window is visible: the splash stays until then
+                # (a hidden window can finish loading before show()).
+                _main_shown = threading.Event()
 
                 def _destroy_splash() -> None:
                     """Destroy the splash window — idempotent (safe to call twice)."""
@@ -690,13 +774,33 @@ class DesktopSession:
                         url = f"{base_url}?{HANDOFF_QUERY_PARAM}={handoff_token}"
                         main_win = webview.create_window("GleepGlorp AI", url, **_create_kwargs)
 
-                        # Step 4 — register the loaded→destroy handler BEFORE tray wiring
-                        # so a fast localhost load that fires during tray setup still
-                        # dismisses the splash.
-                        main_win.events.loaded += lambda: _destroy_splash()
+                        # Step 4 — register the loaded→destroy handler BEFORE register and
+                        # show so a fast localhost load still dismisses the splash. The
+                        # handler runs on its own thread and waits for the main window to
+                        # be visible first (no gap with nothing on screen).
+                        main_win.events.loaded += lambda: (
+                            _main_shown.wait(25),
+                            _destroy_splash(),
+                        )
 
-                        # Step 4a — backstop: if loaded already fired before we subscribed,
-                        # dismiss the splash immediately.
+                        # Step 4b — tint the (still hidden) window, then show it.
+                        chrome.register(main_win, launch_theme)
+                        try:
+                            main_win.show()
+                        except Exception:
+                            if sys.platform != "win32":
+                                log.exception("main window show() raised")
+                                raise
+                            log.warning(
+                                "main window show() raised — native show fallback",
+                                exc_info=True,
+                            )
+                            chrome.native_show(main_win)  # raises when it fails too
+                        _main_shown.set()
+
+                        # Step 4a — backstop (on this thread, so it must not wait): if
+                        # loaded already fired, dismiss the splash now that the window
+                        # is visible.
                         # pywebview 5.4 Event.is_set() delegates to threading.Event.is_set().
                         if main_win.events.loaded.is_set():
                             _destroy_splash()
@@ -723,8 +827,10 @@ class DesktopSession:
 
                     except Exception:
                         log.exception("_boot raised — tearing down to prevent orphaned splash")
+                        _main_shown.set()  # release a waiting loaded handler
                         _destroy_splash()
                         if main_win is not None:
+                            chrome.deregister()
                             try:
                                 main_win.destroy()
                             except Exception:

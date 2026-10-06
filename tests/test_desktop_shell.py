@@ -16,6 +16,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# The harness patches ``threading.Thread``; tests that need a real one use this.
+_RealThread = threading.Thread
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -985,3 +988,356 @@ def test_splash_html_falls_back_to_text_only_when_asset_missing(
     assert "data:image/png;base64," not in html, (
         "_splash_html() fallback must not embed a data URI when the asset is missing"
     )
+
+
+# ── Window chrome: first paint, launch theme, splash, deregister (M25 F5 L2) ──
+
+
+def _boot_harness(
+    webview_mock: MagicMock,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    platform: str | None = None,
+    os_theme: str = "dark",
+    show_side_effect: Any = None,
+    loaded_is_set: bool = False,
+    pre_boot: Any = None,
+    expect_raises: type[BaseException] | None = None,
+) -> types_ns:
+    """Run ``run_desktop()`` then ``_boot()`` against mocks; return what was seen.
+
+    ``chrome.register`` / ``apply_splash_border`` / ``native_show`` / ``os_theme`` are
+    stubbed so no real pythonnet or winreg code runs against MagicMock windows even
+    when ``sys.platform`` is patched to win32.
+    """
+    import the_one.interfaces.desktop.shell as launcher_module
+    from the_one.interfaces.desktop import chrome
+
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
+    if platform is not None:
+        monkeypatch.setattr(sys, "platform", platform)
+
+    order: list[str] = []
+    monkeypatch.setattr(chrome, "os_theme", lambda: os_theme)
+    monkeypatch.setattr(chrome, "register", lambda w, t: order.append(f"register:{t}"))
+    border_calls: list[Any] = []
+    monkeypatch.setattr(chrome, "apply_splash_border", lambda w, t: border_calls.append((w, t)))
+    native_calls: list[Any] = []
+    monkeypatch.setattr(chrome, "native_show", lambda w: native_calls.append(w))
+
+    mock_splash = _make_splash_mock()
+    mock_splash.events.before_show = _EventCapture()
+    mock_main = MagicMock()
+    loaded = _EventCapture()
+    loaded.is_set_value = loaded_is_set
+    mock_main.events.loaded = loaded
+
+    def _show() -> None:
+        order.append("show")
+        if show_side_effect is not None:
+            show_side_effect(mock_splash, loaded)
+
+    mock_main.show.side_effect = _show
+    webview_mock.create_window.side_effect = [mock_splash, mock_main]
+    ns = types_ns(
+        order=order,
+        splash=mock_splash,
+        main=mock_main,
+        loaded=loaded,
+        border_calls=border_calls,
+        native_calls=native_calls,
+        launcher=launcher_module,
+        chrome=chrome,
+    )
+    with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
+        with patch.object(launcher_module, "_webview_available", return_value=True):
+            with patch.object(launcher_module, "_graceful_shutdown"):
+                with patch.object(launcher_module, "_wait_until_serving"):
+                    with patch("the_one.interfaces.web.app.app", MagicMock()):
+                        with patch("uvicorn.Server", return_value=MagicMock()):
+                            with patch("threading.Thread", return_value=MagicMock()):
+                                launcher_module.run_desktop()
+                                ns.start_call = webview_mock.start.call_args
+                                ns.splash_call = webview_mock.create_window.call_args_list[0]
+                                if pre_boot is not None:
+                                    pre_boot(ns)
+                                boot = webview_mock.start.call_args.args[0]
+                                webview_mock.create_window.side_effect = [mock_main]
+                                with patch(
+                                    "the_one.interfaces.desktop.tray.build_tray",
+                                    return_value=MagicMock(),
+                                ):
+                                    if expect_raises is None:
+                                        boot()
+                                    else:
+                                        with pytest.raises(expect_raises):
+                                            boot()
+    ns.main_call = webview_mock.create_window.call_args_list[-1]
+    return ns
+
+
+class types_ns:  # noqa: N801 - tiny attribute bag
+    def __init__(self, **kw: Any) -> None:
+        self.__dict__.update(kw)
+
+
+def test_main_window_created_hidden_with_launch_background(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, os_theme="dark")
+    assert ns.main_call.kwargs["hidden"] is True
+    assert ns.main_call.kwargs["background_color"] == "#101114"
+    assert ns.main_call.kwargs["frameless"] is False
+    assert ns.main_call.kwargs["resizable"] is True
+
+
+def test_launch_theme_from_file_else_os_theme(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from the_one.interfaces.desktop import chrome
+
+    chrome.save_theme(tmp_path, "light")
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, os_theme="dark")
+    assert ns.main_call.kwargs["background_color"] == "#ffffff"
+    assert "register:light" in ns.order
+    assert ns.splash_call.kwargs["background_color"] == "#ffffff"
+
+
+def test_launch_theme_without_file_follows_os_theme(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, os_theme="light")
+    assert ns.main_call.kwargs["background_color"] == "#ffffff"
+    assert "register:light" in ns.order
+    # run() enabled the chrome state with the data dir (requests persist from now on).
+    assert ns.chrome.snapshot()["enabled"] is True
+
+
+def test_register_runs_after_create_window_before_show(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen_handlers: list[int] = []
+
+    def _show(splash: Any, loaded: Any) -> None:
+        seen_handlers.append(len(loaded._handlers))
+
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, show_side_effect=_show)
+    assert ns.order == ["register:dark", "show"]
+    ns.main.show.assert_called_once()
+    # The loaded handler was subscribed before register and show.
+    assert seen_handlers == [1]
+
+
+def test_splash_gets_themed_html_and_background(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, os_theme="light")
+    html = ns.splash_call.kwargs["html"]
+    assert "#ffffff" in html and "#101114" not in html and "#0f1117" not in html
+    assert ns.splash_call.kwargs["background_color"] == "#ffffff"
+    # Linux: no splash border handler.
+    assert ns.splash.events.before_show._handlers == []
+
+
+def test_splash_border_handler_on_windows(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, platform="win32", os_theme="dark")
+    handlers = ns.splash.events.before_show._handlers
+    assert len(handlers) == 1
+    import inspect
+
+    assert list(inspect.signature(handlers[0]).parameters) == ["window"]
+    marker = object()
+    handlers[0](marker)
+    assert ns.border_calls == [(marker, "dark")]
+
+
+def test_show_raising_falls_back_to_native_show_on_windows(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom(splash: Any, loaded: Any) -> None:
+        raise RuntimeError("shown wait timed out")
+
+    ns = _boot_harness(
+        webview_mock, tmp_path, monkeypatch, platform="win32", show_side_effect=_boom
+    )
+    assert ns.native_calls == [ns.main]
+    ns.splash.destroy.assert_not_called()  # loaded not fired: the splash stays
+
+
+def test_native_fallback_failing_takes_the_error_path(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from the_one.interfaces.desktop import chrome
+
+    def _boom(splash: Any, loaded: Any) -> None:
+        raise RuntimeError("shown wait timed out")
+
+    def _pre(ns: Any) -> None:
+        monkeypatch.setattr(
+            chrome, "native_show", lambda w: (_ for _ in ()).throw(RuntimeError("no native"))
+        )
+
+    ns = _boot_harness(
+        webview_mock,
+        tmp_path,
+        monkeypatch,
+        platform="win32",
+        show_side_effect=_boom,
+        pre_boot=_pre,
+        expect_raises=RuntimeError,
+    )
+    ns.splash.destroy.assert_called_once()
+    ns.main.destroy.assert_called_once()
+
+
+def test_show_raising_off_windows_has_no_native_fallback(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom(splash: Any, loaded: Any) -> None:
+        raise RuntimeError("show failed")
+
+    ns = _boot_harness(
+        webview_mock,
+        tmp_path,
+        monkeypatch,
+        platform="linux",
+        show_side_effect=_boom,
+        expect_raises=RuntimeError,
+    )
+    assert ns.native_calls == []
+    ns.splash.destroy.assert_called_once()
+    ns.main.destroy.assert_called_once()
+
+
+def test_splash_survives_until_show_returns_when_loaded_already_set(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    during_show: list[int] = []
+
+    def _show(splash: Any, loaded: Any) -> None:
+        during_show.append(splash.destroy.call_count)
+
+    ns = _boot_harness(
+        webview_mock, tmp_path, monkeypatch, loaded_is_set=True, show_side_effect=_show
+    )
+    assert during_show == [0]
+    ns.splash.destroy.assert_called_once()  # the backstop, after show() returned
+
+
+def test_splash_survives_a_loaded_that_fires_before_show_returns(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    threads: list[Any] = []
+    during_show: list[int] = []
+
+    def _show(splash: Any, loaded: Any) -> None:
+        t = _RealThread(target=loaded.fire)  # the handler runs on its own thread
+        t.start()
+        threads.append(t)
+        t.join(timeout=0.3)  # it is blocked waiting for the main window to be shown
+        during_show.append(splash.destroy.call_count)
+
+    ns = _boot_harness(webview_mock, tmp_path, monkeypatch, show_side_effect=_show)
+    threads[0].join(timeout=5)
+    assert during_show == [0]
+    ns.splash.destroy.assert_called_once()
+
+
+def test_deregister_before_destroy_in_on_quit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    events: list[str] = []
+    monkeypatch.setattr(shell_mod.chrome, "deregister", lambda: events.append("deregister"))
+    win = MagicMock()
+    win.destroy.side_effect = lambda: events.append("destroy")
+    monkeypatch.setattr(shell_mod, "_desktop_window", win)
+    monkeypatch.setattr(shell_mod, "_really_quit", False)
+    shell_mod.DesktopSession()._on_quit(MagicMock())
+    assert events == ["deregister", "destroy"]
+
+
+def test_deregister_in_on_closing_allow_destroy_returns(monkeypatch: pytest.MonkeyPatch) -> None:
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    events: list[str] = []
+    monkeypatch.setattr(shell_mod.chrome, "deregister", lambda: events.append("deregister"))
+    win = MagicMock()
+    win.events.shown.is_set.return_value = False
+    monkeypatch.setattr(shell_mod, "_desktop_window", win)
+
+    # really-quit return
+    monkeypatch.setattr(shell_mod, "_really_quit", True)
+    assert shell_mod.DesktopSession()._on_closing() is True
+    assert events == ["deregister"]
+
+    # hide fails -> allow destroy
+    events.clear()
+    monkeypatch.setattr(shell_mod, "_really_quit", False)
+    sess = shell_mod.DesktopSession()
+    sess._icon = MagicMock()
+    win.hide.side_effect = RuntimeError("hide failed")
+    monkeypatch.setattr("the_one.interfaces.desktop.notice.notice_shown", lambda: True)
+    assert sess._on_closing() is True
+    assert events == ["deregister"]
+
+    # hide succeeds -> cancel the destroy, no deregister
+    events.clear()
+    win.hide.side_effect = None
+    assert sess._on_closing() is False
+    assert events == []
+
+
+def test_deregister_in_close_to_tray_no_tray_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    events: list[str] = []
+    monkeypatch.setattr(shell_mod.chrome, "deregister", lambda: events.append("deregister"))
+    win = MagicMock()
+    win.destroy.side_effect = lambda: events.append("destroy")
+    monkeypatch.setattr(shell_mod, "_desktop_window", win)
+    monkeypatch.setattr(shell_mod, "_really_quit", False)
+    sess = shell_mod.DesktopSession()
+    sess._icon = None
+    assert sess._close_to_tray() is False
+    assert events == ["deregister", "destroy"]
+
+
+def test_set_window_theme_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    import the_one.interfaces.desktop.shell as shell_mod
+
+    assert shell_mod.set_window_theme("dark") == {
+        "theme": "dark",
+        "desktop": False,
+        "tinted": False,
+    }
+
+    def boom(theme: str) -> dict:
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(shell_mod.chrome, "request", boom)
+    assert shell_mod.set_window_theme("light")["tinted"] is False
+
+
+@pytest.mark.parametrize(
+    "theme,bg,fg", [("light", "#ffffff", "#18181b"), ("dark", "#101114", "#ededf0")]
+)
+def test_splash_html_is_themed(
+    theme: str, bg: str, fg: str, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import the_one.interfaces.desktop.shell as launcher_module
+    import the_one.interfaces.web.app as web_app_module
+
+    (tmp_path / "brand").mkdir()
+    (tmp_path / "brand" / "gleepglorp_med.png").write_bytes(b"png")
+    monkeypatch.setattr(web_app_module, "STATIC_DIR", tmp_path)
+    for html in (
+        launcher_module._splash_html(theme),
+        launcher_module._splash_text_only(theme),
+    ):
+        assert bg in html and fg in html
+        assert "#0f1117" not in html and "#6b7280" not in html and "#1e2130" not in html
+    # The default keeps today's no-argument callers working (dark).
+    assert "#101114" in launcher_module._splash_html()

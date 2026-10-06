@@ -130,6 +130,10 @@ coverage for every remaining surface.
   window frame matches the workbench in both themes and follows theme changes, while
   dragging, snapping, minimize/maximize/close and close-to-tray keep working; the app
   opens at a size the workbench fits. *(verified by the operator in the packaged app)*
+  - *Flight 5's part:* the tint, the first-launch size and the specs
+    (`windows-window-chrome` for the crew, `windows-native-frame-splash` steps 11-19 for the
+    operator) are built; the operator's walk in their own packaged build is Flight 6's.
+    Left unchecked.
 - [ ] **SC10 — Operable and regression-safe**: Every new or changed interactive element is
   keyboard-reachable and operable with visible focus, with landmarks and the skip link
   preserved. The unit and browser suites and all UI guard tests pass; the existing
@@ -224,11 +228,12 @@ coverage for every remaining surface.
   table/list in the board with no editor state — define how an item opens while the list
   stays visible, inside Settings' own nav.
 - [x] **Drawer push vs. overlay** at different widths (Flight 4): resolved by Flight 4 DD7. The drawer pushes the pane at 1280px and wider (open by default), overlays below that (closed by default), and remembers each mode separately. The 1024 overlay covering Send is an open preview question.
-- [ ] **Window chrome mechanism** (Flight 5): Mission 15 reverted frameless custom chrome
-  because WebView2 ignored the drag-region CSS. Spike whether WebView2's opt-in
-  non-client-region support can be enabled through pywebview (making a goldfinch-style
-  custom title strip possible); otherwise tint the native title bar to the workbench
-  surface and theme.
+- [x] **Window chrome mechanism** (Flight 5): resolved by Flight 5 DD1 (operator,
+  2026-10-06): tint the native Windows title bar to the workbench's colours (DWM caption,
+  text and border attributes, applied from the page's theme), not a custom frameless strip.
+  Mission 15 reverted frameless custom chrome because WebView2 ignored the drag-region CSS,
+  and the non-client-region route was not taken. The tint is verified by the crew spec
+  `windows-window-chrome`.
 
 ## Mission-level design decisions
 
@@ -278,6 +283,13 @@ history but do not appear in the picker, and their drawer shows no settings link
     the page and is not taken by a browser accelerator (the Edge address bar's own Ctrl K
     included).
   - Flight 5's scope is window chrome, so it is listed here explicitly.
+  - **WebView2: crew evidence, Flight 5 leg 1b (premise 9), 2026-10-06.** A real
+    `SendInput` Ctrl+K (a gated click on an empty page area, then `keys ^k`) opened Jump to
+    in the WebView2 test copy: `[data-testid="jump-to"]` open with focus in
+    `jump-to-input`, closed by a real Esc with focus back on `MAIN`. Leg 4's dry run
+    repeated it on the **frozen** build (the same result). **Still open** for the close
+    gate's frozen re-check (`windows-window-chrome` step 3) and the operator's own
+    confirmation at Flight 6 (`windows-native-frame-splash` step 18).
 
 ## Flights
 

@@ -845,18 +845,51 @@ def _probe_file_watcher() -> ProbeResult:
     return _vector_probe_outcome(name, "import OK; round-trip: no change delivered")
 
 
+def _probe_window_chrome() -> ProbeResult:
+    """Prove the DWM window-chrome path loads (M25 F5 L3, flight DD8).
+
+    Unconditional (not frozen-only). Off Windows it reports a skip. On Windows it
+    loads ``dwmapi`` and calls ``DwmSetWindowAttribute`` with a NULL window handle
+    (which is expected to return an error HRESULT, proving the entry point is
+    callable), then reports whether this build supports caption colours (22000+)
+    or dark mode only. Never raises; the detail is ASCII only (cp1252 CI pipes).
+    """
+    name = "window chrome"
+    if sys.platform != "win32":
+        return ProbeResult(name, True, "skipped (not Windows)")
+    try:
+        import ctypes
+
+        from the_one.interfaces.desktop import chrome
+
+        dwmapi = ctypes.windll.dwmapi
+        func = dwmapi.DwmSetWindowAttribute
+        value = ctypes.c_int(0)
+        hr = int(func(None, 35, ctypes.byref(value), 4)) & 0xFFFFFFFF
+        build = chrome.windows_build()
+        if build is not None and build >= chrome.COLOR_ATTRS_MIN_BUILD:
+            return ProbeResult(
+                name, True, f"caption colours supported (build {build}, probe 0x{hr:08X})"
+            )
+        return ProbeResult(name, True, f"dark mode only (build {build}, probe 0x{hr:08X})")
+    except Exception as exc:
+        detail = f"dwmapi unavailable: {exc.__class__.__name__}: {exc}"
+        return ProbeResult(name, False, detail.encode("ascii", "replace").decode("ascii"))
+
+
 def run_doctor(out=None) -> int:
     """Run all diagnostics, print a structured report, return an exit code.
 
     Returns 0 when every gate passes — child spawn, python interpreter, desktop
     shell, llm providers, model catalog, usearch, fts5, embedding
-    model and file watcher — and non-zero otherwise. Of those **nine**, four
+    model, file watcher and window chrome — and non-zero otherwise. Of those **ten**, four
     are frozen-only (desktop shell, llm providers, model catalog, usearch): on
     a dev host they downgrade a failure to an informational ``skipped`` line
-    rather than failing the run. The other five — child spawn, python
-    interpreter, **fts5**, **embedding model**, and **file watcher**'s import
-    check — gate unconditionally; file watcher is the one hybrid gate (Flight
-    4 DD-9): its import half gates unconditionally, on every host, but its
+    rather than failing the run. The other six — child spawn, python
+    interpreter, **fts5**, **embedding model**, **file watcher**'s import
+    check and **window chrome** (skipped off Windows) — gate
+    unconditionally; file watcher is the one hybrid gate (Flight 4 DD-9):
+    its import half gates unconditionally, on every host, but its
     native round-trip half gates only when frozen, downgrading through the
     same ``_vector_probe_outcome`` helper the four frozen-only gates use.
     fts5 gates unconditionally per DD-11 (a mission constraint in every
@@ -922,6 +955,9 @@ def run_doctor(out=None) -> int:
     # native round-trip half is frozen-only. Both CI lanes grep this name
     # verbatim.
     file_watcher = _probe_file_watcher()
+    # Window-chrome gate (M25 F5 L3, DD8): unconditional; skipped off Windows.
+    # Both CI lanes grep this name verbatim.
+    window_chrome = _probe_window_chrome()
     gates = [
         spawn,
         interp,
@@ -932,6 +968,7 @@ def run_doctor(out=None) -> int:
         fts5_probe,
         embedding_model,
         file_watcher,
+        window_chrome,
     ]
 
     for res in gates:

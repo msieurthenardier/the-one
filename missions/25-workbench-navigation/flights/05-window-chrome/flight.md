@@ -1,6 +1,6 @@
 # Flight: Window Chrome
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -679,7 +679,12 @@ Checked against `b044cab` on 2026-10-06, then spot-checked by both design-review
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `windows-apparatus` (spike plus apparatus):
+> **In-flight change (2026-10-06):** `windows-apparatus` was split at its design review
+> into **1a `windows-apparatus-core`** (no input; premises 5, 6, 8, 10 and 12) and
+> **1b `windows-apparatus-input`** (input and captures; premises 1–4, 7, 9, 11 and 13).
+> The flight log records the change. The original entry is kept below as its scope.
+
+- [ ] `windows-apparatus` (spike plus apparatus), now 1a and 1b:
   - `scripts/windows_test_copy.py` with DD10's refusals and input-safety checks, and unit
     tests for the pure parts (ports, data-dir containment, PID ownership, the snapshot
     diff);

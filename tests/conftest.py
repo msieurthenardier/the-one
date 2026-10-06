@@ -422,3 +422,15 @@ def _stub_embedding_backend_by_default(request: pytest.FixtureRequest, monkeypat
     embeddings._reset_for_test()
     yield
     embeddings._reset_for_test()
+
+
+@pytest.fixture(autouse=True)
+def _reset_window_chrome_state():
+    """The window-chrome state is process-global (M25 F5 L2): reset it around
+    every test so a registered fake window or a requested theme never leaks.
+    ``chrome.py`` has no GUI imports, so this is cheap and import-safe."""
+    from the_one.interfaces.desktop import chrome
+
+    chrome.reset()
+    yield
+    chrome.reset()

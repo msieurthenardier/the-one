@@ -128,3 +128,70 @@ def clamp_to_bounds(state: dict[str, Any], screens: list[Any]) -> dict[str, Any]
         result["y"] = max(y_lo, min(int(result["y"]), y_hi))
 
     return result
+
+
+# ── First-launch size and floor (M25 F5 L3, flight DD6) ───────────────────
+# Units are logical pixels (pywebview multiplies by the DPI scale on WinForms);
+# the size is the OUTER window size (the client area is 16px narrower and 39px
+# shorter at 96 DPI).
+DEFAULT_SIZE: tuple[int, int] = (1440, 900)
+MIN_SIZE: tuple[int, int] = (640, 360)
+SCREEN_MARGIN: int = 64
+
+
+def _is_num(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def work_area(screens: list[Any] | None, platform: str) -> tuple[int, int, int, int] | None:
+    """Return the first screen's usable ``(x, y, width, height)``, or None.
+
+    On ``win32`` pywebview's ``frame`` is the WorkingArea (a .NET ``Rectangle``)
+    and is used when all four of its fields are real numbers.  Otherwise (GTK's
+    ``frame`` is the monitor geometry, and a mock's ``frame`` is not numeric) the
+    screen's bounds are reduced by ``SCREEN_MARGIN`` on each side.
+    """
+    if not screens:
+        return None
+    try:
+        screen = screens[0]
+        if platform == "win32":
+            frame = getattr(screen, "frame", None)
+            vals = tuple(getattr(frame, n, None) for n in ("X", "Y", "Width", "Height"))
+            if frame is not None and all(_is_num(v) for v in vals):
+                return (int(vals[0]), int(vals[1]), int(vals[2]), int(vals[3]))
+        sx, sy, sw, sh = screen.x, screen.y, screen.width, screen.height
+        if not all(_is_num(v) for v in (sx, sy, sw, sh)):
+            return None
+        return (
+            int(sx) + SCREEN_MARGIN,
+            int(sy) + SCREEN_MARGIN,
+            int(sw) - 2 * SCREEN_MARGIN,
+            int(sh) - 2 * SCREEN_MARGIN,
+        )
+    except Exception:
+        return None
+
+
+def first_launch_size(screens: list[Any] | None, platform: str) -> tuple[int, int]:
+    """``DEFAULT_SIZE`` fitted into the work area (never below ``MIN_SIZE``
+    unless the work area itself is smaller, which then wins)."""
+    area = work_area(screens, platform)
+    if area is None:
+        return DEFAULT_SIZE
+    _, _, aw, ah = area
+    w = max(min(DEFAULT_SIZE[0], aw), min(MIN_SIZE[0], aw))
+    h = max(min(DEFAULT_SIZE[1], ah), min(MIN_SIZE[1], ah))
+    return (w, h)
+
+
+def apply_floor(state: dict[str, Any]) -> dict[str, Any]:
+    """Lift a saved width or height below ``MIN_SIZE``; leave all else unchanged."""
+    result = dict(state)
+    for key, floor in (("width", MIN_SIZE[0]), ("height", MIN_SIZE[1])):
+        try:
+            if key in result and int(result[key]) < floor:
+                result[key] = floor
+        except (TypeError, ValueError):
+            pass
+    return result

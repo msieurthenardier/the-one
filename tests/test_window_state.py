@@ -429,16 +429,16 @@ def test_run_desktop_restores_saved_geometry(
     test_run_desktop_restores_saved_geometry_screens_as_list(webview_mock, tmp_path, monkeypatch)
 
 
-def test_run_desktop_no_state_uses_defaults(
+def test_run_desktop_no_state_uses_first_launch_size(
     webview_mock: MagicMock,
     tmp_path: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """run_desktop() calls create_window with F4 defaults only when no saved state.
+    """run_desktop() with no saved state passes the fitted first-launch size.
 
     Adapted for Leg 4 splash restructure: create_window is called twice (splash +
     main window).  The main-window call (call_args_list[-1]) must have no geometry
-    kwargs — only the native-frame defaults.
+    kwargs: width, height and min_size, but no x or y (CenterScreen places it).
     """
     import the_one.interfaces.desktop.shell as launcher_module
 
@@ -476,9 +476,10 @@ def test_run_desktop_no_state_uses_defaults(
     # create_window called twice: splash (call 0) + main window (call 1).
     assert webview_mock.create_window.call_count == 2
     call_kwargs = webview_mock.create_window.call_args_list[-1].kwargs
-    # No geometry kwargs beyond native-frame kwargs when state is absent
-    assert "width" not in call_kwargs
-    assert "height" not in call_kwargs
+    # The mocked 1920x1080 screen fits the 1440x900 default.
+    assert call_kwargs["width"] == 1440
+    assert call_kwargs["height"] == 900
+    assert call_kwargs["min_size"] == (640, 360)
     assert "x" not in call_kwargs
     assert "y" not in call_kwargs
     assert call_kwargs["frameless"] is False  # native frame (DD2-alt)
@@ -717,3 +718,127 @@ def test_save_current_geometry_skips_when_geometry_raises(
             ws.save_state(0, 0, 0, 0)
 
     assert save_called == []
+
+
+# ── first-launch size and floor (M25 F5 L3) ───────────────────────────────────
+
+
+class _Rect:
+    def __init__(self, x: Any, y: Any, w: Any, h: Any) -> None:
+        self.X, self.Y, self.Width, self.Height = x, y, w, h
+
+
+def _screen_with_frame(frame: Any, w: int = 2560, h: int = 1440) -> Any:
+    s = _make_screen(0, 0, w, h)
+    s.frame = frame
+    return s
+
+
+def test_work_area_win32_numeric_frame() -> None:
+    from the_one.interfaces.desktop.window_state import work_area
+
+    s = _screen_with_frame(_Rect(0, 0, 2560, 1392))
+    assert work_area([s], "win32") == (0, 0, 2560, 1392)
+
+
+def test_work_area_win32_mock_frame_falls_back_to_bounds_less_margin() -> None:
+    from the_one.interfaces.desktop.window_state import work_area
+
+    s = _screen_with_frame(MagicMock())
+    assert work_area([s], "win32") == (64, 64, 2560 - 128, 1440 - 128)
+
+
+def test_work_area_linux_uses_bounds_less_margin() -> None:
+    from the_one.interfaces.desktop.window_state import work_area
+
+    s = _screen_with_frame(_Rect(0, 0, 10, 10))
+    assert work_area([s], "linux") == (64, 64, 2432, 1312)
+
+
+def test_work_area_no_screens() -> None:
+    from the_one.interfaces.desktop.window_state import work_area
+
+    assert work_area([], "win32") is None
+    assert work_area(None, "linux") is None
+
+
+@pytest.mark.parametrize(
+    ("area", "expected"),
+    [
+        ((2560, 1392), (1440, 900)),
+        ((1366, 728), (1366, 728)),
+        ((600, 400), (600, 400)),
+    ],
+)
+def test_first_launch_size_fits_work_area(area: tuple, expected: tuple) -> None:
+    from the_one.interfaces.desktop.window_state import first_launch_size
+
+    s = _screen_with_frame(_Rect(0, 0, *area), *area)
+    assert first_launch_size([s], "win32") == expected
+
+
+def test_first_launch_size_no_screens_is_default() -> None:
+    from the_one.interfaces.desktop.window_state import first_launch_size
+
+    assert first_launch_size([], "win32") == (1440, 900)
+
+
+def test_apply_floor() -> None:
+    from the_one.interfaces.desktop.window_state import apply_floor
+
+    assert apply_floor({"width": 400, "height": 250, "x": 3}) == {
+        "width": 640,
+        "height": 360,
+        "x": 3,
+    }
+    big = {"width": 1294, "height": 1399, "x": 1273, "y": 0}
+    assert apply_floor(big) == big
+    assert apply_floor({"width": 100}) == {"width": 640}
+    assert apply_floor({}) == {}
+
+
+def _run_with_state(webview_mock: MagicMock, tmp_path: Any, monkeypatch: Any, saved: dict) -> dict:
+    import json
+
+    import the_one.interfaces.desktop.shell as launcher_module
+
+    monkeypatch.setattr(launcher_module.settings, "data_dir", tmp_path)
+    monkeypatch.setattr("the_one.config.settings.data_dir", tmp_path)
+    (tmp_path / "window-state.json").write_text(json.dumps(saved), encoding="utf-8")
+    webview_mock.screens.return_value = [_make_screen(0, 0, 2560, 1440)]
+    mock_splash = _make_splash_mock()
+    mock_main_window = MagicMock()
+    webview_mock.create_window.side_effect = [mock_splash, mock_main_window]
+    with patch.object(launcher_module, "_select_port", return_value=(8484, False)):
+        with patch.object(launcher_module, "_webview_available", return_value=True):
+            with patch.object(launcher_module, "_graceful_shutdown"):
+                with patch.object(launcher_module, "_wait_until_serving"):
+                    with patch("the_one.interfaces.web.app.app", MagicMock()):
+                        with patch("uvicorn.Server") as mock_server_cls:
+                            mock_server_cls.return_value = MagicMock()
+                            with patch("threading.Thread") as mock_thread_cls:
+                                mock_thread_cls.return_value = MagicMock()
+                                launcher_module.run_desktop()
+    webview_mock.create_window.side_effect = None
+    webview_mock.create_window.return_value = mock_main_window
+    _boot = webview_mock.start.call_args.args[0]
+    with patch.object(launcher_module, "_wait_until_serving"):
+        with patch("the_one.interfaces.desktop.tray.build_tray", return_value=MagicMock()):
+            _boot()
+    return webview_mock.create_window.call_args_list[-1].kwargs
+
+
+def test_run_desktop_saved_state_below_floor_is_lifted(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kw = _run_with_state(webview_mock, tmp_path, monkeypatch, {"width": 400, "height": 250})
+    assert (kw["width"], kw["height"]) == (640, 360)
+    assert kw["min_size"] == (640, 360)
+
+
+def test_run_desktop_saved_tall_state_kept_apart_from_clamping(
+    webview_mock: MagicMock, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saved = {"width": 1294, "height": 1399, "x": 1273, "y": 0}
+    kw = _run_with_state(webview_mock, tmp_path, monkeypatch, saved)
+    assert (kw["width"], kw["height"], kw["x"], kw["y"]) == (1294, 1399, 1273, 0)
