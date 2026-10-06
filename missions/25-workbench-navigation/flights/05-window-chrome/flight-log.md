@@ -4,7 +4,7 @@
 
 ## Summary
 
-**Status**: landed (2026-10-06). Five legs (leg 1 split into 1a and 1b at its design review), committed as `e91de9a` and opened as PR #221. The flight-end review was confirmed after two non-blocking fixes. The close gate `windows-window-chrome` passed 11 of 11 on the frozen build.
+**Status**: completed (2026-10-06). Five legs (leg 1 split into 1a and 1b at its design review), committed as `e91de9a` and opened as PR #221. The flight-end review was confirmed after two non-blocking fixes. The close gate `windows-window-chrome` passed 11 of 11 on the frozen build.
 
 ---
 
@@ -686,3 +686,15 @@ Result: no throw; the doctor exited 0 with `RESULT: PASS`, ten gates, and `windo
 ---
 
 ## Session Notes
+
+### Debrief (2026-10-06)
+
+- **The debrief was written** (`flight-debrief.md`), with a Developer and an Architect
+  (both Sonnet) interviewed. The operator was not interviewed: this was an autonomous
+  run, and the operator had asked to merge and release.
+- **Metrics:** unit 5428 passed (+250 against Flight 4, wall time flat). The browser lanes
+  were reused from leg 4, since no browser-facing code changed since.
+- **Squawks logged:** 0124 (pin the helper's CI closure) and 0125 (the pywebview 6.x
+  upgrade-blocker note).
+- **The flight is marked `completed`.** Next: squash-merge PR #221, then release
+  `v0.10.0`.
