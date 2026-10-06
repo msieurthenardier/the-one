@@ -109,8 +109,9 @@ run:
       # with HF_HUB_OFFLINE=1 so it cannot pass by downloading. The
       # file-watcher gate (Flight 4 M24 F04 L01, DD-9) additionally proves
       # the watchfiles Rust extension survived the freeze and answers a real
-      # native change-notification round-trip.
-      foreach ($needle in @("usearch: OK", "fts5: OK", "embedding model: OK", "file watcher: OK")) {
+      # native change-notification round-trip. The window-chrome gate (M25 F5
+      # L3, DD8) proves the DWM path loads in the packaged build.
+      foreach ($needle in @("usearch: OK", "fts5: OK", "embedding model: OK", "file watcher: OK", "window chrome: OK")) {
         if (-not $doctorText.Contains($needle)) {
           throw "frozen doctor output missing '$needle'"
         }

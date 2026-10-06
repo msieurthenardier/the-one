@@ -13,11 +13,12 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, NamedTuple
+from typing import Any, AsyncIterator, Literal, NamedTuple
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 import the_one.retention as retention
 from the_one import __version__
@@ -2623,6 +2624,34 @@ async def window_focus() -> dict[str, Any]:
     from the_one.interfaces.desktop.shell import focus_window
 
     return {"focused": focus_window()}
+
+
+class WindowChromeBody(BaseModel):
+    """Body of ``POST /api/window/chrome``: the page's resolved theme."""
+
+    theme: Literal["light", "dark"]
+
+
+@app.post("/api/window/chrome")
+def window_chrome_post(body: WindowChromeBody) -> dict[str, Any]:
+    """Tell the desktop shell the page's resolved theme (M25 F5 L2).
+
+    A plain ``def`` so FastAPI runs it in its threadpool: the UI-thread apply
+    (bounded wait) must not block the event loop that serves the chat
+    WebSockets. Returns ``{"theme", "desktop", "tinted"}``; ``tinted`` is true,
+    false or ``"pending"``. Lazy import, as ``window_focus``.
+    """
+    from the_one.interfaces.desktop.shell import set_window_theme
+
+    return set_window_theme(body.theme)
+
+
+@app.get("/api/window/chrome")
+def window_chrome_get() -> dict[str, Any]:
+    """The chrome state read-back (requested, last applied, HRESULTs, pending)."""
+    from the_one.interfaces.desktop import chrome
+
+    return chrome.snapshot()
 
 
 @app.get("/api/selftest")

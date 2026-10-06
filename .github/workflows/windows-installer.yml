@@ -109,6 +109,9 @@ jobs:
           # Rust extension survived the freeze and answers a real native
           # change-notification round-trip.
           grep -q "file watcher: OK" doctor.out
+          # Window-chrome probe (M25 F5 L3, DD8). Same by-name rule. The
+          # windows-2022 runner (build 20348) reports "dark mode only".
+          grep -q "window chrome: OK" doctor.out
           grep -q "RESULT: PASS" doctor.out
       # PROOF (b) — frozen serve answers /api/info. Background the frozen serve and
       # poll with an httpx Python probe (NOT curl — httpx is a runtime dep and the

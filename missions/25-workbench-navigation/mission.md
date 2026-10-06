@@ -130,6 +130,10 @@ coverage for every remaining surface.
   window frame matches the workbench in both themes and follows theme changes, while
   dragging, snapping, minimize/maximize/close and close-to-tray keep working; the app
   opens at a size the workbench fits. *(verified by the operator in the packaged app)*
+  - *Flight 5's part:* the tint, the first-launch size and the specs
+    (`windows-window-chrome` for the crew, `windows-native-frame-splash` steps 11-19 for the
+    operator) are built; the operator's walk in their own packaged build is Flight 6's.
+    Left unchecked.
 - [ ] **SC10 — Operable and regression-safe**: Every new or changed interactive element is
   keyboard-reachable and operable with visible focus, with landmarks and the skip link
   preserved. The unit and browser suites and all UI guard tests pass; the existing
@@ -224,11 +228,12 @@ coverage for every remaining surface.
   table/list in the board with no editor state — define how an item opens while the list
   stays visible, inside Settings' own nav.
 - [x] **Drawer push vs. overlay** at different widths (Flight 4): resolved by Flight 4 DD7. The drawer pushes the pane at 1280px and wider (open by default), overlays below that (closed by default), and remembers each mode separately. The 1024 overlay covering Send is an open preview question.
-- [ ] **Window chrome mechanism** (Flight 5): Mission 15 reverted frameless custom chrome
-  because WebView2 ignored the drag-region CSS. Spike whether WebView2's opt-in
-  non-client-region support can be enabled through pywebview (making a goldfinch-style
-  custom title strip possible); otherwise tint the native title bar to the workbench
-  surface and theme.
+- [x] **Window chrome mechanism** (Flight 5): resolved by Flight 5 DD1 (operator,
+  2026-10-06): tint the native Windows title bar to the workbench's colours (DWM caption,
+  text and border attributes, applied from the page's theme), not a custom frameless strip.
+  Mission 15 reverted frameless custom chrome because WebView2 ignored the drag-region CSS,
+  and the non-client-region route was not taken. The tint is verified by the crew spec
+  `windows-window-chrome`.
 
 ## Mission-level design decisions
 
@@ -278,6 +283,15 @@ history but do not appear in the picker, and their drawer shows no settings link
     the page and is not taken by a browser accelerator (the Edge address bar's own Ctrl K
     included).
   - Flight 5's scope is window chrome, so it is listed here explicitly.
+  - **WebView2: crew evidence, Flight 5 leg 1b (premise 9), 2026-10-06.** A real
+    `SendInput` Ctrl+K (a gated click on an empty page area, then `keys ^k`) opened Jump to
+    in the WebView2 test copy: `[data-testid="jump-to"]` open with focus in
+    `jump-to-input`, closed by a real Esc with focus back on `MAIN`. Leg 4's dry run
+    repeated it on the **frozen** build (the same result).
+  - **The close gate passed it on the frozen build,** 2026-10-06 (`windows-window-chrome`
+    run `2026-10-06-20-06-24`, steps 3 and 9).
+  - **Still open** only for the operator's own confirmation in the installed build at
+    Flight 6 (`windows-native-frame-splash` step 18).
 
 ## Flights
 
@@ -315,10 +329,19 @@ history but do not appear in the picker, and their drawer shows no settings link
   `chat-roundtrip`. The operator then answered the preview. Leg 9 changed the palette's
   empty query to recent chats, New chat… and recent agents (option C), and its targeted
   re-run passed. The flight is completed.
-- [ ] Flight 5: **Window chrome** — the WebView2 non-client-region spike; goldfinch-style
+- [x] Flight 5: **Window chrome** — the WebView2 non-client-region spike; goldfinch-style
   custom chrome if it holds, otherwise a native title bar tinted to the workbench and
   following the theme; first-launch window size that fits the workbench; verified in a
   Windows packaged build.
+  *Landed on 2026-10-06* (PR #221).
+  - **What shipped:** the spike was answered by research, and the operator chose a
+    tinted native title bar. It follows the theme, dims when inactive, and paints the
+    right colours from the first frame. A fresh install opens at 1440×900 with a 640×360
+    floor, and the-one doctor has a tenth gate.
+  - **How it was verified:** a new WSL-driven test-copy helper. The close gate,
+    `windows-window-chrome` on the frozen build, passed 11 of 11.
+  - **What remains:** SC9 stays open for the operator's packaged-build walk at
+    Flight 6.
 - [ ] Flight 6: **Alignment** — hands-on session with the operator in the running app and
   the packaged build: walk the surfaces against the samples, adjust, and fix or accept
   remaining deviations.

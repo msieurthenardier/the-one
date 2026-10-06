@@ -864,7 +864,7 @@ class TestProbeFileWatcher:
         assert result.ok is False
         assert "import OK; round-trip:" in result.detail
 
-    def test_gates_list_has_nine_names_ending_with_file_watcher(self) -> None:
+    def test_gates_list_has_ten_names_ending_with_window_chrome(self) -> None:
         """The full gate line-up, in order, both CI lanes' needle depends on
         being present and last."""
         buf = io.StringIO()
@@ -881,6 +881,7 @@ class TestProbeFileWatcher:
             "fts5",
             "embedding model",
             "file watcher",
+            "window chrome",
         ]
 
     def test_source_names_every_dd0_knob(self) -> None:
@@ -917,3 +918,68 @@ class TestProbeFileWatcher:
         buf = io.StringIO()
         run_doctor(out=buf)
         assert "file watcher: OK" in buf.getvalue()
+
+
+class TestWindowChromeProbe:
+    def _fake_windows(self, monkeypatch, build, hr=0x80070057, missing=False):
+        import ctypes
+        import types
+
+        from the_one import diagnostics
+        from the_one.interfaces.desktop import chrome
+
+        monkeypatch.setattr(diagnostics.sys, "platform", "win32")
+        monkeypatch.setattr(chrome, "windows_build", lambda: build)
+        if missing:
+
+            class _NoDwm:
+                @property
+                def dwmapi(self):
+                    raise OSError("dwmapi.dll not found")
+
+            windll = _NoDwm()
+        else:
+            windll = types.SimpleNamespace(
+                dwmapi=types.SimpleNamespace(DwmSetWindowAttribute=lambda *a: hr)
+            )
+        monkeypatch.setattr(ctypes, "windll", windll, raising=False)
+
+    def test_off_windows_is_skipped(self, monkeypatch) -> None:
+        from the_one import diagnostics
+
+        monkeypatch.setattr(diagnostics.sys, "platform", "linux")
+        r = diagnostics._probe_window_chrome()
+        assert (r.name, r.ok, r.detail) == ("window chrome", True, "skipped (not Windows)")
+
+    def test_caption_colours_supported(self, monkeypatch) -> None:
+        from the_one import diagnostics
+
+        self._fake_windows(monkeypatch, 26100)
+        r = diagnostics._probe_window_chrome()
+        assert r.ok is True
+        assert r.detail == "caption colours supported (build 26100, probe 0x80070057)"
+
+    def test_dark_mode_only_below_22000(self, monkeypatch) -> None:
+        from the_one import diagnostics
+
+        self._fake_windows(monkeypatch, 20348)
+        r = diagnostics._probe_window_chrome()
+        assert r.ok is True
+        assert r.detail.startswith("dark mode only (build 20348, probe 0x")
+
+    def test_dwmapi_missing_fails_without_raising(self, monkeypatch) -> None:
+        from the_one import diagnostics
+
+        self._fake_windows(monkeypatch, 26100, missing=True)
+        r = diagnostics._probe_window_chrome()
+        assert r.ok is False
+        assert "dwmapi" in r.detail
+
+    def test_detail_is_ascii(self, monkeypatch) -> None:
+        from the_one import diagnostics
+
+        for build in (26100, 20348):
+            self._fake_windows(monkeypatch, build)
+            assert diagnostics._probe_window_chrome().detail.isascii()
+        self._fake_windows(monkeypatch, 1, missing=True)
+        assert diagnostics._probe_window_chrome().detail.isascii()

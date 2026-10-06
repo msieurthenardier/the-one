@@ -754,6 +754,9 @@ def test_show_callback_calls_window_show_not_restore(
     )
 
     assert captured_on_show is not None
+    # _boot now shows the (created-hidden) window once (M25 F5 L2); count only
+    # the tray callback's own show().
+    mock_window.show.reset_mock()
     mock_icon = MagicMock()
     captured_on_show(mock_icon)
 
