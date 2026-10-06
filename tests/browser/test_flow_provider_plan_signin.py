@@ -43,7 +43,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from cryptography.fernet import Fernet
 from playwright.sync_api import Page, expect
@@ -312,9 +312,10 @@ def test_code_submit_success_shows_connected_state_without_dirty_trap(
     # No unsaved-changes trap: Save/Cancel stay disabled (clean form)…
     expect(page.locator(".save-btn")).to_be_disabled()
     expect(page.locator(".cancel-btn")).to_be_disabled()
-    # …and Back navigates straight to the grid, no confirm dialog.
-    page.locator(".back-btn").click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    # …and the breadcrumb closes the editor straight away, no confirm dialog
+    # (Back is retired since M25 F3 leg 5b).
+    _lists.close_item(page)
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
 
 

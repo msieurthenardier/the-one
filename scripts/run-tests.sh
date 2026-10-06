@@ -63,13 +63,20 @@ if [[ -n "$lane" ]]; then
   chats_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py' \
              'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
              'test_flow_usage_restore.py')
-  # Library-owned files (explicit): knowledge inventory, MCP servers, connectors.
+  # Library-owned files (explicit): knowledge inventory, MCP servers,
+  # connectors, and the Library list (M25 F3 L4a). Each name also matches a
+  # studio glob, so it runs in this lane only (agents = studio minus these).
   library_pat=('test_flow_studio_knowledge_inventory.py' 'test_flow_studio_mcp_editor.py' \
                'test_flow_studio_mcp_navigation.py' 'test_mcp_test_connection_button.py' \
-               'test_studio_connector_editor.py')
-  # Today's studio globs; `agents` is these minus the Library list.
-  studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*')
-  settings_pat=('test_flow_admin_*' 'test_flow_provider_*')
+               'test_studio_connector_editor.py' 'test_flow_studio_library_list.py')
+  # Today's studio globs; `agents` is these minus the Library list. The
+  # agents list/detail files (M25 F3 L3) are `test_flow_agents_*` and
+  # `test_agents_*` (`test_flow_agent_*` does not match a plural "agents").
+  studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*' \
+              'test_flow_agents_*' 'test_agents_*')
+  # Settings: the admin pages and the provider editor, plus the Settings item
+  # pages' list/detail file (M25 F3 L5b).
+  settings_pat=('test_flow_admin_*' 'test_flow_provider_*' 'test_flow_settings_*')
 
   # Files matching $@ (globs) minus files matching library_pat, sorted.
   agents_files() {

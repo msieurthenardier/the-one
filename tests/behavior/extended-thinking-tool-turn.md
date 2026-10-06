@@ -4,6 +4,7 @@
 **Status**: active
 **Created**: 2026-07-02
 **Last Run**: 2026-07-03-12-14-26 (PASS 6/6 — see `runs/2026-07-03-12-14-26.md`)
+**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
 
 ## Intent
 
@@ -83,6 +84,6 @@ point. `[a11y]` marks the disclosure accessibility check.
 - **Plan provider (M19 F01):** input deltas — the agent uses an **Anthropic (Plan)**
   (`anthropic-plan`) provider that is connected (`oauth_active: true`, real Pro/Max sign-in)
   instead of the API-key provider; the "Anthropic API key stored" precondition is replaced by
-  "the plan provider shows connected in Settings › LLM Providers". Everything else (steps, observables,
+  "the plan provider shows connected in Settings › Providers". Everything else (steps, observables,
   expected results) is identical — this variant is the extended-thinking half of Mission 19's
   chat-parity criterion, run during the M19 F01 HAT session.

@@ -4,13 +4,15 @@
   window.App.admin = window.App.admin || {};
   window.App.admin.designLanguage = window.App.admin.designLanguage || {};
 
-  // SURFACES section samples the M17 F3 tile/list vocabulary plus brand
-  // chrome miniatures: entity tiles (surface + hairline + radius-md; hover
-  // shifts to --border-hover; selected = accent border), 40px list rows
-  // with hover surface shift, and a section-nav miniature (no event
-  // bindings). The app picker sample was retired with the top bar (M25 F2
-  // L6); the rail is demonstrated by the library reference. The toggle demo
-  // moved to the library reference (ui-choices-section.js, App.ui.toggle).
+  // SURFACES section samples the M17 F3 tile/list vocabulary: entity tiles
+  // (surface + hairline + radius-md; hover shifts to --border-hover;
+  // selected = accent border) and 40px list rows with hover surface shift.
+  // The app picker sample was retired with the top bar (M25 F2 L6); the rail
+  // is demonstrated by the library reference. The toggle demo moved to the
+  // library reference (ui-choices-section.js, App.ui.toggle). The former
+  // section navigation sample was retired with that control (M25 F3 L5a):
+  // the Settings nav is App.ui.navGroups, demonstrated in the "Library:
+  // lists and navigation" section.
   // Rendered via createElement per the innerHTML-sink freeze (M17 F1).
 
   function el(tag, className) {
@@ -61,21 +63,6 @@
     grid.appendChild(tile('Tile Three', 'Third grid tile.', false));
     gridSample.appendChild(grid);
     host.appendChild(gridSample);
-
-    // --- Section nav ---
-    var navSample = sample('section-nav');
-    var nav = el('div', 'section-nav');
-    nav.style.maxWidth = '220px';
-    var items = ['Item one', 'Item two (current)', 'Item three'];
-    for (var i = 0; i < items.length; i++) {
-      var navBtn = el('button', 'section-nav-item');
-      navBtn.type = 'button';
-      if (i === 1) navBtn.setAttribute('aria-current', 'page');
-      navBtn.textContent = items[i];
-      nav.appendChild(navBtn);
-    }
-    navSample.appendChild(nav);
-    host.appendChild(navSample);
 
     // --- List items (40px rows, hover surface shift) ---
     var listSample = sample('list-item');

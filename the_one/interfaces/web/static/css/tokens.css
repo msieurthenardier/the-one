@@ -49,6 +49,12 @@
     --shadow-popover: 0 4px 12px rgb(0 0 0 / 0.10);
     --shadow-modal: 0 8px 30px rgb(0 0 0 / 0.18);
 
+    /* workbench column widths (M25 F3 DD1), border-box, fixed at every
+       supported width: the Agents and Library list column, and the Settings
+       nav (the approved 261px board render, within 1px; A2). Applied by
+       base.css through #app-sidebar[data-destination]. */
+    --list-w: 300px;
+    --settings-nav-w: 260px;
   }
 
   [data-theme="dark"] {

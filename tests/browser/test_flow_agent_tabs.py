@@ -22,7 +22,7 @@ from __future__ import annotations
 import urllib.parse
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -30,10 +30,10 @@ from playwright.sync_api import Page, expect
 def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     """Wait for the agent editor to be the visible child in the main panel.
 
-    Bare `#studio/agents` lands on the tile grid with no agent auto-selected
-    (F5 leg 05 design): the section-content (tile grid) is visible and the
-    editor is hidden. Click the first tile to swap them. Deep-link
-    navigations (`#studio/agents/<name>/...`) hydrate the selection and the
+    Bare `#agents` shows the agents list beside an empty detail pane, with no
+    agent auto-selected (F5 leg 05 design; M25 F3 L3 list column): the editor
+    is hidden. Click the first list row to open it. Deep-link
+    navigations (`#agents/<name>/...`) hydrate the selection and the
     editor mounts asynchronously via L5's `refreshToolConfigsCache().then(renderEditor)`
     wrapper inside `doSelect` (studio.js); skip the click in that case and
     wait for the async mount to complete.
@@ -45,17 +45,17 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     avoiding the race with the L5 async editor-mount wrapper.
     """
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
-    # If the URL hash deep-links into an agent (`#studio/agents/<name>...`),
-    # the editor mount is already in flight via the async wrapper — wait for
-    # it to complete instead of clicking a tile (the tile becomes hidden
-    # the moment the editor renders, racing the click).
+    # If the URL hash deep-links into an agent (`#agents/<name>...`), the
+    # editor mount is already in flight via the async wrapper — wait for it
+    # to complete instead of clicking a row (a click would re-open it on
+    # the General tab, racing the deep-linked tab).
     deep_linked = _nav.current_route(page).startswith("agents/")
     if not deep_linked:
         editor_hidden = page.evaluate(
             "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
         )
         if editor_hidden:
-            page.locator("button.entity-tile").first.click()
+            _lists.first_row(page, "agents").click()
     expect(page.locator(f'[data-testid="tab-{expected_tab}"]')).to_be_visible(timeout=8000)
     # Wait for the expected tab to be active (handles the L5 async editor-mount race).
     expect(page.locator(f'[data-testid="tab-{expected_tab}"]')).to_have_attribute(

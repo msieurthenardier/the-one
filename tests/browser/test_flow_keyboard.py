@@ -1,8 +1,8 @@
 """Keyboard-operability tests (F3 leg 03).
 
-Verifies that all interactive list rows (session-item, agent-item,
-admin-category-item) and their inline action buttons (delete, chip-remove)
-are reachable and activatable via keyboard.
+Verifies that all interactive list rows (session-item, agent-item) and the
+Settings nav links (M25 F3 leg 5a), plus their inline action buttons (delete,
+chip-remove), are reachable and activatable via keyboard.
 
 Design choices:
 - Session tests use a single auto-created session (WS creates one on load).
@@ -11,13 +11,13 @@ Design choices:
 - Chip-remove keyboard test is dropped: no MCP sources are seeded in
   the default fixtures, so driving chip-add via UI would be brittle.
   The closest() dispatch fix is verified by the JS unit tests instead.
-- Admin category test uses app_clean (no agent/provider needed for navigation).
+- The Settings nav tests use app_clean (no agent/provider needed for navigation).
 """
 
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -29,7 +29,7 @@ def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> 
     F2 leg 01 retired the listbox/option roles on the session list (nested
     interactive elements under role="option" violated WCAG 4.1.2). The row
     is now <li class="list-item"><button class="session-item">...; the
-    active-session signal is aria-current="page" (matches section-nav).
+    active-session signal is aria-current="page" (as the list and nav controls).
     """
     base_url = app_with_agent.base_url
     page.goto(base_url)
@@ -121,73 +121,97 @@ def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -
 
 @pytest.mark.browser
 def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab into agent tile, press Enter; aria-selected becomes true.
+    """Tab from the filter into the agents list, press Enter; the row's agent
+    opens and the row carries aria-current="page".
 
-    F5 leg 02 replaced the flat `<div role="option">` rows inside
-    `<div class="agent-list" role="listbox">` with a CSS-grid of
-    `<button class="entity-tile">` buttons. Each tile is a natural tab stop
-    (default <button> behavior, no custom tabindex), so the listbox/option
-    pattern was retired in favor of a more direct keyboard model.
+    M25 F3 L3 replaced the tile grid (`<button>` tiles) with an App.ui.listPane
+    column: each row is a native `<a href>` (Enter navigates natively, App.nav
+    routes the click), with one roving tab stop -- the selected row, else the
+    first visible row. The filter sits before the list in Tab order.
     """
     base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    # goto_settled: Studio's first activation loads the inventory twice
+    # (init() and activate()->_refresh()); both passes re-render the rows, so
+    # wait for the fetch activity to go quiet before focusing one.
     _nav.goto_settled(page, base_url, "agents")
 
-    # Studio's first activation loads the inventory twice (init() and
-    # activate()->_refresh() each run loadAll(), and each pass re-renders the
-    # tile grid with fresh nodes). Focusing a tile rendered by the FIRST pass
-    # and pressing Enter after the SECOND pass has replaced it sends the key
-    # to a detached node (aria-selected stays "false"); under load the first
-    # tile can also appear later than a fixed 5s. goto_settled waits for the
-    # app's fetch activity to go quiet, so both passes have rendered before we
-    # touch a tile.
-
-    # Wait for the tile grid to render.
-    agent_item = page.locator('[data-testid="agent-item"]').first
+    agent_item = _lists.list_row(page, "agents", agent_name)
     expect(agent_item).to_be_visible(timeout=5000)
-
-    # The container is a CSS-grid (`.entity-tile-grid`), not a listbox.
-    expect(page.locator(".entity-tile-grid")).to_be_visible()
-
-    # The tile is a <button> (natural tab stop) carrying the agent-item testid.
     tag_name = agent_item.evaluate("el => el.tagName.toLowerCase()")
-    assert tag_name == "button", f"agent-item must be a <button>, got <{tag_name}>"
+    assert tag_name == "a", f"agent-item must be an <a> link, got <{tag_name}>"
 
-    # Bare #studio/agents shows the tile grid with no agent selected.
-    # Focus the tile and press Enter to select it.
-    agent_item.focus()
+    # The filter is the tab stop before the list; Tab lands on the row.
+    page.locator('[data-testid="agents-filter"]').focus()
+    page.keyboard.press("Tab")
+    expect(agent_item).to_be_focused()
     page.keyboard.press("Enter")
 
-    expect(agent_item).to_have_attribute("aria-selected", "true")
+    _nav.expect_route(page, f"agents/{_nav.seg(agent_name)}/general")
+    expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=8000)
+    _lists.expect_selected(page, "agents", agent_name)
+
+
+# The Settings nav (M25 F3 leg 5a, DD10) is App.ui.navGroups: plain links in Tab
+# order with no roving tabindex and no arrow keys (the board's <a> items). The
+# former section nav's roving-tabindex test is rewritten for the new control:
+# keyboard coverage stays, the behaviour under test changes with it.
+_SETTINGS_NAV_ORDER = (
+    "appearance",
+    "prompts",
+    "encryption",
+    "providers",
+    "tools",
+    "knowledge-indexing",
+    "design-language",  # the browser lanes run in dev mode
+)
 
 
 @pytest.mark.browser
-def test_admin_category_keyboard_select(app_clean: str, page: Page) -> None:
-    """Tab into section-nav-item, press Enter; aria-current becomes 'page'."""
-    _nav.goto(page, app_clean, "settings")
+def test_settings_nav_links_are_in_tab_order(app_clean: str, page: Page) -> None:
+    """Tab reaches each Settings nav link in group order, with a visible focus ring."""
+    _nav.goto(page, app_clean, "settings/appearance")
+    nav = _lists.settings_nav(page)
+    expect(nav).to_be_visible(timeout=5000)
+    # A <nav> landmark named "Settings" (no explicit role attribute needed).
+    assert nav.evaluate("el => el.tagName") == "NAV"
+    expect(nav).to_have_attribute("aria-label", "Settings")
 
-    # Wait for admin section nav to render (scoped under .area-admin so studio
-    # nav buttons cannot match if both areas are mounted in DOM).
-    category_item = page.locator(".area-admin .section-nav-item").first
-    expect(category_item).to_be_visible(timeout=5000)
+    links = nav.locator("a")
+    expect(links).to_have_count(len(_SETTINGS_NAV_ORDER))
+    for k, section in enumerate(_SETTINGS_NAV_ORDER):
+        link = links.nth(k)
+        expect(link).to_have_attribute("data-testid", f"settings-nav-{section}")
+        # Plain links: no roving tabindex, every one is a Tab stop.
+        assert link.get_attribute("tabindex") is None, section
 
-    # Section-nav container is a <nav> landmark (F2 Leg 2 A.10: <div role=group>
-    # was upgraded to a <nav> element to compose as a landmark; <nav> implies
-    # role=navigation so no explicit role attribute is set).
-    section_nav = page.locator(".area-admin .section-nav")
-    expect(section_nav).to_be_visible()
-    assert section_nav.evaluate("el => el.tagName") == "NAV"
-    expect(section_nav).to_have_attribute("aria-label", "Settings sections")
+    # Focus the first link, then Tab walks the rest in order.
+    _lists.settings_nav_link(page, "appearance").focus()
+    for section in _SETTINGS_NAV_ORDER[1:]:
+        page.keyboard.press("Tab")
+        link = _lists.settings_nav_link(page, section)
+        expect(link).to_be_focused()
+        # Keyboard focus is visible (the factory's :focus-visible ring).
+        assert link.evaluate("el => el.matches(':focus-visible')"), section
+        assert link.evaluate("el => getComputedStyle(el).outlineStyle") == "solid", section
 
-    # Active section-nav item has tabindex=0 (roving tabindex contract)
-    expect(category_item).to_have_attribute("tabindex", "0")
 
-    # The first section-nav item is "General" which is active by default
-    # Click the second item (LLM Providers) then keyboard-activate the first
-    page.locator(".area-admin .section-nav-item").nth(1).click()
+@pytest.mark.browser
+def test_settings_nav_enter_navigates_and_moves_aria_current(app_clean: str, page: Page) -> None:
+    """Enter on a focused link navigates; aria-current follows the page."""
+    _nav.goto(page, app_clean, "settings/appearance")
+    _lists.expect_settings_selected(page, "appearance")
 
-    # Now focus first item and press Enter to switch back
-    first_item = page.locator(".area-admin .section-nav-item").first
-    first_item.focus()
+    providers = _lists.settings_nav_link(page, "providers")
+    providers.focus()
     page.keyboard.press("Enter")
+    _nav.expect_route(page, "settings/providers")
+    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=5000)
+    _lists.expect_settings_selected(page, "providers")
 
-    expect(first_item).to_have_attribute("aria-current", "page")
+    appearance = _lists.settings_nav_link(page, "appearance")
+    appearance.focus()
+    page.keyboard.press("Enter")
+    _nav.expect_route(page, "settings/appearance")
+    expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=5000)
+    _lists.expect_settings_selected(page, "appearance")

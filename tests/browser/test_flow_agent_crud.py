@@ -1,10 +1,10 @@
 """End-to-end flow test: Studio agent CRUD.
 
 Drives a real Chromium session through the agent lifecycle:
-- Empty Studio (mock provider already seeded by fixture)
-- Click + to create an agent
+- Empty Agents destination (mock provider already seeded by fixture)
+- Click "New" in the agents list to open the create form (``#agents/~new``)
 - Fill form (name, description, provider, model, system prompt)
-- Click Create — agent appears in sidebar, editor switches to edit mode
+- Click Create — agent appears in the list, editor switches to edit mode
 - Edit description, click Save — change persists
 - Click Delete (two-click confirm) — agent removed, empty state restored
 """
@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -26,7 +26,8 @@ from playwright.sync_api import Page, expect
 # unified the CTA: the header button (data-testid="new-agent-btn") is always
 # visible with an icon + text label in BOTH empty and populated grid states,
 # and the `-empty` testid variants are retired. Tests target the one unified
-# testid throughout.
+# testid throughout. M25 F3 L3 moved it into the agents list column's title row
+# ("New") and made create a route (``#agents/~new``).
 
 
 def _is_agents_list_get(r) -> bool:
@@ -41,24 +42,20 @@ def _is_agents_post(r) -> bool:
 def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> None:
     base_url = app_with_provider.base_url
 
-    # 1. Open Studio. Empty state shows "No agents yet".
+    # 1. Open Agents. The detail pane's empty state shows "No agents yet".
     #    Wait for the network to settle, not just for the empty state to show:
-    #    the empty canvas is painted by the area's init() BEFORE any fetch
-    #    resolves (self._agents starts as []), so "agent-empty visible" is not a
-    #    readiness signal. First activation also runs loadAll() twice (init()
-    #    and activate()->_refresh()); a slow second pass lands after the
-    #    create/delete below and re-renders the grid from a stale list, and a
-    #    click on "New Agent" before loadAll() resolves mounts the create form
-    #    with no providers yet. goto_settled lets both passes finish first.
+    #    first activation runs loadAll() twice (init() and
+    #    activate()->_refresh()); a slow second pass lands after the
+    #    create/delete below and re-renders the list from a stale copy.
+    #    goto_settled lets both passes finish first.
     _nav.goto_settled(page, base_url, "agents")
     empty = page.locator('[data-testid="agent-empty"]')
     expect(empty).to_be_visible()
     expect(empty).to_contain_text("No agents yet")
 
-    # 2. Click the unified header CTA to enter create mode. It is visible
-    #    even with zero agents (M17 F3 L3 CTA unification).
-    page.locator('[data-testid="new-agent-btn"]').click()
-    expect(page.locator(".editor-title")).to_have_text("New Agent")
+    # 2. Click the list's "New" to enter create mode. It is visible even with
+    #    zero agents (M17 F3 L3 CTA unification); create is a route.
+    _lists.agents_new(page)
 
     # 3-4. Fill name and description.
     page.locator('[data-field="name"]').fill("test-agent")
@@ -75,7 +72,7 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     # 8. Fill system prompt.
     page.locator('[data-field="system_prompt"]').fill("You are a test agent.")
 
-    # 9. Click Create. The grid is repainted by the loadAll() that follows the
+    # 9. Click Create. The list is repainted by the loadAll() that follows the
     #    POST, so wait for that list refetch (a network response, not a timeout).
     with (
         page.expect_response(_is_agents_post) as create_resp,
@@ -84,10 +81,11 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
         page.locator('[data-testid="save-agent-btn"]').click()
     assert create_resp.value.status == 201, f"POST failed: {create_resp.value.status}"
 
-    # 10. Sidebar contains exactly one new agent item with our name.
+    # 10. The list contains exactly one agent row with our name, selected.
     agent_item = page.locator('[data-testid="agent-item"]')
     expect(agent_item).to_have_count(1)
     expect(agent_item).to_contain_text("test-agent")
+    _lists.expect_selected(page, "agents", "test-agent")
 
     # 11. Editor switched to edit mode — title shows agent name, Delete Agent visible.
     expect(page.locator(".editor-title")).to_have_text("test-agent")
@@ -123,7 +121,7 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     #     expect_response makes a silent re-arm (revert-window expiry under
     #     load) fail loudly as a missing-DELETE timeout instead of a
     #     confusing downstream visibility failure.
-    #     The list refetch that repaints the (now empty) grid follows the DELETE;
+    #     The list refetch that repaints the (now empty) list follows the DELETE;
     #     wait for it too so the visibility checks below race nothing.
     with (
         page.expect_response(
@@ -137,7 +135,7 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     )
     expect(empty).to_be_visible(timeout=5000)
     expect(empty).to_contain_text("No agents yet")
-    # Tile gone; main panel returns to the tile grid (with empty state).
+    # Row gone; the detail pane returns to its empty state.
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)
     # Regex (not exact class string) — only `is-hidden` is the contract here.
     expect(page.locator(".studio-editor")).to_have_class(re.compile(r"\bis-hidden\b"))
@@ -153,11 +151,7 @@ def test_delete_agent_confirm_lapse_is_visually_distinct(
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
-    editor_hidden = page.evaluate(
-        "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
-    )
-    if editor_hidden:
-        page.locator("button.entity-tile").first.click()
+    _lists.open_item(page, "agents", app_with_agent.agent_name)
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )

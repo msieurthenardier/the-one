@@ -280,12 +280,16 @@ history but do not appear in the picker, and their drawer shows no settings link
   per-orchestrator copies; the rail; the shared client data layer; the central test
   navigation helper, lane re-mapping and migration of tests and the nine existing behavior
   specs that use the old navigation. Pages move into their destinations one-to-one.
-- [ ] Flight 3: **List and detail** — Agents (alphabetical list with filter; current tabbed
+- [x] Flight 3: **List and detail** — Agents (alphabetical list with filter; current tabbed
   editor hosted beside it, chrome only), Library (grouped list, Add menu; knowledge base,
   MCP server and connector editors hosted beside it) and Settings (grouped nav; item pages
   keep their list visible); Back controls retired; create opens the new item (resolves
   squawk 0101). Followed by an **operator checkpoint**: a running dev instance and
   screenshots; the operator says go or flags problems before Flight 4.
+  *Checkpoint held on 2026-10-05.* The operator approved the other items and asked for
+  Settings › Providers to be tiles matching Built-in tools. Flight 3 leg 7
+  (`providers-tiles`) delivered that, and its re-runs passed. The full record is in the
+  flight log.
 - [ ] Flight 4: **Chats and jump-to** — New chat with the agent picker, cross-agent
   history, the agent drawer, removal of the chat agent dropdown and welcome-screen agent
   list; the jump-to palette (sharing the picker's searchable-list control); new

@@ -85,3 +85,64 @@ def test_menu_demo_opens_and_closes_by_keyboard(reference_page: Page) -> None:
     reference_page.keyboard.press("Escape")
     expect(trigger).to_have_attribute("aria-expanded", "false")
     expect(trigger).to_be_focused()
+
+
+def test_list_and_nav_demos_render_in_both_themes_without_console_errors(
+    app_clean: str, page: Page
+) -> None:
+    """M25 F3 L1 (AC5): the Agents-style and Library-style list panes and the
+    navGroups demo render in the dark and the light pane, with no console error
+    or uncaught exception while the page loads."""
+    errors: list[str] = []
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    _nav.goto(page, app_clean, "settings/design-language")
+    page.wait_for_selector('[data-ui-demo="navGroups"]')
+    out = page.evaluate(
+        """() => ['dark', 'light'].map((theme) => {
+          const pane = (f) =>
+            document.querySelector(`[data-ui-demo="${f}"] > [data-theme="${theme}"]`);
+          const lists = Array.from(pane('listPane').querySelectorAll('.ui-list-pane'));
+          const agents = lists.find((l) => l.classList.contains('ui-list-pane-style-agents'));
+          const library = lists.find((l) => l.classList.contains('ui-list-pane-style-library'));
+          const body = agents.querySelector('.ui-list-pane-body');
+          const nav = pane('navGroups').querySelector('nav');
+          return {
+            theme,
+            agentRows: agents.querySelectorAll('.ui-list-pane-row').length,
+            count: agents.querySelector('.ui-list-pane-total').textContent,
+            scrolls: body.scrollHeight > body.clientHeight,
+            intro: !!library.querySelector('.ui-list-pane-intro'),
+            emptyLines: library.querySelectorAll('.ui-list-pane-group-empty').length,
+            nav: nav.getAttribute('aria-label'),
+            navGroups: nav.querySelectorAll('.ui-nav-groups-caption').length,
+            current: nav.querySelectorAll('[aria-current="page"]').length,
+          };
+        })"""
+    )
+    for pane in out:
+        assert (
+            pane["agentRows"] >= 30
+            and pane["count"] == f"{pane['agentRows']} of {pane['agentRows']}"
+        )
+        assert pane["scrolls"] is True, pane  # the 300px column's body is the scroller
+        assert pane["intro"] is True and pane["emptyLines"] == 1, pane
+        assert pane["nav"] == f"Settings demo ({pane['theme']})", pane
+        assert pane["navGroups"] == 4 and pane["current"] == 1, pane
+    # M25 F3 L4a: the Library-style demo's button calls scrollToGroup: the
+    # Connectors group comes into view, and only the pane's body scrolls.
+    for theme in ("dark", "light"):
+        demo = page.locator(f'[data-ui-demo="listPane"] > [data-theme="{theme}"]')
+        demo.get_by_role("button", name="Scroll to Connectors").click()
+        scrolled = demo.evaluate(
+            """(pane) => {
+              const lib = pane.querySelector('.ui-list-pane-style-library');
+              const body = lib.querySelector('.ui-list-pane-body');
+              const cap = Array.from(lib.querySelectorAll('.ui-list-pane-caption'))
+                .find((n) => n.textContent === 'Connectors');
+              const b = body.getBoundingClientRect(), g = cap.parentElement.getBoundingClientRect();
+              return {scrollTop: body.scrollTop, inView: g.top >= b.top - 0.5 && g.top < b.bottom};
+            }"""
+        )
+        assert scrolled["scrollTop"] > 0 and scrolled["inView"], (theme, scrolled)
+    assert errors == []

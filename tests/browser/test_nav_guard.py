@@ -15,7 +15,7 @@ import time
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.conftest import credentialed_context
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
@@ -55,17 +55,17 @@ def _open_agent(page: Page, app: SeededApp) -> str:
     """Open the seeded agent's editor (an intent click) and return its route."""
     _nav.goto_settled(page, app.base_url, "agents")
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
-    page.locator('[data-testid="agent-item"]').first.click()
+    _lists.open_item(page, "agents", app.agent_name)
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
     route = f"agents/{_nav.seg(app.agent_name)}/general"
     _nav.expect_route(page, route)
     return route
 
 
-def _dirty_agent(page: Page) -> None:
+def _dirty_agent(page: Page, text: str = "dirty edit") -> None:
     desc = page.locator(DESC)
     desc.click()
-    desc.fill("dirty edit")
+    desc.fill(text)
     _wait_dirty(page)
 
 
@@ -164,12 +164,24 @@ def test_clean_go_commits_in_the_same_tick(app_clean: str, page: Page) -> None:
 
 
 def test_go_while_inline_nav_dialog_pending_resolves_stay_and_does_not_join(
-    app_with_agent: SeededApp, page: Page
+    app_clean: str, page: Page
 ) -> None:
-    _dirty_open_agent(page, app_with_agent)
-    page.locator('[data-testid="new-agent-btn"]').first.dispatch_event(
-        "click"
-    )  # hidden while editing: drive the handler directly
+    """An INLINE (non-router) App.nav dialog is pending: a router go() is Stay.
+
+    No app control opens a non-router ``confirmLeave`` any more: the agent "New"
+    became a route in M25 F3 L3, and the connector editor's Back (the last
+    inline gate) became a router go() in L4a. The only caller left is the
+    router adapter, so this pins ``nav.js``'s non-router path directly (it is
+    now test-only): a dirty source (a dirty connector create form) makes the
+    dialog open, and the test is the caller."""
+    _nav.goto_settled(page, app_clean, "library/connectors")
+    _lists.library_add(page, "connectors")
+    name = page.locator('[data-field="name"]')
+    expect(name).to_be_visible(timeout=8000)
+    name.fill("half-made-connector")
+    _wait_dirty(page)
+    # Not awaited: the dialog stays pending.
+    page.evaluate("() => { window.__p = App.nav.confirmLeave({ caller: 'test' }); }")
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
 
     # A rail-equivalent go() while that dialog is pending is Stay: it never joins.
@@ -177,12 +189,13 @@ def test_go_while_inline_nav_dialog_pending_resolves_stay_and_does_not_join(
     assert page.evaluate("App.router.isDeciding()") is False
     expect(page.locator(DIALOG)).to_have_count(1)
 
-    # Continue runs ONLY the create-mode action: the URL never went to Library.
+    # Continue resolves the inline caller (true) and runs the discard; the URL
+    # never moved (the go() was Stay, and the test caller navigates nowhere).
     page.locator(CONTINUE).click()
-    name = page.locator('[data-field="name"]')
-    expect(name).to_be_visible(timeout=8000)
-    expect(name).to_have_value("")
-    assert page.evaluate("App.router.current().destination") == "agents"
+    assert page.evaluate("window.__p") is True
+    expect(name).to_have_count(0)
+    assert _is_dirty(page) is False
+    assert page.evaluate("App.router.current().route") == "library/connectors/~new"
     _no_second_dialog(page)
 
 
@@ -193,25 +206,21 @@ def test_item_selection_while_dirty_one_dialog(app_with_agent: SeededApp, page: 
     seed_mock_agent(app_with_agent.base_url, app_with_agent.provider_id, name="second-agent")
     _nav.goto_settled(page, app_with_agent.base_url, "agents")
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
-    page.locator('[data-testid="agent-item"]', has_text="test-agent").first.click()
+    _lists.open_item(page, "agents", "test-agent")
     expect(page.locator(".editor-title")).to_have_text("test-agent", timeout=8000)
     route = _nav.current_route(page)
     _dirty_agent(page)
 
-    # The tile list is hidden while an editor is open: drive the tile's handler directly.
-    page.locator('[data-testid="agent-item"]', has_text="second-agent").first.dispatch_event(
-        "click"
-    )
+    # The list stays beside the open editor (M25 F3 L3): a real row click.
+    _lists.list_row(page, "agents", "second-agent").click()
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(STAY).click()
     _no_second_dialog(page)
     expect(page.locator(DESC)).to_have_value("dirty edit")
     _nav.expect_route(page, route)
 
-    # The tile list is hidden while an editor is open: drive the tile's handler directly.
-    page.locator('[data-testid="agent-item"]', has_text="second-agent").first.dispatch_event(
-        "click"
-    )
+    # The list stays beside the open editor (M25 F3 L3): a real row click.
+    _lists.list_row(page, "agents", "second-agent").click()
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     expect(page.locator(".editor-title")).to_have_text("second-agent", timeout=8000)
@@ -220,23 +229,26 @@ def test_item_selection_while_dirty_one_dialog(app_with_agent: SeededApp, page: 
     assert _is_dirty(page) is False
 
 
-def test_editor_back_guarded_but_create_cancel_is_not(
+def test_agents_root_guarded_but_create_cancel_is_not(
     app_with_agent: SeededApp, page: Page
 ) -> None:
+    """Renamed from the editor-Back test (M25 F3 L3 retired Back): leaving a
+    dirty agent for the Agents root (the rail's current-destination link) is
+    guarded; Cancel on a dirty create form is not (an intentional discard)."""
     _dirty_open_agent(page, app_with_agent)
-    page.locator('[data-testid="back-agent-btn"]').click()
+    _nav.open_destination(page, "agents")
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(STAY).click()
     _no_second_dialog(page)
     expect(page.locator(DESC)).to_have_value("dirty edit")
-    page.locator('[data-testid="back-agent-btn"]').click()
+    _nav.open_destination(page, "agents")
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _nav.expect_route(page, "agents")
     expect(page.locator('[data-testid="tab-general"]')).to_have_count(0)
 
     # Create-mode Cancel (abandoning a NEW item) stays unguarded even when dirty.
-    page.locator('[data-testid="new-agent-btn"]').first.click()
+    page.locator('[data-testid="new-agent-btn"]').click()
     name = page.locator('[data-field="name"]')
     expect(name).to_be_visible(timeout=8000)
     name.fill("half-made")
@@ -244,6 +256,7 @@ def test_editor_back_guarded_but_create_cancel_is_not(
     page.locator('[data-testid="cancel-agent-btn"]').click()
     _no_second_dialog(page)
     expect(name).to_have_count(0)
+    _nav.expect_route(page, "agents")
     assert _is_dirty(page) is False
 
 
@@ -274,25 +287,32 @@ def test_legacy_hash_link_in_content_redirects_and_is_guarded(
     _no_second_dialog(page)
 
 
-def test_connector_back_goes_through_app_nav(app_clean: str, page: Page) -> None:
+def test_connector_breadcrumb_goes_through_app_nav(app_clean: str, page: Page) -> None:
+    """Since M25 F3 L4a the connector editor closes through a router go() to the
+    section root -- since L4b its breadcrumb's "Connectors" link (Back is
+    retired) -- so a dirty form asks once through the router's App.nav guard
+    (the inline App.nav.confirmLeave gate is gone)."""
     _nav.goto_settled(page, app_clean, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _lists.library_add(page, "connectors")
     name = page.locator('[data-field="name"]')
     expect(name).to_be_visible(timeout=8000)
     name.fill("half-made-connector")
     _wait_dirty(page)
 
-    page.locator('[data-testid="back-connector-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(STAY).click()
     _no_second_dialog(page)
     expect(name).to_have_value("half-made-connector")
-    _nav.expect_route(page, "library/connectors")
+    _nav.expect_route(page, "library/connectors/~new")
+    # Stay returns focus to the link that asked (the dialog's opener).
+    expect(_lists.breadcrumb_link(page)).to_be_focused()
 
-    page.locator('[data-testid="back-connector-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
-    expect(page.locator('[data-testid="new-connector-btn"]')).to_be_visible(timeout=8000)
+    expect(_lists.library_empty_state(page, "connectors")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library/connectors")
     expect(name).to_have_count(0)
     assert _is_dirty(page) is False
     _no_second_dialog(page)
@@ -302,16 +322,17 @@ def test_agent_enter_create_mode_goes_through_app_nav(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     route = _dirty_open_agent(page, app_with_agent)
-    page.locator('[data-testid="new-agent-btn"]').first.dispatch_event("click")
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(STAY).click()
     _no_second_dialog(page)
     expect(page.locator(DESC)).to_have_value("dirty edit")
     _nav.expect_route(page, route)
 
-    page.locator('[data-testid="new-agent-btn"]').first.dispatch_event("click")
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
+    _nav.expect_route(page, "agents/~new")
     name = page.locator('[data-field="name"]')
     expect(name).to_be_visible(timeout=8000)
     expect(name).to_have_value("")
@@ -353,7 +374,7 @@ def _setup_kb(app: SeededApp, page: Page):
 def _setup_ks(app: SeededApp, page: Page):
     return {
         "base": app.base_url,
-        "list": "settings/general",
+        "list": "settings/appearance",
         "item": "settings/knowledge-indexing",
         "field": '[data-testid="knowledge-size-chars-input"]',
     }
@@ -629,7 +650,10 @@ def test_no_phantom_after_agent_save_and_delete(app_with_agent: SeededApp, page:
     # marks the END of it (a stale continuation could otherwise re-select the
     # agent we are about to delete).
     expect(save_btn).to_be_disabled(timeout=8000)
-    _dirty_agent(page)
+    # A DIFFERENT value: re-typing the saved one is (correctly) clean since the
+    # dirty baseline is re-taken when the model list arrives (M25 F3 L3); the
+    # old baseline, taken before that list, read any later form as dirty.
+    _dirty_agent(page, "dirty again")
     delete_btn = page.locator('[data-testid="delete-agent-btn"]')
     _confirm_delete(page, delete_btn, "/api/agents/")
     expect(page.locator('[data-testid="tab-general"]')).to_have_count(0, timeout=8000)

@@ -1,21 +1,34 @@
 // App.admin.renderToolsEditor — per-tool config editor (F6 leg 03).
 //
-// Schema-driven editor mounted at #admin/tools/{name}. Builds one widget
+// Schema-driven editor mounted at #settings/tools/{name}. Builds one widget
 // per top-level schema property via dispatch on type × x_marker × ui_hint.
 // Save invokes PUT /api/tools/configs/{name} with `{enabled, config}` —
 // L1's REPLACE-not-merge contract. Cancel re-mounts with the original
 // `toolDetail` snapshot (option A — cleaner than rebuilding chip-list DOM
-// from a JSON string). Back delegates to callbacks.onBack so the
-// orchestrator can gate on dirty.
+// from a JSON string).
 //
-// callbacks: { onBack, onCancel, onSaveSuccess, onDirtyChange }
+// callbacks: { onCancel, onSaveSuccess, onDirtyChange, onMount }
+//
+// M25 F3 L5b (flight DD2/DD7): the editor mounts in the Built-in tools page's
+// item section, below the tool list. Back is retired: the breadcrumb
+// "Settings / Built-in tools" (inserted after innerHTML; its last segment a
+// link to #settings/tools, routed by admin.js) closes the item. The title is
+// an h2 (the Settings page header owns the page's one h1; flight-end review)
+// and carries tabindex="-1" so admin.js can focus it when an intent opens the
+// tool. The unsaved caption is a stable span at the start of .form-actions:
+// reportDirty sets or clears it with the value it reports through
+// onDirtyChange, and Cancel's re-mount keeps the same span node.
+// onMount(api) fires after every mount (Cancel's re-mount included) with
+// { setEnabled(bool) }: the list's toggle PUT for the OPEN tool updates the
+// editor's Enabled control and its saved snapshot in place, never re-mounting
+// (an unrelated unsaved edit is kept).
 //
 // F6 leg 05: the field-rendering helpers (renderField, chip-list editor,
 // readFieldValue, error rendering, cssEscape) were extracted to
 // admin/tools-form-helpers.js so studio/tools-tab.js can reuse the same
 // substrate for per-agent `tool_overrides` editing. This module is now
 // the admin orchestrator: enabled-row, snapshot/dirty tracking, Save/
-// Cancel/Test/Back handlers, and the test-button section. All form
+// Cancel/Test handlers, and the test-button section. All form
 // rendering delegates to `window.App.adminFormHelpers`.
 //
 // Field widget dispatch (renderField — see tools-form-helpers.js):
@@ -119,7 +132,7 @@
     var html = '';
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
-    html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
+    html += '<h2 class="editor-title" tabindex="-1">' + escapeHtml(name) + '</h2>';
     html += '<p class="editor-subtitle editor-subtitle-meta">' + escapeHtml(category) + '</p>';
     html += '<div class="editor-prompt-block">';
     html += '<div class="section-title">Prompt</div>';
@@ -128,8 +141,10 @@
     html += '</div>';
 
     // ── Action cluster ──────────────────────────────────────────────
+    // M25 F3 L5b (DD2): Back is retired; the cluster opens with the stable
+    // unsaved caption (reportDirty sets or clears its text).
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-tool-btn" aria-label="Back to tools list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
     html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-tool-btn" disabled>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-tool-btn" disabled>Save</button>';
     html += '<span class="editor-error"></span>';
@@ -209,6 +224,22 @@
     }
 
     container.innerHTML = html;
+
+    // The breadcrumb (M25 F3 DD2): "Settings / Built-in tools", inserted with
+    // DOM APIs after the markup is in place, as the first child of
+    // .editor-header-text. Its last segment links to the page root (the DD2
+    // refinement): with Back retired it is the visible way to close the tool.
+    var headerText = container.querySelector('.editor-header-text');
+    var crumb = document.createElement('div');
+    crumb.className = 'editor-breadcrumb';
+    crumb.appendChild(document.createTextNode('Settings / '));
+    var crumbLink = document.createElement('a');
+    crumbLink.className = 'editor-breadcrumb-link';
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'settings', section: 'tools' }));
+    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
+    crumbLink.textContent = 'Built-in tools';
+    crumb.appendChild(crumbLink);
+    headerText.insertBefore(crumb, headerText.firstChild);
 
     wireEvents(container, toolDetail, originalToolDetail, fieldNames, properties, callbacks);
   }
@@ -292,6 +323,14 @@
     var snapshot = getFormSnapshot(container, fieldNames);
     var dirty = false;
 
+    // Every dirty report goes through here: the header's unsaved caption
+    // (M25 F3 DD2) follows the value that feeds the orchestrator's mirror.
+    function reportDirty(d) {
+      var unsavedEl = container.querySelector('.editor-unsaved');
+      if (unsavedEl) unsavedEl.textContent = d ? 'Unsaved changes' : '';
+      if (callbacks.onDirtyChange) callbacks.onDirtyChange(d);
+    }
+
     function checkDirty() {
       var current = getFormSnapshot(container, fieldNames);
       var newDirty = current !== snapshot;
@@ -301,7 +340,7 @@
         var cancelBtn = container.querySelector('.cancel-btn');
         if (saveBtn) saveBtn.disabled = !dirty;
         if (cancelBtn) cancelBtn.disabled = !dirty;
-        if (callbacks.onDirtyChange) callbacks.onDirtyChange(dirty);
+        reportDirty(dirty);
       }
     }
 
@@ -408,12 +447,6 @@
       });
     }
 
-    // Back delegates to orchestrator — orchestrator owns the dirty gate.
-    var backBtn = container.querySelector('.back-btn');
-    if (backBtn && callbacks.onBack) {
-      backBtn.addEventListener('click', function () { callbacks.onBack(); });
-    }
-
     // Cancel: re-mount with the original toolDetail (option A pinned per
     // Reviewer high-severity). The new closure starts at dirty=false; the
     // onDirtyChange(false) bridge fires AFTER the prior closure already
@@ -424,9 +457,39 @@
         if (callbacks.onCancel) callbacks.onCancel();
         // Re-mount — this rebuilds the closure wholesale; the new one
         // captures originalToolDetail again (idempotent: re-mounting with
-        // already-original is a no-op).
+        // already-original is a no-op). The unsaved caption is a live region
+        // (role=status), so the SAME span node is kept across the re-mount,
+        // cleared (M25 F3 DD2: a stable node, never re-created).
+        var unsavedEl = container.querySelector('.editor-unsaved');
         renderToolsEditor(container, originalToolDetail, callbacks);
+        var freshEl = container.querySelector('.editor-unsaved');
+        if (unsavedEl && freshEl && freshEl.parentNode) {
+          unsavedEl.textContent = '';
+          freshEl.parentNode.replaceChild(unsavedEl, freshEl);
+        }
       });
+    }
+
+    // setEnabled (M25 F3 L5b): the list's toggle saved `enabled` for this
+    // tool. Update the saved snapshot (and the detail Cancel re-mounts from)
+    // and, unless the user has already changed the Enabled control here,
+    // the control itself -- in place, keeping every other unsaved edit.
+    function setEnabled(value) {
+      value = !!value;
+      var enabledInput = container.querySelector('[data-field="enabled"]');
+      var snap = JSON.parse(snapshot);
+      var untouched = !enabledInput || enabledInput.checked === snap.enabled;
+      snap.enabled = value;
+      snapshot = JSON.stringify(snap);
+      originalToolDetail = Object.assign({}, originalToolDetail, { enabled: value });
+      if (enabledInput && untouched) {
+        enabledInput.checked = value;
+        var titleText = value ? 'Enabled for all agents' : 'Disabled for all agents';
+        enabledInput.setAttribute('aria-label', titleText);
+        var sw = enabledInput.closest('.tool-enable-switch');
+        if (sw) sw.setAttribute('title', titleText);
+      }
+      checkDirty();
     }
 
     // Save: PUT {enabled, config} to /api/tools/configs/{name}.
@@ -477,7 +540,12 @@
           var cancelBtnInner = container.querySelector('.cancel-btn');
           if (cancelBtnInner) cancelBtnInner.disabled = true;
           if (saveBtn) saveBtn.disabled = true;
-          if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
+          reportDirty(false);
+          // Cancel now re-mounts from what was just saved.
+          originalToolDetail = Object.assign({}, originalToolDetail, {
+            enabled: updated.enabled,
+            config: updated.config
+          });
           if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
         }).catch(function (err) {
           // Error path: re-enable Save (form remains dirty).
@@ -570,6 +638,8 @@
           });
       });
     }
+
+    if (callbacks.onMount) callbacks.onMount({ setEnabled: setEnabled });
   }
 
   // ── Error banner helpers (F6 HAT inline fix #3) ─────────────────

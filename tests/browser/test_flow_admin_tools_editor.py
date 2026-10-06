@@ -21,9 +21,11 @@ Covers the L3 per-tool editor surface plus the HAT inline UX fixes:
   humanized text (no "Value error," prefix per HAT inline fix #6) and
   applies `.field-error-highlight` to the offending rows (HAT fix #7).
 - Field change clears its row's highlight (HAT fix #7).
-- Back / section-nav dirty-gate uses `App.confirmDialog`
+- Breadcrumb / Settings-nav-link dirty-gate uses `App.confirmDialog`
   (`[data-testid="confirm-dialog-overlay"]`) — NOT a native browser
-  `confirm()`. Matches `tests/browser/test_flow_dirty_confirm.py`.
+  `confirm()`. Matches `tests/browser/test_flow_dirty_confirm.py`. (Since M25
+  F3 leg 5b the editor opens below the tool list and Back is retired: the
+  item header's "Settings / Built-in tools" breadcrumb link closes it.)
 - Test button only mounts for testable tools (`web_search`, `fetch_url`).
 - Test input is pre-filled with the per-tool fixture default.
 - Test button click sequence (per design Reviewer): button disables →
@@ -50,7 +52,7 @@ slightly off-target. Logged as a deviation in the flight log.
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from playwright.sync_api import Page, expect
 
 # Per-tool field-set sanity for the WebConfig surface used across tests.
@@ -320,16 +322,17 @@ def test_editor_field_change_clears_highlight(app_clean: str, page: Page) -> Non
 
 
 @pytest.mark.browser
-def test_editor_back_button_dirty_gate(app_clean: str, page: Page) -> None:
-    """Modify a field → click Back → App.confirmDialog opens
-    ([data-testid="confirm-dialog-overlay"], NOT native browser
-    confirm). Cancel keeps the editor mounted; confirm exits to grid.
+def test_editor_breadcrumb_dirty_gate(app_clean: str, page: Page) -> None:
+    """Modify a field → click the breadcrumb's "Built-in tools" link →
+    App.confirmDialog opens ([data-testid="confirm-dialog-overlay"], NOT
+    native browser confirm). Cancel keeps the editor mounted; confirm closes
+    it and the list stays (renamed from the Back-button test, M25 F3 leg 5b).
     """
     _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('[data-field="search_backend"]').select_option("searxng")
 
-    page.locator('[data-testid="back-tool-btn"]').click()
+    _lists.close_item(page)
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=5000)
 
@@ -338,26 +341,28 @@ def test_editor_back_button_dirty_gate(app_clean: str, page: Page) -> None:
     expect(overlay).to_have_count(0)
     expect(page.locator(".editor-title")).to_have_text("web_search")
 
-    # Re-trigger and confirm — exits to the grid.
-    page.locator('[data-testid="back-tool-btn"]').click()
+    # Re-trigger and confirm — closes the editor; the list stays.
+    _lists.close_item(page)
     expect(overlay).to_be_visible(timeout=5000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=5000)
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools")
+    expect(_lists.list_row(page, "settings/tools", "web_search")).to_be_visible()
     _nav.expect_route(page, "settings/tools")
 
 
 @pytest.mark.browser
-def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
-    """Modify a field → click "General" in left nav → App.confirmDialog
-    opens. Cancel keeps the editor; confirm navigates away. Same dialog
-    pattern as the Back button — admin.js routes both paths through
-    `App.confirmDialog`.
+def test_editor_settings_nav_dirty_gate(app_clean: str, page: Page) -> None:
+    """Modify a field → click "Appearance" in the Settings nav →
+    App.confirmDialog opens. Cancel keeps the editor; confirm navigates away.
+    Same dialog as the breadcrumb link: both are routed leaves the router's
+    leave guard (App.nav) asks about once.
     """
     _nav.goto(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('[data-field="search_backend"]').select_option("searxng")
 
-    page.locator(".area-admin .section-nav-item", has_text="General").click()
+    _lists.settings_nav_link(page, "appearance").click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=5000)
 
@@ -366,11 +371,11 @@ def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
     expect(overlay).to_have_count(0)
     expect(page.locator(".editor-title")).to_have_text("web_search")
 
-    # Re-trigger and confirm — navigates to the General page.
-    page.locator(".area-admin .section-nav-item", has_text="General").click()
+    # Re-trigger and confirm — navigates to the Appearance page.
+    _lists.settings_nav_link(page, "appearance").click()
     expect(overlay).to_be_visible(timeout=5000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("General", timeout=5000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Appearance", timeout=5000)
 
 
 @pytest.mark.browser

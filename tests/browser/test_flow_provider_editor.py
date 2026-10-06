@@ -124,8 +124,11 @@ def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, 
         app_with_provider.base_url,
         f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
-    expect(page.locator(".form-actions .back-btn")).to_be_visible(timeout=8000)
-    expect(page.locator(".form-actions .cancel-btn")).to_be_visible()
+    # Back is retired (M25 F3 L5b): the cluster opens with the unsaved caption.
+    expect(page.locator(".form-actions .cancel-btn")).to_be_visible(timeout=8000)
+    expect(page.locator(".form-actions .back-btn")).to_have_count(0)
+    first = page.locator('.form-actions > [data-testid="editor-unsaved"]:first-child')
+    expect(first).to_have_count(1)
     expect(page.locator(".form-actions .save-btn")).to_be_visible()
     expect(page.locator(".form-actions .test-provider-btn")).to_be_visible()
     expect(page.locator(".form-actions .editor-error")).to_have_count(1)
@@ -134,8 +137,8 @@ def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, 
 @pytest.mark.browser
 def test_editor_action_cluster_order_in_create_mode(app_clean: str, page: Page) -> None:
     _nav.goto(page, app_clean, "settings/providers/~new")
-    expect(page.locator(".form-actions .back-btn")).to_be_visible(timeout=8000)
-    expect(page.locator(".form-actions .cancel-btn")).to_be_visible()
+    expect(page.locator(".form-actions .cancel-btn")).to_be_visible(timeout=8000)
+    expect(page.locator(".form-actions .back-btn")).to_have_count(0)
     expect(page.locator(".form-actions .save-btn")).to_be_visible()
     # No Test button in create mode.
     expect(page.locator(".form-actions .test-provider-btn")).to_have_count(0)
@@ -188,24 +191,40 @@ def test_cancel_reverts_in_edit_mode(app_with_provider: SeededApp, page: Page) -
 
 @pytest.mark.browser
 def test_create_cancel_navigates_to_grid_when_dirty(app_clean: str, page: Page) -> None:
+    """Cancel on a dirty create form discards it and returns to the page root
+    (replace, no dialog); with no row to return to, focus goes to "Add
+    provider" (M25 F3 L5b, DD8)."""
     _nav.goto(page, app_clean, "settings/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     page.locator("#pf-name").fill("typed-name")
     expect(page.locator(".cancel-btn")).not_to_be_disabled()
     page.locator(".cancel-btn").click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Providers")
     _nav.expect_route(page, "settings/providers")
+    expect(page.locator('[data-testid="new-provider-btn"]')).to_be_focused()
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_back_button_always_enabled(app_with_provider: SeededApp, page: Page) -> None:
+def test_header_has_breadcrumb_and_no_back(app_with_provider: SeededApp, page: Page) -> None:
+    """Replaces the Back-always-enabled test (M25 F3 L5b retired Back): the
+    header's breadcrumb reads "Settings / Providers", its "Providers" segment
+    links to the page root, and no Back control exists."""
     _nav.goto(
         page,
         app_with_provider.base_url,
         f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
     )
-    expect(page.locator(".back-btn")).to_be_visible(timeout=8000)
-    expect(page.locator(".back-btn")).not_to_be_disabled()
+    crumb = page.locator(".editor-header-text > .editor-breadcrumb:first-child")
+    expect(crumb).to_have_text("Settings / Providers", timeout=8000)
+    link = crumb.locator('[data-testid="editor-breadcrumb-link"]')
+    expect(link).to_have_text("Providers")
+    expect(link).to_have_attribute("href", _nav.href("settings/providers"))
+    expect(page.locator(".back-btn")).to_have_count(0)
+    # An h2 since the flight-end review: the Settings page header owns the one h1.
+    expect(page.locator("h2.editor-title")).to_have_attribute("tabindex", "-1")
+    expect(page.locator(".content-panel.active h1")).to_have_count(1)
 
 
 # ── Danger Zone ──────────────────────────────────────────────────────────
@@ -244,10 +263,13 @@ def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> No
     delete_btn.click()
     expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
-    # Second click actually deletes.
+    # Second click actually deletes: back to the page root; the table had one
+    # row, so focus goes to "Add provider" (M25 F3 L5b, DD8).
     delete_btn.click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".editor-title")).to_have_count(0, timeout=5000)
     _nav.expect_route(page, "settings/providers")
+    expect(page.locator('[data-testid="providers-empty"]')).to_be_visible()
+    expect(page.locator('[data-testid="new-provider-btn"]')).to_be_focused()
 
 
 @pytest.mark.browser

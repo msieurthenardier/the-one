@@ -693,6 +693,26 @@ _FILL_SITES = [
         ("--fg-secondary",),
         ("--fg-muted",),
     ),
+    # Flight-end review: a selected BUTTON row carries aria-current="true"
+    # (a link row keeps "page"); it gets the same gated inks.
+    (
+        "components.css",
+        '.ui-list-pane-row[aria-current="true"] .ui-list-pane-meta',
+        ("--fg-secondary",),
+        ("--fg-muted",),
+    ),
+    (
+        "components.css",
+        '.ui-list-pane-row[aria-current="true"] .ui-list-pane-badge',
+        ("--fg-secondary",),
+        ("--fg-muted",),
+    ),
+    (
+        "components.css",
+        '.ui-list-pane-row[aria-current="true"] .ui-list-pane-count',
+        ("--fg-secondary",),
+        ("--fg-muted",),
+    ),
 ]
 
 
@@ -795,6 +815,206 @@ def test_rail_rules_consume_the_gated_pairs() -> None:
     assert "background: var(--surface-elevated)" in hover and "color: var(--fg)" in hover, hover
     cur = " ".join(_rule_bodies("components.css", '.ui-rail-item[aria-current="page"]'))
     assert "background: var(--accent-translucent)" in cur and "color: var(--fg)" in cur, cur
+
+
+def _sidebar_ground(theme: str) -> str:
+    """The aside's ground: --sidebar-bg, which tokens.css aliases to --surface in
+    both theme blocks (asserted here, so a retune of the alias fails loudly)."""
+    alias = parse_tokens_css_theme_blocks()[theme]["--sidebar-bg"]
+    assert alias == "var(--surface)", f"{theme} --sidebar-bg is {alias!r}; re-gate the aside pairs"
+    return _palette(theme)["surface"]
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_list_pane_caption_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F3 L1: the list pane's new 11px text -- the title count, the intro and
+    the empty-group line -- is --fg-muted on the aside (--sidebar-bg), and clears
+    body AA in both themes (no --fg-secondary fallback was needed)."""
+    ground = _sidebar_ground(theme)
+    ratio = contrast_ratio(_palette(theme)["fg_muted"], ground)
+    assert ratio >= 4.5, f"{theme} list-pane caption text = {ratio:.2f}:1 (need >= 4.5:1)"
+
+
+def test_list_pane_caption_rules_consume_the_gated_pair() -> None:
+    for selector in (".ui-list-pane-total", ".ui-list-pane-intro", ".ui-list-pane-group-empty"):
+        body = " ".join(_rule_bodies("components.css", selector))
+        assert "color: var(--fg-muted)" in body, f"{selector}: {body.strip()}"
+        assert "font-size: var(--font-size-caption)" in body, f"{selector}: {body.strip()}"
+
+
+def test_editor_header_caption_rules_consume_the_gated_pairs() -> None:
+    """M25 F3 L3 (DD2): the item header's 11px captions sit on the detail
+    pane's --bg -- the "Agents" breadcrumb in --fg-muted (gated by
+    test_body_text_passes_aa on bg) and the "Unsaved changes" caption in
+    --status-warning (gated by test_status_text_passes_body_aa on bg)."""
+    crumb = " ".join(_rule_bodies("components.css", ".editor-breadcrumb"))
+    assert "color: var(--fg-muted)" in crumb, crumb
+    assert "font-size: var(--font-size-caption)" in crumb, crumb
+    # M25 F3 L4b: the breadcrumb's root link inherits that gated ink (no accent
+    # text, so no new text pair) and shows the standard --accent focus ring,
+    # which test_large_or_ui_passes_aa gates at 3:1 on --bg.
+    link = " ".join(_rule_bodies("components.css", ".editor-breadcrumb-link"))
+    assert "color: inherit" in link, link
+    assert "font-size" not in link and "color: var(" not in link, link
+    # Flight-end review (WCAG 1.4.1): underlined at rest, so the link is not
+    # told from the plain "Library" / "Settings" text by colour alone.
+    assert "text-decoration: underline" in link and "text-decoration: none" not in link, link
+    ring = " ".join(_rule_bodies("components.css", ".editor-breadcrumb-link:focus-visible"))
+    assert "outline: 2px solid var(--accent)" in ring, ring
+    unsaved = " ".join(_rule_bodies("components.css", ".form-actions .editor-unsaved"))
+    assert "color: var(--status-warning)" in unsaved, unsaved
+    assert "font-size: var(--font-size-caption)" in unsaved, unsaved
+    for theme in THEMES:
+        palette = _palette(theme)
+        assert contrast_ratio(palette["fg_muted"], palette["bg"]) >= 4.5, theme
+        assert contrast_ratio(palette["status_warning"], palette["bg"]) >= 4.5, theme
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_nav_groups_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F3 L1: every text-on-ground pair App.ui.navGroups paints on the aside
+    clears body AA (12px items, 11px captions): --fg-secondary at rest, --fg on
+    --surface-elevated on hover, --fg on the composited --accent-translucent wash
+    when selected, --fg-muted captions, and the --fg heading."""
+    palette = _palette(theme)
+    ground = _sidebar_ground(theme)
+    wash = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], ground)
+    pairs = {
+        "rest (fg_secondary on sidebar)": (palette["fg_secondary"], ground),
+        "hover (fg on surface_elevated)": (palette["fg"], palette["surface_elevated"]),
+        "selected (fg on wash over sidebar)": (palette["fg"], wash),
+        "caption (fg_muted on sidebar)": (palette["fg_muted"], ground),
+        "heading (fg on sidebar)": (palette["fg"], ground),
+    }
+    for name, (ink, bg) in pairs.items():
+        ratio = contrast_ratio(ink, bg)
+        assert ratio >= 4.5, f"{theme} navGroups {name} = {ratio:.2f}:1 (need >= 4.5:1)"
+
+
+def test_nav_groups_rules_consume_the_gated_pairs() -> None:
+    rest = " ".join(_rule_bodies("components.css", ".ui-nav-groups-item"))
+    assert "color: var(--fg-secondary)" in rest, rest
+    hover = " ".join(_rule_bodies("components.css", ".ui-nav-groups-item:hover"))
+    assert "background: var(--surface-elevated)" in hover and "color: var(--fg)" in hover, hover
+    cur = " ".join(_rule_bodies("components.css", '.ui-nav-groups-item[aria-current="page"]'))
+    assert "background: var(--accent-translucent)" in cur and "color: var(--fg)" in cur, cur
+    cap = " ".join(_rule_bodies("components.css", ".ui-nav-groups-caption"))
+    assert "color: var(--fg-muted)" in cap, cap
+    heading = " ".join(_rule_bodies("components.css", ".ui-nav-groups-heading"))
+    assert "color: var(--fg)" in heading, heading
+
+
+# --accent-translucent-hover's own alphas (tokens.css: 0.16 dark, 0.13 light);
+# .entity-tile.active paints it, replacing the tile's --surface.
+_ACCENT_TRANSLUCENT_HOVER_ALPHA = {"dark": 0.16, "light": 0.13}
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_providers_tile_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F3 L7: a Settings Providers tile paints the intro in --fg-muted on
+    --bg, the name in --fg and the base URL / "Used by" lines in --fg-secondary
+    on the tile's --surface, and, on the open provider's tile, the same inks on
+    the composited --accent-translucent-hover wash. The wash replaces --surface,
+    so it is composited over both --bg and --surface (the worse ground gates).
+    Tightest pair: --fg-secondary on the wash over --surface, 5.49:1 dark and
+    6.01:1 light. Every pair clears body AA (4.5:1) in both themes. The badge
+    pairs are gated by the --badge-ink-* tests."""
+    palette = _palette(theme)
+    alpha = _ACCENT_TRANSLUCENT_HOVER_ALPHA[theme]
+    pairs = {
+        "intro (fg_muted on bg)": (palette["fg_muted"], palette["bg"]),
+        "name (fg on surface)": (palette["fg"], palette["surface"]),
+        "url / used by (fg_secondary on surface)": (palette["fg_secondary"], palette["surface"]),
+    }
+    for ground in ("bg", "surface"):
+        wash = _alpha_composite(palette["accent"], alpha, palette[ground])
+        pairs[f"active name (fg on wash over {ground})"] = (palette["fg"], wash)
+        pairs[f"active url / used by (fg_secondary on wash over {ground})"] = (
+            palette["fg_secondary"],
+            wash,
+        )
+    for name, (ink, ground_color) in pairs.items():
+        ratio = contrast_ratio(ink, ground_color)
+        assert ratio >= 4.5, f"{theme} providers tile {name} = {ratio:.2f}:1 (need >= 4.5:1)"
+
+
+def test_providers_tile_rules_consume_the_gated_pairs() -> None:
+    """The tile CSS (admin.css) paints exactly the pairs the test above gates,
+    the name link's focus ring is the standard 2px --accent ring, and the open
+    tile's wash is the shared .entity-tile.active token."""
+    intro = " ".join(_rule_bodies("admin.css", ".area-admin .settings-intro"))
+    assert "color: var(--fg-muted)" in intro, intro
+    link = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link"))
+    assert "color: var(--fg)" in link, link
+    assert "max-width: calc(100% - 128px)" in link, link
+    ring = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link:focus-visible"))
+    assert "outline: 2px solid var(--accent)" in ring, ring
+    used = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-used"))
+    assert "color: var(--fg-secondary)" in used, used
+    url = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-url"))
+    assert "color: var(--fg-secondary)" in url, url
+    badge = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-badge"))
+    assert "position: absolute" in badge, badge
+    assert "background" not in badge and "color" not in badge, badge
+    hover = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile:not(.active):hover"))
+    assert "background-color: var(--surface)" in hover, hover
+    active = " ".join(_rule_bodies("components.css", ".entity-tile.active"))
+    assert "background-color: var(--accent-translucent-hover)" in active, active
+
+
+def _forced_colors_rules(css_file: str) -> str:
+    """The text of every ``@media (forced-colors: active)`` block in ``css_file``
+    (comments stripped; a block's rules hold no nested braces)."""
+    css = re.sub(r"/\*.*?\*/", "", (_CSS_DIR / css_file).read_text(encoding="utf-8"), flags=re.S)
+    blocks = re.findall(r"@media \(forced-colors: active\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+    assert blocks, f"no forced-colors block in {css_file}"
+    return "\n".join(blocks)
+
+
+@pytest.mark.parametrize(
+    ("css_file", "selector", "declaration"),
+    [
+        ("components.css", ".entity-tile.active", "outline: 1px solid Highlight"),
+        ("components.css", ".entity-tile.active", "border-color: Highlight"),
+        (
+            "components.css",
+            '.ui-list-pane-row[aria-current="true"]',
+            "border: 1px solid Highlight",
+        ),
+        (
+            "components.css",
+            '.ui-list-pane-row[aria-current="page"]',
+            "border: 1px solid Highlight",
+        ),
+        # rowStyle rows: the rest border hidden, the selected one Highlight at
+        # the rowStyle selected rule's specificity (which beat the rule above).
+        ("components.css", ".ui-list-pane-styled .ui-list-pane-row", "border-color: Canvas"),
+        (
+            "components.css",
+            '.ui-list-pane-styled .ui-list-pane-row[aria-current="page"]',
+            "border-color: Highlight",
+        ),
+        (
+            "components.css",
+            '.ui-list-pane-styled .ui-list-pane-row[aria-current="true"]',
+            "border-color: Highlight",
+        ),
+    ],
+)
+def test_forced_colors_keep_a_non_colour_selected_cue(
+    css_file: str, selector: str, declaration: str
+) -> None:
+    """Flight-end review (WCAG 1.4.11): forced colours drop the selected wash and
+    force the accent border, so each selected state names a system-colour cue
+    inside the file's forced-colors block (the providers rule in admin.css,
+    whose areas layer outranks a components-layer rule)."""
+    block = _forced_colors_rules(css_file)
+    want = " ".join(selector.split())
+    for m in _RULE_RE.finditer(block):
+        sels = [" ".join(x.split()) for x in m.group(1).split(",")]
+        if want in sels and declaration in m.group(2):
+            return
+    raise AssertionError(f"{css_file}: no forced-colors rule {selector!r} {{ {declaration} }}")
 
 
 @pytest.mark.parametrize("kind", ("approved", "dismissed"))
@@ -1049,9 +1269,10 @@ _CONTRAST_EXEMPT: dict[str, str] = {
         "test_tool_switch_indeterminate_thumb_holds_ui_contrast."
     ),
     "--accent-translucent-hover": (
-        "rgba hover wash of the gated --accent hue; a transient hover fill, no "
-        "text pair of its own (its resting sibling --accent-translucent carries "
-        "the gated consumer pairs)."
+        "rgba wash of the gated --accent hue (alphas 0.16 dark, 0.13 light); the "
+        "open tile's fill (.entity-tile.active), replacing --surface. Composited-"
+        "gated over both --bg and --surface at its consumer by "
+        "test_providers_tile_pairs_pass_body_aa."
     ),
     "--status-danger-bg-soft": (
         "rgba wash of the gated --status-danger hue; composited-gated by "

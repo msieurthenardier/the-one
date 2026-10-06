@@ -3,58 +3,72 @@
   window.App = window.App || {};
   window.App.admin = window.App.admin || {};
 
-  // Combined System page — Appearance (theme toggle) + Encryption (rotate
-  // flow) + Base Prompt (read-only). The Environment env-var display block
-  // was removed (no editable affordance, low diagnostic value vs prime
-  // real estate); equivalent info is reachable via /api/info.
+  // The three General pages (M25 F3 L5a, DD6): Appearance (theme toggle),
+  // Prompts (the read-only base prompt) and Encryption (the rotate flow).
+  // Until L5a they were one "General" page with three blocks; each block now
+  // has its own route and renders under the page's own header, so the block's
+  // former section title is the page's h1 and nothing repeats it. The blocks
+  // keep their markup and test ids. Each renderer owns its whole page and
+  // shares no state with the others, so each block's wiring runs only on its
+  // own page. Built with DOM APIs (no HTML-string sink).
 
-  function renderSystemPage(container) {
-    container.innerHTML =
-      '<div class="page-header">' +
-        '<h1 class="page-title">General</h1>' +
-      '</div>' +
-      '<div class="admin-form">' +
-        '<div class="admin-system-section">' +
-          '<div class="section-title admin-section-title" id="admin-appearance-heading">Appearance</div>' +
-          '<p class="admin-system-text">' +
-            'Choose a theme. Auto follows your operating system preference.' +
-          '</p>' +
-          '<div class="admin-theme-toggle" id="admin-theme-toggle-mount" aria-labelledby="admin-appearance-heading"></div>' +
-        '</div>' +
-        '<div class="admin-system-section">' +
-          '<div class="section-title admin-section-title">Base Prompt</div>' +
-          '<p class="admin-system-text">' +
-            'The foundational system prompt every agent inherits. ' +
-            'Per-agent personas are appended to this base; ' +
-            'this content is read-only and only changes via code releases.' +
-          '</p>' +
-          '<pre class="admin-base-prompt code-block" data-testid="base-prompt-content">Loading…</pre>' +
-        '</div>' +
-        '<div class="admin-system-section">' +
-          '<div class="section-title admin-section-title">Encryption</div>' +
-          '<p class="admin-system-text">' +
-            'API keys for LLM providers are encrypted at rest. ' +
-            'You can rotate the encryption key to re-encrypt all stored credentials with a new key.' +
-          '</p>' +
-          '<div class="banner banner-warning" role="note">' +
-            'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.' +
-          '</div>' +
-          '<button class="btn-muted-destructive" data-testid="rotate-key-btn" type="button"><span data-confirm-title>Rotate Encryption Key</span></button>' +
-          '<div class="admin-system-flash" aria-live="polite"></div>' +
-        '</div>' +
-      '</div>';
-
-    fetchBasePrompt(container);
-    mountThemeToggle(container);
-    wireEncryptionRotate(container);
+  function el(tag, attrs, children) {
+    return window.App.ui.util.el(tag, attrs, children);
   }
 
-  function fetchBasePrompt(container) {
+  // The page header (reference spec section 4): one h1 per page, no
+  // breadcrumb. `headingId` names the h1 for controls labelled by it.
+  function renderPage(container, title, headingId, sectionChildren) {
+    container.textContent = '';
+    container.appendChild(el('div', { className: 'page-header' }, [
+      el('h1', { className: 'page-title', id: headingId || null, text: title })
+    ]));
+    container.appendChild(el('div', { className: 'admin-form' }, [
+      el('div', { className: 'admin-system-section' }, sectionChildren)
+    ]));
+  }
+
+  function text(copy) {
+    return el('p', { className: 'admin-system-text', text: copy });
+  }
+
+  // ── Appearance ────────────────────────────────────────────────────────
+
+  function renderAppearancePage(container) {
+    // The theme radiogroup is labelled by the page's h1 ("Appearance"), the
+    // in-page title it was labelled by before the split.
+    var mount = el('div', {
+      className: 'admin-theme-toggle',
+      id: 'admin-theme-toggle-mount',
+      'aria-labelledby': 'admin-appearance-heading'
+    });
+    renderPage(container, 'Appearance', 'admin-appearance-heading', [
+      text('Choose a theme. Auto follows your operating system preference.'),
+      mount
+    ]);
+    if (window.App && window.App.theme && window.App.theme.renderToggle) {
+      window.App.theme.renderToggle(mount, { labelledBy: 'admin-appearance-heading' });
+    }
+  }
+
+  // ── Prompts ───────────────────────────────────────────────────────────
+
+  function renderPromptsPage(container) {
+    var pre = el('pre', { className: 'admin-base-prompt code-block', text: 'Loading…' });
+    pre.setAttribute('data-testid', 'base-prompt-content');
+    renderPage(container, 'Prompts', null, [
+      text('The foundational system prompt every agent inherits. ' +
+        'Per-agent personas are appended to this base; ' +
+        'this content is read-only and only changes via code releases.'),
+      pre
+    ]);
+    fetchBasePrompt(pre);
+  }
+
+  function fetchBasePrompt(preEl) {
     fetch('/api/info')
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        var preEl = container.querySelector('.admin-base-prompt');
-        if (!preEl) return;
         if (typeof data.base_prompt === 'string') {
           preEl.textContent = data.base_prompt;
         } else {
@@ -62,21 +76,33 @@
         }
       })
       .catch(function () {
-        var preEl = container.querySelector('.admin-base-prompt');
-        if (preEl) preEl.textContent = '(failed to load)';
+        preEl.textContent = '(failed to load)';
       });
   }
 
-  function mountThemeToggle(container) {
-    var themeToggleEl = container.querySelector('#admin-theme-toggle-mount');
-    if (window.App && window.App.theme && window.App.theme.renderToggle) {
-      window.App.theme.renderToggle(themeToggleEl, { labelledBy: 'admin-appearance-heading' });
-    }
+  // ── Encryption ────────────────────────────────────────────────────────
+
+  function renderEncryptionPage(container) {
+    var rotateBtn = el('button', { className: 'btn-muted-destructive', type: 'button' }, [
+      el('span', { 'data-confirm-title': true, text: 'Rotate Encryption Key' })
+    ]);
+    rotateBtn.setAttribute('data-testid', 'rotate-key-btn');
+    var flashEl = el('div', { className: 'admin-system-flash', 'aria-live': 'polite' });
+    renderPage(container, 'Encryption', null, [
+      text('API keys for LLM providers are encrypted at rest. ' +
+        'You can rotate the encryption key to re-encrypt all stored credentials with a new key.'),
+      el('div', {
+        className: 'banner banner-warning',
+        role: 'note',
+        text: 'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.'
+      }),
+      rotateBtn,
+      flashEl
+    ]);
+    wireEncryptionRotate(rotateBtn, flashEl);
   }
 
-  function wireEncryptionRotate(container) {
-    var rotateBtn = container.querySelector('[data-testid="rotate-key-btn"]');
-    var flashEl = container.querySelector('.admin-system-flash');
+  function wireEncryptionRotate(rotateBtn, flashEl) {
     rotateBtn.addEventListener('click', function () {
       window.App.confirmDelete(rotateBtn, function (btn, revertFn) {
         var titleEl = btn.querySelector('[data-confirm-title]');
@@ -120,5 +146,7 @@
     });
   }
 
-  window.App.admin.renderSystemPage = renderSystemPage;
+  window.App.admin.renderAppearancePage = renderAppearancePage;
+  window.App.admin.renderPromptsPage = renderPromptsPage;
+  window.App.admin.renderEncryptionPage = renderEncryptionPage;
 })();

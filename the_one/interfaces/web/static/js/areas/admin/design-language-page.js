@@ -16,7 +16,7 @@
     });
     container.textContent = '';
     container.appendChild(el('div', { className: 'page-header' }, [
-      el('h1', { className: 'page-title', text: 'Design Language' })
+      el('h1', { className: 'page-title', text: 'Design language' })
     ]));
     container.appendChild(sectionsHost);
 
@@ -29,7 +29,7 @@
       { slug: 'uiFields',    title: 'Library: fields' },
       { slug: 'uiChoices',   title: 'Library: checkbox and toggle' },
       { slug: 'uiFeedback',  title: 'Library: badges and empty states' },
-      { slug: 'uiLists',     title: 'Library: list pane' },
+      { slug: 'uiLists',     title: 'Library: lists and navigation' },
       { slug: 'uiMenus',     title: 'Library: menu' },
       { slug: 'uiModal',     title: 'Library: modal' },
       { slug: 'surfaces',    title: 'Surfaces' },

@@ -6,6 +6,13 @@ plugin registered — the NORM this flight, Discord lands Flight 3), and
 pairing-code generation. Kept small — the end-to-end stub round-trip
 (create → pair → message → reply) is leg 3's behavior test's job, not
 this browser lane's.
+
+M25 F3 L4a: connectors are rows of the Library list and routed
+(``#library/connectors/~new`` and ``/{id}``); the grid and its "New
+Connector" CTA are retired, so the create form opens from the Library list's
+Add menu (``_lists.library_add``). Leg 4b retired the interim Back: the item
+header breadcrumb's "Connectors" link (``_lists.close_item``) returns to the
+section root.
 """
 
 from __future__ import annotations
@@ -13,17 +20,34 @@ from __future__ import annotations
 import re
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 
+def _open_create_form(page: Page, base: str) -> None:
+    """The connector create form, through the Library list's Add menu."""
+    _nav.goto_settled(page, base, "library/connectors")
+    _lists.library_add(page, "connectors")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+
 @pytest.mark.browser
-def test_studio_connectors_empty_grid_shows_cta(app_clean: str, page: Page) -> None:
+def test_studio_connectors_empty_inventory_shows_empty_state(app_clean: str, page: Page) -> None:
+    """No connectors: the group's empty line and the section root's empty state,
+    whose action opens the create form (the grid's CTA is retired)."""
     _nav.goto_settled(page, app_clean, "library/connectors")
-    page.wait_for_selector(".area-studio .page-title", timeout=8000)
-    assert page.locator(".area-studio .page-title").text_content().strip() == "Connectors"
-    expect(page.locator('[data-testid="new-connector-btn"]')).to_be_visible()
+    empty = _lists.library_empty_state(page, "connectors")
+    expect(empty).to_be_visible(timeout=8000)
+    expect(empty).to_contain_text("Select a connector, or add one.")
+    expect(
+        page.locator(
+            '[data-testid="library-list"] .ui-list-pane-group-empty', has_text="No connectors yet."
+        )
+    ).to_be_visible()
+    page.locator('[data-testid="library-empty-connectors-add"]').click()
+    _nav.expect_route(page, "library/connectors/~new")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
@@ -33,11 +57,9 @@ def test_studio_create_connector_shows_masked_token_on_redisplay(
     """Create a connector with a real token; after save, the token field
     redisplays the MASKED shape, never the plaintext — the same contract
     `tests/test_api_secret_mask_roundtrip.py` pins at the API layer."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
 
     save_btn = page.locator('[data-testid="save-connector-btn"]')
-    expect(save_btn).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("Browser Test Connector")
     page.locator('[data-field="type"]').select_option("discord")
@@ -75,8 +97,7 @@ def test_studio_connector_doctor_reports_plugin_failure_without_token(
     discord-typed connector, asserting the failed status + message SHAPE
     (not exact prose) per the leg's design.
     """
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("Doctor Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
     page.locator('[data-testid="save-connector-btn"]').click()
@@ -97,9 +118,7 @@ def test_studio_connector_create_form_shows_no_status_led(
     """Squawk 0045, pinned decision #1: the auto-probe (and its LED) is an
     edit-mode-only affordance — there is nothing to probe until the
     connector exists, so the create form must not render the LED at all."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+    _open_create_form(page, app_with_agent.base_url)
 
     expect(page.locator('[data-testid="connector-status-led"]')).to_have_count(0)
 
@@ -114,17 +133,17 @@ def test_studio_connector_status_led_reflects_doctor_result_on_open(
     deterministically fails doctor (same plugin behavior the existing
     manual-doctor test pins), which maps to the `indicator-led--danger`
     state and a non-empty accessible label."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("LED Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
     page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
 
-    # Re-open fresh from the grid — the clearest "opening an existing
+    # Re-open fresh from the list — the clearest "opening an existing
     # connector" trigger, independent of the post-save auto-transition.
-    page.locator('[data-testid="back-connector-btn"]').click()
-    page.locator('[data-testid="connector-card"]').first.click()
+    _lists.close_item(page)
+    _nav.expect_route(page, "library/connectors")
+    _lists.open_item(page, "library/connectors", "LED Test Connector")
 
     led = page.locator('[data-testid="connector-status-led"]')
     expect(led).to_be_visible(timeout=8000)
@@ -141,8 +160,7 @@ def test_studio_connector_enabled_checkbox_default_checked_and_persists(
     """AC-10 (Mission 23 Flight 3 Leg 2, DD-6): Enabled checkbox defaults to
     checked; saving without touching it omits ``config.enabled`` (sparse-
     config pattern) — reopening the saved connector shows it still checked."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("Enabled Default Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
 
@@ -153,8 +171,9 @@ def test_studio_connector_enabled_checkbox_default_checked_and_persists(
     page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
 
-    page.locator('[data-testid="back-connector-btn"]').click()
-    page.locator('[data-testid="connector-card"]').first.click()
+    _lists.close_item(page)
+    _nav.expect_route(page, "library/connectors")
+    _lists.open_item(page, "library/connectors", "Enabled Default Connector")
     expect(page.locator('[data-field="enabled"]')).to_be_checked(timeout=8000)
 
 
@@ -165,8 +184,7 @@ def test_studio_connector_enabled_checkbox_unchecked_persists_disabled(
     """Unchecking the Enabled checkbox saves ``enabled: false``; editing a
     disabled connector shows it unchecked (the checked-state trap: the
     render must key off ``!== false``, never a truthy check)."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("Disabled Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
     page.locator('[data-field="enabled"]').uncheck()
@@ -175,15 +193,15 @@ def test_studio_connector_enabled_checkbox_unchecked_persists_disabled(
     expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-field="enabled"]')).not_to_be_checked()
 
-    page.locator('[data-testid="back-connector-btn"]').click()
-    page.locator('[data-testid="connector-card"]').first.click()
+    _lists.close_item(page)
+    _nav.expect_route(page, "library/connectors")
+    _lists.open_item(page, "library/connectors", "Disabled Connector")
     expect(page.locator('[data-field="enabled"]')).not_to_be_checked(timeout=8000)
 
 
 @pytest.mark.browser
 def test_studio_connector_pairing_code_generation(app_with_agent: SeededApp, page: Page) -> None:
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("Pairing Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
     page.locator('[data-testid="save-connector-btn"]').click()
@@ -203,8 +221,7 @@ def test_studio_connector_pairing_code_is_selectable_and_copyable(
     """Squawk 0043: the generated code must land in its own element (not
     fused into the surrounding "Code: ... (expires ...)" prose, which the
     operator could not select/copy) and carry a labelled copy affordance."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("Copyable Pairing Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
     page.locator('[data-testid="save-connector-btn"]').click()
@@ -239,9 +256,7 @@ def test_studio_connector_setup_steps_shown_per_type(app_with_agent: SeededApp, 
     mode) — plus a plain-text reference naming the full walkthrough doc's
     path (not a link: only `/static` is mounted, so an `<a href="docs/...">`
     would 404 — see squawk 0046's Corrective Action)."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+    _open_create_form(page, app_with_agent.base_url)
 
     steps = page.locator('[data-testid="connector-setup-steps"]')
     expect(steps).to_be_visible(timeout=8000)
@@ -273,8 +288,7 @@ def test_delete_connector_confirm_lapse_is_visually_distinct(
     """Mission 24 Flight 7 confirm-lapse leg, AC-4: the Danger Zone
     connector-delete confirm (`connector-editor.js:599`) is distinguishable
     on screen from one that was never armed, past the real 3s `revertMs`."""
-    _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _open_create_form(page, app_with_agent.base_url)
     page.locator('[data-field="name"]').fill("Lapse Test Connector")
     page.locator('[data-field="default_agent"]').select_option(app_with_agent.agent_name)
     page.locator('[data-testid="save-connector-btn"]').click()

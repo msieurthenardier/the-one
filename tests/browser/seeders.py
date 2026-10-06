@@ -104,6 +104,37 @@ def seed_mock_agent(
     return r.json()["name"]
 
 
+def seed_mock_agents(
+    base_url: str,
+    provider_id: str,
+    n: int,
+    prefix: str = "agent",
+    model: str | None = None,
+) -> list[str]:
+    """POST *n* agents named ``f"{prefix} {i:02d}"`` (i = 1..n) and return the names.
+
+    M25 F3 L3: the scale and filter tests seed 10-60 agents, so this reuses one
+    ``httpx.Client`` instead of one connection per agent (``seed_mock_agent``).
+    ``model`` (default ``"mock-default"``) is each agent's ``llm_model``; pass a
+    distinctive one to exercise the filter's model match. The provider TYPE the
+    filter matches comes from ``provider_id``'s provider.
+    """
+    names = [f"{prefix} {i:02d}" for i in range(1, n + 1)]
+    with httpx.Client(base_url=base_url, headers=auth_headers_for(base_url), timeout=10.0) as c:
+        for name in names:
+            r = c.post(
+                "/api/agents",
+                json={
+                    "name": name,
+                    "provider_config_id": provider_id,
+                    "llm_model": model or "mock-default",
+                    "system_prompt": "You are a test agent.",
+                },
+            )
+            assert r.status_code == 201, f"seed_mock_agents failed: {r.status_code} {r.text}"
+    return names
+
+
 def seed_tool_config(
     base_url: str,
     name: str,
@@ -139,3 +170,88 @@ def seed_tool_config(
         timeout=5.0,
     )
     assert r.status_code == 200, f"seed_tool_config failed: {r.status_code} {r.text}"
+
+
+# ── Library seeders (M25 F3 L4a) ─────────────────────────────────────────────
+
+
+def seed_knowledge_base(base_url: str, name: str, description: str = "") -> str:
+    """POST a knowledge base via /api/knowledge-bases and return its id."""
+    r = httpx.post(
+        f"{base_url}/api/knowledge-bases",
+        json={"name": name, "description": description},
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code in (200, 201), f"seed_knowledge_base failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
+def seed_mcp_source(base_url: str, name: str, tools: list[str] | None = None) -> str:
+    """POST a stdio MCP source via /api/mcp-sources and return its id.
+
+    ``tools`` (names) seeds ``config._cache.tools`` -- POST keeps the config
+    as sent (PUT strips ``_cache``), so the Library list shows a tool count
+    without a live connect. Omitted: no cache ("Tools not loaded").
+    """
+    config: dict = {"command": "x"}
+    if tools is not None:
+        config["_cache"] = {"tools": [{"name": t, "description": ""} for t in tools]}
+    r = httpx.post(
+        f"{base_url}/api/mcp-sources",
+        json={"name": name, "type": "stdio", "config": config, "secrets": {}},
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code in (200, 201), f"seed_mcp_source failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
+def seed_connector(
+    base_url: str,
+    name: str,
+    default_agent: str | None = None,
+    channel_map: dict[str, str] | None = None,
+) -> str:
+    """POST a DISABLED discord connector via /api/connectors and return its id.
+
+    Disabled (``config.enabled: false``) so it never tries to reach Discord.
+    """
+    config: dict = {"enabled": False}
+    if default_agent is not None:
+        config["default_agent"] = default_agent
+    if channel_map is not None:
+        config["channel_map"] = channel_map
+    r = httpx.post(
+        f"{base_url}/api/connectors",
+        json={"name": name, "type": "discord", "config": config, "secrets": {}},
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code in (200, 201), f"seed_connector failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
+def seed_agent_with_attachments(
+    base_url: str,
+    provider_id: str,
+    name: str,
+    kb_ids: list[str] | None = None,
+    mcp_source_ids: list[str] | None = None,
+) -> str:
+    """POST an agent with knowledge bases and MCP sources attached; return its name."""
+    r = httpx.post(
+        f"{base_url}/api/agents",
+        json={
+            "name": name,
+            "provider_config_id": provider_id,
+            "llm_model": "mock-default",
+            "system_prompt": "You are a test agent.",
+            "kb_ids": kb_ids or [],
+            "mcp_source_ids": mcp_source_ids or [],
+        },
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code == 201, f"seed_agent_with_attachments failed: {r.status_code} {r.text}"
+    return r.json()["name"]

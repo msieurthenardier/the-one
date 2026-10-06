@@ -2,21 +2,24 @@
 
 Covers the L2 admin Tools grid surface (HAT-refined into category tabs):
 
-- Page-title is "Built-in Tools" (HAT inline fix #5).
+- Page-title is "Built-in tools" (HAT inline fix #5; sentence case since M25
+  F3 leg 5a).
 - 4 category tabs render in declaration order (Filesystem / Execution /
   Web / Connectors); Filesystem selected by default. Connectors added by
   squawk 0032 (mirrors squawk 0028's studio.js Connectors category).
 - Tab click switches the visible panel (active panel shows tiles, others
   hidden via the App.tabs helper's [hidden] attr).
 - Each category surfaces the expected tile counts (9/6/4/2 = 21 total).
-- Tile click navigates to the per-tool editor at #admin/tools/<name>.
+- The tool NAME is the item link (M25 F3 leg 5b; the tile is no longer a
+  click target): clicking it navigates to the per-tool editor at
+  #settings/tools/<name>, which opens below the list.
 - Toggle PUT round-trip persists across reload (in-flight gate awaited
   BEFORE the reload to avoid a race).
-- Toggle click does NOT navigate (only the tile body navigates; the
-  toggle's interactive surface short-circuits the tile-click handler).
+- Toggle click does NOT navigate (nothing on the tile but the name link
+  navigates; the toggle only toggles enablement).
 - Active tab persists across the post-toggle re-render (would otherwise
   bounce back to the Filesystem default each toggle).
-- Section-nav third entry is labeled "Built-in Tools" (HAT inline fix #5).
+- The Settings nav's tools link is labeled "Built-in tools" (HAT inline fix #5).
 - Deep-link to #admin/tools/<name> loads the editor directly (hydrates
   pendingToolName and consumes via _tryConsumePendingTool).
 """
@@ -26,7 +29,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from playwright.sync_api import Page, expect
 
 
@@ -41,7 +44,7 @@ def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> Non
     Filesystem, Execution, Web, Connectors.
     """
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
 
     tablist = page.locator(".area-admin .tablist")
     expect(tablist).to_be_visible()
@@ -68,7 +71,7 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
     panel becomes hidden, target panel becomes visible with its tile set.
     """
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     fs_panel = page.locator("#tools-panel-filesystem")
     web_panel = page.locator("#tools-panel-web")
     expect(fs_panel).to_be_visible()
@@ -85,7 +88,7 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
 def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: Page) -> None:
     """All four panels' tile counts: 9/6/4/2 = 21 tools total."""
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
 
     expected = {
         "filesystem": 9,
@@ -109,7 +112,7 @@ def test_admin_tools_connectors_tab_renders_both_tools_with_connectors_badge(
     'unknown' badge the pre-fix TOOL_CATEGORIES mirror gap produced.
     """
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     page.locator('[data-testid="tab-connectors"]').click()
     panel = page.locator("#tools-panel-connectors")
     expect(panel).to_be_visible()
@@ -124,14 +127,33 @@ def test_admin_tools_connectors_tab_renders_both_tools_with_connectors_badge(
 
 @pytest.mark.browser
 def test_admin_tools_tile_click_navigates_to_editor(app_clean: str, page: Page) -> None:
-    """Click the web_search tile: URL becomes #admin/tools/web_search and
-    the editor mounts (editor-title shows the tool name)."""
+    """Click the web_search name link: URL becomes #settings/tools/web_search
+    and the editor mounts below the list (editor-title shows the tool name)."""
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
-    page.locator('[data-testid="tool-card"][data-name="web_search"]').click()
+    link = _lists.item_link(page, "settings/tools", "web_search")
+    expect(link).to_have_attribute("href", _nav.href("settings/tools/web_search"))
+    link.click()
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=5000)
     _nav.expect_route(page, "settings/tools/web_search")
+    expect(page.locator('#tools-panel-web [data-testid="tool-card"]')).to_have_count(4)
+
+
+@pytest.mark.browser
+def test_admin_tools_tile_body_is_not_a_click_target(app_clean: str, page: Page) -> None:
+    """M25 F3 leg 5b: a click on the tile's description (away from the name
+    link) does not open the tool, and the tile is not in the Tab order."""
+    _nav.goto(page, app_clean, "settings/tools")
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
+    page.locator('[data-testid="tab-web"]').click()
+    tile = _lists.list_row(page, "settings/tools", "web_search")
+    expect(tile).not_to_have_attribute("tabindex", "0")
+    initial_route = _nav.current_route(page)
+    tile.locator(".entity-" + "tile-description").click()
+    page.wait_for_timeout(300)
+    _nav.expect_route(page, initial_route)
+    expect(page.locator(".editor-title")).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -141,7 +163,7 @@ def test_admin_tools_tile_toggle_persists_across_reload(app_clean: str, page: Pa
     confirm the toggle is still OFF.
     """
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     web_panel = page.locator("#tools-panel-web")
     toggle = web_panel.locator('input[data-testid="tool-toggle"][data-name="web_search"]')
@@ -154,7 +176,7 @@ def test_admin_tools_tile_toggle_persists_across_reload(app_clean: str, page: Pa
     expect(toggle).not_to_be_checked()
 
     page.reload()
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     toggle_after = page.locator(
         '#tools-panel-web input[data-testid="tool-toggle"][data-name="web_search"]'
@@ -165,11 +187,11 @@ def test_admin_tools_tile_toggle_persists_across_reload(app_clean: str, page: Pa
 @pytest.mark.browser
 def test_admin_tools_tile_toggle_does_not_navigate(app_clean: str, page: Page) -> None:
     """Clicking the toggle's interactive surface flips state but does NOT
-    navigate to the editor (the tile-click handler bails when the click
-    target is inside .tool-enable-switch).
+    navigate to the editor (since M25 F3 leg 5b nothing on the tile but the
+    name link navigates; the toggle's change event only toggles enablement).
     """
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     initial_route = _nav.current_route(page)
     page.locator('[data-testid="tab-web"]').click()
     toggle = page.locator(
@@ -195,7 +217,7 @@ def test_admin_tools_active_tab_persists_across_toggle_re_render(
     otherwise every toggle bounces them back to the Filesystem default.
     """
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     expect(page.locator('[data-testid="tab-web"]')).to_have_attribute("aria-selected", "true")
     toggle = page.locator(
@@ -212,42 +234,60 @@ def test_admin_tools_active_tab_persists_across_toggle_re_render(
 
 @pytest.mark.browser
 def test_admin_tools_grid_tile_keyboard_navigation(app_clean: str, page: Page) -> None:
-    """Tile is keyboard-focusable (tabindex=0) and Enter activates the
-    same selectTool flow as a click. Pressing Space on the inner toggle
-    flips the checkbox via the native handler — does NOT also navigate.
+    """The tool name link is in the Tab order and Enter on it opens the tool
+    (M25 F3 leg 5b: the link replaced the focusable tile). Space on the
+    toggle flips it natively and does NOT navigate; the toggle is separately
+    focusable, after its tile's link.
     """
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
-    tile = page.locator('[data-testid="tool-card"][data-name="web_search"]')
-    tile.focus()
-    expect(tile).to_be_focused()
+    link = _lists.item_link(page, "settings/tools", "web_search")
+    toggle = _lists.tool_toggle(page, "web_search")
+    link.focus()
+    expect(link).to_be_focused()
+    page.keyboard.press("Tab")
+    expect(toggle).to_be_focused()
+    expect(toggle).to_be_checked()
+    page.keyboard.press("Space")
+    expect(toggle).not_to_be_checked()
+    expect(toggle).not_to_be_disabled(timeout=5000)
+    _nav.expect_route(page, "settings/tools")
+    expect(page.locator(".editor-title")).to_have_count(0)
+    # The re-rendered list gives focus back to the same toggle once its PUT
+    # settles; put the tool back, then open it from its link with Enter.
+    expect(toggle).to_be_focused()
+    page.keyboard.press("Space")
+    expect(toggle).to_be_checked()
+    expect(toggle).not_to_be_disabled(timeout=5000)
+    link.focus()
     page.keyboard.press("Enter")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=5000)
     _nav.expect_route(page, "settings/tools/web_search")
 
 
 @pytest.mark.browser
-def test_admin_tools_section_nav_label_is_built_in_tools(app_clean: str, page: Page) -> None:
-    """HAT inline fix #5: the third nav entry's label is "Built-in Tools"
-    (was "Tools"). Distinguishes from MCP / external tool surfaces
-    while keeping the URL slug stable at #admin/tools.
+def test_admin_tools_settings_nav_label_is_built_in_tools(app_clean: str, page: Page) -> None:
+    """HAT inline fix #5: the tools nav entry's label is "Built-in tools"
+    (was "Tools"). Distinguishes from MCP / external tool surfaces while
+    keeping the URL slug stable at #settings/tools.
 
-    Post-F2 retrofit: the admin nav has 3 stable entries (General | LLM Providers
-    | Built-in Tools). A 4th "Design Language" entry appears in dev_mode.
-    MCP Servers was relocated to the Studio nav.
+    Since M25 F3 leg 5a the Settings nav is grouped links; the tools link sits
+    under "Defaults for agents". MCP servers live in the Library.
     """
-    _nav.goto(page, app_clean, "settings/general")
-    nav = page.locator(".area-admin .section-nav")
-    # Assert "Built-in Tools" nav item exists by label (not by count — dev_mode adds Design Language).  # noqa: E501
-    expect(nav.locator(".section-nav-item", has_text="Built-in Tools")).to_be_visible(timeout=5000)
+    _nav.goto(page, app_clean, "settings/appearance")
+    link = _lists.settings_nav_link(page, "tools")
+    expect(link).to_have_text("Built-in tools", timeout=5000)
+    expect(link).to_have_attribute("href", _nav.href("settings/tools"))
 
 
 @pytest.mark.browser
 def test_admin_tools_deep_link_to_tool_loads_editor(app_clean: str, page: Page) -> None:
     """Direct navigation to #admin/tools/web_search hydrates the pending
     tool name and consumes via _tryConsumePendingTool — the editor mounts
-    on first paint without an interim grid stop."""
+    below the list, whose Web tab is active with the tool selected."""
     page.goto(f"{app_clean}#admin/tools/web_search")  # legacy URL on purpose (AC6)
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     _nav.expect_route(page, "settings/tools/web_search")
+    expect(page.locator('[data-testid="tab-web"]')).to_have_attribute("aria-selected", "true")
+    _lists.expect_selected(page, "settings/tools", "web_search")

@@ -5,27 +5,38 @@
 //
 //   destination   area     route                         area-level sub
 //   chats         chat     chats[/{sessionId}]           [sessions/{id}]
-//   agents        studio   agents[/{name}[/{tab}[/..]]]  agents[/...]
-//   library       studio   library/knowledge[/{kbId}]    knowledge[/{kbId}]
+//   agents        studio   agents[/~new|/{name}[/{tab}[/..]]]  agents[/~new|/...]
+//   library       studio   library/knowledge[/~new|/{kbId}] knowledge[/new|/{kbId}]
 //                          library/mcp[/~new|/{id}]      mcp-sources[/new|/{id}]
-//                          library/connectors            connectors
-//   settings      admin    settings/general              general
+//                          library/connectors[/~new|/{id}] connectors[/new|/{id}]
+//   settings      admin    settings/appearance           appearance
+//                          settings/prompts              prompts
+//                          settings/encryption           encryption
 //                          settings/providers[/~new|/{id}] providers[/new|/{id}]
 //                          settings/tools[/{name}]       tools[/{name}]
 //                          settings/knowledge-indexing   knowledge
 //                          settings/design-language      design-language  (dev mode)
 //
+// `settings/general` (the pre-M25-F3-L5a single General page) is an alias that
+// redirects to `settings/appearance`, dropping any further segments; the legacy
+// `#admin`, `#admin/system` and `#admin/general` redirect there directly.
+//
 // The areas keep speaking their own subs (hydrateState / serializeState); the
 // router maps in both directions. `~new` is the reserved create segment (an
 // agent named "new" is a legal name); on OUTPUT any id segment that starts with
-// `~` is written as `%7E...` so no name or id can collide with it.
+// `~` is written as `%7E...` so no name or id can collide with it. Agents speak
+// the create sub as `agents/~new` itself (M25 F3 L3, DD8): studio writes an
+// agent name's leading `~` as `%7E`, so a raw `~new` there only means create.
 //
 // Two URL primitives (DD4):
 //   go(route, {replace, bypassGuard, opener}) -> Promise<boolean>   user INTENT: runs the
 //       leave guard, writes the URL (push or replace), hydrates the target.
 //       true = navigated, false = the user stayed.
-//   sync(areaId, sub)   area-internal canonicalisation: always replaceState,
-//       never guards, never hydrates; dropped when it would move the user.
+//   sync(areaId, sub, {name})   area-internal canonicalisation: always
+//       replaceState, never guards, never hydrates; dropped when it would move
+//       the user. Silent, except for one transition it announces: a `~new`
+//       route to an item in the same destination and section (a save-create).
+//       `name` is an optional display-name hint for that item (M25 F3 L2, DD8).
 //
 // Commit sequence (go() and traversal; pinned by test_router_core.py):
 //   1. resolve the target (redirect / alias)
@@ -56,19 +67,25 @@
 
   var DESTINATIONS = [
     { id: 'chats', label: 'Chats', area: 'chat', iconKey: 'chat', root: 'chats', sidebar: true },
-    { id: 'agents', label: 'Agents', area: 'studio', iconKey: 'studio', root: 'agents', sidebar: false },
+    { id: 'agents', label: 'Agents', area: 'studio', iconKey: 'studio', root: 'agents', sidebar: true },
     { id: 'library', label: 'Library', area: 'studio', iconKey: 'database', root: 'library/knowledge', sidebar: true },
-    { id: 'settings', label: 'Settings', area: 'admin', iconKey: 'admin', root: 'settings/general', sidebar: true }
+    { id: 'settings', label: 'Settings', area: 'admin', iconKey: 'admin', root: 'settings/appearance', sidebar: true }
   ];
 
   // Section rows for the destinations that have sections. `route` is the
   // route's second segment, `sub` the area module's section id. `create`
-  // marks the sections whose area-level `new` is the route's reserved `~new`.
+  // marks the sections whose area-level `new` is the route's reserved `~new`
+  // (M25 F3 L4a: knowledge bases and connectors joined MCP). An item whose id
+  // is exactly `new` is unreachable at its item route there (accepted risk).
   var SECTIONS = [
-    { dest: 'library', area: 'studio', route: 'knowledge', sub: 'knowledge', create: false },
+    { dest: 'library', area: 'studio', route: 'knowledge', sub: 'knowledge', create: true },
     { dest: 'library', area: 'studio', route: 'mcp', sub: 'mcp-sources', create: true },
-    { dest: 'library', area: 'studio', route: 'connectors', sub: 'connectors', create: false },
-    { dest: 'settings', area: 'admin', route: 'general', sub: 'general', create: false },
+    { dest: 'library', area: 'studio', route: 'connectors', sub: 'connectors', create: true },
+    // General is three pages (M25 F3 L5a, DD6); `settings/general` is an alias
+    // in resolve(), not a row.
+    { dest: 'settings', area: 'admin', route: 'appearance', sub: 'appearance', create: false },
+    { dest: 'settings', area: 'admin', route: 'prompts', sub: 'prompts', create: false },
+    { dest: 'settings', area: 'admin', route: 'encryption', sub: 'encryption', create: false },
     { dest: 'settings', area: 'admin', route: 'providers', sub: 'providers', create: true },
     { dest: 'settings', area: 'admin', route: 'tools', sub: 'tools', create: false },
     { dest: 'settings', area: 'admin', route: 'knowledge-indexing', sub: 'knowledge', create: false },
@@ -126,7 +143,8 @@
 
   // href({destination, section, id, tab, sub, create}) -> '#route'
   //   chats:    id = session id
-  //   agents:   id = agent name, tab, sub (the MCP source id on the mcps tab)
+  //   agents:   id = agent name, tab, sub (the MCP source id on the mcps tab),
+  //             or create:true for the `~new` segment
   //   library / settings: section, id, or create:true for the `~new` segment
   function href(spec) {
     spec = spec || {};
@@ -134,7 +152,9 @@
     if (spec.destination === 'chats') {
       if (spec.id != null) segs.push(enc(spec.id));
     } else if (spec.destination === 'agents') {
-      if (spec.id != null) {
+      if (spec.create) {
+        segs.push(RESERVED_NEW);
+      } else if (spec.id != null) {
         segs.push(enc(spec.id));
         if (spec.tab != null) {
           segs.push(enc(spec.tab));
@@ -160,9 +180,13 @@
     if (segs[0] === 'chats') {
       if (segs[1] != null) out.id = dec(segs[1]);
     } else if (segs[0] === 'agents') {
-      if (segs[1] != null) out.id = dec(segs[1]);
-      if (segs[2] != null) out.tab = dec(segs[2]);
-      if (segs[3] != null) out.sub = dec(segs.slice(3).join('/'));
+      if (segs[1] === RESERVED_NEW) {
+        out.create = true;
+      } else {
+        if (segs[1] != null) out.id = dec(segs[1]);
+        if (segs[2] != null) out.tab = dec(segs[2]);
+        if (segs[3] != null) out.sub = dec(segs.slice(3).join('/'));
+      }
     } else {
       if (segs[1] != null) out.section = segs[1];
       if (segs[2] === RESERVED_NEW) out.create = true;
@@ -192,6 +216,9 @@
     if (areaId === 'studio') {
       if (!segs.length) return null;
       if (segs[0] === 'agents') {
+        // The create sub (DD8): exactly `agents/~new`, emitted unescaped. Any
+        // longer sub is an agent path, whose leading `~` is escaped below.
+        if (segs.length === 2 && segs[1] === RESERVED_NEW) return 'agents/' + RESERVED_NEW;
         rest = segs.slice(1);
         for (i = 0; i < rest.length; i++) rest[i] = escapeEncoded(rest[i]);
         return ['agents'].concat(rest).join('/');
@@ -215,8 +242,13 @@
     return d ? d.root : null;
   }
 
+  // The General page's former route (M25 F3 L5a, DD6) and the legacy admin
+  // subs that named it. Each lands on the first General page directly.
+  var GENERAL_ALIAS_TARGET = 'settings/appearance';
+
   // Resolve an input hash or route to a target. Handles legacy hashes
-  // (#chat, #studio/..., #admin/...) per the DD2 redirect table.
+  // (#chat, #studio/..., #admin/...) per the DD2 redirect table, and the
+  // `settings/general` alias (any trailing segments are dropped).
   //   -> {kind:'route', route, destination, area, sub, redirected}
   //    | {kind:'element'} | {kind:'unknown'} | {kind:'empty'}
   function resolve(input) {
@@ -230,9 +262,16 @@
     if (head === 'chat' || head === 'studio' || head === 'admin') {
       redirected = true;
       var sub = segs.slice(1).join('/');
-      if (head === 'studio' && (sub === '' || sub === 'tools')) route = 'agents';
-      else if (head === 'admin' && (sub === '' || sub === 'system')) route = 'settings/general';
-      else route = areaSubToRoute(head, sub);
+      if (head === 'studio' && (sub === '' || sub === 'tools')) {
+        route = 'agents';
+      } else if (head === 'admin' && (sub === '' || segs[1] === 'system' || segs[1] === 'general')) {
+        // `#admin`, `#admin/system[/..]` and `#admin/general[/..]` go to the
+        // first General page directly, never through `settings/general` (no
+        // chained redirect).
+        route = GENERAL_ALIAS_TARGET;
+      } else {
+        route = areaSubToRoute(head, sub);
+      }
       // Unknown sub of a known legacy area: the area's own default, as the
       // old areas defaulted (chat -> chat, studio -> agents).
       if (route == null && head === 'chat') route = 'chats';
@@ -252,11 +291,17 @@
     }
     if (head === 'agents') {
       if (segs[1] === RESERVED_NEW) {
-        // Agent create is Flight 3's; `#agents/~new` redirects to the root.
-        return mk('agents', dest, 'agents', true);
+        // The agent create route (M25 F3 L3, DD8). Extra segments are dropped.
+        return mk('agents/' + RESERVED_NEW, dest, 'agents/' + RESERVED_NEW,
+          redirected || segs.length > 2);
       }
       route = segs.join('/');
       return mk(route, dest, route, redirected);
+    }
+    // `settings/general[/..]` is the alias for the first General page.
+    if (head === 'settings' && segs[1] === 'general') {
+      segs = splitRoute(GENERAL_ALIAS_TARGET);
+      redirected = true;
     }
     // library / settings: a bare destination redirects to its root section.
     if (segs.length === 1) {
@@ -345,34 +390,95 @@
   // ── Route announcer + document title (WCAG 4.1.3 / 2.4.2) ───────────────
 
   var SECTION_LABELS = {
-    knowledge: 'Knowledge', mcp: 'MCP servers', connectors: 'Connectors', general: 'General',
-    providers: 'Providers', tools: 'Tools', 'knowledge-indexing': 'Knowledge indexing',
+    knowledge: 'Knowledge', mcp: 'MCP servers', connectors: 'Connectors',
+    appearance: 'Appearance', prompts: 'Prompts', encryption: 'Encryption',
+    providers: 'Providers', tools: 'Built-in tools', 'knowledge-indexing': 'Knowledge indexing',
     'design-language': 'Design language'
   };
   var lastAnnounceKey = null; // destination/section/item of the last committed route
 
-  // {parts, key} for a route. Only human-readable item names are spoken: an
-  // agent name, a tool name, or "New"; opaque ids (sessions, providers, KBs)
-  // are left out, but still make a different key (a different item).
-  function describeRoute(route) {
+  // Item sections whose display names live in an App.store collection (M25 F3
+  // L2, DD8/DD9): route `destination/section` -> {collection, noun}. The noun
+  // is the fallback when the collection is not loaded yet (a cold deep link)
+  // or does not hold the id -- never the raw id.
+  var ITEM_COLLECTIONS = {
+    'settings/providers': { collection: 'providers', noun: 'Provider' },
+    'library/knowledge': { collection: 'knowledge-bases', noun: 'Knowledge base' },
+    'library/mcp': { collection: 'mcp-sources', noun: 'MCP server' },
+    'library/connectors': { collection: 'connectors', noun: 'Connector' }
+  };
+  // Route key -> the name a sync() hint supplied: a just-created item is not in
+  // the store until its collection reloads, so a later same-key retitle (or a
+  // Back to it) keeps the name instead of falling back to the noun.
+  var hintNames = {};
+
+  // The item's name from the store, or null. Synchronous: never fetches.
+  // router.js loads before store.js and describeRoute first runs from start(),
+  // so every read is guarded; ITEM_COLLECTIONS names only known collections
+  // (peek throws for an unknown one).
+  function storeName(collection, id) {
+    var store = window.App && window.App.store;
+    if (!store || typeof store.peek !== 'function') return null;
+    var list = null;
+    try { list = store.peek(collection).value; } catch (e) { return null; }
+    if (!list || !list.length) return null;
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i];
+      if (row && row.id === id) return typeof row.name === 'string' && row.name ? row.name : null;
+    }
+    return null;
+  }
+
+  // The spoken item part of a route with an id, or null when the item is not
+  // spoken (an opaque chat session id). Agents and tools: the id is the name.
+  function itemName(p, key, hint) {
+    var row = ITEM_COLLECTIONS[p.destination + '/' + (p.section || '')];
+    if (p.destination !== 'agents' && p.section !== 'tools' && !row) return null;
+    if (typeof hint === 'string' && hint) return hint;
+    if (!row) return p.id;
+    return storeName(row.collection, p.id) || hintNames[key] || row.noun;
+  }
+
+  // {parts, key} for a route. Spoken items: an agent name, a tool name, a
+  // provider / knowledge base / MCP server / connector display name (from the
+  // store, `nameHint`, or the type noun), or "New"; opaque ids (chat sessions)
+  // are left out, but still make a different key (a different item). The key's
+  // id is encoded (enc) so it can never read as the `~new` create segment.
+  function describeRoute(route, nameHint) {
     var p = parse(route);
     if (!p) return null;
     var parts = [destById(p.destination).label];
     if (p.section) parts.push(SECTION_LABELS[p.section] || p.section);
+    var key = [p.destination, p.section || '',
+      p.create ? RESERVED_NEW : (p.id ? enc(p.id) : '')].join('/');
     var item = null;
     if (p.create) item = 'New';
-    else if (p.destination === 'agents' && p.id) item = p.id;
-    else if (p.section === 'tools' && p.id) item = p.id;
+    else if (p.id) item = itemName(p, key, nameHint);
     if (item) {
       if (item.length > 30) item = item.slice(0, 29) + '\u2026';
       parts.push(item);
     }
-    return { parts: parts, key: [p.destination, p.section || '', p.create ? '~new' : (p.id || '')].join('/') };
+    return { parts: parts, key: key };
+  }
+
+  function titleFor(d) {
+    document.title = (d ? d.parts.join(' \u2014 ') + ' \u00b7 ' : '') + BRAND;
   }
 
   function applyTitle(route) {
-    var d = describeRoute(route);
-    document.title = (d ? d.parts.join(' \u2014 ') + ' \u00b7 ' : '') + BRAND;
+    titleFor(describeRoute(route));
+  }
+
+  // The one ~new -> item transition a sync() announces (DD8): the previous key
+  // is a create key, and the new key is an item in the SAME destination and
+  // section. Keys are `destination/section/(~new|enc(id))`, so the prefix up to
+  // the `~new` segment names the destination and section.
+  function isCreateToItem(prevKey, key) {
+    var suffix = '/' + RESERVED_NEW;
+    if (!prevKey || prevKey.length < suffix.length ||
+        prevKey.slice(-suffix.length) !== suffix) return false;
+    var prefix = prevKey.slice(0, prevKey.length - RESERVED_NEW.length);
+    return key !== prevKey && key.indexOf(prefix) === 0 && key.length > prefix.length;
   }
 
   function ensureAnnouncer() {
@@ -389,6 +495,10 @@
     return el;
   }
 
+  function speak(parts) {
+    ensureAnnouncer().textContent = parts.join(' \u2014 ');
+  }
+
   // One polite live region (role=status), created empty at boot (start()) so
   // assistive tech has registered it before the first message, kept in the DOM.
   // Announces only a commit that changes destination/section/item; boot (first)
@@ -399,8 +509,7 @@
     var changed = d.key !== lastAnnounceKey;
     lastAnnounceKey = d.key;
     if (first || !changed) return;
-    var el = ensureAnnouncer();
-    el.textContent = d.parts.join(' \u2014 ');
+    speak(d.parts);
   }
 
   function applyShell(destId) {
@@ -409,6 +518,7 @@
     if (aside) {
       aside.hidden = !dest.sidebar;
       aside.setAttribute('aria-label', dest.label);
+      aside.dataset.destination = destId;
     }
     // Commit subscribers (the rail): notified with the destination id, after
     // current/lastRoute are updated, so a subscriber reads lastRoute(dest).
@@ -552,8 +662,10 @@
 
   // Area-internal canonicalisation. Dropped when: the mapped destination is not
   // the current one; a decision is pending; or location.hash is not the
-  // router's current URL (ignoring element-id fragments).
-  function sync(areaId, sub) {
+  // router's current URL (ignoring element-id fragments). `opts.name` is an
+  // optional display-name hint for the route's item (a save-create's new item
+  // is not in the store yet).
+  function sync(areaId, sub, opts) {
     if (!started || !current) return false;
     if (deciding) return false;
     var route = areaSubToRoute(areaId, sub);
@@ -564,10 +676,21 @@
     var oldRoute = current.route;
     current = { route: parsed.route, destination: parsed.destination, area: parsed.area, sub: parsed.sub };
     lastRoutes[parsed.destination] = parsed.route;
-    // Canonicalisation may name the item: retitle and record the key, never announce.
-    applyTitle(parsed.route);
-    var dd = describeRoute(parsed.route);
-    if (dd) lastAnnounceKey = dd.key;
+    // Canonicalisation may name the item: retitle and record the key. It is
+    // silent except for one transition (DD8): from a `~new` route to an item
+    // in the same destination and section -- a save-create. The previous key
+    // is read BEFORE it is overwritten. A save-create sync that was dropped
+    // above leaves the `~new` key in place, so the next sync to an item there
+    // announces it once (the same transition, late).
+    var hint = opts && typeof opts.name === 'string' && opts.name ? opts.name : null;
+    var prevKey = lastAnnounceKey;
+    var dd = describeRoute(parsed.route, hint);
+    titleFor(dd);
+    if (dd) {
+      if (hint) hintNames[dd.key] = hint;
+      if (isCreateToItem(prevKey, dd.key)) speak(dd.parts);
+      lastAnnounceKey = dd.key;
+    }
     if (!sameRoute(location.hash, parsed.route)) {
       // An element-id fragment (skip link) with an unchanged route is left in
       // place; any real change replaces it.

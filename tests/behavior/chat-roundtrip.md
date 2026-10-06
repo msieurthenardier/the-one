@@ -4,6 +4,7 @@
 **Status**: active
 **Created**: 2026-07-04
 **Last Run**: 2026-07-06-05-28-01 (pass, 5/5, DARK Variant — the owed F7 mission-end gate run; light passed F4 → both themes green; see runs/)
+**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
 
 ## Intent
 
@@ -47,4 +48,4 @@ Verify the chat *interaction* on the redesigned v3 chat surface end-to-end again
 
 ## Variants
 
-- **Dark theme.** Re-run Steps 3–6 with the instance in dark mode (set via Settings › General's theme control, or `App.theme.set('dark')`). Record the theme option in effect before the variant and **restore it after** (if the original was "Auto", restore Auto — not the resolved mode). Expected results are identical, additionally confirming the tinted user turn keeps primary-foreground text (legible over the dark accent-translucent wash) and the assistant prose + rendered markdown hold in dark. Overall verdict passes only if BOTH the light and dark runs pass.
+- **Dark theme.** Re-run Steps 3–6 with the instance in dark mode (set via Settings › Appearance's theme control, or `App.theme.set('dark')`). Record the theme option in effect before the variant and **restore it after** (if the original was "Auto", restore Auto — not the resolved mode). Expected results are identical, additionally confirming the tinted user turn keeps primary-foreground text (legible over the dark accent-translucent wash) and the assistant prose + rendered markdown hold in dark. Overall verdict passes only if BOTH the light and dark runs pass.

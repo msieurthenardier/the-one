@@ -7,11 +7,13 @@ What this file pins (leg 04, ``item-history-and-exact-rendering``):
 
 * AC2  item opens PUSH history (agent tile, provider/MCP/KB rows); tab switches
        and MCP focus changes REPLACE.
-* AC3  a section-root route renders exactly the root: a clean Back closes the
-       editor and resets ``dirty``; a URL-less connector editor / agent create
-       form is closed by a section-root ``go()``; dirty prompts once.
+* AC3  a section-root route renders exactly the root: a clean close (an item
+       header breadcrumb's root link: M25 F3 L4b retired the Library Backs and
+       L5b the Settings ones) closes the editor and resets ``dirty``; an agent
+       create form is closed by a section-root ``go()``; dirty prompts once.
 * AC4  an intent ``go()`` to an item consumes the cached list: no list refetch,
-       no root re-render, no empty/"Loading" flash of the grid.
+       no list re-render, no empty/"Loading" flash of the list (since M25 F3
+       the lists stay beside, or above, the open item).
 * AC5  a dead id (traversal, ``fresh: true``) heals to the section root.
 * AC5b exactly ONE dialog per converted intent when dirty; Continue proceeds
        without a second prompt.
@@ -28,7 +30,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
@@ -106,42 +108,46 @@ def _watch_requests(page: Page) -> list[str]:
     return seen
 
 
-_FLASH_JS = """
-() => {
-  window.__flash = { gridRebuilt: false, empty: false, loading: false };
-  const check = (n) => {
-    if (!(n instanceof Element)) return;
-    const sel = '.entity-tile-grid';
-    const grids = n.matches(sel) ? [n] : [...n.querySelectorAll(sel)];
-    if (grids.length) window.__flash.gridRebuilt = true;
-    // A "Loading" placeholder only counts when it sits IN a grid (an editor may
-    // legitimately show its own loading hints).
-    if (n.closest && n.closest('.entity-tile-grid') && /Loading/.test(n.textContent || '')) {
-      window.__flash.loading = true;
-    }
-  };
-  window.__flashObs = new MutationObserver((recs) => {
-    for (const r of recs) {
-      r.addedNodes.forEach(check);
-      if (r.target instanceof Element && r.target.matches('.entity-tile-grid')) {
-        const t = r.target;
-        if (t.children.length === 0 || /Loading|No agents|No providers/.test(t.textContent || '')) {
-          window.__flash.empty = true;
-        }
-      }
-    }
-  });
-  window.__flashObs.observe(document.body, { childList: true, subtree: true });
-}
-"""
+def _arm_providers_grid_watch(page: Page) -> None:
+    """Flag ``window.__tableEmptied`` if the Providers grid ever loses its tiles
+    (or shows a "Loading" line), and mark every current tile node so a rebuild
+    is visible (``_providers_rows_kept``). M25 F3 L5b/L7: the grid stays above
+    the open provider; selection is applied in place."""
+    page.evaluate(
+        """() => { window.__tableEmptied = false;
+          const list = document.querySelector('.area-admin .settings-list');
+          document.querySelectorAll('.provider-tile-grid [role="listitem"]').forEach(
+            (t) => { t.__kept = true; });
+          new MutationObserver(() => {
+            const g = list.querySelector('.provider-tile-grid');
+            if (!g || !g.querySelector('[role="listitem"]')
+                || /Loading/.test(list.textContent || '')) {
+              window.__tableEmptied = true;
+            }
+          }).observe(list, {childList: true, subtree: true}); }"""
+    )
 
 
-def _arm_flash_observer(page: Page) -> None:
-    page.evaluate(_FLASH_JS)
+def _providers_rows_kept(page: Page) -> bool:
+    return page.evaluate(
+        "() => { const t = [...document.querySelectorAll("
+        "'.provider-tile-grid [role=\"listitem\"]')];"
+        " return t.length > 0 && t.every((n) => n.__kept === true); }"
+    )
 
 
-def _flash(page: Page) -> dict:
-    return page.evaluate("window.__flash")
+def _arm_list_emptied_observer(page: Page, testid: str) -> None:
+    """Flag ``window.__listEmptied`` if the list pane's body ever loses its rows
+    or hides (a list flash). Lists replace the grids (M25 F3 L3/L4a)."""
+    page.evaluate(
+        """(tid) => { window.__listEmptied = false;
+          const body = document.querySelector(`[data-testid="${tid}"] .ui-list-pane-body`);
+          new MutationObserver(() => {
+            const rows = body.querySelector('.ui-list-pane-row');
+            if (!rows || body.hidden) window.__listEmptied = true;
+          }).observe(body, {childList: true, subtree: true, attributes: true}); }""",
+        testid,
+    )
 
 
 def _two_agents(app: SeededApp) -> tuple[str, str]:
@@ -158,7 +164,7 @@ def test_agent_items_push_and_tabs_replace(app_with_agent: SeededApp, page: Page
     _nav.goto_settled(page, app_with_agent.base_url, "agents")
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
 
-    page.locator('[data-testid="agent-item"]').filter(has_text=a).click()
+    _lists.open_item(page, "agents", a)
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
     _nav.expect_route(page, f"agents/{_nav.seg(a)}/general")
 
@@ -180,6 +186,7 @@ def test_agent_items_push_and_tabs_replace(app_with_agent: SeededApp, page: Page
     _nav.expect_route(page, "agents")
     expect(page.locator('[data-testid="agent-item"]').first).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-general"]')).to_have_count(0)
+    expect(page.locator('[data-testid="agent-item"][aria-current="page"]')).to_have_count(0)
     _wait_area_false(page, "studio", "a._dirty")
 
 
@@ -209,8 +216,8 @@ def test_kb_items_push(app_clean: str, page: Page) -> None:
     k1 = _post(app_clean, "/api/knowledge-bases", {"name": "KB One"})["id"]
     k2 = _post(app_clean, "/api/knowledge-bases", {"name": "KB Two"})["id"]
     _nav.goto_settled(page, app_clean, "library/knowledge")
-    page.locator('[data-testid="knowledge-base-card"]', has_text="KB One").click()
-    expect(page.locator('[data-testid="back-knowledge-btn"]')).to_be_visible(timeout=8000)
+    _lists.open_item(page, "library/knowledge", "KB One")
+    expect(page.locator('[data-testid="save-knowledge-btn"]')).to_be_visible(timeout=8000)
     _nav.expect_route(page, f"library/knowledge/{_nav.seg(k1)}")
 
     _go(page, f"library/knowledge/{_nav.seg(k2)}")
@@ -222,7 +229,7 @@ def test_kb_items_push(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-testid="kb-name-input"]')).to_have_value("KB One", timeout=8000)
     page.go_back()
     _nav.expect_route(page, "library/knowledge")
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=8000)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
 
 
 def test_mcp_items_push(app_clean: str, page: Page) -> None:
@@ -233,7 +240,7 @@ def test_mcp_items_push(app_clean: str, page: Page) -> None:
         app_clean, "/api/mcp-sources", {"name": "two", "type": "stdio", "config": {"command": "y"}}
     )["id"]
     _nav.goto_settled(page, app_clean, "library/mcp")
-    page.locator(f'[data-testid="mcp-source-card"][data-id="{s1}"]').click()
+    _lists.open_item(page, "library/mcp", "one")
     expect(page.locator('[data-field="name"]')).to_have_value("one", timeout=8000)
     _nav.expect_route(page, f"library/mcp/{_nav.seg(s1)}")
 
@@ -246,6 +253,7 @@ def test_mcp_items_push(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-field="name"]')).to_have_value("one", timeout=8000)
     page.go_back()
     _nav.expect_route(page, "library/mcp")
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
 
 
@@ -253,9 +261,12 @@ def test_tool_items_push(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, "settings/tools")
     cards = page.locator('[data-testid="tool-card"]')
     expect(cards.first).to_be_visible(timeout=8000)
-    cards.first.click()
-    expect(page.locator(".editor-title")).to_be_visible(timeout=8000)
-    assert _nav.current_route(page).startswith("settings/tools/")
+    name = cards.first.get_attribute("data-name")
+    assert name
+    # The tool name is the item link (M25 F3 L5b); the tile is no click target.
+    _lists.open_item(page, "settings/tools", name)
+    expect(page.locator(".editor-title")).to_have_text(name, timeout=8000)
+    _nav.expect_route(page, f"settings/tools/{_nav.seg(name)}")
     page.go_back()
     _nav.expect_route(page, "settings/tools")
     expect(page.locator(".editor-title")).to_have_count(0)
@@ -264,46 +275,87 @@ def test_tool_items_push(app_clean: str, page: Page) -> None:
 # ── AC3: exact rendering ────────────────────────────────────────────────────
 
 
-def test_provider_back_clean_closes_editor(app_with_provider: SeededApp, page: Page) -> None:
+def test_provider_breadcrumb_clean_closes_editor(app_with_provider: SeededApp, page: Page) -> None:
+    """Renamed from the Back-button test (M25 F3 L5b retired the Settings
+    Backs): the breadcrumb's "Providers" link closes the editor; the table
+    stays, and focus lands on the closed provider's row (DD8)."""
     base = app_with_provider.base_url
     _nav.goto_settled(page, base, f"settings/providers/{_nav.seg(app_with_provider.provider_id)}")
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator("#pf-name")).to_have_count(0, timeout=8000)
     expect(page.locator('[data-testid="provider-card"]').first).to_be_visible(timeout=8000)
     _nav.expect_route(page, "settings/providers")
     _wait_area_false(page, "admin", "a._dirty")
     expect(page.locator(DIALOG)).to_have_count(0)
-    # Back was a push: the browser Back re-opens the provider (DD4).
+    expect(_lists.list_row(page, "settings/providers", "mock")).to_be_focused()
+    # The close was a push: the browser Back re-opens the provider (DD4).
     page.go_back()
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
 
 
-def test_mcp_back_clean_closes_editor(app_clean: str, page: Page) -> None:
+def test_mcp_breadcrumb_clean_closes_editor(app_clean: str, page: Page) -> None:
     sid = _post(
         app_clean,
         "/api/mcp-sources",
-        {"name": "back-me", "type": "stdio", "config": {"command": "x"}},
+        {"name": "close-me", "type": "stdio", "config": {"command": "x"}},
     )["id"]
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
-    expect(page.locator('[data-testid="back-mcp-source-btn"]')).to_be_visible(timeout=8000)
-    page.locator('[data-testid="back-mcp-source-btn"]').click()
-    expect(page.locator('[data-testid="back-mcp-source-btn"]')).to_have_count(0, timeout=8000)
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    _lists.close_item(page)
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_have_count(0, timeout=8000)
+    # M25 F3 L4b (AC2): the breadcrumb's "MCP servers" link (Back is retired)
+    # returns to the section root's empty state, beside the list.
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
     _nav.expect_route(page, "library/mcp")
     _wait_area_false(page, "studio", "a._dirty")
     expect(page.locator(DIALOG)).to_have_count(0)
 
 
-def test_connector_editor_closed_by_library_connectors_section(app_clean: str, page: Page) -> None:
+def test_connector_editor_closed_by_breadcrumb_to_the_section_root(
+    app_clean: str, page: Page
+) -> None:
+    """M25 F3 L4a/L4b: connectors are routed; the section nav that used to close
+    the editor is retired, and so is the interim Back (leg 4b): the item header
+    breadcrumb's "Connectors" link closes it (a pushed go() to
+    ``#library/connectors``, the section root's empty state). (Formerly
+    ``test_connector_editor_closed_by_library_connectors_section``, then
+    ``test_connector_editor_closed_by_back_to_the_section_root``.)"""
+    cid = _post(
+        app_clean,
+        "/api/connectors",
+        {"name": "Closable", "type": "discord", "config": {"enabled": False}, "secrets": {}},
+    )["id"]
     _nav.goto_settled(page, app_clean, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _lists.open_item(page, "library/connectors", "Closable")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
-    _nav.expect_route(page, "library/connectors")  # URL-less
-    page.locator('.section-nav-item[data-section="connectors"]').click()
+    _nav.expect_route(page, f"library/connectors/{_nav.seg(cid)}")
+    _lists.close_item(page)
     expect(page.locator('[data-testid="save-connector-btn"]')).to_have_count(0, timeout=8000)
-    expect(page.locator('[data-testid="new-connector-btn"]')).to_be_visible(timeout=8000)
+    expect(_lists.library_empty_state(page, "connectors")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library/connectors")
     _wait_area_false(page, "studio", "a._dirty")
+    expect(page.locator(DIALOG)).to_have_count(0)
+    # The close was a push: the browser Back re-opens the connector.
+    page.go_back()
+    expect(page.locator(".editor-title")).to_have_text("Closable", timeout=8000)
+
+
+def test_kb_breadcrumb_clean_closes_detail(app_clean: str, page: Page) -> None:
+    """M25 F3 L4a (AC3), moved onto the breadcrumb in L4b: the knowledge-base
+    detail's "Knowledge bases" link returns to the section root's empty state,
+    beside the list, and focus goes to the closed item's row (DD8)."""
+    kb = _post(app_clean, "/api/knowledge-bases", {"name": "Closed KB"})["id"]
+    _nav.goto_settled(page, app_clean, f"library/knowledge/{_nav.seg(kb)}")
+    expect(page.locator('[data-testid="kb-name-input"]')).to_be_visible(timeout=8000)
+    _lists.close_item(page)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
+    _nav.expect_route(page, "library/knowledge")
+    row = _lists.list_row(page, "library/knowledge", "Closed KB")
+    expect(row).to_be_visible()
+    expect(row).to_be_focused(timeout=8000)
+    expect(page.locator(DIALOG)).to_have_count(0)
 
 
 def test_agent_create_closed_by_agents_rail_link(app_with_provider: SeededApp, page: Page) -> None:
@@ -337,7 +389,7 @@ def test_dirty_agent_create_prompts_once_on_rail_and_continue_closes(
     _wait_area_false(page, "studio", "a._dirty")
 
 
-def test_dirty_provider_back_prompts_once_and_continue_closes(
+def test_dirty_provider_breadcrumb_prompts_once_and_continue_closes(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     base = app_with_provider.base_url
@@ -346,12 +398,12 @@ def test_dirty_provider_back_prompts_once_and_continue_closes(
     expect(name).to_be_visible(timeout=8000)
     name.fill("dirty-edit")
     expect(page.locator('[data-testid="save-provider-btn"]')).to_be_enabled()
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(STAY).click()
     _no_second_dialog(page)
     expect(page.locator("#pf-name")).to_have_value("dirty-edit")
-    page.locator('[data-testid="back-provider-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
@@ -360,7 +412,7 @@ def test_dirty_provider_back_prompts_once_and_continue_closes(
     _wait_area_false(page, "admin", "a._dirty")
 
 
-def test_dirty_mcp_back_prompts_once_and_continue_closes(app_clean: str, page: Page) -> None:
+def test_dirty_mcp_breadcrumb_prompts_once_and_continue_closes(app_clean: str, page: Page) -> None:
     sid = _post(
         app_clean,
         "/api/mcp-sources",
@@ -370,36 +422,37 @@ def test_dirty_mcp_back_prompts_once_and_continue_closes(app_clean: str, page: P
     name = page.locator('[data-field="name"]')
     expect(name).to_be_visible(timeout=8000)
     name.fill("typed-name")
-    page.locator('[data-testid="back-mcp-source-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
     _nav.expect_route(page, "library/mcp")
     _wait_area_false(page, "studio", "a._dirty")
 
 
-def test_dirty_kb_back_prompts_once_and_continue_closes(app_clean: str, page: Page) -> None:
+def test_dirty_kb_breadcrumb_prompts_once_and_continue_closes(app_clean: str, page: Page) -> None:
     kb = _post(app_clean, "/api/knowledge-bases", {"name": "Dirty KB"})["id"]
     _nav.goto_settled(page, app_clean, f"library/knowledge/{_nav.seg(kb)}")
     name = page.locator('[data-testid="kb-name-input"]')
     expect(name).to_be_visible(timeout=8000)
     name.fill("Dirty KB Edited")
-    page.locator('[data-testid="back-knowledge-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=8000)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
     _nav.expect_route(page, "library/knowledge")
     _wait_area_false(page, "studio", "a._dirty")
 
 
-def test_dirty_tool_back_prompts_once_and_continue_closes(app_clean: str, page: Page) -> None:
+def test_dirty_tool_breadcrumb_prompts_once_and_continue_closes(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, "settings/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('[data-field="search_backend"]').select_option("searxng")
     expect(page.locator(".save-btn")).not_to_be_disabled()
-    page.locator('[data-testid="back-tool-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
@@ -408,15 +461,17 @@ def test_dirty_tool_back_prompts_once_and_continue_closes(app_clean: str, page: 
     _wait_area_false(page, "admin", "a._dirty")
 
 
-def test_dirty_agent_back_prompts_once_and_continue_closes(
+def test_dirty_agent_rail_root_prompts_once_and_continue_closes(
     app_with_agent: SeededApp, page: Page
 ) -> None:
+    """Renamed from the Back-button test (M25 F3 L3 retired Back): the rail's
+    current-destination link goes to the Agents root, asking once."""
     _nav.goto_settled(page, app_with_agent.base_url, "agents")
-    page.locator('[data-testid="agent-item"]').first.click()
+    _lists.first_row(page, "agents").click()
     desc = page.locator('[data-field="description"]')
     expect(desc).to_be_visible(timeout=8000)
     desc.fill("dirty edit")
-    page.locator('[data-testid="back-agent-btn"]').click()
+    _nav.open_destination(page, "agents")
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
@@ -425,115 +480,147 @@ def test_dirty_agent_back_prompts_once_and_continue_closes(
     _wait_area_false(page, "studio", "a._dirty")
 
 
-def test_dirty_agent_tile_dispatch_prompts_once(app_with_agent: SeededApp, page: Page) -> None:
-    """A tile intent while dirty (the tile is hidden behind the editor, so the
-    click is dispatched) asks exactly once: the inline gate is gone."""
+def test_dirty_agent_row_click_prompts_once(app_with_agent: SeededApp, page: Page) -> None:
+    """A sibling's list row while dirty (the list stays beside the editor
+    since M25 F3 L3, so it is a real click) asks exactly once."""
     a, b = _two_agents(app_with_agent)
     _nav.goto_settled(page, app_with_agent.base_url, "agents")
-    page.locator('[data-testid="agent-item"]').filter(has_text=a).click()
+    _lists.open_item(page, "agents", a)
     desc = page.locator('[data-field="description"]')
     expect(desc).to_be_visible(timeout=8000)
     desc.fill("dirty edit")
-    page.locator('[data-testid="agent-item"]').filter(has_text=b).dispatch_event("click")
+    _lists.list_row(page, "agents", b).click()
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
     _nav.expect_route(page, f"agents/{_nav.seg(b)}/general")
 
 
-def test_enter_create_mode_and_connector_keep_their_inline_gate(
+def test_agent_create_route_and_connector_breadcrumb_each_ask_once(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Create mode and the connector editor are URL-less: they keep ONE inline
-    dialog (the New Agent button; the connector Back)."""
+    """ "New" from a dirty agent asks ONCE (since M25 F3 L3 agent create is the
+    `#agents/~new` route, guarded by the router, not an inline gate). Since M25
+    F3 L4a the connector editor is routed too: its breadcrumb's "Connectors"
+    link (L4b; it was the interim Back) is a router go(), so a dirty connector
+    create form asks ONCE through the router guard (the inline dialog is gone),
+    and so does the Add menu from a dirty form."""
     _nav.goto_settled(page, app_with_agent.base_url, "agents")
-    page.locator('[data-testid="agent-item"]').first.click()
+    _lists.first_row(page, "agents").click()
     desc = page.locator('[data-field="description"]')
     expect(desc).to_be_visible(timeout=8000)
     desc.fill("dirty edit")
-    page.locator('[data-testid="new-agent-btn"]').first.dispatch_event("click")
+    page.locator('[data-testid="new-agent-btn"]').click()
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
+    _nav.expect_route(page, "agents/~new")
+    expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
     assert _area(page, "studio", "a._createMode") is True
 
     _nav.goto_settled(page, app_with_agent.base_url, "library/connectors")
-    page.locator('[data-testid="new-connector-btn"]').click()
+    _lists.library_add(page, "connectors")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-field="name"]').first.fill("conn")
-    page.locator('[data-testid="back-connector-btn"]').click()
+    _lists.close_item(page)
     expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
     page.locator(CONTINUE).click()
     _no_second_dialog(page)
-    expect(page.locator('[data-testid="new-connector-btn"]')).to_be_visible(timeout=5000)
+    expect(_lists.library_empty_state(page, "connectors")).to_be_visible(timeout=5000)
+    _nav.expect_route(page, "library/connectors")
+    _wait_area_false(page, "studio", "a._dirty")
+
+    # The Add menu from a dirty connector form: one router prompt, Stay keeps it.
+    _lists.library_add(page, "connectors")
+    page.locator('[data-field="name"]').first.fill("conn again")
+    page.locator('[data-testid="library-add-btn"]').click()
+    page.locator('[data-testid="library-add-knowledge"]').click()
+    expect(page.locator(DIALOG)).to_have_count(1, timeout=8000)
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    _no_second_dialog(page)
+    _nav.expect_route(page, "library/connectors/~new")
+    expect(page.locator('[data-field="name"]').first).to_have_value("conn again")
 
 
 # ── AC4: no grid flash, no list refetch (intent go) ─────────────────────────
 
 
-def test_agent_tile_open_no_refetch_no_flash(app_with_agent: SeededApp, page: Page) -> None:
+def test_agent_row_open_no_refetch_no_flash(app_with_agent: SeededApp, page: Page) -> None:
+    """Opening an agent from its list row refetches no list and never empties
+    the list (M25 F3 L3: the list stays beside the editor)."""
     _nav.goto_settled(page, app_with_agent.base_url, "agents")
     expect(page.locator('[data-testid="agent-item"]').first).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
     seen = _watch_requests(page)
-    _arm_flash_observer(page)
-    page.locator('[data-testid="agent-item"]').first.click()
+    page.evaluate(
+        """() => { window.__listEmptied = false;
+          const body = document.querySelector('[data-testid="agents-list"] .ui-list-pane-body');
+          new MutationObserver(() => {
+            const rows = body.querySelector('.ui-list-pane-row');
+            if (!rows || body.hidden) window.__listEmptied = true;
+          }).observe(body, {childList: true, subtree: true, attributes: true}); }"""
+    )
+    _lists.first_row(page, "agents").click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
     _nav.wait_settled(page)
     assert "GET /api/agents" not in seen, seen
-    flash = _flash(page)
-    assert not flash["empty"] and not flash["loading"], flash
+    assert page.evaluate("window.__listEmptied") is False
+    _lists.expect_selected(page, "agents", app_with_agent.agent_name)
 
 
 def test_provider_open_no_refetch_no_flash(app_with_provider: SeededApp, page: Page) -> None:
+    """Opening a provider from its tile's name link refetches no list and never
+    rebuilds or empties the grid (M25 F3 L5b/L7: the grid stays above the
+    editor; the tile is selected in place)."""
     base = app_with_provider.base_url
     _nav.goto_settled(page, base, "settings/providers")
     card = page.locator('[data-testid="provider-card"]').first
     expect(card).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
     seen = _watch_requests(page)
-    _arm_flash_observer(page)
+    _arm_providers_grid_watch(page)
     card.click()
     expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
     _nav.wait_settled(page)
     assert "GET /api/providers" not in seen, seen
-    flash = _flash(page)
-    assert not flash["gridRebuilt"] and not flash["empty"] and not flash["loading"], flash
+    assert page.evaluate("window.__tableEmptied") is False
+    assert _providers_rows_kept(page)
+    _lists.expect_selected(page, "settings/providers", "mock")
 
 
 def test_mcp_open_no_refetch_no_flash(app_clean: str, page: Page) -> None:
+    """Opening an MCP server from its Library row refetches no list and never
+    empties the list (M25 F3 L4a: the list stays beside the editor)."""
     _post(app_clean, "/api/mcp-sources", {"name": "m", "type": "stdio", "config": {"command": "x"}})
     _nav.goto_settled(page, app_clean, "library/mcp")
-    card = page.locator('[data-testid="mcp-source-card"]').first
-    expect(card).to_be_visible(timeout=8000)
+    row = _lists.list_row(page, "library/mcp", "m")
+    expect(row).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
     seen = _watch_requests(page)
-    _arm_flash_observer(page)
-    card.click()
+    _arm_list_emptied_observer(page, "library-list")
+    row.click()
     expect(page.locator('[data-field="name"]')).to_be_visible(timeout=8000)
     _nav.wait_settled(page)
     assert "GET /api/mcp-sources" not in seen, seen
-    flash = _flash(page)
-    assert not flash["gridRebuilt"] and not flash["empty"], flash
+    assert page.evaluate("window.__listEmptied") is False
+    _lists.expect_selected(page, "library/mcp", "m")
 
 
-def test_kb_open_no_list_refetch_no_grid_rebuild(app_clean: str, page: Page) -> None:
+def test_kb_open_no_list_refetch_no_list_flash(app_clean: str, page: Page) -> None:
     """Knowledge differs: the detail view's own status/items fetches (and its
     "Loading knowledge base" placeholder) are inherent. Only the no-flash-of-
-    the-LIST part is asserted: the list is not refetched and the grid is not
-    rebuilt."""
+    the-LIST part is asserted: the list is not refetched and never empties."""
     _post(app_clean, "/api/knowledge-bases", {"name": "Cached KB"})
     _nav.goto_settled(page, app_clean, "library/knowledge")
-    card = page.locator('[data-testid="knowledge-base-card"]').first
-    expect(card).to_be_visible(timeout=8000)
+    row = _lists.list_row(page, "library/knowledge", "Cached KB")
+    expect(row).to_be_visible(timeout=8000)
     _nav.wait_settled(page, quiet_ms=1500)
     seen = _watch_requests(page)
-    _arm_flash_observer(page)
-    card.click()
+    _arm_list_emptied_observer(page, "library-list")
+    row.click()
     expect(page.locator('[data-testid="kb-name-input"]')).to_be_visible(timeout=8000)
     assert "GET /api/knowledge-bases" not in seen, seen
-    flash = _flash(page)
-    assert not flash["gridRebuilt"] and not flash["empty"], flash
+    assert page.evaluate("window.__listEmptied") is False
 
 
 # ── AC5: dead ids (traversal, fresh) ────────────────────────────────────────
@@ -584,6 +671,7 @@ def test_dead_mcp_source_on_forward_heals_to_root(app_clean: str, page: Page) ->
     page.go_forward()
     _nav.expect_route(page, "library/mcp")
     expect(page.locator('[data-testid="mcp-source-card"]').first).to_be_visible(timeout=8000)
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
     expect(page.locator('[data-field="name"]')).to_have_count(0)
     _wait_area_none(page, "studio", "a._pendingMcpSourceId")
     _wait_area_none(page, "studio", "a._pendingMcpSourceFormMode")
@@ -607,7 +695,7 @@ def test_dead_agent_and_kb_ids_heal_to_root(app_with_agent: SeededApp, page: Pag
 
     _nav.goto_settled(page, base, "library/knowledge/ghost")
     _nav.expect_route(page, "library/knowledge")
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=8000)
+    expect(_lists.library_empty_state(page, "knowledge")).to_be_visible(timeout=8000)
     _wait_area_none(page, "studio", "a._selectedKbId")
 
 

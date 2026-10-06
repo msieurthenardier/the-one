@@ -1,22 +1,18 @@
-"""Studio MCP Sources navigation flow tests.
+"""Library MCP servers navigation flow tests.
 
 Originally `test_flow_admin_mcp_navigation.py` (M07 F1 L5/L6 — admin nav);
 relocated to studio post-F2 retrofit because MCP sources are user-managed
-entities, not system settings.
+entities, not system settings. Since M25 F3 L4a MCP servers are the second
+group of the Library list (the section nav and the tile grid are retired).
 
 Covers:
-- Studio section nav has 4 entries (Agents / Knowledge / MCP Servers /
-  Connectors — the Tools stub was replaced by MCP Servers in the F2
-  retrofit; a "Connectors" entry existed from M10 through Mission 23
-  Flight 1, which reset the connector subsystem and removed it along
-  with the routes; Mission 23 Flight 2 Leg 2 reinstates it)
-- Click "MCP Servers" → URL becomes #studio/mcp-sources
-- Direct-load #studio/mcp-sources renders the MCP Servers page
-- Direct-load #studio/mcp-sources/new renders the editor
-- Refresh on #studio/mcp-sources preserves the section
-- Empty grid shows the empty-canvas; the unified header CTA
-  (new-mcp-source-btn, M17 F3 L3) is visible (precondition: empty
-  mcp_sources table)
+- The Library list has the "MCP servers" group; the section nav is gone
+- An MCP row opens its editor beside the list (``#library/mcp/{id}``)
+- Direct-load ``#studio/mcp-sources`` (legacy) renders the MCP section root
+- Direct-load ``#library/mcp/~new`` renders the editor
+- Refresh on ``#library/mcp`` preserves the section
+- An empty inventory shows the group's empty line and the section root's
+  empty state, whose action opens the create form
 
 Note: App.areas is closure-private in app.js, so tests use BEHAVIORAL DOM
 assertions (e.g., `[data-testid="save-mcp-source-btn"]` visible) rather
@@ -25,37 +21,51 @@ than state introspection.
 
 from __future__ import annotations
 
+import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
+from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Page, expect
 
 
-@pytest.mark.browser
-def test_studio_section_nav_includes_mcp_servers(app_clean: str, page: Page) -> None:
-    """The Library section nav has 3 entries: Knowledge | MCP Servers | Connectors."""
-    _nav.goto_settled(page, app_clean, "library")
-    nav = page.locator(".area-studio .section-nav")
-    expect(nav).to_be_visible(timeout=5000)
-    items = page.locator(".area-studio .section-nav-item")
-    expect(items).to_have_count(3)
-    labels = items.evaluate_all("els => els.map(e => e.textContent.trim())")
-    assert labels == ["Knowledge", "MCP Servers", "Connectors"]
+def _seed_mcp(base: str, name: str) -> str:
+    r = httpx.post(
+        f"{base}/api/mcp-sources",
+        json={"name": name, "type": "stdio", "config": {"command": "x"}, "secrets": {}},
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code in (200, 201), r.text
+    return r.json()["id"]
 
 
 @pytest.mark.browser
-def test_studio_section_nav_click_to_mcp_sources(app_clean: str, page: Page) -> None:
+def test_library_list_has_the_mcp_group_and_no_section_nav(app_clean: str, page: Page) -> None:
+    """The Library list's groups replace the section nav (DD5)."""
     _nav.goto_settled(page, app_clean, "library")
-    expect(page.locator(".area-studio .section-nav")).to_be_visible(timeout=5000)
-    page.locator(".area-studio .section-nav-item", has_text="MCP Servers").click()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
-    _nav.expect_route(page, "library/mcp")
+    library = page.locator('[data-testid="library-list"]')
+    expect(library).to_be_visible(timeout=5000)
+    captions = library.locator(".ui-list-pane-caption")
+    expect(captions).to_have_text(["Knowledge bases", "MCP servers", "Connectors"])
+    expect(page.locator(".area-studio .section-nav")).to_have_count(0)
+    expect(page.get_by_role("navigation", name="Library sections")).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_mcp_row_opens_its_editor_beside_the_list(app_clean: str, page: Page) -> None:
+    _seed_mcp(app_clean, "nav-mcp")
+    _nav.goto_settled(page, app_clean, "library/knowledge")
+    _lists.open_item(page, "library/mcp", "nav-mcp")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    _lists.expect_selected(page, "library/mcp", "nav-mcp")
+    expect(page.locator('[data-testid="library-list"]')).to_be_visible()
 
 
 @pytest.mark.browser
 def test_studio_direct_load_mcp_sources(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#studio/mcp-sources")  # legacy URL on purpose (AC6)
-    page.wait_for_selector(".area-studio .page-title", timeout=8000)
-    assert page.locator(".area-studio .page-title").text_content().strip() == "MCP Servers"
+    _nav.expect_route(page, "library/mcp", timeout=8000)
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
@@ -75,18 +85,23 @@ def test_studio_direct_load_mcp_sources_new_renders_editor(app_clean: str, page:
 @pytest.mark.browser
 def test_studio_refresh_preserves_mcp_sources_section(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, "library/mcp")
-    page.wait_for_selector(".area-studio .page-title", timeout=8000)
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
     page.reload()
-    page.wait_for_selector(".area-studio .page-title", timeout=8000)
+    expect(_lists.library_empty_state(page, "mcp")).to_be_visible(timeout=8000)
     _nav.expect_route(page, "library/mcp")
 
 
 @pytest.mark.browser
-def test_studio_mcp_sources_empty_grid_shows_cta(app_clean: str, page: Page) -> None:
-    """Empty mcp_sources table → empty-canvas renders; the unified header
-    CTA (M17 F3 L3) is visible in the empty state."""
+def test_studio_mcp_sources_empty_inventory_shows_group_line_and_add(
+    app_clean: str, page: Page
+) -> None:
+    """Empty mcp_sources table: the group shows its empty line, and the section
+    root's empty-state action opens the create form."""
     _nav.goto_settled(page, app_clean, "library/mcp")
-    # The empty canvas is the synchronization point for the fetch resolving
-    # to an empty inventory (the header CTA renders before the fetch).
-    page.wait_for_selector(".empty-canvas", timeout=8000)
-    expect(page.locator('[data-testid="new-mcp-source-btn"]')).to_be_visible()
+    library = page.locator('[data-testid="library-list"]')
+    expect(
+        library.locator(".ui-list-pane-group-empty", has_text="No MCP servers yet.")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="library-empty-mcp-add"]').click()
+    _nav.expect_route(page, "library/mcp/~new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)

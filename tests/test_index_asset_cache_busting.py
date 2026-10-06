@@ -47,7 +47,7 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # A CSS ref is versioned too.
     assert f'href="/static/css/base.css?v={__version__}"' in body
 
-    # All 69 /static js/css refs are versioned and none are double-suffixed.
+    # All 71 /static js/css refs are versioned and none are double-suffixed.
     # (Mission 23 Flight 1 Leg 2 deleted the 9 connector-subsystem script
     # tags, dropping the count from 62 to 53; Mission 23 Flight 2 Leg 2 adds
     # the ONE new connector-editor.js script tag back, to 54; Mission 24
@@ -58,11 +58,19 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # Leg 6 swaps two gallery section tags for ui-demo.js plus six ui-*-section.js
     # tags, to 67; Mission 25 Flight 2 Leg 2 adds ui/modal.js and swaps modal-section.js for
     # ui-modal-section.js, to 68; Mission 25 Flight 2 Leg 3 adds router.js, to 69;
-    # Leg 5 adds nav.js, to 70; Leg 6 adds ui/rail.js, to 71; Leg 7 adds store.js, to 72.)
+    # Leg 5 adds nav.js, to 70; Leg 6 adds ui/rail.js, to 71; Leg 7 adds store.js, to 72;
+    # Mission 25 Flight 3 Leg 1 adds ui/nav-groups.js, to 73; Leg 4a deletes
+    # areas/studio/mcp-servers-grid.js with the retired MCP tile grid, to 72;
+    # Leg 5a deletes areas/layout/section-nav.js, whose last caller (the
+    # Settings section nav) App.ui.navGroups replaced, to 71; Leg 5b swaps
+    # areas/admin/providers-grid.js for areas/admin/providers-table.js (the
+    # Providers tile grid became the reference spec 8.2 table), still 71;
+    # Leg 7 renames it providers-list.js when the list returned to tiles by
+    # operator decision, still 71.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 72
+    assert len(refs) == 71
     for ref in refs:
         assert f"?v={__version__}" in ref
         assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix

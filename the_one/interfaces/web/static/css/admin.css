@@ -1,4 +1,14 @@
 @layer areas {
+  /* === Settings nav (M25 F3 L5a; reference spec section 8.1) === */
+  /* The App.ui.navGroups host, a child of the admin sidebar panel. The panel
+     is a flex column with overflow: hidden (base.css), so the host is the
+     column's own scroller (flex: 1 + min-height: 0 + overflow-y: auto): the
+     Developer group must not clip at 1024x768. It carries the column padding
+     (14px 10px); the aside's width is --settings-nav-w and its padding-top is
+     zeroed for settings (base.css). The nav's heading and item text both sit
+     20px from the column edge (10px here + 10px inside the factory, A3). */
+  .area-admin .admin-settings-nav { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 10px; }
+
   /* === Content === */
   /* min-height: 0 allows .admin-content to shrink below its content
      min-content (mandatory for overflow-y: auto to actually clip rather than
@@ -10,12 +20,17 @@
      applied to .editor-section directly to align with .editor-header's
      20px padding. F6 HAT inline fix. */
   .area-admin .editor-section { padding-left: 20px; padding-right: 20px; }
-  /* `.admin-header` / `.admin-title` removed in F6 leg 03 — editor uses canonical `.editor-header` + `.editor-title`; system page uses `.page-header` + `.page-title` (post-leg-02). */
-  /* .admin-form is content padding only — overflow is owned by .admin-content
+  /* `.admin-header` / `.admin-title` removed in F6 leg 03 — editor uses canonical `.editor-header` + `.editor-title`; the Settings pages use `.page-header` + `.page-title`. */
+  /* The Settings page geometry (M25 F3 L5a; reference spec section 4): the
+     page header is 16px 32px (no border, no breadcrumb) and the page content
+     is inset 0 32px with an 880px maximum width. Scoped to .area-admin:
+     .page-header is a shared rule (components.css) that other areas keep.
+     .admin-form is content padding only — overflow is owned by .admin-content
      (single scroll container per Admin page). Removing the redundant
      overflow-y: auto here closes the nested-scrollbar bug surfaced on
      System (and previously on Design Language). */
-  .area-admin .admin-form { flex: 1; padding: 16px 20px 40px; }
+  .area-admin .page-header { padding: 16px 32px; }
+  .area-admin .admin-form { flex: 1; padding: 0 32px 40px; max-width: 880px; }
   .area-admin .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
   .area-admin .admin-note { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-bottom: 16px; line-height: var(--line-height-normal); }
   .area-admin .admin-section { padding: 16px 0; border-top: 1px solid var(--border); }
@@ -85,6 +100,74 @@
   .area-admin .admin-theme-option:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+
+  /* === Settings item pages (M25 F3 L5b; flight DD7, reference spec 4 and 8.2) ===
+     Providers and Built-in tools: the page header, then .settings-list (the
+     table or the tool list), then .settings-item (the open item's editor),
+     in one scrolling page (.admin-content). The list and the editor share
+     the section 4 content inset (0 32px) and 880px maximum width. With no
+     item open, the list section takes the page's remaining height, so the
+     zero-providers empty state centres in it. */
+  .area-admin .settings-list { flex: none; display: flex; flex-direction: column; padding: 0 32px; max-width: 880px; }
+  .area-admin .settings-list:has(+ .settings-item:empty) { flex: 1; padding-bottom: 40px; }
+  .area-admin .settings-item { flex: none; }
+  .area-admin .settings-item:empty { display: none; }
+  /* The item sits under the list, divided by a hairline (DD7: below, not
+     beside), on the same 32px inset and 880px column as the list (816px of
+     content), so the header's actions line up with the table's edge. */
+  .area-admin .settings-item:not(:empty) { margin: 24px 32px 0; max-width: 816px; border-top: 1px solid var(--border); padding-bottom: 40px; }
+  .area-admin .settings-item .editor-header { padding: 16px 0 12px; }
+  .area-admin .settings-item .editor-section { padding-left: 0; padding-right: 0; }
+  /* The tool list keeps its tabs and tile cards (an accepted variation), on
+     the page's inset; the page is the only scroller. */
+  .area-admin .settings-list .tablist { padding: 0; }
+  .area-admin .settings-list .tabpanel { overflow: visible; }
+  .area-admin .settings-list .entity-tile-grid { flex: none; overflow: visible; padding: 16px 0 0; }
+  .area-admin .settings-list .empty-state { padding: 16px 0; }
+
+  /* Intro copy (section 8.2): 12px --fg-muted on the page's --bg. */
+  .area-admin .settings-intro { margin: 0 0 16px; font-size: var(--font-size-body-sm); color: var(--fg-muted); }
+
+  /* === Provider tiles (L7: tiles, by operator decision at the Flight 3
+     checkpoint, matching Built-in tools; reference spec 8.2 drew a table) ===
+     The tile is not a click target (its NAME is the item link), so it drops
+     the shared pointer cursor and hover wash like .tool-tile; the open
+     provider's tile keeps the selected wash (.entity-tile.active). No bottom
+     padding reserve: that is the tool toggle's corner and stays tools-only. */
+  .area-admin .provider-tile { position: relative; cursor: default; }
+  .area-admin .provider-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
+  /* The badge is App.ui.badge's own element (quiet, lowercase, per-type ink
+     from .badge--{kind}); this class only places it in the corner. */
+  .area-admin .provider-tile-badge { position: absolute; top: 8px; right: 8px; }
+  /* The name link (tool and provider tiles): the tile's title ink (it keeps
+     .entity-tile-name's size, weight and ellipsis), as wide as its text,
+     underlined on hover, with the standard accent ring on keyboard focus. The
+     provider link also clears the widest badge (openai-compatible, anthropic-plan:
+     about 115px plus the 8px offset). */
+  .area-admin .tool-tile-link,
+  .area-admin .provider-tile-link {
+    color: var(--fg);
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    align-self: flex-start;
+  }
+  .area-admin .provider-tile-link { max-width: calc(100% - 128px); }
+  .area-admin .tool-tile-link { max-width: 100%; }
+  .area-admin .tool-tile-link:hover,
+  .area-admin .provider-tile-link:hover { text-decoration: underline; }
+  .area-admin .tool-tile-link:focus-visible,
+  .area-admin .provider-tile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Base URL and "Used by": single lines in --fg-secondary (gated AA on the
+     tile surface and on the active wash; --fg-muted is not). */
+  .area-admin .provider-tile-url,
+  .area-admin .provider-tile-used {
+    display: block;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* === Provider List === */
@@ -224,18 +307,20 @@
   .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
 
   /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */
-  /* L2 tile is a <div>, not <button>. The .entity-tile selector still
-     applies its cursor:pointer + hover-accent affordance; the tile-level
-     click handler in tools-grid.js forwards to the inner checkbox so the
-     affordance stays honest. */
+  /* L2 tile is a <div>, not <button>. Since M25 F3 L5b the tile is no longer
+     a click target: its tool NAME is the item link and the toggle is the only
+     other control, so the tile drops the shared pointer cursor and hover
+     wash. The open tool's tile keeps the selected wash (.entity-tile.active). */
   .area-admin .tool-tile {
     position: relative;
+    cursor: default;
     /* Reserve space at bottom-right for the toggle so it doesn't collide
        with .entity-tile-badge (which is hard-coded top:8px right:8px in
        components.css). The toggle sits at bottom-right; description text
        wraps above it. */
     padding-bottom: 36px;
   }
+  .area-admin .tool-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
   .area-admin .tool-enable-switch,
   .area-studio .tool-enable-switch {
     position: relative;
@@ -628,7 +713,7 @@
   }
 
   /* Mission 08 F2 — Design Language gallery (dev-mode-only Admin category) */
-  .area-admin .design-language-sections { display: flex; flex-direction: column; gap: 24px; padding: 0 20px 40px; }
+  .area-admin .design-language-sections { display: flex; flex-direction: column; gap: 24px; padding: 0 32px 40px; }
   .area-admin .design-language-section { display: flex; flex-direction: column; gap: 8px; }
   .area-admin .design-language-section-body { display: flex; flex-direction: column; gap: 12px; }
   .area-admin .design-language-token-swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
@@ -643,6 +728,12 @@
   .area-admin .design-language-ui-pane { display: flex; flex-direction: column; gap: 12px; padding: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); }
   .area-admin .design-language-ui-pane--menu { min-height: 240px; }
   .area-admin .design-language-ui-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* A stand-in for the workbench aside (M25 F3 L1): the list-column demos get
+     the --list-w column on --sidebar-bg, height-bound so the list body scrolls;
+     the nav demo gets the --settings-nav-w column with the host's 14px 10px. */
+  .area-admin .design-language-ui-column { display: flex; flex-direction: column; max-width: 100%; overflow: hidden; background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: var(--radius-md); }
+  .area-admin .design-language-ui-column--list { width: var(--list-w); height: 360px; }
+  .area-admin .design-language-ui-column--nav { width: var(--settings-nav-w); padding: 14px 10px; }
   .area-admin .design-language-caption { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); }
 
   /* Telemetry strip (Mission 08 F2 L5 — T1 layout). Gallery-only until a

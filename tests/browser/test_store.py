@@ -5,13 +5,17 @@ copies, failure handling, generation-safe invalidation, subscribe), the
 request-count table for first activation of each destination, copy isolation
 from Studio's own agent copies, subscription propagation into Studio's tile
 grid, and the AC5 load-state gating by route.
+
+The Library collections (``knowledge-bases``, ``mcp-sources``, ``connectors``),
+their request counts and invalidation map, and ``App.usage`` (M25 F3 L2) are in
+``test_store_library.py``.
 """
 
 from __future__ import annotations
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
@@ -226,7 +230,7 @@ def test_request_counts_per_activation(app_with_agent: SeededApp, page: Page) ->
     )
     _nav.wait_settled(page)
     _nav.set_route(page, "settings/providers")
-    page.get_by_role("listbox", name="LLM providers").wait_for()
+    _lists.providers_list(page).wait_for()
     _nav.wait_settled(page)
     assert len(providers) <= 1, providers
 
@@ -244,7 +248,7 @@ def test_cold_boot_agents_one_read_each(app_with_agent: SeededApp, page: Page) -
 def test_cold_boot_providers_one_read(app_with_agent: SeededApp, page: Page) -> None:
     providers = _counter(page, "/api/providers")
     _nav.goto_settled(page, app_with_agent.base_url, "settings/providers")
-    page.get_by_role("listbox", name="LLM providers").wait_for()
+    _lists.providers_list(page).wait_for()
     _nav.wait_settled(page)
     assert len(providers) == 1, providers
 
@@ -263,7 +267,7 @@ def test_studio_detail_copy_does_not_leak_into_store(app_with_agent: SeededApp, 
 
 
 @pytest.mark.browser
-def test_external_store_load_repaints_studio_grid_via_subscription(
+def test_external_store_load_repaints_agents_list_via_subscription(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     base = app_with_agent.base_url
@@ -273,6 +277,23 @@ def test_external_store_load_repaints_studio_grid_via_subscription(
     # A load Studio did not initiate (as Chats activation / Library would).
     page.evaluate("() => { App.store.invalidate('agents'); return App.store.get('agents'); }")
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(2)
+
+
+@pytest.mark.browser
+def test_external_store_load_repaints_the_list_beside_an_open_agent(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """M25 F3 L3: the agents list sits beside the editor, so the subscription
+    repaints it even while an agent is open (it used to skip that case), and
+    the open agent's row stays selected."""
+    base, name = app_with_agent.base_url, app_with_agent.agent_name
+    _nav.goto_settled(page, base, f"agents/{name}/general")
+    expect(page.locator(".editor-title")).to_have_text(name, timeout=8000)
+    seed_mock_agent(base, app_with_agent.provider_id, name="second-agent")
+    page.evaluate("() => { App.store.invalidate('agents'); return App.store.get('agents'); }")
+    expect(page.locator('[data-testid="agent-item"]')).to_have_count(2)
+    _lists.expect_selected(page, "agents", name)
+    expect(page.locator(".editor-title")).to_have_text(name)
 
 
 @pytest.mark.browser

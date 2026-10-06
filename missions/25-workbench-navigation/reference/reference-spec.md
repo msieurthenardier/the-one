@@ -598,6 +598,7 @@ with a neutral equivalent, without operator sign-off.
 | D2 | **Provider-health banner** `.banner.banner-error`: "OpenAI rejected the saved API key. 6 agents can't reply until you update it." | below the Providers table, `B3:L249` | Provider health | — |
 | D3 | **MCP connection state** in Library rows: `· connected`, `Not connected` | Library list, MCP servers group, `B3:L193–L195` | MCP live connection state | `{n} tools` (derivable; mission DD) |
 | D4 | **Connector channel count** `3 channels` | Library list, Connectors group, `B3:L197` | Channel counts | `{n} agents` (derivable) |
+| D5 | **Providers as a table** (§8.2): Name · Type · Status · Used by rows | Settings › Providers, `B3:L239–L246` | — (an **operator decision**, not missing data: the Mission 25 Flight 3 DD14 checkpoint, 2026-10-05) | The list renders as **tiles matching Built-in tools**: the name link is the item link, with a type badge, the base URL and "Used by". The intro, the page header and "Add provider" stay, and the item opens below the list (Flight 3 DD7, leg 7) |
 
 **Out of scope, not deviations** (hosted unchanged this mission, next mission redesigns them):
 the agent-detail body (outline, Capabilities toggles, "On this page"), the knowledge-base

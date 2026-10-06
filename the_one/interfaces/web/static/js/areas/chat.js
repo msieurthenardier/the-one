@@ -444,9 +444,10 @@ App.registerArea({
 
     // Roving-tabindex arrow navigation for the welcome listbox. One-shot
     // binding; queries .chat-welcome-item lazily so it tracks re-renders.
-    // Pattern: roving-tabindex with arrow keys. See section-nav.js:71-91
-    // for the canonical implementation. Toggles aria-selected alongside
-    // tabindex so the listbox semantic stays accurate (WCAG 4.1.2).
+    // Pattern: roving-tabindex with arrow keys (the control library's shared
+    // implementation is App.ui.util.rovingFocus, ui/core.js). Toggles
+    // aria-selected alongside tabindex so the listbox semantic stays accurate
+    // (WCAG 4.1.2).
     welcomeListEl.addEventListener('keydown', function (e) {
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
       var opts = welcomeListEl.querySelectorAll('.chat-welcome-item');

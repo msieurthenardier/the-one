@@ -559,29 +559,55 @@
   .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
 
   /* === List pane (App.ui.listPane, M25 F1 L2, DD14) ===
-     A navigation list: <section> > header (h2 + actions), optional filter,
-     then one <ul> per group. Rows are <a> or <button>. Selected = one marker,
-     the translucent accent wash plus a 1px accent ring drawn as an inset
-     box-shadow (no layout shift). Hover = surface-elevated; focus-visible =
-     the standard 2px accent ring, inset so a scroll container never clips it.
-     Existing tokens only. */
-  .ui-list-pane { display: flex; flex-direction: column; min-height: 0; }
+     A navigation list: <section> > header (h2, optional count, actions),
+     optional intro and filter, then one <ul> per group. Rows are <a> or
+     <button>. Selected = one marker, the translucent accent wash plus a 1px
+     accent ring drawn as an inset box-shadow (no layout shift). Hover =
+     surface-elevated; focus-visible = the standard 2px accent ring, inset so a
+     scroll container never clips it. Existing tokens only. M25 F3 L1 brings the
+     title row, filter, scroller and group label to reference spec section 3
+     and 6.1; the opt-in rowStyle rules further down carry the A8 row geometry. */
+  /* position: relative on the pane and on every row (M25 F3 L3): the filter
+     status and a row's nameSuffix are .visually-hidden (position: absolute).
+     Without a positioned ancestor their containing block is the initial one,
+     so a long list's hidden suffixes escape the scroller's clipping and
+     stretch the DOCUMENT's scroll height (scrollIntoView could then scroll
+     the viewport). Each row now contains its own suffix. */
+  .ui-list-pane { position: relative; display: flex; flex-direction: column; min-height: 0; }
   .ui-list-pane-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
+    padding: 14px var(--space-4) 10px;
   }
   .ui-list-pane-title {
     margin: 0;
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--fg-secondary);
+    font-size: var(--font-size-h2);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
   }
-  .ui-list-pane-actions { display: flex; align-items: center; gap: var(--space-1); }
-  .ui-list-pane-filter { padding: 0 var(--space-3) var(--space-2); margin-bottom: 0; }
-  .ui-list-pane-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--space-2); }
+  /* "{shown} of {total}" after the title; the 11px muted pairs below are gated
+     in test_design_tokens_a11y.py (test_list_pane_caption_pairs_pass_body_aa). */
+  .ui-list-pane-total {
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--fg-muted);
+  }
+  .ui-list-pane-actions { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
+  .ui-list-pane-intro {
+    margin: 0;
+    padding: 0 var(--space-4) var(--space-2);
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  .ui-list-pane-filter { padding: 0 var(--space-4) var(--space-2); margin-bottom: 0; }
+  .ui-list-pane-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--space-2) var(--space-3);
+  }
   .ui-list-pane-status {
     position: absolute;
     width: 1px;
@@ -596,8 +622,18 @@
   .ui-list-pane-body[hidden],
   .ui-list-pane-group[hidden],
   .ui-list-pane-empty[hidden] { display: none; }
-  .ui-list-pane-caption {
-    padding: var(--space-2) var(--space-2) var(--space-1);
+  /* The section 3 group label, shared with App.ui.navGroups. */
+  .ui-list-pane-caption,
+  .ui-nav-groups-caption {
+    padding: var(--space-3) 10px var(--space-1);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-muted);
+  }
+  /* A group with no items shows this line in place of rows (never a row). */
+  .ui-list-pane-group-empty {
+    margin: 0;
+    padding: var(--space-1) 10px;
     font-size: var(--font-size-caption);
     color: var(--fg-muted);
   }
@@ -610,6 +646,7 @@
     gap: 2px;
   }
   .ui-list-pane-row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -629,12 +666,17 @@
   .ui-list-pane-compact .ui-list-pane-row { padding: 6px 10px; font-size: var(--font-size-caption); }
   .ui-list-pane-row:hover { background: var(--surface-elevated); }
   .ui-list-pane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .ui-list-pane-row[aria-current="page"] {
+  /* Selected: aria-current="page" on a link row, "true" on a button row (an
+     onSelect row selects in place, it is not a page; the flight-end review). */
+  .ui-list-pane-row[aria-current="page"],
+  .ui-list-pane-row[aria-current="true"] {
     background: var(--accent-translucent);
     box-shadow: inset 0 0 0 1px var(--accent);
   }
   .ui-list-pane-icon { display: inline-flex; flex-shrink: 0; }
   .ui-list-pane-icon svg { width: 16px; height: 16px; }
+  /* item.lead (M25 F3 L3): a caller-built node before the text that never shrinks. */
+  .ui-list-pane-lead { display: inline-flex; flex: none; }
   .ui-list-pane-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
   .ui-list-pane-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ui-list-pane-meta {
@@ -657,7 +699,77 @@
      use --fg-secondary (gated: test_selected_row_meta_passes_body_aa). */
   .ui-list-pane-row[aria-current="page"] .ui-list-pane-meta,
   .ui-list-pane-row[aria-current="page"] .ui-list-pane-badge,
-  .ui-list-pane-row[aria-current="page"] .ui-list-pane-count { color: var(--fg-secondary); }
+  .ui-list-pane-row[aria-current="page"] .ui-list-pane-count,
+  .ui-list-pane-row[aria-current="true"] .ui-list-pane-meta,
+  .ui-list-pane-row[aria-current="true"] .ui-list-pane-badge,
+  .ui-list-pane-row[aria-current="true"] .ui-list-pane-count { color: var(--fg-secondary); }
+  /* rowStyle (M25 F3 L1, A8): the reference row geometry per list, 13px names,
+     and the section 3 selection model. A 1px transparent border at rest that
+     the selection colours, so selecting never shifts layout. Placed after the
+     compact rule so rowStyle padding wins over density. */
+  .ui-list-pane-styled .ui-list-pane-row {
+    gap: 10px;
+    border: 1px solid transparent;
+    font-size: var(--font-size-body);
+  }
+  .ui-list-pane-styled .ui-list-pane-text { gap: 1px; }
+  .ui-list-pane-styled .ui-list-pane-row[aria-current="page"],
+  .ui-list-pane-styled .ui-list-pane-row[aria-current="true"] {
+    background: var(--accent-translucent);
+    border-color: var(--accent);
+    box-shadow: none;
+    color: var(--fg);
+  }
+  .ui-list-pane-style-agents .ui-list-pane-list { gap: 0; }
+  .ui-list-pane-style-agents .ui-list-pane-row { padding: 7px 10px; }
+  /* Section 6.1: the agent row's second line is the model id, in mono. */
+  .ui-list-pane-style-agents .ui-list-pane-meta { font-family: var(--font-family-mono); }
+  /* Library rows: --fg-secondary row ink drives the icon; the name stays --fg. */
+  .ui-list-pane-style-library .ui-list-pane-row { padding: 8px 10px; color: var(--fg-secondary); }
+  .ui-list-pane-style-library .ui-list-pane-label { color: var(--fg); }
+
+  /* === Nav groups (App.ui.navGroups, M25 F3 L1) ===
+     Reference spec section 8.1: a <nav> of grouped plain links. The host owns
+     the column padding (14px 10px) and width. The 2px flex gaps reproduce the
+     board's pitch (heading, caption, items); the heading is indented 10px so
+     its text lines up with the items' text (A3). Items are 28px at 12px type;
+     the line-height pins Geist's 16px line box so a fallback font keeps 28px.
+     Selected = the list-pane marker: accent wash plus an inset 1px accent ring.
+     Colour pairs gated in test_design_tokens_a11y.py
+     (test_nav_groups_pairs_pass_body_aa). */
+  .ui-nav-groups { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+  .ui-nav-groups-heading {
+    margin: 0;
+    padding-left: 10px;
+    font-size: var(--font-size-h2);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .ui-nav-groups-group { display: flex; flex-direction: column; gap: 2px; }
+  .ui-nav-groups-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ui-nav-groups-item {
+    display: block;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-body-sm);
+    line-height: 16px;
+    color: var(--fg-secondary);
+    text-decoration: none;
+  }
+  .ui-nav-groups-item:hover { background: var(--surface-elevated); color: var(--fg); }
+  .ui-nav-groups-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ui-nav-groups-item[aria-current="page"] {
+    background: var(--accent-translucent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    color: var(--fg);
+  }
 
   /* === Empty State (empty-list / empty-canvas messaging) === */
   .empty-state {
@@ -914,62 +1026,6 @@
      header's right edge. */
   .page-header > .btn-outlined-primary { margin-left: auto; flex-shrink: 0; }
 
-  /* === Section Navigation (sidebar sub-section nav) === */
-  /* Vertical list of <button> elements representing in-area section navigation.
-     First introduced for studio's Agents/Knowledge/Tools section nav (F5 leg 01).
-     Imminent F6 consumer: admin's category list at admin.js renderCategoryList
-     (currently using .list-item + .admin-category-item) will migrate here. */
-  .section-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px;
-    border-bottom: 1px solid var(--border);
-  }
-  /* Both themes: drop the section-nav bottom border — the sidebar reads
-     as one continuous quiet surface. */
-  .section-nav { border-bottom: 0; }
-  /* Header quieted to --fg (v3: accent is reserved for interactive/selected
-     states — a static header in accent read as v2 loudness, and accent at
-     this size is only UI-threshold gated, not body-AA). */
-  .section-nav-header {
-    font-weight: var(--font-weight-bold);
-    color: var(--fg);
-    font-size: var(--font-size-body-lg);
-    padding: 4px 10px 8px;
-  }
-  .section-nav-item {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
-    color: var(--fg);
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    text-align: left;
-    cursor: pointer;
-    transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile);
-  }
-  /* Hover steps to --surface-elevated: --sidebar-bg aliases --surface, so
-     the prior var(--surface) hover fill was invisible on the sidebar. */
-  .section-nav-item:hover { background: var(--surface-elevated); color: var(--fg); }
-  /* Inset ring: negative offset keeps the ring inside the sidebar list. */
-  .section-nav-item:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-  }
-  .section-nav-item[aria-current="page"] {
-    /* Selected item: accent-translucent wash + accent border — same shape
-       as .list-item.active. */
-    background-color: var(--accent-translucent);
-    color: var(--fg);
-    font-weight: var(--font-weight-bold);
-    border-color: var(--accent);
-  }
-
   /* === Tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
   /* Used by the studio agent editor's General/Knowledge/Tools tabs. The
      tablist is a `<div role="tablist">` containing `<button role="tab">`
@@ -1051,6 +1107,25 @@
     color: var(--fg-secondary);
     margin: 0;
   }
+  /* Reference spec section 4 breadcrumb (M25 F3 DD2): the first child of
+     .editor-header-text, inserted with DOM APIs ("Agents", "Library / ..."). */
+  .editor-breadcrumb {
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  /* Its last segment links to the destination or section root (M25 F3 L4b,
+     the DD2 refinement): the link inherits the breadcrumb's 11px --fg-muted
+     (no accent ink) and is underlined at rest, so it reads as a link by more
+     than colour (WCAG 1.4.1; the flight-end review); hover thickens the
+     underline and keyboard focus shows the standard 2px accent ring. */
+  .editor-breadcrumb-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  .editor-breadcrumb-link:hover { text-decoration-thickness: 2px; }
+  .editor-breadcrumb-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* === Form actions (right-aligned button cluster) === */
   /* Used by the agent editor's [← Back] [Delete] [Save] cluster (F5 leg 03)
@@ -1064,6 +1139,15 @@
   .form-actions .editor-error {
     color: var(--status-danger);
     font-size: var(--font-size-body-sm);
+  }
+  /* Unsaved-changes caption (M25 F3 DD2, A15): a stable span at the start of
+     .form-actions whose text checkDirty sets ("Unsaved changes") or clears.
+     It stays rendered while empty (never display: none), so its role=status
+     region is already in the accessibility tree when the text appears. */
+  .form-actions .editor-unsaved {
+    font-size: var(--font-size-caption);
+    color: var(--status-warning);
+    white-space: nowrap;
   }
 
   /* === Test result span (canonical connectivity-test indicator) === */
@@ -1461,6 +1545,12 @@
     color: var(--fg-secondary);
     box-shadow: inset 0 0 0 1px var(--border);
   }
+  /* A text-less 8px disc in a kind's fill (reference spec section 6.1: the
+     agents list's provider dot, an item.lead). Decorative: always aria-hidden,
+     with the meaning carried in text (the row's accessible name). --none is a
+     hollow neutral ring for a missing provider. */
+  .badge.badge-dot { width: 8px; height: 8px; padding: 0; border-radius: 50%; }
+  .badge.badge-dot--none { background: transparent; box-shadow: inset 0 0 0 1px var(--fg-muted); }
 
   /* === App.ui.checkbox / App.ui.toggle (M25 F1 L4) === */
   .ui-checkbox,
@@ -1535,10 +1625,29 @@
     .checkbox-primary:indeterminate { background: Highlight; border-color: Highlight; }
     .checkbox-primary:checked::after,
     .checkbox-primary:indeterminate::after { border-color: HighlightText; }
-    .ui-list-pane-row[aria-current="page"] { border: 1px solid Highlight; }
+    /* List rows, both selection models: the default ring (a box-shadow,
+       dropped here) gains a border; a rowStyle row already has its 1px border,
+       so only the colour changes. */
+    .ui-list-pane-row[aria-current="page"],
+    .ui-list-pane-row[aria-current="true"] { border: 1px solid Highlight; }
+    /* rowStyle rows (the flight-end review): the transparent rest border is
+       forced to the row's text colour, so every row looked selected, and the
+       rowStyle selected rule (0,3,0) beat the one above (0,2,0). The rest
+       border takes Canvas (hidden) and the selected one Highlight at the
+       rowStyle specificity, so only the selected row shows a border. */
+    .ui-list-pane-styled .ui-list-pane-row { border-color: Canvas; }
+    .ui-list-pane-styled .ui-list-pane-row[aria-current="page"],
+    .ui-list-pane-styled .ui-list-pane-row[aria-current="true"] { border-color: Highlight; }
     .ui-rail-item[aria-current="page"] { border-color: Highlight; }
+    /* Nav items have no rest border: 1px less padding keeps the 28px item. */
+    .ui-nav-groups-item[aria-current="page"] { border: 1px solid Highlight; padding: 5px 9px; }
     .ui-menu-item:focus,
     .ui-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+    /* The selected entity tile (the open tool): its accent border and wash are
+       forced away, so the border takes Highlight and a 1px Highlight outline
+       doubles it, a cue that is not colour alone (the flight-end review). */
+    .entity-tile[aria-selected="true"],
+    .entity-tile.active { border-color: Highlight; outline: 1px solid Highlight; }
   }
 }
 

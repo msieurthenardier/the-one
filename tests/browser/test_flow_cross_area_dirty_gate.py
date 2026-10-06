@@ -14,7 +14,7 @@ Both parametrize across (area_id, fixture_name, editor_setup, dirty_helper).
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp  # plus any area-specific helpers
 from playwright.sync_api import Page, expect
 
@@ -30,18 +30,18 @@ def _setup_studio_editor(page: Page, app: SeededApp) -> None:
     """Navigate to studio + open the seeded agent in the editor.
 
     Waits for the Agents content panel (`.content-panel.active[data-destination
-    ="agents"]`) as the readiness signal. Falls through to entity-tile click
-    when the editor is still hidden (bare `agents` grid view — no
-    auto-selection).
+    ="agents"]`) as the readiness signal. Falls through to a list-row click
+    when the editor is still hidden (bare `agents`: the list beside an empty
+    detail pane — no auto-selection).
     """
     _nav.goto(page, app.base_url, "agents")
-    # Wait for the section-nav to mount (signals studio area init complete).
+    # Wait for the Agents panel to mount (signals studio area init complete).
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
     if editor_hidden:
-        page.locator("button.entity-tile").first.click()
+        _lists.first_row(page, "agents").click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
 
 
@@ -50,8 +50,8 @@ def _setup_admin_editor(page: Page, app: SeededApp) -> None:
     ordering nondeterminism. Mirrors test_flow_provider_dirty_confirm.py:30's
     direct-hash-route pattern."""
     _nav.goto(page, app.base_url, f"settings/providers/{_nav.seg(app.provider_id)}")
-    # Wait for the admin section-nav to mount (signals admin area init complete).
-    expect(page.locator('.section-nav[aria-label="Settings sections"]')).to_be_visible(timeout=8000)
+    # Wait for the Settings nav to mount (signals admin area init complete).
+    expect(_lists.settings_nav(page)).to_be_visible(timeout=8000)
     # The provider-editor's Name field (#pf-name) is the canonical
     # always-rendered signal — it appears for every provider type. Admin
     # uses ID selectors; studio's agent-editor uses data-field selectors.

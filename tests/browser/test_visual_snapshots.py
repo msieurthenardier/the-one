@@ -47,7 +47,7 @@ import pytest
 Image = pytest.importorskip("PIL.Image")
 pixelmatch = pytest.importorskip("pixelmatch.contrib.PIL").pixelmatch
 
-from browser import _nav  # noqa: E402
+from browser import _lists, _nav  # noqa: E402
 from browser.seeders import SeededApp  # noqa: E402
 from playwright.sync_api import Page, expect  # noqa: E402
 
@@ -247,12 +247,12 @@ def test_snapshot_studio_with_agent(app_with_agent: SeededApp, page: Page, theme
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
-    """Admin → LLM Providers, empty state (no providers seeded)."""
+    """Settings → Providers, empty state (no providers seeded)."""
     page.set_viewport_size(VIEWPORT)
     _nav.goto(page, app_clean, "settings")
     _set_theme(page, theme)
-    page.locator(".section-nav-item", has_text="LLM Providers").click()
-    expect(page.locator(".admin-provider-empty")).to_be_visible(timeout=5000)
+    _lists.settings_nav_link(page, "providers").click()
+    expect(page.locator('[data-testid="providers-empty"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"admin-empty-{theme}")
 
@@ -260,11 +260,11 @@ def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_admin_with_provider(app_with_provider: SeededApp, page: Page, theme: str) -> None:
-    """Admin → LLM Providers with one mock provider card visible."""
+    """Settings → Providers with one mock provider row in the table."""
     page.set_viewport_size(VIEWPORT)
     _nav.goto(page, app_with_provider.base_url, "settings")
     _set_theme(page, theme)
-    page.locator(".section-nav-item", has_text="LLM Providers").click()
+    _lists.settings_nav_link(page, "providers").click()
     expect(page.locator('[data-testid="provider-card"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"admin-with-provider-{theme}")

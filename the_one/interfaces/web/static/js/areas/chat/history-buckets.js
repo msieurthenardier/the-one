@@ -71,14 +71,14 @@
     // operator can distinguish platform-driven conversations from web-native
     // ones at a glance. Rows with no platform (platform == null/undefined/'')
     // render exactly as before. The typed modifier class
-    // (session-item-source--{type}) mirrors mcp-servers-grid.js's
-    // admin-mcp-badge--{type} precedent so future platform types can be
-    // color-themed via additive CSS only.
+    // (session-item-source--{type}) follows the shared badge's typed-modifier
+    // convention (badge--{kind}, App.ui.badge in ui/feedback.js) so future
+    // platform types can be color-themed via additive CSS only.
     if (s.platform) {
       var sourceSpan = document.createElement('span');
       // textContent is XSS-safe (DOM API, not innerHTML); the regex strip
-      // below only matters for the className path — same defensive shape
-      // as mcp-servers-grid.js:97-98 wrapping the badge-type suffix.
+      // below only matters for the className path: the platform string is
+      // server data, so only [A-Za-z0-9_-] may reach the class suffix.
       var typeSafe = String(s.platform).replace(/[^a-zA-Z0-9_-]/g, '');
       sourceSpan.className = 'session-item-source'
         + (typeSafe ? ' session-item-source--' + typeSafe : '');

@@ -15,7 +15,7 @@ F5 leg 01 extends this with:
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -33,13 +33,13 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
     # 2. Navigate to Settings via the rail link.
     _nav.open_destination(page, "settings")
 
-    # 3. Admin area is now active — System category is the default (F6 leg 01).
-    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    # 3. Admin area is now active — Appearance is the default page (the first
+    #    General page since M25 F3 leg 5a).
+    expect(page.locator(".page-title")).to_have_text("Appearance", timeout=5000)
 
-    # 4. Click the Providers category.
-    providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
-    providers_item.click()
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
+    # 4. Click the Providers link in the Settings nav.
+    _lists.settings_nav_link(page, "providers").click()
+    expect(page.locator(".page-title")).to_have_text("Providers", timeout=5000)
 
     # 5. URL should now be #admin/providers.
     _nav.expect_route(page, "settings/providers")
@@ -49,11 +49,10 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 7. After reload, app should land on admin/providers sub-page.
     # Wait for admin area to activate.
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Providers", timeout=8000)
 
-    # Providers category should be marked active (aria-current="page" via section-nav).
-    active_cat = page.locator('.area-admin .section-nav-item[aria-current="page"]')
-    expect(active_cat).to_contain_text("LLM Providers")
+    # The Providers link is the Settings nav's selected item (aria-current="page").
+    _lists.expect_settings_selected(page, "providers")
 
 
 @pytest.mark.browser
@@ -113,8 +112,8 @@ def test_hash_routing_studio_agent_persists_on_refresh(
     agent_item = page.locator('[data-testid="agent-item"]')
     expect(agent_item).to_have_count(1, timeout=8000)
 
-    # 3. Click the agent tile to enter the editor (no auto-selection on
-    #    bare #studio/agents — F5 leg 02 design).
+    # 3. Click the agent's list row to enter the editor (no auto-selection on
+    #    bare #agents — F5 leg 02 design; M25 F3 L3 list column).
     agent_item.click()
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
 
@@ -164,49 +163,51 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
     page.goto(f"{base_url}#studio/knowledge")  # legacy URL on purpose (AC6)
     expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
 
-    inventory = page.locator('[data-testid="studio-knowledge-inventory"]')
-    expect(inventory).to_be_visible(timeout=5000)
+    # M25 F3 L4a: the section root is the Knowledge empty state beside the list.
+    root = page.locator('[data-testid="library-empty-knowledge"]')
+    expect(root).to_be_visible(timeout=5000)
     _nav.expect_route(page, "library/knowledge")
 
     page.reload()
     expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
-    expect(page.locator('[data-testid="studio-knowledge-inventory"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="library-empty-knowledge"]')).to_be_visible(timeout=5000)
     _nav.expect_route(page, "library/knowledge")
 
 
 @pytest.mark.browser
 def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Page) -> None:
-    """Navigating to #studio/mcp-sources shows the page; refresh preserves the section.
+    """Navigating to library/mcp shows the section root; refresh preserves the section.
 
     Post-F2 retrofit: replaces the test that previously asserted the
-    "Tools" stub at #studio/tools — the third nav slot is now MCP Servers.
+    "Tools" stub at #studio/tools. Since M25 F3 L4a the section root is the
+    MCP empty state beside the Library list (the grid's page title is gone).
     """
     base_url = app_clean
 
     _nav.goto(page, base_url, "library/mcp")
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=8000)
+    expect(page.locator('[data-testid="library-empty-mcp"]')).to_be_visible(timeout=8000)
     _nav.expect_route(page, "library/mcp")
 
     page.reload()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=8000)
+    expect(page.locator('[data-testid="library-empty-mcp"]')).to_be_visible(timeout=8000)
     _nav.expect_route(page, "library/mcp")
 
 
 @pytest.mark.browser
-def test_hash_routing_section_nav_pushes_history(app_clean: str, page: Page) -> None:
+def test_hash_routing_settings_nav_pushes_history(app_clean: str, page: Page) -> None:
     """Every user intent pushes one history entry; Back steps between them (DD4).
 
     This inverts the pre-router policy ("sub-page navigation uses replaceState"):
-    a rail click and each Settings section click are `go()` calls that push,
-    so Back walks Providers -> General -> Chats. Area-internal canonicalisation
+    a rail click and each Settings nav link click are `go()` calls that push,
+    so Back walks Providers -> Appearance -> Chats. Area-internal canonicalisation
     (`sync`) stays replace and never grows history.
 
     Sequence:
       - Start on chats (baseline history.length = N)
       - Click rail Settings   (push, N+1)
       - Click Providers          (push, N+2)
-      - Click General            (push, N+3)
-      - Back, Back, Back         -> providers, general, then chats
+      - Click Appearance         (push, N+3)
+      - Back, Back, Back         -> providers, appearance, then chats
     """
     base_url = app_clean
 
@@ -215,25 +216,23 @@ def test_hash_routing_section_nav_pushes_history(app_clean: str, page: Page) -> 
     baseline = page.evaluate("history.length")
 
     _nav.open_destination(page, "settings")
-    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("Appearance", timeout=5000)
     assert page.evaluate("history.length") == baseline + 1
 
-    providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
-    providers_item.click()
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
+    _lists.settings_nav_link(page, "providers").click()
+    expect(page.locator(".page-title")).to_have_text("Providers", timeout=5000)
     assert page.evaluate("history.length") == baseline + 2
 
-    system_item = page.locator(".area-admin .section-nav-item").filter(has_text="General")
-    system_item.click()
-    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    _lists.settings_nav_link(page, "appearance").click()
+    expect(page.locator(".page-title")).to_have_text("Appearance", timeout=5000)
     assert page.evaluate("history.length") == baseline + 3
 
     page.go_back()
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("Providers", timeout=5000)
     _nav.expect_route(page, "settings/providers")
     page.go_back()
-    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
-    _nav.expect_route(page, "settings/general")
+    expect(page.locator(".page-title")).to_have_text("Appearance", timeout=5000)
+    _nav.expect_route(page, "settings/appearance")
     page.go_back()
     expect(_nav.destination_panel(page, "chats")).to_be_visible(timeout=5000)
     assert _nav.current_route(page).split("/")[0] == "chats"

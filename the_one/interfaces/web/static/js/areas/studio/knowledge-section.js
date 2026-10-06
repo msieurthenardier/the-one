@@ -1,21 +1,21 @@
-// App.studio.renderKnowledgeGrid / renderKnowledgeDetail — Studio's
+// App.studio.renderKnowledgeCreate / renderKnowledgeDetail — Studio's
 // Knowledge section (Mission 24 Flight 6 Leg 1, DD-2, L1-D1).
 //
 // Replaces the F5 `stub-knowledge.js` placeholder with the real global
 // knowledge-base inventory: create + delete a knowledge base, register a
 // folder (DD-10's refusal-message rendering), and inspect one down to
-// individual chunks and source text (DD-8's on-demand fetch). Two-branch
-// shape mirroring `mcp-servers-grid.js` + `mcp-server-editor.js` — a grid
-// (no selection) and a detail view (one knowledge base selected),
-// hash-routed by `studio.js` as `#studio/knowledge` /
-// `#studio/knowledge/{kb_id}`.
+// individual chunks and source text (DD-8's on-demand fetch). Since M25 F3
+// L4a the knowledge bases are rows of the Library list (studio.js), so this
+// module renders the detail pane only: the create form
+// (`#library/knowledge/~new`) and a detail view (one knowledge base
+// selected, `#library/knowledge/{kb_id}`). The tile grid is retired.
 //
 // Built entirely via document.createElement + textContent assignment (the
 // `_el` helper below), NOT string-concatenated HTML sinks — Mission 17
 // Flight 1's dynamic-sink baseline freeze (see tests/test_ui_guards.py)
 // forbids new dynamic HTML-sink call sites. This mirrors `connector-
 // editor.js` and `self-configuration-tab.js`, NOT the pre-freeze string-
-// template style still visible in `mcp-servers-grid.js` (grandfathered
+// template style still visible in `mcp-server-editor.js` (grandfathered
 // baseline entry, L1-D3's "do not copy this style" precedent). Every
 // container clear below assigns a bare empty string literal to
 // `textContent` — outside the guard's scanned sink set entirely, and a
@@ -55,8 +55,8 @@
 // Mission 24 Flight 6 Leg 6 (HAT — restyle to the MCP server editor's
 // shape, 2026-09-19): four leg design decisions —
 //   L6-D1: Name + Description become ALWAYS-LIVE fields in the header
-//     region (no edit-button toggle); Save/Cancel sit beside Back in the
-//     header, disabled until the form is dirty, mirroring
+//     region (no edit-button toggle); Save/Cancel sit in the header (beside
+//     Back until M25 F3 L4b retired it), disabled until the form is dirty, mirroring
 //     `mcp-server-editor.js`. THE GENUINE HAZARD this introduces: the
 //     5-second status poll must never re-render these fields mid-
 //     keystroke. Structural guarantee: the name/description inputs live
@@ -175,6 +175,37 @@
     return b;
   }
 
+  // The item header's breadcrumb (M25 F3 DD2): "Library / Knowledge bases",
+  // the first child of .editor-header-text, built with DOM APIs. Its group
+  // segment links to the section root (the DD2 refinement, leg 4b): with Back
+  // retired it is the visible way to close the item. studio.js routes the
+  // click (the router's guard asks once about a dirty form) and focuses the
+  // item's row after the close (DD8). Both forms build it on every mount, so
+  // the detail view's Save re-mount re-adds it.
+  function _breadcrumb() {
+    var crumb = _el('div', { className: 'editor-breadcrumb', text: 'Library / ' });
+    var link = _el('a', { className: 'editor-breadcrumb-link', text: 'Knowledge bases' });
+    link.setAttribute('href', window.App.router.href({ destination: 'library', section: 'knowledge' }));
+    link.setAttribute('data-testid', 'editor-breadcrumb-link');
+    crumb.appendChild(link);
+    return crumb;
+  }
+
+  // The unsaved caption (M25 F3 DD2, A15): a stable role=status span at the
+  // start of .form-actions. Each form sets or clears its text from the same
+  // dirty value it reports through onDirtyChange; it is never re-created, so
+  // the live region is in the tree before it speaks.
+  function _unsaved() {
+    var span = _el('span', { className: 'editor-unsaved' });
+    span.setAttribute('role', 'status');
+    span.setAttribute('data-testid', 'editor-unsaved');
+    return span;
+  }
+
+  function _showUnsaved(span, dirty) {
+    span.textContent = dirty ? 'Unsaved changes' : '';
+  }
+
   function _input(type, field, value, placeholder) {
     var i = _el('input', { className: 'field-input' });
     i.type = type;
@@ -285,44 +316,49 @@
     return rel.length > 0 ? rel : null;
   }
 
-  // ── Grid ──────────────────────────────────────────────────────────────
+  // ── Create form (M25 F3 L4a, DD8; closes squawk 0101) ────────────────
   //
-  // Chrome (header + create form) is built ONCE per call; only the tile
-  // list itself is rebuilt via the returned `updateList(kbs)` handle. This
-  // matters because the create form is transient UI state (open/closed,
-  // typed-but-unsubmitted text) that a background list refresh must never
-  // clobber — `studio.js` re-fetches the list on every grid mount AND
-  // after every create, and a full-container rebuild on that second call
-  // would silently close the form (and lose the operator's still-being-
-  // typed name) out from under them if the fetch resolved while it was
-  // open. Mirrors the detail view's `updateStatus` handle (L1-D2).
-
-  function renderKnowledgeGrid(container, kbs, callbacks) {
+  // `#library/knowledge/~new`: the create form in the detail pane, beside the
+  // Library list (the grid and its inline form are retired). Its own header
+  // (DD2): the breadcrumb "Library / Knowledge bases" (the group a link to
+  // the section root since L4b) and the pane's only `h1`, "New knowledge
+  // base"; the unsaved caption, Cancel and Create in `.form-actions`. The M24
+  // contract is kept: Create stays enabled, an empty name shows "Name is
+  // required." with no request, and the 43-code-point hint (DD-16).
+  //
+  // callbacks: {onDirtyChange(bool), onCancel(), onCreateSuccess(kb)}.
+  // Create is disabled from submit until the request fails (a second click
+  // during the await would POST a duplicate); on success the form is about to
+  // go, so it stays disabled. The module invalidates 'knowledge-bases' (DD9)
+  // before onCreateSuccess, which owns the navigation (studio.js).
+  function renderKnowledgeCreate(container, callbacks) {
     callbacks = callbacks || {};
-    var onSelect = callbacks.onSelectKnowledgeBase || function () {};
-    var onCreateSuccess = callbacks.onCreateSuccess || function () {};
-
     container.textContent = '';
 
-    var root = _el('div', { className: 'knowledge-inventory' });
-    root.setAttribute('data-testid', 'studio-knowledge-inventory');
+    var root = _el('div', { className: 'knowledge-inventory knowledge-create' });
     container.appendChild(root);
 
-    var header = _el('div', { className: 'page-header' });
-    header.appendChild(_el('h1', { className: 'page-title', text: 'Knowledge' }));
-    var newBtn = _btn('btn-outlined-primary', 'new-knowledge-base-btn', 'New Knowledge Base');
-    header.appendChild(newBtn);
+    var header = _el('div', { className: 'editor-header' });
+    var headerText = _el('div', { className: 'editor-header-text' });
+    headerText.appendChild(_breadcrumb());
+    headerText.appendChild(_el('h1', { className: 'editor-title', text: 'New knowledge base' }));
+    header.appendChild(headerText);
+    var actions = _el('div', { className: 'form-actions' });
+    var unsavedEl = _unsaved();
+    actions.appendChild(unsavedEl);
+    var cancelBtn = _btn('btn-outlined-primary cancel-btn', 'kb-create-cancel-btn', 'Cancel');
+    actions.appendChild(cancelBtn);
+    var createBtn = _btn('btn-filled-primary save-btn', 'kb-create-submit-btn', 'Create');
+    actions.appendChild(createBtn);
+    header.appendChild(actions);
     root.appendChild(header);
 
-    // ── Create form (AC-2) — collapsed until the CTA is clicked; the CTA
-    // itself stays always-visible in the header above (AC-1).
-    var createForm = _el('div', { className: 'editor-section knowledge-create-form' });
-    createForm.hidden = true;
-    root.appendChild(createForm);
+    var form = _el('div', { className: 'editor-section' });
+    root.appendChild(form);
 
     var nameInput = _input('text', 'name', '', 'Knowledge base name');
     nameInput.setAttribute('data-testid', 'kb-create-name-input');
-    var nameGroup = _fieldGroup(createForm, 'Name', 'kb-create-name', nameInput);
+    var nameGroup = _fieldGroup(form, 'Name', 'kb-create-name', nameInput);
     // DD-16: advisory only — 43 CODE POINTS ([...name].length), never
     // name.length (UTF-16 units), or an astral character would count
     // double in the browser and single on the server.
@@ -333,32 +369,38 @@
     hint.setAttribute('data-testid', 'kb-create-name-hint');
     hint.hidden = true;
     nameGroup.appendChild(hint);
-    nameInput.addEventListener('input', function () {
-      hint.hidden = Array.from(nameInput.value).length <= 43;
-    });
 
     // AC-4 (M24 F06 L05): the create form also accepts a description —
     // no length rule, nothing derives from it (L5-D2).
     var descInput = _textarea('description', '', 3, 'Optional description');
     descInput.setAttribute('data-testid', 'kb-create-description-input');
-    _fieldGroup(createForm, 'Description', 'kb-create-description', descInput);
+    _fieldGroup(form, 'Description', 'kb-create-description', descInput);
 
-    // kb-studio-round-trip remediation FIX 3: `.editor-error`'s only rule
-    // is scoped `.form-actions .editor-error` (components.css), which this
-    // site is not inside — it rendered unstyled. `field-error` (already
-    // styled and already used correctly elsewhere in this file) plus a
-    // `<div>` (block-level, so the submit button below isn't dragged onto
-    // the end of the error text) fixes it with no new CSS vocabulary.
+    // kb-studio-round-trip remediation FIX 3: `field-error` (block-level)
+    // carries the create error line.
     var createErrorEl = _el('div', { className: 'field-error' });
     createErrorEl.setAttribute('data-testid', 'kb-create-error');
-    createForm.appendChild(createErrorEl);
+    createErrorEl.setAttribute('role', 'alert');
+    form.appendChild(createErrorEl);
 
-    var createBtn = _btn('btn-filled-primary', 'kb-create-submit-btn', 'Create');
-    createForm.appendChild(createBtn);
+    // Dirty while either field holds anything (the form starts empty); the
+    // unsaved caption follows the same value.
+    var wasDirty = false;
+    function reportDirty() {
+      var d = nameInput.value !== '' || descInput.value !== '';
+      if (d === wasDirty) return;
+      wasDirty = d;
+      _showUnsaved(unsavedEl, d);
+      if (callbacks.onDirtyChange) callbacks.onDirtyChange(d);
+    }
+    nameInput.addEventListener('input', function () {
+      hint.hidden = Array.from(nameInput.value).length <= 43;
+      reportDirty();
+    });
+    descInput.addEventListener('input', reportDirty);
 
-    newBtn.addEventListener('click', function () {
-      createForm.hidden = !createForm.hidden;
-      if (!createForm.hidden) nameInput.focus();
+    cancelBtn.addEventListener('click', function () {
+      if (callbacks.onCancel) callbacks.onCancel();
     });
 
     createBtn.addEventListener('click', function () {
@@ -382,56 +424,18 @@
         }
         return r.json();
       }).then(function (kb) {
-        nameInput.value = '';
-        descInput.value = '';
-        hint.hidden = true;
-        createForm.hidden = true;
-        createBtn.disabled = false;
-        onCreateSuccess(kb);
+        App.store.invalidate('knowledge-bases'); // the Library list gains a row (DD9)
+        // Saved: the caption clears while studio awaits the list reload before
+        // opening the new item (studio clears its own `dirty`).
+        _showUnsaved(unsavedEl, false);
+        if (callbacks.onCreateSuccess) callbacks.onCreateSuccess(kb);
       }).catch(function (err) {
         createBtn.disabled = false;
         createErrorEl.textContent = err.message || String(err);
       });
     });
 
-    // ── Tile grid ────────────────────────────────────────────────────
-    var gridEl = _el('div', { className: 'entity-tile-grid' });
-    gridEl.setAttribute('role', 'listbox');
-    gridEl.setAttribute('aria-label', 'Knowledge bases');
-    root.appendChild(gridEl);
-
-    function updateList(nextKbs) {
-      gridEl.textContent = '';
-
-      if (nextKbs === null || nextKbs === undefined) {
-        gridEl.appendChild(_el('div', { className: 'admin-loading', text: 'Loading knowledge bases…' }));
-        return;
-      }
-
-      if (nextKbs.length === 0) {
-        var empty = _el('div', { className: 'empty-canvas' });
-        var inner = _el('div', { className: 'empty-canvas-inner admin-provider-empty' });
-        inner.appendChild(_el('div', { text: 'No knowledge bases yet. Create one to get started.' }));
-        empty.appendChild(inner);
-        gridEl.appendChild(empty);
-        return;
-      }
-
-      nextKbs.forEach(function (kb) {
-        var tile = _el('button', { className: 'entity-tile knowledge-base-tile' });
-        tile.type = 'button';
-        tile.setAttribute('role', 'option');
-        tile.setAttribute('data-testid', 'knowledge-base-card');
-        tile.setAttribute('data-id', kb.id);
-        tile.appendChild(_el('span', { className: 'entity-tile-name', text: kb.name }));
-        tile.appendChild(_el('span', { className: 'entity-tile-meta', text: kb.description || '—' }));
-        tile.addEventListener('click', function () { onSelect(kb.id); });
-        gridEl.appendChild(tile);
-      });
-    }
-    updateList(kbs);
-
-    return { updateList: updateList };
+    return { focus: function () { nameInput.focus(); } };
   }
 
   // ── Detail ────────────────────────────────────────────────────────────
@@ -451,19 +455,22 @@
     root.setAttribute('data-testid', 'studio-knowledge-inventory');
     container.appendChild(root);
 
-    // ── Header (AC-1, L6-D1) — static title/subtitle (last-saved values;
-    // refreshed only on a successful Save's remount) + Back/Cancel/Save,
-    // mirroring `mcp-server-editor.js`'s header exactly. No edit button.
+    // ── Header (AC-1, L6-D1) — the breadcrumb, then the static title/
+    // subtitle (last-saved values; refreshed only on a successful Save's
+    // remount) + the unsaved caption/Cancel/Save, mirroring
+    // `mcp-server-editor.js`'s header. No edit button. M25 F3 L4b retired
+    // Back (DD2): the breadcrumb's "Knowledge bases" link closes the item to
+    // the section root, through the router's leave guard.
     var header = _el('div', { className: 'editor-header' });
     var headerText = _el('div', { className: 'editor-header-text' });
+    headerText.appendChild(_breadcrumb());
     headerText.appendChild(_el('h1', { className: 'editor-title', text: kb.name }));
     headerText.appendChild(_el('p', { className: 'editor-subtitle', text: kb.description || '' }));
     header.appendChild(headerText);
 
     var actions = _el('div', { className: 'form-actions' });
-    var backBtn = _btn('btn-outlined-primary back-btn', 'back-knowledge-btn', '← Back');
-    backBtn.setAttribute('aria-label', 'Back to knowledge bases');
-    actions.appendChild(backBtn);
+    var unsavedEl = _unsaved();
+    actions.appendChild(unsavedEl);
     var cancelBtn = _btn('btn-outlined-primary cancel-btn', 'cancel-knowledge-btn', 'Cancel');
     cancelBtn.disabled = true;
     actions.appendChild(cancelBtn);
@@ -474,15 +481,6 @@
     actions.appendChild(headerErrorEl);
     header.appendChild(actions);
     root.appendChild(header);
-
-    // AC-5/L5-D3 (carried): the dirty GATE for this click is the router's
-    // leave guard (App.nav, nav.js): studio.js's `onBack` is a go() to the
-    // section root, so a dirty edit form is asked about exactly once. This
-    // module only ever requests the navigation, never decides to discard
-    // unsaved edits on its own.
-    backBtn.addEventListener('click', function () {
-      if (callbacks.onBack) callbacks.onBack();
-    });
 
     // ── Fields (AC-2, L6-D1) — Name + Description, ALWAYS live, no
     // wrapping edit form. Reuses the create form's 43-code-point advisory
@@ -506,7 +504,8 @@
     _fieldGroup(fieldsSection, 'Description', 'kb-description', descInput);
 
     // AC-3/AC-4 — dirty tracking: Save/Cancel disabled until the fields
-    // differ from the loaded baseline; Cancel reverts + clears dirty.
+    // differ from the loaded baseline; Cancel reverts + clears dirty. The
+    // unsaved caption (M25 F3 L4b) follows the same value.
     function fieldsSnapshot() {
       return JSON.stringify({ name: nameInput.value, description: descInput.value });
     }
@@ -515,6 +514,7 @@
       var dirty = (fieldsSnapshot() !== baselineSnapshot);
       saveBtn.disabled = !dirty;
       cancelBtn.disabled = !dirty;
+      _showUnsaved(unsavedEl, dirty);
       if (callbacks.onDirtyChange) callbacks.onDirtyChange(dirty);
       return dirty;
     }
@@ -522,6 +522,7 @@
       baselineSnapshot = fieldsSnapshot();
       saveBtn.disabled = true;
       cancelBtn.disabled = true;
+      _showUnsaved(unsavedEl, false);
       if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
     }
 
@@ -567,13 +568,15 @@
         }
         return r.json();
       }).then(function (updated) {
-        // A KB rename rewrites agents' kb_ids / KB tool references (DD8).
+        // A KB rename rewrites agents' kb_ids / KB tool references (DD8), and
+        // the Library list shows the name (DD9).
+        App.store.invalidate('knowledge-bases');
         App.store.invalidate('agents');
         // L3-D5 (carried): the caller re-mounts the whole detail view from
         // the saved object — refreshes the header title/subtitle and
-        // re-fetches status/items — and updates the grid's section-local
-        // cache so navigating back shows the new name without a second
-        // fetch. The remount naturally re-disables Save/Cancel (AC-3).
+        // re-fetches status/items — and reloads the Library list so the row
+        // shows the new name. The remount naturally re-disables Save/Cancel
+        // (AC-3).
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
       }).catch(function (err) {
         checkDirty(); // restore button state to match actual dirtiness
@@ -1446,6 +1449,7 @@
         fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id), { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) throw new Error('Delete failed');
+            App.store.invalidate('knowledge-bases');
             App.store.invalidate('agents');
             if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
           })
@@ -1464,6 +1468,6 @@
     };
   }
 
-  window.App.studio.renderKnowledgeGrid = renderKnowledgeGrid;
+  window.App.studio.renderKnowledgeCreate = renderKnowledgeCreate;
   window.App.studio.renderKnowledgeDetail = renderKnowledgeDetail;
 })();

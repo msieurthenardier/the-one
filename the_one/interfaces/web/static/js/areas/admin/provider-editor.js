@@ -3,12 +3,13 @@
 // Builds the editor surface mirroring studio's agent-editor (F5 leg 03):
 //   <div class="editor-header">
 //     <div class="editor-header-text">
-//       <h1 class="editor-title">{name | "New Provider"}</h1>
+//       <div class="editor-breadcrumb">Settings / <a href="#settings/providers">Providers</a></div>
+//       <h2 class="editor-title" tabindex="-1">{name | "New Provider"}</h2>
 //       <p class="editor-subtitle">{type · base_url}</p>  (edit only)
 //     </div>
 //     <div class="form-actions">
-//       <button class="back-btn">← Back</button>
-//       <button class="cancel-btn" disabled>Cancel</button>
+//       <span class="editor-unsaved" role="status"></span>
+//       <button class="cancel-btn">Cancel</button>  (disabled while clean, edit only)
 //       <button class="save-btn" disabled>{Save | Create}</button>
 //       <button class="test-provider-btn">Test</button>  (edit only)
 //       <span class="editor-error"></span>
@@ -28,7 +29,17 @@
 //     <button class="delete-btn">Delete Provider</button>
 //   </div>
 //
-// callbacks: { onBack, onCancel, onSaveSuccess, onDeleteSuccess, getTypeDefaults }
+// callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange, getTypeDefaults }
+//
+// M25 F3 L5b (flight DD2/DD7): the editor mounts in the Providers page's item
+// section, below the table. Back is retired: the breadcrumb (inserted after
+// innerHTML, its "Providers" segment a link to #settings/providers) is the
+// visible way to close the item, routed by admin.js. The title is an h2 (the
+// Settings page header owns the page's one h1; flight-end review) and carries
+// tabindex="-1" so admin.js can move focus to it when an intent opens the
+// item. The unsaved caption is a stable span at the start of .form-actions
+// whose text checkDirty sets or clears (the same value it reports through
+// onDirtyChange, which feeds the App.nav dirty source).
 //
 // Editor Delete uses App.confirmDelete (canonical destructive-confirm helper)
 // since F6 leg 04. The agent-usage hard-block remains as a pre-confirmDelete
@@ -49,7 +60,7 @@
     var html = '';
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
-    html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
+    html += '<h2 class="editor-title" tabindex="-1">' + escapeHtml(name) + '</h2>';
     if (!isCreate) {
       var subtitleParts = [escapeHtml(provider.type)];
       if (provider.base_url) subtitleParts.push(escapeHtml(provider.base_url));
@@ -58,9 +69,15 @@
     html += '</div>';
 
     // ── Action cluster ──────────────────────────────────────────────
+    // M25 F3 L5b (DD2): Back is retired; the cluster opens with the stable
+    // unsaved caption (checkDirty sets or clears its text). Cancel on the
+    // create form abandons creation (DD8), so it is enabled from first
+    // render, clean or dirty (the M25 F3 behavior-gate fix); in edit mode it
+    // reverts, and checkDirty keeps it disabled while there is nothing to
+    // revert.
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-provider-btn" aria-label="Back to provider list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-provider-btn" disabled>Cancel</button>';
+    html += '<span class="editor-unsaved" role="status" data-testid="editor-unsaved"></span>';
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-provider-btn"' + (isCreate ? '' : ' disabled') + '>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-provider-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     if (!isCreate) {
       html += '<button type="button" class="btn-outlined-primary test-provider-btn" data-testid="test-connection-btn">Test</button>';
@@ -107,6 +124,25 @@
     }
 
     container.innerHTML = html;
+
+    // The breadcrumb (M25 F3 DD2): "Settings / Providers", inserted with DOM
+    // APIs after the markup is in place (this editor is string-built), as the
+    // first child of .editor-header-text, in edit and create modes. Its
+    // "Providers" segment links to the page root (the DD2 refinement): with
+    // Back retired it is the visible way to close the item. admin.js routes
+    // the click (the router's guard asks once about a dirty editor) and
+    // focuses the item's row after the close (DD8).
+    var headerText = container.querySelector('.editor-header-text');
+    var crumb = document.createElement('div');
+    crumb.className = 'editor-breadcrumb';
+    crumb.appendChild(document.createTextNode('Settings / '));
+    var crumbLink = document.createElement('a');
+    crumbLink.className = 'editor-breadcrumb-link';
+    crumbLink.setAttribute('href', window.App.router.href({ destination: 'settings', section: 'providers' }));
+    crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
+    crumbLink.textContent = 'Providers';
+    crumb.appendChild(crumbLink);
+    headerText.insertBefore(crumb, headerText.firstChild);
 
     wireEditorEvents(container, provider, providerTypes, callbacks);
 
@@ -633,9 +669,9 @@
   }
 
   function wireEditorEvents(container, provider, providerTypes, callbacks) {
-    /* Wire: type-change show/hide, eye-toggle, dirty tracking, Back, Cancel,
-       Save, Test, Delete. Replaces pre-leg-03 admin.js:385-558 with these
-       substitutions:
+    /* Wire: type-change show/hide, eye-toggle, dirty tracking, Cancel,
+       Save, Test, Delete (Back retired in M25 F3 L5b). Replaces pre-leg-03
+       admin.js:385-558 with these substitutions:
          - .admin-pf-cancel        → .cancel-btn
          - .admin-pf-save          → .save-btn
          - .admin-pf-test          → .test-provider-btn
@@ -646,7 +682,7 @@
          - .admin-pf-test-ok       → .test-result-ok      (span class)
          - .admin-pf-test-fail     → .test-result-fail    (span class)
        Adds: MASKED_SENTINEL capture (originalMaskedApiKey); dirty-tracking
-       shim (snapshot + checkDirty); .back-btn handler; .delete-btn handler
+       shim (snapshot + checkDirty); .delete-btn handler
        with agent-usage hard-block + inline two-step. Sub-module owns the
        fetch (POST/PUT/DELETE/test); onSaveSuccess + onDeleteSuccess
        callbacks notify orchestrator AFTER successful response. */
@@ -666,9 +702,16 @@
       var saveBtn = container.querySelector('.save-btn');
       var cancelBtn = container.querySelector('.cancel-btn');
       if (saveBtn) saveBtn.disabled = !dirty;
-      if (cancelBtn) cancelBtn.disabled = !dirty;
-      // F6 leg 04 bridge: notify orchestrator's mirror so navigation gates
-      // (Back / section-nav / beforeunload) can read the same logical state.
+      // Cancel follows `dirty` in edit mode only; the create form's Cancel
+      // (abandon creation, DD8) stays enabled whether or not anything was
+      // typed.
+      if (cancelBtn) cancelBtn.disabled = isEdit && !dirty;
+      // The header's unsaved caption (M25 F3 DD2) follows the same value.
+      var unsavedEl = container.querySelector('.editor-unsaved');
+      if (unsavedEl) unsavedEl.textContent = dirty ? 'Unsaved changes' : '';
+      // F6 leg 04 bridge: notify orchestrator's mirror so the leave guard
+      // (App.nav: the breadcrumb, a Settings nav link, any routed leave,
+      // beforeunload) can read the same logical state.
       if (callbacks.onDirtyChange) callbacks.onDirtyChange(dirty);
     }
 
@@ -728,14 +771,10 @@
       });
     }
 
-    /* Back. */
-    var backBtn = container.querySelector('.back-btn');
-    if (backBtn && callbacks.onBack) {
-      backBtn.addEventListener('click', function () { callbacks.onBack(); });
-    }
-
-    /* Cancel: edit mode reverts; create mode delegates to onCancel (orchestrator
-       handles the navigate-to-grid). */
+    /* Cancel: edit mode reverts in place; create mode delegates to onCancel
+       (the orchestrator discards and returns to the page root). The create
+       form's Cancel is enabled from first render, so onCancel runs on a
+       pristine form as well as a dirty one. */
     var cancelBtn = container.querySelector('.cancel-btn');
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {
@@ -799,7 +838,7 @@
             // subtitle) from the freshly saved provider. On edit→edit the
             // editor stays mounted and nothing else refreshes the header,
             // so an edited Name / Base URL / Type would otherwise leave the
-            // H1 and the `type · base_url` subtitle stale. These nodes carry
+            // title and the `type · base_url` subtitle stale. These nodes carry
             // no data-field, so getFormSnapshot / dirty tracking are
             // unaffected — textContent-only writes.
             var titleEl = container.querySelector('.editor-title');

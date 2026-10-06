@@ -2,8 +2,9 @@
 
 Covers the leg's acceptance criteria (AC-1 through AC-9):
 
-- AC-1: reachable at `#admin/knowledge` including on a full page load; other
-  categories still route.
+- AC-1: reachable at `#admin/knowledge` (since M25 F2
+  `#settings/knowledge-indexing`, the "Knowledge indexing" page since M25 F3
+  leg 5a) including on a full page load; other categories still route.
 - AC-2: renders current values for all four editable settings and for the
   read-only embedding/vector-store records.
 - AC-3: editing and saving persists — verified via a subsequent `GET`, not
@@ -28,13 +29,13 @@ Covers the leg's acceptance criteria (AC-1 through AC-9):
 from __future__ import annotations
 
 import pytest
-from browser import _nav
+from browser import _lists, _nav
 from playwright.sync_api import Page, expect
 
 
 def _goto_knowledge(app_clean: str, page: Page) -> None:
     _nav.goto(page, app_clean, "settings/knowledge-indexing")
-    expect(page.locator(".page-title")).to_have_text("Knowledge", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Knowledge indexing", timeout=8000)
     expect(page.locator('[data-testid="knowledge-size-chars-input"]')).to_have_value(
         "1000", timeout=8000
     )
@@ -43,22 +44,22 @@ def _goto_knowledge(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_knowledge_category_reachable_on_full_page_load(app_clean: str, page: Page) -> None:
     _nav.goto(page, app_clean, "settings/knowledge-indexing")
-    expect(page.locator(".page-title")).to_have_text("Knowledge", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Knowledge indexing", timeout=8000)
     _nav.expect_route(page, "settings/knowledge-indexing")
-    nav = page.locator(".area-admin .section-nav")
-    expect(nav.locator(".section-nav-item", has_text="Knowledge")).to_be_visible()
+    expect(_lists.settings_nav_link(page, "knowledge-indexing")).to_be_visible()
+    _lists.expect_settings_selected(page, "knowledge-indexing")
 
 
 @pytest.mark.browser
 def test_other_categories_still_route(app_clean: str, page: Page) -> None:
-    _nav.goto(page, app_clean, "settings/general")
-    expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
+    _nav.goto(page, app_clean, "settings/appearance")
+    expect(page.locator(".page-title")).to_have_text("Appearance", timeout=8000)
     _nav.goto(page, app_clean, "settings/providers")
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Providers", timeout=8000)
     _nav.goto(page, app_clean, "settings/tools")
-    expect(page.locator(".page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Built-in tools", timeout=8000)
     _nav.goto(page, app_clean, "settings/knowledge-indexing")
-    expect(page.locator(".page-title")).to_have_text("Knowledge", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Knowledge indexing", timeout=8000)
 
 
 @pytest.mark.browser
@@ -291,26 +292,26 @@ def test_dirty_confirm_on_navigate_away(app_clean: str, page: Page) -> None:
     _goto_knowledge(app_clean, page)
 
     # Clean navigation away — no dialog.
-    page.locator(".area-admin .section-nav-item", has_text="General").click()
+    _lists.settings_nav_link(page, "appearance").click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Appearance", timeout=8000)
 
     _goto_knowledge(app_clean, page)
     page.locator('[data-testid="knowledge-size-chars-input"]').fill("1200")
     expect(page.locator('[data-testid="knowledge-settings-save-btn"]')).to_be_enabled()
 
-    page.locator(".area-admin .section-nav-item", has_text="General").click()
+    _lists.settings_nav_link(page, "appearance").click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=8000)
 
-    # Cancel keeps us on Knowledge with the edit intact.
+    # Cancel keeps us on Knowledge indexing with the edit intact.
     page.locator('[data-testid="modal-cancel-btn"]').click()
     expect(overlay).to_have_count(0)
-    expect(page.locator(".page-title")).to_have_text("Knowledge")
+    expect(page.locator(".page-title")).to_have_text("Knowledge indexing")
     expect(page.locator('[data-testid="knowledge-size-chars-input"]')).to_have_value("1200")
 
-    # Confirm proceeds to General.
-    page.locator(".area-admin .section-nav-item", has_text="General").click()
+    # Confirm proceeds to Appearance.
+    _lists.settings_nav_link(page, "appearance").click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=8000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("Appearance", timeout=8000)

@@ -4,6 +4,7 @@
 **Status**: active
 **Created**: 2026-06-05
 **Last Run**: 2026-06-05-20-42-09 (pass, 6/6 — see `runs/`; first run 2026-06-05-20-06-29 failed Step 4 on a since-fixed error-rendering defect)
+**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
 
 ## Intent
 
@@ -23,7 +24,7 @@ value is refused at the surface they interact with.
   (never the operator's default `:8484` instance), on the Flight-1 branch (`make restart`
   after the Flight-1 edits, against that same instance — `the one serve` has no
   `--reload`, so a restart picks up source edits). Verified by an active probe: the
-  operator opens the URL and sees Studio render. **Note**: this spec's Steps literally
+  operator opens the URL and sees the app render. **Note**: this spec's Steps literally
   write `http://localhost:8484` — treat that as a placeholder for this instance's actual
   base URL, never as a literal instruction to target port 8484.
 - At least one agent exists (the dev `mock` provider suffices). The test uses whichever agent
