@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-05
 **Updated**: 2026-10-06 (M25 F4 leg 9: step 2's empty-query expectation re-authored for the recent-chats/New chat…/recent-agents mix); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
-**Last Run**: 2026-10-06-06-01-26 — pass (24/24; Light + Dark; first run, M25 F4 close gate)
+**Last Run**: 2026-10-06-14-00-21 — pass (a targeted re-run of steps 1, 2 and 14 in Light and Dark after M25 F4 leg 9, the empty-query mix; the full run 2026-10-06-06-01-26 passed 24/24)
 
 ## Intent
 
