@@ -6,7 +6,7 @@
 **Duration**: 2026-10-05 to 2026-10-06, in one autonomous session. Planning and all ten legs
 ran on 2026-10-05. The flight-end review, the commit, the close-gate runs and this debrief
 followed on 2026-10-06.
-**Legs Completed**: 10 of 10. The flight spec planned 8 legs, and leg design reviews split
+**Legs Completed**: 11 of 11. Leg 9 `palette-empty-mix` was added after the operator answered the DD13 preview (see the addendum). The flight spec planned 8 legs, and leg design reviews split
 leg 3 (into 3a `chats-test-seam` and 3b `start-flow-client`) and leg 4 (into 4a
 `chats-sidebar-and-picker` and 4b `chats-pane`).
 **Plugin version**: mission-control 1.2.0
@@ -462,3 +462,37 @@ These are recorded, not judged. Plugin `mission-control` 1.2.0.
   - the fixed waits and the runtime wording (recommendation 5);
   - the `agents.md` pattern names (recommendation 3).
 - [ ] Open squawks carried: 0112–0116, 0119 and 0120.
+
+## Addendum: operator preview answers and leg 9 (2026-10-06)
+
+The operator answered the DD13 preview after this debrief was written.
+- **Accepted as built:**
+  - row delete;
+  - the drawer closed below 1280 and the 1024 overlay covering Send (A4);
+  - the 588px pane at 1280;
+  - the older recency groups;
+  - the Dark scrim at 0.5;
+  - closing the overlay through the header toggle;
+  - `find_platform_destination` under Connectors.
+- **"Attach images"** was accepted once it was confirmed that attachments really are
+  image-only (`accept="image/*"`, and the server builds only `ImageContent`). General file
+  attachment is a possible later feature.
+- **Question 2, the palette's empty query.** The operator did not follow the question as
+  first written. Re-asked in plain terms, the operator chose **option C**: a few recent
+  chats, then New chat…, then recently used agents.
+
+**Leg 9 `palette-empty-mix`** implemented option C:
+- up to 3 recent chats, New chat…, then up to 4 recently used agents (the picker's
+  `recentAgents` rule);
+- filled to 8 from the board order without duplicates;
+- a typed query unchanged.
+
+It took one design review (approve with changes, no high issues) and one review
+(confirmed). The commit is `0d0e114`, and the targeted `jump-to-palette` re-run
+(`2026-10-06-14-00-21`) passed 2/2. Squawk 0121's apparatus recipe was used for the first
+time, with no incidents.
+
+**Lesson.** One of nine preview questions was not understood as written. It asked about an
+implementation detail ("the empty-query content, board order") instead of what the
+operator sees. Write preview questions in what-you-see terms, with the options spelled
+out. This adds to methodology observation 8.

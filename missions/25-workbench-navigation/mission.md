@@ -312,7 +312,9 @@ history but do not appear in the picker, and their drawer shows no settings link
   *Landed on 2026-10-06* (PR #220). The operator preview (DD13) was published and not
   awaited. The close-gate runs passed 96 of 96 checkpoints: `start-a-chat` and
   `jump-to-palette` in both themes, `workbench-navigation`, `shell-navigation-smoke` and
-  `chat-roundtrip`.
+  `chat-roundtrip`. The operator then answered the preview. Leg 9 changed the palette's
+  empty query to recent chats, New chat… and recent agents (option C), and its targeted
+  re-run passed. The flight is completed.
 - [ ] Flight 5: **Window chrome** — the WebView2 non-client-region spike; goldfinch-style
   custom chrome if it holds, otherwise a native title bar tinted to the workbench and
   following the theme; first-launch window size that fits the workbench; verified in a

@@ -4,7 +4,7 @@
 
 ## Summary
 
-**Status**: landed (2026-10-06). 10 legs (two planned legs split at design review), committed as `340dad4` and opened as draft PR #220. The flight-end review needed one fix cycle. The close-gate behavior runs passed 96 of 96 checkpoints across five specs. `vision-round-trip` was not run, because it needs a live Anthropic key.
+**Status**: completed (2026-10-06). 11 legs (leg 9 was added after the operator's preview answer; originally 10 legs) (two planned legs split at design review), committed as `340dad4` and opened as draft PR #220. The flight-end review needed one fix cycle. The close-gate behavior runs passed 96 of 96 checkpoints across five specs. `vision-round-trip` was not run, because it needs a live Anthropic key.
 
 ---
 
@@ -2792,6 +2792,12 @@ set first. `vision-round-trip` needs a live Anthropic key (it cannot run on the 
   The falsification was done. **Review** (Sonnet): `[HANDOFF:confirmed]`, with no blocking
   issues and one cosmetic comment-wrap nit, accepted. Leg 9 is set to `completed` and
   committed; the targeted spec re-run follows.
+
+- **Leg 9 targeted re-run passed**: `jump-to-palette` `2026-10-06-14-00-21`, steps 1, 2
+  and 14. Step 2 passed in both Light and Dark (2/2). The new apparatus recipe (squawk
+  0121) was followed with no incidents.
+- **Flight landed again and completed** (2026-10-06). A debrief addendum covers the
+  preview answers and leg 9. PR #220 is updated.
 
 ---
 
