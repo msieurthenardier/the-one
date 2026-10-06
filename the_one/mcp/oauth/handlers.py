@@ -25,17 +25,19 @@ invocation path. Tests MUST construct handlers inside ``async def
 test_...`` bodies; synchronous fixtures cannot construct them.
 
 Synthetic chat-session-id pattern. Three csid shapes pass through
-this module's ``redirect_handler`` closure: real csids (12-char uuid4
-hex, allocated per chat WebSocket connection by
-``the_one.interfaces.web.app``), ``f"test:{source_id}"`` (allocated by
+this module's ``redirect_handler`` closure: real csids (lowercase hex
+chat-session ids: 12 characters when the server allocates one in
+``the_one.interfaces.web.app._create_session``, 32 when the chat
+client generates one for the WebSocket ``start_session`` action),
+``f"test:{source_id}"`` (allocated by
 the F6.5 Test connection endpoint at
 ``the_one/interfaces/web/api.py:~867,~912`` when no chat WS
 subscription exists), and ``f"agent_build:{source.id}"`` (allocated by
 ``_pool._entry_worker`` at ``the_one/mcp/_pool.py:200`` when an
 OAuth-token-bearing source is connected outside a chat path —
 REST/CLI/agent-build). The two namespaces are disjoint by
-**character-set construction**: real csids are 12-char lowercase hex
-(charset ``[0-9a-f]``); synthetic csids contain a literal ``:``
+**character-set construction**: real csids are lowercase hex of either
+length (charset ``[0-9a-f]``); synthetic csids contain a literal ``:``
 separator that the hex charset cannot produce. Collision is impossible
 regardless of the synthetic-prefix length. The redirect_handler's
 ``_sessions.get(synthetic_csid)`` lookup returns None for both

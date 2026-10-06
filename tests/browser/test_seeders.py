@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 import pytest
 from browser._credential_registry import auth_headers_for
-from browser.seeders import SeededApp
+from browser.seeders import SeededApp, seed_session
 
 
 @pytest.mark.browser
@@ -49,3 +51,41 @@ def test_app_with_agent_has_one_provider_and_one_agent(
     assert a["name"] == app_with_agent.agent_name
     assert a["provider_config_id"] == app_with_agent.provider_id
     assert a["llm_model"] == "mock-default"
+
+
+@pytest.mark.browser
+def test_seed_session_round_trips_past_dates_and_platform(app_with_agent: SeededApp) -> None:
+    """``seed_session`` (M25 F4 L3a) places a session in the past and marks its
+    platform; ``GET /api/chat/sessions`` reads both back (``platform`` is on the
+    summary since M25 F4 L1), and the detail returns the stored messages."""
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    now = datetime.now(timezone.utc)
+    past = now - timedelta(days=3, hours=2)
+    created = past - timedelta(days=1)
+    old = seed_session(
+        base,
+        agent,
+        "Old discord chat",
+        past,
+        created_at=created,
+        platform="discord",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    recent = seed_session(base, agent, "Recent chat", (now - timedelta(minutes=5)).isoformat())
+
+    h = auth_headers_for(base)
+    rows = {r["id"]: r for r in httpx.get(f"{base}/api/chat/sessions", headers=h, timeout=5).json()}
+    assert set(rows) == {old, recent}
+    assert rows[old] == {
+        "id": old,
+        "agent_name": agent,
+        "title": "Old discord chat",
+        "created_at": created.isoformat(),
+        "updated_at": past.isoformat(),
+        "platform": "discord",
+    }
+    # created_at defaults to updated_at; a web session has no platform.
+    assert rows[recent]["created_at"] == rows[recent]["updated_at"]
+    assert rows[recent]["platform"] is None
+    detail = httpx.get(f"{base}/api/chat/sessions/{old}", headers=h, timeout=5).json()
+    assert detail["messages"] == [{"role": "user", "content": "hi"}]

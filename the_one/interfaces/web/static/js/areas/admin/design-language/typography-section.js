@@ -135,7 +135,7 @@
     quietNote.style.fontFamily = 'var(--font-family-mono)';
     quietNote.style.fontSize = 'var(--font-size-tiny)';
     quietNote.style.color = 'var(--fg-muted)';
-    quietNote.textContent = 'div / label → body-sm quiet standalone label (chat agent-select, system page sections)';
+    quietNote.textContent = 'div / label → body-sm quiet standalone label (system page sections)';
     wrap.appendChild(quietNote);
 
     var convention = document.createElement('p');

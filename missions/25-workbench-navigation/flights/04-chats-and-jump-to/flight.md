@@ -1,6 +1,6 @@
 # Flight: Chats and Jump-to
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -218,6 +218,13 @@ action.**
   and no unit test uses it.
 - **Squawk 0111 closes by construction.** The 10s stalled-join timer and the `new_session`
   re-send are gone.
+- **`join` of an unknown id answers `join_failed` instead of auto-creating a
+  default-agent session** (a leg 2 addition from leg 3b's design review). The client is
+  then never handed a session it did not ask for. A foreign `session_joined` is always a
+  late reply to a superseded request, and is dropped.
+- **A lost reply on an open socket is no longer recovered.** The server always replies, so
+  only a socket close triggers a re-send. That is a deliberate consequence of retiring
+  squawk 0111's timer.
 - **Rationale.** This is the board's behaviour exactly, with no orphan empty sessions and
   no cleanup deletes. Traversal and rail restore of a pending chat are harmless, because a
   pending chat is not persisted (DD2).
@@ -691,7 +698,11 @@ recommendation 1).**
   - "Attach images" (DD6);
   - the older recency groups (DD5);
   - the picker and palette scrim using the existing `--scrim` (dark 0.5), not the
-    board's 0.3 (DD15, A30).
+    board's 0.3 (DD15, A30);
+  - the 1024 overlay keeping the header toggle above it (`z-index`), so a mouse user can
+    close it. The board has no close control inside the drawer; this is a leg 6 finding;
+  - the previously uncategorised `find_platform_destination` built-in now appearing under
+    Connectors in the Tools tab and Settings (a leg 6 finding).
 - **The operator is notified, and the flight does not wait.** Feedback that arrives before
   PR merge is folded in as a leg, with targeted spec re-runs. That respects the mission's
   autonomous-execution constraint and still moves the visual review ahead of the gate.
@@ -890,7 +901,10 @@ last, after the non-blocking preview. Each control is built in the leg that cons
    - The broadened auto-create catch.
    - Unit tests in the `test_ws_message_branch_crash_guard.py` style. `new_session` is
      kept.
-3. **`start-flow-client`** (DD1 client side, DD2), on the existing DOM.
+3. **`chats-test-seam`** (3a, DD12). `_chats.py` and `seed_session`, migrating about 23
+   files onto the helpers with today's semantics. No app change, and every lane stays
+   green. It was split from 3b at 3b's design review.
+4. **`start-flow-client`** (3b; DD1 client side, DD2), on the existing DOM.
    - The state machine (`idle`, `joining`, `joined`, `pending`, `starting`), with inbound
      frame gating, the explicit state checks at the 18 `currentSessionId` sites, the
      `activeId` busy/hold/Stop, reconnect (re-send while starting, re-join while
@@ -902,13 +916,13 @@ last, after the non-blocking preview. Each control is built in the leg that cons
      agent}))`, with the interim pending UI.
    - `new_session` removed, and the `start_session` invalidation row.
    - Tests:
-     - `_chats.py`, migrated seam first;
-     - `seed_session`;
+     - the `_chats.py` bodies flipped;
      - `test_flow_chat_start_recovery.py` inverted;
      - `test_router_items` inverted by rename.
 
    This closes squawk 0111.
-4. **`chats-list-and-picker`** (DD3, DD5, DD6 header and new-chat state).
+5. **`chats-sidebar-and-picker`** (4a) and **`chats-pane`** (4b). These were split at
+   leg 4's design review (DD3, DD5, DD6 header and new-chat state).
    - The Chats list on `listPane`: groups, hand-formatted times, the delete row action, the
      New chat block, the 300px aside and the padding rule.
    - The picker (`searchList` in `modal`), the header with its agent line, the
@@ -917,13 +931,13 @@ last, after the non-blocking preview. Each control is built in the leg that cons
      `RETIRED_EXACT` and the class fragments.
    - **All three chat sinks removed.**
    - The pinned old-surface tests rewritten (DD12).
-5. **`composer-and-telemetry`** (DD6). The input area restyled:
+6. **`composer-and-telemetry`** (DD6). The input area restyled:
    - the textarea, with Enter and Shift+Enter and the IME guard;
    - the focus-within ring;
    - attach, with squawk 0110 (`aria-label`);
    - the model id, Stop and Send;
    - the telemetry row, with the opacity pin updated.
-6. **`agent-drawer-and-chat-action`** (DD7, DD8).
+7. **`agent-drawer-and-chat-action`** (DD7, DD8).
    - `App.ui.drawer` (demo, inventory, contracts), created once and toggled with `hidden`.
    - The header toggle.
    - Push and overlay, and "what it can use".
@@ -931,14 +945,14 @@ last, after the non-blocking preview. Each control is built in the leg that cons
    - `listPane.setQuery`, `App.studio.clearAgentFilter`, and Open agent settings.
    - The agent editor's Chat.
    - Squawk 0118's documentation.
-7. **`jump-to-palette`** (DD9, DD10).
+8. **`jump-to-palette`** (DD9, DD10).
    - The rail's bottom slot and control.
    - The modal's `ariaLabel` and `anyOpen`.
    - The shell Ctrl K listener (Meta on macOS, the IME guard, the opener rule).
    - The shared Settings page table.
    - The candidates and picks.
    - The WebKitGTK probe's real key injection.
-8. **`behavior-specs-and-close`.**
+9. **`behavior-specs-and-close`.**
    - The DD13 preview, published and not awaited.
    - Finalize the two new specs and re-author the affected specs.
    - The gates: unit, all six lanes and both engines.
@@ -958,7 +972,9 @@ last, after the non-blocking preview. Each control is built in the leg that cons
   - the reserved-id race;
   - `is_processing: true`;
   - `leave` never cancels.
-- [ ] L3: picking (still through the old entry points) creates a pending chat.
+- [ ] L3a: every chat-starting browser test goes through `_chats.py`, with all lanes green
+  and no app change.
+- [ ] L3b: picking (still through the old entry points) creates a pending chat.
   - It sends only a `leave`, and no session-creating frame.
   - Frames in flight cannot take the pending chat over, including a late
     `session_joined` on a cold `#chats`.
@@ -966,8 +982,8 @@ last, after the non-blocking preview. Each control is built in the leg that cons
     (hold queue, Stop).
   - A reconnect while starting re-sends idempotently, and a reconnect while joined
     re-joins.
-  - `#chats/~new/{agent}` works, and the chats lane is green on `_chats.py`.
-- [ ] L4: New chat opens the picker.
+  - `#chats/~new/{agent}` works, and the chats lane is green on the flipped `_chats.py`.
+- [ ] L4a and L4b: New chat opens the picker.
   - The list is cross-agent and grouped, with row delete under the row-action contract.
   - The dropdown and the welcome list are gone, the retired selectors are guarded, and the
     chat sinks are gone.
@@ -1022,18 +1038,26 @@ last, after the non-blocking preview. Each control is built in the leg that cons
     `platform`.
 - [ ] `ws-start-protocol`: the shared payload validation; `leave`; the idempotent
   `start_session` with `start_failed`; the broadened auto-create catch; unit tests.
-- [ ] `start-flow-client`:
+- [ ] `chats-test-seam` (3a): `_chats.py` and `seed_session`, with every chat-starting
+  test migrated onto the helpers, on **today's** semantics; no app change.
+- [ ] `start-flow-client` (3b):
   - the client state machine with frame gating, on the existing DOM;
   - `#chats/~new/{agent}`;
   - reconnect;
   - `new_session` removed;
-  - `_chats.py` (seam first) and `seed_session`;
+  - the helper bodies flipped;
   - closes squawk 0111.
-- [ ] `chats-list-and-picker`:
-  - the Chats list on `listPane`, the picker, the header and the new-chat state;
-  - the empty and guidance states;
-  - the retired surfaces and selectors;
-  - all chat sinks removed.
+- [ ] `chats-sidebar-and-picker` (4a):
+  - the Chats list on `listPane`, 300px wide, with groups, row delete and the pending row;
+  - the agent picker and `openPicker`;
+  - the dropdown and `history-buckets.js` retired, and the sidebar sink removed.
+- [ ] `chats-pane` (4b):
+  - the header `h1`, the new-chat state, and the empty and guidance states under
+    "Hello.";
+  - `composer.js` extracted;
+  - the welcome list, `new-chat-btn` and the badge retired;
+  - the seam guard swapped for `RETIRED_SELECTORS`;
+  - the last chat sink removed.
 - [ ] `composer-and-telemetry`: the textarea composer, the focus ring, attach, squawk 0110,
   the IME guard and the telemetry row.
 - [ ] `agent-drawer-and-chat-action`:

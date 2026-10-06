@@ -14,7 +14,9 @@
 Two id classes are registered:
 
 - **Literal ids** — the full id appears as-is in the source (HTML-string
-  attribute or `setAttribute('data-testid', '...')`).
+  attribute, `setAttribute('data-testid', '...')`, or an `App.ui` factory's
+  `testid: '...'` option — including a `<lower>Testid` option such as
+  `App.ui.searchList`'s `inputTestid` / `rowTestid`, M25 F4 L1).
 - **Parametric prefix families** — the id is built by concatenation from a
   static prefix (e.g. `mcp-source-row-` + id). Registered by prefix; the guard
   matches families by prefix.
@@ -28,6 +30,7 @@ caught — but it cannot see where the attribute is emitted.
 
 | Testid | Surface | Notes |
 |--------|---------|-------|
+| `agent-chat-btn` | studio | The agent editor header's **Chat** (`App.ui.button` secondary, the `chat` icon), DOM-inserted into `.form-actions` before Cancel on a SAVED agent only (absent in create mode); `App.chat.chatWith(name)`: the guarded go() to `#chats/~new/{name}` with the chat area's pick intent, so a dirty editor asks once (M25 F4 L6, DD8) |
 | `agent-empty` | studio | Agents detail pane empty state with NO agents ("No agents yet. Create one to get started."), an `App.ui.emptyState` pane (M25 F3 L3; kept from the retired grid's empty canvas) |
 | `agent-empty-new` | studio | Agents detail empty-state action "New agent" (both copies) -> `#agents/~new` (M25 F3 L3) |
 | `agent-item` | studio | Agents list row: an `App.ui.listPane` `<a href="#agents/{name}">` (M25 F3 L3; kept from the retired tile grid) |
@@ -36,7 +39,10 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-load-error` | studio | Agent editor Knowledge tab — the knowledge-base fetch failed; no `data-kb-list-loaded` marker (DD-4, L3-D1, M24 F06 L03) |
 | `agent-knowledge-tab` | studio | Agent editor Knowledge tab root; carries `data-kb-list-loaded="true"` on a successful fetch (DD-4, M24 F06 L03) |
 | `agent-load-error` | studio | Agent editor — the fresh `GET /api/agents/{name}` failed; the editor renders the last-known copy and Save is disabled (squawk 0090) |
-| `agent-select` | chat | |
+| `agent-picker` | chat | The agent picker `<dialog>`: an `App.ui.modal` chooser ("Start a chat with…", 640 wide at top 72, dismissible), built fresh on every `App.chat.openPicker` (M25 F4 L4a) |
+| `agent-picker-close` | chat | The agent picker's "Esc" close button (accessible name "Close (Esc)"; the modal's `closeButton`, M25 F4 L4a) |
+| `agent-picker-row` | chat | One agent option in the picker (`role=option`, `data-agent`; the `searchList` `rowTestid`; an agent in both "Recently used" and "All agents" has two, M25 F4 L4a) |
+| `agent-picker-search` | chat | The agent picker's search input ("Find an agent"; the `searchList` `inputTestid`, focused on open, M25 F4 L4a) |
 | `agent-select-empty` | studio | Agents detail pane empty state WITH agents ("Select an agent to edit it, or create a new one.") (M25 F3 L3) |
 | `agents-filter` | studio | Agents list filter input ("Filter agents"; matches name, model id and provider type slug) (M25 F3 L3) |
 | `agents-list` | studio | Agents list column root, the `App.ui.listPane` `<section>` in the aside (M25 F3 L3) |
@@ -48,17 +54,33 @@ caught — but it cannot see where the attribute is emitted.
 | `cancel-mcp-source-btn` | studio | |
 | `cancel-provider-btn` | admin | |
 | `cancel-tool-btn` | admin | |
-| `chat-attach-btn` | chat | |
+| `chat-agent-line` | chat | The chat header's "with {agent}" line (12px, `--fg-muted`; "Default agent" for a null agent; blank while a cold `#chats/~new/{agent}` validates the agent) (M25 F4 L4b) |
+| `chat-attach-btn` | chat | The composer's Attach images (`btn-ghost btn-sm btn-icon`, the paperclip icon, `aria-label="Attach images"`); opens the hidden `chat-image-input` (M25 F4 L5; a plus-icon `btn-outlined-primary` "Attach image" before) |
 | `chat-attachment` | chat | one per staged-image chicklet (chat-attachments row) |
 | `chat-attachment-remove` | chat | one per chicklet — removes just that image |
-| `chat-attachments` | chat | chicklet row above the composer, above .input-area |
+| `chat-attachments` | chat | chicklet row above the composer box, inside the composer wrapper (`.composer`; above the old `.input-area` row before M25 F4 L5) |
 | `chat-attachments-status` | chat | visually-hidden aria-live="polite" status; announces a stage/remove delta, separate from the chicklet row (M18 F03 L01) |
-| `chat-image-input` | chat | |
-| `chat-input` | chat | |
-| `chat-send-btn` | chat | |
-| `chat-stop-btn` | chat | |
-| `chat-welcome` | chat | |
+| `chat-drawer` | chat | The agent drawer: the static shell slot `<aside id="chat-drawer" aria-label="This chat's agent">` after `<main>` in `index.html` (also set by `App.ui.drawer`'s test id option in `areas/chat/agent-drawer.js`), filled by the chat area and toggled with `hidden`: shown only on Chats with a chat open and its mode's state open; push (a 320px flex sibling, open by default) at 1280px and wider, overlay (closed by default) below; `data-mode` mirrors the mode (M25 F4 L6, DD7) |
+| `chat-drawer-facts` | chat | The drawer's facts `<dl>`: Model (mono), Provider (the provider's display name), Chats (the `sessions` count, connector sessions included); Chats only for the default or a deleted agent (M25 F4 L6) |
+| `chat-drawer-note` | chat | The drawer's state line for a non-agent view: "The default agent", "This agent no longer exists" or "Loading…" (M25 F4 L6) |
+| `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
+| `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
+| `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=knowledge|mcp|tools|self-configuration]`, each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
+| `chat-empty-new-btn` | chat | The empty state's New chat (`App.ui.button` primary, square-pen icon), inside `chat-welcome` when setup is complete and no chat is open; opens the agent picker. Absent in the setup-guidance state (M25 F4 L4b) |
+| `chat-header` | chat | The chat header (`<header>`, 48px, hairline; reference spec 5.2): an `h1` with the chat's title (read from the `sessions` store by id, so it follows the auto-title) or "New chat", and `chat-agent-line`. Hidden while idle (M25 F4 L4b) |
+| `chat-image-input` | chat | The composer's hidden `<input type=file accept=image/* multiple>`, named "Attach images" by `aria-label` since M25 F4 L5 (squawk 0110) |
+| `chat-input` | chat | The composer's `<textarea rows=2>` (an `<input>` before M25 F4 L5), labelled by a visually hidden `<label for>` "Message" (no `aria-label`); placeholder "Message {agent}…"; Enter sends, Shift+Enter is a newline, an IME-composing Enter does nothing |
+| `chat-model` | chat | The composer toolbar's model id: the open or pending chat's agent's `llm_model` from the `agents` store, 11px `--font-family-mono` in `--fg-muted`; empty when unknown (M25 F4 L5) |
+| `chat-new-state` | chat | The new-chat state (reference spec 5.4), shown only while a chat is pending: a `badge badge--{providerType}` whose text is the model (A20), the agent name (`h2`), the description, and `chat-pick-different-btn` (M25 F4 L4b) |
+| `chat-pick-different-btn` | chat | The new-chat state's "Pick a different agent" (`btn-ghost btn-sm`); opens the agent picker, and a pick replaces the pending chat (M25 F4 L4b) |
+| `chat-row` | chat | A Chats list row: an `App.ui.listPane` `<a href="#chats/{id}">` with `data-id` (rowStyle `chats`: title, time, agent, a connector's platform badge), or the pending chat's row (`data-pending="true"`, no `data-id`, href `#chats/~new/{agent}`) (M25 F4 L4a) |
+| `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.confirmDelete`); never on the pending row (M25 F4 L4a) |
+| `chat-send-btn` | chat | The composer's Send (`btn-filled-primary`, the send icon and label, `aria-keyshortcuts="Enter"`), at the toolbar's end |
+| `chat-stop-btn` | chat | The composer's Stop (`btn-muted-destructive`), hidden unless the open chat has a turn in flight; just before Send when shown |
+| `chat-welcome` | chat | The pane's empty and setup-guidance state (idle with no chat to auto-join): the mascot, the "Hello." `h1`, the idle notice, then the prompt and `chat-empty-new-btn` (setup complete) or the guidance links (setup incomplete). Since M25 F4 L4b it no longer holds an agent list |
 | `chat-welcome-mascot` | chat | |
+| `chats-list` | chat | Chats list column root, the `App.ui.listPane` `<section>` in the aside (title "Chats", 300px; M25 F4 L4a) |
+| `chats-new-btn` | chat | The Chats list's full-width New chat button (the pane's header block); opens the agent picker; natively disabled while setup is incomplete (M25 F4 L4a) |
 | `confirm-dialog-overlay` | shell | |
 | `connector-card` | studio | Library list connector row (an `<a href="#library/connectors/{id}">`, M25 F3 L4a; was the Connectors grid tile, M23 F02 L02) |
 | `connector-channel-map-row` | studio | Connector-editor channel→agent map, one row (M23 F02 L02) |
@@ -77,6 +99,10 @@ caught — but it cannot see where the attribute is emitted.
 | `delete-provider-btn` | admin | |
 | `editor-breadcrumb-link` | studio, admin | Item header breadcrumb's last segment, a link to its root: "Agents" -> `#agents` (agent editor), "Knowledge bases" -> `#library/knowledge` (knowledge-base detail and `~new` form), "MCP servers" -> `#library/mcp`, "Connectors" -> `#library/connectors`; studio routes a plain activation through the router (guarded) and focuses the closed item's row (M25 F3 DD2 refinement, L4b). Settings (L5b): "Settings / Providers" -> `#settings/providers` (provider editor, edit and `~new`), "Settings / Built-in tools" -> `#settings/tools` (tool editor); admin routes it the same way (focus: the closed provider's or tool's name link, "Add provider" after a `~new` form) |
 | `editor-unsaved` | studio, admin | Item header "Unsaved changes" caption, a stable `role=status` span at the start of `.form-actions` whose text the editor's dirty report sets or clears: the agent editor (`checkDirty`, M25 F3 DD2, L3), the knowledge-base detail and `~new` form, the MCP and connector editors (L4b), the provider and tool editors (L5b; the tool editor's Cancel re-mount keeps the same span node) |
+| `jump-to` | shell | The jump-to palette `<dialog>` (`js/jump-to.js`, `App.jumpTo`): an `App.ui.modal` chooser named by `ariaLabel` "Jump to" (no title, no header row), 600 wide at top 96, dismissible, built fresh on every open from Ctrl K (Meta K on macOS) or the rail's `rail-jump-to` (M25 F4 L7, DD9, DD10) |
+| `jump-to-close` | shell | The palette's "Esc" button at the end of its input bar (accessible name "Close (Esc)"; built by the palette in its body, it calls the modal's `close()`; focus returns to the opener) (M25 F4 L7) |
+| `jump-to-input` | shell | The palette's search input (visually hidden label "Jump to", placeholder "Jump to an agent, chat, library item or setting"; the `searchList` `inputTestid`, focused on open) (M25 F4 L7) |
+| `jump-to-result` | shell | One palette result (`role=option`, `data-kind` = `agent`, `chat`, `action`, `knowledge-base`, `mcp-server`, `connector` or `settings`, `data-id` = the agent name, session id, `new-chat`, item id or Settings route section; the `searchList` `rowTestid`); at most 8 (M25 F4 L7) |
 | `kb-chunk-count` | studio | Knowledge detail view status summary — chunk count (M24 F06 L01) |
 | `kb-chunk-row` | studio | Knowledge detail view chunks panel — one row per chunk, `seq` order (DD-8, M24 F06 L01) |
 | `kb-chunks-panel` | studio | Knowledge detail view — an item's chunks, opened on demand (DD-8, M24 F06 L01) |
@@ -173,7 +199,6 @@ caught — but it cannot see where the attribute is emitted.
 | `model-capabilities` | studio | |
 | `model-ctx-chip` | studio | |
 | `new-agent-btn` | studio | Unified create CTA (M17 F3 L3); since M25 F3 L3 the Agents list's title-row "New" (`App.ui.button`, small outlined, plus icon) -> `#agents/~new` |
-| `new-chat-btn` | chat | |
 | `new-provider-btn` | admin | Unified create CTA (M17 F3 L3) — always-visible header button; since M25 F3 L5a the Providers page header's "Add provider" (`App.ui.button`, outlined, plus icon) |
 | `pending-count` | studio | Self-configuration tab per-agent pending-revision count (M21 F02 L02) |
 | `pending-queue` | studio | Self-configuration tab pending-revision queue container (M21 F02 L02) |
@@ -197,6 +222,7 @@ caught — but it cannot see where the attribute is emitted.
 | `providers-empty` | admin | Providers page empty state (`App.ui.emptyState`, pane size, "No providers yet.") at zero providers (M25 F3 L5b) |
 | `providers-empty-add` | admin | Its "Add provider" action (opens `#settings/providers/~new`; the page header's `new-provider-btn` stays the unified CTA) (M25 F3 L5b) |
 | `purge-history-btn` | studio | |
+| `rail-jump-to` | shell | The rail footer's **Jump to** control (`App.ui.button` ghost icon-only, the `search` icon, 44px, `aria-label="Jump to (Ctrl K)"` with `aria-keyshortcuts="Control+K"`, or "Jump to (⌘ K)" / `Meta+K` on macOS), set by `js/app.js` through `App.ui.rail`'s `footer`; a click opens the palette (`jump-to`) with it as the opener (M25 F4 L7, DD9). A literal beside the `rail-` destination family |
 | `reset-mcp-connection-btn` | studio | |
 | `revision-approve-btn` | studio | Self-configuration pending-revision card approve (M21 F02 L02) |
 | `revision-base` | studio | Self-configuration pending-revision card current/base value (M21 F02 L02) |
@@ -261,6 +287,10 @@ caught — but it cannot see where the attribute is emitted.
 | `tool-card` | admin | The Built-in tools tile (kept since M25 F3 L5b: no longer a click target; its tool name is the item link `a.tool-tile-link` -> `#settings/tools/{name}`, `aria-current="page"` on the open tool's, the tile carries the selected wash) |
 | `tool-toggle` | admin | The tile's enable switch; it never navigates (M25 F3 L5b) |
 | `trace-shell` | chat | |
+| `ui-demo-chooser` | admin | Design language reference page — the live `App.ui.modal` chooser-layout demo's `<dialog>` ("Open chooser": width 640, top 72, an `App.ui.searchList` body) (M25 F4 L1) |
+| `ui-demo-chooser-close` | admin | The chooser demo's header close button ("Esc", accessible name "Close (Esc)"), the modal's `closeButton` option (M25 F4 L1) |
+| `ui-demo-chooser-row` | admin | Every option row of the chooser demo's `App.ui.searchList` (its `rowTestid` option) (M25 F4 L1) |
+| `ui-demo-chooser-search` | admin | The chooser demo's `App.ui.searchList` combobox input (its `inputTestid` option) (M25 F4 L1) |
 | `ui-demo-modal` | admin | Design language reference page — the live `App.ui.modal` demo's `<dialog>` (M25 F2 L2) |
 
 ## Parametric prefix families
@@ -289,6 +319,8 @@ caught — but it cannot see where the attribute is emitted.
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
 | `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-providers`, `-tools`, `-knowledge-indexing`, and `-design-language` in dev mode); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
 | `tab-` | admin | |
+| `ui-demo-drawer-` | admin | Design language reference page — the `App.ui.drawer` demo's `<aside>`s, suffixed `{theme}-{push|overlay}` (`ui-demo-drawer-dark-push`, …) (M25 F4 L6) |
+| `ui-demo-drawer-toggle-` | admin | The drawer demo's ghost icon-only toggles (`aria-pressed`, `aria-controls` the demo drawer), suffixed `{theme}-{push|overlay}` (M25 F4 L6) |
 
 ## Manual exceptions (variable-carried literals)
 
@@ -323,6 +355,7 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `agent-select` | chat | M25 F4 L4a (DD3, DD5) — the chat sidebar's "Select Agent" dropdown is retired; the Chats list's New chat (`chats-new-btn`) opens the agent picker (`agent-picker`). Fenced EXACTLY (`RETIRED_EXACT`): the live `agent-select-empty` (studio) is unaffected |
 | `agent-tile-mcp-tool-count` | studio | M25 F3 L3 — the agents tile grid (its per-tile MCP tool count) is replaced by the Agents list |
 | `agent-tile-tool-count` | studio | M25 F3 L3 — the agents tile grid (its per-tile built-in tool count) is replaced by the Agents list |
 | `back-agent-btn` | studio | M25 F3 L3 (DD2) — the agent editor is hosted beside the Agents list; the "Agents" breadcrumb replaces Back |
@@ -331,6 +364,7 @@ again. A retired id cannot come back.
 | `back-mcp-source-btn` | studio | M25 F3 L4b (DD2) — the MCP server editor is hosted beside the Library list; the breadcrumb's "MCP servers" link (`editor-breadcrumb-link`) replaces Back |
 | `back-provider-btn` | admin | M25 F3 L5b (DD2, DD7) — the provider editor opens below the Providers tiles; the breadcrumb's "Providers" link (`editor-breadcrumb-link`) replaces Back |
 | `back-tool-btn` | admin | M25 F3 L5b (DD2, DD7) — the tool editor opens below the tool list; the breadcrumb's "Built-in tools" link (`editor-breadcrumb-link`) replaces Back |
+| `new-chat-btn` | chat | M25 F4 L4b (DD3, DD6) — the chat header's hover-expanding "New Chat" (a new chat with the current agent) is retired with `h2.session-agent-badge`; the Chats list's New chat (`chats-new-btn`) and the new-chat state's "Pick a different agent" (`chat-pick-different-btn`) open the agent picker |
 | `new-connector-btn` | studio | M25 F3 L4a (DD5) — the Connectors grid is retired; the Library list's Add menu (`library-add-connector`) replaces it |
 | `new-knowledge-base-btn` | studio | M25 F3 L4a (DD5) — the Knowledge grid and its inline create form are retired; the Library list's Add menu (`library-add-knowledge`) opens the `~new` form |
 | `new-mcp-source-btn` | studio | M25 F3 L4a (DD5) — the MCP Servers grid is retired; the Library list's Add menu (`library-add-mcp`) replaces it |

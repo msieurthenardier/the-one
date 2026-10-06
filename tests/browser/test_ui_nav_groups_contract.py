@@ -2,7 +2,7 @@
 """Engine-parametrized contract tests for ``App.ui.navGroups`` (M25 F3 L1, DD6/DD10):
 the grouped nav of plain links that becomes the Settings nav. Markup, selection,
 no handlers, the throw rules, reference spec section 8.1 geometry and forced colours.
-Falls in the ``shared`` browser lane; every test runs in Chromium and WebKit
+Falls in the ``contracts`` browser lane; every test runs in Chromium and WebKit
 (forced-colours emulation is Chromium-only in Playwright).
 """
 

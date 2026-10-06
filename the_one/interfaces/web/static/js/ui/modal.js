@@ -28,6 +28,42 @@
   //   onClose(value)  fires exactly once per open, AFTER close, DOM removal and focus restore
   //   id, testid  placed on the <dialog>
   //
+  // Chooser options (M25 F4 L1, DD14), all optional; with none of them set a modal is
+  // built exactly as before (padding, aria-describedby, centring):
+  //   width        a pixel number: the card's width (inline style); its max-width stays
+  //                100% of the overlay's content box, i.e. the viewport minus 32px
+  //   top          a pixel number: the card aligns to that offset from the viewport's
+  //                top instead of the centre (inline align-self + margin-top on the card,
+  //                net of the overlay's 16px padding), and its max-height becomes the
+  //                viewport height minus top and 16px
+  //   initialFocus a Node inside the card, focused on open() instead of the default order
+  //   closeButton  {label, ariaLabel, testid}: a btn-ghost btn-sm button at the end of
+  //                the header row that closes with cancelValue (it takes part in the Tab
+  //                wrap; focus then returns to the opener as on any close)
+  //   footer       a Node rendered after the body, in .modal-dialog-footer (pass a
+  //                DocumentFragment to make its items the row's flex children -- it is
+  //                copied per open(), so listeners on it are not kept; an item with
+  //                .modal-dialog-footer-end is pushed to the end)
+  //   layout       'chooser': zero card padding, a flex header row (title, close) padded
+  //                16px 20px 12px, the body (a Node) full-bleed in .modal-dialog-body, the
+  //                footer as the 11px muted row; NO aria-describedby (a screen reader must
+  //                not read a whole list on open) and no actions row (actions throw). The
+  //                title stays the <h2> the dialog's aria-labelledby references.
+  // Focus on open(): initialFocus when given and connected inside the card; else, when a
+  // close button or the chooser layout is in play, the first focusable in the BODY (never
+  // the header's close button); else the usual order above.
+  //
+  // ariaLabel (M25 F4 L7, DD14): a non-empty string that names a modal with NO visible
+  // title (the jump-to palette). The dialog gets aria-label and no aria-labelledby, and
+  // the card has no <h2> and no .modal-dialog-header row at all. It throws with a title
+  // (pass one or the other) or a closeButton (there is no header to hold one): the
+  // caller's body owns any close button and calls controller.close(); the Tab wrap
+  // includes it like any other focusable in the card.
+  //
+  // App.ui.modal.anyOpen() (M25 F4 L7) -> true while any modal built here is open, on any
+  // controller (stack.length > 0). Every App.confirmDialog is one of them (it is an
+  // adapter over this factory), so this is the one source for "is a modal in charge".
+  //
   // The <dialog> is created on open() and removed from the DOM on close. Modals stack:
   // there is no singleton here, and App.confirmDialog (its adapter) stacks too.
 
@@ -51,6 +87,31 @@
     var actions = opts.actions || [];
     var cancelValue = opts.cancelValue === undefined ? null : opts.cancelValue;
     var session = null;
+    if (opts.layout !== undefined && opts.layout !== 'chooser') {
+      throw new Error('App.ui.modal: unknown layout "' + opts.layout + '"');
+    }
+    var chooser = opts.layout === 'chooser';
+    if (chooser && actions.length) throw new Error('App.ui.modal: the chooser layout has no actions');
+    if (chooser && !(opts.body && opts.body.nodeType)) {
+      throw new Error('App.ui.modal: the chooser layout needs a Node body');
+    }
+    if (opts.footer !== undefined && opts.footer !== null && !opts.footer.nodeType) {
+      throw new Error('App.ui.modal: footer must be a Node');
+    }
+    if (opts.closeButton && !opts.closeButton.label && !opts.closeButton.ariaLabel) {
+      throw new Error('App.ui.modal: closeButton needs a label or an ariaLabel');
+    }
+    if (opts.ariaLabel !== undefined && opts.ariaLabel !== null &&
+        (typeof opts.ariaLabel !== 'string' || !opts.ariaLabel)) {
+      throw new Error('App.ui.modal: ariaLabel must be a non-empty string');
+    }
+    var labelOnly = !!opts.ariaLabel;
+    if (labelOnly && opts.title) {
+      throw new Error('App.ui.modal: ariaLabel names a modal with no title (pass one, not both)');
+    }
+    if (labelOnly && opts.closeButton) {
+      throw new Error('App.ui.modal: a modal named by ariaLabel has no header for a closeButton');
+    }
 
     function topmost() {
       return stack.length ? stack[stack.length - 1] : null;
@@ -88,18 +149,50 @@
     }
 
     function build() {
-      var s = { done: false, opener: null, downTarget: null };
+      var s = { done: false, opener: null, downTarget: null, bodyEl: null, closeBtn: null };
       var titleId = App.ui.util.uid('modal-title');
       var bodyId = App.ui.util.uid('modal-body');
       var children = [];
-      children.push(el('h2', { className: 'modal-dialog-title', id: titleId, text: opts.title || '' }));
+      // ariaLabel: no heading at all (the dialog's aria-label names it).
+      var title = labelOnly
+        ? null
+        : el('h2', { className: 'modal-dialog-title', id: titleId, text: opts.title || '' });
+      var cb = opts.closeButton;
+      if (cb) {
+        s.closeBtn = App.ui.button({
+          label: cb.label,
+          ariaLabel: cb.ariaLabel,
+          variant: 'ghost',
+          size: 'sm',
+          testid: cb.testid,
+          onClick: function () {
+            finish(s, cancelValue);
+          }
+        });
+      }
+      // With ariaLabel there is no header row: the body comes first (and may hold
+      // its own close button).
+      if (!labelOnly && (chooser || s.closeBtn)) {
+        children.push(el('div', { className: 'modal-dialog-header' }, [title, s.closeBtn]));
+      } else if (!labelOnly) {
+        children.push(title);
+      }
       var hasBody = opts.body !== undefined && opts.body !== null && opts.body !== '';
-      if (hasBody) {
+      if (chooser) {
+        s.bodyEl = el('div', { className: 'modal-dialog-body' }, [opts.body]);
+        children.push(s.bodyEl);
+      } else if (hasBody) {
         if (typeof opts.body === 'string') {
-          children.push(el('p', { className: 'modal-dialog-message', id: bodyId, text: opts.body }));
+          s.bodyEl = el('p', { className: 'modal-dialog-message', id: bodyId, text: opts.body });
         } else {
-          children.push(el('div', { className: 'modal-dialog-message', id: bodyId }, [opts.body]));
+          s.bodyEl = el('div', { className: 'modal-dialog-message', id: bodyId }, [opts.body]);
         }
+        children.push(s.bodyEl);
+      }
+      if (opts.footer) {
+        // A fragment empties when appended, so each open() gets a copy of it.
+        var footerNode = opts.footer.nodeType === 11 ? opts.footer.cloneNode(true) : opts.footer;
+        children.push(el('div', { className: 'modal-dialog-footer' }, [footerNode]));
       }
       var buttons = [];
       var autofocusBtn = null;
@@ -118,13 +211,28 @@
       if (buttons.length) {
         children.push(el('div', { className: 'modal-actions form-actions' }, buttons));
       }
-      var card = el('div', { className: 'modal-dialog', tabindex: '-1' }, children);
+      var card = el('div', {
+        className: chooser ? 'modal-dialog modal-dialog-chooser' : 'modal-dialog',
+        tabindex: '-1'
+      }, children);
+      // width / top: inline styles on the opted-in card only (the overlay and every
+      // other card keep their stylesheet geometry). 16 is the overlay's padding.
+      if (typeof opts.width === 'number') {
+        card.style.width = opts.width + 'px';
+        card.style.maxWidth = '100%';
+      }
+      if (typeof opts.top === 'number') {
+        card.style.alignSelf = 'flex-start';
+        card.style.marginTop = Math.max(0, opts.top - 16) + 'px';
+        card.style.maxHeight = 'calc(100vh - ' + (Math.max(16, opts.top) + 16) + 'px)';
+      }
       var attrs = {
         className: 'modal-overlay',
         role: 'dialog',
         'aria-modal': 'true',
-        'aria-labelledby': titleId,
-        'aria-describedby': hasBody ? bodyId : null,
+        'aria-labelledby': labelOnly ? null : titleId,
+        'aria-label': labelOnly ? opts.ariaLabel : null,
+        'aria-describedby': hasBody && !chooser ? bodyId : null,
         id: opts.id
       };
       var dlg = el('dialog', attrs, [card]);
@@ -195,7 +303,18 @@
         stack.push(s);
         document.body.appendChild(s.dlg);
         s.dlg.showModal();
-        var target = s.autofocusBtn || s.buttons[0] || focusables(s.card)[0] || s.card;
+        var target = null;
+        var init = opts.initialFocus;
+        if (init && init.nodeType && init.isConnected && s.card.contains(init)) target = init;
+        if (!target && (chooser || s.closeBtn) && s.bodyEl) target = focusables(s.bodyEl)[0] || null;
+        if (!target) target = s.autofocusBtn || s.buttons[0] || null;
+        if (!target) {
+          var fs = focusables(s.card);
+          for (var i = 0; i < fs.length && !target; i++) {
+            if (fs[i] !== s.closeBtn) target = fs[i];
+          }
+          if (!target) target = fs[0] || s.card;
+        }
         target.focus();
       },
       close: function (result) {
@@ -212,5 +331,11 @@
       }
     });
     return controller;
+  };
+
+  // True while any modal is open (the shared stack is non-empty), the leave guard's
+  // App.confirmDialog included. The shell's Ctrl K rule asks it (M25 F4 L7, DD9).
+  App.ui.modal.anyOpen = function () {
+    return stack.length > 0;
   };
 })();

@@ -264,10 +264,19 @@ history but do not appear in the picker, and their drawer shows no settings link
   review and commit; Service Report section with upstream reporting enabled; Sortie
   artifact; Flight Director paragraph; leg checklist retired), crew customizations kept.
 - [ ] **Ctrl K in WebView2**, carried from Flight 4 DD9 to **Flight 5**.
-  - The jump-to shortcut is a page-level `keydown` listener.
-  - WebKitGTK is checked in Flight 4 (leg 5) with real key injection. WebView2 can only be
-    checked in the packaged Windows build: confirm that Ctrl K reaches the page and is not
-    taken by a browser accelerator.
+  - The jump-to shortcut is a page-level `keydown` listener (one on `document`, in `app.js`).
+  - **WebKitGTK: partially verified (GTK-level key)**, Flight 4 leg 7, 2026-10-05.
+    - **How:** WebKitGTK 2.52.6 on WSLg, through `scripts/webkitgtk_probe.py --press-keys
+      ctrl+k` with the default `event` method: a `Gdk.EventKey` press/release pair through
+      `WebView.event`.
+    - **Result:** with focus in a text input, the page saw a trusted Ctrl+K keydown, the
+      listener prevented it and the palette opened, in both themes.
+    - **Caveat:** `Gtk.test_widget_send_key`, an X `XSendEvent`, never reached the page
+      under XWayland. A GTK-level key proves nothing about what an OS window manager or
+      input method does above GTK.
+  - WebView2 can only be checked in the packaged Windows build: confirm that Ctrl K reaches
+    the page and is not taken by a browser accelerator (the Edge address bar's own Ctrl K
+    included).
   - Flight 5's scope is window chrome, so it is listed here explicitly.
 
 ## Flights

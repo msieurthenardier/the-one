@@ -86,7 +86,10 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
 
 @pytest.mark.browser
 def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: Page) -> None:
-    """All four panels' tile counts: 9/6/4/2 = 21 tools total."""
+    """All four panels' tile counts: 9/6/4/3 = 22 tools total (M25 F4 L6: the
+    shared table, `tool-categories.js`, puts M23 F4 L3's
+    `find_platform_destination` under Connectors; no copy had it, so it showed
+    in no tab)."""
     _nav.goto(page, app_clean, "settings/tools")
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in tools", timeout=8000)
 
@@ -94,7 +97,7 @@ def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: P
         "filesystem": 9,
         "execution": 6,
         "web": 4,
-        "connectors": 2,
+        "connectors": 3,
     }
     for cat, count in expected.items():
         page.locator(f'[data-testid="tab-{cat}"]').click()
@@ -117,7 +120,7 @@ def test_admin_tools_connectors_tab_renders_both_tools_with_connectors_badge(
     panel = page.locator("#tools-panel-connectors")
     expect(panel).to_be_visible()
 
-    for name in ("send_to_platform_channel", "fetch_channel_history"):
+    for name in ("send_to_platform_channel", "fetch_channel_history", "find_platform_destination"):
         tile = panel.locator(f'[data-testid="tool-card"][data-name="{name}"]')
         expect(tile).to_be_visible()
         badge = tile.locator(".admin-tool-badge")

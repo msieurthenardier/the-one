@@ -1,3 +1,14 @@
+// M25 F4 L6 (flight DD7, leg AC12): App.studio.clearAgentFilter() clears the
+// Agents list's filter, so a committed go() to an agent (the chat drawer's
+// "Open agent settings"; leg 7's palette) always shows its row (reference
+// spec 10, item 18). Defined at script load as a safe no-op: before the
+// studio area's init there is no Agents pane and nothing to clear. init
+// replaces it with the real one (the pane survives a visit to Chats: only
+// setActiveSection destroys it, on Agents to Library).
+window.App = window.App || {};
+window.App.studio = window.App.studio || {};
+window.App.studio.clearAgentFilter = function () {};
+
 App.registerArea({
   id: 'studio',
   label: 'Agent Studio',
@@ -457,24 +468,10 @@ App.registerArea({
       configurable: true
     });
 
-    var TOOL_CATEGORIES = {
-      'Filesystem': ['read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'mkdir', 'glob', 'grep', 'list_dir'],
-      'Execution': ['shell', 'python_exec', 'shell_session_start', 'shell_session_send', 'shell_session_close', 'shell_session_list'],
-      'Web': ['download_file', 'fetch_url', 'http_request', 'web_search'],
-      // Squawk 0028: Mission 23 Flight 2's two connector tools
-      // (`send_to_platform_channel` / `fetch_channel_history`) were
-      // registered as built-ins with no Tools-tab category, making them
-      // invisible to the per-agent enable/disable affordance DD-4 assumes
-      // exists. Named 'Connectors' to match the tools' domain — distinct
-      // from the sidebar's 'Connectors' NAV SECTION (external connector
-      // configs, above); this is a tools-tab category tile, same as
-      // Filesystem/Execution/Web.
-      'Connectors': ['send_to_platform_channel', 'fetch_channel_history']
-      // Squawk 0032: the Administration area's Tools grid keeps its own
-      // (differently-shaped) TOOL_CATEGORIES mirrors in
-      // admin/tools-grid.js and admin/tools-editor.js — brought to
-      // parity with this one by that squawk. Not unified with this one.
-    };
+    // The per-agent Tools tab's categories: label -> tool names, from the one
+    // shared table (static/js/tool-categories.js, M25 F4 L6, AC9; it replaced
+    // this file's copy and the two admin/tools-*.js maps).
+    var TOOL_CATEGORIES = App.toolCategories.byCategory;
 
     // ── Layout: the sidebar panel holds two sibling list hosts, exactly one
     // visible (setActiveSection owns the switch, M25 F3 L3/L4a, DD3 (e)): the
@@ -2456,6 +2453,17 @@ App.registerArea({
       scrollAgentsToSelected();
     };
 
+    // The real App.studio.clearAgentFilter (M25 F4 L6, AC12; the stub above
+    // the area is a no-op until here). Silent (listPane.setQuery announces
+    // nothing), then the selected row is scrolled into view: the caller runs
+    // it AFTER its go() commits, when the hydrate has already selected the
+    // agent but its row may have been filtered out.
+    App.studio.clearAgentFilter = function () {
+      if (!agentsList) return;
+      agentsList.setQuery('');
+      scrollAgentsToSelected();
+    };
+
     // The detail pane with no agent open: a pane-size empty state whose copy
     // depends on whether any agent exists. Nothing before the first load.
     // Only its own node is replaced, never the rest of sectionContentEl (the
@@ -2897,6 +2905,8 @@ App.registerArea({
           })
           .then(function (body) {
             var n = body && typeof body.deleted === 'number' ? body.deleted : 0;
+            // The agent's sessions are gone (M25 F4 L1, DD4).
+            App.store.invalidate('sessions');
             App.showFlash(editorEl, 'Purged ' + n + ' conversation' + (n === 1 ? '' : 's'), false);
           })
           .catch(function (err) {
@@ -3540,6 +3550,8 @@ App.registerArea({
             })
             .then(function (renamed) {
               App.store.invalidate('agents');
+              // A rename re-points chat_sessions.agent_name (M25 F4 L1, DD4).
+              App.store.invalidate('sessions');
               // Re-bind the in-closure "currently-editing" name so the
               // subsequent PUT targets the new PK and so the area's
               // URL state serialization reflects the rename.

@@ -9,6 +9,11 @@ grid, and the AC5 load-state gating by route.
 The Library collections (``knowledge-bases``, ``mcp-sources``, ``connectors``),
 their request counts and invalidation map, and ``App.usage`` (M25 F3 L2) are in
 ``test_store_library.py``.
+
+M25 F4 L1 (DD4) adds the sixth collection, ``sessions``, and
+``App.store.prime``: prime notifies, a racing older get cannot overwrite a
+primed value, a get after prime is served from the cache, an unknown name
+throws, and Chats primes from the WebSocket ``session_list``.
 """
 
 from __future__ import annotations
@@ -184,6 +189,150 @@ def test_subscribe_notifies_after_each_successful_load(
         }"""
     )
     assert res == [1, 1]
+
+
+# ── M25 F4 L1 (DD4, AC20/AC21) -- the sessions collection and prime ─────────
+#
+# These open Agents, not Chats: the chat area connects its WebSocket (and so
+# primes 'sessions' from session_list) only when Chats activates, so a prime
+# test on Agents is not raced by a WebSocket reply.
+
+PRIMED = (
+    "[{id: 'p1', agent_name: 'a', title: 'Primed', created_at: 't', updated_at: 't',"
+    " platform: null}]"
+)
+
+
+@pytest.mark.browser
+def test_prime_sets_the_value_and_notifies_with_copies(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    _ready(page, app_with_agent.base_url, "agents")
+    res = page.evaluate(
+        f"""() => {{
+          const events = [];
+          const off = App.store.subscribe('sessions', v => {{
+            events.push(v); v[0].title = 'MUTATED';
+          }});
+          const rows = {PRIMED};
+          App.store.prime('sessions', rows);
+          rows[0].title = 'CALLER-MUTATED';
+          off();
+          const p = App.store.peek('sessions');
+          return {{events: events.map(e => e.map(r => r.id)), loaded: p.loaded, ok: p.ok,
+                   error: p.error, titles: p.value.map(r => r.title)}};
+        }}"""
+    )
+    assert res == {
+        "events": [["p1"]],
+        "loaded": True,
+        "ok": True,
+        "error": None,
+        "titles": ["Primed"],  # neither the caller nor a subscriber can mutate the cache
+    }
+
+
+@pytest.mark.browser
+def test_get_after_prime_resolves_from_the_cache_without_a_fetch(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    _ready(page, app_with_agent.base_url, "agents")
+    seen = _counter(page, "/api/chat/sessions")
+    ids = page.evaluate(
+        f"async () => {{ App.store.prime('sessions', {PRIMED}); "
+        "return (await App.store.get('sessions')).map(r => r.id); }"
+    )
+    assert ids == ["p1"]
+    assert seen == [], "a get after prime must not fetch"
+    # force still refetches from REST (the seeded app has no sessions).
+    forced = page.evaluate("async () => (await App.store.get('sessions', {force: true})).length")
+    assert forced == 0 and len(seen) == 1
+
+
+@pytest.mark.browser
+def test_prime_supersedes_a_racing_older_get(app_with_agent: SeededApp, page: Page) -> None:
+    """A get in flight when prime lands resolves to its own caller with its
+    own data, but neither overwrites the primed value nor notifies; and a
+    later get does not join it."""
+    _ready(page, app_with_agent.base_url, "agents")
+    held: list = []
+
+    def handler(route) -> None:
+        if route.request.method == "GET" and _is_list(route.request.url, "/api/chat/sessions"):
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route("**/api/chat/sessions", handler)
+    page.evaluate(
+        "() => { window.__events = []; "
+        "App.store.subscribe('sessions', v => window.__events.push(v.map(r => r.id))); "
+        "window.__p1 = App.store.get('sessions', {force: true}); }"
+    )
+    page.wait_for_function("() => true")
+    assert len(held) == 1
+    after = page.evaluate(
+        f"async () => {{ App.store.prime('sessions', {PRIMED}); "
+        "return (await App.store.get('sessions')).map(r => r.id); }"
+    )
+    assert after == ["p1"]
+    assert len(held) == 1, "a get after prime must neither join the old request nor fetch"
+    held[0].fulfill(
+        status=200,
+        content_type="application/json",
+        body='[{"id": "stale", "agent_name": "a", "title": "Stale", "created_at": "t",'
+        ' "updated_at": "t", "platform": null}]',
+    )
+    stale = page.evaluate("async () => (await window.__p1).map(r => r.id)")
+    assert stale == ["stale"]  # the original caller still gets what it asked for
+    page.wait_for_timeout(50)
+    assert page.evaluate("() => App.store.peek('sessions').value.map(r => r.id)") == ["p1"]
+    assert page.evaluate("() => window.__events") == [["p1"]], "the stale load must not notify"
+    page.unroute("**/api/chat/sessions", handler)
+
+
+@pytest.mark.browser
+def test_prime_of_an_unknown_collection_throws(app_with_agent: SeededApp, page: Page) -> None:
+    _ready(page, app_with_agent.base_url, "agents")
+    msg = page.evaluate(
+        "() => { try { App.store.prime('nope', []); return ''; } catch (e) { return e.message; } }"
+    )
+    assert msg == "App.store: unknown collection nope"
+
+
+@pytest.mark.browser
+def test_chats_session_list_primes_sessions_in_the_summary_shape(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """AC21: opening Chats primes 'sessions' from the WebSocket session_list
+    (no REST fetch), in the REST summary shape; a REST get returns the same
+    rows."""
+    base, name = app_with_agent.base_url, app_with_agent.agent_name
+    h = auth_headers_for(base)
+    for body in (
+        {"agent_name": name, "title": "UI chat"},
+        {
+            "agent_name": name,
+            "title": "#help",
+            "platform": "discord",
+            "connector_id": "c1",
+            "channel_id": "ch1",
+        },
+    ):
+        r = httpx.post(f"{base}/api/chat/sessions", json=body, headers=h, timeout=5)
+        assert r.status_code == 201, r.text
+    seen = _counter(page, "/api/chat/sessions")
+    _ready(page, base, "chats")
+    page.wait_for_function(
+        "() => { const p = App.store.peek('sessions'); return p.loaded && p.value.length === 2; }"
+    )
+    primed = page.evaluate("() => App.store.peek('sessions').value")
+    assert seen == [], "Chats primes from the WebSocket; it never fetches the list"
+    keys = {"id", "agent_name", "title", "created_at", "updated_at", "platform"}
+    assert all(set(row) == keys for row in primed), primed
+    assert sorted(r["platform"] or "" for r in primed) == ["", "discord"]
+    fetched = page.evaluate("async () => App.store.get('sessions', {force: true})")
+    assert sorted(fetched, key=lambda r: r["id"]) == sorted(primed, key=lambda r: r["id"])
 
 
 # ── AC2 -- request counts ────────────────────────────────────────────────

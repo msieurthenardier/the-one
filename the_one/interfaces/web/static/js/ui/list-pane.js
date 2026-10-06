@@ -4,7 +4,8 @@
   App.ui = App.ui || {};
 
   var ROW_SELECTOR = 'li:not([hidden]) > .ui-list-pane-row';
-  var ROW_STYLES = ['agents', 'library'];
+  var ROW_STYLES = ['agents', 'library', 'chats'];
+  var ACTION_CLASS = 'ui-list-pane-action';
 
   function defaultPredicate(item, query) {
     var needle = query.toLowerCase();
@@ -55,6 +56,16 @@
         if (item.lead !== undefined && item.lead !== null && !item.lead.nodeType) {
           throw new Error('listPane item ' + item.id + ': lead must be a node');
         }
+        if (item.action !== undefined && item.action !== null) {
+          var act = item.action;
+          if (!act.label || !act.icon || typeof act.onClick !== 'function') {
+            throw new Error('listPane item ' + item.id + ': action needs label, icon and onClick');
+          }
+        }
+        if (item.dataset !== undefined && item.dataset !== null &&
+            (typeof item.dataset !== 'object' || Array.isArray(item.dataset))) {
+          throw new Error('listPane item ' + item.id + ': dataset must be a plain object');
+        }
         if (Object.prototype.hasOwnProperty.call(seen, item.id)) {
           throw new Error('listPane duplicate item id ' + item.id);
         }
@@ -66,7 +77,7 @@
 
   // App.ui.listPane(opts) -> controller {el, setItems(items|groups),
   // setSelected(id), focusSelected(), scrollToSelected(), scrollToGroup(id),
-  // getItems(), destroy()}. A navigation list (DD14).
+  // setQuery(q), getItems(), destroy()}. A navigation list (DD14).
   //   title (required, the h2), count (true: a "{shown} of {total}" span after
   //   the title, empty while there are no items), intro (a muted paragraph
   //   under the title row), actions (array of elements, pushed right), filter
@@ -112,6 +123,56 @@
   // scrollToGroup(id) brings the group with that id into view within the body
   // scroller only (its top at the body's top, unless it is already wholly
   // visible); an unknown id, or a hidden group, is a no-op (M25 F3 L4a).
+  //
+  // M25 F4 L1 (DD5, DD14) additions:
+  //   block: a caller node inserted directly AFTER the <header> (outside it,
+  //     so the header's children are unchanged), in a .ui-list-pane-block
+  //     wrapper (the Chats list's New chat button).
+  //   rowStyle 'chats': a two-line row. Line 1 is the label (ellipsis) with
+  //     the item's `time` string pushed to the end; line 2 is the meta, then
+  //     the badges. icon, lead and count are not drawn in this style, and
+  //     `time` is drawn only in it.
+  //   item.dataset: a plain object set as data-* on the row element.
+  //   The label span always carries data-confirm-title, so
+  //     App.confirmDelete(li) swaps the label's text.
+  //   item.action {label, icon, testid, onClick(item, actionEl, li)}: a
+  //     sibling <button type=button class="ui-list-pane-action"> after the
+  //     row inside its <li> (never a .ui-list-pane-row), icon only, named by
+  //     aria-label = label. Hidden with display:none until li:hover or
+  //     li:focus-within (not visibility/opacity, which would break Tab
+  //     reach). onClick reads the entry's CURRENT item at click time. An
+  //     item without an action has no button.
+  //   Tab policy: only the action of the roving tab-stop row has tabindex 0
+  //     (every other action -1), so Tab goes stop row -> its action -> out of
+  //     the list. setStop() re-derives the actions' tabindex, and so does a
+  //     focusin on the body (rovingFocus rewrites only the rows' tabindex).
+  //     Shift+Tab from after the list lands on the stop ROW: its action is
+  //     display:none until the li has focus, so it is reached forward only
+  //     (the legacy chat list behaved the same).
+  //     On an action, ArrowUp/ArrowDown move to the previous/next visible
+  //     row (clamped), Home/End to the first/last row.
+  //   Focus across setItems: a focused ACTION restores to the same item's
+  //     action; when that item is gone (the delete case) focus goes to the
+  //     neighbouring row -- the next visible row in the old order, else the
+  //     previous one -- and becomes the stop. A focused ROW keeps the rule
+  //     above unchanged (same id, else selected, else first).
+  //
+  // M25 F4 L6 (DD14): setQuery(q) sets the filter's value and query and
+  //   applies the view (rows shown or hidden, the selection, the tab stop and
+  //   the count re-derived; rows never rebuilt, so focus survives). It is
+  //   SILENT: no live announcement (the polite status region is cleared, not
+  //   written, so a stale "N results" never lingers). A no-op without a
+  //   filter. App.studio.clearAgentFilter calls it with ''.
+  //   Armed rows: App.confirmDelete arms by adding .confirm-delete to the
+  //     <li> and swapping its [data-confirm-title] child's text (confirm.js).
+  //     setItems REUSES an armed <li> (row and action nodes, so the armed
+  //     title and the revert timer survive) for the same item id, updating
+  //     the entry's item to the new one; it still goes through the view pass
+  //     (aria-current, tabindex, hidden). Its label may be stale until it
+  //     disarms (at most the 3s revert window). If the armed item is absent
+  //     from the new list its <li> is dropped; confirm.js's timer then runs
+  //     on a detached node, which is harmless. The next setItems after it
+  //     disarms rebuilds it normally.
   App.ui.listPane = function (opts) {
     opts = opts || {};
     if (!opts.title) throw new Error('App.ui.listPane: title is required');
@@ -143,6 +204,10 @@
     if (opts.rowStyle) rootClass += ' ui-list-pane-styled ui-list-pane-style-' + opts.rowStyle;
     var root = util.el('section', { className: rootClass, 'aria-labelledby': titleId }, [header]);
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
+    if (opts.block !== undefined && opts.block !== null) {
+      if (!opts.block.nodeType) throw new Error('App.ui.listPane: block must be a node');
+      root.appendChild(util.el('div', { className: 'ui-list-pane-block' }, [opts.block]));
+    }
     if (opts.intro) root.appendChild(util.el('p', { className: 'ui-list-pane-intro', text: opts.intro }));
 
     if (opts.filter) {
@@ -186,8 +251,29 @@
     root.appendChild(body);
     root.appendChild(empty);
     var unbind = util.rovingFocus(body, ROW_SELECTOR);
+    body.addEventListener('focusin', onBodyFocusin);
+    body.addEventListener('keydown', onBodyKeydown);
 
-    function buildRow(item) {
+    function buildBadges(item) {
+      var badges = util.el('span', { className: 'ui-list-pane-badges' });
+      for (var b = 0; b < item.badges.length; b++) {
+        var badge = item.badges[b];
+        if (badge && badge.nodeType) {
+          badges.appendChild(badge);
+        } else if (badge && typeof badge === 'object' && badge.kind) {
+          badges.appendChild(App.ui.badge({ text: badge.text, kind: badge.kind, title: badge.title }));
+        } else {
+          var plain = badge && typeof badge === 'object' ? badge.text : badge;
+          badges.appendChild(util.el('span', { className: 'ui-list-pane-badge', text: String(plain) }));
+        }
+      }
+      return badges;
+    }
+
+    // The row element for an entry. The click handler reads entry.item at
+    // click time (an armed row is reused with the entry's item replaced).
+    function buildRow(entry) {
+      var item = entry.item;
       var node;
       if (item.href) {
         node = util.el('a', { className: 'ui-list-pane-row', href: item.href });
@@ -196,54 +282,131 @@
       }
       if (typeof item.onSelect === 'function') {
         node.addEventListener('click', function () {
-          item.onSelect(item);
+          var current = entry.item;
+          if (typeof current.onSelect === 'function') current.onSelect(current);
         });
       }
-      if (item.icon) {
-        node.appendChild(util.el('span', { className: 'ui-list-pane-icon' }, [util.icon(item.icon)]));
-      }
-      if (item.lead) {
-        node.appendChild(util.el('span', { className: 'ui-list-pane-lead' }, [item.lead]));
-      }
-      var text = util.el('span', { className: 'ui-list-pane-text' }, [
-        util.el('span', { className: 'ui-list-pane-label', text: item.label })
-      ]);
-      if (item.nameSuffix) {
-        text.appendChild(util.el('span', { className: 'visually-hidden', text: item.nameSuffix }));
-      }
-      if (item.meta) {
-        text.appendChild(util.el('span', { className: 'ui-list-pane-meta', text: item.meta }));
-      }
-      node.appendChild(text);
-      if (item.badges && item.badges.length) {
-        var badges = util.el('span', { className: 'ui-list-pane-badges' });
-        for (var b = 0; b < item.badges.length; b++) {
-          var badge = item.badges[b];
-          if (badge && badge.nodeType) {
-            badges.appendChild(badge);
-          } else if (badge && typeof badge === 'object' && badge.kind) {
-            badges.appendChild(App.ui.badge({ text: badge.text, kind: badge.kind, title: badge.title }));
-          } else {
-            var plain = badge && typeof badge === 'object' ? badge.text : badge;
-            badges.appendChild(util.el('span', { className: 'ui-list-pane-badge', text: String(plain) }));
-          }
+      var label = util.el('span', { className: 'ui-list-pane-label', 'data-confirm-title': true, text: item.label });
+      var suffix = item.nameSuffix ? util.el('span', { className: 'visually-hidden', text: item.nameSuffix }) : null;
+      var hasBadges = item.badges && item.badges.length;
+      if (opts.rowStyle === 'chats') {
+        var hasTime = item.time !== undefined && item.time !== null && item.time !== '';
+        node.appendChild(util.el('span', { className: 'ui-list-pane-line' }, [
+          label,
+          suffix,
+          hasTime ? util.el('span', { className: 'ui-list-pane-time', text: String(item.time) }) : null
+        ]));
+        if (item.meta || hasBadges) {
+          node.appendChild(util.el('span', { className: 'ui-list-pane-line' }, [
+            item.meta ? util.el('span', { className: 'ui-list-pane-meta', text: item.meta }) : null,
+            hasBadges ? buildBadges(item) : null
+          ]));
         }
-        node.appendChild(badges);
+      } else {
+        if (item.icon) {
+          node.appendChild(util.el('span', { className: 'ui-list-pane-icon' }, [util.icon(item.icon)]));
+        }
+        if (item.lead) {
+          node.appendChild(util.el('span', { className: 'ui-list-pane-lead' }, [item.lead]));
+        }
+        var text = util.el('span', { className: 'ui-list-pane-text' }, [label, suffix]);
+        if (item.meta) {
+          text.appendChild(util.el('span', { className: 'ui-list-pane-meta', text: item.meta }));
+        }
+        node.appendChild(text);
+        if (hasBadges) node.appendChild(buildBadges(item));
+        if (item.count !== undefined && item.count !== null && item.count !== '') {
+          node.appendChild(util.el('span', { className: 'ui-list-pane-count', text: String(item.count) }));
+        }
       }
-      if (item.count !== undefined && item.count !== null && item.count !== '') {
-        node.appendChild(util.el('span', { className: 'ui-list-pane-count', text: String(item.count) }));
+      if (item.dataset) {
+        for (var k in item.dataset) {
+          if (Object.prototype.hasOwnProperty.call(item.dataset, k)) node.dataset[k] = item.dataset[k];
+        }
       }
       if (item.testid) node.setAttribute('data-testid', item.testid);
       return node;
     }
 
+    // The action button for an entry (null when its item has none). onClick
+    // reads entry.item at click time, never a stale closure.
+    function buildAction(entry) {
+      var spec = entry.item.action;
+      if (!spec) return null;
+      var btn = util.el('button', {
+        type: 'button',
+        className: ACTION_CLASS,
+        'aria-label': spec.label,
+        tabindex: '-1'
+      }, [util.icon(spec.icon)]);
+      if (spec.testid) btn.setAttribute('data-testid', spec.testid);
+      btn.addEventListener('click', function () {
+        var current = entry.item;
+        var act = current.action || spec;
+        act.onClick(current, btn, entry.li);
+      });
+      return btn;
+    }
+
+    // A new entry (li, row and action) for an item in group g.
+    function buildEntry(item, g) {
+      var entry = { item: item, li: null, row: null, action: null, group: g, hidden: false, current: false };
+      entry.row = buildRow(entry);
+      entry.action = buildAction(entry);
+      entry.li = util.el('li', { className: entry.action ? 'ui-list-pane-has-action' : null }, [entry.row, entry.action]);
+      return entry;
+    }
+
     // Writes only what changes (M25 F3 L3): a filter keystroke over a long
     // list should cost about one predicate call per row, not a DOM write.
+    // The row and (DD5) its action share the stop: only the stop row's
+    // action is tabbable.
     function setStop(stop) {
       for (var i = 0; i < entries.length; i++) {
         var want = entries[i].row === stop ? '0' : '-1';
         if (entries[i].row.getAttribute('tabindex') !== want) entries[i].row.setAttribute('tabindex', want);
+        var action = entries[i].action;
+        if (action && action.getAttribute('tabindex') !== want) action.setAttribute('tabindex', want);
       }
+    }
+
+    function entryOf(node) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].li === node || entries[i].li.contains(node)) return entries[i];
+      }
+      return null;
+    }
+
+    // rovingFocus rewrites only the rows' tabindex on arrow keys, and a
+    // click can focus a non-stop row's action: re-derive the stop (rows and
+    // actions) from wherever focus lands in the body.
+    function onBodyFocusin(e) {
+      var entry = entryOf(e.target);
+      if (entry && !entry.hidden) setStop(entry.row);
+    }
+
+    // Arrow keys on an action (rovingFocus ignores a non-row target):
+    // Up/Down to the previous/next visible row, clamped; Home/End to the
+    // first/last visible row.
+    function onBodyKeydown(e) {
+      if (e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey) return;
+      var target = e.target;
+      if (!target || !target.classList || !target.classList.contains(ACTION_CLASS)) return;
+      var key = e.key;
+      if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'Home' && key !== 'End') return;
+      var rows = Array.prototype.slice.call(body.querySelectorAll(ROW_SELECTOR));
+      if (!rows.length) return;
+      var entry = entryOf(target);
+      var idx = entry ? rows.indexOf(entry.row) : -1;
+      if (idx === -1) return;
+      var next;
+      if (key === 'Home') next = 0;
+      else if (key === 'End') next = rows.length - 1;
+      else if (key === 'ArrowDown') next = Math.min(idx + 1, rows.length - 1);
+      else next = Math.max(idx - 1, 0);
+      e.preventDefault();
+      setStop(rows[next]);
+      rows[next].focus();
     }
 
     // Show/hide rows for the filter, then re-derive selection, the tab stop
@@ -310,29 +473,75 @@
       status.textContent = n === 0 ? emptyTextFor(query.trim()) || 'No matches' : n === 1 ? '1 result' : n + ' results';
     }
 
-    // The entry whose row holds focus (the row itself or a node inside it).
+    // Where focus is in the body: {entry, onAction, index (in the OLD
+    // entries), ids (the old entries' item ids, in order)}, or null.
     function focusedEntry() {
       var active = document.activeElement;
       if (!active || !body.contains(active)) return null;
       for (var i = 0; i < entries.length; i++) {
-        if (entries[i].row === active || entries[i].row.contains(active)) return entries[i];
+        if (entries[i].li.contains(active)) {
+          var ids = [];
+          for (var j = 0; j < entries.length; j++) ids.push(entries[j].item.id);
+          return { entry: entries[i], onAction: active === entries[i].action, index: i, ids: ids };
+        }
       }
       return null;
     }
 
-    // After a rebuild that removed the focused row: focus (and the tab stop)
-    // go to the row with the same id when it is still visible, else to the
-    // stop applyView chose (the selected row, else the first visible row),
-    // else to the filter when no row is visible, so focus never drops to body.
-    function restoreFocus(id) {
-      var target = null;
+    function visibleEntry(id) {
       for (var i = 0; i < entries.length; i++) {
-        if (entries[i].item.id === id && !entries[i].li.hidden) target = entries[i].row;
+        if (entries[i].item.id === id && !entries[i].li.hidden) return entries[i];
+      }
+      return null;
+    }
+
+    function focusNode(node, stopRow) {
+      setStop(stopRow);
+      node.focus();
+    }
+
+    // An action is display:none until its li has :focus-within, so it cannot
+    // take focus on its own: a transient class shows it for the focus() call,
+    // after which :focus-within keeps it shown.
+    function focusAction(entry) {
+      setStop(entry.row);
+      entry.li.classList.add('ui-list-pane-reveal');
+      entry.action.focus();
+      entry.li.classList.remove('ui-list-pane-reveal');
+    }
+
+    // After a rebuild. A focused ACTION goes back to the same item's action,
+    // else (its item gone: the delete case) to the neighbouring row: the
+    // next old item still visible, else the previous one. A focused ROW
+    // goes to the row with the same id when it is still visible, else to
+    // the stop applyView chose (the selected row, else the first visible
+    // row). Either way, with no row visible focus goes to the filter, so it
+    // never drops to <body>.
+    function restoreFocus(focused) {
+      var id = focused.entry.item.id;
+      var same = visibleEntry(id);
+      var target = null;
+      if (focused.onAction) {
+        if (same && same.action) {
+          focusAction(same);
+          return;
+        }
+        if (same) target = same.row;
+        var k;
+        for (k = focused.index + 1; !target && k < focused.ids.length; k++) {
+          var after = visibleEntry(focused.ids[k]);
+          if (after) target = after.row;
+        }
+        for (k = focused.index - 1; !target && k >= 0; k--) {
+          var before = visibleEntry(focused.ids[k]);
+          if (before) target = before.row;
+        }
+      } else if (same) {
+        target = same.row;
       }
       if (!target) target = body.querySelector(ROW_SELECTOR + '[tabindex="0"]');
       if (target) {
-        setStop(target);
-        target.focus();
+        focusNode(target, target);
       } else if (filterInput) {
         filterInput.focus();
       }
@@ -344,6 +553,12 @@
       // <body> at once, so the restore below must also run synchronously.
       var focused = focusedEntry();
       var scrollTop = body.scrollTop;
+      // Armed rows (App.confirmDelete's .confirm-delete on the li) are
+      // reused for their item id, never rebuilt (DD5).
+      var armed = {};
+      for (var a = 0; a < entries.length; a++) {
+        if (entries[a].li.classList.contains('confirm-delete')) armed[entries[a].item.id] = entries[a];
+      }
       body.textContent = '';
       entries = [];
       groupNodes = [];
@@ -370,17 +585,23 @@
         }
         for (var n = 0; n < group.items.length; n++) {
           var item = group.items[n];
-          var row = buildRow(item);
-          var li = util.el('li', null, [row]);
-          ul.appendChild(li);
-          entries.push({ item: item, li: li, row: row, group: g, hidden: false, current: false });
+          var entry;
+          if (Object.prototype.hasOwnProperty.call(armed, item.id)) {
+            entry = armed[item.id];
+            entry.item = item;
+            entry.group = g;
+          } else {
+            entry = buildEntry(item, g);
+          }
+          ul.appendChild(entry.li);
+          entries.push(entry);
         }
         body.appendChild(groupNode);
         groupNodes.push({ id: group.id, node: groupNode, emptyLine: emptyLine });
       }
       applyView();
       body.scrollTop = scrollTop;
-      if (focused) restoreFocus(focused.item.id);
+      if (focused) restoreFocus(focused);
     }
 
     function setSelected(id) {
@@ -424,6 +645,16 @@
       body.scrollTop += box.top - bodyBox.top;
     }
 
+    // Programmatic filter (M25 F4 L6): silent, unlike a keystroke.
+    function setQuery(q) {
+      if (!filterInput) return;
+      var next = q === undefined || q === null ? '' : String(q);
+      filterInput.value = next;
+      query = next;
+      applyView();
+      status.textContent = '';
+    }
+
     function getItems() {
       var out = [];
       for (var i = 0; i < entries.length; i++) out.push(entries[i].item);
@@ -432,6 +663,8 @@
 
     function destroy() {
       unbind();
+      body.removeEventListener('focusin', onBodyFocusin);
+      body.removeEventListener('keydown', onBodyKeydown);
       body.textContent = '';
       entries = [];
       groupNodes = [];
@@ -445,6 +678,7 @@
       focusSelected: focusSelected,
       scrollToSelected: scrollToSelected,
       scrollToGroup: scrollToGroup,
+      setQuery: setQuery,
       getItems: getItems,
       destroy: destroy
     };

@@ -10,6 +10,7 @@
 //     </div>
 //     <div class="form-actions">
 //       <span class="editor-unsaved" role="status"></span>
+//       <button>Chat</button>  (DOM-inserted on a saved agent, M25 F4 L6)
 //       <button>Cancel</button>
 //       <button>Save</button>
 //     </div>
@@ -156,6 +157,31 @@
     crumbLink.textContent = 'Agents';
     crumb.appendChild(crumbLink);
     headerText.insertBefore(crumb, headerText.firstChild);
+
+    // M25 F4 L6 (DD8): Chat, a header action on a SAVED agent only (never in
+    // create mode: there is no agent to chat with yet). Inserted with DOM APIs
+    // after the markup is in place, into .form-actions before Cancel, so the
+    // baselined markup string above is unchanged. It is re-created on every
+    // header render (no stale handler) and takes no part in checkDirty's
+    // Save/Cancel bookkeeping (checkDirty reads .save-btn and .cancel-btn
+    // only). It starts a new chat with the stored name through
+    // App.chat.chatWith: the guarded go() to `#chats/~new/{name}`, so a
+    // dirty editor asks once (Stay keeps the edit, focus back on Chat).
+    if (!isCreate) {
+      var actionsEl = container.querySelector('.editor-header .form-actions');
+      var agentName = agent.name || '';
+      var chatBtn = window.App.ui.button({
+        variant: 'secondary',
+        icon: 'chat',
+        label: 'Chat',
+        className: 'agent-chat-btn',
+        testid: 'agent-chat-btn',
+        onClick: function () {
+          window.App.chat.chatWith(agentName, { opener: chatBtn });
+        }
+      });
+      if (actionsEl) actionsEl.insertBefore(chatBtn, actionsEl.querySelector('.cancel-btn'));
+    }
 
     // Wire action-cluster buttons — handlers from callbacks.
     var cancelBtn = container.querySelector('.cancel-btn');

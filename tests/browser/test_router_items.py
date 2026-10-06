@@ -24,13 +24,12 @@ What this file pins (leg 04, ``item-history-and-exact-rendering``):
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
 import httpx
 import pytest
-from browser import _lists, _nav
+from browser import _chats, _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
@@ -709,54 +708,54 @@ def test_dead_agent_on_empty_inventory_heals(app_with_provider: SeededApp, page:
 # ── AC6: Chats ──────────────────────────────────────────────────────────────
 
 
-def test_session_row_pushes_and_joins_once(app_with_agent: SeededApp, page: Page) -> None:
-    frames: list[tuple[str, str | None]] = []
+def test_two_first_sends_make_two_rows_and_a_row_pushes_and_joins_once(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """M25 F4 leg 3b inverted this test (it pinned "two ``new_session`` frames
+    make two rows"): a start is a pending chat, and two FIRST SENDS make two
+    rows. A row open still pushes and sends exactly one ``join``; Back steps
+    between the sessions with exactly one ``join``."""
+    sent = _chats.chat_frames(page, actions=("join", "start_session", "new_session"))
 
-    def _on_ws(ws):  # noqa: ANN001
-        def _sent(payload):  # noqa: ANN001
-            try:
-                msg = json.loads(payload)
-            except (TypeError, ValueError):
-                return
-            if isinstance(msg, dict) and msg.get("action") in ("join", "new_session"):
-                frames.append((msg["action"], msg.get("session_id")))
+    def frames() -> list[tuple[str, str | None]]:
+        return [(f["action"], f.get("session_id")) for f in sent]
 
-        ws.on("framesent", _sent)
-
-    page.on("websocket", _on_ws)
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
-    )
+    _chats.start_chat(page, app_with_agent.agent_name)
+    s1 = _chats.send_first(page, "first chat")
     first_route = _nav.current_route(page)
-    s1 = first_route.split("/", 1)[1]
+    assert first_route == f"chats/{_nav.seg(s1)}"
 
-    page.locator('[data-testid="new-chat-btn"]').click()
+    _chats.start_chat(page, app_with_agent.agent_name)  # a second chat, same agent
+    s2 = _chats.send_first(page, "second chat")
     _nav.wait_for_route_prefix(page, "chats/", not_equal=first_route, timeout=8000)
     second_route = _nav.current_route(page)
-    s2 = second_route.split("/", 1)[1]
-    row1 = page.locator(f'button.session-item[data-id="{s1}"]')
-    row2 = page.locator(f'button.session-item[data-id="{s2}"]')
+    assert second_route == f"chats/{_nav.seg(s2)}"
+    row1 = _chats.chat_row(page, s1)
+    row2 = _chats.chat_row(page, s2)
     expect(row1).to_be_visible(timeout=8000)
     expect(row2).to_be_visible(timeout=8000)
-    expect(page.locator("button.session-item")).to_have_count(2)
-    assert [a for a, _ in frames].count("new_session") == 2, frames
+    expect(_chats.chat_rows(page)).to_have_count(2)
+    assert frames() == [("start_session", s1), ("start_session", s2)], frames()
 
-    frames.clear()
+    sent.clear()
     seq = _seq(page)
-    row1.click()
+    _chats.open_chat(page, s1)
     _nav.expect_route(page, first_route)
-    expect(row1).to_have_class(re.compile(r"\bactive\b"))
+    # The selected row carries aria-current="page" (the Chats list's listPane
+    # marker since M25 F4 L4a; the old history row's `.active` class is gone).
+    expect(row1).to_have_attribute("aria-current", "page")
+    expect(row2).not_to_have_attribute("aria-current", "page")
     assert _seq(page) == seq + 1  # pushed
-    assert frames == [("join", s1)], frames  # exactly one join, no create
+    assert frames() == [("join", s1)], frames()  # exactly one join, no create
 
-    frames.clear()
+    sent.clear()
     page.go_back()
     _nav.expect_route(page, second_route)
-    expect(row2).to_have_class(re.compile(r"\bactive\b"))
-    assert frames == [("join", s2)], frames
-    expect(page.locator("button.session-item")).to_have_count(2)
+    expect(row2).to_have_attribute("aria-current", "page")
+    expect(row1).not_to_have_attribute("aria-current", "page")
+    assert frames() == [("join", s2)], frames()
+    expect(_chats.chat_rows(page)).to_have_count(2)
 
 
 # ── AC7: links and the MCP tab ──────────────────────────────────────────────
@@ -817,7 +816,8 @@ def test_mcps_tab_js_has_no_hashchange_listener_or_hash_read() -> None:
 _DELAY_SESSION_JOINED_JS = """
 (() => {
   // Delay ``list_sessions`` 0.8s and every ``session_joined`` reply 1.5s, so the list
-  // reply lands between a new-chat send and its join (the window a loaded host opens).
+  // reply lands between a first send's ``start_session`` and its join (the window a
+  // loaded host opens).
   const send = WebSocket.prototype.send;
   WebSocket.prototype.send = function (d) {
     try {
@@ -844,37 +844,25 @@ _DELAY_SESSION_JOINED_JS = """
 """
 
 
-def test_new_chat_before_pending_session_list_creates_exactly_one_session(
+def test_a_first_send_before_a_pending_session_list_creates_exactly_one_session(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """New chat while the post-join ``session_list`` refresh is still in flight.
+    """A first send while a ``session_list`` refresh is still in flight.
 
-    The reply lands between the new-chat send and its ``session_joined``; the list
-    handler's queued-intent drain must not re-send ``new_session`` (a third session).
+    M25 F4 leg 3b inverted this test (it pinned the retired ``new_session``
+    drain): the list reply lands between the second chat's ``start_session``
+    and its ``session_joined``. A list never re-sends a start (only a socket
+    close does), so two first sends make exactly two sessions and two rows.
     """
-    creates: list[str] = []
-
-    def _on_ws(ws):  # noqa: ANN001
-        def _sent(payload):  # noqa: ANN001
-            try:
-                msg = json.loads(payload)
-            except (TypeError, ValueError):
-                return
-            if isinstance(msg, dict) and msg.get("action") == "new_session":
-                creates.append(msg.get("agent_name"))
-
-        ws.on("framesent", _sent)
-
+    creates = _chats.chat_frames(page, actions=("start_session", "new_session"))
     page.add_init_script(_DELAY_SESSION_JOINED_JS)
-    page.on("websocket", _on_ws)
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
-    )
+    _chats.start_chat(page, app_with_agent.agent_name)
+    _chats.send_first(page, "first chat")
     first_route = _nav.current_route(page)
-    page.locator('[data-testid="new-chat-btn"]').click()
+    _chats.start_chat(page, app_with_agent.agent_name)  # a second chat, same agent
+    _chats.send_first(page, "second chat")
     _nav.wait_for_route_prefix(page, "chats/", not_equal=first_route, timeout=8000)
     page.wait_for_timeout(2500)  # outlast the delayed list reply and any re-send
-    expect(page.locator("button.session-item")).to_have_count(2)
-    assert len(creates) == 2, creates
+    expect(_chats.chat_rows(page)).to_have_count(2)
+    assert [f["action"] for f in creates] == ["start_session", "start_session"], creates

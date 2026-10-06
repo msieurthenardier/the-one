@@ -3,62 +3,17 @@
   window.App = window.App || {};
   window.App.admin = window.App.admin || {};
 
-  // Map of tool name → category badge slug. The tool's Config class
-  // determines its category (FilesystemConfig → filesystem, etc.); the
-  // API endpoint surfaces only `name`/`description`/`enabled`/`config`,
-  // not the Config class name, so the mapping is duplicated here.
-  // Future flights adding tools must extend this; the L8 verification
-  // sweep will fail loudly on a missing entry (defensive `unknown` badge).
-  //
-  // Squawk 0032: this mirror is duplicated a THIRD time in
-  // studio.js's per-agent Tools tab TOOL_CATEGORIES (different shape —
-  // category → [tool names], not tool name → category). Squawk 0028
-  // added the Connectors bucket there; this squawk brings the admin
-  // grid to parity. The two mirrors are not unified — see that squawk's
-  // Corrective Action for why.
-  var TOOL_CATEGORIES = {
-    // filesystem (9)
-    read_file: 'filesystem',
-    write_file: 'filesystem',
-    edit_file: 'filesystem',
-    delete_file: 'filesystem',
-    move_file: 'filesystem',
-    mkdir: 'filesystem',
-    glob: 'filesystem',
-    grep: 'filesystem',
-    list_dir: 'filesystem',
-    // execution (6) — shell + the four PTY session tools + python_exec
-    shell: 'execution',
-    shell_session_start: 'execution',
-    shell_session_send: 'execution',
-    shell_session_close: 'execution',
-    shell_session_list: 'execution',
-    python_exec: 'execution',
-    // web (4)
-    http_request: 'web',
-    fetch_url: 'web',
-    download_file: 'web',
-    web_search: 'web',
-    // connectors (2) — Mission 23 Flight 2's platform-connector tools;
-    // added by squawk 0032, mirroring squawk 0028's studio.js fix.
-    send_to_platform_channel: 'connectors',
-    fetch_channel_history: 'connectors'
-  };
-
-  // F6 L6 (HAT inline fix): the admin Tools grid groups tiles under
-  // per-category tabs (Filesystem / Execution / Web) rather than a
-  // single alphabetic list. Operator HAT scenario 1 surfaced the
-  // single-list layout as a UX gap once the tool count crossed ~10.
-  // Connectors (squawk 0032) appended at the end of declaration order
-  // rather than interleaved, to match studio.js's tab ordering.
-  // Tab declaration order (also tab visual order):
-  var CATEGORY_ORDER = ['filesystem', 'execution', 'web', 'connectors'];
-  var CATEGORY_LABELS = {
-    filesystem: 'Filesystem',
-    execution: 'Execution',
-    web: 'Web',
-    connectors: 'Connectors'
-  };
+  // Tool name -> category slug, the tab order and the tab labels, from the
+  // one shared table (static/js/tool-categories.js, M25 F4 L6, AC9). The tool's
+  // Config class determines its category, but the API surfaces only
+  // `name`/`description`/`enabled`/`config`, so the table is client-side; a
+  // tool missing from it would show in no tab (the `unknown` badge), which
+  // tests/test_tool_categories.py now prevents. F6 L6 (HAT inline fix): the
+  // grid groups tiles under per-category tabs (Filesystem / Execution / Web,
+  // then Connectors) rather than one alphabetic list.
+  var TOOL_CATEGORIES = App.toolCategories.categoryOf;
+  var CATEGORY_ORDER = App.toolCategories.order;
+  var CATEGORY_LABELS = App.toolCategories.labels;
 
   // Active tab persists across grid re-renders within the area lifetime.
   // L2's populateToolGrid re-renders after every PUT toggle response;

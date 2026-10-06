@@ -19,7 +19,9 @@ acceptance criterion.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import httpx
 from browser._credential_registry import auth_headers_for
@@ -255,3 +257,56 @@ def seed_agent_with_attachments(
     )
     assert r.status_code == 201, f"seed_agent_with_attachments failed: {r.status_code} {r.text}"
     return r.json()["name"]
+
+
+# ── Chat seeders (M25 F4 L3a) ────────────────────────────────────────────────
+
+
+def _iso(value: str | datetime) -> str:
+    """*value* as the app stores timestamps (``now_iso``: UTC ``isoformat``).
+
+    A naive ``datetime`` is taken as UTC; a string is sent as-is.
+    """
+    if isinstance(value, str):
+        return value
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def seed_session(
+    base_url: str,
+    agent_name: str | None,
+    title: str,
+    updated_at: str | datetime,
+    created_at: str | datetime | None = None,
+    platform: str | None = None,
+    messages: list | str | None = None,
+) -> str:
+    """POST a chat session via /api/chat/sessions and return its id.
+
+    The route accepts a whole ``ChatSession``, so a test can place a session in
+    the past (``updated_at``; ``created_at`` defaults to the same instant, so a
+    session is never created after its last update) and mark it as a connector
+    session (``platform``, e.g. ``"discord"``; None is a web session).
+    ``messages`` is the stored history: a list (JSON-encoded here) or an
+    already-encoded string, as ``the_one.db.codec.encode_messages`` returns;
+    omitted, the session is empty. The server allocates the id.
+    """
+    body: dict = {
+        "agent_name": agent_name,
+        "title": title,
+        "updated_at": _iso(updated_at),
+        "created_at": _iso(created_at if created_at is not None else updated_at),
+        "platform": platform,
+    }
+    if messages is not None:
+        body["messages"] = messages if isinstance(messages, str) else json.dumps(messages)
+    r = httpx.post(
+        f"{base_url}/api/chat/sessions",
+        json=body,
+        headers=auth_headers_for(base_url),
+        timeout=5.0,
+    )
+    assert r.status_code == 201, f"seed_session failed: {r.status_code} {r.text}"
+    return r.json()["id"]

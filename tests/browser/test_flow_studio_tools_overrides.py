@@ -91,14 +91,15 @@ def _open_override_panel(page: Page, tool: str) -> None:
 
 @pytest.mark.browser
 def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page: Page) -> None:
-    """Tools tab shows the four category tiles with 21 tool tiles total.
+    """Tools tab shows the four category tiles with 22 tool tiles total.
 
     Guards the same intent as the pre-rebrand "19 tool rows" test: every
     built-in tool is represented exactly once in the Tools tab. Squawk 0028
     added the "Connectors" category (`send_to_platform_channel` +
     `fetch_channel_history`, Mission 23 Flight 2) on top of the original
     19 Filesystem/Execution/Web tools, bringing the totals to 4 categories
-    / 21 tools.
+    / 21 tools; M25 F4 L6 (the one shared table, `tool-categories.js`) added
+    M23 F4 L3's `find_platform_destination`, which no copy had, to 22.
     """
     _open_tools_tab(app_with_agent, page)
     tiles = page.locator(".tools-category-tile")
@@ -108,7 +109,7 @@ def test_studio_tools_tab_renders_category_tiles(app_with_agent: SeededApp, page
         expect(page.locator(f'.tools-category-tile[data-category="{category}"]')).to_be_visible()
     # Tool tiles are built up-front (hidden until category expand) — count
     # attached, not visible.
-    expect(page.locator("details.tool-tile")).to_have_count(21)
+    expect(page.locator("details.tool-tile")).to_have_count(22)
 
 
 @pytest.mark.browser
@@ -350,16 +351,22 @@ def test_studio_connectors_category_renders_both_tools(
     """Squawk 0028: the "Connectors" category tile exposes checkboxes for
     both Mission 23 Flight 2 connector tools — `send_to_platform_channel`
     and `fetch_channel_history` — previously invisible in this tab (no
-    category bucketed them). Both start checked (fresh agent has no
-    `enabled_tools`/`disabled_tools` override, so every built-in tool
-    defaults enabled) and the category's count badge reads "2 / 2 enabled".
+    category bucketed them). M25 F4 L6 adds M23 F4 L3's
+    `find_platform_destination` (the shared table, `tool-categories.js`).
+    All start checked (fresh agent has no `enabled_tools`/`disabled_tools`
+    override, so every built-in tool defaults enabled) and the category's
+    count badge reads "3 / 3 enabled".
     """
     _open_tools_tab(app_with_agent, page)
     _expand_category(page, "Connectors")
     tile = page.locator('.tools-category-tile[data-category="Connectors"]')
-    expect(tile.locator(".tools-category-tile-count")).to_have_text("2 / 2 enabled")
+    expect(tile.locator(".tools-category-tile-count")).to_have_text("3 / 3 enabled")
 
-    for tool_name in ("send_to_platform_channel", "fetch_channel_history"):
+    for tool_name in (
+        "send_to_platform_channel",
+        "fetch_channel_history",
+        "find_platform_destination",
+    ):
         row = page.locator(f'details.tool-tile[data-tool="{tool_name}"]')
         expect(row).to_be_visible()
         checkbox = row.locator(f'input[data-tool="{tool_name}"]')
@@ -384,7 +391,7 @@ def test_studio_connectors_category_checkbox_toggle_round_trips_via_api(
     checkbox.uncheck()
 
     tile = page.locator('.tools-category-tile[data-category="Connectors"]')
-    expect(tile.locator(".tools-category-tile-count")).to_have_text("1 / 2 enabled")
+    expect(tile.locator(".tools-category-tile-count")).to_have_text("2 / 3 enabled")
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
     expect(save_btn).to_be_enabled(timeout=5000)

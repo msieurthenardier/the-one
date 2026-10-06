@@ -1,7 +1,12 @@
 # ruff: noqa: E501  (inline JS snippets are evaluated verbatim)
 """Engine-parametrized contract tests for ``App.ui.modal`` (M25 F2 L2, DD6/DD8): the
 native-``<dialog>`` modal. Keyboard and mouse steps use real ``keyboard.press`` / ``click``.
-Every test runs in Chromium and WebKit. Falls in the ``shared`` browser lane.
+Every test runs in Chromium and WebKit. Falls in the ``contracts`` browser lane.
+
+M25 F4 L1 (DD14) adds the chooser options: ``width``, ``top``, ``initialFocus``,
+``closeButton``, ``footer`` and ``layout: 'chooser'``; M25 F4 L7 adds ``ariaLabel``
+(a modal with no title and no header row) and ``App.ui.modal.anyOpen()`` (the tests
+at the end).
 """
 
 from __future__ import annotations
@@ -9,7 +14,8 @@ from __future__ import annotations
 import pytest
 from browser._a11y_resolvers import assert_controls_labelled_and_described
 from browser._dialog_rule_checks import layers
-from browser._ui_engines import load_harness
+from browser._ui_engines import STATIC_DIR, load_harness
+from browser.design_tokens import DARK
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
@@ -422,3 +428,436 @@ def test_probe_modal_script_opens_a_modal(engine_page: Page) -> None:
     report = p.evaluate("() => window.__probeReport")
     assert report["open"] and report["isModal"] and report["focusInside"], report
     assert_controls_labelled_and_described(p, "dialog[open]")
+
+
+# ── Chooser options (M25 F4 L1, DD14) ─────────────────────────────────────────
+
+# A chooser body: an input then two rows of buttons, so "the first focusable in
+# the body" is the input, never the header's close button.
+CHOOSER_JS = """(extra) => {
+  const body = document.createElement('div');
+  body.setAttribute('data-testid', 'ch-body');
+  const input = document.createElement('input');
+  input.setAttribute('aria-label', 'Find'); input.setAttribute('data-testid', 'ch-input');
+  const b1 = document.createElement('button'); b1.textContent = 'Row one'; b1.setAttribute('data-testid', 'ch-row1');
+  const b2 = document.createElement('button'); b2.textContent = 'Row two'; b2.setAttribute('data-testid', 'ch-row2');
+  body.append(input, b1, b2);
+  window.__chBody = body; window.__chInput = input; window.__chRow2 = b2;
+  // focusRow2: initialFocus is the body's last row (built here, so the caller
+  // cannot pass the node itself).
+  if (extra && extra.focusRow2) { delete extra.focusRow2; extra.initialFocus = b2; }
+  const footer = document.createDocumentFragment();
+  const left = document.createElement('span'); left.textContent = 'Picking starts a chat';
+  const right = document.createElement('span'); right.className = 'modal-dialog-footer-end'; right.textContent = 'Enter to start';
+  footer.append(left, right);
+  window.__m = window.__mk(Object.assign({
+    title: 'Start a chat with', layout: 'chooser', body, footer, actions: [],
+    closeButton: {label: 'Esc', ariaLabel: 'Close (Esc)', testid: 'ch-close'},
+  }, extra || {}));
+  window.__m.open(window.__opener);
+  return true;
+}"""
+
+
+def _rgb(hex_: str) -> str:
+    h = hex_.lstrip("#")
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    return f"rgb({r}, {g}, {b})"
+
+
+def _chooser(page: Page, extra: str = "null") -> None:
+    page.evaluate(f"({CHOOSER_JS})({extra})")
+
+
+def test_chooser_layout_structure_and_no_describedby(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _chooser(p)
+    out = p.evaluate(
+        """() => {
+          const d = document.querySelector('dialog');
+          const card = d.querySelector('.modal-dialog');
+          const header = card.querySelector('.modal-dialog-header');
+          const title = header.querySelector('h2');
+          const close = header.querySelector('[data-testid=ch-close]');
+          const body = card.querySelector('.modal-dialog-body');
+          const footer = card.querySelector('.modal-dialog-footer');
+          const cs = getComputedStyle(card), hs = getComputedStyle(header), fs = getComputedStyle(footer);
+          const cb = card.getBoundingClientRect(), bb = body.getBoundingClientRect();
+          const end = footer.querySelector('.modal-dialog-footer-end').getBoundingClientRect();
+          return {
+            order: Array.from(card.children).map((n) => n.className),
+            labelledby: d.getAttribute('aria-labelledby') === title.id, title: title.textContent,
+            describedby: d.hasAttribute('aria-describedby'),
+            actions: card.querySelectorAll('.modal-actions').length,
+            closeClass: close.className, closeName: close.getAttribute('aria-label'), closeText: close.textContent,
+            closeLast: header.lastElementChild === close,
+            cardPad: cs.padding, cardClass: card.className,
+            headerPad: hs.padding, headerDisplay: hs.display,
+            bodyFullBleed: Math.abs(bb.left - cb.left - 1) <= 0.5 && Math.abs(cb.right - bb.right - 1) <= 0.5,
+            bodyHolds: body.firstElementChild === window.__chBody,
+            footer: [fs.fontSize, fs.color, fs.borderTopWidth + ' ' + fs.borderTopStyle, fs.padding],
+            footerItems: footer.children.length,
+            endPushed: cb.right - end.right <= 22,
+          };
+        }"""
+    )
+    assert out["order"] == ["modal-dialog-header", "modal-dialog-body", "modal-dialog-footer"]
+    assert out["labelledby"] is True and out["title"] == "Start a chat with"
+    assert out["describedby"] is False  # the chooser never describes the dialog by its list
+    assert out["actions"] == 0
+    assert out["closeClass"] == "btn-ghost btn-sm" and out["closeLast"] is True
+    assert (out["closeName"], out["closeText"]) == ("Close (Esc)", "Esc")
+    assert out["cardPad"] == "0px" and "modal-dialog-chooser" in out["cardClass"]
+    assert out["headerPad"] == "16px 20px 12px" and out["headerDisplay"] == "flex"
+    assert out["bodyFullBleed"] is True and out["bodyHolds"] is True
+    assert out["footer"][:3] == ["11px", _rgb(DARK["fg_muted"]), "1px solid"], out["footer"]
+    assert out["footer"][3] == "10px 20px"
+    assert (
+        out["footerItems"] == 2 and out["endPushed"] is True
+    )  # the fragment's items are the row's
+    assert_controls_labelled_and_described(p, "dialog")
+
+
+def test_chooser_default_focus_is_the_body_never_the_close_button(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _chooser(p)
+    assert _active(p) == "ch-input"
+    p.keyboard.press("Escape")
+    # A plain (non-chooser) modal with a close button and a Node body holding an
+    # input and no actions: the default is still the body's input.
+    p.evaluate(
+        """() => {
+          const body = document.createElement('div');
+          const input = document.createElement('input'); input.setAttribute('aria-label', 'Name');
+          input.setAttribute('data-testid', 'plain-input');
+          body.appendChild(input);
+          window.__m = window.__mk({body, actions: [], closeButton: {label: 'Esc', ariaLabel: 'Close (Esc)', testid: 'plain-close'}});
+          window.__m.open(window.__opener);
+        }"""
+    )
+    assert _active(p) == "plain-input"
+    p.keyboard.press("Escape")
+    # With a close button in play the body comes first even when there are
+    # actions (they would win in the usual order).
+    p.evaluate(
+        """() => {
+          const body = document.createElement('div');
+          const input = document.createElement('input'); input.setAttribute('aria-label', 'Name');
+          input.setAttribute('data-testid', 'acts-input');
+          body.appendChild(input);
+          window.__m = window.__mk({body, closeButton: {label: 'Esc', ariaLabel: 'Close (Esc)', testid: 'acts-close'}});
+          window.__m.open(window.__opener);
+        }"""
+    )
+    assert _active(p) == "acts-input"  # not the first action (m-stay)
+    p.keyboard.press("Escape")
+    # With only the close button focusable, the usual order lands on it.
+    p.evaluate(
+        "() => { window.__m = window.__mk({actions: [], closeButton: {label: 'Esc', ariaLabel: 'Close (Esc)', testid: 'only-close'}}); window.__m.open(window.__opener); }"
+    )
+    assert _active(p) == "only-close"
+
+
+def test_initial_focus_focuses_the_given_node(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate(
+        """() => {
+          const body = document.createElement('div');
+          const b = document.createElement('button'); b.textContent = 'Second'; b.setAttribute('data-testid', 'if-target');
+          const a = document.createElement('button'); a.textContent = 'First';
+          body.append(a, b);
+          window.__m = window.__mk({body, initialFocus: b});
+          window.__m.open(window.__opener);
+        }"""
+    )
+    assert _active(p) == "if-target"  # not the first action (m-stay)
+    p.keyboard.press("Escape")
+    # A node that is not inside the card falls back to the usual order.
+    p.evaluate(
+        "() => { window.__m = window.__mk({initialFocus: window.__opener}); window.__m.open(window.__opener); }"
+    )
+    assert _active(p) == "m-stay"
+    p.keyboard.press("Escape")
+    _chooser(p, "{focusRow2: true}")
+    assert _active(p) == "ch-row2"
+
+
+def test_close_button_closes_with_cancel_value_and_restores_focus(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _chooser(p)
+    p.get_by_test_id("ch-close").click()
+    assert layers(p) == 0
+    p.wait_for_timeout(50)
+    assert _log(p) == [{"value": "cancelled", "dialogsInDom": 0, "openerFocused": True}]
+    assert _active(p) == "opener"
+
+
+def test_close_button_takes_part_in_the_tab_wrap(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _chooser(p)
+    assert _active(p) == "ch-input"
+    p.keyboard.press("Shift+Tab")
+    assert _active(p) == "ch-close"  # the header's close button comes first in the card
+    p.keyboard.press("Shift+Tab")
+    assert _active(p) == "ch-row2"  # wraps to the last
+    p.keyboard.press("Tab")
+    assert _active(p) == "ch-close"  # and forward wraps back to the close button
+    p.keyboard.press("Enter")
+    assert layers(p) == 0 and _active(p) == "opener"
+
+
+def test_width_and_top_place_the_card(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _chooser(p, "{width: 640, top: 72}")
+    box = p.evaluate(
+        "() => { const r = document.querySelector('dialog .modal-dialog').getBoundingClientRect(); return [r.width, r.top, r.left]; }"
+    )
+    assert abs(box[0] - 640) <= 0.5 and abs(box[1] - 72) <= 0.5, box
+    assert abs(box[2] - (1024 - 640) / 2) <= 0.5, box  # still centred horizontally
+    p.keyboard.press("Escape")
+    # A narrow viewport: the card stays inside the viewport minus 32px.
+    p.set_viewport_size({"width": 560, "height": 700})
+    _chooser(p, "{width: 640, top: 72}")
+    narrow = p.evaluate(
+        "() => { const r = document.querySelector('dialog .modal-dialog').getBoundingClientRect(); return [r.width, r.left]; }"
+    )
+    assert abs(narrow[0] - (560 - 32)) <= 0.5 and abs(narrow[1] - 16) <= 0.5, narrow
+
+
+def test_without_the_new_options_a_modal_is_unchanged(engine_page: Page) -> None:
+    """No new option: the 24px card padding, aria-describedby, a vertically
+    centred 480px card, no header row, no inline style on the card."""
+    p = engine_page
+    _mount(p)
+    _open(p)
+    out = p.evaluate(
+        """() => {
+          const d = document.querySelector('dialog'), card = d.querySelector('.modal-dialog');
+          const r = card.getBoundingClientRect();
+          return {pad: getComputedStyle(card).padding, described: d.hasAttribute('aria-describedby'),
+                  style: card.getAttribute('style'), header: card.querySelectorAll('.modal-dialog-header').length,
+                  first: card.firstElementChild.tagName, w: r.width,
+                  centred: Math.abs((r.top + r.bottom) / 2 - window.innerHeight / 2) <= 1};
+        }"""
+    )
+    assert out == {
+        "pad": "24px",
+        "described": True,
+        "style": None,
+        "header": 0,
+        "first": "H2",
+        "w": 480,
+        "centred": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("opts", "message"),
+    [
+        ("{layout: 'drawer'}", 'App.ui.modal: unknown layout "drawer"'),
+        (
+            "{layout: 'chooser', body: document.createElement('div')}",
+            "App.ui.modal: the chooser layout has no actions",
+        ),
+        (
+            "{layout: 'chooser', actions: [], body: 'text'}",
+            "App.ui.modal: the chooser layout needs a Node body",
+        ),
+        ("{footer: 'text'}", "App.ui.modal: footer must be a Node"),
+    ],
+)
+def test_chooser_option_errors(engine_page: Page, opts: str, message: str) -> None:
+    p = engine_page
+    _mount(p)
+    got = p.evaluate(
+        f"() => {{ try {{ window.__mk({opts}); return ''; }} catch (e) {{ return e.message; }} }}"
+    )
+    assert got == message
+
+
+def test_a_fragment_footer_survives_a_reopen(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _chooser(p)
+    p.keyboard.press("Escape")
+    p.evaluate("() => { window.__m.open(window.__opener); }")
+    assert (
+        p.evaluate("() => document.querySelector('dialog .modal-dialog-footer').children.length")
+        == 2
+    )
+
+
+# ── ariaLabel and anyOpen() (M25 F4 L7, DD14) ─────────────────────────────────
+
+# A chooser named by ariaLabel: no title, no header row; its body holds an input
+# and the body's OWN "Esc" button, which calls the controller's close().
+LABELLED_JS = """(extra) => {
+  const body = document.createElement('div');
+  body.setAttribute('data-testid', 'al-body');
+  const input = document.createElement('input');
+  input.setAttribute('aria-label', 'Jump to'); input.setAttribute('data-testid', 'al-input');
+  const esc = App.ui.button({label: 'Esc', ariaLabel: 'Close (Esc)', variant: 'ghost', size: 'sm',
+                             testid: 'al-close', onClick: () => window.__m.close()});
+  body.append(input, esc);
+  window.__m = window.__mk(Object.assign({
+    title: undefined, ariaLabel: 'Jump to', layout: 'chooser', body, actions: [], dismissible: true,
+    initialFocus: input,
+  }, extra || {}));
+  window.__m.open(window.__opener);
+  return true;
+}"""
+
+
+def _labelled(page: Page, extra: str = "null") -> None:
+    page.evaluate(f"({LABELLED_JS})({extra})")
+
+
+def test_aria_label_names_a_modal_with_no_title_and_no_header(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _labelled(p)
+    out = p.evaluate(
+        """() => {
+          const d = document.querySelector('dialog'), card = d.querySelector('.modal-dialog');
+          return {
+            label: d.getAttribute('aria-label'), labelledby: d.hasAttribute('aria-labelledby'),
+            describedby: d.hasAttribute('aria-describedby'),
+            h2: d.querySelectorAll('h2').length, headings: d.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading]').length,
+            header: d.querySelectorAll('.modal-dialog-header').length,
+            title: d.querySelectorAll('.modal-dialog-title').length,
+            first: card.firstElementChild.className, kids: Array.from(card.children).map((c) => c.className),
+            role: d.getAttribute('role'), modal: d.getAttribute('aria-modal'),
+          };
+        }"""
+    )
+    assert out["label"] == "Jump to" and out["labelledby"] is False
+    assert out["describedby"] is False  # still a chooser: never described by its list
+    assert out["h2"] == 0 and out["headings"] == 0 and out["header"] == 0 and out["title"] == 0
+    assert out["first"] == "modal-dialog-body" and out["kids"] == ["modal-dialog-body"]
+    assert (out["role"], out["modal"]) == ("dialog", "true")
+    expect(p.get_by_role("dialog", name="Jump to")).to_have_count(1)
+    assert_controls_labelled_and_described(p, "dialog")
+    assert _active(p) == "al-input"
+
+
+def test_aria_label_body_close_button_is_in_the_tab_wrap_and_closes(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _labelled(p)
+    assert _active(p) == "al-input"
+    p.keyboard.press("Tab")
+    assert _active(p) == "al-close"
+    p.keyboard.press("Tab")
+    assert _active(p) == "al-input"  # wraps
+    p.keyboard.press("Shift+Tab")
+    assert _active(p) == "al-close"
+    p.keyboard.press("Enter")  # the body's own button calls controller.close()
+    assert layers(p) == 0
+    p.wait_for_timeout(50)
+    assert _log(p) == [{"value": None, "dialogsInDom": 0, "openerFocused": True}]
+    assert _active(p) == "opener"
+    # Escape still closes it, focus back at the opener.
+    _labelled(p)
+    p.keyboard.press("Escape")
+    assert layers(p) == 0 and _active(p) == "opener"
+
+
+def test_aria_label_on_a_plain_modal_keeps_its_description(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _open(p, "{title: null, ariaLabel: 'Quick question'}")
+    out = p.evaluate(
+        """() => { const d = document.querySelector('dialog'), msg = d.querySelector('.modal-dialog-message');
+                   return {label: d.getAttribute('aria-label'), labelledby: d.hasAttribute('aria-labelledby'),
+                           describedby: d.getAttribute('aria-describedby') === msg.id, h2: d.querySelectorAll('h2').length,
+                           first: d.querySelector('.modal-dialog').firstElementChild.className}; }"""
+    )
+    assert out == {
+        "label": "Quick question",
+        "labelledby": False,
+        "describedby": True,
+        "h2": 0,
+        "first": "modal-dialog-message",
+    }
+    assert_controls_labelled_and_described(p, "dialog")
+
+
+@pytest.mark.parametrize(
+    ("opts", "message"),
+    [
+        (
+            "{ariaLabel: 'Jump to'}",  # __mk's default title is 'Sample'
+            "App.ui.modal: ariaLabel names a modal with no title (pass one, not both)",
+        ),
+        (
+            "{title: undefined, ariaLabel: 'Jump to', closeButton: {label: 'Esc', ariaLabel: 'Close (Esc)'}}",
+            "App.ui.modal: a modal named by ariaLabel has no header for a closeButton",
+        ),
+        ("{title: undefined, ariaLabel: ''}", "App.ui.modal: ariaLabel must be a non-empty string"),
+        ("{title: undefined, ariaLabel: 5}", "App.ui.modal: ariaLabel must be a non-empty string"),
+    ],
+)
+def test_aria_label_option_errors(engine_page: Page, opts: str, message: str) -> None:
+    p = engine_page
+    _mount(p)
+    got = p.evaluate(
+        f"() => {{ try {{ window.__mk({opts}); return ''; }} catch (e) {{ return e.message; }} }}"
+    )
+    assert got == message
+
+
+def _any_open(page: Page) -> bool:
+    return page.evaluate("() => App.ui.modal.anyOpen()")
+
+
+def test_any_open_tracks_every_open_modal_across_controllers(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    assert _any_open(p) is False
+    p.evaluate(
+        """() => { window.__a = window.__mk({testid: 'm-a'}); window.__b = window.__mk({testid: 'm-b'});
+                    window.__a.open(window.__opener); return true; }"""
+    )
+    assert _any_open(p) is True
+    p.evaluate("() => { window.__b.open(window.__opener); return true; }")
+    assert _any_open(p) is True and layers(p) == 2
+    p.evaluate("() => { window.__a.close('a'); return true; }")  # the bottom one
+    assert _any_open(p) is True and layers(p) == 1
+    p.keyboard.press("Escape")
+    assert _any_open(p) is False and layers(p) == 0
+
+
+def test_any_open_is_false_after_a_bypassed_close_event(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    _open(p)
+    assert _any_open(p) is True
+    p.evaluate("() => document.querySelector('dialog').close()")  # bypasses the router
+    p.wait_for_timeout(100)
+    assert _log(p)[-1]["value"] == "cancelled"  # the close event ran finish once
+    assert _any_open(p) is False
+    # And after a throwing onClose (finish leaves the stack before onClose runs).
+    p.evaluate(
+        """() => { const m = window.__mk({onClose: () => { throw new Error('boom'); }});
+                    m.open(window.__opener); try { m.close('x'); } catch (e) {} return true; }"""
+    )
+    assert _any_open(p) is False
+
+
+def test_any_open_counts_the_confirm_dialog_adapter(engine_page: Page) -> None:
+    """App.confirmDialog is an adapter over App.ui.modal, so the leave guard's
+    confirm is in the same stack: no second source of truth."""
+    p = engine_page
+    _mount(p)
+    p.add_script_tag(path=str(STATIC_DIR / "js" / "dialog.js"))
+    assert _any_open(p) is False
+    p.evaluate("() => { App.confirmDialog({opener: window.__opener}); return true; }")
+    assert _any_open(p) is True and p.evaluate("() => App.confirmDialog.isOpen()") is True
+    p.keyboard.press("Escape")  # Stay
+    assert _any_open(p) is False and p.evaluate("() => App.confirmDialog.isOpen()") is False

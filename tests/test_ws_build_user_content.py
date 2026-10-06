@@ -14,9 +14,16 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
-from the_one.interfaces.web.app import _build_user_content
+from the_one.interfaces.web.app import (
+    IMAGE_ATTACHMENT_CAP_BYTES,
+    IMAGE_ATTACHMENT_MAX_COUNT,
+    _build_user_content,
+    _validate_message_payload,
+)
 from the_one.llm.base import ImageContent, TextContent
 
 
@@ -80,3 +87,76 @@ class TestMalformedImagePayloadRaises:
         images = [{"media_type": "image/png"}]
         with pytest.raises(AssertionError):
             _build_user_content("what is this?", images)
+
+
+# ── M25 F4 L2: the shared payload validator ──────────────────────────────
+# _validate_message_payload wraps the build above with the type,
+# emptiness and image checks, for both the plain message path and the
+# start_session action. Its WebSocket-level behaviour is covered by
+# tests/test_ws_start_session.py.
+
+
+class TestValidateMessagePayload:
+    @pytest.mark.parametrize(
+        "payload",
+        [{}, {"message": None}, {"message": ""}, {"message": "", "images": []}],
+        ids=["absent", "null", "empty-str", "empty-images"],
+    )
+    def test_empty(self, payload: dict) -> None:
+        v = _validate_message_payload(payload)
+        assert v.empty is True
+        assert v.error is None
+        assert v.content is None
+        assert v.user_input == ""
+
+    @pytest.mark.parametrize("message", [5, 0, False, [], ["x"], {"a": 1}])
+    def test_non_text_message_is_an_error(self, message: Any) -> None:
+        v = _validate_message_payload({"message": message})
+        assert v.error == "Message must be text."
+        assert v.empty is False
+        assert v.content is None
+
+    def test_text_builds_plain_content(self) -> None:
+        v = _validate_message_payload({"message": "hi"})
+        assert v == ("hi", [], "hi", None, False)
+
+    def test_image_only_builds_list_content(self) -> None:
+        v = _validate_message_payload({"images": [{"media_type": "image/png", "data": "Zm9v"}]})
+        assert v.error is None and v.empty is False
+        assert isinstance(v.content, list) and len(v.content) == 1
+
+    @pytest.mark.parametrize(
+        ("images", "expected"),
+        [
+            (123, "Malformed images payload; expected a list of image objects."),
+            ("hello", "Malformed images payload; expected a list of image objects."),
+            (["x"], "Malformed images payload; expected a list of image objects."),
+            (
+                [{"media_type": "image/png", "data": "Zm9v"}] * (IMAGE_ATTACHMENT_MAX_COUNT + 1),
+                f"Too many images attached ({IMAGE_ATTACHMENT_MAX_COUNT + 1}); "
+                f"max is {IMAGE_ATTACHMENT_MAX_COUNT}.",
+            ),
+            (
+                [
+                    {
+                        "media_type": "image/png",
+                        "data": "A" * (int((IMAGE_ATTACHMENT_CAP_BYTES + 1) * 4 / 3) + 4),
+                    }
+                ],
+                f"An attached image exceeds the {IMAGE_ATTACHMENT_CAP_BYTES // (1024 * 1024)} "
+                "MB per-image limit.",
+            ),
+        ],
+        ids=["int", "str", "non-dicts", "too-many", "oversized"],
+    )
+    def test_image_errors_keep_their_texts(self, images: Any, expected: str) -> None:
+        v = _validate_message_payload({"message": "x", "images": images})
+        assert v.error == expected
+        assert v.content is None
+
+    def test_content_build_failure_is_an_error(self) -> None:
+        v = _validate_message_payload(
+            {"message": "", "images": [{"media_type": "image/png", "data": "a", "bogus": "x"}]}
+        )
+        assert v.error is not None
+        assert v.error.startswith("Cannot process message: ")

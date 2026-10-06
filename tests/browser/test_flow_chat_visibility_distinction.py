@@ -37,7 +37,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from browser import _nav
+from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -154,7 +154,7 @@ def test_chat_renders_operator_visibility_distinction(
     _nav.goto(page, base_url, f"chats/{_nav.seg(session_id)}")
 
     # Wait for the chat chrome (deep-link path renders straight into chrome).
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.expect_chat(page, agent_name)
 
     # Wait for messages to actually render — at least one .msg bubble.
     expect(page.locator(".msg").first).to_be_visible(timeout=5000)
@@ -290,7 +290,7 @@ def test_chat_promotes_delivered_tool_result_out_of_accordion(
     )
 
     _nav.goto(page, base_url, f"chats/{_nav.seg(session_id)}")
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.expect_chat(page, agent_name)
     expect(page.locator(".msg").first).to_be_visible(timeout=5000)
 
     # Both tool calls always route through a trace shell (they're never the

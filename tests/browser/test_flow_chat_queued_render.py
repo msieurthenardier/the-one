@@ -23,6 +23,7 @@ no committed visual snapshots (snapshot baselines are gitignored / local-only).
 from __future__ import annotations
 
 import pytest
+from browser import _chats
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -64,8 +65,7 @@ def _start_slow_turn(page: Page, base_url: str, chunks: list[str], delay_ms: int
     )
     agent_name = seed_mock_agent(base_url, provider_id)
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
     return agent_name
 
 
@@ -78,8 +78,7 @@ def test_queued_chip_is_pinned_outside_scroll_list(app_clean: str, page: Page) -
     _start_slow_turn(page, base_url, ["one ", "two ", "three"], 400)
 
     # Turn 1: send and wait until it is streaming (proves in-flight).
-    page.locator('[data-testid="chat-input"]').fill("first")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "first")
     expect(page.locator('[data-testid="message"].assistant').first).to_contain_text(
         "one", timeout=8000
     )
@@ -116,8 +115,7 @@ def test_cancel_chip_discards_held_message_no_turn_runs(app_clean: str, page: Pa
     base_url = app_clean
     _start_slow_turn(page, base_url, ["one ", "two ", "three"], 400)
 
-    page.locator('[data-testid="chat-input"]').fill("first")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "first")
     expect(page.locator('[data-testid="message"].assistant').first).to_contain_text(
         "one", timeout=8000
     )
@@ -150,8 +148,7 @@ def test_held_message_sent_as_user_bubble_on_done(app_clean: str, page: Page) ->
     # queued turn is also slow enough to observe the carry-over in-flight state.
     _start_slow_turn(page, base_url, ["resp-one ", "resp-two ", "resp-DONE"], 400)
 
-    page.locator('[data-testid="chat-input"]').fill("first")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "first")
     assistant = page.locator('[data-testid="message"].assistant')
     expect(assistant.first).to_contain_text("resp-one", timeout=8000)
 
@@ -205,8 +202,7 @@ def test_stop_during_queued_state_cancels_running_turn(app_clean: str, page: Pag
     # renders; if the running turn continued (the bug), the sentinel would show.
     _start_slow_turn(page, base_url, ["alpha ", "beta ", "gamma-FINAL"], 500)
 
-    page.locator('[data-testid="chat-input"]').fill("running")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "running")
     assistant = page.locator('[data-testid="message"].assistant')
     expect(assistant.first).to_contain_text("alpha", timeout=8000)
     expect(assistant.first).not_to_contain_text("gamma-FINAL")

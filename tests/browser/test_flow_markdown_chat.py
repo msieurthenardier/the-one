@@ -25,6 +25,7 @@ D. Session-rejoin renders historical assistant markdown — confirms the
 from __future__ import annotations
 
 import pytest
+from browser import _chats
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -50,11 +51,9 @@ def test_streaming_assistant_renders_markdown_on_done(app_clean: str, page: Page
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("hi")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "hi")
 
     # Wait for `done` to fire (send button re-enables) and assert the
     # markdown structure is in the assistant bubble.
@@ -82,11 +81,9 @@ def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Pag
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("**bold**")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "**bold**")
 
     user_bubble = page.locator('[data-testid="message"].user').first
     expect(user_bubble).to_have_text("**bold**", timeout=5000)
@@ -120,11 +117,9 @@ def test_streaming_assistant_code_block_renders_with_copy_button(
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("show me code")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "show me code")
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     bubble = page.locator('[data-testid="message"].assistant').last
@@ -156,11 +151,9 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("ping")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "ping")
 
     # Wait for the streaming round to land — markdown is rendered on done.
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
@@ -170,7 +163,7 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
     # Reload — the session id is in the URL hash; the client rejoins
     # and replays history through `renderHistory` → `addMsg('assistant', ...)`.
     page.reload()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.expect_chat(page, agent_name)
     rejoined_bubble = page.locator('[data-testid="message"].assistant').last
     # Historical assistant bubble re-renders via markdown (leg-05 default).
     expect(rejoined_bubble.locator("strong")).to_have_text("bold", timeout=8000)
@@ -198,11 +191,9 @@ def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) 
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("show me a table")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "show me a table")
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     bubble = page.locator('[data-testid="message"].assistant').last

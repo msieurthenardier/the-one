@@ -25,6 +25,7 @@ Reopen caveat (documented here to explain the test's coverage):
 from __future__ import annotations
 
 import pytest
+from browser import _chats
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -64,17 +65,13 @@ def test_overlay_restores_after_session_reopen(app_clean: str, page: Page) -> No
 
     # ── Bootstrap into chrome ─────────────────────────────────────────────────
     page.goto(app_clean)
-    expect(page.locator('[data-testid="chat-welcome"]')).to_be_visible(timeout=8000)
+    expect(_chats.welcome(page)).to_be_visible(timeout=8000)
 
     # Pick the agent from the welcome listbox to start a session.
-    agent_item = page.locator(".chat-welcome-item").filter(has_text=agent_name)
-    expect(agent_item).to_be_visible(timeout=8000)
-    agent_item.click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     # ── Send a message ───────────────────────────────────────────────────────
-    page.locator('[data-testid="chat-input"]').fill("hello overlay")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "hello overlay")
 
     # Wait for the assistant reply to land (confirms the turn settled).
     expect(page.locator('[data-testid="message"].assistant')).to_be_visible(timeout=10000)
@@ -112,7 +109,7 @@ def test_overlay_restores_after_session_reopen(app_clean: str, page: Page) -> No
     page.reload()
 
     # Wait for chrome to reappear after reload (session_joined re-fires).
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=10000)
+    _chats.expect_chat(page, agent_name, timeout=10000)
 
     # ── Assert overlay is restored ───────────────────────────────────────────
     # Wait for the overlay to have non-zero values after the reload/rejoin.

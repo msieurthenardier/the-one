@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-28
 **Last Run**: 2026-07-30-17-10-08 (PASS 5/5 on claude-haiku-4-5 — see `anthropic-plan-chat-parity/runs/2026-07-30-17-10-08.md`; Sonnet/Opus blocked account-side per mission known issue)
-**Updated**: 2026-10-02 (M25 F3 surface rename; not re-run)
+**Updated**: 2026-10-05 (M25 F4 leg 8: steps 2 and 5 start the chat through New chat and the agent picker)
 
 ## Intent
 
@@ -32,10 +32,10 @@ Verify that an agent bound to an authenticated Anthropic individual-plan provide
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | On the Agents destination, open (or create) the test agent; set its provider to the plan provider and pick a model from the model dropdown. | The model dropdown for the plan provider is populated with Claude models; the selection saves without error. |
-| 2 | Open Chat with the test agent and send: "Reply with exactly the word PONG." | A reply appears in the chat transcript containing "PONG". No error banner or failed-turn indicator appears. |
+| 2 | On Chats, start a new chat with the test agent (the Chats list's **New chat**, `chats-new-btn`, then pick the agent in the agent picker) and send: "Reply with exactly the word PONG." (this first send creates the chat). | A reply appears in the chat transcript containing "PONG". No error banner or failed-turn indicator appears. |
 | 3 | Send a prompt that elicits a longer response (e.g. "Explain in ~150 words why the sky is blue."). Capture the transcript at least twice while the reply is being produced, then once after it completes. | Two successive in-flight captures show strictly growing reply text, OR at least one mid-generation capture shows a rendered streaming/typing indicator (accepted alternative when the reply completes quickly); the final capture shows a complete assistant turn with no truncation or error indicator. |
 | 4 | Send a prompt that requires the tool named in the preconditions. | The transcript shows the agent invoking that tool and a final reply consistent with the tool's result; no tool-call failure is shown. |
-| 5 | Restart the app (operator runs the restart from the terminal), reopen Chat with the same agent, and send: "Reply with exactly the word AGAIN." | After restart, the reply containing "AGAIN" appears without any re-authentication prompt — stored credentials survived the restart. `[mixed-frame]` — the restart is a shell action verifying an internal persistence contract with a browser-observable outcome. |
+| 5 | Restart the app (operator runs the restart from the terminal), reopen Chats, start a new chat with the same agent through **New chat** and the agent picker, and send: "Reply with exactly the word AGAIN." | After restart, the reply containing "AGAIN" appears without any re-authentication prompt — stored credentials survived the restart. `[mixed-frame]` — the restart is a shell action verifying an internal persistence contract with a browser-observable outcome. |
 
 ## Out of Scope
 

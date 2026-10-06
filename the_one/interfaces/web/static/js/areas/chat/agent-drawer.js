@@ -1,0 +1,524 @@
+// App.chat.agentDrawer -- the agent drawer (M25 F4 L6; flight DD7, DD15 A13,
+// A20, A21; reference spec 5.7). Built with DOM APIs only.
+//
+// The drawer is an App.ui.drawer that FILLS the static shell slot
+// `<aside id="chat-drawer" aria-label="This chat's agent">` (index.html, a
+// sibling after <main> in .app-shell-row): the chat area never creates or
+// removes it, so the header toggle's aria-controls always resolves. It is
+// shown only while (a) the chat area is active (setActive, from the area's
+// activate/deactivate), (b) there is a chat view (render(view) with a
+// non-null view: the header's agent while pending, starting, joining or
+// joined), and (c) the current mode's open state is true.
+//
+// Modes (one state object {mode, open: {push, overlay}}, applied by apply()):
+//   push     at 1280px and wider: a 320px flex sibling of <main>; OPEN by
+//            default
+//   overlay  below 1280px: over the right of the chat pane, with the modal
+//            shadow, no scrim and no outside-click close; CLOSED by default
+//   A matchMedia('(min-width: 1280px)') `change` listener (on the
+//   MediaQueryList, not the document or window; removed by destroy)
+//   switches the mode, then that mode's persisted state applies. The open
+//   state persists in localStorage `chat-drawer-open` as {push, overlay}
+//   (try/catch: blocked storage keeps the defaults).
+//
+// The toggle (returned for the chat header, at its end): App.ui.button
+// ghost icon-only, the panel-right icon, aria-label "Show this chat's agent",
+// aria-pressed = the open state, aria-controls="chat-drawer", testid
+// chat-drawer-toggle; hidden with no chat view. Escape inside the drawer
+// closes it (the factory) and focus returns to the toggle.
+//
+// Content (re-rendered on every view change and on each `agents`,
+// `providers`, `knowledge-bases`, `mcp-sources` and `sessions` notification;
+// the subscriptions are released by destroy):
+//   header   the agent's name (h2, 13px/600) and a badge badge--{type} whose
+//            TEXT is the provider type (A20), hidden with no provider
+//   body     the description (12px, --fg-secondary); the facts <dl>: Model
+//            (mono), Provider (the provider's display name from the store),
+//            Chats (the `sessions` rows with that agent_name, connector
+//            sessions included, DD4); "What it can use" (A13), read-only:
+//            Knowledge bases (kb_ids against the store), MCP servers
+//            (mcp_source_ids found in the PLAIN `mcp-sources` list, so the
+//            self-configuration loopback source is skipped, with "{n} tools"
+//            where App.usage.mcpToolCount knows it), Built-in tools (the
+//            categories with their effective enabled count: globally enabled
+//            AND the agent's AgentConfig.is_tool_enabled), Self-configuration
+//            (On or Off). An empty group says "None"; a failed load says
+//            "Couldn't load" for that group only.
+//   footer   Open agent settings (App.ui.button secondary, the settings gear,
+//            testid chat-drawer-settings-link): a guarded go() to the agent,
+//            then App.studio.clearAgentFilter() on a commit (reference spec
+//            10, item 18).
+// Fetches, only while open with a known agent: GET /api/tools/configs once
+// per open, GET /api/agents/{name}/self-configuration once per open and
+// agent, and App.store.get for `knowledge-bases` and `mcp-sources` once per
+// open (cached, so usually no request). Responses from an earlier open are
+// dropped.
+// Three explicit non-agent states, each with no settings link:
+//   default   a null agent, or "default" not in the `agents` store: "Default
+//             agent", "The default agent"
+//   deleted   a name not in the LOADED `agents` store: the name, "This agent
+//             no longer exists"
+//   loading   the `agents` store not loaded yet, or the header's agent line
+//             still blank: a neutral "Loading…", never "deleted"
+//
+// API: App.chat.agentDrawer.create({slot}) -> {drawer, toggle,
+//   render(view), setActive(bool), destroy()}; view is null or
+//   {agent: name|null, loading: bool}.
+//   App.chat.agentDrawer.isToolEnabled(agent, name): AgentConfig.
+//   is_tool_enabled mirrored (the_one/agent/config.py; parity pinned by
+//   tests/browser/test_flow_chat_drawer.py).
+//   App.chat.agentDrawer.builtinGroups(agent, configs) -> [{label, enabled,
+//   total}] for the categories with at least one effective tool.
+(function () {
+  'use strict';
+  window.App = window.App || {};
+  window.App.chat = window.App.chat || {};
+
+  var STORAGE_KEY = 'chat-drawer-open';
+  var PUSH_QUERY = '(min-width: 1280px)';
+  // AgentConfig's UNGATED_TOOL_PREFIXES: exempt from the enabled_tools
+  // whitelist (it gates built-ins only); disabled_tools is universal.
+  var UNGATED_PREFIXES = ['mcp__', 'kb__'];
+  var STORES = ['agents', 'providers', 'knowledge-bases', 'mcp-sources', 'sessions'];
+
+  function el(tag, attrs, children) {
+    return App.ui.util.el(tag, attrs, children);
+  }
+
+  function arr(v) {
+    return Array.isArray(v) ? v : [];
+  }
+
+  function readOpen() {
+    var out = { push: true, overlay: false };
+    try {
+      var raw = window.localStorage.getItem(STORAGE_KEY);
+      var parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.push === 'boolean') out.push = parsed.push;
+        if (typeof parsed.overlay === 'boolean') out.overlay = parsed.overlay;
+      }
+    } catch (e) {
+      /* blocked storage or bad JSON: the defaults */
+    }
+    return out;
+  }
+
+  function writeOpen(open) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ push: !!open.push, overlay: !!open.overlay }));
+    } catch (e) {
+      /* blocked storage: the state lives for this page only */
+    }
+  }
+
+  function isToolEnabled(agent, name) {
+    var ungated = false;
+    for (var i = 0; i < UNGATED_PREFIXES.length; i++) {
+      if (String(name).indexOf(UNGATED_PREFIXES[i]) === 0) ungated = true;
+    }
+    var whitelist = agent ? agent.enabled_tools : null;
+    if (!ungated && whitelist !== null && whitelist !== undefined && arr(whitelist).indexOf(name) === -1) {
+      return false;
+    }
+    if (arr(agent && agent.disabled_tools).indexOf(name) !== -1) return false;
+    return true;
+  }
+
+  // The built-in categories the agent can use: per category, the tools that
+  // are globally enabled (a /api/tools/configs row with enabled: false turns
+  // one off; a missing row is enabled) AND enabled for the agent.
+  function builtinGroups(agent, configs) {
+    var off = {};
+    var rows = arr(configs);
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].enabled === false) off[rows[i].name] = true;
+    }
+    var by = App.toolCategories.byCategory;
+    var labels = Object.keys(by);
+    var out = [];
+    for (var c = 0; c < labels.length; c++) {
+      var names = by[labels[c]];
+      var n = 0;
+      for (var t = 0; t < names.length; t++) {
+        if (!off[names[t]] && isToolEnabled(agent, names[t])) n += 1;
+      }
+      if (n) out.push({ label: labels[c], enabled: n, total: names.length });
+    }
+    return out;
+  }
+
+  function findBy(list, key, value) {
+    var rows = arr(list);
+    for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i][key] === value) return rows[i];
+    return null;
+  }
+
+  function create(opts) {
+    opts = opts || {};
+    var slot = opts.slot;
+    var state = { mode: 'push', open: readOpen() };
+    var active = false;
+    var view = null;
+    var applying = false;
+    var openGen = 0;
+    var current = null; // the agent name the settings link opens
+    var configs = { gen: -1, status: 'idle', value: null };
+    var selfConf = { gen: -1, agent: null, status: 'idle', value: null };
+    var storeTried = {};
+    var storeFailed = {};
+
+    // ── Header, body, footer (built once; render patches or refills) ───
+    var nameEl = el('h2', { className: 'chat-drawer-name' });
+    var badge = el('span', { className: 'badge badge--unknown', hidden: true });
+    var head = el('div', { className: 'chat-drawer-head' }, [nameEl, badge]);
+    var content = el('div', { className: 'chat-drawer-content' });
+    var settingsBtn = App.ui.button({
+      variant: 'secondary',
+      icon: 'settings',
+      label: 'Open agent settings',
+      className: 'chat-drawer-settings',
+      testid: 'chat-drawer-settings-link',
+      onClick: openSettings
+    });
+
+    var drawer = App.ui.drawer({
+      el: slot,
+      label: 'This chat\'s agent',
+      heading: head,
+      body: content,
+      footer: settingsBtn,
+      testid: 'chat-drawer',
+      onOpenChange: function (open) {
+        // apply() opens and closes for visibility; only a change from inside
+        // the drawer (Escape) is the user's, and persists.
+        if (applying) return;
+        state.open[state.mode] = open;
+        writeOpen(state.open);
+        toggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+      }
+    });
+    var footerEl = settingsBtn.parentNode; // the factory's .ui-drawer-footer
+
+    var toggle = App.ui.button({
+      variant: 'ghost',
+      icon: 'panel-right',
+      iconOnly: true,
+      ariaLabel: 'Show this chat\'s agent',
+      className: 'chat-drawer-toggle',
+      testid: 'chat-drawer-toggle',
+      onClick: function () {
+        state.open[state.mode] = !state.open[state.mode];
+        writeOpen(state.open);
+        apply();
+      }
+    });
+    toggle.setAttribute('aria-controls', drawer.el.id || 'chat-drawer');
+    toggle.setAttribute('aria-pressed', 'false');
+    toggle.hidden = true;
+
+    function openSettings() {
+      var name = current;
+      if (!name) return;
+      App.router.go(App.router.href({ destination: 'agents', id: name }), { opener: settingsBtn })
+        .then(function (navigated) {
+          if (navigated && App.studio && typeof App.studio.clearAgentFilter === 'function') {
+            App.studio.clearAgentFilter();
+          }
+        });
+    }
+
+    // ── What the view shows ─────────────────────────────────────────────
+    function describe() {
+      if (!view) return { kind: 'none' };
+      if (view.loading) return { kind: 'loading' };
+      var name = view.agent;
+      if (!name) return { kind: 'default' };
+      var peek = App.store.peek('agents');
+      var row = findBy(peek.value, 'name', name);
+      if (row) return { kind: 'agent', name: name, row: row };
+      if (name === 'default') return { kind: 'default' };
+      if (!peek.loaded) return { kind: 'loading' };
+      return { kind: 'deleted', name: name };
+    }
+
+    // The `sessions` rows of this agent, connector sessions included (DD4).
+    // A null name counts the default agent's rows (no agent, or "default").
+    function chatsCount(name) {
+      var rows = arr(App.store.peek('sessions').value);
+      var n = 0;
+      for (var i = 0; i < rows.length; i++) {
+        if (!rows[i]) continue;
+        var a = rows[i].agent_name || null;
+        if (name ? a === name : (a === null || a === 'default')) n += 1;
+      }
+      return n;
+    }
+
+    function facts(pairs) {
+      var dl = el('dl', { className: 'chat-drawer-facts' });
+      dl.setAttribute('data-testid', 'chat-drawer-facts');
+      for (var i = 0; i < pairs.length; i++) {
+        dl.appendChild(el('dt', { text: pairs[i][0] }));
+        dl.appendChild(el('dd', { className: pairs[i][2] || null, text: pairs[i][1] }));
+      }
+      return dl;
+    }
+
+    function note(text) {
+      var p = el('p', { className: 'chat-drawer-note', text: text });
+      p.setAttribute('data-testid', 'chat-drawer-note');
+      return p;
+    }
+
+    // One "What it can use" group: a label and a list of {name, meta}
+    // items, or "None", "Loading…" or "Couldn't load".
+    function group(id, label, items, status) {
+      var box = el('div', { className: 'chat-drawer-group', dataset: { group: id } }, [
+        el('h4', { className: 'chat-drawer-group-label', text: label })
+      ]);
+      if (status === 'loading' || status === 'error') {
+        box.appendChild(el('p', {
+          className: 'chat-drawer-none',
+          text: status === 'loading' ? 'Loading…' : 'Couldn\'t load'
+        }));
+        return box;
+      }
+      if (!items.length) {
+        box.appendChild(el('p', { className: 'chat-drawer-none', text: 'None' }));
+        return box;
+      }
+      var ul = el('ul', { className: 'chat-drawer-list' });
+      for (var i = 0; i < items.length; i++) {
+        ul.appendChild(el('li', null, [
+          el('span', { className: 'chat-drawer-item-name', text: items[i].name }),
+          items[i].meta ? el('span', { className: 'chat-drawer-item-meta', text: items[i].meta }) : null
+        ]));
+      }
+      box.appendChild(ul);
+      return box;
+    }
+
+    function storeStatus(name) {
+      var peek = App.store.peek(name);
+      if (peek.loaded) return 'ok';
+      return storeFailed[name] ? 'error' : 'loading';
+    }
+
+    function uses(agent) {
+      // A <div> under an h3, not a named <section>: a named section would
+      // add a region landmark beside the drawer's own complementary one.
+      var box = el('div', { className: 'chat-drawer-uses' }, [
+        el('h3', { className: 'chat-drawer-uses-title', text: 'What it can use' })
+      ]);
+      box.setAttribute('data-testid', 'chat-drawer-uses');
+
+      var kbStatus = storeStatus('knowledge-bases');
+      var kbs = [];
+      if (kbStatus === 'ok') {
+        var kbRows = App.store.peek('knowledge-bases').value;
+        var kbIds = arr(agent.kb_ids);
+        for (var k = 0; k < kbIds.length; k++) {
+          var kb = findBy(kbRows, 'id', kbIds[k]);
+          if (kb) kbs.push({ name: String(kb.name || kb.id) });
+        }
+        kbs.sort(function (a, b) { return a.name.localeCompare(b.name); });
+      }
+      box.appendChild(group('knowledge', 'Knowledge bases', kbs, kbStatus));
+
+      var mcpStatus = storeStatus('mcp-sources');
+      var mcps = [];
+      if (mcpStatus === 'ok') {
+        var sources = App.store.peek('mcp-sources').value;
+        var ids = arr(agent.mcp_source_ids);
+        for (var m = 0; m < ids.length; m++) {
+          var source = findBy(sources, 'id', ids[m]);
+          if (!source) continue; // unknown ids (the self-configuration loopback) are skipped
+          var n = App.usage.mcpToolCount(source);
+          mcps.push({
+            name: String(source.name || source.id),
+            meta: n === null ? '' : n + (n === 1 ? ' tool' : ' tools')
+          });
+        }
+        mcps.sort(function (a, b) { return a.name.localeCompare(b.name); });
+      }
+      box.appendChild(group('mcp', 'MCP servers', mcps, mcpStatus));
+
+      var toolItems = [];
+      var toolStatus = configs.status === 'ok' ? 'ok' : configs.status === 'error' ? 'error' : 'loading';
+      if (toolStatus === 'ok') {
+        var groups = builtinGroups(agent, configs.value);
+        for (var g = 0; g < groups.length; g++) {
+          toolItems.push({ name: groups[g].label, meta: groups[g].enabled + ' of ' + groups[g].total });
+        }
+      }
+      box.appendChild(group('tools', 'Built-in tools', toolItems, toolStatus));
+
+      var selfBox = el('div', { className: 'chat-drawer-group', dataset: { group: 'self-configuration' } }, [
+        el('h4', { className: 'chat-drawer-group-label', text: 'Self-configuration' })
+      ]);
+      var selfText = 'Loading…';
+      if (selfConf.status === 'ok') selfText = selfConf.value && selfConf.value.enabled ? 'On' : 'Off';
+      else if (selfConf.status === 'error') selfText = 'Couldn\'t load';
+      selfBox.appendChild(el('p', {
+        className: selfConf.status === 'ok' ? 'chat-drawer-value' : 'chat-drawer-none',
+        text: selfText
+      }));
+      box.appendChild(selfBox);
+      return box;
+    }
+
+    function renderContent(info) {
+      var providers = App.store.peek('providers').value;
+      content.textContent = '';
+      current = null;
+      var name = '';
+      var type = null;
+      if (info.kind === 'agent') {
+        name = info.name;
+        current = info.name;
+        type = App.chat.agentPicker.providerType(info.row, providers);
+        if (info.row.description) {
+          content.appendChild(el('p', { className: 'chat-drawer-description', text: String(info.row.description) }));
+        }
+        var provider = info.row.provider_config_id ? findBy(providers, 'id', info.row.provider_config_id) : null;
+        content.appendChild(facts([
+          ['Model', info.row.llm_model ? String(info.row.llm_model) : '—', 'chat-drawer-mono'],
+          ['Provider', provider ? String(provider.name || provider.id) : '—'],
+          ['Chats', String(chatsCount(info.name))]
+        ]));
+        content.appendChild(uses(info.row));
+      } else if (info.kind === 'default') {
+        name = 'Default agent';
+        content.appendChild(note('The default agent'));
+        content.appendChild(facts([['Chats', String(chatsCount(null))]]));
+      } else if (info.kind === 'deleted') {
+        name = info.name;
+        content.appendChild(note('This agent no longer exists'));
+        content.appendChild(facts([['Chats', String(chatsCount(info.name))]]));
+      } else if (info.kind === 'loading') {
+        content.appendChild(note('Loading…'));
+      }
+      nameEl.textContent = name;
+      nameEl.hidden = !name;
+      var kind = type && App.ui.badge.KINDS.indexOf(type) !== -1 ? type : 'unknown';
+      badge.className = 'badge badge--' + kind;
+      badge.textContent = type || '';
+      badge.hidden = !type;
+      footerEl.hidden = info.kind !== 'agent';
+    }
+
+    // The per-open fetches (only while open, for a known agent).
+    function ensureFetches(info) {
+      if (!drawer.isOpen() || info.kind !== 'agent') return;
+      var gen = openGen;
+      if (configs.gen !== gen) {
+        configs = { gen: gen, status: 'pending', value: null };
+        App.api.fetchJson('/api/tools/configs').then(function (rows) {
+          if (configs.gen !== gen) return;
+          configs = { gen: gen, status: 'ok', value: rows };
+          render();
+        }, function () {
+          if (configs.gen !== gen) return;
+          configs = { gen: gen, status: 'error', value: null };
+          render();
+        });
+      }
+      if (selfConf.gen !== gen || selfConf.agent !== info.name) {
+        var agent = info.name;
+        selfConf = { gen: gen, agent: agent, status: 'pending', value: null };
+        App.api.fetchJson('/api/agents/' + encodeURIComponent(agent) + '/self-configuration').then(function (body) {
+          if (selfConf.gen !== gen || selfConf.agent !== agent) return;
+          selfConf = { gen: gen, agent: agent, status: 'ok', value: body };
+          render();
+        }, function () {
+          if (selfConf.gen !== gen || selfConf.agent !== agent) return;
+          selfConf = { gen: gen, agent: agent, status: 'error', value: null };
+          render();
+        });
+      }
+      ['knowledge-bases', 'mcp-sources'].forEach(function (name) {
+        if (storeTried[name] === gen) return;
+        storeTried[name] = gen;
+        App.store.get(name).then(function () {
+          storeFailed[name] = false;
+          render(); // a cached get notifies nobody
+        }, function () {
+          if (storeTried[name] !== gen) return;
+          storeFailed[name] = true;
+          render();
+        });
+      });
+    }
+
+    function render() {
+      var info = describe();
+      renderContent(info);
+      ensureFetches(info);
+    }
+
+    // Visibility: the one place the drawer opens, closes and changes mode.
+    function apply() {
+      drawer.setMode(state.mode);
+      var want = active && !!view && !!state.open[state.mode];
+      var was = drawer.isOpen();
+      applying = true;
+      if (want) drawer.open(toggle);
+      else drawer.close();
+      applying = false;
+      if (want && !was) openGen += 1;
+      toggle.hidden = !view;
+      toggle.setAttribute('aria-pressed', want ? 'true' : 'false');
+      render();
+    }
+
+    var mql = typeof window.matchMedia === 'function' ? window.matchMedia(PUSH_QUERY) : null;
+    function onMedia(e) {
+      state.mode = e.matches ? 'push' : 'overlay';
+      apply();
+    }
+    if (mql) {
+      state.mode = mql.matches ? 'push' : 'overlay';
+      if (typeof mql.addEventListener === 'function') mql.addEventListener('change', onMedia);
+      else if (typeof mql.addListener === 'function') mql.addListener(onMedia);
+    }
+
+    var unsubs = [];
+    for (var s = 0; s < STORES.length; s++) {
+      unsubs.push(App.store.subscribe(STORES[s], function () { render(); }));
+    }
+
+    function destroy() {
+      for (var i = 0; i < unsubs.length; i++) unsubs[i]();
+      unsubs = [];
+      if (mql) {
+        if (typeof mql.removeEventListener === 'function') mql.removeEventListener('change', onMedia);
+        else if (typeof mql.removeListener === 'function') mql.removeListener(onMedia);
+      }
+      drawer.destroy();
+      if (toggle.parentNode) toggle.parentNode.removeChild(toggle);
+    }
+
+    apply();
+    return {
+      drawer: drawer,
+      toggle: toggle,
+      render: function (next) {
+        view = next || null;
+        apply();
+      },
+      setActive: function (on) {
+        active = !!on;
+        apply();
+      },
+      destroy: destroy
+    };
+  }
+
+  window.App.chat.agentDrawer = {
+    create: create,
+    isToolEnabled: isToolEnabled,
+    builtinGroups: builtinGroups,
+    STORAGE_KEY: STORAGE_KEY
+  };
+})();

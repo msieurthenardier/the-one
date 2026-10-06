@@ -5,6 +5,7 @@
 //
 //   destination   area     route                         area-level sub
 //   chats         chat     chats[/{sessionId}]           [sessions/{id}]
+//                          chats/~new/{agent}            new/{agent}
 //   agents        studio   agents[/~new|/{name}[/{tab}[/..]]]  agents[/~new|/...]
 //   library       studio   library/knowledge[/~new|/{kbId}] knowledge[/new|/{kbId}]
 //                          library/mcp[/~new|/{id}]      mcp-sources[/new|/{id}]
@@ -82,7 +83,9 @@
     { dest: 'library', area: 'studio', route: 'mcp', sub: 'mcp-sources', create: true },
     { dest: 'library', area: 'studio', route: 'connectors', sub: 'connectors', create: true },
     // General is three pages (M25 F3 L5a, DD6); `settings/general` is an alias
-    // in resolve(), not a row.
+    // in resolve(), not a row. The Settings rows' routes (and `dev`) equal
+    // App.settingsPages' sections (and `devOnly`), in order: a static test
+    // pins it (tests/test_settings_pages_static.py, M25 F4 L7).
     { dest: 'settings', area: 'admin', route: 'appearance', sub: 'appearance', create: false },
     { dest: 'settings', area: 'admin', route: 'prompts', sub: 'prompts', create: false },
     { dest: 'settings', area: 'admin', route: 'encryption', sub: 'encryption', create: false },
@@ -141,8 +144,10 @@
 
   // ── Route builder / parser (DD1) ────────────────────────────────────────
 
-  // href({destination, section, id, tab, sub, create}) -> '#route'
-  //   chats:    id = session id
+  // href({destination, section, id, tab, sub, create, agent}) -> '#route'
+  //   chats:    id = session id, or create:true with agent for the pending
+  //             new chat `chats/~new/{agent}` (M25 F4 L3b, DD2); create
+  //             without an agent is bare `chats`
   //   agents:   id = agent name, tab, sub (the MCP source id on the mcps tab),
   //             or create:true for the `~new` segment
   //   library / settings: section, id, or create:true for the `~new` segment
@@ -150,7 +155,11 @@
     spec = spec || {};
     var segs = [spec.destination];
     if (spec.destination === 'chats') {
-      if (spec.id != null) segs.push(enc(spec.id));
+      if (spec.create) {
+        if (spec.agent) segs.push(RESERVED_NEW, enc(spec.agent));
+      } else if (spec.id != null) {
+        segs.push(enc(spec.id));
+      }
     } else if (spec.destination === 'agents') {
       if (spec.create) {
         segs.push(RESERVED_NEW);
@@ -178,7 +187,12 @@
     if (!segs.length || !destById(segs[0])) return null;
     var out = { destination: segs[0] };
     if (segs[0] === 'chats') {
-      if (segs[1] != null) out.id = dec(segs[1]);
+      if (segs[1] === RESERVED_NEW) {
+        // A bare `~new` is just Chats, never an agentless create.
+        if (segs[2] != null) { out.create = true; out.agent = dec(segs[2]); }
+      } else if (segs[1] != null) {
+        out.id = dec(segs[1]);
+      }
     } else if (segs[0] === 'agents') {
       if (segs[1] === RESERVED_NEW) {
         out.create = true;
@@ -208,6 +222,8 @@
     var i;
     if (areaId === 'chat') {
       if (!segs.length) return 'chats';
+      // The pending new chat (M25 F4 L3b): the agent segment stays encoded.
+      if (segs[0] === 'new') return segs.length > 1 ? 'chats/' + RESERVED_NEW + '/' + escapeEncoded(segs[1]) : 'chats';
       if (segs[0] === 'sessions') {
         return segs.length > 1 ? 'chats/' + escapeEncoded(segs[1]) : 'chats';
       }
@@ -264,6 +280,9 @@
       var sub = segs.slice(1).join('/');
       if (head === 'studio' && (sub === '' || sub === 'tools')) {
         route = 'agents';
+      } else if (head === 'chat' && segs[1] === 'new') {
+        // `#chats/~new/{agent}` never had a legacy form (M25 F4 L3b).
+        route = 'chats';
       } else if (head === 'admin' && (sub === '' || segs[1] === 'system' || segs[1] === 'general')) {
         // `#admin`, `#admin/system[/..]` and `#admin/general[/..]` go to the
         // first General page directly, never through `settings/general` (no
@@ -285,6 +304,14 @@
     if (!dest) return unknownOrElement(raw);
 
     if (head === 'chats') {
+      // The pending new chat (M25 F4 L3b, DD2). The area sub keeps the
+      // segment encoded (the chat area decodes it). Bare `~new` and extra
+      // segments fold, redirected.
+      if (segs[1] === RESERVED_NEW) {
+        return segs.length > 2
+          ? mk('chats/' + RESERVED_NEW + '/' + segs[2], dest, 'new/' + segs[2], redirected || segs.length > 3)
+          : mk('chats', dest, null, true);
+      }
       route = segs.length > 1 ? 'chats/' + segs[1] : 'chats';
       return mk(route, dest, segs.length > 1 ? 'sessions/' + segs[1] : null,
         redirected || segs.length > 2);
@@ -389,12 +416,29 @@
 
   // ── Route announcer + document title (WCAG 4.1.3 / 2.4.2) ───────────────
 
+  // The Library section labels. The Settings ones come from App.settingsPages
+  // (settings-pages.js, loaded before this file; M25 F4 L7, AC9), merged in
+  // lazily by sectionLabel() on the first describeRoute, so the Settings page
+  // names live in that one table.
   var SECTION_LABELS = {
-    knowledge: 'Knowledge', mcp: 'MCP servers', connectors: 'Connectors',
-    appearance: 'Appearance', prompts: 'Prompts', encryption: 'Encryption',
-    providers: 'Providers', tools: 'Built-in tools', 'knowledge-indexing': 'Knowledge indexing',
-    'design-language': 'Design language'
+    knowledge: 'Knowledge', mcp: 'MCP servers', connectors: 'Connectors'
   };
+  var settingsLabelsMerged = false;
+
+  function sectionLabel(section) {
+    if (!settingsLabelsMerged) {
+      var pages = window.App && window.App.settingsPages;
+      if (pages && pages.length) {
+        for (var i = 0; i < pages.length; i++) {
+          if (!Object.prototype.hasOwnProperty.call(SECTION_LABELS, pages[i].section)) {
+            SECTION_LABELS[pages[i].section] = pages[i].label;
+          }
+        }
+        settingsLabelsMerged = true;
+      }
+    }
+    return Object.prototype.hasOwnProperty.call(SECTION_LABELS, section) ? SECTION_LABELS[section] : section;
+  }
   var lastAnnounceKey = null; // destination/section/item of the last committed route
 
   // Item sections whose display names live in an App.store collection (M25 F3
@@ -447,8 +491,17 @@
   function describeRoute(route, nameHint) {
     var p = parse(route);
     if (!p) return null;
+    // The pending new chat (M25 F4 L3b): "New chat with {agent}". The key
+    // names the agent, so a re-pick of another agent announces; it does not
+    // end in `/~new`, so the first send's sync to `chats/{id}` is silent by
+    // construction (isCreateToItem).
+    if (p.destination === 'chats' && p.create) {
+      var who = p.agent || '';
+      if (who.length > 30) who = who.slice(0, 29) + '\u2026';
+      return { parts: ['Chats', 'New chat with ' + who], key: 'chats//' + RESERVED_NEW + '/' + enc(p.agent || '') };
+    }
     var parts = [destById(p.destination).label];
-    if (p.section) parts.push(SECTION_LABELS[p.section] || p.section);
+    if (p.section) parts.push(sectionLabel(p.section));
     var key = [p.destination, p.section || '',
       p.create ? RESERVED_NEW : (p.id ? enc(p.id) : '')].join('/');
     var item = null;

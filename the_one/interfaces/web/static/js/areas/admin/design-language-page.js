@@ -20,8 +20,9 @@
     ]));
     container.appendChild(sectionsHost);
 
-    // M25 F1 L6 (DD10): the six ui-* sections are the control library's living
-    // reference, one [data-ui-demo] root per App.ui factory.
+    // M25 F1 L6 (DD10): the ui-* sections are the control library's living
+    // reference, one [data-ui-demo] root per App.ui factory (ui-search added in
+    // M25 F4 L1, ui-drawer in L6).
     var SECTIONS = [
       { slug: 'tokens',      title: 'Tokens' },
       { slug: 'typography',  title: 'Typography' },
@@ -32,6 +33,8 @@
       { slug: 'uiLists',     title: 'Library: lists and navigation' },
       { slug: 'uiMenus',     title: 'Library: menu' },
       { slug: 'uiModal',     title: 'Library: modal' },
+      { slug: 'uiSearch',    title: 'Library: search list' },
+      { slug: 'uiDrawer',    title: 'Library: drawer' },
       { slug: 'surfaces',    title: 'Surfaces' },
       { slug: 'status',      title: 'Status' },
       { slug: 'tabs',        title: 'Tabs' },

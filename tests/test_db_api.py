@@ -3707,6 +3707,71 @@ class TestChatSessionAPI:
                 f"list endpoint must not expose session_metadata; got {sorted(item.keys())}"
             )
 
+    async def test_session_summary_carries_platform(self, client: AsyncClient) -> None:
+        """M25 F4 L1 (DD4): the summary gains one scalar, ``platform``: null
+        for a UI session and the platform string for a connector session, on
+        the list, detail, create and update responses alike."""
+        await client.post("/api/agents", json={"name": "agent-platform"})
+        ui = await client.post(
+            "/api/chat/sessions", json={"agent_name": "agent-platform", "title": "UI chat"}
+        )
+        assert ui.status_code == 201
+        assert ui.json()["platform"] is None
+        connector = await client.post(
+            "/api/chat/sessions",
+            json={
+                "agent_name": "agent-platform",
+                "title": "#help: install",
+                "platform": "discord",
+                "connector_id": "c1",
+                "channel_id": "ch1",
+            },
+        )
+        assert connector.status_code == 201
+        assert connector.json()["platform"] == "discord"
+        ui_id, connector_id = ui.json()["id"], connector.json()["id"]
+
+        listed = {s["id"]: s for s in (await client.get("/api/chat/sessions")).json()}
+        assert listed[ui_id]["platform"] is None
+        assert listed[connector_id]["platform"] == "discord"
+        # The connector-keying fields stay out of the summary.
+        assert "connector_id" not in listed[connector_id]
+        assert "channel_id" not in listed[connector_id]
+
+        detail = (await client.get(f"/api/chat/sessions/{connector_id}")).json()
+        assert detail["platform"] == "discord"
+        updated = await client.put(f"/api/chat/sessions/{ui_id}", json={"title": "Renamed"})
+        assert updated.status_code == 200
+        assert updated.json()["platform"] is None
+
+
+def test_session_summary_keys_are_a_subset_of_the_ws_list_payload() -> None:
+    """M25 F4 L1 (DD4): the client store primes ``sessions`` from the
+    WebSocket ``session_list`` rows and fetches the same collection over REST
+    (``_session_summary``), so every REST summary key must also be a
+    ``session_list`` key; otherwise the primed and fetched rows diverge."""
+    from the_one.db.models import ChatSession
+    from the_one.interfaces.web.api import _session_summary
+    from the_one.interfaces.web.app import _session_to_list_payload
+
+    session = ChatSession(
+        id="s1",
+        agent_name="a",
+        title="T",
+        platform="discord",
+        connector_id="c",
+        channel_id="ch",
+        thread_id="t",
+        peer_id="p",
+        last_inbound_at="2026-01-01T00:00:00",
+    )
+    summary = _session_summary(session)
+    ws_row = _session_to_list_payload(session)
+    assert set(summary) <= set(ws_row), sorted(set(summary) - set(ws_row))
+    assert set(summary) == {"id", "agent_name", "title", "created_at", "updated_at", "platform"}
+    for key in summary:
+        assert summary[key] == ws_row[key], key
+
 
 # TestRoutingAuditSeedEndpoint and TestSessionLookupSeamEndpoint are
 # deleted: Mission 23 Flight 1 (DD-6) removes both ``/api/_test``

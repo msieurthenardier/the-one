@@ -47,7 +47,7 @@ import pytest
 Image = pytest.importorskip("PIL.Image")
 pixelmatch = pytest.importorskip("pixelmatch.contrib.PIL").pixelmatch
 
-from browser import _lists, _nav  # noqa: E402
+from browser import _chats, _lists, _nav  # noqa: E402
 from browser.seeders import SeededApp  # noqa: E402
 from playwright.sync_api import Page, expect  # noqa: E402
 
@@ -195,16 +195,12 @@ def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, them
     _set_theme(page, theme)
     # F5 L04: the `app_with_agent` fixture seeds an agent but does NOT
     # pre-create a chat session; the welcome canvas shows on page load.
-    # Click the welcome-canvas agent item to bootstrap a session before
-    # waiting for the badge. Pattern matches tests/browser/test_flow_chat.py:29.
-    # Fixes mission KI #1 — `.session-agent-badge` never populated under
-    # the pre-fix auto-session-join assumption (race / nonexistent flow).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
-    )
-    page.locator('[data-testid="chat-input"]').fill("hello")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    # Start a chat explicitly (`_chats.start_chat`, M25 F4 L3a) rather than
+    # waiting for one. Fixes mission KI #1 — the header agent badge never
+    # populated under the pre-fix auto-session-join assumption (race /
+    # nonexistent flow).
+    _chats.start_chat(page, app_with_agent.agent_name)
+    _chats.send_first(page, "hello")
     expect(page.locator('[data-testid="message"].assistant')).to_have_text(
         "Mock response from the mock provider.", timeout=10000
     )

@@ -131,13 +131,12 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
     "areas/admin/tools-grid.js": [
         "container.innerHTML = html;",
     ],
-    "areas/chat.js": [
-        'sidebar.innerHTML = \'<div id="sidebar-header">\' + \'<label class="section-title" ',
-        'content.innerHTML = \'<div class="chat-welcome" data-testid="chat-welcome" hidden',
-    ],
-    "areas/chat/history-buckets.js": [
-        "delBtn.innerHTML = App.icon('x');",
-    ],
+    # M25 F4 L4a removed the chat sidebar sink (the Chats list is DOM-built)
+    # and history-buckets.js with its delete-button sink; leg 4b removed the
+    # content sink (the pane is areas/chat/chat-pane.js, the composer
+    # areas/chat/composer.js), so no areas/chat* path has an entry: the chat
+    # area has no dynamic HTML sink left
+    # (test_chat_area_has_no_baselined_sink pins it).
     "areas/studio.js": [
         "content.innerHTML = '<div class=\"studio-section-content\"></div>' + '<div class=\"",
         "capsEl.innerHTML = parts.join(' &middot; ');",
@@ -417,6 +416,26 @@ def test_no_new_dynamic_innerhtml_sinks() -> None:
         )
 
 
+def test_chat_area_has_no_baselined_sink() -> None:
+    """M25 F4 L4b (AC8): the chat area is built with DOM APIs.  The baseline
+    holds no ``areas/chat*`` entry, no chat file has a dynamic sink, and the
+    only static sites left are ``= ''`` clears (the model-loading row and the
+    thinking indicator, two static literals, were converted too)."""
+    assert not [rel for rel in DYNAMIC_SINK_BASELINE if rel.startswith("areas/chat")]
+    dynamic, static = classify_sinks()
+    assert not [rel for rel in dynamic if rel.startswith("areas/chat")], {
+        rel: dynamic[rel] for rel in dynamic if rel.startswith("areas/chat")
+    }
+    literals = [
+        (rel, snippet)
+        for rel, snippets in static.items()
+        if rel.startswith("areas/chat")
+        for snippet in snippets
+        if not snippet.endswith("= '';")
+    ]
+    assert literals == [], literals
+
+
 # ── Field label-association guards (M17 F5 L1) ───────────────────────────────
 
 
@@ -626,6 +645,12 @@ def test_library_testid_patterns(tmp_path) -> None:
     lit, par, _ = extract_testids(tmp_path)
     assert lit == {} and par == {}
 
+    # M25 F4 L1: ``<lower>Testid`` option keys (searchList's inputTestid and
+    # rowTestid) are registry-visible like ``testid``.
+    _write(tmp_path, "a.js", "f({inputTestid: 'x-search', rowTestid: 'x-row-' + n});\n")
+    lit, par, _ = extract_testids(tmp_path)
+    assert set(lit) == {"x-search"} and set(par) == {"x-row-"}
+
 
 def test_testid_values_are_registry_visible() -> None:
     """AC3: every ``testid`` key in static/js carries an extractor-visible value
@@ -646,6 +671,8 @@ def test_testid_value_guard_probes(tmp_path) -> None:
         "dquote.js": 'f({testid: "x"});\n',
         "dq_key.js": "f({\"testid\": 'x'});\n",
         "ui/lit.js": "f({testid: 'x'});\n",
+        "camel.js": "f({rowTestid: someVar});\n",
+        "ui/camel.js": "f({inputTestid: 'x'});\n",
     }
     for rel, text in flagged.items():
         d = tmp_path / "flag" / rel.replace("/", "_")
@@ -657,6 +684,8 @@ def test_testid_value_guard_probes(tmp_path) -> None:
         "par.js": "f({testid: 'a-' + x});\nf({testid: 'a-'\n + x});\n",
         "other.js": "el.setAttribute('data-testid', t); var rowtestid = 1; f(testid);\n",
         "ui/fwd.js": "f({testid: opts.testid});\nf({testid: opts.filter.testid});\n",
+        "ui/camel.js": "f({rowTestid: opts.rowTestid});\n",
+        "camel.js": "f({inputTestid: 'a-b', rowTestid: 'a-' + x});\n",
     }
     ok = tmp_path / "ok"
     for rel, text in accepted.items():

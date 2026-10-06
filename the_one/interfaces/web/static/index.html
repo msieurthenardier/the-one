@@ -26,10 +26,12 @@
   <div id="app-rail"></div>
   <aside id="app-sidebar"></aside>
   <main id="main-content" tabindex="-1"></main>
+  <aside id="chat-drawer" aria-label="This chat's agent" data-testid="chat-drawer" hidden></aside>
 </div>
 
 <script src="/static/js/perf.js"></script>
 <script src="/static/js/app.js"></script>
+<script src="/static/js/settings-pages.js"></script>
 <script src="/static/js/router.js"></script>
 <script src="/static/js/nav.js"></script>
 <script src="/static/js/icons.js"></script>
@@ -43,18 +45,26 @@
 <script src="/static/js/ui/modal.js"></script>
 <script src="/static/js/ui/rail.js"></script>
 <script src="/static/js/ui/nav-groups.js"></script>
+<script src="/static/js/ui/search-list.js"></script>
+<script src="/static/js/ui/drawer.js"></script>
 <script src="/static/js/markdown.js"></script>
 <script src="/static/js/confirm.js"></script>
 <script src="/static/js/dialog.js"></script>
 <script src="/static/js/tabs.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/store.js"></script>
-<script src="/static/js/areas/chat/welcome.js"></script>
-<script src="/static/js/areas/chat/history-buckets.js"></script>
+<script src="/static/js/tool-categories.js"></script>
+<script src="/static/js/jump-to.js"></script>
+<script src="/static/js/areas/chat/composer.js"></script>
+<script src="/static/js/areas/chat/chat-pane.js"></script>
 <script src="/static/js/areas/chat/message-bubble.js"></script>
 <script src="/static/js/areas/chat/telemetry-overlay.js"></script>
 <script src="/static/js/areas/chat/thinking-indicator.js"></script>
 <script src="/static/js/areas/chat/trace-shell.js"></script>
+<script src="/static/js/areas/chat/session-state.js"></script>
+<script src="/static/js/areas/chat/chats-list.js"></script>
+<script src="/static/js/areas/chat/agent-picker.js"></script>
+<script src="/static/js/areas/chat/agent-drawer.js"></script>
 <script src="/static/js/areas/chat.js"></script>
 <script src="/static/js/areas/studio/studio-event-bus.js"></script>
 <script src="/static/js/areas/studio/knowledge-section.js"></script>
@@ -86,6 +96,8 @@
 <script src="/static/js/areas/admin/design-language/ui-lists-section.js"></script>
 <script src="/static/js/areas/admin/design-language/ui-menus-section.js"></script>
 <script src="/static/js/areas/admin/design-language/ui-modal-section.js"></script>
+<script src="/static/js/areas/admin/design-language/ui-search-section.js"></script>
+<script src="/static/js/areas/admin/design-language/ui-drawer-section.js"></script>
 <script src="/static/js/areas/admin/design-language/surfaces-section.js"></script>
 <script src="/static/js/areas/admin/design-language/status-section.js"></script>
 <script src="/static/js/areas/admin/design-language/tabs-section.js"></script>

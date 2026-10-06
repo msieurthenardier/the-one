@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, NamedTuple
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -715,6 +715,33 @@ _session_inflight: dict[str, set[asyncio.Task]] = {}
 # route adds tasks here via ``asyncio.create_task``.
 _inflight_resume_tasks: set[asyncio.Task] = set()
 
+# M25 F4 L2 (DD1): per-id reservations for the WS `start_session` action.
+# A handler takes the reservation for a client-generated session id with a
+# SYNCHRONOUS check-and-set (no await between the `get` and the insert; on
+# the single event loop that is atomic, so the dict needs no lock), then
+# runs the existing-id lookup, the strict create, the swap, the joined
+# frame and the spawn inside it. A second socket re-sending the same id
+# (a reconnect while the old handler is still inside a slow
+# `factory.create`) waits on the future instead of creating a duplicate.
+# The holder ALWAYS resolves its future and pops the key in a `finally`,
+# so waiters never hang; waiters wait through `asyncio.shield`, because a
+# waiter's timeout (or its handler's cancellation) must not cancel the
+# shared future for every other waiter.
+_start_reservations: dict[str, asyncio.Future[None]] = {}
+
+# Upper bound, in seconds, on ONE wait for another handler's reservation
+# of the same `start_session` id. A waiter that times out sends
+# `start_failed`; the bound applies per wait (a waiter that wakes to find
+# a new reservation waits again).
+_START_RESERVATION_WAIT_S = 30
+
+# Client-generated `start_session` ids: 32 lowercase hex characters
+# (`crypto.getRandomValues`). Server-generated ids stay 12-char hex
+# (`_create_session`); both share the `[0-9a-f]` charset, which is what the
+# MCP OAuth synthetic-csid disjointness argument relies on
+# (`the_one/mcp/oauth/handlers.py`).
+_START_SESSION_ID_RE = re.compile(r"[0-9a-f]{32}")
+
 
 # M18 F02 L02: defense-in-depth caps on chat image attachments, not a
 # strict security boundary — the provider enforces its own, stricter,
@@ -772,6 +799,116 @@ def _build_user_content(
     return blocks
 
 
+class ValidatedPayload(NamedTuple):
+    """Result of ``_validate_message_payload``.
+
+    Exactly one of three shapes:
+
+    - ``empty=True``: no text and no images (``error`` and ``content`` None);
+    - ``error`` set: the payload is rejected with that user-facing text
+      (``content`` None);
+    - otherwise ``content`` is the built user-turn content, ready for
+      ``_spawn_web_message``.
+    """
+
+    user_input: str
+    images: list[dict[str, Any]]
+    content: str | list[ContentBlock] | None
+    error: str | None
+    empty: bool
+
+
+def _validate_message_payload(payload: dict[str, Any]) -> ValidatedPayload:
+    """Validate the message keys of a WS payload (``message``, ``images``).
+
+    M25 F4 L2 (DD1): shared by the plain ``message`` path and the
+    ``start_session`` action, so both reject exactly the same payloads
+    with exactly the same texts. Order: the ``message`` type, then
+    emptiness, then the images' shape, count and per-image size, then the
+    content build (``_build_user_content``).
+
+    - ``message: None`` is treated as ``""`` (an absent or null message
+      stays empty, as it always was); any other non-``str`` is rejected
+      with ``"Message must be text."``.
+    - ``images`` falls back to ``[]`` when falsy, as before.
+    - The content build runs HERE, i.e. before the message path's
+      auto-create, so a build failure no longer creates a session
+      (a deliberate M25 F4 L2 order change; it also means a ``/reset``
+      carrying a malformed image is now an error rather than a clear).
+    """
+    raw = payload.get("message", "")
+    if raw is None:
+        raw = ""
+    if not isinstance(raw, str):
+        return ValidatedPayload("", [], None, "Message must be text.", False)
+    user_input = raw
+    images = payload.get("images") or []
+    if not user_input and not images:
+        return ValidatedPayload(user_input, [], None, None, True)
+
+    # M18 F02 L02: reject an over-count/over-size images payload BEFORE any
+    # session is created (an oversized attachment must not spin up an
+    # unnecessary session).
+    if images:
+        # Review fix (post-L02): validate SHAPE before the count/size logic
+        # touches it. A non-list `images` (e.g. an int) blows up
+        # `len(images)`; a list containing non-dict items (e.g. a bare
+        # string, or `images` itself being a string so iteration hands out
+        # individual chars) blows up `_approx_image_bytes`'s `.get(...)`.
+        if not isinstance(images, list) or not all(isinstance(img, dict) for img in images):
+            logger.warning(
+                "Rejected message: malformed images payload (expected a list of objects)"
+            )
+            return ValidatedPayload(
+                user_input,
+                [],
+                None,
+                "Malformed images payload; expected a list of image objects.",
+                False,
+            )
+        if len(images) > IMAGE_ATTACHMENT_MAX_COUNT:
+            logger.warning(
+                "Rejected message: %d images exceeds max count %d",
+                len(images),
+                IMAGE_ATTACHMENT_MAX_COUNT,
+            )
+            return ValidatedPayload(
+                user_input,
+                images,
+                None,
+                f"Too many images attached ({len(images)}); max is {IMAGE_ATTACHMENT_MAX_COUNT}.",
+                False,
+            )
+        oversized = next(
+            (img for img in images if _approx_image_bytes(img) > IMAGE_ATTACHMENT_CAP_BYTES),
+            None,
+        )
+        if oversized is not None:
+            cap_mb = IMAGE_ATTACHMENT_CAP_BYTES // (1024 * 1024)
+            logger.warning(
+                "Rejected message: image exceeds per-image cap of %d bytes",
+                IMAGE_ATTACHMENT_CAP_BYTES,
+            )
+            return ValidatedPayload(
+                user_input,
+                images,
+                None,
+                f"An attached image exceeds the {cap_mb} MB per-image limit.",
+                False,
+            )
+
+    try:
+        content = _build_user_content(user_input, images)
+    except Exception as exc:
+        # M18 F02 L01: a malformed image dict (unexpected key -> TypeError
+        # from ImageContent(**img); both data/url absent -> the
+        # ImageContent guard) used to propagate out of the WS loop and drop
+        # the connection. Surface it as a per-connection error instead.
+        logger.exception("Failed to build user content from images payload")
+        return ValidatedPayload(user_input, images, None, f"Cannot process message: {exc}", False)
+    return ValidatedPayload(user_input, images, content, None, False)
+
+
 async def _spawn_message_processing(
     session: Session,
     user_input: str | list[ContentBlock],
@@ -816,6 +953,92 @@ async def _spawn_message_processing(
                 )
         finally:
             current_chat_session_id.reset(token)
+
+
+def _spawn_web_message(
+    session: Session, content: str | list[ContentBlock], ws: WebSocket
+) -> asyncio.Task:
+    """Spawn one web-typed message turn in the background, with bookkeeping.
+
+    M25 F4 L2: extracted from the WS message path so ``start_session``
+    spawns its first message exactly the same way. The turn runs in a
+    background task so the WebSocket receive loop stays responsive
+    (switching conversations, listing sessions, etc. must not block on a
+    long agent tool call); the shared per-session lock (from
+    ``the_one.sessions``) serializes successive messages on one session.
+
+    Registration is SYNCHRONOUS (no await between the ``create_task`` and
+    both registrations), so a caller holding a ``start_session``
+    reservation can rely on ``_session_inflight[session.id]`` being set
+    before the reservation is released.
+    """
+    task = asyncio.create_task(_spawn_message_processing(session, content, "web", ws))
+    _inflight_tasks.add(task)
+    task.add_done_callback(_inflight_tasks.discard)
+    # F7 L03 (cancel-backend) / F09-03: add the task to the per-session set
+    # so a WS `cancel` action can locate every in-flight task (running +
+    # queued). The done-callback discards this task and removes the key
+    # once the set is empty.
+    _session_inflight.setdefault(session.id, set()).add(task)
+    sid = session.id
+
+    def _clear_session_inflight(t: asyncio.Task, _sid: str = sid) -> None:
+        tasks = _session_inflight.get(_sid)
+        if tasks is None:
+            return
+        tasks.discard(t)
+        if not tasks:
+            del _session_inflight[_sid]
+
+    task.add_done_callback(_clear_session_inflight)
+    return task
+
+
+async def _acquire_start_reservation(session_id: str) -> asyncio.Future[None] | None:
+    """Reserve ``session_id`` for one ``start_session`` handler.
+
+    M25 F4 L2 (DD1, AC5). Returns the caller's own future once the id is
+    reserved, or ``None`` if a wait for another handler's reservation timed
+    out (``_START_RESERVATION_WAIT_S``, per wait).
+
+    The check and the insert are synchronous, with no await between them,
+    so on the single event loop the reservation is atomic. A reserved id
+    is waited on through ``asyncio.shield``: without it, this waiter's
+    timeout (or its handler's cancellation) would cancel the SHARED future
+    for every other waiter. On wake the loop re-checks, so with several
+    waiters one re-reserves and the rest wait again.
+
+    The caller MUST release with ``_release_start_reservation`` in a
+    ``finally``.
+    """
+    while True:
+        existing = _start_reservations.get(session_id)
+        if existing is None:
+            fut: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            _start_reservations[session_id] = fut
+            return fut
+        try:
+            await asyncio.wait_for(asyncio.shield(existing), _START_RESERVATION_WAIT_S)
+        except asyncio.TimeoutError:
+            return None
+
+
+def _start_failed_frame(session_id: Any, error: str) -> dict[str, Any]:
+    """The typed ``start_failed`` reply: echoes ``session_id`` when it was a
+    ``str``, else ``null``."""
+    return {
+        "type": "start_failed",
+        "session_id": session_id if isinstance(session_id, str) else None,
+        "error": error,
+    }
+
+
+def _release_start_reservation(session_id: str, fut: asyncio.Future[None]) -> None:
+    """Resolve the reservation future (waking every waiter) and pop it."""
+    if not fut.done():
+        fut.set_result(None)
+    if _start_reservations.get(session_id) is fut:
+        del _start_reservations[session_id]
 
 
 # ── Web-session idle reaper ───────────────────────────────────────────────
@@ -1118,8 +1341,19 @@ async def _create_session(
     agent_name: str | None = None,
     source: str = "web",
     session_id: str | None = None,
+    strict: bool = False,
 ) -> Session:
-    """Create a new session in both memory and DB."""
+    """Create a new session in both memory and DB.
+
+    ``strict=False`` (every caller but ``start_session``): a DB persist
+    failure is logged and swallowed, and the in-memory session is returned.
+
+    ``strict=True`` (M25 F4 L2, the WS ``start_session`` action): a persist
+    failure OR a cancellation during the insert pops the just-cached
+    ``_sessions[sid]`` (under ``_sessions_lock``) and re-raises, so a
+    failed or interrupted start never leaves an in-memory session with no
+    row (or masks a primary-key collision).
+    """
     sid = session_id or uuid.uuid4().hex[:12]
     # Normalize agent_name: "default" or empty -> None in DB (FK constraint)
     db_agent_name = None if (not agent_name or agent_name == "default") else agent_name
@@ -1149,7 +1383,22 @@ async def _create_session(
             updated_at=now,
         )
         await repo.create(db_session)
-    except Exception:
+    except BaseException as exc:
+        if strict:
+            # BaseException, not Exception: a disconnect cancelling the
+            # handler during `repo.create` must not leave the session in
+            # memory with no row. The `finally` covers a second cancel
+            # landing while waiting for the lock.
+            try:
+                async with _sessions_lock:
+                    if _sessions.get(sid) is session:
+                        del _sessions[sid]
+            finally:
+                if _sessions.get(sid) is session:
+                    del _sessions[sid]
+            raise
+        if not isinstance(exc, Exception):
+            raise
         logger.warning("Failed to persist new session %s to DB", sid, exc_info=True)
 
     return session
@@ -1177,8 +1426,12 @@ async def _restore_session(session_id: str) -> RestoredSession:
         db_session = await repo.get(session_id)
     except KeyError:
         # If we had a cached session for this id, drop it — the row is gone.
+        # Not while a start_session holds the id: `_create_session` caches
+        # the session before `repo.create` lands, so a plain join from
+        # another socket must not evict it from under the create.
         async with _sessions_lock:
-            _sessions.pop(session_id, None)
+            if session_id not in _start_reservations:
+                _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_NOT_FOUND, None)
 
     # If a message is actively being processed on this session, skip the
@@ -1190,8 +1443,15 @@ async def _restore_session(session_id: str) -> RestoredSession:
     # config edits" property of restore is intentionally suspended for the
     # duration of the in-flight turn — the next join after the turn
     # completes will pick up any config edits as before.
+    #
+    # M25 F4 L2 (AC8b): also skip while a turn is registered in
+    # `_session_inflight` but does not hold the lock yet (spawned, not yet
+    # scheduled) — e.g. a `start_session` first turn — so a brand-new
+    # session is never rebuilt from its empty DB snapshot mid-turn.
     cached = _sessions.get(session_id)
-    if cached is not None and is_session_processing(session_id):
+    if cached is not None and (
+        is_session_processing(session_id) or bool(_session_inflight.get(session_id))
+    ):
         cached.last_activity = time.monotonic()  # F05 L01: touch on restore
         return RestoredSession(cached, SESSION_STATUS_OK, db_session)
 
@@ -1379,7 +1639,7 @@ def _session_to_list_payload(s: ChatSessionModel) -> dict[str, Any]:
     }
 
 
-def _build_session_joined_ok(session: Session) -> dict[str, Any]:
+def _build_session_joined_ok(session: Session, is_processing: bool | None = None) -> dict[str, Any]:
     """Build a session_joined payload for a healthy in-memory session.
 
     `is_processing` reflects whether a turn is currently in flight on
@@ -1387,8 +1647,14 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
     state and the thinking indicator on rejoin (otherwise switching
     away from an in-flight session and back leaves the UI's per-WS
     busy flag stale).
+
+    M25 F4 L2: ``is_processing=None`` (the default) derives it from the
+    session lock, as before. ``start_session`` passes it explicitly: its
+    first turn is spawned AFTER this frame is sent, and a spawned turn does
+    not hold the lock until its task runs.
     """
-    is_processing = is_session_processing(session.id)
+    if is_processing is None:
+        is_processing = is_session_processing(session.id)
     return {
         "type": "session_joined",
         "session_id": session.id,
@@ -2207,7 +2473,7 @@ async def _send_pause_snapshot_if_needed(session: Session, websocket: WebSocket)
     """Send the cached ``auth_required`` event to a NEW subscriber.
 
     Called immediately after ``add_subscriber(session.id, websocket)`` in
-    any branch (join, new_session, auto-create). No-op if the session's
+    any branch (join, start_session, auto-create). No-op if the session's
     agent has no pending pause. Existing subscribers don't receive
     duplicates because the send targets only the new websocket.
 
@@ -2505,7 +2771,19 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                         session = None
                         await ws.send_json(await _build_session_joined_degraded(restored))
                         continue
-                    # status == not_found → fall through to auto-create below.
+                    # status == not_found. M25 F4 L2 (AC8a): answer
+                    # `join_failed` and create NOTHING. This used to fall
+                    # through to auto-create a default-agent session, which
+                    # orphaned sessions and handed the client a session it
+                    # never asked for. Unbind whatever was bound (including
+                    # a session with this very id, deleted while bound).
+                    if session is not None:
+                        remove_subscriber(session.id, ws)
+                    session = None
+                    await ws.send_json(
+                        {"type": "join_failed", "session_id": session_id, "error": "not_found"}
+                    )
+                    continue
                 elif session is not None:
                     # No session_id supplied AND outer session is already bound —
                     # preserve today's idempotent re-bind behavior.
@@ -2518,8 +2796,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     continue
                 # else: no session_id AND no outer session → auto-create below.
 
-                # Auto-create: either no session_id was supplied AND no outer
-                # session, or the supplied session_id was not_found.
+                # Auto-create: no session_id was supplied AND no outer session
+                # (an unknown session_id answers `join_failed` above).
                 try:
                     session = await _create_session()
                 except Exception as exc:
@@ -2540,6 +2818,149 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await _send_pause_snapshot_if_needed(session, ws)
                 continue
 
+            # M25 F4 L2 (DD1, AC2): leave the bound session WITHOUT binding
+            # another one (the client's "pick an agent" step). Unsubscribes
+            # and touches `last_activity` (mirroring the disconnect path);
+            # never cancels a running turn (it completes and persists), writes
+            # nothing to the DB and sends no frame. A no-op when unbound.
+            if action == "leave":
+                if session is not None:
+                    remove_subscriber(session.id, ws)
+                    session.last_activity = time.monotonic()
+                    session = None
+                continue
+
+            # M25 F4 L2 (DD1): create the session on the first send. One
+            # atomic, idempotent step: validate, reserve the id, look it up
+            # (an existing id joins), strict-create, swap, `session_joined`
+            # (`is_processing: true`), spawn. Every non-success exit sends
+            # `start_failed` and `continue`s; it never falls into the
+            # message path. See the "Chat WebSocket protocol" note in
+            # `the_one/agents.md`.
+            if action == "start_session":
+                start_sid = payload.get("session_id")
+                # 1. Validate. Type first: `re.fullmatch` on a non-str raises.
+                if not isinstance(start_sid, str) or not _START_SESSION_ID_RE.fullmatch(start_sid):
+                    await ws.send_json(_start_failed_frame(start_sid, "Invalid session id."))
+                    continue
+                start_agent = payload.get("agent_name")
+                if not isinstance(start_agent, str) or not start_agent or start_agent == "default":
+                    await ws.send_json(_start_failed_frame(start_sid, "Invalid agent name."))
+                    continue
+                validated = _validate_message_payload(payload)
+                if validated.empty:
+                    await ws.send_json(_start_failed_frame(start_sid, "Message is empty."))
+                    continue
+                if validated.user_input == "/reset":
+                    # With no task spawned, the forced `is_processing: true`
+                    # would leave the client stuck busy.
+                    await ws.send_json(
+                        _start_failed_frame(start_sid, "A new chat cannot start with /reset.")
+                    )
+                    continue
+                if validated.error is not None:
+                    await ws.send_json(_start_failed_frame(start_sid, validated.error))
+                    continue
+                assert validated.content is not None
+
+                # 2. Reserve (waits, bounded per wait, while another handler
+                # holds this id).
+                reservation = await _acquire_start_reservation(start_sid)
+                if reservation is None:
+                    await ws.send_json(
+                        _start_failed_frame(start_sid, "Timed out waiting for this chat to start.")
+                    )
+                    continue
+                try:
+                    # 3. Look up, inside the reservation. Narrow guard: only a
+                    # few error types are mapped by `_restore_session`; a DB
+                    # error or an ImportError must not kill the socket.
+                    try:
+                        restored = await _get_or_restore_session(start_sid)
+                    except Exception as exc:
+                        logger.exception("start_session lookup failed for %s", start_sid)
+                        await ws.send_json(
+                            _start_failed_frame(start_sid, f"Cannot start chat: {exc}")
+                        )
+                        continue
+
+                    if restored.status == SESSION_STATUS_OK:
+                        # An existing id joins, exactly like `join` (even when
+                        # it is another agent's session): the action is
+                        # idempotent. The message is processed only if it was
+                        # never delivered (empty history, nothing in flight:
+                        # a disconnect between the create and the spawn), so
+                        # it is processed exactly once.
+                        existing = restored.session
+                        assert existing is not None
+                        if session is not None and session.id != start_sid:
+                            remove_subscriber(session.id, ws)
+                        session = existing
+                        if ws not in subscribers_for(start_sid):
+                            add_subscriber(start_sid, ws)
+                        in_flight = bool(_session_inflight.get(start_sid))
+                        deliver = (
+                            not existing.history
+                            and not in_flight
+                            and not is_session_processing(start_sid)
+                        )
+                        await ws.send_json(
+                            _build_session_joined_ok(
+                                existing,
+                                is_processing=(
+                                    deliver or in_flight or is_session_processing(start_sid)
+                                ),
+                            )
+                        )
+                        await _send_pause_snapshot_if_needed(existing, ws)
+                        if deliver:
+                            _spawn_web_message(existing, validated.content, ws)
+                        continue
+
+                    if restored.is_degraded:
+                        # Unbind WHATEVER was bound (unlike `join`, which only
+                        # unsubscribes a different id), then report degraded.
+                        if session is not None:
+                            remove_subscriber(session.id, ws)
+                        session = None
+                        await ws.send_json(await _build_session_joined_degraded(restored))
+                        continue
+
+                    # 4. not_found: strict create. The try wraps ONLY the
+                    # create, so a failure after it (e.g. a disconnect while
+                    # sending `session_joined`) never sends `start_failed`
+                    # for a session that was created and bound.
+                    try:
+                        created_session = await _create_session(
+                            agent_name=start_agent, session_id=start_sid, strict=True
+                        )
+                    except Exception as exc:
+                        logger.exception(
+                            "start_session create failed for %s (agent %r)",
+                            start_sid,
+                            start_agent,
+                        )
+                        await ws.send_json(
+                            _start_failed_frame(start_sid, f"Cannot start chat: {exc}")
+                        )
+                        continue
+
+                    # 5. Swap. Bind and subscribe BEFORE the first send, so the
+                    # outer `except WebSocketDisconnect` cleans up the new
+                    # subscription if a send fails.
+                    if session is not None:
+                        remove_subscriber(session.id, ws)
+                    session = created_session
+                    add_subscriber(session.id, ws)
+                    await ws.send_json(_build_session_joined_ok(session, is_processing=True))
+                    # Brand-new session: no pause state; kept for the pattern.
+                    await _send_pause_snapshot_if_needed(session, ws)
+                    _spawn_web_message(session, validated.content, ws)
+                    continue
+                finally:
+                    # 6. Always release, or waiters hang.
+                    _release_start_reservation(start_sid, reservation)
+
             if action == "list_sessions":
                 try:
                     repo = await _chat_repo()
@@ -2554,29 +2975,6 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                         "sessions": sessions_list,
                     }
                 )
-                continue
-
-            if action == "new_session":
-                # Leave current session
-                if session:
-                    remove_subscriber(session.id, ws)
-                agent_name = payload.get("agent_name")
-                try:
-                    session = await _create_session(agent_name=agent_name)
-                except Exception as exc:
-                    # Broad catch (see auto-create note above): a provider whose
-                    # module is missing from a frozen bundle raises ImportError,
-                    # which is neither ValueError nor KeyError. Letting it escape
-                    # crashes the WS handler and drops the socket with no event —
-                    # the silent "Ollama agent fails after ~5s" symptom.
-                    logger.exception("Failed to create session for agent %r", agent_name)
-                    await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
-                    continue
-                add_subscriber(session.id, ws)
-                await ws.send_json(_build_session_joined_ok(session))
-                # F5 L3: brand-new session — no-op, included for code-
-                # pattern consistency.
-                await _send_pause_snapshot_if_needed(session, ws)
                 continue
 
             if action == "delete_session":
@@ -2617,80 +3015,29 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # Regular message. M16 F12 L08: `images` is an optional list of
             # {data, media_type} dicts staged by the frontend attach control.
             # The empty-guard accepts text-OR-images so an image-only turn
-            # (empty text box) is not silently dropped.
-            user_input = payload.get("message", "")
-            images = payload.get("images") or []
-            if not user_input and not images:
+            # (empty text box) is not silently dropped. M25 F4 L2: the
+            # checks live in `_validate_message_payload` (shared with
+            # `start_session`), which also runs the content build BEFORE the
+            # auto-create below, so a rejected payload never creates a
+            # session.
+            validated = _validate_message_payload(payload)
+            if validated.empty:
                 continue
-
-            # M18 F02 L02: reject an over-count/over-size images payload
-            # BEFORE the auto-join block below — an oversized attachment
-            # should not spin up an unnecessary session. Reuses the Leg-1
-            # error-surfacing shape (system event + continue) so the loop
-            # stays alive.
-            if images:
-                # Review fix (post-L02): validate SHAPE before the
-                # count/size logic below touches it. A non-list `images`
-                # (e.g. an int) blows up `len(images)`; a list containing
-                # non-dict items (e.g. a bare string, or `images` itself
-                # being a string so iteration hands out individual chars)
-                # blows up `_approx_image_bytes`'s `.get(...)` call. Both
-                # used to propagate out of the `while True` loop, killing
-                # the connection — the exact crash class Leg 1 fixes.
-                # Reject with the same system-event + continue shape used
-                # everywhere else in this handler.
-                if not isinstance(images, list) or not all(isinstance(img, dict) for img in images):
-                    logger.warning(
-                        "Rejected message: malformed images payload (expected a list of objects)"
-                    )
-                    await ws.send_json(
-                        {
-                            "type": "system",
-                            "content": (
-                                "Malformed images payload; expected a list of image objects."
-                            ),
-                        }
-                    )
-                    continue
-                if len(images) > IMAGE_ATTACHMENT_MAX_COUNT:
-                    logger.warning(
-                        "Rejected message: %d images exceeds max count %d",
-                        len(images),
-                        IMAGE_ATTACHMENT_MAX_COUNT,
-                    )
-                    await ws.send_json(
-                        {
-                            "type": "system",
-                            "content": (
-                                f"Too many images attached ({len(images)}); "
-                                f"max is {IMAGE_ATTACHMENT_MAX_COUNT}."
-                            ),
-                        }
-                    )
-                    continue
-                oversized = next(
-                    (
-                        img
-                        for img in images
-                        if _approx_image_bytes(img) > IMAGE_ATTACHMENT_CAP_BYTES
-                    ),
-                    None,
-                )
-                if oversized is not None:
-                    cap_mb = IMAGE_ATTACHMENT_CAP_BYTES // (1024 * 1024)
-                    logger.warning(
-                        "Rejected message: image exceeds per-image cap of %d bytes",
-                        IMAGE_ATTACHMENT_CAP_BYTES,
-                    )
-                    notice = f"An attached image exceeds the {cap_mb} MB per-image limit."
-                    await ws.send_json({"type": "system", "content": notice})
-                    continue
+            if validated.error is not None:
+                await ws.send_json({"type": "system", "content": validated.error})
+                continue
+            assert validated.content is not None
 
             # Auto-join a session if none active
             if not session:
                 try:
                     session = await _create_session()
-                except (ValueError, KeyError) as exc:
+                except Exception as exc:
+                    # M25 F4 L2 (AC8): broad catch, matching `join` and
+                    # `start_session`. A provider whose module is missing from a
+                    # frozen bundle raises ImportError (neither ValueError nor
+                    # KeyError); letting it escape drops the socket silently.
+                    logger.exception("Failed to auto-create session")
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
                 add_subscriber(session.id, ws)
@@ -2699,7 +3046,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 # pattern consistency.
                 await _send_pause_snapshot_if_needed(session, ws)
 
-            if user_input == "/reset":
+            if validated.user_input == "/reset":
                 session.agent.reset()
                 session.history.clear()
                 session.title = "New chat"
@@ -2707,50 +3054,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await _save_session_to_db(session)
                 continue
 
-            # Process message in a background task so the WebSocket receive
-            # loop stays responsive — switching conversations, listing
-            # sessions, etc. should not block on a long agent tool call
-            # (e.g. a `sleep 200` clipped to 120s by the F4 timeout cap).
-            # The shared per-session lock (from ``the_one.sessions``)
-            # serializes successive messages on the same session;
-            # broadcasts go to all current subscribers.
-            try:
-                content = _build_user_content(user_input, images)
-            except Exception as exc:
-                # M18 F02 L01: NARROW guard around just the content-build
-                # call — a malformed image dict (unexpected key -> TypeError
-                # from ImageContent(**img); both data/url absent -> the
-                # ImageContent guard) used to propagate out of the `while
-                # True` loop and drop the connection. The outer `try`
-                # (below) already handles WebSocketDisconnect; this inner
-                # guard must stay scoped to content-build only so it does
-                # not also swallow that disconnect. Mirrors the sibling
-                # auto-create except block above (log + system event +
-                # continue), using the WS-loop-local `session` directly
-                # rather than `_send_to_session` (which broadcasts to every
-                # subscriber — wrong call site for a per-connection error).
-                logger.exception("Failed to build user content from images payload")
-                await ws.send_json({"type": "system", "content": f"Cannot process message: {exc}"})
-                continue
-            task = asyncio.create_task(_spawn_message_processing(session, content, "web", ws))
-            _inflight_tasks.add(task)
-            task.add_done_callback(_inflight_tasks.discard)
-            # F7 L03 (cancel-backend) / F09-03: add the task to the
-            # per-session set so a WS `cancel` action can locate every
-            # in-flight task (running + queued). The done-callback discards
-            # this task and removes the key once the set is empty.
-            _session_inflight.setdefault(session.id, set()).add(task)
-            _sid_for_clear = session.id
-
-            def _clear_session_inflight(t: asyncio.Task, _sid: str = _sid_for_clear) -> None:
-                tasks = _session_inflight.get(_sid)
-                if tasks is None:
-                    return
-                tasks.discard(t)
-                if not tasks:
-                    del _session_inflight[_sid]
-
-            task.add_done_callback(_clear_session_inflight)
+            _spawn_web_message(session, validated.content, ws)
 
     except WebSocketDisconnect:
         if session:

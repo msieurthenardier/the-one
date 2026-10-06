@@ -24,6 +24,7 @@ from Leg 05 criterion #1 (a thinking event with NO preceding assistant bubble).
 from __future__ import annotations
 
 import pytest
+from browser import _chats
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -63,15 +64,11 @@ def test_thinking_disclosure_collapsed_expands_coexists_and_survives_reopen(
 
     # ── Bootstrap into chrome ─────────────────────────────────────────────────
     page.goto(app_clean)
-    expect(page.locator('[data-testid="chat-welcome"]')).to_be_visible(timeout=8000)
-    agent_item = page.locator(".chat-welcome-item").filter(has_text=agent_name)
-    expect(agent_item).to_be_visible(timeout=8000)
-    agent_item.click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    expect(_chats.welcome(page)).to_be_visible(timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     # ── Send a message ───────────────────────────────────────────────────────
-    page.locator('[data-testid="chat-input"]').fill("please think then act")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "please think then act")
 
     # ── (1) The thinking disclosure renders, collapsed by default ────────────
     disclosure = page.locator('[data-testid="thinking-disclosure"]')
@@ -105,7 +102,7 @@ def test_thinking_disclosure_collapsed_expands_coexists_and_survives_reopen(
 
     # ── (4) Survives a chat reopen (history replay) ──────────────────────────
     page.reload()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=10000)
+    _chats.expect_chat(page, agent_name, timeout=10000)
 
     replayed = page.locator('[data-testid="thinking-disclosure"]')
     expect(replayed).to_be_visible(timeout=10000)

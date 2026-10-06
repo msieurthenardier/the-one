@@ -5,6 +5,14 @@ Flight 3 leg 2 adds the Library collections (``knowledge-bases``,
 the store, one pin per row of the invalidation map (``the_one/agents.md``
 "Client data store"), the save-create name hints, and the router's
 ``sync`` announce ordering (DD8).
+
+Flight 4 leg 1 (DD4) adds the sixth collection, ``sessions``
+(``/api/chat/sessions``), ``App.store.prime``, the chat area's prime from the
+WebSocket ``session_list`` reply, and the agent rename / Purge now rows.
+
+Flight 4 leg 3b adds DD4's ``start_session`` row (a start's join refreshes the
+list, whose reply primes ``sessions``) and the grep pins of squawk 0111's
+retired start path (``new_session``, the stalled-join timer).
 """
 
 from __future__ import annotations
@@ -14,7 +22,7 @@ from pathlib import Path
 
 JS = Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/js"
 LITERAL_LIST = re.compile(
-    r"""fetch\(\s*['"]/api/(agents|providers|knowledge-bases|mcp-sources|connectors)['"]\s*\)"""
+    r"""fetch\(\s*['"]/api/(agents|providers|knowledge-bases|mcp-sources|connectors|chat/sessions)['"]\s*\)"""
 )
 
 
@@ -38,18 +46,147 @@ def test_no_literal_list_fetches_outside_store() -> None:
     assert offenders == []
 
 
-def test_store_urls_name_the_five_collections() -> None:
+def test_literal_list_guard_covers_chat_sessions() -> None:
+    """The guard really matches a literal sessions fetch (so a green
+    ``test_no_literal_list_fetches_outside_store`` means none exists)."""
+    assert LITERAL_LIST.search("fetch('/api/chat/sessions')")
+    assert LITERAL_LIST.search('fetch( "/api/chat/sessions" )')
+    # A per-agent purge or a per-session URL is not the list fetch.
+    assert not LITERAL_LIST.search("fetch('/api/agents/' + n + '/chat/sessions', {")
+
+
+def test_store_urls_name_the_six_collections() -> None:
     src = _src("store.js")
+    urls = _window(src, "var URLS", "};")
     for name, url in (
         ("agents", "/api/agents"),
         ("providers", "/api/providers"),
         ("'knowledge-bases'", "/api/knowledge-bases"),
         ("'mcp-sources'", "/api/mcp-sources"),
         ("connectors", "/api/connectors"),
+        ("sessions", "/api/chat/sessions"),
     ):
-        assert f"{name}: '{url}'" in src, name
+        assert f"{name}: '{url}'" in urls, name
+    assert len(re.findall(r"'/api/[^']+'", urls)) == 6
     # The plain MCP list: the surfaces variant stays a direct fetch.
-    assert "include_agent_surfaces" not in _window(src, "var URLS", "};")
+    assert "include_agent_surfaces" not in urls
+
+
+def test_store_prime_bumps_the_generation_and_is_exported() -> None:
+    """AC20: prime replaces the value (loaded/ok/fresh), bumps gen and clears
+    the in-flight request like invalidate, then notifies."""
+    src = _src("store.js")
+    body = _window(src, "function prime(name, rows)", "\n  }\n")
+    assert "var c = col(name);" in body  # an unknown name throws through col()
+    for needle in (
+        "c.gen += 1;",
+        "c.inflight = null;",
+        "c.value = copy(rows);",
+        "c.loaded = true; c.ok = true; c.error = null; c.fresh = true;",
+    ):
+        assert needle in body, needle
+    assert body.index("c.gen += 1;") < body.index("c.subs.slice().forEach")
+    assert "prime: prime" in _window(src, "window.App.store = {", "};")
+
+
+def test_chat_session_list_primes_sessions_in_the_summary_shape() -> None:
+    """AC21: the session_list handler primes 'sessions' with the REST summary
+    keys, before it renders anything."""
+    src = _src("areas/chat.js")
+    handler = _window(
+        src, "if (data.type === 'session_list') {", "if (data.type === 'session_joined')"
+    )
+    assert handler.count("App.store.prime('sessions'") == 1
+    prime = _window(handler, "App.store.prime('sessions'", "}));")
+    for key in ("id", "agent_name", "title", "created_at", "updated_at", "platform"):
+        assert re.search(rf"\b{key}: s\.{key}\b", prime), key
+    assert prime.count(": s.") == 6
+    # Since M25 F4 L4a the handler renders nothing itself: the prime notifies
+    # the `sessions` subscription, which renders the Chats list (AC6).
+    assert "renderChatsList(" not in handler
+    assert "renderList(" not in src and "renderSessionList" not in src
+
+
+def test_chats_list_renders_from_the_sessions_subscription_only() -> None:
+    """M25 F4 L4a (AC6): ONE renderChatsList reads the store's ``sessions``
+    (peek) plus the session state; the area subscribes to ``sessions`` for its
+    whole life (the chat area is never destroyed, so it never unsubscribes),
+    and every state transition that moves the pending row or the selection
+    calls it."""
+    src = _src("areas/chat.js")
+    assert src.count("function renderChatsList()") == 1
+    body = _window(src, "function renderChatsList()", "\n    }")
+    assert "App.store.peek('sessions')" in body
+    assert "chatState.state()" in body and "chatState.boundId()" in body
+    assert "App.chat.chatsList.PENDING_ID" in body
+    assert src.count("App.store.subscribe('sessions'") == 1
+    sub = _window(src, "App.store.subscribe('sessions'", ";")
+    assert "renderChatsList()" in sub
+    # The subscription is never released (the area lives as long as the page):
+    # its unsubscribe handle is not even kept.
+    assert "= App.store.subscribe('sessions'" not in src
+    for fn in (
+        "function renderPending()",  # pick
+        "function openConversation(id)",  # open
+        "function resetToIdle()",  # idle
+        "function clearConversation()",  # idle (delete, join_failed)
+    ):
+        assert "renderChatsList();" in _window(src, fn, "\n    }\n"), fn
+    joined = _window(
+        src, "if (data.type === 'session_joined') {", "if (data.type === 'start_failed')"
+    )
+    assert "renderChatsList();" in joined  # joined, and the starting -> joined swap
+
+
+def test_start_session_join_refreshes_the_list_that_primes_sessions() -> None:
+    """DD4's start_session invalidation row (M25 F4 L3b, AC19): every
+    accepted session_joined -- a start's included, whether or not its history
+    renders -- ends with the list refresh, whose session_list reply primes
+    'sessions'. No path between the gate and the refresh skips it except a
+    start failure (nothing was created)."""
+    src = _src("areas/chat.js")
+    handler = _window(
+        src, "if (data.type === 'session_joined') {", "if (data.type === 'start_failed')"
+    )
+    accepted = handler[handler.index("if (joinedEff.startFailed)") :]
+    body = accepted[accepted.index("return;") + len("return;") :]
+    # Only renderHistory is conditional on the start (AC2).
+    assert "if (joinedEff.render === 'history') renderHistory(" in body
+    assert "refreshSessionList();" in body, "the accepted session_joined path must refresh"
+    assert body.index("refreshSessionList();") < body.rindex("return;")
+    assert body.count("return;") == 1  # the refresh is on the one exit
+    refresh = _window(src, "function refreshSessionList()", "\n    }")
+    assert "action: 'list_sessions'" in refresh
+
+
+# ── The retired start path (squawk 0111, M25 F4 L3b AC13/AC20) ──────────────
+
+
+def test_retired_new_session_path_is_gone_from_the_client() -> None:
+    """No client path sends ``new_session``, and squawk 0111's stalled-join
+    recovery (the intent drain, the bounded 10s timer and its test hook) is
+    gone with it: a first send is one idempotent ``start_session`` and only a
+    socket close re-sends it."""
+    gone = (
+        "new_session",
+        "pendingStart",
+        "armPendingStartTimer",
+        "clearPendingStartTimer",
+        "DEFAULT_START_JOIN_TIMEOUT_MS",
+        "chatStartJoinTimeoutMs",
+        "startSessionWith",
+    )
+    hits = [
+        (str(path.relative_to(JS)), token)
+        for path in JS.rglob("*.js")
+        for token in gone
+        if token in path.read_text()
+    ]
+    assert hits == []
+    # ...and the replacement is in place.
+    chat = _src("areas/chat.js")
+    assert "action: 'start_session'" in _src("areas/chat/session-state.js")
+    assert "sendBinding({ action: 'leave' })" in chat
 
 
 def test_library_fetch_sites_read_through_the_store() -> None:
@@ -177,6 +314,18 @@ INVALIDATION_ROWS = (
         "var method = isEdit ? 'PUT' : 'POST';",
         "callbacks.onSaveSuccess(updated, !isEdit)",
         ("providers",),
+    ),
+    (  # agent rename: re-points chat_sessions.agent_name (M25 F4 L1, DD4)
+        "areas/studio.js",
+        "'/rename', {",
+        "self._selectedAgent = renamed;",
+        ("agents", "sessions"),
+    ),
+    (  # agent Purge now: the agent's sessions are deleted (M25 F4 L1, DD4)
+        "areas/studio.js",
+        "var n = body && typeof body.deleted === 'number' ? body.deleted : 0;",
+        "App.showFlash(editorEl, 'Purged '",
+        ("sessions",),
     ),
 )
 

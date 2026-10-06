@@ -5,7 +5,7 @@ control, and the ``listPane`` hardening (empty element, kinded badges, counts,
 selected-row colour, regular density).
 
 Every test runs in Chromium and WebKit through ``engine_page`` + ``load_harness``.
-Falls in the ``shared`` browser lane.
+Falls in the ``contracts`` browser lane.
 """
 
 from __future__ import annotations

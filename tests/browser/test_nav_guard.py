@@ -15,7 +15,7 @@ import time
 
 import httpx
 import pytest
-from browser import _lists, _nav
+from browser import _chats, _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.conftest import credentialed_context
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
@@ -548,10 +548,8 @@ def test_chat_message_links_bare_unknown_and_route(app_clean: str, page: Page) -
     )
     agent = seed_mock_agent(app_clean, provider_id)
     _nav.goto_settled(page, app_clean, "chats")
-    page.locator(".chat-welcome-item").filter(has_text=agent).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent, timeout=8000)
-    page.locator('[data-testid="chat-input"]').fill("hi")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "hi")
     bubble = page.locator('[data-testid="message"].assistant').last
     expect(bubble.locator("a")).to_have_count(3, timeout=10000)
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser import _nav
+from browser import _chats, _nav
 from browser._credential_registry import auth_headers_for
 from browser.design_tokens import DARK, LIGHT
 from browser.seeders import SeededApp
@@ -71,7 +71,8 @@ def test_top_bar_is_gone_and_the_shell_is_a_flex_row_with_a_rail(
         }"""
     )
     assert out["topbar"] == 0
-    assert out["kids"] == ["app-rail", "app-sidebar", "main-content"]
+    # M25 F4 L6 (DD7): the agent drawer's static slot follows <main>.
+    assert out["kids"] == ["app-rail", "app-sidebar", "main-content", "chat-drawer"]
     assert out["display"] == "flex"
     assert out["railMount"] == "ui-rail"
     # The route announcer (live region, appended at router start) is the only
@@ -79,6 +80,11 @@ def test_top_bar_is_gone_and_the_shell_is_a_flex_row_with_a_rail(
     assert out["bodyKids"] == ["A.skip-link", "DIV.app-shell-row", "DIV.visually-hidden"]
     assert out["wordmark"] is False  # the wordmark is dropped; only the mark's alt remains
     expect(page.get_by_role("img", name="GleepGlorp AI")).to_have_count(1)
+
+
+_LANDMARKS_JS = """() => Array.from(document.querySelectorAll('nav[aria-label], aside[aria-label], main[aria-label], [role=navigation][aria-label]'))
+    .filter((n) => n.getClientRects().length)
+    .map((n) => [n.getAttribute('role') || {NAV: 'navigation', ASIDE: 'complementary', MAIN: 'main'}[n.tagName], n.getAttribute('aria-label')])"""
 
 
 def test_landmarks_and_aside_labels(app_with_agent: SeededApp, page: Page) -> None:
@@ -89,6 +95,20 @@ def test_landmarks_and_aside_labels(app_with_agent: SeededApp, page: Page) -> No
     aside = page.locator("aside#app-sidebar")
     expect(aside).to_be_visible()
     expect(aside).to_have_attribute("aria-label", "Chats")
+    # The agent drawer (M25 F4 L6, DD7): a complementary landmark after
+    # <main>, hidden while idle (out of the tree), and named uniquely when
+    # open (1280 is push mode: open by default).
+    drawer = page.locator("aside#chat-drawer")
+    expect(drawer).to_be_hidden()
+    expect(page.get_by_role("complementary", name="This chat's agent")).to_have_count(0)
+    _chats.start_chat(page, app_with_agent.agent_name)
+    expect(drawer).to_be_visible()
+    expect(page.get_by_role("complementary", name="This chat's agent")).to_have_count(1)
+    open_pairs = [tuple(x) for x in page.evaluate(_LANDMARKS_JS)]
+    assert len(open_pairs) == len(set(open_pairs)), open_pairs
+    assert ("complementary", "This chat's agent") in open_pairs, open_pairs
+    assert ("complementary", "Chats") in open_pairs and ("navigation", "Main") in open_pairs
+    expect(page.get_by_role("main")).to_have_count(1)
     _nav.open_destination(page, "library")
     expect(_nav.destination_panel(page, "library")).to_be_visible()
     expect(aside).to_have_attribute("aria-label", "Library")
@@ -100,12 +120,8 @@ def test_landmarks_and_aside_labels(app_with_agent: SeededApp, page: Page) -> No
     # Settings nav (navigation, "Settings", reference spec section 8.1): one name
     # across two roles, which assistive tech announces apart ("Settings
     # complementary", "Settings navigation").
-    landmarks = page.evaluate(
-        """() => Array.from(document.querySelectorAll('nav[aria-label], aside[aria-label], main[aria-label], [role=navigation][aria-label]'))
-            .filter((n) => n.getClientRects().length)
-            .map((n) => [n.getAttribute('role') || {NAV: 'navigation', ASIDE: 'complementary', MAIN: 'main'}[n.tagName], n.getAttribute('aria-label')])"""
-    )
-    pairs = [tuple(x) for x in landmarks]
+    expect(drawer).to_be_hidden()  # off Chats
+    pairs = [tuple(x) for x in page.evaluate(_LANDMARKS_JS)]
     assert len(pairs) == len(set(pairs)), pairs
     assert ("navigation", "Settings") in pairs and ("complementary", "Settings") in pairs, pairs
 
@@ -151,24 +167,25 @@ def test_skip_link_is_first_in_tab_order_and_focuses_main(
     expect(_nav.destination_panel(page, "chats")).to_be_visible()
 
 
-# The aside's width per destination (M25 F3 DD1): Chats keeps --sidebar-w (240px,
-# 200px under 1280px); Library's list column (--list-w) and the Settings nav
-# (--settings-nav-w) are fixed at every supported width.
+# The aside's width per destination (M25 F3 DD1; Chats since M25 F4 L4a, DD5):
+# the Chats, Agents and Library list column (--list-w) and the Settings nav
+# (--settings-nav-w) are fixed at every supported width. (Chats took the
+# retired --sidebar-w, 240px narrowing to 200px under 1280px, until L4a.)
 LIST_W = 300
 SETTINGS_NAV_W = 260
 
 
 @pytest.mark.parametrize(
-    ("width", "height", "chats_w"),
-    [(1024, 768, 200), (1279, 800, 200), (1280, 800, 240), (1440, 900, 240)],
+    ("width", "height"),
+    [(1024, 768), (1279, 800), (1280, 800), (1440, 900)],
 )
 def test_shell_geometry_at_supported_widths(
-    app_with_agent: SeededApp, page: Page, width: int, height: int, chats_w: int
+    app_with_agent: SeededApp, page: Page, width: int, height: int
 ) -> None:
     page.set_viewport_size({"width": width, "height": height})
     base = app_with_agent.base_url
     widths = {
-        "chats": chats_w,
+        "chats": LIST_W,
         "agents": LIST_W,
         "library/knowledge": LIST_W,
         "settings/appearance": SETTINGS_NAV_W,
@@ -244,7 +261,7 @@ def test_aside_data_destination_follows_every_commit(app_with_agent: SeededApp, 
         )
         assert state() == [dest, w]
 
-    expect_state("chats", 240)
+    expect_state("chats", LIST_W)
     for dest, w in (("library", LIST_W), ("settings", SETTINGS_NAV_W), ("agents", LIST_W)):
         _nav.open_destination(page, dest)
         expect(_nav.destination_panel(page, dest)).to_be_visible(timeout=8000)
@@ -254,7 +271,7 @@ def test_aside_data_destination_follows_every_commit(app_with_agent: SeededApp, 
     page.go_back()
     expect_state("library", LIST_W)
     page.go_back()
-    expect_state("chats", 240)
+    expect_state("chats", LIST_W)
     page.go_forward()
     expect_state("library", LIST_W)
 
@@ -265,7 +282,7 @@ def test_settings_nav_labels_and_chat_rows_do_not_clip_at_1024(
     page.set_viewport_size({"width": 1024, "height": 768})
     base = app_with_agent.base_url
     # Settings nav links: each fits inside the aside (fixed since M25 F3 L1: 260px
-    # on Settings; only Chats narrows to 200px here), wrapping rather than
+    # on Settings; every aside is fixed since M25 F4 L4a), wrapping rather than
     # clipping. The section nav is retired (Library in M25 F3 L4a, Settings in
     # L5a: the Settings nav is App.ui.navGroups links); the Library list column
     # is checked below.
@@ -315,14 +332,16 @@ def test_settings_nav_labels_and_chat_rows_do_not_clip_at_1024(
     assert lib["n"] >= 6, lib  # header, intro, three captions, one row
     assert all(r <= lib["asideRight"] + 0.5 for r in lib["rights"]), lib
     assert lib["truncated"] and lib["ellipsis"], lib
-    # Chat session rows: a very long title ellipsizes inside the aside.
+    # Chat session rows (the Chats list, M25 F4 L4a): a very long title
+    # ellipsizes inside the aside.
     _boot(page, base, "chats")
-    page.locator(".chat-welcome-item").first.click()
-    row = page.locator("#app-sidebar .area-chat .session-item").first
+    _chats.start_chat(page, app_with_agent.agent_name)
+    sid = _chats.send_first(page, "hello")  # a start is pending until its first send
+    row = _chats.chat_row(page, sid)
     expect(row).to_be_visible(timeout=8000)
-    out = page.evaluate(
-        """() => {
-          const t = document.querySelector('#app-sidebar .session-item-title');
+    out = row.evaluate(
+        """(row) => {
+          const t = row.querySelector('.ui-list-pane-label');
           t.textContent = 'An extremely long conversation title that would overflow a narrow sidebar ' + 'x'.repeat(120);
           const aside = document.getElementById('app-sidebar').getBoundingClientRect();
           const li = t.closest('li').getBoundingClientRect(), tr = t.getBoundingClientRect(), s = getComputedStyle(t);

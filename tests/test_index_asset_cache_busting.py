@@ -47,7 +47,7 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # A CSS ref is versioned too.
     assert f'href="/static/css/base.css?v={__version__}"' in body
 
-    # All 71 /static js/css refs are versioned and none are double-suffixed.
+    # All 80 /static js/css refs are versioned and none are double-suffixed.
     # (Mission 23 Flight 1 Leg 2 deleted the 9 connector-subsystem script
     # tags, dropping the count from 62 to 53; Mission 23 Flight 2 Leg 2 adds
     # the ONE new connector-editor.js script tag back, to 54; Mission 24
@@ -66,11 +66,19 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # areas/admin/providers-grid.js for areas/admin/providers-table.js (the
     # Providers tile grid became the reference spec 8.2 table), still 71;
     # Leg 7 renames it providers-list.js when the list returned to tiles by
-    # operator decision, still 71.)
+    # operator decision, still 71; Mission 25 Flight 4 Leg 1 adds ui/search-list.js
+    # and the design-language ui-search-section.js, to 73; Leg 3b adds
+    # areas/chat/session-state.js, to 74; Leg 4a deletes areas/chat/history-buckets.js
+    # and adds areas/chat/chats-list.js and areas/chat/agent-picker.js, to 75;
+    # Leg 4b deletes areas/chat/welcome.js (folded into the pane) and adds
+    # areas/chat/composer.js and areas/chat/chat-pane.js, to 76; Leg 6 adds
+    # ui/drawer.js, tool-categories.js, areas/chat/agent-drawer.js and the
+    # design-language ui-drawer-section.js, to 80; Leg 7 adds settings-pages.js
+    # and jump-to.js, to 82.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 71
+    assert len(refs) == 82
     for ref in refs:
         assert f"?v={__version__}" in ref
         assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix

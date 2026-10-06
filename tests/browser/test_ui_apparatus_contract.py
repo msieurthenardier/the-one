@@ -1,7 +1,7 @@
 """Contract tests for the UI test apparatus itself (M25 F1 L1, AC9).
 
 Proves the shared label/description resolver and the disk harness in Chromium and
-WebKit on synthetic DOM, before any library code exists. Falls in the ``shared``
+WebKit on synthetic DOM, before any library code exists. Falls in the ``contracts``
 lane (no area-lane glob matches this name).
 """
 
