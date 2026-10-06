@@ -1,11 +1,11 @@
 # Flight: Chats and Jump-to
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] **SC3 — Start a chat by choosing an agent.**
+- [x] **SC3 — Start a chat by choosing an agent.**
   - One primary New chat action opens an agent picker with search, a Recently used group
     and the full A–Z list.
   - Choosing an agent starts a new conversation with no further step.
@@ -13,21 +13,23 @@
   - A drawer shows the conversation's agent read-only (description, model, provider, what
     it can use), with a one-step route to its settings.
   - *(behavior-test-backed: the new `start-a-chat`)*
-- [ ] **SC5 — Jump to anything.** Ctrl K and a visible rail control open a palette that
+- [x] **SC5 — Jump to anything.** Ctrl K and a visible rail control open a palette that
   finds agents, conversations, Library items, Settings pages and the New chat action, and
   opens the chosen one. *(behavior-test-backed: the new `jump-to-palette`)*
-- [ ] **SC2 — Work is never lost** (the jump-to and Chat-action half).
+- [x] **SC2 — Work is never lost** (the jump-to and Chat-action half).
   - Leaving unsaved changes through jump-to, or through the agent editor's Chat action,
     asks first.
   - The drawer's settings link goes through the same guard. From Chats it is always a
     clean pass, because leaving a dirty editor for Chats already asked.
-- [ ] **SC6 — Control library** (continued). The picker and palette's searchable list, the
+- [x] **SC6 — Control library** (continued). The picker and palette's searchable list, the
   drawer, the rail's bottom action and the Chats list rows come from `App.ui`. Each has a
   demo, an inventory row and contract tests in both engines.
 - [ ] **SC8 — Matches the approved samples.** The Chats frame, picker, drawer and palette
   follow reference spec §2, §5 and §9. A non-blocking operator preview comes before the
   close gate (DD13), and Flight 6 closes SC8.
-- [ ] **SC10 — Operable and regression-safe.**
+  *Flight 4's part is done:* the preview was published (no operator feedback yet), and
+  the close-gate runs passed in both themes. The criterion stays open for Flight 6.
+- [x] **SC10 — Operable and regression-safe.**
   - The new surfaces are keyboard-operable with visible focus, including Ctrl K, Escape,
     Enter, the arrow keys and the composer's focus ring.
   - Landmarks and the skip link are preserved.

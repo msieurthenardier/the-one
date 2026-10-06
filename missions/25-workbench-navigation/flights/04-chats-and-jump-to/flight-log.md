@@ -4,7 +4,7 @@
 
 ## Summary
 
-**Status**: ready (2026-10-05). 8 legs; design review: 2 Architect cycles (the cap).
+**Status**: landed (2026-10-06). 10 legs (two planned legs split at design review), committed as `340dad4` and opened as draft PR #220. The flight-end review needed one fix cycle. The close-gate behavior runs passed 96 of 96 checkpoints across five specs. `vision-round-trip` was not run, because it needs a live Anthropic key.
 
 ---
 
@@ -2654,6 +2654,57 @@ set first. `vision-round-trip` needs a live Anthropic key (it cannot run on the 
     window leaves the reverted label briefly stale until the next render.
   - **The review loop is closed** (one fix cycle). The commit Developer commits the
     flight with every leg `completed`.
+
+- **Flight committed** as `340dad4` (every leg `completed`), pushed, and opened as draft PR
+  #220, stacked on #219 (base `flight/03-list-and-detail`). It will be rebased onto `main`
+  after #219 merges.
+- **Close-gate behavior runs** (run timestamp `2026-10-06-06-01-26`; all **pass**,
+  **96 of 96** checkpoints).
+  - Results:
+    - `start-a-chat` 26/26 (Light and Dark);
+    - `jump-to-palette` 24/24 (Light and Dark);
+    - `workbench-navigation` 28/28 (Light and Dark);
+    - `shell-navigation-smoke` 9/9;
+    - `chat-roundtrip` 9/9 (Light steps 1–6, Dark steps 3–6).
+  - **`vision-round-trip`: not run.** It needs a live Anthropic API key, and the mock
+    provider cannot judge vision grounding, as the leg 8 plan allows.
+  - **Setup.**
+    - Five concurrent live Executor and Validator pairs (Sonnet), each on its own fresh
+      instance: 8486, 8488, 8489, 8490 and 8491.
+    - Scratch data dirs `/tmp/the-one-f4gate-*`, dev mode, environments verified through
+      `/proc/<pid>/environ`.
+    - CDP Chromium with real input. Never 8484, 8485 or the default data dir.
+    - Run logs are in `tests/behavior/<slug>/runs/2026-10-06-06-01-26.md`, and each spec's
+      `Last Run` is updated.
+  - **Apparatus lessons** (debrief material):
+    1. A Playwright `new_context()` over `connect_over_cdp` dies when the script
+       disconnects. A variant's fresh context must be a new Chromium process with a fresh
+       profile, or a long-lived driver. An advisory went out mid-run.
+    2. One Executor's `pkill -f` matched its own shell. A broad-kill ban went out mid-run.
+       Another run's Chromium exited at about 01:08:53 (cause not established) and was
+       recovered on the same profile.
+    3. **Orchestrator slip:** the Validator hand-off for workbench-navigation's Light
+       step 7 was skipped in a burst of concurrent reports. It was judged after
+       `[CLOSING]` from the evidence recorded at the time, and passed. The run log says
+       so.
+    4. Executors wrote `step-N-report.json` files without their notes, and Validators read
+       them. That kept the Orchestrator's context small and the Validator independent of
+       the notes.
+  - **Product observations** (none failed a spec):
+    - The Dark picker and palette scrim is 0.5, against the board's 0.3 (DD13 preview
+      question 7).
+    - The Dark pending-row wash (alpha 0.10) is faint; the border carries it.
+    - `rail-jump-to` shows no visible focus ring after a pointer-initiated close, because
+      `:focus-visible` does not apply; the focus identity is correct.
+    - After Continue from a dirty editor into a pending chat, focus lands on `<main>`.
+    - Message timestamps re-render from the persisted server times after a reload, 1–4
+      seconds off the live render.
+  - **Spec feedback:** Validators raised wording fixes, including the step 9 Description id,
+    a true reload in shell-smoke step 8, and frame accounting per step. These are carried
+    to the debrief.
+- **Operator preview:** no comments on the artifact by the close gate. Feedback that arrives
+  before PR #220 merges becomes a follow-up leg.
+- **Flight landed** (2026-10-06). Next: mark PR #220 ready, then the Flight 4 debrief.
 
 ---
 

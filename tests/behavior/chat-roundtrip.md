@@ -3,7 +3,7 @@
 **Slug**: `chat-roundtrip`
 **Status**: active
 **Created**: 2026-07-04
-**Last Run**: 2026-07-06-05-28-01 (pass, 5/5, DARK Variant — the owed F7 mission-end gate run; light passed F4 → both themes green; see runs/)
+**Last Run**: 2026-10-06-06-01-26 — pass (9/9; Light steps 1–6 + Dark steps 3–6; M25 F4 close gate, chats start as a pending chat)
 **Updated**: 2026-10-05 (M25 F4 leg 8: step 3 starts through New chat and the agent picker, as a pending chat; steps 4 and 6 name the session the first send creates; the Dark variant runs in its own fresh context)
 
 ## Intent

@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-03
 **Updated**: 2026-10-05 (M25 F3: the Agents list, the Library groups; Providers as tiles, leg 7. M25 F4 leg 8: step 1's Jump to control, step 3 re-authored for the Chats list, the chat pane and the empty and guidance states)
-**Last Run**: 2026-10-05-14-53-19 — pass (8/8; re-run after M25 F3 leg 7, Providers tiles)
+**Last Run**: 2026-10-06-06-01-26 — pass (9/9; M25 F4 close gate, empty instance)
 
 ## Intent
 

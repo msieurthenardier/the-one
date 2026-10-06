@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-05
 **Updated**: 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
-**Last Run**: never
+**Last Run**: 2026-10-06-06-01-26 — pass (26/26; Light + Dark; first run, M25 F4 close gate)
 
 ## Intent
 

@@ -223,7 +223,7 @@ coverage for every remaining surface.
 - [ ] **Settings pages with item editors** (Flight 3): Providers and Built-in tools show a
   table/list in the board with no editor state — define how an item opens while the list
   stays visible, inside Settings' own nav.
-- [ ] **Drawer push vs. overlay** at different widths (Flight 4).
+- [x] **Drawer push vs. overlay** at different widths (Flight 4): resolved by Flight 4 DD7. The drawer pushes the pane at 1280px and wider (open by default), overlays below that (closed by default), and remembers each mode separately. The 1024 overlay covering Send is an open preview question.
 - [ ] **Window chrome mechanism** (Flight 5): Mission 15 reverted frameless custom chrome
   because WebView2 ignored the drag-region CSS. Spike whether WebView2's opt-in
   non-client-region support can be enabled through pywebview (making a goldfinch-style
@@ -305,10 +305,14 @@ history but do not appear in the picker, and their drawer shows no settings link
   Settings › Providers to be tiles matching Built-in tools. Flight 3 leg 7
   (`providers-tiles`) delivered that, and its re-runs passed. The full record is in the
   flight log.
-- [ ] Flight 4: **Chats and jump-to** — New chat with the agent picker, cross-agent
+- [x] Flight 4: **Chats and jump-to** — New chat with the agent picker, cross-agent
   history, the agent drawer, removal of the chat agent dropdown and welcome-screen agent
   list; the jump-to palette (sharing the picker's searchable-list control); new
   core-flow behavior specs; sample comparison in both themes.
+  *Landed on 2026-10-06* (PR #220). The operator preview (DD13) was published and not
+  awaited. The close-gate runs passed 96 of 96 checkpoints: `start-a-chat` and
+  `jump-to-palette` in both themes, `workbench-navigation`, `shell-navigation-smoke` and
+  `chat-roundtrip`.
 - [ ] Flight 5: **Window chrome** — the WebView2 non-client-region spike; goldfinch-style
   custom chrome if it holds, otherwise a native title bar tinted to the workbench and
   following the theme; first-launch window size that fits the workbench; verified in a
