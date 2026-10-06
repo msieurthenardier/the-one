@@ -4439,12 +4439,19 @@ async def seed_pending_oauth_flow(body: _PendingOAuthFlowBody) -> dict[str, str]
 
 
 def _session_summary(session: ChatSession) -> dict[str, Any]:
+    # M25 F4 L1 (DD4): ``platform`` is the one scalar connector field the
+    # summary carries (null for a UI session), so the client store's REST
+    # ``sessions`` rows match the WebSocket ``session_list`` rows it primes
+    # from. Rich routing data (``session_metadata``) stays detail-only.
+    # Keys must stay a subset of app.py's ``_session_to_list_payload``
+    # (pinned by tests/test_db_api.py).
     return {
         "id": session.id,
         "agent_name": session.agent_name,
         "title": session.title,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
+        "platform": session.platform,
     }
 
 

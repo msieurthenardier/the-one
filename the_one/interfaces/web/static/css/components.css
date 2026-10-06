@@ -105,6 +105,18 @@
     box-shadow: inset 0 0 0 1px var(--accent);
     color: var(--fg);
   }
+  /* The bottom action slot (M25 F4 L7, DD9): pinned to the bottom of the rail
+     by margin-top: auto; the rail's 12px bottom padding puts it 12px above the
+     edge. An icon-only button there is the reference spec's 44px square (the
+     jump-to control; its svg stays the .btn-icon 16px). */
+  .ui-rail-footer {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .ui-rail-footer .btn-icon { width: 44px; height: 44px; padding: 0; }
 
   /* === List Item (sidebar/category list rows with focus-within delete reveal) === */
   /* Sources consolidated: chat .session-item, admin .admin-category-item.
@@ -408,12 +420,12 @@
   .section-title:first-child { margin-top: 0; }
   /* Real section HEADINGS (h2) get an element-scoped size bump. The
      `.section-title` class is worn by BOTH true headings (studio
-     mcp-server-editor.js's h2 section labels) AND a non-heading
-     quiet label (chat sidebar `<label class="section-title" for="chat-agent-select">`
-     at areas/chat.js). A bare `.section-title { font-size }` rule would inflate
-     that label too; the `h2` element scope keeps the label at body-sm. The
-     class rename is deferred (churn without payoff — M17 F3 "Section-title
-     semantics" DD). */
+     mcp-server-editor.js's h2 section labels) AND non-heading quiet labels
+     (div/label.section-title; the chat sidebar's "Select Agent" label was
+     one until M25 F4 L4a retired it). A bare `.section-title { font-size }`
+     rule would inflate those labels too; the `h2` element scope keeps them at
+     body-sm. The class rename is deferred (churn without payoff — M17 F3
+     "Section-title semantics" DD). */
   h2.section-title { font-size: var(--font-size-h3); }
 
   /* === Button vocabulary (M17 F3 — one vocabulary, four variants;
@@ -700,9 +712,11 @@
   .ui-list-pane-row[aria-current="page"] .ui-list-pane-meta,
   .ui-list-pane-row[aria-current="page"] .ui-list-pane-badge,
   .ui-list-pane-row[aria-current="page"] .ui-list-pane-count,
+  .ui-list-pane-row[aria-current="page"] .ui-list-pane-time,
   .ui-list-pane-row[aria-current="true"] .ui-list-pane-meta,
   .ui-list-pane-row[aria-current="true"] .ui-list-pane-badge,
-  .ui-list-pane-row[aria-current="true"] .ui-list-pane-count { color: var(--fg-secondary); }
+  .ui-list-pane-row[aria-current="true"] .ui-list-pane-count,
+  .ui-list-pane-row[aria-current="true"] .ui-list-pane-time { color: var(--fg-secondary); }
   /* rowStyle (M25 F3 L1, A8): the reference row geometry per list, 13px names,
      and the section 3 selection model. A 1px transparent border at rest that
      the selection colours, so selecting never shifts layout. Placed after the
@@ -727,6 +741,92 @@
   /* Library rows: --fg-secondary row ink drives the icon; the name stays --fg. */
   .ui-list-pane-style-library .ui-list-pane-row { padding: 8px 10px; color: var(--fg-secondary); }
   .ui-list-pane-style-library .ui-list-pane-label { color: var(--fg); }
+  /* The header block slot (M25 F4 L1, DD5): below the <header>, outside it
+     (reference spec 5.1, the New chat block). */
+  .ui-list-pane-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 var(--space-4) var(--space-3);
+  }
+  /* rowStyle 'chats' (M25 F4 L1, DD5, A8; reference spec 5.1): a two-line
+     row, 8px 10px. Line 1: the 13px --fg title (ellipsis) with the 11px
+     --fg-muted time pushed to the end; line 2: the 11px --fg-secondary agent
+     name, then the badges. The selected row's time takes --fg-secondary
+     (the rule above: --fg-muted fails body AA on the selected wash, A24).
+     Gated in test_design_tokens_a11y.py (test_chats_row_pairs_pass_body_aa). */
+  .ui-list-pane-style-chats .ui-list-pane-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 8px 10px;
+  }
+  /* The scroller's hairline under the New chat block (reference spec 5.1,
+     the separator; M25 F4 L4a). */
+  .ui-list-pane-style-chats .ui-list-pane-body { border-top: 1px solid var(--border); }
+  .ui-list-pane-line { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+  .ui-list-pane-line > .ui-list-pane-label,
+  .ui-list-pane-line > .ui-list-pane-meta { flex: 0 1 auto; min-width: 0; }
+  .ui-list-pane-style-chats .ui-list-pane-label { color: var(--fg); }
+  .ui-list-pane-time {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: var(--font-size-caption);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--fg-muted);
+  }
+  .ui-list-pane-style-chats .ui-list-pane-meta {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+  /* Row actions (M25 F4 L1, DD5): a sibling icon button after the row in its
+     <li>, laid over the row's right end. display:none at rest (never
+     visibility/opacity: a hidden action must not be a Tab stop, and a shown
+     one must be), revealed on li:hover and li:focus-within; the time or count
+     it covers fades out (opacity, so the row's accessible name keeps it). The
+     row keeps its hover wash while the pointer is on the action. */
+  .ui-list-pane-list > li { position: relative; }
+  .ui-list-pane-action {
+    display: none;
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-secondary);
+    cursor: pointer;
+  }
+  .ui-list-pane-action svg { width: 14px; height: 14px; display: block; }
+  .ui-list-pane-list > li:hover > .ui-list-pane-action,
+  .ui-list-pane-list > li:focus-within > .ui-list-pane-action,
+  .ui-list-pane-list > li.ui-list-pane-reveal > .ui-list-pane-action { display: inline-flex; }
+  .ui-list-pane-action:hover { color: var(--fg); }
+  .ui-list-pane-action:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ui-list-pane-list > li.ui-list-pane-has-action:hover > .ui-list-pane-row:not([aria-current]) {
+    background: var(--surface-elevated);
+  }
+  .ui-list-pane-list > li.ui-list-pane-has-action:hover .ui-list-pane-time,
+  .ui-list-pane-list > li.ui-list-pane-has-action:focus-within .ui-list-pane-time,
+  .ui-list-pane-list > li.ui-list-pane-has-action:hover .ui-list-pane-count,
+  .ui-list-pane-list > li.ui-list-pane-has-action:focus-within .ui-list-pane-count { opacity: 0; }
+  /* Armed by App.confirmDelete (.confirm-delete on the <li>, its
+     [data-confirm-title] label swapped): the danger ink, the action shown. */
+  .ui-list-pane-list > li.confirm-delete > .ui-list-pane-row { border-color: var(--status-danger); }
+  .ui-list-pane:not(.ui-list-pane-styled) .ui-list-pane-list > li.confirm-delete > .ui-list-pane-row {
+    box-shadow: inset 0 0 0 1px var(--status-danger);
+  }
+  .ui-list-pane-list > li.confirm-delete [data-confirm-title] { color: var(--status-danger); }
+  .ui-list-pane-list > li.confirm-delete > .ui-list-pane-action { display: inline-flex; color: var(--status-danger); }
+  .ui-list-pane-list > li.confirm-delete .ui-list-pane-time,
+  .ui-list-pane-list > li.confirm-delete .ui-list-pane-count { opacity: 0; }
 
   /* === Nav groups (App.ui.navGroups, M25 F3 L1) ===
      Reference spec section 8.1: a <nav> of grouped plain links. The host owns
@@ -835,6 +935,81 @@
   .ui-menu-item-danger { color: var(--status-danger); }
   .ui-menu-item-icon { display: inline-flex; flex-shrink: 0; }
   .ui-menu-item-icon svg { width: 16px; height: 16px; }
+
+  /* === App.ui.searchList (M25 F4 L1, DD14, A10) ===
+     A combobox input over a grouped listbox: the picker's and the palette's
+     list. The listbox is the scroller (a host gives it a height or a
+     max-height). Rows follow reference spec 5.6's picker row: 10px 12px,
+     12px gap, --radius-sm, a 1px transparent border at rest. The active row
+     (aria-selected, keyboard or pointer) takes the --accent-translucent-hover
+     wash and an --accent border. --fg-muted fails body AA on that wash
+     (3.85:1 dark, 3.92:1 light over --surface), so the description is
+     --fg-secondary (as the reference draws it) and the meta, --fg-muted at
+     rest, takes --fg-secondary on the active row. Gated in
+     test_design_tokens_a11y.py (test_search_list_pairs_pass_body_aa). */
+  .ui-search-list { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-2); min-height: 0; }
+  .ui-search-list-field { margin-bottom: 0; }
+  .ui-search-list-listbox {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ui-search-list-listbox[hidden],
+  .ui-search-list-empty[hidden] { display: none; }
+  .ui-search-list-group { display: flex; flex-direction: column; gap: 2px; }
+  .ui-search-list-caption {
+    padding: var(--space-3) 12px var(--space-1);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-muted);
+  }
+  .ui-search-list-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    box-sizing: border-box;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg);
+    font-size: var(--font-size-body);
+    text-align: left;
+    cursor: pointer;
+  }
+  .ui-search-list-row[aria-selected="true"] {
+    background: var(--accent-translucent-hover);
+    border-color: var(--accent);
+  }
+  .ui-search-list-lead { display: inline-flex; flex: none; }
+  .ui-search-list-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+  .ui-search-list-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .ui-search-list-description {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+  .ui-search-list-meta {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: var(--font-size-caption);
+    white-space: nowrap;
+    color: var(--fg-muted);
+  }
+  .ui-search-list-meta-mono { font-family: var(--font-family-mono); }
+  .ui-search-list-row[aria-selected="true"] .ui-search-list-meta { color: var(--fg-secondary); }
 
   /* Page-level empty canvas — mirrors `.chat-welcome` centering for empty
      entity inventories (LLM Providers, Studio Agents, Knowledge, Tools).
@@ -999,9 +1174,11 @@
   .confirm-lapsed { outline: 2px solid var(--status-warning); outline-offset: 2px; }
 
   /* === Page header (entity-list / area-page header with optional primary action) === */
-  /* Mirrors chat's .header + .new-chat-header pattern. Used by studio's
-     Agents/Knowledge/Tools pages and admin's System + LLM Providers pages.
-     Lifted from per-area studio page-header rules in F6 leg 02. */
+  /* Used by studio's Agents/Knowledge/Tools pages and admin's System + LLM
+     Providers pages. Lifted from per-area studio page-header rules in F6
+     leg 02 (it mirrored the chat header of the time, whose hover-expanding
+     new-chat button M25 F4 L4b retired; the chat header is chat.css's
+     .chat-header now). */
   .page-header {
     padding: 14px 20px;
     display: flex;
@@ -1503,6 +1680,154 @@
      cluster comes from .form-actions. The .modal-actions class itself is a
      documentation/grep hook with no extra rules today. */
   .modal-actions { /* alias for .form-actions in the modal context */ }
+  /* Chooser options (M25 F4 L1, DD14). A header row holds the title and the
+     optional close button (btn-ghost btn-sm, pushed to the end). The chooser
+     layout (reference spec 5.6) zeroes the card padding and gap and clips to
+     the radius; the header is padded 16px 20px 12px; the body is full-bleed
+     and flexes so a list inside it can scroll; the footer is the 11px
+     --fg-muted row over a hairline (gated by the body ladder sweep). The
+     width / top options are inline styles on the card, never classes here. */
+  .modal-dialog-header { display: flex; align-items: center; gap: var(--space-2); }
+  .modal-dialog-header > .btn-ghost { margin-left: auto; flex-shrink: 0; }
+  .modal-dialog-chooser {
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+  .modal-dialog-chooser .modal-dialog-header { padding: 16px 20px 12px; }
+  .modal-dialog-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-dialog-chooser .modal-dialog-footer {
+    display: flex;
+    gap: var(--space-4);
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  /* A footer item pushed to the end (the picker's "Enter to start"): pass the
+     footer as a DocumentFragment so its items are the row's flex children. */
+  .modal-dialog-footer-end { margin-left: auto; }
+
+  /* === Jump-to palette (M25 F4 L7, DD10; reference spec 9) ===
+     A shell composition (js/jump-to.js), not a factory: an App.ui.searchList
+     in an ariaLabel chooser (600 wide at top 96, no header row). Its <dialog>
+     lives under <body>, so these rules are not area-scoped. The input bar is
+     the searchList's field wrapper, turned into a row: the 18px search icon,
+     the borderless 14px input, then the palette's own "Esc" button, padded
+     14px 16px over a hairline. The input has no ring of its own: the ring is
+     the bar's, on :focus-within (A25), inset so the card's overflow: hidden
+     never clips it. The results scroll inside 420px, padded 8px; rows are
+     8px 12px with a 10px gap, the label at regular weight and the "where"
+     text the search list's meta (11px, --fg-muted; --fg-secondary on the
+     active row). The footer row's inset matches the bar's 16px. */
+  .jump-to-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .jump-to-body > .ui-search-list { gap: 0; }
+  .jump-to-body .jump-to-bar {
+    position: relative;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .jump-to-body .jump-to-bar:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .jump-to-bar-icon { display: inline-flex; flex: none; color: var(--fg-muted); }
+  .jump-to-bar-icon svg { width: 18px; height: 18px; display: block; }
+  .jump-to-body .jump-to-bar .field-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--fg);
+    font-size: var(--font-size-body-lg);
+    outline: none;
+  }
+  .jump-to-body .jump-to-bar > .btn-ghost { flex: none; }
+  .jump-to-body .ui-search-list-listbox { padding: 8px; max-height: 420px; }
+  .jump-to-body .ui-search-list-row { gap: 10px; padding: 8px 12px; }
+  .jump-to-body .ui-search-list-label { font-weight: var(--font-weight-regular); }
+  #jump-to-dialog .modal-dialog-footer { padding: 10px 16px; }
+
+  /* === App.ui.drawer (M25 F4 L6, DD7, DD14; reference spec 5.7) ===
+     A non-modal <aside>: --drawer-w (320px, border-box) on --surface with a
+     1px --border left edge, a 48px header (A21: its hairline lines up with
+     the chat header's), a body that alone scrolls, and an optional footer
+     over a hairline. [hidden] must win over the display: flex here (the
+     author rule would otherwise defeat the UA's), in THIS layer: a base-layer
+     [hidden] rule loses to any components-layer display. Push mode is a
+     flex sibling that never shrinks; overlay mode sits over the right of the
+     nearest positioned ancestor (the app shell row is position: relative),
+     with the modal shadow and no scrim. */
+  .ui-drawer {
+    width: var(--drawer-w);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    color: var(--fg);
+  }
+  .ui-drawer[hidden],
+  .ui-drawer-header[hidden],
+  .ui-drawer-footer[hidden] { display: none; }
+  .ui-drawer--overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    box-shadow: var(--shadow-modal);
+  }
+  .ui-drawer-header {
+    height: 48px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    min-width: 0;
+  }
+  .ui-drawer-title {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ui-drawer-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .ui-drawer-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+  }
 
 
   /* === App.ui.badge (M25 F1 L4) ===
@@ -1643,6 +1968,11 @@
     .ui-nav-groups-item[aria-current="page"] { border: 1px solid Highlight; padding: 5px 9px; }
     .ui-menu-item:focus,
     .ui-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+    /* The searchList active row (M25 F4 L1): its wash is dropped and its
+       transparent rest border is forced to the text colour, so the rest border
+       takes Canvas and the active one Highlight. */
+    .ui-search-list-row { border-color: Canvas; }
+    .ui-search-list-row[aria-selected="true"] { border-color: Highlight; }
     /* The selected entity tile (the open tool): its accent border and wash are
        forced away, so the border takes Highlight and a 1px Highlight outline
        doubles it, a cue that is not colour alone (the flight-end review). */

@@ -12,7 +12,41 @@
   // that calls scrollToGroup('connectors')). Rows are buttons (onSelect), so the
   // page never navigates. App.ui.rail and App.ui.navGroups are demonstrated
   // here too (links to the in-page skip target, so the demos never route).
+  // M25 F4 L1 (DD5): a Chats-style pane -- rowStyle 'chats' (title and time,
+  // agent name and a platform badge), the New chat button in the header block
+  // slot, a pending row (no action, data-pending), and a per-row delete action
+  // driving App.confirmDelete; a confirmed delete removes the row.
   function noop() {}
+
+  var CHATS = [
+    { group: 'Today', id: 'c-pending', label: 'New chat', time: 'now', meta: 'Research assistant', pending: true },
+    { group: 'Today', id: 'c-1', label: 'Summarise the Q3 paper backlog', time: '10:42', meta: 'Research assistant' },
+    { group: 'Today', id: 'c-2', label: 'Review the session-store diff', time: '09:15', meta: 'Code reviewer' },
+    { group: 'Yesterday', id: 'c-3', label: '#help: install on Windows', time: 'Sun', meta: 'Support drafter',
+      badge: 'discord' },
+    { group: 'Last 7 days', id: 'c-4', label: 'Plan the release week', time: 'Fri', meta: 'Planner' },
+    { group: 'Last 7 days', id: 'c-5', label: 'A very long conversation title that has to ellipsize in the column',
+      time: 'Thu', meta: 'Translator' }
+  ];
+
+  function chatGroups(rows, onDelete) {
+    var order = ['Today', 'Yesterday', 'Last 7 days'];
+    var groups = [];
+    for (var g = 0; g < order.length; g++) {
+      var items = [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        if (r.group !== order[g]) continue;
+        var it = { id: r.id, label: r.label, time: r.time, meta: r.meta, onSelect: noop,
+          dataset: r.pending ? { id: r.id, pending: 'true' } : { id: r.id } };
+        if (r.badge) it.badges = [r.badge];
+        if (!r.pending) it.action = { label: 'Delete chat: ' + r.label, icon: 'trash', onClick: onDelete };
+        items.push(it);
+      }
+      if (items.length) groups.push({ id: order[g], label: order[g], items: items });
+    }
+    return groups;
+  }
 
   var AGENT_NAMES = [
     'Archivist', 'Billing helper', 'Brainstormer', 'Calendar keeper', 'Changelog writer',
@@ -140,12 +174,32 @@
       });
       pane.appendChild(column('list', [library.el]));
       pane.appendChild(toGroup);
+
+      var rows = CHATS.slice();
+      var chats = null;
+      function onDelete(item, actionEl, li) {
+        App.confirmDelete(li, function () {
+          rows = rows.filter(function (r) { return r.id !== item.id; });
+          chats.setItems(chatGroups(rows, onDelete));
+        });
+      }
+      chats = ui.listPane({
+        title: 'Chats (' + theme + ')',
+        rowStyle: 'chats',
+        block: ui.button({ label: 'New chat', variant: 'primary', size: 'lg', icon: 'square-pen' }),
+        selectedId: 'c-pending',
+        groups: chatGroups(rows, onDelete)
+      });
+      pane.appendChild(column('list', [chats.el]));
     });
 
     // App.ui.rail: a non-routing demo. Every href is the in-page skip target
     // (#main-content, which the link interceptor leaves to the browser), the
     // second item is shown current statically, and the brand image carries
-    // its accessible name.
+    // its accessible name. M25 F4 L7: the `footer` slot holds a 44px ghost
+    // icon-only button pinned to the bottom (the shell's Jump to control);
+    // here it does nothing. The rail stands in a 360px frame so the pinning
+    // shows.
     d.demo(host, 'rail', function (pane, theme) {
       var rail = ui.rail({
         label: 'Rail demo (' + theme + ')',
@@ -156,8 +210,10 @@
           { id: 'agents', label: 'Agents', icon: 'studio', href: '#main-content' },
           { id: 'library', label: 'Library', icon: 'database', href: '#main-content' },
           { id: 'settings', label: 'Settings', icon: 'admin', href: '#main-content' }
-        ]
+        ],
+        footer: [ui.button({ variant: 'ghost', icon: 'search', iconOnly: true, ariaLabel: 'Jump to (demo)' })]
       });
+      rail.el.style.height = '360px';
       pane.appendChild(d.row([rail.el]));
     });
 

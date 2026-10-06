@@ -18,6 +18,11 @@
   // every other destination to its last route (clicking it restores the item
   // the user left). First-boot hrefs need no special case: lastRoute() falls
   // back to the destination root.
+  //
+  // The rail's footer (M25 F4 L7, DD9) holds the Jump to control, built here
+  // BEFORE App.ui.rail() and passed as its `footer`; onCommit never touches
+  // it. Its click opens the palette (App.jumpTo, jump-to.js) with the control
+  // as the opener; App.jumpTo is looked up at click time.
   function mountRail() {
     var host = document.getElementById('app-rail');
     var dests = App.router.destinations;
@@ -31,9 +36,22 @@
         testid: 'rail-' + dests[i].id
       });
     }
+    var keys = jumpToKeys(isMacPlatform());
+    var jumpTo = App.ui.button({
+      variant: 'ghost',
+      icon: 'search',
+      iconOnly: true,
+      ariaLabel: 'Jump to (' + keys.hint + ')',
+      testid: 'rail-jump-to',
+      onClick: function () {
+        if (App.jumpTo && typeof App.jumpTo.open === 'function') App.jumpTo.open(jumpTo);
+      }
+    });
+    jumpTo.setAttribute('aria-keyshortcuts', keys.aria);
     var rail = App.ui.rail({
       items: items,
-      brand: { src: '/static/brand/topbar-icon-24.png', alt: 'GleepGlorp AI' }
+      brand: { src: '/static/brand/topbar-icon-24.png', alt: 'GleepGlorp AI' },
+      footer: [jumpTo]
     });
     host.textContent = '';
     host.appendChild(rail.el);
@@ -44,6 +62,72 @@
         rail.setHref(dests[k].id, '#' + route);
       }
     });
+  }
+
+  // ── Ctrl K: the jump-to shortcut (M25 F4 L7, flight DD9) ────────────────
+  //
+  // isMacPlatform(nav): pure (nav defaults to window.navigator). The platform
+  // from navigator.userAgentData.platform, else navigator.platform, matched
+  // against /mac|iphone|ipad/i.
+  function isMacPlatform(nav) {
+    if (nav === undefined) nav = window.navigator;
+    if (!nav) return false;
+    var platform = '';
+    if (nav.userAgentData && nav.userAgentData.platform) platform = nav.userAgentData.platform;
+    else if (nav.platform) platform = nav.platform;
+    return /mac|iphone|ipad/i.test(String(platform));
+  }
+
+  // isJumpToKey(e, mac): pure. On macOS only Meta+K (Ctrl+K is kill-line in
+  // Cocoa text fields); elsewhere only Ctrl+K without Meta. Never with Shift
+  // or Alt. The key matches by `key` (any case: Caps Lock) or by `code`
+  // (KeyK: a non-Latin layout).
+  function isJumpToKey(e, mac) {
+    if (!e || e.shiftKey || e.altKey) return false;
+    if (mac ? !(e.metaKey && !e.ctrlKey) : !(e.ctrlKey && !e.metaKey)) return false;
+    var key = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+    return key === 'k' || e.code === 'KeyK';
+  }
+
+  // jumpToKeys(mac): the shortcut's copy -- `hint` for visible text and the
+  // accessible name ("Ctrl K" / "⌘ K"), `aria` for aria-keyshortcuts.
+  function jumpToKeys(mac) {
+    return mac ? { hint: '\u2318 K', aria: 'Meta+K' } : { hint: 'Ctrl K', aria: 'Control+K' };
+  }
+
+  // The ONE shell-level keydown listener for Ctrl K, on document (library
+  // factories may not install document listeners: Flight 1 DD1). Installed
+  // once per boot, beside the rail mount. app.js loads before the ui/
+  // factories and jump-to.js, so App.ui.modal and App.jumpTo are looked up
+  // at keydown. It works from inside inputs and textareas (Ctrl K is no
+  // text-editing key on Windows or Linux; macOS takes Meta K) and calls
+  // preventDefault on every match (the browser's own Ctrl K never runs over
+  // the app). Then:
+  //   - an IME composition (isComposing, keyCode 229): ignored;
+  //   - the palette open: focus its input;
+  //   - any other modal open (App.ui.modal.anyOpen(): the leave-guard confirm,
+  //     the agent picker): nothing, so the topmost-modal rule holds;
+  //   - else: open the palette with the focused element as its opener.
+  function onJumpToKeydown(e) {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (!isJumpToKey(e, isMacPlatform())) return;
+    e.preventDefault();
+    var palette = App.jumpTo;
+    if (!palette || typeof palette.open !== 'function') return;
+    if (palette.isOpen()) {
+      palette.focusInput();
+      return;
+    }
+    var modal = App.ui && App.ui.modal;
+    if (modal && typeof modal.anyOpen === 'function' && modal.anyOpen()) return;
+    palette.open(document.activeElement);
+  }
+
+  var jumpToKeyInstalled = false;
+  function installJumpToKey() {
+    if (jumpToKeyInstalled) return;
+    jumpToKeyInstalled = true;
+    document.addEventListener('keydown', onJumpToKeydown);
   }
 
   // mountArea: the panel lifecycle only (commit-sequence step 6). The router
@@ -110,6 +194,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     mountRail();
+    installJumpToKey();
     // Boot-block on /api/config so window.App.config is populated before
     // any area.init() runs. Areas read App.config.dev_mode in their init
     // closures (e.g. settings' category list).
@@ -219,5 +304,13 @@
     safeUrl: safeUrl,
     formatBytes: formatBytes,
     showFlash: showFlash,
+    // The Ctrl K shortcut's pure helpers (M25 F4 L7, DD9): the platform
+    // detector, the key matcher and the platform-aware copy, shared with the
+    // jump-to palette's footer and unit-tested in the browser.
+    shortcuts: {
+      isMacPlatform: isMacPlatform,
+      isJumpToKey: isJumpToKey,
+      jumpToKeys: jumpToKeys
+    },
   });
 })();

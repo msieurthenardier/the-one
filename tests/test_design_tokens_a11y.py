@@ -767,7 +767,10 @@ _SURFACE_TRANSLUCENT = {
     "dark": ("#ffffff", 0.03),  # rgba(255,255,255,0.03)
     "light": ("#18181b", 0.03),  # rgba(24,24,27,0.03)
 }
-# Telemetry overlay resting opacity (chat.css .telemetry-overlay { opacity }).
+# Telemetry readout resting opacity (chat.css .telemetry-overlay { opacity }).
+# Since M25 F4 L5 the readout sits in the composer's telemetry row, in the flow
+# over the chat pane's --bg (no longer an absolute overlay); the rule and its
+# 0.7 are unchanged, so the composite over --bg below still describes it.
 _TELEMETRY_RESTING_OPACITY = 0.7
 
 
@@ -962,6 +965,128 @@ def test_providers_tile_rules_consume_the_gated_pairs() -> None:
     assert "background-color: var(--accent-translucent-hover)" in active, active
 
 
+@pytest.mark.parametrize("theme", THEMES)
+def test_search_list_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F4 L1 (AC8, A10): App.ui.searchList sits on a dialog card
+    (--surface). Its active row paints --accent-translucent-hover (not audited as
+    a background before this leg) with an --accent border. Gated, composited
+    over --surface: the --fg label, the --fg-secondary description and the
+    active row's --fg-secondary meta at body AA, and the --accent border at 3:1
+    against both the wash and the card (non-text). At rest: the --fg-secondary
+    description, the --fg-muted meta and the --fg-muted group caption on
+    --surface.
+
+    --fg-muted on the active wash is 3.85:1 dark and 3.92:1 light, below body
+    AA, which is why the description is --fg-secondary throughout (as reference
+    spec 5.6 draws it) and the meta switches to --fg-secondary on the active row
+    (the list-pane selected-row precedent, A24)."""
+    palette = _palette(theme)
+    card = palette["surface"]
+    wash = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_HOVER_ALPHA[theme], card)
+    pairs = {
+        "active label (fg on wash)": (palette["fg"], wash, 4.5),
+        "active description (fg_secondary on wash)": (palette["fg_secondary"], wash, 4.5),
+        "active meta (fg_secondary on wash)": (palette["fg_secondary"], wash, 4.5),
+        "active border (accent vs wash)": (palette["accent"], wash, 3.0),
+        "active border (accent vs card)": (palette["accent"], card, 3.0),
+        "rest label (fg on card)": (palette["fg"], card, 4.5),
+        "rest description (fg_secondary on card)": (palette["fg_secondary"], card, 4.5),
+        "rest meta (fg_muted on card)": (palette["fg_muted"], card, 4.5),
+        "group caption (fg_muted on card)": (palette["fg_muted"], card, 4.5),
+    }
+    for name, (ink, ground, need) in pairs.items():
+        ratio = contrast_ratio(ink, ground)
+        assert ratio >= need, f"{theme} searchList {name} = {ratio:.2f}:1 (need >= {need}:1)"
+
+
+def test_search_list_rules_consume_the_gated_pairs() -> None:
+    """The searchList and chooser CSS paint exactly the pairs gated above, on the
+    dialog card's --surface."""
+    card = " ".join(_rule_bodies("components.css", ".modal-dialog"))
+    assert "background-color: var(--surface)" in card, card
+    active = " ".join(_rule_bodies("components.css", '.ui-search-list-row[aria-selected="true"]'))
+    assert "background: var(--accent-translucent-hover)" in active, active
+    assert "border-color: var(--accent)" in active, active
+    rest = " ".join(_rule_bodies("components.css", ".ui-search-list-row"))
+    assert "border: 1px solid transparent" in rest and "background: transparent" in rest, rest
+    label = " ".join(_rule_bodies("components.css", ".ui-search-list-label"))
+    assert "color: var(--fg)" in label, label
+    desc = " ".join(_rule_bodies("components.css", ".ui-search-list-description"))
+    assert "color: var(--fg-secondary)" in desc, desc
+    meta = " ".join(_rule_bodies("components.css", ".ui-search-list-meta"))
+    assert "color: var(--fg-muted)" in meta, meta
+    active_meta = " ".join(
+        _rule_bodies(
+            "components.css", '.ui-search-list-row[aria-selected="true"] .ui-search-list-meta'
+        )
+    )
+    assert "color: var(--fg-secondary)" in active_meta, active_meta
+    cap = " ".join(_rule_bodies("components.css", ".ui-search-list-caption"))
+    assert "color: var(--fg-muted)" in cap, cap
+    footer = " ".join(_rule_bodies("components.css", ".modal-dialog-chooser .modal-dialog-footer"))
+    assert "color: var(--fg-muted)" in footer, footer
+    assert "font-size: var(--font-size-caption)" in footer, footer
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_chats_row_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F4 L1 (AC13, DD5): a listPane 'chats' row on the aside
+    (--sidebar-bg). Its 11px time is --fg-muted and its 11px meta (the agent
+    name) --fg-secondary at rest; on the selected row's --accent-translucent
+    wash both are --fg-secondary, reusing Flight 1's A24 resolution (--fg-muted
+    on the light selected wash is 4.43:1 over --bg and 4.25:1 over --surface).
+    Also gated: the --fg title on each ground, the hover ground
+    (--surface-elevated), the armed --status-danger title and the action's
+    --fg-secondary icon (3:1 non-text)."""
+    palette = _palette(theme)
+    aside = _sidebar_ground(theme)
+    selected = _alpha_composite(palette["accent"], _ACCENT_TRANSLUCENT_ALPHA[theme], aside)
+    hover = palette["surface_elevated"]
+    pairs = {
+        "time (fg_muted on aside)": (palette["fg_muted"], aside, 4.5),
+        "meta (fg_secondary on aside)": (palette["fg_secondary"], aside, 4.5),
+        "title (fg on aside)": (palette["fg"], aside, 4.5),
+        "selected time (fg_secondary on wash)": (palette["fg_secondary"], selected, 4.5),
+        "selected meta (fg_secondary on wash)": (palette["fg_secondary"], selected, 4.5),
+        "selected title (fg on wash)": (palette["fg"], selected, 4.5),
+        "hover time (fg_muted on surface_elevated)": (palette["fg_muted"], hover, 4.5),
+        "hover meta (fg_secondary on surface_elevated)": (palette["fg_secondary"], hover, 4.5),
+        "armed title (status_danger on aside)": (palette["status_danger"], aside, 4.5),
+        "armed title (status_danger on wash)": (palette["status_danger"], selected, 4.5),
+        "action icon (fg_secondary on hover)": (palette["fg_secondary"], hover, 3.0),
+        "action icon (fg_secondary on wash)": (palette["fg_secondary"], selected, 3.0),
+    }
+    for name, (ink, ground, need) in pairs.items():
+        ratio = contrast_ratio(ink, ground)
+        assert ratio >= need, f"{theme} chats row {name} = {ratio:.2f}:1 (need >= {need}:1)"
+
+
+def test_chats_row_rules_consume_the_gated_pairs() -> None:
+    time = " ".join(_rule_bodies("components.css", ".ui-list-pane-time"))
+    assert "color: var(--fg-muted)" in time and "font-size: var(--font-size-caption)" in time, time
+    meta = " ".join(_rule_bodies("components.css", ".ui-list-pane-style-chats .ui-list-pane-meta"))
+    assert "color: var(--fg-secondary)" in meta and "font-size: var(--font-size-caption)" in meta, (
+        meta
+    )
+    for current in ('"page"', '"true"'):
+        sel = " ".join(
+            _rule_bodies(
+                "components.css", f".ui-list-pane-row[aria-current={current}] .ui-list-pane-time"
+            )
+        )
+        assert "color: var(--fg-secondary)" in sel, (current, sel)
+    hover = " ".join(_rule_bodies("components.css", ".ui-list-pane-row:hover"))
+    assert "background: var(--surface-elevated)" in hover, hover
+    action = " ".join(_rule_bodies("components.css", ".ui-list-pane-action"))
+    assert "color: var(--fg-secondary)" in action and "display: none" in action, action
+    armed = " ".join(
+        _rule_bodies(
+            "components.css", ".ui-list-pane-list > li.confirm-delete [data-confirm-title]"
+        )
+    )
+    assert "color: var(--status-danger)" in armed, armed
+
+
 def _forced_colors_rules(css_file: str) -> str:
     """The text of every ``@media (forced-colors: active)`` block in ``css_file``
     (comments stripped; a block's rules hold no nested braces)."""
@@ -997,6 +1122,14 @@ def _forced_colors_rules(css_file: str) -> str:
         (
             "components.css",
             '.ui-list-pane-styled .ui-list-pane-row[aria-current="true"]',
+            "border-color: Highlight",
+        ),
+        # The searchList active row (M25 F4 L1): the rest border hidden, the
+        # active one Highlight.
+        ("components.css", ".ui-search-list-row", "border-color: Canvas"),
+        (
+            "components.css",
+            '.ui-search-list-row[aria-selected="true"]',
             "border-color: Highlight",
         ),
     ],
@@ -1119,6 +1252,50 @@ def test_telemetry_ghost_value_holds_annotation_floor(theme: str) -> None:
         f"fg_secondary @ {_TELEMETRY_RESTING_OPACITY} opacity on bg = {ratio:.2f}:1 "
         f"(need ≥ 3.0:1)"
     )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_composer_text_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F4 L5 (reference spec 5.5): the composer box is --surface, and every
+    text on it clears body AA, both themes: the textarea's text (--fg), its
+    placeholder and the toolbar's 11px model id (--fg-muted). The pairs are
+    also in the fg-ladder sweep (test_body_text_passes_aa); this names the
+    consumer, so a retune that moves the box off --surface or the model id off
+    --fg-muted has a gate that says what broke."""
+    palette = _palette(theme)
+    pairs = {
+        "text (fg on surface)": (palette["fg"], palette["surface"]),
+        "placeholder and model id (fg_muted on surface)": (palette["fg_muted"], palette["surface"]),
+    }
+    for label, (fg, bg) in pairs.items():
+        ratio = contrast_ratio(fg, bg)
+        assert ratio >= 4.5, f"{theme} composer {label} = {ratio:.2f}:1 (need >= 4.5:1)"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_drawer_text_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F4 L6 (reference spec 5.7, AC16): the agent drawer is --surface, and
+    every text on it clears body AA, both themes: the name, the facts' values
+    and "What it can use" (--fg); the description and the default/deleted note
+    (--fg-secondary); the facts' <dt>, the group labels, the counts and "None"
+    (--fg-muted, 11-12px). The ladder sweep covers the pairs too; this names
+    the consumer, so a retune that moves the drawer off --surface or a role
+    off its token has a gate that says what broke."""
+    palette = _palette(theme)
+    pairs = {
+        "name and values (fg on surface)": (palette["fg"], palette["surface"]),
+        "description and note (fg_secondary on surface)": (
+            palette["fg_secondary"],
+            palette["surface"],
+        ),
+        "dt, group labels, counts and None (fg_muted on surface)": (
+            palette["fg_muted"],
+            palette["surface"],
+        ),
+    }
+    for label, (fg, bg) in pairs.items():
+        ratio = contrast_ratio(fg, bg)
+        assert ratio >= 4.5, f"{theme} drawer {label} = {ratio:.2f}:1 (need >= 4.5:1)"
 
 
 # ---------------------------------------------------------------------------

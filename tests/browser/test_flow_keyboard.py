@@ -1,8 +1,9 @@
 """Keyboard-operability tests (F3 leg 03).
 
-Verifies that all interactive list rows (session-item, agent-item) and the
-Settings nav links (M25 F3 leg 5a), plus their inline action buttons (delete,
-chip-remove), are reachable and activatable via keyboard.
+Verifies that all interactive list rows (the Chats list's chat-row, M25 F4
+leg 4a; agent-item) and the Settings nav links (M25 F3 leg 5a), plus their
+inline action buttons (a chat row's delete, chip-remove), are reachable and
+activatable via keyboard.
 
 Design choices:
 - Session tests use a single auto-created session (WS creates one on load).
@@ -16,31 +17,33 @@ Design choices:
 
 from __future__ import annotations
 
+import re
+
 import pytest
-from browser import _lists, _nav
+from browser import _chats, _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
 def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab into the session-item, press Enter; aria-current becomes 'page'.
+    """Focus the session's row, press Enter; aria-current becomes 'page'.
 
     F2 leg 01 retired the listbox/option roles on the session list (nested
-    interactive elements under role="option" violated WCAG 4.1.2). The row
-    is now <li class="list-item"><button class="session-item">...; the
-    active-session signal is aria-current="page" (as the list and nav controls).
+    interactive elements under role="option" violated WCAG 4.1.2). Since M25
+    F4 leg 4a the row is an App.ui.listPane link (``chat-row``) inside an
+    ``<li>`` beside its delete action; the active-session signal is
+    aria-current="page" (as the list and nav controls).
     """
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
-    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
-    )
+    # Bootstrap a session via the welcome listbox (no auto-create after leg 05);
+    # a start is pending until its first send (M25 F4 L3b).
+    _chats.start_chat(page, app_with_agent.agent_name)
+    _chats.send_first(page, "hello")
 
-    session_item = page.locator(".session-item").first
+    session_item = _chats.chat_row(page, _chats.current_session_id(page))
     expect(session_item).to_be_visible(timeout=5000)
 
     # Focus directly and press Enter
@@ -52,71 +55,110 @@ def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> 
 
 
 @pytest.mark.browser
-def test_session_list_shape(app_with_agent: SeededApp, page: Page) -> None:
-    """Session list is a <nav> landmark; items are <button class="session-item">.
+def test_chats_list_shape(app_with_agent: SeededApp, page: Page) -> None:
+    """The Chats list is an App.ui.listPane: a ``<section>`` labelled by its
+    "Chats" ``<h2>``, recency-group ``<ul>``s of ``<li>``s, each holding the
+    row (a native ``<a href>`` link, ``chat-row``) and, for a session, its
+    sibling delete action (a native ``<button>``, ``chat-row-delete``, named
+    "Delete chat: {title}"). One roving stop: only the stop row's action is
+    tabbable, so Tab goes from the row to its action, then out of the list.
 
-    F2 leg 01: the prior `<div role="listbox">` + `<div role="option">` pair
-    was retired because role="option" forbids nested interactive elements
-    (the sibling delete button). Container is now <nav class="session-list">
-    with bucketed <ul>s of <li class="list-item"><button class="session-item">.
+    M25 F4 L4a replaced ``test_session_list_shape`` (the retired
+    ``<nav class="session-list">`` of ``<button class="session-item">``s).
     """
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
-    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
+    # A start is pending until its first send (M25 F4 L3b).
+    _chats.start_chat(page, app_with_agent.agent_name)
+    sid = _chats.send_first(page, "hello")
+    row = _chats.chat_row(page, sid)
+    expect(row).to_be_visible(timeout=5000)
+    expect(_chats.pending_row(page)).to_have_count(0)
+
+    shape = page.evaluate(
+        """(sid) => {
+          const pane = document.querySelector('[data-testid="chats-list"]');
+          const row = pane.querySelector('[data-testid="chat-row"][data-id="' + sid + '"]');
+          const li = row.parentElement;
+          const act = li.querySelector('[data-testid="chat-row-delete"]');
+          const title = pane.querySelector('h2');
+          return {pane: pane.tagName, labelledBy: pane.getAttribute('aria-labelledby') === title.id,
+                  title: title.textContent, li: li.tagName, ul: li.parentElement.tagName,
+                  row: row.tagName, href: row.getAttribute('href'),
+                  action: act.tagName, actionType: act.type, actionParent: act.parentElement === li,
+                  actionName: act.getAttribute('aria-label'),
+                  rowLabel: row.querySelector('.ui-list-pane-label').textContent};
+        }""",
+        sid,
     )
-    expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
+    assert shape == {
+        "pane": "SECTION",
+        "labelledBy": True,
+        "title": "Chats",
+        "li": "LI",
+        "ul": "UL",
+        "row": "A",
+        "href": _nav.href(f"chats/{_nav.seg(sid)}"),
+        "action": "BUTTON",
+        "actionType": "button",
+        "actionParent": True,
+        "actionName": "Delete chat: " + shape["rowLabel"],
+        "rowLabel": shape["rowLabel"],
+    }, shape
 
-    # Container is a <nav> landmark (no listbox role).
-    session_list = page.locator(".session-list")
-    tag_name = session_list.evaluate("el => el.tagName.toLowerCase()")
-    assert tag_name == "nav", f"session-list must be <nav>, got <{tag_name}>"
-
-    # Each item is a native <button> (no role=option, no custom tabindex).
-    session_item = page.locator(".session-item").first
-    item_tag = session_item.evaluate("el => el.tagName.toLowerCase()")
-    assert item_tag == "button", f".session-item must be <button>, got <{item_tag}>"
+    # Tab from the row reaches its action, then leaves the list.
+    delete_btn = _chats.chat_row_delete(page, sid)
+    expect(delete_btn).to_be_hidden()  # display:none until the <li> has focus
+    row.focus()
+    page.keyboard.press("Tab")
+    expect(delete_btn).to_be_focused()
+    expect(delete_btn).to_be_visible()
+    page.keyboard.press("Tab")
+    assert page.evaluate(
+        "() => !document.querySelector('[data-testid=\"chats-list\"]')"
+        ".contains(document.activeElement)"
+    )
 
 
 @pytest.mark.browser
-def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab from session-item to its sibling .delete button; :focus-within reveals it.
+def test_chat_row_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -> None:
+    """Tab from a chat row to its sibling delete action; :focus-within reveals it.
 
     A display:none element cannot be focused directly. The reveal is driven by
-    Tab from the focused session-button into its sibling delete button under
-    the same <li class="list-item">. Once the delete button has focus, the
-    .list-item's :focus-within fires and display:none becomes display:block.
-    F2 leg 01: the row was restructured from a single <div role="option">
-    holding both the title and the delete button into a sibling button-pair
-    wrapped by an <li class="list-item">; the CSS reveal rule still keys on
-    .list-item, so the affordance behaves identically.
+    Tab from the focused row link into its sibling delete action under the
+    same ``<li>``. Once the action has focus, the ``<li>``'s :focus-within
+    fires and display:none becomes inline-flex. M25 F4 L4a re-pinned
+    ``test_session_delete_keyboard_reveal`` (the retired ``.list-item`` /
+    ``.list-item-delete`` pair) on the Chats list's row action, and adds Enter
+    on the action: it arms the confirm in place.
     """
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
-    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
-    )
-    expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
+    # A start is pending until its first send (M25 F4 L3b).
+    _chats.start_chat(page, app_with_agent.agent_name)
+    sid = _chats.send_first(page, "hello")
+    session_item = _chats.chat_row(page, sid)
+    expect(session_item).to_be_visible(timeout=5000)
 
-    # Delete button is a sibling of .session-item under the row <li>.
-    delete_btn = page.locator(".list-item .list-item-delete").first
+    delete_btn = _chats.chat_row_delete(page, sid)
 
     # Before focus: delete is hidden (display:none)
     expect(delete_btn).to_be_hidden()
 
-    # Focus the session-item button, then Tab once to reach the sibling delete.
-    page.locator(".session-item").first.focus()
+    # Focus the row link, then Tab once to reach the sibling delete.
+    session_item.focus()
     page.keyboard.press("Tab")
 
-    # :focus-within on the wrapping .list-item fires when the delete button
-    # receives focus.
+    # :focus-within on the wrapping <li> fires when the action receives focus.
     expect(delete_btn).to_be_visible()
+    expect(delete_btn).to_be_focused()
+    # Enter arms the two-step confirm on the row's <li> (nothing deleted yet).
+    page.keyboard.press("Enter")
+    li = page.locator("li").filter(has=session_item)
+    expect(li).to_have_class(re.compile(r"\bconfirm-delete\b"))
+    expect(session_item.locator(".ui-list-pane-label")).to_have_text("Confirm delete?")
 
 
 @pytest.mark.browser

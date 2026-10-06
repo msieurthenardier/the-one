@@ -223,7 +223,7 @@ coverage for every remaining surface.
 - [ ] **Settings pages with item editors** (Flight 3): Providers and Built-in tools show a
   table/list in the board with no editor state — define how an item opens while the list
   stays visible, inside Settings' own nav.
-- [ ] **Drawer push vs. overlay** at different widths (Flight 4).
+- [x] **Drawer push vs. overlay** at different widths (Flight 4): resolved by Flight 4 DD7. The drawer pushes the pane at 1280px and wider (open by default), overlays below that (closed by default), and remembers each mode separately. The 1024 overlay covering Send is an open preview question.
 - [ ] **Window chrome mechanism** (Flight 5): Mission 15 reverted frameless custom chrome
   because WebView2 ignored the drag-region CSS. Spike whether WebView2's opt-in
   non-client-region support can be enabled through pywebview (making a goldfinch-style
@@ -263,6 +263,21 @@ history but do not appear in the picker, and their drawer shows no settings link
   `/mission-control:init-project`: methodology files synced, 008–012 applied (flight-end
   review and commit; Service Report section with upstream reporting enabled; Sortie
   artifact; Flight Director paragraph; leg checklist retired), crew customizations kept.
+- [ ] **Ctrl K in WebView2**, carried from Flight 4 DD9 to **Flight 5**.
+  - The jump-to shortcut is a page-level `keydown` listener (one on `document`, in `app.js`).
+  - **WebKitGTK: partially verified (GTK-level key)**, Flight 4 leg 7, 2026-10-05.
+    - **How:** WebKitGTK 2.52.6 on WSLg, through `scripts/webkitgtk_probe.py --press-keys
+      ctrl+k` with the default `event` method: a `Gdk.EventKey` press/release pair through
+      `WebView.event`.
+    - **Result:** with focus in a text input, the page saw a trusted Ctrl+K keydown, the
+      listener prevented it and the palette opened, in both themes.
+    - **Caveat:** `Gtk.test_widget_send_key`, an X `XSendEvent`, never reached the page
+      under XWayland. A GTK-level key proves nothing about what an OS window manager or
+      input method does above GTK.
+  - WebView2 can only be checked in the packaged Windows build: confirm that Ctrl K reaches
+    the page and is not taken by a browser accelerator (the Edge address bar's own Ctrl K
+    included).
+  - Flight 5's scope is window chrome, so it is listed here explicitly.
 
 ## Flights
 
@@ -290,10 +305,16 @@ history but do not appear in the picker, and their drawer shows no settings link
   Settings › Providers to be tiles matching Built-in tools. Flight 3 leg 7
   (`providers-tiles`) delivered that, and its re-runs passed. The full record is in the
   flight log.
-- [ ] Flight 4: **Chats and jump-to** — New chat with the agent picker, cross-agent
+- [x] Flight 4: **Chats and jump-to** — New chat with the agent picker, cross-agent
   history, the agent drawer, removal of the chat agent dropdown and welcome-screen agent
   list; the jump-to palette (sharing the picker's searchable-list control); new
   core-flow behavior specs; sample comparison in both themes.
+  *Landed on 2026-10-06* (PR #220). The operator preview (DD13) was published and not
+  awaited. The close-gate runs passed 96 of 96 checkpoints: `start-a-chat` and
+  `jump-to-palette` in both themes, `workbench-navigation`, `shell-navigation-smoke` and
+  `chat-roundtrip`. The operator then answered the preview. Leg 9 changed the palette's
+  empty query to recent chats, New chat… and recent agents (option C), and its targeted
+  re-run passed. The flight is completed.
 - [ ] Flight 5: **Window chrome** — the WebView2 non-client-region spike; goldfinch-style
   custom chrome if it holds, otherwise a native title bar tinted to the workbench and
   following the theme; first-launch window size that fits the workbench; verified in a

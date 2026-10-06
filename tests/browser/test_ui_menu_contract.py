@@ -2,7 +2,7 @@
 """Engine-parametrized contract tests for ``App.ui.menu`` (M25 F1 L5): the WAI-ARIA
 menu button. Keyboard and mouse steps use real ``keyboard.press`` / ``click``.
 Includes the DD8 menu-inside-dialog checks on the Leg 2 ``_dialog_rule.js`` harness.
-Falls in the ``shared`` browser lane; every test runs in Chromium and WebKit.
+Falls in the ``contracts`` browser lane; every test runs in Chromium and WebKit.
 """
 
 from __future__ import annotations

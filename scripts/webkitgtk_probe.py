@@ -6,14 +6,27 @@ has ``gi`` + WebKit2 4.1; the repo venv has neither. ``gi`` imports live inside
 ``main()`` so the module imports anywhere (and ruff E402 stays quiet).
 
     /usr/bin/python3 scripts/webkitgtk_probe.py \\
-        --url 'http://127.0.0.1:8485/#admin/design-language' \\
+        --url 'http://127.0.0.1:8486/#settings/design-language' \\
         --data-dir /tmp/the-one-probe-scratch \\
         --root-selector '[data-ui-demo]' --theme dark
 
 Safety: this tool authenticates with the long-lived credential in ``--data-dir``.
 It REFUSES port 8484 and the platformdirs default data directory (the operator's
-production instance; squawk 0084). Drive a dev instance instead:
-``THE_ONE_PORT=8485 THE_ONE_DATA_DIR=<scratch> THE_ONE_DEV_MODE=true make up``.
+production instance; squawk 0084), and port 8485 (the Flight Director's preview
+instance, M25 F4 DD13). Drive a dev instance on 8486 or higher instead:
+``THE_ONE_PORT=8486 THE_ONE_DATA_DIR=<scratch> THE_ONE_DEV_MODE=true make up``.
+
+Key injection (M25 F4 L7, DD9): ``--press-keys ctrl+k`` sends a REAL GTK key event
+to the focused WebView after the setup scripts, optionally after focusing
+``--focus-selector`` in the page, then polls ``--assert-selector`` (for example
+``[data-testid=jump-to]``); the resolver then runs over ``--root-selector`` only
+when it matched. ``--key-method event`` (the default) is a ``Gdk.EventKey``
+press/release pair (keyval, modifier state, the keymap's hardware keycode, the
+seat's keyboard) through ``WebView.event``; ``gtk-test`` is
+``Gtk.test_widget_send_key``, an X ``XSendEvent`` that never reached the page under
+WSLg's XWayland (M25 F4 L7). A GTK-level synthetic key proves less than an OS-level
+one, so a pass is reported as ``"partially verified (GTK-level key)"`` in
+``keys.key_verdict``; a miss is ``"unverified"`` and fails the run.
 
 The page is loaded with an ephemeral website data manager (no stale ``?v=``
 cache between runs, squawk 0085) and a pinned, recorded environment. It prints
@@ -35,7 +48,13 @@ from urllib.parse import urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESOLVER_JS = REPO_ROOT / "tests" / "browser" / "_a11y_resolve.js"
 VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
-FORBIDDEN_PORT = 8484
+# Refused ports: the operator's production instance, and the Flight Director's
+# DD13 preview instance (M25 F4 L7). Probe a dev instance on 8486 or higher.
+FORBIDDEN_PORTS = {
+    8484: "the operator's production instance",
+    8485: "the Flight Director's preview instance (M25 F4 DD13)",
+}
+KEY_VERDICT_PASS = "partially verified (GTK-level key)"
 
 
 class ProbeError(Exception):
@@ -70,16 +89,16 @@ def default_data_dir() -> Path:
 
 
 def check_safety(url: str, data_dir: Path, default_dir: Path | None = None) -> None:
-    """Raise ProbeError when ``url`` targets port 8484 or ``data_dir`` is the
-    platformdirs default (compared after ``Path.resolve()``)."""
+    """Raise ProbeError when ``url`` targets port 8484 or 8485 or ``data_dir`` is
+    the platformdirs default (compared after ``Path.resolve()``)."""
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ProbeError(f"--url must be an absolute http(s) URL, got {url!r}")
     port = parts.port or (443 if parts.scheme == "https" else 80)
-    if port == FORBIDDEN_PORT:
+    if port in FORBIDDEN_PORTS:
         raise ProbeError(
-            f"refusing port {FORBIDDEN_PORT}: that is the operator's production instance. "
-            "Use a dev instance (THE_ONE_PORT=8485 + scratch THE_ONE_DATA_DIR)."
+            f"refusing port {port}: that is {FORBIDDEN_PORTS[port]}. "
+            "Use a dev instance on 8486 or higher (THE_ONE_PORT=8486 + scratch THE_ONE_DATA_DIR)."
         )
     target = Path(data_dir).resolve()
     default = default_dir if default_dir is not None else default_data_dir()
@@ -138,8 +157,70 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "completes with true (never a DOM node)."
         ),
     )
+    ap.add_argument(
+        "--press-keys",
+        action="append",
+        default=[],
+        metavar="COMBO",
+        help=(
+            "a key combo sent to the WebView as a real GTK key event after the\n"
+            "setup scripts, e.g. ctrl+k (modifiers: ctrl, shift, alt, super);\n"
+            "repeatable, sent in order"
+        ),
+    )
+    ap.add_argument(
+        "--key-method",
+        choices=("event", "gtk-test"),
+        default="event",
+        help=(
+            "event: a Gdk.EventKey press and release through WebView.event\n"
+            "(default); gtk-test: Gtk.test_widget_send_key (an XSendEvent)"
+        ),
+    )
+    ap.add_argument(
+        "--focus-selector",
+        metavar="CSS",
+        help="focus this element in the page (a text input) before the keys",
+    )
+    ap.add_argument(
+        "--assert-selector",
+        metavar="CSS",
+        help="after the keys, poll until this selector matches (else the run fails)",
+    )
+    ap.add_argument(
+        "--assert-timeout", type=float, default=5.0, help="--assert-selector poll limit, seconds"
+    )
     ap.add_argument("--timeout", type=int, default=60, help="hard timeout, seconds (default 60)")
     return ap.parse_args(argv)
+
+
+_MODIFIER_NAMES = {
+    "ctrl": "CONTROL_MASK",
+    "control": "CONTROL_MASK",
+    "shift": "SHIFT_MASK",
+    "alt": "MOD1_MASK",
+    "super": "SUPER_MASK",
+    "meta": "META_MASK",
+}
+
+
+def parse_key_combo(combo: str) -> tuple[list[str], str]:
+    """``"ctrl+k"`` -> (``["CONTROL_MASK"]``, ``"k"``): the Gdk.ModifierType
+    member names and the Gdk keyval name. Raises ProbeError on a bad combo."""
+    parts = [p.strip() for p in str(combo).split("+")]
+    if not parts or not parts[-1] or any(not p for p in parts):
+        raise ProbeError(f"--press-keys {combo!r}: expected MOD+...+KEY, e.g. ctrl+k")
+    *mods, key = parts
+    names = []
+    for mod in mods:
+        name = _MODIFIER_NAMES.get(mod.lower())
+        if name is None:
+            raise ProbeError(
+                f"--press-keys {combo!r}: unknown modifier {mod!r} "
+                f"(want one of {sorted(_MODIFIER_NAMES)})"
+            )
+        names.append(name)
+    return names, key
 
 
 def load_setup_scripts(paths: list[Path]) -> list[str]:
@@ -159,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         check_safety(args.url, args.data_dir)
         setup_scripts = load_setup_scripts(args.setup_script)
+        combos = [parse_key_combo(c) for c in args.press_keys]
         parts = urlsplit(args.url)
         origin = f"{parts.scheme}://{parts.netloc}"
         handoff_url = mint_handoff_url(origin, args.data_dir)
@@ -171,9 +253,10 @@ def main(argv: list[str] | None = None) -> int:
     import gi  # noqa: PLC0415 - must follow pin_environment()
 
     gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
     gi.require_version("WebKit2", "4.1")
     gi.require_version("JavaScriptCore", "4.1")
-    from gi.repository import GLib, Gtk, WebKit2  # noqa: PLC0415
+    from gi.repository import Gdk, GLib, Gtk, WebKit2  # noqa: PLC0415
 
     if not Gtk.init_check()[0]:
         print("webkitgtk_probe: Gtk could not open a display (WSLg unavailable?)", file=sys.stderr)
@@ -253,9 +336,118 @@ def main(argv: list[str] | None = None) -> int:
         run_js(f"document.querySelectorAll({sel}).length", got)
         return False
 
+    # ── Key injection (M25 F4 L7, DD9) ─────────────────────────────────────
+    def send_key(keyval: int, mods) -> bool:
+        if args.key_method == "gtk-test":
+            return bool(Gtk.test_widget_send_key(view, keyval, mods))
+        display = view.get_display()
+        keymap = Gdk.Keymap.get_for_display(display)
+        found, entries = keymap.get_entries_for_keyval(keyval)
+        if not found or not entries:
+            return False
+        keyboard = display.get_default_seat().get_keyboard()
+        handled = True
+        for etype in (Gdk.EventType.KEY_PRESS, Gdk.EventType.KEY_RELEASE):
+            ev = Gdk.Event.new(etype)
+            ev.key.window = view.get_window()
+            ev.key.send_event = 1
+            ev.key.time = Gdk.CURRENT_TIME
+            ev.key.state = mods
+            ev.key.keyval = keyval
+            ev.key.hardware_keycode = entries[0].keycode
+            ev.key.group = entries[0].group
+            ev.set_device(keyboard)
+            handled = bool(view.event(ev)) and handled
+        return handled
+
+    def press_keys(then) -> None:
+        state["phase"] = "keys"
+        window.present()
+        view.grab_focus()
+        sent = []
+        for names, key in combos:
+            keyval = Gdk.keyval_from_name(key)
+            mods = Gdk.ModifierType(0)
+            for name in names:
+                mods |= getattr(Gdk.ModifierType, name)
+            ok = send_key(keyval, mods) if keyval else False
+            sent.append(
+                {
+                    "combo": "+".join([*(n.split("_")[0].lower() for n in names), key]),
+                    "keyval": keyval,
+                    "sent": ok,
+                }
+            )
+        out["keys"] = {
+            "method": args.key_method,
+            "sent": sent,
+            "webview_has_focus": bool(view.has_focus()),
+        }
+        then()
+
+    def assert_after_keys(then) -> None:
+        sel = json.dumps(args.assert_selector)
+        deadline = GLib.get_monotonic_time() + int(args.assert_timeout * 1_000_000)
+        out.setdefault("keys", {})["assert_selector"] = args.assert_selector
+
+        def check() -> bool:
+            def got(count) -> None:
+                if count:
+                    out["keys"]["assert_found"] = True
+                    then()
+                elif GLib.get_monotonic_time() >= deadline:
+                    out["keys"]["assert_found"] = False
+                    then()
+                else:
+                    GLib.timeout_add(100, check)
+
+            run_js(f"document.querySelectorAll({sel}).length", got)
+            return False
+
+        check()
+
+    def finish_with_report() -> None:
+        run_js("window.__probeReport === undefined ? null : window.__probeReport", on_report)
+
+    def focus_then_keys() -> None:
+        def after_assert() -> None:
+            # The resolver runs only over what the keys opened; a miss ends the
+            # run here (with any setup-script report), never in a hard timeout.
+            if out["keys"].get("assert_found"):
+                poll()
+            else:
+                state["phase"] = "assert"
+                finish_with_report()
+
+        def after_keys() -> None:
+            if args.assert_selector:
+                assert_after_keys(after_assert)
+            else:
+                poll()
+
+        if not combos and not args.assert_selector:
+            poll()
+            return
+        if args.focus_selector:
+            sel = json.dumps(args.focus_selector)
+
+            def focused(result) -> None:
+                out["focus"] = result
+                press_keys(after_keys)
+
+            run_js(
+                f"(function(){{ var el = document.querySelector({sel}); if (!el) return null;"
+                " el.focus(); var a = document.activeElement;"
+                " return {selector: " + sel + ", focused: a === el,"
+                " tag: a ? a.tagName : null}; })()",
+                focused,
+            )
+        else:
+            press_keys(after_keys)
+
     def run_setup(index: int) -> None:
         if index >= len(setup_scripts):
-            poll()
+            focus_then_keys()
             return
         state["phase"] = f"setup-{index + 1}"
 
@@ -299,6 +491,14 @@ def main(argv: list[str] | None = None) -> int:
     view.load_uri(handoff_url)
     Gtk.main()
 
+    if "keys" in out:
+        keys = out["keys"]
+        sent_ok = all(k.get("sent") for k in keys.get("sent", [])) if combos else True
+        found = keys.get("assert_found", True) if args.assert_selector else None
+        if args.assert_selector:
+            keys["key_verdict"] = KEY_VERDICT_PASS if (sent_ok and found) else "unverified"
+            if not found:
+                out["ok"] = False
     if state["error"]:
         out["error"] = state["error"]
         out["ok"] = False

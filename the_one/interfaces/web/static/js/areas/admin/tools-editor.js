@@ -70,37 +70,10 @@
     'fetch_url': { param: 'url', default: 'https://example.com/', label: 'URL' }
   };
 
-  // Local TOOL_CATEGORIES mirror — duplicated from tools-grid.js (which
-  // keeps it module-private). The editor's subtitle reads "{description}
-  // · {category}". A future flight that needs the same map in three
-  // places should extract it into a shared module.
-  //
-  // Squawk 0032: also mirrored a fourth time (different shape) in
-  // studio.js's per-agent Tools tab TOOL_CATEGORIES — see that file's
-  // comment and squawk 0028's Corrective Action. Not unified here.
-  var TOOL_CATEGORIES = {
-    read_file: 'filesystem',
-    write_file: 'filesystem',
-    edit_file: 'filesystem',
-    delete_file: 'filesystem',
-    move_file: 'filesystem',
-    mkdir: 'filesystem',
-    glob: 'filesystem',
-    grep: 'filesystem',
-    list_dir: 'filesystem',
-    shell: 'execution',
-    shell_session_start: 'execution',
-    shell_session_send: 'execution',
-    shell_session_close: 'execution',
-    shell_session_list: 'execution',
-    python_exec: 'execution',
-    http_request: 'web',
-    fetch_url: 'web',
-    download_file: 'web',
-    web_search: 'web',
-    send_to_platform_channel: 'connectors',
-    fetch_channel_history: 'connectors'
-  };
+  // Tool name -> category slug for the editor's subtitle ("{description} ·
+  // {category}"), from the one shared table (static/js/tool-categories.js,
+  // M25 F4 L6, AC9; it replaced this file's copy).
+  var TOOL_CATEGORIES = App.toolCategories.categoryOf;
 
   function renderToolsEditor(container, toolDetail, callbacks) {
     callbacks = callbacks || {};

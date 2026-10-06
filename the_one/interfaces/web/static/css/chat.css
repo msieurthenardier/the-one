@@ -1,108 +1,232 @@
 @layer areas {
   /* === Chat Area: Sidebar === */
-  /* Section headers in the chat sidebar use the shared .section-title
-     quiet-label treatment. The :first-child rule on .section-title kills
-     the default 24px top margin in both #sidebar-header and .session-list,
-     so vertical rhythm is driven by section-title's 12px bottom margin. */
-  .area-chat #sidebar-header { padding: 12px 16px 0 16px; display: flex; flex-direction: column; }
-  .area-chat .sidebar-actions { display: flex; gap: 6px; align-items: center; padding-bottom: 12px; }
-  /* Align the in-list "Chat History" heading to the same 16px indent as
-     "Select Agent" in the sidebar header above. .session-list has 8px
-     parent padding, so 8px self-padding lands the text at 16px from the
-     sidebar's left edge — matching the select dropdown directly above it. */
-  .area-chat .session-list > .section-title { padding: 0 8px; margin-bottom: 4px; }
-  .area-chat .session-group { display: flex; flex-direction: column; }
-  .area-chat .session-group-label { padding: 8px 16px 4px 16px; font-size: var(--font-size-tiny); color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
-  /* F2 leg 01: session rows are now <li class="list-item"> inside a <ul>;
-     strip default UA list shape so each bucket reads as a row stack. */
-  .area-chat .session-group-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
-  /* F2 leg 01: .session-item moved from wrapper <div> to inner <button>.
-     Neutralize UA button styling so the row composes the same as before
-     (the visual chrome lives on the wrapping .list-item). */
-  .area-chat .session-item {
-    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
-    background: transparent; border: none; padding: 0; margin: 0;
-    color: inherit; font: inherit; text-align: left; cursor: pointer;
+  /* M25 F4 L4a (DD5): the Chats list column is an App.ui.listPane (the
+     library's rowStyle 'chats', header block and row actions; see
+     components.css). The sidebar panel is a column with overflow: hidden, so
+     the pane takes the remaining height and only its body scrolls. The
+     retired dropdown header and history list (.session-*, #sidebar-header,
+     .sidebar-actions, .agent-select) took their rules with them. */
+  .sidebar-panel.area-chat > .ui-list-pane { flex: 1; min-height: 0; }
+
+  /* === Agent picker (M25 F4 L4a, reference spec 5.6) === */
+  /* The picker's <dialog> lives under <body>, outside .area-chat, so these
+     rules are not area-scoped. Its card is the App.ui.modal chooser (640 wide
+     at top 72); the body here is the App.ui.searchList: the search field in
+     a 0 20px 12px band, then the list under a hairline, padded 0 12px 12px,
+     the only part that scrolls. The body is capped so the card stays within
+     the board's 720px. */
+  .agent-picker-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 624px;
+    display: flex;
+    flex-direction: column;
   }
-  .area-chat .session-item:focus { outline: none; }
-  .area-chat .session-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-  /* Layout-only: the select's visual chrome comes from the shared
-     .field-select vocabulary (components.css, M17 F3); this rule only
-     sizes it within the sidebar-actions flex row. */
-  .area-chat .agent-select { flex: 1; min-width: 0; }
-  .area-chat .session-list { flex: 1; overflow-y: auto; padding: 8px; }
-  .area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-  .area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .area-chat .session-item-agent { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* M10 F05 L01: platform-bound sessions render a source badge below the
-     agent line. Tokens mirror .session-group-label (uppercase + tiny +
-     tertiary) — the bucket header is the section-scoped analogue; this is
-     the row-scoped one. Sits inside .session-item-text so its width is
-     clipped by the flex column's min-width:0 and the .session-item-title
-     ellipsis behavior is preserved unchanged. Per-platform color theming
-     (session-item-source--{type}) is reserved for future platform-specific
-     visual treatments — F5 ships only the base rule. */
-  .area-chat .session-item-source {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    color: var(--fg-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-top: 2px;
+  .agent-picker-body > .ui-search-list { gap: 0; }
+  .agent-picker-body .ui-search-list-field { padding: 0 20px 12px; }
+  .agent-picker-body .ui-search-list-field .field-input {
+    height: 40px;
+    font-size: var(--font-size-body-lg);
   }
+  .agent-picker-body .ui-search-list-listbox {
+    padding: 0 12px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .agent-picker-body .ui-search-list-empty { border-top: 1px solid var(--border); }
 
   /* === Chat Area: Content === */
-  /* Chrome wraps header/messages/input; toggled with welcome via `hidden`. */
+  /* Chrome wraps the header, the new-chat state, the messages and the
+     composer; toggled with the welcome via `hidden`. */
   .area-chat .chat-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
   .area-chat .chat-chrome[hidden] { display: none; }
-  .area-chat .header { padding: 14px 20px; font-size: var(--font-size-body-sm); color: var(--fg-tertiary); display: flex; align-items: center; gap: 8px; }
-  .area-chat .session-agent-badge { font-size: var(--font-size-h2); font-weight: var(--font-weight-semibold); color: var(--fg); padding: 0; background: transparent; border: none; border-radius: 0; }
-  /* New-chat button: icon-only at rest, expands to the full pill on hover/focus.
-     Pure-CSS animation via max-width + padding transitions; <span> opacity
-     fades in over the same window so the label appears as the pill grows.
-     overflow:hidden clips the label inside the icon-only width so it doesn't
-     spill out before the hover state. */
-  .area-chat .new-chat-header {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  /* M25 F4 L4b (reference spec 5.2): the chat header. 48px (the board's
+     --topbar-h, which the app does not define), a hairline under it, the
+     title an h1 (the page's one h1 while a chat is open) at 13px/600 with
+     an ellipsis, then "with {agent}" at 12px in --fg-muted (body AA on --bg,
+     gated by test_body_text_passes_aa). Hidden while idle; the [hidden]
+     rule beats the display: flex. The drawer toggle (M25 F4 L6) sits at its end. */
+  .area-chat .chat-header {
+    height: 48px;
     flex-shrink: 0;
-    /* F09-06: first right-side control in the header flexbox — margin-left:auto
-       pushes it to the right edge, leaving the agent badge left. */
-    margin-left: auto;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--space-1);
-    color: var(--accent);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    padding: 4px 8px;
-    max-width: 32px;
-    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px 0 24px;
+    border-bottom: 1px solid var(--border);
+    min-width: 0;
+  }
+  .area-chat .chat-header[hidden] { display: none; }
+  .area-chat .chat-header-title {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
     white-space: nowrap;
-    transition: max-width 0.2s ease, padding 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .area-chat .new-chat-header svg { width: 16px; height: 16px; flex-shrink: 0; }
-  .area-chat .new-chat-header span { opacity: 0; transition: opacity 0.15s ease 0.05s; }
-  .area-chat .new-chat-header:hover,
-  .area-chat .new-chat-header:focus-visible {
-    max-width: 200px;
-    padding: 4px 10px;
-    background: var(--accent-translucent-hover);
-    border-color: var(--accent);
+  .area-chat .chat-agent-line {
+    min-width: 0;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .area-chat .new-chat-header:hover span,
-  .area-chat .new-chat-header:focus-visible span { opacity: 1; }
-  .area-chat .new-chat-header:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* M25 F4 L6 (DD7, reference spec 5.2): the drawer toggle at the header's
+     end (btn-ghost btn-icon, 32x32 with the 16px panel-right icon; the board
+     renders it unsquared at 42x32). The ghost button's display would defeat
+     [hidden] (no chat view, no toggle). */
+  .area-chat .chat-header .chat-drawer-toggle { margin-left: auto; flex-shrink: 0; }
+  .area-chat .chat-header .chat-drawer-toggle[hidden] { display: none; }
+  /* Below 1280px the open drawer overlays the chat pane from the top (z-index
+     10), header included, and the reference draws no close control inside
+     it: the toggle stays ABOVE the overlay, so a pointer user can always
+     close it. It then sits in the drawer header's right corner (the main
+     pane's right edge is the drawer's), which the overlay's header keeps
+     clear: 16px + the 32px toggle + 8px. */
+  .area-chat .chat-header .chat-drawer-toggle { position: relative; z-index: 11; }
+  #chat-drawer.ui-drawer--overlay .ui-drawer-header { padding-right: 56px; }
 
-  /* Telemetry overlay — hover/focus expands details, lifts opacity to 1. */
+  /* === The agent drawer's content (M25 F4 L6; DD7, A13, A20, A21;
+     reference spec 5.7) ===
+     The drawer is the shell slot #chat-drawer, outside .area-chat, so these
+     rules are not area-scoped. The App.ui.drawer factory draws the frame
+     (components.css); here: the header's name (13px/600, ellipsis) and the
+     provider-type badge, then the body column (16px gaps): the description
+     (12px, --fg-secondary), the facts grid (12px; dt --fg-muted, dd --fg,
+     Model in mono), and "What it can use" (a 12px/600 h3, then each group's
+     11px --fg-muted h4 label over its list; meta and "None" in --fg-muted).
+     Every pair is body AA on --surface (test_drawer_text_pairs_pass_body_aa).
+     The badge's inline-block display would defeat [hidden]. */
+  .chat-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .chat-drawer-head [hidden] { display: none; }
+  .chat-drawer-name {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chat-drawer-head .badge { flex-shrink: 0; }
+  .chat-drawer-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    font-size: var(--font-size-body-sm);
+    line-height: var(--line-height-normal);
+    color: var(--fg);
+  }
+  .chat-drawer-description,
+  .chat-drawer-note {
+    margin: 0;
+    color: var(--fg-secondary);
+    overflow-wrap: anywhere;
+  }
+  .chat-drawer-facts {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 16px;
+    margin: 0;
+  }
+  .chat-drawer-facts dt { color: var(--fg-muted); }
+  .chat-drawer-facts dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+  .chat-drawer-mono { font-family: var(--font-family-mono); }
+  .chat-drawer-uses { display: flex; flex-direction: column; gap: var(--space-3); }
+  .chat-drawer-uses-title {
+    margin: 0;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .chat-drawer-group { display: flex; flex-direction: column; gap: var(--space-1); }
+  .chat-drawer-group-label {
+    margin: 0;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-muted);
+  }
+  .chat-drawer-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .chat-drawer-list li { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+  .chat-drawer-item-name { min-width: 0; overflow-wrap: anywhere; }
+  .chat-drawer-item-meta { flex-shrink: 0; color: var(--fg-muted); }
+  .chat-drawer-none,
+  .chat-drawer-value { margin: 0; }
+  .chat-drawer-none { color: var(--fg-muted); }
+
+  /* M25 F4 L4b (reference spec 5.4): the new-chat state, shown only while a
+     chat is pending. Centred on both axes, padded 24px, an inner column at
+     most 480px wide with 8px gaps and centred text: the model badge, the
+     agent name (h2, 18px/600), the description (14px, --fg-secondary) and
+     "Pick a different agent" (btn-ghost btn-sm, 8px above). [hidden] beats
+     the badge's and the button's own display. While pending the chrome
+     carries .chat-chrome--new: the message log shrinks to its notices (a
+     start failure's error, the /reset notice), zero height when empty, so
+     they show in the pending pane under the new-chat state. */
+  .area-chat .chat-new-state {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .area-chat .chat-new-state[hidden],
+  .area-chat .chat-new-state [hidden] { display: none; }
+  .area-chat .chat-new-state-inner {
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+  }
+  .area-chat .chat-new-state-agent {
+    margin: 4px 0 0;
+    font-size: var(--font-size-h1);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .area-chat .chat-new-state-description {
+    margin: 0;
+    font-size: var(--font-size-body-lg);
+    line-height: var(--line-height-normal);
+    color: var(--fg-secondary);
+  }
+  .area-chat .chat-new-state-pick { margin-top: 8px; }
+  .area-chat .chat-chrome--new .messages { flex: 0 1 auto; }
+  .area-chat .chat-chrome--new .messages:empty { padding: 0; }
+
+  /* The telemetry readout — hover/focus expands details, lifts opacity to 1.
+     M25 F4 L5 (reference spec 5.3, DD6): no longer an absolute overlay; it
+     sits in the composer's telemetry row (.composer-telemetry, below), in the
+     flow, and keeps its historical .telemetry-overlay class (telemetry-
+     overlay.js and the tests query it). */
   /* F2 Leg 2 (A.8): bump default opacity 0.4 → 0.7 so the resting state
-     of the telemetry overlay is still legible without hover/focus. */
-  .area-chat .telemetry-overlay { position: absolute; right: 20px; bottom: 76px; display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.7; transition: opacity 0.25s ease; z-index: 1; }
+     of the telemetry overlay is still legible without hover/focus. The 0.7
+     is pinned by tests/test_design_tokens_a11y.py
+     (_TELEMETRY_RESTING_OPACITY, the ghost over --bg). */
+  .area-chat .telemetry-overlay { display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.7; transition: opacity 0.25s ease; }
   .area-chat .telemetry-overlay:hover,
   .area-chat .telemetry-overlay:focus-within { opacity: 1; }
   .area-chat .telemetry-overlay:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
@@ -384,33 +508,93 @@
   }
   /* Two-step delete confirm state on session items lifted to components.css
      in F5 leg 02 as the canonical .list-item.confirm-delete rule. */
-  /* Input area — M17 F4 L03: composer controls consume the v3 vocabulary. The
-     input adopts .field-input (chat.js) — retiring the prior bespoke body-lg
-     input for form-control consistency; .field-input already carries flex:1 +
-     the quiet surface + hairline + pinned focus, so no chat-specific input rule
-     remains. align-items:center vertically centers the ~33px input against the
-     32px vocabulary buttons (Send = .btn-filled-primary, Stop =
-     .btn-muted-destructive). */
-  .area-chat .input-area { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
-  /* F7 L04 / M17 F4 L03: stop button consumes the .btn-muted-destructive
-     vocabulary (soft-danger fill + muted-danger border + danger ink) directly —
-     no per-area variant. It stays first-class + keyboard-operable + pinned-focus
-     via the primitive. The soft-danger fill + danger ink is exactly the pair
-     gated by test_danger_text_on_soft_fill_passes_body_aa (body AA, both themes).
-     Re-assert [hidden] because the primitive's display:inline-flex overrides the
-     UA [hidden]{display:none} — the JS toggles `hidden` via isCurrentBusy(). */
-  .area-chat .input-area .btn-muted-destructive[hidden] { display: none; }
+  /* === Chat Area: Composer (M25 F4 L5; reference spec 5.3, 5.5; DD6, A25) ===
+     .composer is the wrapper under the message log (areas/chat/composer.js):
+     the telemetry row, the staged-image chicklets and their status, the
+     queued-message region, then the box. The chicklets and the queued chip
+     share the box's 760px column, so they read as part of it. */
+  .area-chat .composer { flex-shrink: 0; padding: 12px 24px 20px; }
+  /* The telemetry row (5.3): flex-end, shown only while a chat is joined
+     (chat.js toggles `hidden`; 5.4: no telemetry in the new-chat state). The
+     board draws it as a `0 24px` row outside the composer wrapper; inside it,
+     the wrapper's own 24px side padding is that inset, so the readout's right
+     edge still sits 24px from the pane's. */
+  .area-chat .composer-telemetry { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+  .area-chat .composer-telemetry[hidden] { display: none; }
+  .area-chat .chat-attachments { flex-wrap: wrap; gap: 6px; max-width: 760px; margin: 0 auto 6px; }
+  /* The box (5.5). Its textarea has `outline: none`, so the focus indicator
+     moves here (A25): the app's pinned ring on :focus-within, shown while the
+     textarea or a toolbar button has focus. A disabled textarea cannot take
+     focus, so it shows none. position: relative keeps the visually hidden
+     label's absolute box inside it. */
+  .area-chat .composer-box {
+    position: relative;
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+  }
+  .area-chat .composer-box:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Two rows at rest; composer.fit() grows it to its content up to about
+     eight lines (1.5 x 8em at 14px = 168px), then it scrolls, so a long draft
+     never pushes the message log out. */
+  .area-chat .composer-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    resize: none;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: var(--font-size-body-lg);
+    line-height: var(--line-height-normal);
+    max-height: calc(var(--line-height-normal) * 8em);
+    overflow-y: auto;
+    outline: none;
+  }
+  /* --fg-muted on the box's --surface: body AA, both themes
+     (test_composer_text_pairs_pass_body_aa). */
+  .area-chat .composer-input::placeholder { color: var(--fg-muted); opacity: 1; }
+  .area-chat .composer-input:disabled { cursor: not-allowed; }
+  .area-chat .composer-toolbar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* The agent's model id: 11px mono in --fg-muted (body AA on --surface,
+     test_composer_text_pairs_pass_body_aa); a long id ellipsizes. */
+  .area-chat .composer-model {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+  }
+  /* Send sits at the end (margin-left: auto). While a turn runs, Stop shows
+     just before it, so Stop takes the auto margin and Send follows it. */
+  .area-chat .composer-toolbar .composer-send { margin-left: auto; }
+  .area-chat .composer-toolbar .composer-stop { margin-left: auto; }
+  .area-chat .composer-toolbar .composer-stop:not([hidden]) + .composer-send { margin-left: 0; }
+  /* F7 L04 / M17 F4 L03: Stop consumes the .btn-muted-destructive vocabulary
+     directly — no per-area variant; first-class, keyboard-operable and
+     pinned-focus via the primitive. Re-assert [hidden] because the
+     primitive's display:inline-flex overrides the UA [hidden]{display:none} —
+     the JS toggles `hidden` via isCurrentBusy(). */
+  .area-chat .composer-toolbar .btn-muted-destructive[hidden] { display: none; }
   /* F09-04: pending-queued chip — a CLIENT-HELD message waiting for the
      running turn to finish (it is NOT sent to the backend until the prior
-     turn's `done`). Pinned in its own region directly above the composer
+     turn's `done`). Pinned in its own region directly above the composer box
      (outside the scrolling .messages list) so it can't scroll away, with a
-     keyboard-accessible cancel (×) control to discard the held message. */
-  /* M17 F4 L03: stack the transient queued-message region (and its interactive
-     × cancel button) ABOVE the passive telemetry HUD (.telemetry-overlay,
-     z-index:1) — the two can spatially collide in the composer zone, and an
-     interactive affordance must always win pointer events over a decorative
-     readout regardless of exact composer height. */
-  .area-chat .pending-queued-region { padding: 8px 20px 0; position: relative; z-index: 2; }
+     keyboard-accessible cancel (×) control to discard the held message. The
+     telemetry readout is in the flow since M25 F4 L5, so the region no longer
+     needs to stack above it. */
+  .area-chat .pending-queued-region { max-width: 760px; margin: 0 auto 8px; }
   .area-chat .pending-queued-region[hidden] { display: none; }
   .area-chat .pending-queued-chip { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-radius: 8px; border: 1px dashed var(--border); background: var(--surface-elevated); color: var(--fg-muted); opacity: 0.95; }
   .area-chat .pending-queued-chip .pending-queued-label { font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-secondary); flex-shrink: 0; }
@@ -425,12 +609,11 @@
   .area-chat .chat-welcome-inner { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; }
   .area-chat .chat-welcome-greeting { font-size: var(--font-size-display); font-weight: var(--font-weight-bold); color: var(--fg); margin: 0; letter-spacing: -0.02em; }
   .area-chat .chat-welcome-prompt { font-size: var(--font-size-body-lg); color: var(--fg-secondary); margin: 0 0 20px 0; line-height: var(--line-height-normal); }
-  .area-chat .chat-welcome-list { display: flex; flex-direction: column; gap: 6px; }
-  .area-chat .chat-welcome-item { padding: 14px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-translucent); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color 0.15s, background 0.15s; }
-  .area-chat .chat-welcome-item:hover { border-color: var(--accent); background-color: var(--accent-translucent); }
-  .area-chat .chat-welcome-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .area-chat .chat-welcome-item-name { font-size: var(--font-size-body-lg); font-weight: var(--font-weight-semibold); }
-  .area-chat .chat-welcome-item-meta { font-size: var(--font-size-caption); color: var(--fg-muted); font-family: var(--font-family-mono); }
+  /* M25 F4 L4b (DD3): the empty state's New chat (setup complete). The
+     retired agent list (.chat-welcome-list, .chat-welcome-item) took its
+     rules with it; the agent picker replaces it. */
+  .area-chat .chat-welcome-actions { display: flex; }
+  .area-chat .chat-welcome-actions[hidden] { display: none; }
   /* Setup-incomplete guidance line — inline links deep-link to Settings / Studio. */
   .area-chat .chat-welcome-guidance { margin: 0; padding: 4px 0; color: var(--fg-secondary); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); }
   .area-chat .chat-welcome-link { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s ease; }
@@ -447,18 +630,6 @@
     -webkit-user-drag: none;
   }
 
-  /* Session-list empty state — sibling-aligned to the section title, visually
-     quiet so it cannot be confused with a session item. Uses --fg-secondary
-     (not --fg-muted) because --fg-muted fails WCAG AA in the light theme
-     against --sidebar-bg (#cbd5e1): #64748b on #cbd5e1 yields ~3.1:1 which
-     is below the 4.5:1 body-text threshold. --fg-secondary (#334155 light,
-     #888888 dark) passes AA in both themes (~6.8:1 light, ~5.6:1 dark). */
-  .area-chat .session-list-empty {
-    padding: 8px 16px;
-    color: var(--fg-secondary);
-    font-size: var(--font-size-body-sm);
-    font-style: italic;
-  }
   /* M11 F9 L4: pending-approval banner. Renders as a left-aligned message
      bubble (parallel to .msg-from-peer at line 139) with an accent-colored
      border to distinguish it from regular user/assistant bubbles. The

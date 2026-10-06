@@ -10,7 +10,7 @@ rather than every test that opens an item:
 * ``open_item(page, dest, name)`` -- click that row and wait until the item is
   open (its route, or the editor title where the item has no route yet).
 
-*dest* names a list as a new-scheme route (see ``_nav``): ``"agents"``,
+*dest* names a list as a new-scheme route (see ``_nav``): ``"chats"``, ``"agents"``,
 ``"library/knowledge"``, ``"library/mcp"``, ``"library/connectors"``,
 ``"settings/providers"`` or ``"settings/tools"``.  Rows are found through the
 testids every surface keeps (``agent-item``, ``knowledge-base-card``,
@@ -89,6 +89,14 @@ target, its toggle never navigates):
 * ``open_tool(page, name)`` -- select the tool's category tab, then open it;
 * ``tool_toggle(page, name)`` -- the tool tile's enable switch.
 
+Chats (Flight 4 leg 4a) is a list column too (``App.ui.listPane``, testid
+``chats-list``): ``list_row(page, "chats", title)`` is the session row whose
+title is exactly *title* (``chat-row`` with a ``data-id``; never the pending
+chat's row), and ``open_item(page, "chats", title)`` clicks it and waits for its
+``#chats/{id}`` route.  Sessions are found by id through
+``tests/browser/_chats.py`` (``chat_row``, ``open_chat``), which also waits
+for the join; use this list when a test names a chat by its title.
+
 The retired selectors are fenced by the AST guard in ``tests/test_nav_helper.py``
 (``RETIRED_SELECTORS``, ``test_no_retired_selectors_in_browser_tests``): no
 browser test and no helper module (this one included) may name them.  The
@@ -115,6 +123,7 @@ class _List(NamedTuple):
 
 
 LISTS: dict[str, _List] = {
+    "chats": _List('[data-testid="chat-row"][data-id]', True),
     "agents": _List('[data-testid="agent-item"]', True),
     "library/knowledge": _List('[data-testid="knowledge-base-card"]', True),
     "library/mcp": _List('[data-testid="mcp-source-card"]', True),
@@ -307,8 +316,9 @@ def open_item(page: Page, dest: str, name: str, timeout: float = 8000) -> None:
 
 # ── Settings item pages (leg 5b) ────────────────────────────────────────
 
-# The Built-in tools category tab of each tool (mirrors tools-grid.js's
-# TOOL_CATEGORIES; the tests only open these).
+# The Built-in tools category tab of each tool (mirrors App.toolCategories'
+# categoryOf, static/js/tool-categories.js since M25 F4 L6; the tests only open
+# these).
 TOOL_TABS: dict[str, str] = {
     "read_file": "filesystem",
     "write_file": "filesystem",

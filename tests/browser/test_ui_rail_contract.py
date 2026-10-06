@@ -1,7 +1,7 @@
 # ruff: noqa: E501  (inline JS snippets are evaluated verbatim; wrapping them hurts readability)
 """Engine-parametrized contract tests for ``App.ui.rail`` (M25 F2 L6): the workbench
 rail, plus the global ``.visually-hidden`` utility it ships beside. Keyboard steps use
-real ``keyboard.press``. Falls in the ``shared`` browser lane; every test runs in
+real ``keyboard.press``. Falls in the ``contracts`` browser lane; every test runs in
 Chromium and WebKit.
 """
 
@@ -239,6 +239,163 @@ def test_rail_destroy_unbinds_the_keyboard(engine_page: Page) -> None:
 def test_rail_edge_rules_throw(engine_page: Page, items: str, message: str) -> None:
     _mount(engine_page)
     assert message in _throws(engine_page, f"App.ui.rail({{items: {items}}});")
+
+
+# M25 F4 L7 (DD9, DD14): the footer option takes an array of Nodes only.
+@pytest.mark.parametrize(
+    ("footer", "message"),
+    [
+        ("'x'", "App.ui.rail: footer must be an array of nodes"),
+        ("{}", "App.ui.rail: footer must be an array of nodes"),
+        ("document.createElement('b')", "App.ui.rail: footer must be an array of nodes"),
+        ("[{}]", "App.ui.rail: footer item 0 is not a node"),
+        ("['text']", "App.ui.rail: footer item 0 is not a node"),
+        ("[document.createElement('b'), null]", "App.ui.rail: footer item 1 is not a node"),
+    ],
+)
+def test_rail_footer_edge_rules_throw(engine_page: Page, footer: str, message: str) -> None:
+    _mount(engine_page)
+    items = "[{id: 'a', label: 'A', icon: 'chat', href: '#a'}]"
+    assert message in _throws(engine_page, f"App.ui.rail({{items: {items}, footer: {footer}}});")
+    # An empty array (or none) is no footer at all.
+    assert _throws(engine_page, f"App.ui.rail({{items: {items}, footer: []}});") == ""
+    count = engine_page.evaluate(
+        f"() => App.ui.rail({{items: {items}, footer: []}}).el.querySelectorAll('.ui-rail-footer').length"
+    )
+    assert count == 0
+
+
+# ── the footer slot (M25 F4 L7, DD9, DD14) ──────────────────────────────────
+
+# A footer of a 44px icon-only ghost button (the shell's Jump to shape) and a
+# plain node, both built by the caller; the button counts its own clicks.
+FOOTER_OPTS = """{footer: (() => {
+  window.__footClicks = 0;
+  const b = App.ui.button({variant: 'ghost', icon: 'search', iconOnly: true,
+                           ariaLabel: 'Jump to (test)', testid: 'r-foot',
+                           onClick: () => { window.__footClicks += 1; }});
+  const s = document.createElement('span'); s.textContent = 'v1'; s.setAttribute('data-testid', 'r-foot-note');
+  return [b, s];
+})()}"""
+
+
+def test_rail_footer_is_pinned_to_the_bottom_and_holds_the_nodes(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p, FOOTER_OPTS)
+    out = p.evaluate(
+        """() => {
+          const nav = window.__r.el;
+          nav.style.height = '480px';
+          const footer = nav.lastElementChild, fs = getComputedStyle(footer);
+          const btn = footer.querySelector('[data-testid=r-foot]');
+          const nb = nav.getBoundingClientRect(), fb = footer.getBoundingClientRect(), bb = btn.getBoundingClientRect();
+          const items = Array.from(nav.querySelectorAll('.ui-rail-item'));
+          const lastItem = items[items.length - 1].getBoundingClientRect();
+          const svg = btn.querySelector('svg').getBoundingClientRect();
+          return {
+            cls: footer.className, kids: Array.from(footer.children).map((c) => c.dataset.testid),
+            items: items.length, inFooter: footer.querySelectorAll('.ui-rail-item').length,
+            marginTop: fs.marginTop === 'auto' || parseFloat(fs.marginTop) > 0,
+            gapBelowItems: fb.top - lastItem.bottom,
+            bottomInset: nb.bottom - fb.bottom, btn: [bb.width, bb.height], svg: [svg.width, svg.height],
+            centred: Math.abs((bb.left + bb.right) / 2 - (nb.left + nb.right - 1) / 2) <= 1,
+            cls2: btn.className, tabindex: btn.getAttribute('tabindex'),
+            name: btn.getAttribute('aria-label'), tag: btn.tagName,
+          };
+        }"""
+    )
+    assert out["cls"] == "ui-rail-footer"
+    assert out["kids"] == ["r-foot", "r-foot-note"]  # the caller's nodes, in order
+    assert out["items"] == 4 and out["inFooter"] == 0  # never a rail item
+    # Pinned: the slack sits above it, and the rail's 12px bottom padding below it.
+    assert out["marginTop"] is True and out["gapBelowItems"] > 100, out
+    assert abs(out["bottomInset"] - 12) <= 0.5, out
+    assert out["btn"] == [44, 44] and out["svg"] == [16, 16], out
+    assert out["centred"] is True, out
+    assert out["cls2"] == "btn-ghost btn-icon" and out["tabindex"] is None
+    assert (out["tag"], out["name"]) == ("BUTTON", "Jump to (test)")
+    # The click handler is the caller's, on the node itself.
+    p.get_by_test_id("r-foot").click()
+    assert p.evaluate("() => window.__footClicks") == 1
+
+
+def test_rail_footer_buttons_are_their_own_tab_stops_outside_the_arrows(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p, "Object.assign(" + FOOTER_OPTS + ", {currentId: 'agents'})")
+    p.focus("[data-testid=r-before]")
+    p.keyboard.press("Tab")
+    assert _active(p) == "r-agents"  # the rail's one item stop
+    p.keyboard.press("Tab")
+    assert _active(p) == "r-foot"  # then the footer button, its own stop
+    p.keyboard.press("Tab")
+    assert _active(p) == "r-after"
+    p.keyboard.press("Shift+Tab")
+    assert _active(p) == "r-foot"
+    # The items' roving keys do nothing on a footer button.
+    for key in ("ArrowUp", "ArrowDown", "Home", "End"):
+        p.keyboard.press(key)
+        assert _active(p) == "r-foot", key
+    p.keyboard.press("Shift+Tab")
+    assert _active(p) == "r-agents"
+    # And the arrows never leave the items for the footer: clamped at Settings.
+    p.keyboard.press("End")
+    assert _active(p) == "r-settings"
+    p.keyboard.press("ArrowDown")
+    assert _active(p) == "r-settings"
+    assert (
+        p.evaluate("() => document.querySelector('[data-testid=r-foot]').getAttribute('tabindex')")
+        is None
+    )
+
+
+def test_rail_set_current_and_set_href_never_touch_the_footer(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p, FOOTER_OPTS)
+    before = p.evaluate("() => window.__r.el.querySelector('.ui-rail-footer').outerHTML")
+    p.evaluate(
+        """() => { const r = window.__r; r.setCurrent('library'); r.setHref('library', '#x-elsewhere');
+                    r.setCurrent(null); r.setCurrent('settings'); return true; }"""
+    )
+    p.focus("[data-testid=r-settings]")
+    p.keyboard.press("Home")
+    after = p.evaluate("() => window.__r.el.querySelector('.ui-rail-footer').outerHTML")
+    assert after == before
+    assert p.evaluate("() => window.__r.el.lastElementChild.className") == "ui-rail-footer"
+
+
+def test_rail_with_a_footer_binds_only_its_own_roving_keydown(engine_page: Page) -> None:
+    """No document listener, and nothing bound on the footer's nodes: the
+    only listener the factory adds is the rovingFocus keydown on the nav."""
+    p = engine_page
+    load_harness(p)
+    out = p.evaluate(
+        """() => {
+          const btn = document.createElement('button'); btn.textContent = 'Foot';
+          const seen = [];
+          const orig = EventTarget.prototype.addEventListener;
+          EventTarget.prototype.addEventListener = function (type) {
+            seen.push([this === document ? 'document' : (this.tagName || String(this)), type]);
+            return orig.apply(this, arguments);
+          };
+          let c;
+          try {
+            c = App.ui.rail({items: [{id: 'a', label: 'A', icon: 'chat', href: '#a'}], footer: [btn]});
+            document.getElementById('harness-root').appendChild(c.el);
+            c.setCurrent('a'); c.setHref('a', '#b');
+          } finally {
+            EventTarget.prototype.addEventListener = orig;
+          }
+          c.destroy();
+          return seen;
+        }"""
+    )
+    assert out == [["NAV", "keydown"]]
+
+
+def test_rail_footer_controls_labelled_and_described(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p, "Object.assign(" + FOOTER_OPTS + ", {currentId: 'chats'})")
+    assert_controls_labelled_and_described(p, "[aria-label=Main]")
 
 
 def test_rail_installs_no_document_listener(engine_page: Page) -> None:

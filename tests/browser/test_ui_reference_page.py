@@ -4,7 +4,7 @@ Every ``App.ui`` factory has a ``[data-ui-demo]`` root with a dark and a light p
 panes paint their own theme background; the shared resolver passes over every demo
 root; the menu demo opens and closes by keyboard in the real page. Chromium only: the
 WebKit pass over the same page is the probe in ``scripts/webkitgtk_probe.py``.
-Falls in the ``shared`` browser lane (``app_clean`` spawns with dev mode on).
+Falls in the ``contracts`` browser lane (``app_clean`` spawns with dev mode on).
 """
 
 from __future__ import annotations

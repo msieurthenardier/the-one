@@ -19,12 +19,15 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    /* The agent drawer's overlay mode (below 1280px) is absolutely
+       positioned against the row (M25 F4 L6, DD7). */
+    position: relative;
   }
   #app-rail { display: flex; flex-shrink: 0; min-height: 0; }
 
   /* === Sidebar === */
   #app-sidebar {
-    width: var(--sidebar-w);
+    width: var(--list-w);
     background: var(--sidebar-bg);
     border-right: 1px solid var(--border);
     display: flex;
@@ -36,23 +39,33 @@
   /* The router hides the aside on a destination with no sidebar content; the
      author display above would otherwise defeat [hidden]. */
   #app-sidebar[hidden] { display: none; }
-  /* Design target is >= 1280px (aside 240px). Down to the 1024px supported
-     minimum the aside narrows to 200px; below 1024px is unsupported (body
-     keeps overflow: hidden, so there is no horizontal scroll). */
-  @media (max-width: 1279px) {
-    #app-sidebar { width: 200px; }
-  }
-  /* The router stamps the destination on the aside (applyShell). Agents and
-     Library host a list column, Settings its nav: fixed widths that do not
-     narrow under 1280px (M25 F3 DD1; the detail pane gives up the width).
-     (1,1,0) beats the media rule's (1,0,0) and ties #app-sidebar[hidden], so
-     these rules must never set display, so [hidden] still wins. Chats keeps
-     --sidebar-w. A list column and the Settings nav set their own top padding
-     (sections 3 and 8.1), so the aside's 10px is zeroed where they are the
-     column (Agents, M25 F3 L3; Library, L4a; Settings, L5a). */
+
+  /* === Agent drawer slot (M25 F4 L6, DD7) === */
+  /* <aside id="chat-drawer"> is a static sibling AFTER <main> in the shell
+     row, filled by the chat area through App.ui.drawer (its width, surface,
+     border and push/overlay rules are the factory's .ui-drawer, in
+     components.css) and only ever shown on Chats with a chat open. The same
+     [hidden] re-assert as #app-sidebar's, for the slot before the chat area
+     fills it; once filled, .ui-drawer[hidden] (components layer, which a
+     base-layer rule cannot beat) keeps a hidden drawer out of the row. */
+  #chat-drawer[hidden] { display: none; }
+  /* The router stamps the destination on the aside (applyShell). Chats,
+     Agents and Library host a list column (--list-w, 300px), Settings its nav
+     (--settings-nav-w): fixed widths at every supported width, down to the
+     1024px minimum (M25 F3 DD1; the detail pane gives up the width: 1024 -
+     72 - 300 = 652px). Chats joined them in M25 F4 L4a (DD5); before that it
+     took a 240px --sidebar-w that narrowed to 200px under 1280px, retired
+     with it. Below 1024px is unsupported (body keeps overflow: hidden, so
+     there is no horizontal scroll). (1,1,0) ties #app-sidebar[hidden], so
+     these rules must never set display, so [hidden] still wins. A list
+     column and the Settings nav set their own top padding (sections 3 and
+     8.1), so the aside's 10px is zeroed where they are the column (Agents,
+     M25 F3 L3; Library, L4a; Settings, L5a; Chats, M25 F4 L4a). */
+  #app-sidebar[data-destination="chats"],
   #app-sidebar[data-destination="agents"],
   #app-sidebar[data-destination="library"] { width: var(--list-w); }
   #app-sidebar[data-destination="settings"] { width: var(--settings-nav-w); }
+  #app-sidebar[data-destination="chats"],
   #app-sidebar[data-destination="agents"],
   #app-sidebar[data-destination="library"],
   #app-sidebar[data-destination="settings"] { padding-top: 0; }

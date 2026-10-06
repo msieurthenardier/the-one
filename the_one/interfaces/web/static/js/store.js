@@ -9,6 +9,10 @@
 //                     ?include_agent_surfaces=1 variant is detail-shaped and
 //                     stays a direct fetch.
 //   'connectors'      GET /api/connectors
+//   'sessions'        GET /api/chat/sessions            (M25 F4 L1, DD4)
+//                     rows {id, agent_name, title, created_at, updated_at,
+//                     platform}; the chat area also PRIMES it from every
+//                     WebSocket session_list reply (mapped to that shape).
 //
 //   App.store.get(name, {force})  -> Promise of a COPY of the list.
 //       Joins an in-flight request.  force=true joins an in-flight request
@@ -18,11 +22,20 @@
 //   App.store.peek(name)          -> {value (copy|null), loaded, ok, error}
 //   App.store.invalidate(name)    -> bumps a generation: a request started
 //       earlier is not joined by later gets and never populates the cache.
+//   App.store.prime(name, rows)   -> replaces the value with a copy of rows
+//       pushed from elsewhere (a WebSocket reply): loaded, ok and fresh all
+//       true.  Bumps the generation and clears the in-flight request like
+//       invalidate(), so an older racing get neither overwrites the primed
+//       value nor notifies (its own caller still gets its own data), and a
+//       later get resolves from the primed cache without a fetch.  Then
+//       notifies subscribers with a copy.  An unknown name throws.
 //   App.store.subscribe(name, fn) -> unsubscribe.  fn(copy) after each
-//       successful load, including the first.
+//       successful load or prime, including the first.
 //
 // Freshness: REST is the source of truth; invalidate() is the rebuild
 // trigger; destination activation uses get(..., {force:true}) as the bound.
+// 'sessions' is the exception while Chats is active: the WebSocket is its
+// source (session_list primes it), with no extra REST fetches.
 (function () {
   'use strict';
 
@@ -31,7 +44,8 @@
     providers: '/api/providers',
     'knowledge-bases': '/api/knowledge-bases',
     'mcp-sources': '/api/mcp-sources',
-    connectors: '/api/connectors'
+    connectors: '/api/connectors',
+    sessions: '/api/chat/sessions'
   };
   var cols = {};
 
@@ -86,6 +100,17 @@
     c.gen += 1;
     c.fresh = false;
     c.inflight = null;
+  }
+
+  function prime(name, rows) {
+    var c = col(name);
+    c.gen += 1;
+    c.inflight = null;
+    c.value = copy(rows);
+    c.loaded = true; c.ok = true; c.error = null; c.fresh = true;
+    c.subs.slice().forEach(function (fn) {
+      try { fn(copy(c.value)); } catch (e) { console.error(e); }
+    });
   }
 
   function subscribe(name, fn) {
@@ -154,7 +179,7 @@
   }
 
   window.App = window.App || {};
-  window.App.store = { get: get, peek: peek, invalidate: invalidate, subscribe: subscribe };
+  window.App.store = { get: get, peek: peek, invalidate: invalidate, prime: prime, subscribe: subscribe };
   window.App.usage = {
     providerAgents: providerAgents,
     kbAgents: kbAgents,

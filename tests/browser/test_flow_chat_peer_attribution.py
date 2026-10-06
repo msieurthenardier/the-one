@@ -36,6 +36,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from browser import _chats
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -134,7 +135,7 @@ def test_chat_renders_peer_attribution(
     page.goto(f"{base_url}#chat/sessions/{session_id}")  # legacy URL on purpose (AC6)
 
     # Wait for the chat chrome (deep-link path renders straight into chrome).
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.expect_chat(page, agent_name)
 
     # Wait for messages to render — at least one .msg bubble.
     expect(page.locator(".msg").first).to_be_visible(timeout=5000)

@@ -22,6 +22,14 @@
     }
   }
 
+  function validateFooter(footer) {
+    if (footer === undefined || footer === null) return;
+    if (!Array.isArray(footer)) throw new Error('App.ui.rail: footer must be an array of nodes');
+    for (var i = 0; i < footer.length; i++) {
+      if (!footer[i] || !footer[i].nodeType) throw new Error('App.ui.rail: footer item ' + i + ' is not a node');
+    }
+  }
+
   // App.ui.rail(opts) -> controller {el, setCurrent(id), setHref(id, href), destroy()}.
   // The workbench rail (M25 F2 L6, DD7): a <nav aria-label="Main"> holding an
   // optional brand mark and one link per destination.
@@ -31,6 +39,13 @@
   //   brand: {src, alt} - a 24px image shown first, named by alt
   //   label: the landmark name (default "Main"; a demo passes its own so the
   //   page never holds two landmarks with one name)
+  //   footer: an array of Nodes (M25 F4 L7, DD9, DD14): the bottom action
+  //   slot, a .ui-rail-footer pinned to the bottom of the rail (margin-top:
+  //   auto), holding the nodes in order. The caller builds them, handlers
+  //   included (the shell's Jump to button); the rail binds nothing on them.
+  //   They are not .ui-rail-item, so each focusable one is its own Tab stop,
+  //   outside the items' roving ArrowUp/ArrowDown. An icon-only button there
+  //   is a 44px square. setCurrent and setHref never touch the footer.
   // Items are plain <a> links with NO click handler: navigation, guarding and
   // modifier-click passthrough belong to the app's link interceptor. The rail
   // never reads App.router; the shell feeds it hrefs through setHref. It keeps
@@ -39,6 +54,7 @@
   App.ui.rail = function (opts) {
     opts = opts || {};
     validate(opts.items);
+    validateFooter(opts.footer);
     var util = App.ui.util;
     var nodes = {};
     var order = [];
@@ -65,6 +81,10 @@
       nodes[item.id] = link;
       order.push(item.id);
       nav.appendChild(link);
+    }
+
+    if (opts.footer && opts.footer.length) {
+      nav.appendChild(util.el('div', { className: 'ui-rail-footer' }, opts.footer));
     }
 
     var unbind = util.rovingFocus(nav, ITEM_SELECTOR);

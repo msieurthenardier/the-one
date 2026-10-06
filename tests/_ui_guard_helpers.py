@@ -66,11 +66,14 @@ _SETATTR_PARAMETRIC = re.compile(r"setAttribute\(\s*'data-testid'\s*,\s*'([^\"'\
 # ``App.ui`` factory (own options, a nested option object, or a per-item
 # object). ``\b`` excludes ``rowtestid:``; the negative lookahead stops a
 # parametric site (``'prefix-' + x``) also matching as a literal. The char
-# class ``[^"'\n]`` anchors to the value's own quotes.
-_PROP_LITERAL = re.compile(r"\btestid:\s*'([^\"'\n]+)'(?!\s*\+)")
+# class ``[^"'\n]`` anchors to the value's own quotes. M25 F4 L1: a factory
+# option named ``<lower>Testid`` (``App.ui.searchList``'s ``inputTestid`` and
+# ``rowTestid``) is a test id key too, so its values stay registry-visible.
+_TESTID_NAME = r"(?:testid|[a-z]+Testid)"
+_PROP_LITERAL = re.compile(r"\b" + _TESTID_NAME + r":\s*'([^\"'\n]+)'(?!\s*\+)")
 
 # Library parametric: ``testid: 'prefix-' + ...`` (``\s*`` spans a newline).
-_PROP_PARAMETRIC = re.compile(r"\btestid:\s*'([^\"'\n]+)'\s*\+")
+_PROP_PARAMETRIC = re.compile(r"\b" + _TESTID_NAME + r":\s*'([^\"'\n]+)'\s*\+")
 
 # Selector reference: [data-testid="foo"] — used in querySelector strings.
 _SELECTOR_REF = re.compile(r'\[data-testid="([^"\'\n\]]+)"\]')
@@ -123,14 +126,14 @@ def extract_testids(
 # anything else is a silent manual exception, invisible to both directions of
 # the registry diff. The lookbehind excludes ``data-testid`` / ``rowtestid`` /
 # bare ``testid`` parameters; optional quotes catch ``'testid':`` keys.
-_TESTID_KEY = re.compile(r"(?<![\w-])['\"]?testid['\"]?\s*:")
+_TESTID_KEY = re.compile(r"(?<![\w-])['\"]?" + _TESTID_NAME + r"['\"]?\s*:")
 
 # Outside ui/: a single-quoted literal ending at , } ) or end of line, or a
 # single-quoted ``'prefix' +`` concatenation (the + may start the next line).
 _VALUE_LITERAL = re.compile(r"'[^\"'\n]+'(?:[ \t]*(?:[,})]|$)|\s*\+)", re.MULTILINE)
 
-# Inside ui/: forwarding only, ``<identifier-chain>.testid``.
-_VALUE_FORWARD = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.testid\b")
+# Inside ui/: forwarding only, ``<identifier-chain>.testid`` (or ``.<lower>Testid``).
+_VALUE_FORWARD = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\." + _TESTID_NAME + r"\b")
 
 
 def find_testid_value_violations(js_dir: Path = JS_DIR) -> list[tuple[str, int, str]]:

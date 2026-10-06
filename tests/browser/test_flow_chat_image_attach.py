@@ -38,6 +38,7 @@ from __future__ import annotations
 import base64
 
 import pytest
+from browser import _chats
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -77,8 +78,7 @@ def test_chat_image_attach_with_text_renders_indicator(
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page)
 
@@ -91,8 +91,7 @@ def test_chat_image_attach_with_text_renders_indicator(
     thumb_src = chips.nth(0).locator("img").get_attribute("src")
     assert thumb_src is not None and thumb_src.startswith("data:image/png;base64,")
 
-    page.locator('[data-testid="chat-input"]').fill("what is in this image?")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "what is in this image?")
 
     user_msg = page.locator('[data-testid="message"].user')
     expect(user_msg).to_have_text("what is in this image? [image]", timeout=5000)
@@ -122,8 +121,7 @@ def test_chat_second_attach_appends_chicklet(app_with_agent: SeededApp, page: Pa
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
     chips = page.locator('[data-testid="chat-attachment"]')
@@ -151,8 +149,7 @@ def test_chat_attachment_remove_clears_only_that_chicklet(
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
     _attach_and_wait_staged(page, name="second.png")
@@ -192,8 +189,7 @@ def test_chat_attachment_live_region_announces_stage_and_remove(
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     status_el = page.locator('[data-testid="chat-attachments-status"]')
     expect(status_el).to_have_attribute("aria-live", "polite")
@@ -228,8 +224,7 @@ def test_chat_staged_images_have_distinct_accessible_names(
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
     _attach_and_wait_staged(page, name="second.png")
@@ -268,8 +263,7 @@ def test_chat_two_images_send_includes_both_and_omits_empty_text(
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
     _attach_and_wait_staged(page, name="second.png")
@@ -304,8 +298,7 @@ def test_chat_attach_over_count_caps_at_max_and_notices(
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     files = [_png_file(name=f"img{i}.png") for i in range(11)]
     image_input = page.locator('[data-testid="chat-image-input"]')
@@ -332,8 +325,7 @@ def test_chat_attach_oversized_file_rejected_with_notice(
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     oversized = {
         "name": "huge.png",
@@ -365,11 +357,9 @@ def test_chat_text_only_send_unaffected(app_with_agent: SeededApp, page: Page) -
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("hello")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "hello")
 
     user_msg = page.locator('[data-testid="message"].user')
     expect(user_msg).to_have_text("hello", timeout=5000)

@@ -15,7 +15,7 @@ F5 leg 01 extends this with:
 from __future__ import annotations
 
 import pytest
-from browser import _lists, _nav
+from browser import _chats, _lists, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -64,13 +64,11 @@ def test_hash_routing_chat_session_persists_on_refresh(
 
     # 1. Open #chat. Welcome canvas shows; bootstrap a session.
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
 
-    # 2. session_joined fires; agent badge updates and URL becomes
-    #    #chat/sessions/<id>.
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
-    )
+    # 2. A start is a pending chat (M25 F4 L3b); its first send creates the
+    #    session, whose session_joined updates the badge and the URL.
+    _chats.start_chat(page, app_with_agent.agent_name)
+    _chats.send_first(page, "hello")
 
     # 3. URL should now be #chat/sessions/<id> (set by session_joined handler).
     current_route = _nav.current_route(page)
@@ -81,8 +79,9 @@ def test_hash_routing_chat_session_persists_on_refresh(
     # 4. A session item should be selected in the sidebar.
     # F2 leg 01: active session marker switched from aria-selected="true"
     # (listbox-option semantic) to aria-current="page" (nav-page semantic).
-    selected_item = page.locator('.session-item[aria-current="page"]')
+    selected_item = _chats.chat_row(page, session_id)
     expect(selected_item).to_be_visible(timeout=5000)
+    expect(selected_item).to_have_attribute("aria-current", "page")
 
     # 5. Refresh the page.
     page.reload()
@@ -90,8 +89,9 @@ def test_hash_routing_chat_session_persists_on_refresh(
     # 6. After reload, same session should be selected.
     # The session_joined handler fires after WS reconnects, which updates URL.
     # Wait for the specific session item to be marked selected.
-    restored_item = page.locator(f'.session-item[data-id="{session_id}"][aria-current="page"]')
-    expect(restored_item).to_be_visible(timeout=10000)
+    restored_item = _chats.chat_row(page, session_id)
+    expect(restored_item).to_have_attribute("aria-current", "page", timeout=10000)
+    expect(restored_item).to_be_visible()
 
     # URL should still point to the same session.
     _nav.expect_route(page, f"chats/{_nav.seg(session_id)}")

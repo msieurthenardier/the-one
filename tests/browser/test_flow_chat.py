@@ -12,6 +12,7 @@ Drives a real Chromium session through the chat flow:
 from __future__ import annotations
 
 import pytest
+from browser import _chats
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -26,12 +27,10 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
 
     # 2. Welcome canvas shows because no sessions exist yet (leg-05 removed
     #    auto-create-on-load). Pick the seeded agent to bootstrap a session.
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
     # 3-4. Type and send.
-    page.locator('[data-testid="chat-input"]').fill("hello")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "hello")
 
     # 5. User message renders.
     user_msg = page.locator('[data-testid="message"].user')
@@ -54,19 +53,25 @@ def test_chat_message_log_has_live_region(app_with_agent: SeededApp, page: Page)
 
     Acceptance criteria from missions/06-maintenance/.../02-chat-a11y-baseline.md:
     - <div class="messages"> has role="log" + aria-live="polite"
-    - the chat input has an accessible name (aria-label="Message")
+    - the chat input has an accessible name ("Message"; since M25 F4 L5 from
+      a visually hidden <label for>, not aria-label)
     """
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
+    # M25 F4 L4b: a pending chat shows the new-chat state; its log is in the
+    # tree (zero height until it holds a notice), so the live region exists
+    # before anything is announced. It shows once the first send lands.
     log = page.locator("[role='log']")
-    expect(log).to_be_visible()
+    expect(log).to_be_attached()
     assert log.get_attribute("aria-live") == "polite"
     assert log.get_attribute("aria-relevant") == "additions"
+    _chats.send_first(page, "hello")
+    expect(log).to_be_visible()
 
     chat_input = page.locator('[data-testid="chat-input"]')
-    assert chat_input.get_attribute("aria-label") == "Message"
+    expect(chat_input).to_have_accessible_name("Message")
+    assert chat_input.get_attribute("aria-label") is None

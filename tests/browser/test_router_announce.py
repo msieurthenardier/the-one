@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser import _lists, _nav
+from browser import _chats, _lists, _nav
 from browser._credential_registry import auth_headers_for
-from browser.seeders import SeededApp
+from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
@@ -373,3 +373,28 @@ def test_other_syncs_never_announce(app_with_agent: SeededApp, page: Page) -> No
         _seed_sentinel(page)
         assert _sync(page, "studio", sub) is True
         _assert_silent(page)
+
+
+def test_new_chat_route_announces_the_agent_and_the_first_send_sync_is_silent(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """M25 F4 leg 3b (AC10): `#chats/~new/{agent}` is titled and announced
+    "New chat with {agent}" (its key names the agent, so a re-pick of another
+    agent announces), and the first send's sync to `chats/{id}` is SILENT.
+    That silence is by construction, not by a special case: the key
+    `chats//~new/{agent}` does not end in `/~new`, so isCreateToItem is false.
+    Pinned because it is an accidental property."""
+    base = app_with_provider.base_url
+    seed_mock_agent(base, app_with_provider.provider_id, name="Alpha")
+    seed_mock_agent(base, app_with_provider.provider_id, name="Beta")
+    _nav.goto_settled(page, base, "chats")
+    title, spoken = _go_and_read(page, "chats/~new/Alpha")
+    assert spoken == "Chats — New chat with Alpha"
+    assert title == f"Chats — New chat with Alpha · {BRAND}"
+    _, spoken = _go_and_read(page, "chats/~new/Beta")  # a re-pick announces
+    assert spoken == "Chats — New chat with Beta"
+    _seed_sentinel(page)
+    sid = _chats.send_first(page, "hello")
+    _nav.expect_route(page, f"chats/{_nav.seg(sid)}")
+    _assert_silent(page)
+    expect(page).to_have_title(f"Chats · {BRAND}")

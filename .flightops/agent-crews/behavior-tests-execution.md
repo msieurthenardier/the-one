@@ -34,6 +34,34 @@ instance on a non-default port with a scratch data directory. If a spec's
 Preconditions don't name one, stop and surface `[BLOCKED:no-dev-instance]`
 rather than guessing or falling back to the default port.
 
+## Run rules (this project)
+
+Six rules the Flight Director used to carry by hand in every spawn prompt (Mission 25
+Flight 2 debrief, recommendation 1; Flight 3 debrief, recommendation 5). The operative text
+is in the Executor and Validator prompts below; this list is the why.
+
+1. **Per-run scratch.** Each run's agents keep their helper scripts and temporary files in
+   their own scratch subdirectory. Concurrent runs once shared one scratchpad, generic
+   script names collided, and two Executors each ran another run's script.
+2. **No unrequested state-changing actions.** An Executor performs exactly the step's
+   Actions. An added "supplementary" full-document load once altered history and forced a
+   re-run; re-opening a dialog to read a colour was disclosed but still unrequested.
+3. **Input-delivery probe first.** Before `[READY]`, the Executor proves its browser
+   apparatus delivers input: a real click (and a real key press) reach a capture-phase
+   listener. goldfinch once passed discovery and then silently stopped delivering input.
+   The project's browser apparatus is a CDP-driven headless Chromium (Mission 25 Flight 3
+   DD12); goldfinch is not used while its input delivery is unverified.
+4. **Resumed by SendMessage.** Both agents are resumed after every step; a step's report or
+   verdict never ends the run. Agents that wrote "this hand-back ends my run" added noise
+   to every message, and one Validator put its closing summary inside a verdict.
+5. **Variants in their own fresh context.** A variant (a theme) is set inside the
+   variant's own fresh browser context, before its first checkpoint. A Light choice made in
+   an earlier context did not carry into the fresh tab step 2 opened, so four Light
+   checkpoints ran on Auto; Chromium also caps `history.length` at 50.
+6. **Toast evidence is a screenshot.** A toast or flash is `position: fixed`, so its
+   `offsetParent` is always null; `offsetParent` (or a `role=status` filter) missed toasts
+   that the screenshots showed.
+
 ## Crew
 
 ### Executor
@@ -124,6 +152,17 @@ parses.
    both return their freeform closing summaries.
 6. Orchestrator composes the run log + surfaces summary to operator.
 
+### Variants and concurrent runs
+
+- **Variants.** A spec's Variants (for example Light and Dark) each run in their own fresh
+  browser context (a new handoff mint). The Executor sets the variant inside that context
+  before the variant's first checkpoint, and the Validator checks the variant is in effect
+  (for a theme: `aria-checked="true"` on the option and `data-theme` on `<html>`) before
+  judging any variant-dependent expectation.
+- **Concurrent runs.** Several specs may run at once, each against its own dev instance.
+  Every agent keeps its files in its own per-run scratch subdirectory
+  (`<scratchpad>/{test-slug}-{run-timestamp}/`), never a shared path or a generic name.
+
 ### Actions-only rows
 
 If row N has no Expected Results (pure setup), the Orchestrator skips
@@ -206,6 +245,47 @@ LIFECYCLE
   {evidence-dir}. Return a structured report. Wait for the next step.
 - At end: I will send `[CLOSING]`. Return your freeform closing
   summary and terminate.
+- YOU ARE RESUMED BY SENDMESSAGE AFTER EACH STEP. Returning a step's
+  report does NOT end your run: do not write a final hand-back, do
+  not say your run is over, and do not ask to be re-spawned. Wait for
+  the next message. Only `[CLOSING]` ends your run.
+
+PROJECT RUN RULES (this project's crew file, "Run rules")
+- SCRATCH: keep every helper script, cookie jar and temporary file in
+  your own per-run scratch subdirectory,
+  `<your scratchpad>/{test-slug}-{run-timestamp}/` (create it). Never
+  write to a shared path or reuse a generic script name: other runs
+  may be executing at the same time.
+- NO UNREQUESTED STATE-CHANGING ACTIONS: perform exactly the step's
+  Actions. Never add a navigation, reload, full-document load, click,
+  key press, dialog open, form edit or API write that the step does
+  not ask for, not even to recapture evidence you missed. Read-only
+  observation (DOM evals, screenshots, accessibility-tree reads, GET
+  requests) is always allowed. If only a state change could get the
+  missing evidence, say so in `executor_notes` instead of doing it.
+- INPUT-DELIVERY PROBE, before `[READY]`: prove your browser apparatus
+  delivers real input. On a throwaway page (`about:blank`, a `data:`
+  URL, or the instance once you hold a session), install capture-phase
+  listeners (`document.addEventListener('click', h, true)` and the same
+  for `keydown`) that count events, then perform ONE real click and ONE
+  real key press through the apparatus and read the counts back. Both
+  must be at least 1. Report the probe in your `[READY]`; if either is
+  0, signal `[BLOCKED:input-delivery]` instead. (A spec with no browser
+  observable skips the probe; say so.) Re-run the probe after any
+  apparatus restart or new browser context mid-run.
+- VARIANTS: when the spec has Variants (e.g. Light and Dark), run each
+  in its OWN fresh browser context (a new handoff mint). Set the
+  variant inside that context BEFORE the variant's first checkpoint
+  (for a theme: Settings › Appearance, then confirm
+  `aria-checked="true"` on the option and `data-theme` on `<html>`),
+  and stay in that context for the whole variant: a fresh tab must
+  open in the same context. A choice made in another context does not
+  carry over (the theme lives in the context's `localStorage`).
+- TOASTS: evidence for a toast or flash (any `position: fixed`
+  element) is a screenshot taken while it shows, plus its text. Never
+  use `offsetParent` to decide whether it rendered (it is always null
+  for `position: fixed`), and never report "no toast" from an
+  `offsetParent` or `role=status` filter alone.
 
 CREDENTIAL & SAFETY (read before performing Step 1)
 If driving this project's app requires a credential, follow the
@@ -251,10 +331,16 @@ pattern, mapping each to the observable kind it can measure:
 - `*http*` (or Bash + curl) → http observables
 - Bash → shell observables
 - Read / Write / Bash → filesystem observables
+A headless Chromium you drive over CDP from Bash (Playwright, or raw
+CDP `Input.dispatch*Event`) counts as a browser apparatus and is this
+project's default (Mission 25 Flight 3 DD12): use real input events,
+never a synthetic `dispatchEvent` or an `element.click()` from an
+eval. goldfinch is not used while its input delivery is unverified.
 Report to me ("`[READY]` — browser observables: chrome-devtools
 available; shell observables: Bash; http observables: via Bash + curl;
-filesystem observables: native"). I'll abort the run if any required
-observable has no matching apparatus.
+filesystem observables: native; input-delivery probe: click 1, key 1").
+I'll abort the run if any required observable has no matching
+apparatus.
 
 MEASURING A TIME BOUND
 When a step's Expected Results include a clause of the form "within N
@@ -314,6 +400,33 @@ LIFECYCLE
   INCONCLUSIVE. Wait for the next step.
 - At end: I will send `[CLOSING]`. Return your freeform closing
   summary and terminate.
+- YOU ARE RESUMED BY SENDMESSAGE AFTER EACH STEP. Returning a verdict
+  does NOT end your run: do not write a final hand-back, do not put
+  your closing summary inside a verdict, and do not ask to be
+  re-spawned. Wait for the next message. Only `[CLOSING]` ends your
+  run.
+
+PROJECT RUN RULES (this project's crew file, "Run rules")
+- SCRATCH: keep any helper script or temporary file in your own
+  per-run scratch subdirectory,
+  `<your scratchpad>/{test-slug}-{run-timestamp}-validator/`, never a
+  shared path or a generic name.
+- READ-ONLY FRESH OBSERVATIONS: a fresh observation (rule 4 below)
+  never changes state: no navigation, reload, click, key press, dialog
+  open, form edit or API write, and never on the Executor's page or
+  context. If only a state change could settle a step, render
+  INCONCLUSIVE and say what evidence is missing.
+- VARIANTS: when the spec has Variants, a variant runs in its own
+  fresh browser context, set before its first checkpoint. Before
+  judging any variant-dependent expectation, confirm from the evidence
+  that the variant was in effect (for a theme: `aria-checked="true"`
+  on the option and `data-theme` on `<html>`). Evidence from the
+  wrong variant does not meet the step.
+- TOASTS: judge a toast or flash from a screenshot. An
+  `offsetParent`-based (or `role=status`-filtered) "no toast" is not
+  evidence of absence: a `position: fixed` element always has a null
+  `offsetParent`. Without a screenshot, a toast expectation is
+  INCONCLUSIVE.
 
 CREDENTIAL & SAFETY (read before taking any fresh observation)
 Rule 4 below lets you take your own fresh observation when the
@@ -391,6 +504,10 @@ report and signal `[STEP:{step-number}:done]`.
 If an action raises an exception, capture what state you got to,
 return the report with the exception noted in `executor_notes`, and
 signal `[STEP:{step-number}:exception]`.
+
+Perform only these Actions (no unrequested state-changing action).
+After your report, wait: you will be resumed by SendMessage for the
+next step. Your run ends only at `[CLOSING]`.
 ```
 
 ### Per-step prompt: Validator
@@ -405,8 +522,11 @@ Executor's structured report:
 {executor-step-report}
 
 Render your verdict. If the Executor's `raw_state` is sufficient,
-judge directly. Otherwise take a fresh observation. Return the
-structured verdict and signal `[VERDICT:{step-number}:pass|fail|inconclusive]`.
+judge directly. Otherwise take a fresh (read-only) observation. Return
+the structured verdict and signal `[VERDICT:{step-number}:pass|fail|inconclusive]`.
+
+After your verdict, wait: you will be resumed by SendMessage for the
+next step. Your run ends only at `[CLOSING]`.
 ```
 
 ### Closing prompt (both agents)

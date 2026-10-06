@@ -5,23 +5,18 @@ App.registerArea({
   order: 10,
   sidebarLabel: 'Chat sessions',
 
+  // M25 F4 L3b (DD1, AC5): the session state machine serialises itself:
+  // `new/{agent}` while pending or starting, `sessions/{id}` while joining or
+  // joined, nothing while idle.
   serializeState: function () {
-    return this._currentSessionId ? 'sessions/' + this._currentSessionId : null;
+    return this._serialize ? this._serialize() : null;
   },
+  // Bare `#chats` (no sub) keeps whatever is open, a joined session or a
+  // pending chat (AC9b); the router's post-hydrate sync then re-canonicalises
+  // the URL from serializeState.
   hydrateState: function (sub) {
     if (!sub) return;
-    if (sub.indexOf('sessions/') === 0) {
-      var id = sub.slice('sessions/'.length);
-      if (!id || id === this._currentSessionId) return;
-      // Defer: WS may not be open yet on cold entry. The session_list handler
-      // (which fires when the server confirms the WS connection) consumes
-      // pendingJoinId in preference to its auto-join behaviour.
-      this._pendingJoinId = id;
-      if (this._ws && this._ws() && this._ws().readyState === WebSocket.OPEN) {
-        this._joinSession(id);
-        this._pendingJoinId = null;
-      }
-    }
+    if (this._hydrate) this._hydrate(sub);
   },
 
   init: function (sidebar, content) {
@@ -31,14 +26,23 @@ App.registerArea({
     // that caused the input to stay disabled in a NEW conversation when
     // the user switched away from a still-running one (post-F4 surfacing).
     var inFlightSessions = Object.create(null);
+    // M25 F4 L3b (DD1): the session state machine (areas/chat/session-state.js).
+    // Every inbound frame passes its gate; busy, the hold queue and Stop key
+    // on its activeId() (the client id while starting, the session id while
+    // joined). There is no "null means idle": the state's name says it.
+    var chatState = App.chat.createSessionState();
+    // Busy while starting (the first turn is on its way, whatever the
+    // in-flight map says), else when the active session has a turn in flight.
     function isCurrentBusy() {
-      return !!(currentSessionId && inFlightSessions[currentSessionId]);
+      if (chatState.state().name === 'starting') return true;
+      var a = chatState.activeId();
+      return !!(a && inFlightSessions[a]);
     }
 
     // Show/hide the stop button derived from isCurrentBusy() so that any code
     // path that clears inFlightSessions (onclose, session-switch, done, cancelled)
     // automatically hides it without extra plumbing. Call this after any mutation
-    // to inFlightSessions or after session-switch changes currentSessionId.
+    // to inFlightSessions or after the session state changes.
     function updateStopControl() {
       if (!stopBtn) return;
       stopBtn.hidden = !isCurrentBusy();
@@ -98,20 +102,35 @@ App.registerArea({
     // and remove the chip. Purely local: nothing was sent to the backend, so
     // no turn runs for the discarded message.
     function cancelPendingQueued() {
-      if (currentSessionId) delete pendingQueuedMessages[currentSessionId];
+      var a = chatState.activeId();
+      if (a) delete pendingQueuedMessages[a];
       clearPendingQueued();
     }
 
-    var currentSessionId = null;
     var pendingJoinId = null;
-    // Queued new-session intent: set by startSessionWith when the WS is not
-    // yet OPEN (e.g. during a brief reconnect cycle). Drained by the
-    // session_list handler once the WS comes back up — takes priority over
-    // the normal auto-join of the most-recent session.
-    var pendingStart = null; // { agentName: string|null, sent: boolean }
-    var pendingStartTimer = null; // bounded recovery for a new_session that never joins
-    var DEFAULT_START_JOIN_TIMEOUT_MS = 10000;
     var sessions = [];
+    // A session_list has arrived on some socket (the idle rules can run).
+    var listSeen = false;
+    // AC8: the socket the current binding was made on (a start_session, join
+    // or leave sent, or a session_joined received). Reconnect actions run
+    // only for a binding made on an EARLIER socket.
+    var boundOn = null;
+    // Set in onopen; cleared after that socket's first session_list, so the
+    // later lists (the refresh after `done`) never re-run the reconnect rules.
+    var firstListPending = false;
+    // Set in onopen while joined or joining (the fresh socket is unbound until
+    // the re-join lands); cleared when that state resolves. While set, Send
+    // keeps its text and Stop does nothing: a message on an unbound socket
+    // would auto-create a default-agent session.
+    var rebinding = false;
+    // The agent an entry point asked to pick (requestPick): its hydrate is a
+    // real pick even where the AC9 rail-restore rule would keep a session.
+    var pickIntent = null;
+    // A cold `#chats/~new/{agent}` waits for the agents store to validate the
+    // agent; the composer stays disabled meanwhile (AC12).
+    var validating = false;
+    // The optimistic first-message bubble's nodes, removed on start_failed.
+    var startBubbleNodes = [];
     var currentAgentName = null;
     // M23 F02 L03 (behavior-test fix): the joined session's connector
     // platform, if any (mirrors ChatSession.platform / session_joined's new
@@ -121,7 +140,7 @@ App.registerArea({
     // a plain chat session's tool results have no visibility concept at all
     // and must keep collapsing into the "Tool activity" accordion.
     var currentSessionPlatform = null;
-    var messagesEl, inputEl, sendBtn, stopBtn, sessionListEl, agentSelect, agentBadgeEl;
+    var messagesEl, inputEl, sendBtn, stopBtn;
     var fileInputEl, attachBtn;
     // M16 F12 L08: minimal image-ingestion producer. Staged images
     // ({data: base64, media_type}) are collected by the file-attach handler
@@ -133,13 +152,14 @@ App.registerArea({
     // the hidden file input carries `multiple` so one OS-picker interaction
     // can stage several images at once. The chicklet row lives in
     // `attachmentsEl` (`.chat-attachments`, resolved alongside
-    // fileInputEl/attachBtn below) as a sibling ABOVE `.input-area` — the
-    // standard multi-attachment layout — rather than inline inside the
-    // composer. `renderAttachments()` fully rebuilds the row from
-    // `stagedImages` on every mutation (append/remove/clear) and mirrors
-    // non-empty-ness onto a `data-staged="true"` attribute on the file input
-    // so a test can deterministically wait for the async FileReader(s) to
-    // finish before driving send.
+    // fileInputEl/attachBtn below) ABOVE the composer box (M25 F4 L5; above
+    // the old `.input-area` row before it) — the standard multi-attachment
+    // layout — rather than inline inside it. `renderAttachments()` fully
+    // rebuilds the row from `stagedImages` on every mutation
+    // (append/remove/clear) and mirrors non-empty-ness onto a
+    // `data-staged="true"` attribute on the file input so a test can
+    // deterministically wait for the async FileReader(s) to finish before
+    // driving send.
     // NOTE: container visibility is driven via `style.display` (NOT the
     // `hidden` attribute) — `.chip` sets `display: inline-flex`
     // unconditionally, which beats the UA `[hidden]{display:none}` rule at
@@ -247,110 +267,176 @@ App.registerArea({
     var pendingQueuedRegionEl = null;
     var setupIncomplete = false;
     var sessionBannerEl = null;
-    var availableAgents = [];
     var setupState = { hasProviders: false, hasAgents: false };
 
-    // Sidebar headers use the app's `// SECTION` idiom (.section-title) so the
-    // chat sidebar reads consistently with admin/studio. The label still owns
-    // a `for=` association with the agent select for screen-reader form
-    // semantics; .section-title controls the visual treatment.
-    sidebar.innerHTML =
-      '<div id="sidebar-header">' +
-        '<label class="section-title" for="chat-agent-select">Select Agent</label>' +
-        '<div class="sidebar-actions">' +
-          '<select id="chat-agent-select" class="agent-select field-select" data-testid="agent-select">' +
-            '<option value="" disabled selected>Select agent…</option>' +
-          '</select>' +
-        '</div>' +
-      '</div>' +
-      '<nav class="session-list" aria-label="Chat sessions"></nav>';
+    // M25 F4 L4a (DD5): the Chats list column, an App.ui.listPane built with
+    // DOM APIs (areas/chat/chats-list.js): the New chat button (it opens the
+    // agent picker) above the cross-agent history in recency groups, with a
+    // delete action per row and the pending chat's row. The agent dropdown,
+    // its "Select Agent" label and the old history list are retired.
+    var chatsList = App.chat.chatsList.create({
+      onNew: function (btn) {
+        App.chat.openPicker({ opener: btn }).catch(function () { /* a guard Stay */ });
+      },
+      onDelete: function (id, li, btn) {
+        // Two-step confirm (arm, then confirm) via App.confirmDelete on the
+        // row's <li>; the WebSocket delete is fire-and-forget and the
+        // server's session_deleted + list refresh update the list (the
+        // listPane keeps an armed <li> across rebuilds, DD5).
+        // A1 (WCAG 4.1.2/4.1.3): the focused action button's accessible name
+        // follows the armed state ("Confirm delete: {title}"), kept in step
+        // with the li's .confirm-delete class by one observer per li, so a
+        // lapse, a revert and a re-render (the armed button node is reused)
+        // all restore "Delete chat: {title}".
+        var idleLabel = btn && !li.classList.contains('confirm-delete') ? btn.getAttribute('aria-label') : null;
+        if (btn && idleLabel && !li._armLabelObs && typeof MutationObserver === 'function') {
+          li._armLabelObs = new MutationObserver(function () {
+            var armed = li.classList.contains('confirm-delete');
+            btn.setAttribute('aria-label', armed ? 'Confirm delete: ' + li._armTitle : li._armIdle);
+          });
+          li._armLabelObs.observe(li, { attributes: true, attributeFilter: ['class'] });
+        }
+        if (idleLabel) {
+          li._armIdle = idleLabel;
+          li._armTitle = idleLabel.replace(/^Delete chat: /, '');
+        }
+        App.confirmDelete(li, function () {
+          if (socketOpen()) ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));
+        });
+      }
+    });
+    sidebar.appendChild(chatsList.el);
 
-    sessionListEl = sidebar.querySelector('.session-list');
-    agentSelect = sidebar.querySelector('.agent-select');
+    // M25 F4 L4b (DD3, DD6): the detail pane, built with DOM APIs (the
+    // content sink is gone): the welcome (the empty and guidance states under
+    // one "Hello." h1) and the chrome (the chat header's h1 and "with
+    // {agent}", the new-chat state, the message log, then the composer),
+    // areas/chat/chat-pane.js. The composer is areas/chat/composer.js (leg 5:
+    // reference spec 5.5, the telemetry row above it).
+    var pane = App.chat.chatPane.create({
+      onNewChat: function (btn) {
+        App.chat.openPicker({ opener: btn }).catch(function () { /* a guard Stay */ });
+      },
+      onPickDifferent: function (btn) {
+        App.chat.openPicker({ opener: btn }).catch(function () { /* a guard Stay */ });
+      }
+    });
+    var composer = App.chat.composer.create();
+    // M25 F4 L6 (DD7): the agent drawer fills the static shell slot
+    // (#chat-drawer, after <main>; areas/chat/agent-drawer.js). Its toggle
+    // goes at the END of the chat header. renderPane feeds it the header's
+    // agent; activate/deactivate show and hide it with the area.
+    var agentDrawer = App.chat.agentDrawer.create({ slot: document.getElementById('chat-drawer') });
+    pane.header.appendChild(agentDrawer.toggle);
+    var chromeEl = pane.chrome;
+    var welcomeEl = pane.welcome;
+    messagesEl = pane.messages;
+    inputEl = composer.input;
+    fileInputEl = composer.fileInput;
+    attachBtn = composer.attachBtn;
+    attachmentsEl = composer.attachmentsEl;
+    attachmentsStatusEl = composer.attachmentsStatusEl;
+    stopBtn = composer.stopBtn;
+    sendBtn = composer.sendBtn;
 
-    // Telemetry overlay is constructed via App.chat.renderTelemetry() and
-    // inserted between .messages and .input-area below.
-    content.innerHTML =
-      '<div class="chat-welcome" data-testid="chat-welcome" hidden>' +
-        '<div class="chat-welcome-inner">' +
-          '<img class="chat-welcome-mascot" src="/static/brand/gleepglorp_icon.png" alt="" aria-hidden="true" loading="eager" data-testid="chat-welcome-mascot">' +
-          '<h2 class="chat-welcome-greeting">Hello.</h2>' +
-          '<p class="chat-welcome-prompt">Which agent would you like to chat with?</p>' +
-          '<div class="chat-welcome-list" role="listbox" aria-label="Available agents"></div>' +
-        '</div></div>' +
-      '<div class="chat-chrome">' +
-        // New-chat button sits inline next to the agent badge — icon-only at
-        // rest, expands into the full pill on hover/focus. Pure-CSS
-        // hover-expand via max-width transition; no JS state needed.
-        '<div class="header"><h2 class="session-agent-badge"></h2>' +
-          '<button class="new-chat-header" type="button" data-testid="new-chat-btn" aria-label="Start a new conversation with this agent">' +
-            App.icon('square-pen') + '<span>New Chat</span></button></div>' +
-        '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
-        // HAT fix round 2 (post-L08): chicklet row of staged-image previews
-        // — a sibling ABOVE .input-area (the standard multi-attachment
-        // layout), rather than an inline single-image chip inside the
-        // composer. Hidden until an image is staged. NOTE: hidden via
-        // inline style="display:none" (NOT the `hidden` attribute) — .chip
-        // (used per-chicklet, not on this container) sets `display:
-        // inline-flex` unconditionally, which beats the UA
-        // `[hidden]{display:none}` rule at equal specificity (author origin
-        // wins over UA origin; see the .btn-muted-destructive[hidden]
-        // override elsewhere in chat.css for the same footgun) — so this
-        // container is driven purely via style.display, never `hidden`.
-        // renderAttachments() rebuilds the chicklets and toggles visibility.
-        '<div class="chat-attachments" data-testid="chat-attachments" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>' +
-        // M18 F03 L01 (A1): visually-hidden status element announcing a
-        // short delta ("Image staged" / "Image removed" / "N images
-        // staged") on each staged-image mutation. Kept SEPARATE from the
-        // chicklet row above (which fully rebuilds via innerHTML and would
-        // over-announce on removal — see the comment on
-        // announceAttachmentChange()).
-        '<div class="visually-hidden" aria-live="polite" data-testid="chat-attachments-status"></div>' +
-        '<div class="input-area">' +
-          '<input class="field-input" data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
-          // M16 F12 L08: minimal image-ingestion producer. The file input is
-          // hidden (triggered via the attach button) — this is the control
-          // Playwright drives via set_input_files. accept="image/*" restricts
-          // the OS picker; the change handler also gates on file.type.
-          // `multiple` (HAT fix round 2) lets one OS-picker interaction
-          // stage several images in a single `change` event.
-          '<input type="file" accept="image/*" multiple data-testid="chat-image-input" hidden />' +
-          '<button class="btn-outlined-primary" type="button" data-testid="chat-attach-btn" aria-label="Attach image">' +
-            App.icon('plus') + '</button>' +
-          '<button class="btn-muted-destructive" data-testid="chat-stop-btn" aria-label="Stop" hidden>' +
-            '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
-            'Stop</button>' +
-          '<button class="btn-filled-primary" data-testid="chat-send-btn" aria-keyshortcuts="Enter">Send</button></div>' +
-      '</div>';
+    // The mascot, decorative, above the greeting.
+    var mascotEl = document.createElement('img');
+    mascotEl.className = 'chat-welcome-mascot';
+    mascotEl.src = '/static/brand/gleepglorp_icon.png';
+    mascotEl.alt = '';
+    mascotEl.setAttribute('aria-hidden', 'true');
+    mascotEl.setAttribute('loading', 'eager');
+    mascotEl.setAttribute('data-testid', 'chat-welcome-mascot');
+    pane.welcomeInner.insertBefore(mascotEl, pane.welcomeInner.firstChild);
 
-    var chromeEl = content.querySelector('.chat-chrome');
-    var welcomeEl = content.querySelector('.chat-welcome');
-    var welcomeListEl = content.querySelector('.chat-welcome-list');
-    var headerNewBtn = content.querySelector('.new-chat-header');
-    messagesEl = content.querySelector('.messages');
-    inputEl = content.querySelector('.input-area input');
-    fileInputEl = content.querySelector('.input-area input[type="file"]');
-    attachBtn = content.querySelector('.input-area .btn-outlined-primary');
-    attachmentsEl = content.querySelector('.chat-attachments');
-    attachmentsStatusEl = content.querySelector('[data-testid="chat-attachments-status"]');
-    stopBtn = content.querySelector('.input-area .btn-muted-destructive');
-    sendBtn = content.querySelector('.input-area .btn-filled-primary');
-    agentBadgeEl = content.querySelector('.session-agent-badge');
+    // The chrome: header, new-chat state, the message log, then the composer
+    // (M25 F4 L5): its wrapper holds the telemetry row (the readout, shown
+    // only while joined: renderPane), the staged-image row and its status,
+    // the queued-message region (F09-04: above the box and OUTSIDE the
+    // scrolling .messages list, so a held message cannot scroll away;
+    // showPendingQueued/clearPendingQueued toggle its `hidden`), then the box.
+    composer.telemetryRow.appendChild(App.chat.renderTelemetry());
+    pendingQueuedRegionEl = composer.queuedRegion;
+    chromeEl.appendChild(composer.el);
+    content.appendChild(welcomeEl);
+    content.appendChild(chromeEl);
 
-    // Insert telemetry overlay between .messages and .input-area.
-    chromeEl.insertBefore(App.chat.renderTelemetry(), chromeEl.querySelector('.input-area'));
+    // The joined session's title from its session_joined (the header's
+    // fallback until the `sessions` store has its row).
+    var joinedTitle = null;
 
-    // F09-04: pinned region for the queued-message chip — inserted directly
-    // above the composer (after telemetry) and OUTSIDE the scrolling
-    // .messages list, so a held queued message stays visible and cannot scroll
-    // away. showPendingQueued/clearPendingQueued toggle its `hidden` state.
-    pendingQueuedRegionEl = document.createElement('div');
-    pendingQueuedRegionEl.className = 'pending-queued-region';
-    pendingQueuedRegionEl.setAttribute('data-testid', 'pending-queued-region');
-    pendingQueuedRegionEl.hidden = true;
-    chromeEl.insertBefore(pendingQueuedRegionEl, chromeEl.querySelector('.input-area'));
+    function sessionRow(id) {
+      var rows = App.store.peek('sessions').value;
+      if (!Array.isArray(rows) || !id) return null;
+      for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].id === id) return rows[i];
+      return null;
+    }
 
-    function updateAgentBadge(name) { agentBadgeEl.textContent = name || 'default'; }
+    // M25 F4 L4b (AC1, AC2): the header and the new-chat state follow the
+    // session state.
+    //   pending / starting  "New chat", "with {agent}" (blank while a cold
+    //                       `~new` route validates its agent); the new-chat
+    //                       state only while pending (the chrome carries
+    //                       .chat-chrome--new, so the log shrinks to its
+    //                       notices).
+    //   joining / joined    the session's title READ FROM THE `sessions`
+    //                       STORE by id (so it follows the auto-title), else
+    //                       the session_joined payload's, else "Untitled
+    //                       chat"; the agent likewise (store row, then the
+    //                       payload).
+    //   idle                no header (the welcome, or nothing yet).
+    // M25 F4 L5 (DD6): the composer follows the same agent as the header:
+    // its placeholder "Message {agent}…" ("Message…" with none, or while the
+    // header's agent line is blank) and the agent's model id from the
+    // `agents` store ('' when unknown). The telemetry row shows only while
+    // joined (reference spec 5.3, 5.4: none in the new-chat state).
+    // Runs from every transition and from the `sessions`, `agents` and
+    // `providers` subscriptions; it patches nodes, never rebuilds them.
+    function renderPane() {
+      var st = chatState.state();
+      var name = st.name;
+      var pending = name === 'pending';
+      var composerAgent = null;
+      // M25 F4 L6 (DD7): the drawer follows the header: its agent, or a
+      // neutral loading state while the header's agent line is blank; no
+      // chat view (null) while idle.
+      var drawerView = null;
+      if (pending || name === 'starting') {
+        pane.renderHeader({ title: 'New chat', agent: st.agent, blank: validating });
+        if (!validating) composerAgent = st.agent;
+        drawerView = validating ? { loading: true } : { agent: st.agent };
+      } else if (name === 'joined' || name === 'joining') {
+        var row = sessionRow(st.id);
+        var title = row ? row.title : (name === 'joined' ? joinedTitle : null);
+        var agent = row ? row.agent_name : (name === 'joined' ? currentAgentName : null);
+        if (!row && name === 'joining') {
+          pane.renderHeader({ title: '', agent: null, blank: true });
+          drawerView = { loading: true };
+        } else {
+          pane.renderHeader({ title: title || 'Untitled chat', agent: agent });
+          composerAgent = agent || null;
+          drawerView = { agent: agent || null };
+        }
+      } else {
+        pane.renderHeader(null);
+      }
+      agentDrawer.render(drawerView);
+      var agents = App.store.peek('agents').value;
+      var providers = App.store.peek('providers').value;
+      if (pending) {
+        pane.renderNewState(validating ? { blank: true } : App.chat.chatPane.agentInfo(
+          st.agent, agents, providers
+        ));
+      } else {
+        pane.renderNewState(null);
+      }
+      chromeEl.classList.toggle('chat-chrome--new', pending);
+      composer.render({
+        agent: composerAgent,
+        model: composerAgent ? App.chat.chatPane.agentInfo(composerAgent, agents, providers).model : ''
+      });
+      composer.telemetryRow.hidden = name !== 'joined';
+    }
 
     // M08 F6 L06 HAT fix: smart-scroll. Only auto-scroll to the bottom when
     // the user is already near it; if they've scrolled up to read history,
@@ -386,51 +472,47 @@ App.registerArea({
       App.perf.measure('addMsg', 'addMsg:start', 'addMsg:end');
     }
 
-    function highlightActiveSession() {
-      var items = sessionListEl.querySelectorAll('.session-item');
-      for (var i = 0; i < items.length; i++) {
-        var active = items[i].dataset.id === currentSessionId;
-        items[i].classList.toggle('active', active);
-        if (active) {
-          items[i].setAttribute('aria-current', 'page');
-        } else {
-          items[i].removeAttribute('aria-current');
-        }
-      }
+    // M25 F4 L4a (AC6): the ONE render of the Chats list. The rows are the
+    // store's `sessions` (primed from every WebSocket session_list, DD4); the
+    // pending chat's row and the selection come from the session state: the
+    // pending row while pending or starting, else the joined or joining
+    // session's row. It runs from the `sessions` subscription below and from
+    // every transition that changes the pending row or the selection (pick,
+    // open, joined, the starting-to-joined swap, idle, delete). Safe off
+    // Chats: a REST-primed list with no socket renders into the hidden
+    // sidebar panel, with the state idle.
+    function renderChatsList() {
+      var st = chatState.state();
+      var pendingActive = st.name === 'pending' || st.name === 'starting';
+      var peeked = App.store.peek('sessions');
+      chatsList.render(Array.isArray(peeked.value) ? peeked.value : [], {
+        pending: pendingActive ? { agent: st.agent } : null,
+        selectedId: pendingActive ? App.chat.chatsList.PENDING_ID : chatState.boundId()
+      });
     }
 
+    // The list renders from the store subscription only (never also from
+    // session_list). The chat area is never destroyed (deactivate keeps the
+    // WebSocket and the DOM), so this subscription lives as long as the page
+    // and is never unsubscribed.
+    App.store.subscribe('sessions', function () { renderChatsList(); renderPane(); });
+    renderChatsList();
+    // The new-chat state reads the agent's model, description and provider
+    // type from these two stores: re-render when either loads. Never
+    // released, like the `sessions` subscription.
+    App.store.subscribe('agents', function () { renderPane(); });
+    App.store.subscribe('providers', function () { renderPane(); });
+    renderPane();
+
+    // M25 F4 L4b (DD3, AC3-AC5): the welcome is the empty state (setup
+    // complete: "Start a conversation with one of your agents." and New
+    // chat) or the setup guidance (no New chat; the list's is disabled too).
+    // The agent list it used to hold is retired (the picker replaces it).
     function renderWelcome() {
-      App.chat.renderWelcomeList(welcomeEl, welcomeListEl, availableAgents, setupState, { onStart: startSessionWith });
+      pane.renderWelcome(setupState);
     }
 
-    // Paint the agent <select> and the welcome list from an agents list.
-    function applyAgents(agents) {
-      availableAgents = agents;
-      agentSelect.innerHTML = '';
-      if (agents.length === 0) {
-        agentSelect.innerHTML = '<option value="" disabled selected>No agents configured</option>';
-      } else {
-        // Disabled placeholder: hidden once an agent is set programmatically.
-        var placeholder = document.createElement('option');
-        placeholder.value = ''; placeholder.disabled = true; placeholder.textContent = 'Select agent…';
-        agentSelect.appendChild(placeholder);
-        for (var i = 0; i < agents.length; i++) {
-          var opt = document.createElement('option');
-          opt.value = agents[i].name; opt.textContent = agents[i].name;
-          agentSelect.appendChild(opt);
-        }
-      }
-      syncDropdownToCurrent();
-      if (!welcomeEl.hidden) renderWelcome();
-    }
-
-    function syncDropdownToCurrent() {
-      if (!currentAgentName) { agentSelect.value = ''; return; }
-      for (var i = 0; i < agentSelect.options.length; i++) {
-        if (agentSelect.options[i].value === currentAgentName) { agentSelect.value = currentAgentName; return; }
-      }
-    }
-
+    // Only while idle with no chat to auto-join: the idle rules' `welcome`.
     function showWelcome() {
       chromeEl.hidden = true;
       welcomeEl.hidden = false;
@@ -442,86 +524,329 @@ App.registerArea({
       chromeEl.hidden = false;
     }
 
-    // Roving-tabindex arrow navigation for the welcome listbox. One-shot
-    // binding; queries .chat-welcome-item lazily so it tracks re-renders.
-    // Pattern: roving-tabindex with arrow keys (the control library's shared
-    // implementation is App.ui.util.rovingFocus, ui/core.js). Toggles
-    // aria-selected alongside tabindex so the listbox semantic stays accurate
-    // (WCAG 4.1.2).
-    welcomeListEl.addEventListener('keydown', function (e) {
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
-      var opts = welcomeListEl.querySelectorAll('.chat-welcome-item');
-      if (!opts.length) return;
-      e.preventDefault();
-      var idx = -1;
-      for (var i = 0; i < opts.length; i++) { if (opts[i] === document.activeElement) { idx = i; break; } }
-      var next;
-      if (e.key === 'Home') next = 0;
-      else if (e.key === 'End') next = opts.length - 1;
-      else if (e.key === 'ArrowDown') next = idx === -1 ? 0 : (idx + 1) % opts.length;
-      else next = idx === -1 ? opts.length - 1 : (idx - 1 + opts.length) % opts.length;
-      for (var j = 0; j < opts.length; j++) {
-        opts[j].setAttribute('tabindex', j === next ? '0' : '-1');
-        opts[j].setAttribute('aria-selected', j === next ? 'true' : 'false');
-      }
-      opts[next].focus();
-    });
+    // ── The session state wiring (M25 F4 L3b, DD1, DD2) ─────────────────
 
-    function startSessionWith(agentName) {
-      if (setupIncomplete) return;
-      // Record intent before sending so the WS reconnect path (session_list
-      // handler) can honour it if the WS drops between the send and the
-      // server's session_joined response. Cleared in session_joined handler.
-      clearPendingStartTimer();
-      pendingStart = { agentName: agentName || null, sent: false };
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        // WS is in a reconnect cycle — intent is queued; session_list handler
-        // will drain it once the connection is restored (preempting auto-join).
-        return;
-      }
-      // F09-04: starting a new chat leaves the current session — discard any
-      // held queued message (client-only) and its chip.
-      if (currentSessionId) {
-        delete pendingQueuedMessages[currentSessionId];
+    function socketOpen() {
+      return !!(ws && ws.readyState === WebSocket.OPEN);
+    }
+
+    // start_session, join and leave (un)bind this socket: record which one
+    // (AC8's per-socket binding record).
+    function sendBinding(frame) {
+      ws.send(JSON.stringify(frame));
+      boundOn = ws;
+    }
+
+    // An idle notice ("That conversation no longer exists") on the welcome
+    // canvas; pending and joined notices go into the message log.
+    function setWelcomeNotice(text) {
+      pane.setNotice(text);
+    }
+
+    function showNotice(text) {
+      if (chatState.state().name === 'idle') setWelcomeNotice(text);
+      else addMsg('system', text);
+    }
+
+    // The composer outside a health banner: a pending chat types unless setup
+    // is incomplete or a cold load is still validating its agent; Send is
+    // disabled while busy.
+    function applyComposerState() {
+      if (sessionBannerEl) return;
+      var blocked = chatState.state().name === 'pending' && (setupIncomplete || validating);
+      inputEl.disabled = blocked;
+      sendBtn.disabled = blocked || isCurrentBusy();
+    }
+
+    function agentListed(list, name) {
+      if (!Array.isArray(list)) return false;
+      for (var i = 0; i < list.length; i++) if (list[i] && list[i].name === name) return true;
+      return false;
+    }
+
+    // Every start intent (the agent picker: the Chats list's New chat, the
+    // empty state's New chat, "Pick a different agent") is a route,
+    // `#chats/~new/{agent}` (DD2): the router's hydrate performs the pick. A re-pick while already on a `~new` route replaces
+    // it (AC12). Inert while setup is incomplete. opts.opener (the picker's
+    // opener) is where a guard Stay returns focus.
+    function requestPick(agent, opts) {
+      if (setupIncomplete || !agent) return;
+      goPick(agent, opts);
+    }
+
+    // The pick's guarded go() with its one-shot pickIntent, so the AC9 rail
+    // restore never swallows a deliberate start. Also the agent editor's
+    // Chat action (M25 F4 L6, DD8), through App.chat.chatWith: from a dirty
+    // editor the router's guard asks once. Resolves with the go()'s result.
+    function goPick(agent, opts) {
+      var cur = App.router.current();
+      var onNew = !!(cur && cur.destination === 'chats' && cur.route.indexOf('chats/~new/') === 0);
+      var goOpts = onNew ? { replace: true } : {};
+      if (opts && opts.opener) goOpts.opener = opts.opener;
+      pickIntent = agent;
+      var done = function (ok) { pickIntent = null; return ok; };
+      return App.router.go(App.router.href({ destination: 'chats', create: true, agent: agent }), goOpts)
+        .then(done, function () { pickIntent = null; return false; });
+    }
+
+    // pick(agent): pending(agent) (no session yet), a `leave` for whatever
+    // this socket had bound, and the pending pane. A pick of the agent
+    // already pending or starting changes nothing.
+    function pickAgent(agent) {
+      var eff = chatState.pick(agent);
+      if (eff.noop) return false;
+      if (eff.leave && socketOpen()) sendBinding({ action: 'leave' });
+      if (eff.discardHeld) delete pendingQueuedMessages[eff.discardHeld];
+      if (eff.clearPendingJoin) pendingJoinId = null;
+      rebinding = false;
+      startBubbleNodes = [];
+      renderPending();
+      return true;
+    }
+
+    // Drop a streaming bubble that belongs to the conversation being left.
+    function resetStream() {
+      stopPacing();
+      pendingChars = '';
+      currentStreamingMsg = null;
+      currentStreamingVisibility = null;
+    }
+
+    // The pending pane (M25 F4 L4b, DD6): the header reads "New chat" with
+    // "with {agent}" (blank while a cold load validates the agent), the
+    // new-chat state shows the agent (renderPane), the welcome is hidden, the
+    // log is empty, the composer is ready, and the Chats list carries the
+    // selected "New chat" row (4a).
+    function renderPending() {
+      var st = chatState.state();
+      currentAgentName = st.agent;
+      currentSessionPlatform = null;
+      hideThinking();
+      resetStream();
+      messagesEl.innerHTML = '';
+      traceShells = Object.create(null);
+      App.chat.resetTelemetry(content);
+      clearPendingQueued();
+      setWelcomeNotice(null);
+      setSessionHealth('ok');
+      applyComposerState();
+      updateStopControl();
+      showChrome();
+      renderChatsList();
+      renderPane();
+    }
+
+    // openConversation(id): joining(id) and one `join`. Discards a pending
+    // chat or a held message of the conversation being left. The chrome
+    // shows at once (AC B: the welcome never shows while joining, so no
+    // empty state flashes before the session_joined), with the header read
+    // from the `sessions` store.
+    function openConversation(id) {
+      var eff = chatState.openConversation(id);
+      if (eff.discardHeld) {
+        delete pendingQueuedMessages[eff.discardHeld];
         clearPendingQueued();
       }
-      currentSessionId = null;
-      if (window.App && window.App.router) App.router.sync('chat', null);
-      var msg = { action: 'new_session' };
-      if (agentName) msg.agent_name = agentName;
-      ws.send(JSON.stringify(msg));
-      // Sent on an open socket: a session_list reply that lands before the
-      // session_joined must not re-send it (a duplicate session). onclose
-      // resets this so a dropped connection still re-drains.
-      pendingStart.sent = true;
-      armPendingStartTimer(pendingStart);
+      validating = false;
+      startBubbleNodes = [];
+      setWelcomeNotice(null);
+      sendBinding({ action: 'join', session_id: id });
+      showChrome();
+      renderChatsList();
+      renderPane();
     }
 
-    function clearPendingStartTimer() {
-      if (pendingStartTimer) { clearTimeout(pendingStartTimer); pendingStartTimer = null; }
+    function resetToIdle() {
+      var eff = chatState.reset();
+      if (eff.discardHeld) delete pendingQueuedMessages[eff.discardHeld];
+      clearPendingQueued();
+      rebinding = false;
+      validating = false;
+      startBubbleNodes = [];
+      renderChatsList();
+      renderPane();
     }
 
-    // The protocol has no error frame for new_session, so a lost reply (the
-    // server never answers, the socket stays open) would leave `sent` true and
-    // block the re-drain until a reconnect. After a bounded wait, clear `sent`
-    // and ask for the session list again: its drain re-sends the new_session.
-    // `App.chatStartJoinTimeoutMs` overrides the wait (a test hook).
-    function armPendingStartTimer(intent) {
-      clearPendingStartTimer();
-      var ms = (window.App && typeof window.App.chatStartJoinTimeoutMs === 'number')
-        ? window.App.chatStartJoinTimeoutMs : DEFAULT_START_JOIN_TIMEOUT_MS;
-      pendingStartTimer = setTimeout(function () {
-        pendingStartTimer = null;
-        if (pendingStart !== intent || !intent.sent) return;
-        intent.sent = false;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ action: 'list_sessions' }));
+    // The pane after the state went idle: today's session_deleted reset.
+    // The next session_list's idle rules pick what shows next.
+    function clearConversation() {
+      hideThinking();
+      resetStream();
+      currentAgentName = null;
+      currentSessionPlatform = null;
+      joinedTitle = null;
+      App.router.sync('chat', null);
+      messagesEl.innerHTML = '';
+      setSessionHealth('ok');
+      updateStopControl();
+      renderChatsList();
+      renderPane();
+    }
+
+    // AC2b: one set of idle rules on every session_list, only while idle.
+    function runIdleRules() {
+      if (!socketOpen()) return;
+      var r = chatState.idleRules(sessions, pendingJoinId);
+      if (r.clearPendingJoin) pendingJoinId = null;
+      if (r.open) { openConversation(r.open); return; }
+      if (r.welcome) showWelcome();
+    }
+
+    function hydrate(sub) {
+      if (sub.indexOf('sessions/') === 0) { hydrateSession(sub.slice('sessions/'.length)); return; }
+      if (sub === 'new' || sub.indexOf('new/') === 0) hydrateNew(sub.slice('new/'.length));
+    }
+
+    function hydrateSession(id) {
+      if (!id || chatState.boundId() === id) return;
+      if (socketOpen()) {
+        pendingJoinId = null;
+        openConversation(id);
+        return;
+      }
+      // Not open yet (a cold entry, a reconnect gap): the first session_list
+      // opens it through the idle rules. Opening a conversation discards
+      // whatever was open, so the state goes idle now.
+      if (chatState.state().name !== 'idle') resetToIdle();
+      pendingJoinId = id;
+    }
+
+    // `#chats/~new/{agent}` (AC12). The router passes the still-encoded
+    // segment. Sets the state SYNCHRONOUSLY: the router serialises it right
+    // after this returns.
+    function hydrateNew(seg) {
+      var agent = null;
+      try { agent = decodeURIComponent(seg || ''); } catch (e) { agent = null; }
+      var intent = pickIntent !== null && pickIntent === agent;
+      if (!agent || agent === 'default') { heal(); return; }
+      var st = chatState.state();
+      // AC9, the rail restore: back on the `~new` route of the pending chat
+      // that became this joined session, with no pick or open since. Keep the
+      // session; the router's post-hydrate sync re-canonicalises the URL.
+      if (!intent && st.name === 'joined' && st.startedFrom &&
+          st.startedFrom.agent === agent && st.startedFrom.cid === st.id) return;
+      var peek = App.store.peek('agents');
+      if (peek.loaded && agentListed(peek.value, agent)) {
+        var wasValidating = validating;
+        validating = false;
+        // The same agent's cold pending chat, still validating: validated now.
+        if (!pickAgent(agent) && wasValidating && st.name === 'pending' && st.agent === agent) {
+          finishValidation();
         }
-      }, ms);
+        return;
+      }
+      // A cold load (or an agent the cached list lacks): pending at once
+      // with a neutral pane, validated when the agents store resolves
+      // (a stale cache refetches).
+      if (!((st.name === 'pending' || st.name === 'starting') && st.agent === agent)) {
+        validating = true;
+        pickAgent(agent);
+      }
+      App.store.get('agents').then(function (list) {
+        validatePending(agent, list);
+      }, function () {
+        validatePending(agent, null);
+      });
+    }
+
+    function validatePending(agent, list) {
+      var st = chatState.state();
+      if (st.name !== 'pending' || st.agent !== agent) return; // moved on
+      if (list && !agentListed(list, agent)) { heal(); return; }
+      if (!validating) return;
+      // Known (or unverifiable: the server's start_session validates too).
+      finishValidation();
+    }
+
+    function finishValidation() {
+      validating = false;
+      applyComposerState();
+      renderPane();
+    }
+
+    // AC12 heal: an unusable `~new` route (no agent, `default`, an unknown or
+    // deleted agent, a malformed `%` escape) goes back to `#chats` (replace)
+    // and the idle rules. A pending chat it made is reset; a joined or
+    // starting conversation is left alone (the router's post-hydrate sync
+    // re-canonicalises the URL to it).
+    function heal() {
+      if (chatState.state().name === 'pending') {
+        resetToIdle();
+        clearConversation();
+      } else {
+        App.router.sync('chat', null);
+      }
+      if (chatState.state().name === 'idle' && listSeen) runIdleRules();
+    }
+
+    // The first send of a pending chat: `start_session` with a client id
+    // (AC2, DD1). The optimistic bubble, thinking and busy behave like any
+    // turn; the reply's session_joined keeps the bubble when the history is
+    // empty.
+    function startSend(text) {
+      var payload = { message: text };
+      var displayText = text;
+      if (stagedImages.length) {
+        payload.images = stagedImages;
+        displayText = text ? text + ' [image]' : '[image]';
+      }
+      var eff = chatState.startSend(App.chat.newClientId(), payload);
+      if (eff.noop) return false;
+      if (payload.images) clearStagedImages();
+      var before = messagesEl.lastChild;
+      addMsg('user', displayText, 'You');
+      startBubbleNodes = [];
+      for (var n = before ? before.nextSibling : messagesEl.firstChild; n; n = n.nextSibling) {
+        startBubbleNodes.push(n);
+      }
+      sendBinding(eff.send);
+      sendBtn.disabled = true;
+      updateStopControl();
+      // pending -> starting: the new-chat state gives way to the log.
+      renderPane();
+      showThinking();
+      return true;
+    }
+
+    // start_failed (or a degraded, empty session_joined) while starting: back
+    // to the pending chat with the message restored (AC2).
+    function applyStartFailed(eff) {
+      for (var i = 0; i < startBubbleNodes.length; i++) {
+        var node = startBubbleNodes[i];
+        if (node.parentNode) node.parentNode.removeChild(node);
+      }
+      startBubbleNodes = [];
+      hideThinking();
+      var held = null;
+      if (eff.clientId) {
+        delete inFlightSessions[eff.clientId];
+        held = pendingQueuedMessages[eff.clientId] || null;
+        delete pendingQueuedMessages[eff.clientId];
+      }
+      clearPendingQueued();
+      var p = eff.payload || {};
+      if (!inputEl.value && p.message) setInputValue(p.message);
+      if (p.images && p.images.length) {
+        stagedImages = p.images.concat(stagedImages);
+        renderAttachments();
+      }
+      if (held) {
+        if (!inputEl.value) setInputValue(held);
+        else addMsg('system', 'The queued message was discarded.');
+      }
+      applyComposerState();
+      updateStopControl();
+      // starting -> pending: the new-chat state is back; the error shows in
+      // the log under it (the pending chrome shrinks the log to its notices).
+      renderPane();
+      addMsg('system', eff.error);
     }
 
     function renderHistory(history, agentName) {
       messagesEl.setAttribute('aria-busy', 'true');
+      // A streaming bubble from the conversation the log showed before is
+      // detached by the wipe below; a later chunk must start a fresh one.
+      resetStream();
       messagesEl.innerHTML = '';
       // L03: reset the trace-shell bucket on replay so the DOM-rebuild
       // starts fresh; getOrCreateTrace will append shells to the freshly
@@ -583,20 +908,8 @@ App.registerArea({
     }
 
 
-    function joinSession(id) {
-      // F09-04: a held queued message is client-only and does not carry across
-      // sessions — discard it (and its chip) when leaving the current session.
-      if (currentSessionId && currentSessionId !== id) {
-        delete pendingQueuedMessages[currentSessionId];
-        clearPendingQueued();
-      }
-      currentSessionId = id;
-      ws.send(JSON.stringify({ action: 'join', session_id: id }));
-      highlightActiveSession();
-    }
-
     function refreshSessionList() {
-      ws.send(JSON.stringify({ action: 'list_sessions' }));
+      if (socketOpen()) ws.send(JSON.stringify({ action: 'list_sessions' }));
     }
 
     var thinkingEl = null;
@@ -896,7 +1209,7 @@ App.registerArea({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source_id: sourceId,
-          chat_session_id: currentSessionId,
+          chat_session_id: chatState.activeId(),
           tool_call_id: data.tool_call_id,
           resource_metadata_url: data.resource_metadata_url,
         }),
@@ -997,10 +1310,20 @@ App.registerArea({
       }
       addMsg('user', displayText, 'You');
       ws.send(JSON.stringify(payload));
-      if (currentSessionId) inFlightSessions[currentSessionId] = true;
+      // Keyed on activeId() (AC6): the joined session (the `done` handler's
+      // held message also comes through here, on the joined path).
+      var active = chatState.activeId();
+      if (active) inFlightSessions[active] = true;
       sendBtn.disabled = true;
       updateStopControl();
       showThinking();
+    }
+
+    // Every scripted write to the composer's text goes through here, so the
+    // textarea re-fits (a cleared draft drops back to two rows).
+    function setInputValue(text) {
+      inputEl.value = text;
+      composer.fit();
     }
 
     function send() {
@@ -1008,13 +1331,25 @@ App.registerArea({
       if (!text && !stagedImages.length) return;
       // Blocked by health gate (agent deleted, provider missing, etc.) — never queue.
       if (sessionBannerEl || inputEl.disabled) return;
+      var st = chatState.state().name;
+      // Nothing open, or a join still in flight: nothing a message could go
+      // to (an unbound socket would auto-create a default-agent session).
+      // The text stays in the composer.
+      if (st === 'idle' || st === 'joining') return;
 
+      var isReset = (text === '/reset');
+      // /reset clears a conversation; a chat that does not exist yet has
+      // none. Never sent, never held (AC6).
+      if (isReset && (st === 'pending' || st === 'starting')) {
+        showNotice('Send a message to start the chat first');
+        return;
+      }
+      var active = chatState.activeId();
       // F09-04: /reset is a control command — never hold it, and it wipes the
       // conversation, so discard any held queued message + chip first so a
       // stale hold can't fire after the context is cleared.
-      var isReset = (text === '/reset');
-      if (isReset && currentSessionId) {
-        delete pendingQueuedMessages[currentSessionId];
+      if (isReset && active) {
+        delete pendingQueuedMessages[active];
         clearPendingQueued();
       }
 
@@ -1023,28 +1358,39 @@ App.registerArea({
         // while a turn runs. It is NOT sent to the backend now — the `done`
         // handler sends it via the normal path once the running turn finishes.
         // This keeps cancel trivial (nothing sent) and the chip pinned. A
-        // second hold attempt while one is already held is ignored.
-        if (!currentSessionId) return;
-        if (pendingQueuedMessages[currentSessionId]) return;
-        pendingQueuedMessages[currentSessionId] = text;
+        // second hold attempt while one is already held is ignored. Keyed on
+        // activeId(): the client id while starting (the server uses it as the
+        // session id), so a second Send while starting is held, never sent
+        // as a plain message (AC6).
+        if (!active) return;
+        if (pendingQueuedMessages[active]) return;
+        pendingQueuedMessages[active] = text;
         // The hold queue carries text only (F09-04 predates image attach) —
         // attach-while-a-turn-is-running is explicitly out of scope for L08
         // (the attach handler below already ignores staging while busy, but
         // this guards the rare race where a turn starts busy between staging
         // and send).
         clearStagedImages();
-        inputEl.value = '';
+        setInputValue('');
         showPendingQueued(text);
         return;
       }
 
+      // AC8: a closed socket, or one not re-bound yet after a reconnect,
+      // keeps the text: a message must never reach an unbound socket.
+      if (!socketOpen() || rebinding) return;
+
+      if (st === 'pending') {
+        if (startSend(text)) setInputValue('');
+        return;
+      }
       performSend(text);
-      inputEl.value = '';
+      setInputValue('');
     }
 
     // One read per activation: agents + providers through App.store, deriving
-    // both the setup state and the agent list.  Errors are swallowed; on a
-    // failure the prior setup state is kept (never flips to "no setup").
+    // the setup state.  Errors are swallowed; on a failure the prior setup
+    // state is kept (never flips to "no setup").
     function refreshAgentsAndSetup() {
       return Promise.all([
         App.store.get('providers', { force: true }),
@@ -1054,11 +1400,20 @@ App.registerArea({
           setupState.hasProviders = results[0].length > 0;
           setupState.hasAgents = results[1].length > 0;
           setupIncomplete = !setupState.hasProviders || !setupState.hasAgents;
-          applyAgents(results[1]);
-          // Refresh the welcome canvas so guidance tracks setupState changes.
-          if (!currentSessionId && !welcomeEl.hidden) renderWelcome();
-          // Setup-incomplete with no session → welcome canvas immediately.
-          if (setupIncomplete && !currentSessionId) showWelcome();
+          // M25 F4 L4a (AC2): New chat is natively disabled while setup is
+          // incomplete (no provider or no agent); the pane's guidance says
+          // why.
+          chatsList.setNewDisabled(setupIncomplete);
+          var stName = chatState.state().name;
+          // A shown welcome follows the setup state (the empty state <->
+          // the guidance). M25 F4 L4b (DD3): the welcome is SHOWN only by
+          // the idle rules (idle with no chat to auto-join); this no longer
+          // shows it while idle, so the guidance never flashes before an
+          // auto-join (the onopen list request follows this read). A pending
+          // chat is never covered by the welcome (AC4); its composer follows
+          // the setup state instead.
+          if (stName === 'idle' && !welcomeEl.hidden) renderWelcome();
+          if (stName === 'pending') applyComposerState();
         })
         .catch(function () { /* best-effort */ });
     }
@@ -1072,8 +1427,7 @@ App.registerArea({
           sessionBannerEl = document.createElement('div');
           sessionBannerEl.className = 'chat-session-banner';
           sessionBannerEl.setAttribute('role', 'status');
-          var inputArea = content.querySelector('.input-area');
-          inputArea.parentNode.insertBefore(sessionBannerEl, inputArea);
+          chromeEl.insertBefore(sessionBannerEl, composer.el);
         }
         sessionBannerEl.textContent = msg;
         inputEl.disabled = true; sendBtn.disabled = true;
@@ -1095,11 +1449,17 @@ App.registerArea({
         // without accidentally matching the thinking indicator (which
         // also carries `.model-loading` for shared dot-animation styling).
         loadEl.className = 'msg system model-loading system-model-loading';
-        loadEl.innerHTML = '<span class="model-loading-text">Loading model</span><span class="model-loading-dots"></span>';
+        // DOM-built (M25 F4 L4b; was a static innerHTML literal).
+        var loadTextEl = document.createElement('span');
+        loadTextEl.className = 'model-loading-text';
+        loadTextEl.textContent = 'Loading model';
+        var dotEl = document.createElement('span');
+        dotEl.className = 'model-loading-dots';
+        loadEl.appendChild(loadTextEl);
+        loadEl.appendChild(dotEl);
         messagesEl.appendChild(loadEl);
         scrollToBottomIfPinned();
         var frames = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
-        var dotEl = loadEl.querySelector('.model-loading-dots');
         var frameIdx = 0;
         loadEl._dotTimer = setInterval(function () { frameIdx = (frameIdx + 1) % frames.length; dotEl.textContent = ' ' + frames[frameIdx]; }, 120);
       } else if (data.content === 'Model loaded.') {
@@ -1114,17 +1474,19 @@ App.registerArea({
         // Restore the "thinking" state — the agent step is about to run
         // and we still owe the user a response indicator until the first
         // chunk arrives.
-        if (currentSessionId && inFlightSessions[currentSessionId]) {
+        var loadedActive = chatState.activeId();
+        if (loadedActive && inFlightSessions[loadedActive]) {
           showThinking();
         }
       } else {
         hideThinking();
         addMsg('system', data.content);
-        if (currentSessionId && inFlightSessions[currentSessionId]) {
-          delete inFlightSessions[currentSessionId];
+        var errActive = chatState.activeId();
+        if (errActive && inFlightSessions[errActive]) {
+          delete inFlightSessions[errActive];
           // Also clear any pending queued message — the session is no longer
           // processing so the queue slot is moot (the error terminated the turn).
-          delete pendingQueuedMessages[currentSessionId];
+          delete pendingQueuedMessages[errActive];
           clearPendingQueued();
           updateStopControl();
           if (!sessionBannerEl) sendBtn.disabled = false;
@@ -1132,111 +1494,128 @@ App.registerArea({
       }
     }
 
+    var reconnectTimer = null;
+
     function connect() {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       var proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(proto + '://' + location.host + '/ws');
+      var sock = new WebSocket(proto + '://' + location.host + '/ws');
+      ws = sock;
 
-      ws.onopen = function () {
+      sock.onopen = function () {
+        if (sock !== ws) { sock.close(); return; } // superseded before it opened
+        firstListPending = true;
+        var st = chatState.state();
+        var boundEarlier = boundOn !== null && boundOn !== sock;
+        // AC8: while starting, re-send the SAME start_session at once (never
+        // `join`); the server's idempotency joins or creates it exactly once.
+        if (st.name === 'starting' && boundEarlier) {
+          var act = chatState.reconnectAction(null, true);
+          if (act.send === 'start_session' && act.frame) sendBinding(act.frame);
+        }
+        // Joined or joining: the fresh socket is unbound until the first
+        // session_list re-joins (or idles); Send and Stop wait.
+        if (st.name === 'joined' || st.name === 'joining') rebinding = true;
         refreshAgentsAndSetup()
-          .then(function () { ws.send(JSON.stringify({ action: 'list_sessions' })); });
+          .then(function () {
+            if (sock === ws && sock.readyState === WebSocket.OPEN) {
+              sock.send(JSON.stringify({ action: 'list_sessions' }));
+            }
+          });
       };
 
-      ws.onclose = function () {
-        // Drop "thinking…" + re-enable input so a mid-response disconnect doesn't
-        // strand the UI; the auto-reconnect below brings the WS back.
-        hideThinking();
-        // A new_session sent but not yet joined is lost with the socket — let the
-        // reconnect's session_list drain re-send it.
-        if (pendingStart) pendingStart.sent = false;
-        clearPendingStartTimer();
-        // Disconnect drops every in-flight broadcast — clear both maps so neither
-        // the one-slot queue guard nor the stop control get stuck after reconnect.
-        for (var k in inFlightSessions) delete inFlightSessions[k];
-        for (var k in pendingQueuedMessages) delete pendingQueuedMessages[k];
-        clearPendingQueued();
-        updateStopControl();
-        if (!sessionBannerEl) sendBtn.disabled = false;
-        setTimeout(connect, 2000);
+      sock.onclose = function () {
+        if (sock !== ws) return; // a superseded socket
+        // AC6: while starting, keep the held slot, busy and the thinking
+        // indicator: the re-sent start_session restores is_processing.
+        if (chatState.state().name !== 'starting') {
+          // Drop "thinking…" + re-enable input so a mid-response disconnect doesn't
+          // strand the UI; the auto-reconnect below brings the WS back.
+          hideThinking();
+          // Disconnect drops every in-flight broadcast — clear both maps so neither
+          // the one-slot queue guard nor the stop control get stuck after reconnect.
+          for (var k in inFlightSessions) delete inFlightSessions[k];
+          for (var k2 in pendingQueuedMessages) delete pendingQueuedMessages[k2];
+          clearPendingQueued();
+          updateStopControl();
+          if (!sessionBannerEl) applyComposerState();
+        }
+        reconnectTimer = setTimeout(connect, 2000);
       };
 
-      ws.onmessage = function (e) {
+      sock.onmessage = function (e) {
+        if (sock !== ws) return;
         var data = JSON.parse(e.data);
+        if (data.type === 'session_joined') boundOn = sock;
 
         if (data.type === 'session_list') {
-          sessions = data.sessions;
-          var _sessionCallbacks = {
-            // A session-row click is a user INTENT (M25 F2 L4): a pushed go()
-            // (Back returns to the previous session). The router's hydrate
-            // joins exactly once; this handler does not also call
-            // joinSession. session_joined only canonicalises (sync).
-            onJoin: function (id) {
-              App.router.go(App.router.href({ destination: 'chats', id: id }));
-            },
-            onDelete: function (id, btn) {
-              // Two-step confirm via the canonical App.confirmDelete helper
-              // (F5 leg 02). WS delete is fire-and-forget so revertFn is
-              // unused here — server-side broadcast updates the list.
-              // Post-F2 leg 01: .session-item is now the inner <button>; the
-              // row wrapper carrying the .confirm-delete class + the
-              // [data-confirm-title] span is the <li class="list-item">.
-              var item = btn.closest('.list-item');
-              if (!item) return;
-              App.confirmDelete(item, function (itemEl, revertFn) {
-                ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));
-              });
+          sessions = data.sessions || [];
+          listSeen = true;
+          // M25 F4 L1 (DD4): every session_list reply primes the store's
+          // 'sessions' collection, mapped to the REST summary shape
+          // (_session_summary), so a WebSocket-primed row and a REST-fetched
+          // row never differ. While Chats is active the WebSocket is the
+          // source; nothing here fetches. (A start_session join's refresh
+          // lands here too: DD4's start_session invalidation row.)
+          App.store.prime('sessions', sessions.map(function (s) {
+            return {
+              id: s.id,
+              agent_name: s.agent_name,
+              title: s.title,
+              created_at: s.created_at,
+              updated_at: s.updated_at,
+              platform: s.platform || null
+            };
+          }));
+          // M25 F4 L4a (AC6): the prime above notifies the `sessions`
+          // subscription, which renders the Chats list; nothing here renders
+          // it a second time.
+          // AC8: the first list on a fresh socket re-binds a joined or joining
+          // state made on an earlier socket: re-join when the session is still
+          // listed, else idle with a notice (never join an unknown id).
+          var firstOnSocket = firstListPending;
+          firstListPending = false;
+          var listName = chatState.state().name;
+          if (firstOnSocket && (listName === 'joined' || listName === 'joining')) {
+            var ids = sessions.map(function (s) { return s.id; });
+            var re = chatState.reconnectAction(ids, boundOn !== null && boundOn !== sock);
+            if (re.send === 'join') {
+              // joined/joining(id) -> joining(id): the same row stays
+              // selected, so the list (rendered by the prime above) is current.
+              sendBinding({ action: 'join', session_id: re.id });
+              return;
             }
-          };
-          App.chat.renderSessionList(
-            sessionListEl, sessions, currentSessionId, _sessionCallbacks
-          );
-          // Drain queued new-session intent (from startSessionWith while WS
-          // was reconnecting). Takes priority over pendingJoinId and
-          // auto-join so the user's explicit "new chat / switch agent"
-          // action is honoured after a brief reconnect.
-          if (pendingStart && pendingStart.sent) {
-            // The new_session is already in flight on this socket; its
-            // session_joined will land. No re-send and no auto-join (which
-            // would race the join).
-            return;
-          }
-          if (pendingStart) {
-            var startIntent = pendingStart;
-            pendingStart = null;
-            currentSessionId = null;
-            if (window.App && window.App.router) App.router.sync('chat', null);
-            var startMsg = { action: 'new_session' };
-            if (startIntent.agentName) startMsg.agent_name = startIntent.agentName;
-            ws.send(JSON.stringify(startMsg));
-            return;
-          }
-          if (pendingJoinId) {
-            var target = pendingJoinId;
-            pendingJoinId = null;
-            // Verify the session exists in the list before joining; if not,
-            // fall through to auto-join.
-            var found = false;
-            for (var i = 0; i < sessions.length; i++) {
-              if (sessions[i].id === target) { found = true; break; }
+            if (re.toIdle) {
+              // Deleted while the socket was down: idle, a notice, and the
+              // idle rules below.
+              rebinding = false;
+              clearConversation();
+              setWelcomeNotice(re.notice);
             }
-            if (found) { joinSession(target); return; }
+            // Otherwise the binding was made on this socket already (a join
+            // sent since it opened): its own reply clears `rebinding`.
           }
-          if (sessions.length > 0 && !currentSessionId) joinSession(sessions[0].id);
-          else if (!currentSessionId) showWelcome();
+          // AC2b: the idle rules, on every list, only while idle.
+          runIdleRules();
           return;
         }
 
         if (data.type === 'session_joined') {
-          // Stale-join guard: ignore responses for superseded join requests.
-          if (currentSessionId && currentSessionId !== data.session_id) return;
-          // Clear the pending new-session intent: the intended session has
-          // now joined successfully (either directly or after a WS reconnect).
-          pendingStart = null;
-          clearPendingStartTimer();
-          App.perf.mark('session-join:received');
-          currentSessionId = data.session_id;
-          if (window.App && window.App.router) {
-            App.router.sync('chat', 'sessions/' + currentSessionId);
+          var joinedEff = chatState.onFrame(data);
+          if (!joinedEff.accept) {
+            // A late reply to a superseded join or start (a start abandoned
+            // by a pick may still have created its session: list it).
+            if (joinedEff.refreshList) refreshSessionList();
+            return;
           }
+          rebinding = false;
+          if (joinedEff.startFailed) {
+            applyStartFailed(joinedEff);
+            return;
+          }
+          var joinedId = data.session_id;
+          App.perf.mark('session-join:received');
+          App.router.sync('chat', joinedEff.sync);
           currentAgentName = data.agent_name;
           // M23 F02 L03: capture the joined session's connector platform
           // (undefined on a degraded-session payload's older clients / any
@@ -1245,11 +1624,21 @@ App.registerArea({
           // since it reads currentSessionPlatform to gate tool-result
           // promotion.
           currentSessionPlatform = data.platform || null;
-          updateAgentBadge(data.agent_name);
-          syncDropdownToCurrent();
+          joinedTitle = data.title || null;
+          // The selection follows the join (joining -> joined; a start's
+          // starting -> joined swap drops the pending row), and so does the
+          // header (AC1: the title from the `sessions` store, falling back
+          // to this payload's).
+          renderChatsList();
+          renderPane();
           hideThinking();
           App.chat.resetTelemetry(content);
-          renderHistory(data.history, data.agent_name);
+          // AC2/AC7: the first turn behaves like any turn. A start's join
+          // with an empty history keeps the optimistic bubble; any other
+          // join renders the history (an in-flight session's history already
+          // holds the user event).
+          if (joinedEff.render === 'history') renderHistory(data.history, data.agent_name);
+          startBubbleNodes = [];
           // M16 F06 L02: synchronously restore persisted last_usage into
           // the overlay so the token counts aren't lost on session reopen.
           // Uses a defensive read pattern (session_metadata may be absent).
@@ -1275,17 +1664,18 @@ App.registerArea({
           // client-only (no backend task) and keyed per session, so it is
           // decoupled from is_processing — do not delete it based on the busy
           // flag (session switch / cancel / dequeue manage its lifecycle).
+          // A start's hold was keyed on its client id, which IS this id.
           clearPendingQueued();
           if (data.is_processing) {
-            inFlightSessions[currentSessionId] = true;
+            inFlightSessions[joinedId] = true;
             if (!sessionBannerEl) sendBtn.disabled = true;
             showThinking();
           } else {
-            delete inFlightSessions[currentSessionId];
+            delete inFlightSessions[joinedId];
             if (!sessionBannerEl) sendBtn.disabled = false;
           }
-          if (pendingQueuedMessages[currentSessionId]) {
-            showPendingQueued(pendingQueuedMessages[currentSessionId]);
+          if (pendingQueuedMessages[joinedId]) {
+            showPendingQueued(pendingQueuedMessages[joinedId]);
           }
           updateStopControl();
           showChrome();
@@ -1322,25 +1712,51 @@ App.registerArea({
             App.perf.mark('session-join:painted');
             App.perf.measure('session-join.dom-to-paint', 'session-join:dom-mutated', 'session-join:painted');
           });
+          // The list refresh also primes the store's `sessions` (a start's
+          // new session appears; DD4's start_session invalidation row).
+          refreshSessionList();
+          return;
+        }
+
+        if (data.type === 'start_failed') {
+          var failedEff = chatState.onFrame(data);
+          if (failedEff.accept && failedEff.startFailed) applyStartFailed(failedEff);
+          return;
+        }
+
+        if (data.type === 'join_failed') {
+          var joinFailedEff = chatState.onFrame(data);
+          if (!joinFailedEff.accept) return;
+          rebinding = false;
+          clearConversation();
+          setWelcomeNotice(joinFailedEff.notice);
           refreshSessionList();
           return;
         }
 
         if (data.type === 'session_deleted') {
-          if (currentSessionId === data.session_id) {
-            hideThinking();
-            currentSessionId = null;
-            currentAgentName = null;
-            currentSessionPlatform = null;
-            if (window.App && window.App.router) App.router.sync('chat', null);
-            messagesEl.innerHTML = '';
-            setSessionHealth('ok');
-            syncDropdownToCurrent();
-            // Don't auto-create — session_list refresh below picks the fallback.
+          var deletedEff = chatState.onFrame(data);
+          if (deletedEff.toIdle) {
+            rebinding = false;
+            clearConversation();
+            // Don't auto-create — the session_list refresh below runs the
+            // idle rules.
           }
           refreshSessionList();
           return;
         }
+
+        // OAuth: the popup close is global (it may belong to any session);
+        // only the inline rendering below is gated (AC3).
+        if (data.type === 'auth_resolved' || data.type === 'auth_failed') {
+          closeOauthPopup(data.source_id);
+        }
+
+        // AC3, the frame gate: every other frame is session-scoped (it
+        // carries no session_id), so it renders only while joined. Frames
+        // from a session this socket left (a pick's `leave`, a switch) are
+        // dropped while pending, starting or joining.
+        if (!chatState.onFrame(data).accept) return;
 
         if (data.type === 'user') {
           var cls = data.source === 'api' ? 'user api' : 'user';
@@ -1471,18 +1887,16 @@ App.registerArea({
           renderLoginRequiredButton(data);
         }
         else if (data.type === 'auth_resolved') {
-          // F5 L5: auth completed. Clear inline button, close popup,
-          // surface a "Resuming…" placeholder until the resumed
-          // tool_result arrives. The callback page's own
-          // window.close() usually fires first; this is a fallback.
+          // F5 L5: auth completed. Clear inline button, surface a
+          // "Resuming…" placeholder until the resumed tool_result arrives.
+          // (The popup was closed above the frame gate: the callback page's
+          // own window.close() usually fires first; that is a fallback.)
           clearLoginRequiredButton(data);
-          closeOauthPopup(data.source_id);
           renderResumingPlaceholder(data);
         }
         else if (data.type === 'auth_failed') {
           // F5 L5: surface the OAuth-flow failure as a system error
-          // notice; close any open popup for this source.
-          closeOauthPopup(data.source_id);
+          // notice (the popup was closed above the frame gate).
           var failMsg = 'OAuth failed: ' + (data.description || data.error || 'unknown error');
           addMsg('system', failMsg);
         }
@@ -1493,7 +1907,9 @@ App.registerArea({
           // the next user message starts a fresh streaming round.
           finalizeStreamingBubble();
           currentStreamingVisibility = null;
-          var sid = currentSessionId;
+          // AC6: the joined session (activeId); a held message goes out on
+          // the joined path (performSend), never as a start.
+          var sid = chatState.activeId();
           // F09-02 (client-hold): the held queued message was NOT sent during
           // the turn — it waited locally. Now the running turn has finished, so
           // dequeue it and send it via the NORMAL send path. This renders the
@@ -1522,12 +1938,13 @@ App.registerArea({
           hideThinking();
           finalizeStreamingBubble();
           currentStreamingVisibility = null;
-          if (currentSessionId) {
-            delete inFlightSessions[currentSessionId];
+          var cancelledActive = chatState.activeId();
+          if (cancelledActive) {
+            delete inFlightSessions[cancelledActive];
             // Cancel also discards any pending queued message (DD4 sub-decision:
             // "stop" means stop everything). Both the optimistic click handler and
             // this arrival path clear it so a race between the two is safe.
-            delete pendingQueuedMessages[currentSessionId];
+            delete pendingQueuedMessages[cancelledActive];
             clearPendingQueued();
           }
           updateStopControl();
@@ -1538,12 +1955,22 @@ App.registerArea({
     }
 
     // Wire events
+    // M25 F4 L5 (DD6): the composer's textarea. Enter sends (its newline is
+    // prevented); Shift+Enter keeps the native newline. An Enter that commits
+    // an IME composition does nothing here (the IME takes it): WebKit can
+    // deliver that Enter with isComposing false, so keyCode 229 (the
+    // composition keyCode) is checked too.
     inputEl.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      if (e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      send();
     });
+    // The textarea grows with its content (to about eight lines).
+    inputEl.addEventListener('input', function () { composer.fit(); });
     sendBtn.addEventListener('click', send);
 
-    // M16 F12 L08: minimal image-ingestion producer. The trigger button opens
+    // M16 F12 L08: minimal image-ingestion producer. Attach (chat-attach-btn) opens
     // the OS file picker; the hidden file input's `change` handler reads
     // EVERY selected file (HAT fix round 2: `multiple` + iterate
     // fileInputEl.files, appending — a prior selection is not replaced) via
@@ -1635,12 +2062,18 @@ App.registerArea({
     // `cancelled` event from the backend will perform the authoritative full reset.
     stopBtn.addEventListener('click', function () {
       if (!isCurrentBusy()) return; // no-op: already done, or raced to completion
+      // AC8: a closed or not-yet-re-bound socket has nothing to cancel (and a
+      // send on a closed socket throws). While starting, the cancel is
+      // ordered after start_session on the socket, so it binds to the new
+      // session.
+      if (!socketOpen() || rebinding) return;
       ws.send(JSON.stringify({ action: 'cancel' }));
       // Optimistic: clear thinking immediately so the UI feels responsive.
       hideThinking();
       // Discard pending queued message — "stop" means stop everything.
-      if (currentSessionId) {
-        delete pendingQueuedMessages[currentSessionId];
+      var stopActive = chatState.activeId();
+      if (stopActive) {
+        delete pendingQueuedMessages[stopActive];
         clearPendingQueued();
       }
       // Do NOT prematurely clear inFlightSessions or re-enable sendBtn here;
@@ -1648,26 +2081,20 @@ App.registerArea({
       // a rapid double-click re-enables the button before the event arrives).
     });
 
-    // Sidebar agent dropdown — `change` fires only on user interaction;
-    // programmatic `.value =` assignments do not, so the sync is safe.
-    agentSelect.addEventListener('change', function () {
-      var selected = agentSelect.value;
-      if (!selected) return;
-      startSessionWith(selected);
-    });
-
-    // Conversation header `+ new` — start over with the same agent.
-    headerNewBtn.addEventListener('click', function () {
-      startSessionWith(currentAgentName || agentSelect.value || null);
-    });
-
     var self = this;
     self._connect = connect;
     self._ws = function () { return ws; };
     self._refreshAgentsAndSetup = refreshAgentsAndSetup;
-    self._joinSession = function (id) { joinSession(id); };
+    self._serialize = function () { return chatState.serialize(); };
+    self._hydrate = hydrate;
+    // Test seams. `_joinSession` opens a conversation (one `join`) on an open
+    // socket; `_sessionState` is the state machine's state().
+    self._joinSession = function (id) { if (socketOpen()) openConversation(id); };
+    self._sessionState = function () { return chatState.state(); };
+    // AC4: "the joined or joining id", derived from the state (null while
+    // idle, pending or starting).
     Object.defineProperty(self, '_currentSessionId', {
-      get: function () { return currentSessionId; },
+      get: function () { return chatState.boundId(); },
       configurable: true
     });
     Object.defineProperty(self, '_pendingJoinId', {
@@ -1675,9 +2102,22 @@ App.registerArea({
       set: function (v) { pendingJoinId = v; },
       configurable: true
     });
+
+    // M25 F4 L4a (AC12): the agent picker's host, registered LAST in init so
+    // App.chat.openPicker calls queued before the area existed run now. The
+    // picker hands a pick to requestPick (the route and pickIntent stay
+    // here); with setup incomplete an open is an inert no-op.
+    App.chat.registerPickerHost({
+      setupIncomplete: function () { return setupIncomplete; },
+      onPick: function (agent, opts) { requestPick(agent, opts); },
+      chatWith: function (agent, opts) { return goPick(agent, opts); }
+    });
+    self._agentDrawer = agentDrawer;
   },
 
   activate: function () {
+    // M25 F4 L6 (DD7): the drawer shows only on Chats.
+    if (this._agentDrawer) this._agentDrawer.setActive(true);
     if (!this._ws || !this._ws() || this._ws().readyState > 1) {
       this._connect();
     } else if (this._ws() && this._ws().readyState === WebSocket.OPEN) {
@@ -1686,6 +2126,8 @@ App.registerArea({
   },
 
   deactivate: function () {
-    // Keep WS alive
+    // Keep WS alive. The drawer is hidden off Chats, so <main> keeps its
+    // full width on Agents, Library and Settings (M25 F4 L6, DD7).
+    if (this._agentDrawer) this._agentDrawer.setActive(false);
   }
 });

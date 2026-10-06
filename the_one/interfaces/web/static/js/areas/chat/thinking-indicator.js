@@ -12,8 +12,14 @@
     var el = document.createElement('div');
     el.className = 'msg assistant model-loading thinking';
     el.setAttribute('data-testid', 'thinking-indicator');
-    el.innerHTML = '<span class="model-loading-text">thinking</span><span class="model-loading-dots"></span>';
-    var dotEl = el.querySelector('.model-loading-dots');
+    // DOM-built (M25 F4 L4b; was a static innerHTML literal).
+    var textEl = document.createElement('span');
+    textEl.className = 'model-loading-text';
+    textEl.textContent = 'thinking';
+    var dotEl = document.createElement('span');
+    dotEl.className = 'model-loading-dots';
+    el.appendChild(textEl);
+    el.appendChild(dotEl);
     var frameIdx = 0;
     // F2 Leg 2 (A.7): honor prefers-reduced-motion. The Braille spinner
     // is a continuous animation that users with motion sensitivities

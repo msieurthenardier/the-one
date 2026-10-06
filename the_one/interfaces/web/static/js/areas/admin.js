@@ -154,39 +154,49 @@ App.registerArea({
 
   init: function (sidebar, content) {
     // The Settings nav (M25 F3 L5a, DD6; reference spec section 8.1): one
-    // App.ui.navGroups of plain links. Each group item is a category, keyed
-    // by its ROUTE section (the area's 'knowledge' category is the
-    // 'knowledge-indexing' page), which is also its test id suffix. Built-in
-    // tools are named so to tell them from MCP / external tools. The
+    // App.ui.navGroups of plain links, built from the shared page table
+    // App.settingsPages (settings-pages.js, M25 F4 L7: the same table the
+    // router's labels and the jump-to palette read). Each item is keyed by
+    // its ROUTE section, which is also its test id suffix. The area's own
+    // category ids differ for one page only: its 'knowledge' category is the
+    // 'knowledge-indexing' page (ROUTE_SECTION, internal to this file).
+    // Built-in tools are named so to tell them from MCP / external tools. The
     // Knowledge indexing page is app-wide chunking + monitoring settings (M24
     // F06 L04, DD-7); the knowledge-base inventory lives in the Library.
     var ROUTE_SECTION = { knowledge: 'knowledge-indexing' };
     function routeSection(category) { return ROUTE_SECTION[category] || category; }
-    function navItem(category, label) {
-      var section = routeSection(category);
+    function settingsPage(section) {
+      var pages = App.settingsPages;
+      for (var p = 0; p < pages.length; p++) if (pages[p].section === section) return pages[p];
+      return null;
+    }
+    // The page's name from the table, by area category.
+    function pageLabel(category) {
+      var page = settingsPage(routeSection(category));
+      return page ? page.label : category;
+    }
+    function navItem(page) {
       return {
-        id: section,
-        label: label,
-        href: App.router.href({ destination: 'settings', section: section }),
-        testid: 'settings-nav-' + section
+        id: page.section,
+        label: page.label,
+        href: App.router.href({ destination: 'settings', section: page.section }),
+        testid: 'settings-nav-' + page.section
       };
     }
-    var navGroups = [
-      { label: 'General', items: [
-        navItem('appearance', 'Appearance'),
-        navItem('prompts', 'Prompts'),
-        navItem('encryption', 'Encryption')
-      ] },
-      { label: 'Models', items: [navItem('providers', 'Providers')] },
-      { label: 'Defaults for agents', items: [
-        navItem('tools', 'Built-in tools'),
-        navItem('knowledge', 'Knowledge indexing')
-      ] }
-    ];
-    // Mission 08 F2 L1: the dev-mode-only Design language gallery. The
-    // boot-blocking fetch in app.js populates window.App.config before init.
-    if (window.App && window.App.config && window.App.config.dev_mode) {
-      navGroups.push({ label: 'Developer', items: [navItem('design-language', 'Design language')] });
+    // Groups in table order. A devOnly page (the Design language gallery,
+    // Mission 08 F2 L1) shows only in dev mode, filtered here at init: the
+    // boot-blocking fetch in app.js populates window.App.config before it.
+    var devMode = !!(window.App && window.App.config && window.App.config.dev_mode);
+    var navGroups = [];
+    var groupByLabel = {};
+    for (var pg = 0; pg < App.settingsPages.length; pg++) {
+      var navPage = App.settingsPages[pg];
+      if (navPage.devOnly && !devMode) continue;
+      if (!Object.prototype.hasOwnProperty.call(groupByLabel, navPage.group)) {
+        groupByLabel[navPage.group] = { label: navPage.group, items: [] };
+        navGroups.push(groupByLabel[navPage.group]);
+      }
+      groupByLabel[navPage.group].items.push(navItem(navPage));
     }
     var currentCategory = this.GENERAL_SUBS[0];
     var contentEl;
@@ -351,7 +361,7 @@ App.registerArea({
       var el = App.ui.util.el;
       contentEl.textContent = '';
       var header = el('div', { className: 'page-header' }, [
-        el('h1', { className: 'page-title', text: category === 'providers' ? 'Providers' : 'Built-in tools' })
+        el('h1', { className: 'page-title', text: pageLabel(category) })
       ]);
       if (category === 'providers') {
         // The page's primary action (reference spec section 8.2).

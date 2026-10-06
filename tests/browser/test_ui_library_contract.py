@@ -3,10 +3,11 @@
 (M25 F1 L2): core helpers, ``button``, ``textInput`` / ``field`` and ``listPane``,
 plus the M25 F3 L1 ``listPane`` additions (title count, intro, per-group empty
 text, row styles, ``scrollToSelected``, the accessible-name suffix and focus kept
-across ``setItems``) and the L4a ``scrollToGroup`` with its optional group ids.
+across ``setItems``) and the L4a ``scrollToGroup`` with its optional group ids;
+M25 F4 L6 adds ``setQuery`` (silent, no row rebuilt).
 
 Every test runs in Chromium and WebKit through ``engine_page`` + ``load_harness``
-(no app spawn). Falls in the ``shared`` browser lane.
+(no app spawn). Falls in the ``contracts`` browser lane.
 """
 
 from __future__ import annotations
@@ -599,6 +600,64 @@ def test_list_pane_groups_markup(engine_page: Page) -> None:
     assert_controls_labelled_and_described(engine_page, ".ui-list-pane")
 
 
+def test_list_pane_set_query_applies_the_view_silently(engine_page: Page) -> None:
+    """M25 F4 L6 (AC12): setQuery(q) sets the filter's value and query and
+    applies the view -- rows shown or hidden, the selection and the tab stop
+    re-derived -- without rebuilding a row (the same nodes, focus kept) and
+    without a live announcement (the status region is cleared, never written)."""
+    _mount_pane(engine_page)
+    p = engine_page
+    status = p.locator("[data-testid=lp-root] .ui-list-pane-status")
+    flt = p.get_by_test_id("lp-filter")
+    flt.fill("gam")  # a keystroke announces
+    expect(status).to_have_text("1 result")
+    p.evaluate(
+        "() => document.querySelectorAll('.ui-list-pane-row').forEach((r, i) => { r.__mark = i; })"
+    )
+    p.evaluate("() => window.__pane.setQuery('')")
+    out = p.evaluate(
+        """() => ({
+          value: document.querySelector('[data-testid=lp-filter]').value,
+          rows: Array.from(document.querySelectorAll('.ui-list-pane-row')).map((r) =>
+            [r.__mark, r.parentElement.hidden, r.tabIndex, r.getAttribute('aria-current')]),
+          status: document.querySelector('[data-testid=lp-root] .ui-list-pane-status').textContent,
+        })"""
+    )
+    # Every row back, the same nodes, the selected row (beta) the tab stop.
+    assert out == {
+        "value": "",
+        "rows": [[0, False, -1, None], [1, False, 0, "page"], [2, False, -1, None]],
+        "status": "",
+    }
+    # A non-empty query: filtered, the first visible row the stop, still silent.
+    p.evaluate("() => window.__pane.setQuery('alp')")
+    expect(flt).to_have_value("alp")
+    expect(p.locator(".ui-list-pane-row:visible")).to_have_count(1)
+    assert p.evaluate("() => document.querySelector('[data-testid=lp-row-alpha]').tabIndex") == 0
+    expect(status).to_have_text("")
+    # Focus survives: no row is rebuilt.
+    p.get_by_test_id("lp-row-alpha").focus()
+    p.evaluate("() => window.__pane.setQuery('')")
+    assert p.evaluate("() => document.activeElement.getAttribute('data-testid')") == "lp-row-alpha"
+    assert p.evaluate("() => document.querySelector('[data-testid=lp-row-alpha]').__mark") == 0
+
+
+def test_list_pane_set_query_is_a_no_op_without_a_filter(engine_page: Page) -> None:
+    p = engine_page
+    _load(p)
+    out = p.evaluate(
+        """() => {
+          const c = App.ui.listPane({title: 'Plain', items: [
+            {id: 'a', label: 'Alpha', href: '#a'}, {id: 'b', label: 'Beta', href: '#b'}]});
+          document.getElementById('harness-root').appendChild(c.el);
+          c.setQuery('zzz');
+          return {visible: Array.from(c.el.querySelectorAll('li')).filter((li) => !li.hidden).length,
+                  inputs: c.el.querySelectorAll('input').length};
+        }"""
+    )
+    assert out == {"visible": 2, "inputs": 0}
+
+
 def test_list_pane_installs_no_document_listener(engine_page: Page) -> None:
     _load(engine_page)
     engine_page.evaluate(
@@ -938,8 +997,9 @@ def test_list_pane_default_row_style_is_unchanged(engine_page: Page) -> None:
         assert row["pad"] == "8px 10px" and row["border"].startswith("0px"), row
     sel = out["after"][1]
     assert "inset" in sel["shadow"] and _rgb(DARK["accent"]) in sel["shadow"], sel
-    assert _throws(engine_page, "App.ui.listPane({title: 'T', rowStyle: 'chats'})") == (
-        'App.ui.listPane: unknown rowStyle "chats"'
+    # 'chats' became a known style in M25 F4 L1; any other name still throws.
+    assert _throws(engine_page, "App.ui.listPane({title: 'T', rowStyle: 'bogus'})") == (
+        'App.ui.listPane: unknown rowStyle "bogus"'
     )
 
 

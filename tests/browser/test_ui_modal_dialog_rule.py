@@ -6,7 +6,7 @@ The adapter builds the F1 fixture contract with the real wrapper: dialogs are cr
 open and removed on close, ids come through the modal's ``id`` option, and fixture bodies
 (buttons inside modal A) are passed as Node bodies. ``backdrop_css`` is empty because the
 app ships the ``::backdrop`` rule; ``backdrop_token`` is ``--scrim``.
-Falls in the ``shared`` browser lane.
+Falls in the ``contracts`` browser lane.
 """
 
 from __future__ import annotations

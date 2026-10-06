@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from browser import _nav
+from browser import _chats, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -81,6 +81,10 @@ def _release(page: Page) -> None:
 ROUND_TRIP_SPECS = [
     {"destination": "chats"},
     {"destination": "chats", "id": "abc 123"},
+    # The pending new chat (M25 F4 L3b, DD2).
+    {"destination": "chats", "create": True, "agent": "x"},
+    {"destination": "chats", "create": True, "agent": "My ~Agent/é"},
+    {"destination": "chats", "create": True, "agent": "~new"},
     {"destination": "agents"},
     {"destination": "agents", "create": True},
     {"destination": "agents", "id": "My Agent"},
@@ -118,6 +122,61 @@ def test_href_parse_round_trip(app_clean: str, page: Page) -> None:
     for spec, row in zip(ROUND_TRIP_SPECS, got, strict=True):
         assert row["p"] == spec, (spec, row)
         assert row["h"].startswith("#" + spec["destination"])
+
+
+def test_chats_create_route_contract(app_clean: str, page: Page) -> None:
+    """M25 F4 leg 3b (AC10): `#chats/~new/{agent}` follows the create
+    convention: the agent goes through enc() (a leading `~` is `%7E`), bare
+    `~new` is just Chats, extra segments fold, the area sub stays encoded."""
+    _boot(page, app_clean)
+    out = page.evaluate(
+        """() => ({
+            href: App.router.href({destination: 'chats', create: true, agent: 'x'}),
+            hrefTilde: App.router.href({destination: 'chats', create: true, agent: '~x y'}),
+            hrefNoAgent: App.router.href({destination: 'chats', create: true}),
+            parse: App.router.parse('#chats/~new/My%20Agent'),
+            parseBare: App.router.parse('#chats/~new'),
+            parseTildeId: App.router.parse('#chats/%7Enew'),
+            resolve: App.router.resolve('#chats/~new/My%20Agent'),
+            resolveBare: App.router.resolve('#chats/~new'),
+            resolveExtra: App.router.resolve('#chats/~new/x/y'),
+            resolveLegacy: App.router.resolve('#chat/new/x'),
+            routeFor: App.router.routeFor('chat', 'new/x'),
+            routeForTilde: App.router.routeFor('chat', 'new/~x%20y'),
+            routeForBare: App.router.routeFor('chat', 'new'),
+            routeForSession: App.router.routeFor('chat', 'sessions/abc'),
+        })"""
+    )
+    assert out["href"] == "#chats/~new/x"
+    assert out["hrefTilde"] == "#chats/~new/%7Ex%20y"
+    assert out["hrefNoAgent"] == "#chats"
+    assert out["parse"] == {"destination": "chats", "create": True, "agent": "My Agent"}
+    assert out["parseBare"] == {"destination": "chats"}
+    assert out["parseTildeId"] == {"destination": "chats", "id": "~new"}
+    r = out["resolve"]
+    assert (r["route"], r["destination"], r["area"], r["sub"], r["redirected"]) == (
+        "chats/~new/My%20Agent",
+        "chats",
+        "chat",
+        "new/My%20Agent",
+        False,
+    )
+    assert (
+        out["resolveBare"]["route"],
+        out["resolveBare"]["sub"],
+        out["resolveBare"]["redirected"],
+    ) == ("chats", None, True)
+    assert (
+        out["resolveExtra"]["route"],
+        out["resolveExtra"]["sub"],
+        out["resolveExtra"]["redirected"],
+    ) == ("chats/~new/x", "new/x", True)
+    # `#chats/~new/{agent}` never had a legacy form.
+    assert (out["resolveLegacy"]["route"], out["resolveLegacy"]["redirected"]) == ("chats", True)
+    assert out["routeFor"] == "chats/~new/x"
+    assert out["routeForTilde"] == "chats/~new/%7Ex%20y"
+    assert out["routeForBare"] == "chats"
+    assert out["routeForSession"] == "chats/abc"
 
 
 def test_leading_tilde_is_escaped_on_output(app_clean: str, page: Page) -> None:
@@ -270,6 +329,12 @@ def test_agents_create_route_boots_without_redirect(app_clean: str, page: Page) 
 PARITY_CORPUS = [h for h, _ in REDIRECT_ROWS] + [
     "#chats",
     "#chats/abc",
+    # The pending new chat (M25 F4 L3b): an agent with a space and a leading
+    # `~` (written %7E), and the bare `~new` that folds to Chats.
+    "#chats/~new/x",
+    "#chats/~new/My%20~Agent",
+    "#chats/~new/%7EMy%20Agent",
+    "#chats/~new",
     "#agents",
     "#agents/~new",
     "#agents/foo/general",
@@ -516,9 +581,10 @@ def test_chat_reconnect_autojoin_does_not_write_into_settings(
     """Chat's session_joined sync, arriving while the user is in Settings, must
     not move the URL (it used to write `#admin/sessions/{id}`)."""
     _boot(page, app_with_agent.base_url, "#chats")
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
+    _chats.start_chat(page, app_with_agent.agent_name)
+    _chats.send_first(page, "hello")  # a start is pending; the send makes the session
     page.wait_for_function("location.hash.startsWith('#chats/')", timeout=10000)
-    session_id = page.evaluate("App.areas.find(a => a.id === 'chat')._currentSessionId")
+    session_id = _chats.current_session_id(page)
     assert session_id
 
     _nav.open_destination(page, "settings")

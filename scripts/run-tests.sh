@@ -21,28 +21,42 @@ set -euo pipefail
 TEST_TIMEOUT="${TEST_TIMEOUT:-1200}"
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
-# `--lane {chats|agents|library|settings|shared}` runs just one destination's
+# `--lane {chats|agents|library|settings|contracts|shared}` runs just one
 # slice of the browser suite so a verification pass need not pay the full
-# ~13min tax. Aliases (kept for muscle memory and older docs):
+# ~38min tax (the six lanes summed, M25 F4). Aliases (kept for muscle memory
+# and older docs):
 #   chat = chats, studio = agents + library, system = settings.
-# chats/agents/library/settings are basename-glob buckets over tests/browser/
-# (`library` is an explicit file list; `agents` is the old studio globs MINUS
-# that list); `shared` is the COMPLEMENT (every browser test file not claimed
-# by the other four), so the five lanes' union is always exactly the whole
-# browser suite and no test file can be orphaned — a newly-added test file
-# lands in `shared` until it is assigned an area glob. Implemented hand-rolled
-# (no new deps): the lane expands to `-m browser <files…>`, mirroring
-# `make test-browser` semantics.
+# chats/agents/library/settings are the four destination lanes: basename-glob
+# buckets over tests/browser/ (`library` is an explicit file list; `agents` is
+# the old studio globs MINUS that list). `contracts` (M25 F4 L1, squawk 0117)
+# holds the `App.ui` control-library contract files (`test_ui_*`), so the
+# dual-engine contracts run without paying for the `shared` lane. `shared` is
+# the COMPLEMENT (every browser test file not claimed by the five named
+# lanes), so the six lanes' union is always exactly the whole browser suite
+# and no test file can be orphaned — a newly-added test file lands in `shared`
+# until it is assigned a lane glob. `tests/test_run_tests_lanes.py` pins that
+# the six lanes partition the suite. Implemented hand-rolled (no new deps):
+# the lane expands to `-m browser <files…>`, mirroring `make test-browser`
+# semantics.
+# `--list` (with `--lane`) prints the lane's file paths, one per line, and
+# exits 0 without running pytest.
 # See CLAUDE.md "Per-area browser test lanes" for usage.
 lane=""
+list=0
 pytest_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --lane) lane="${2:-}"; shift; [[ $# -gt 0 ]] && shift ;;
     --lane=*) lane="${1#--lane=}"; shift ;;
+    --list) list=1; shift ;;
     *) pytest_args+=("$1"); shift ;;
   esac
 done
+
+if [[ "$list" -eq 1 && -z "$lane" ]]; then
+  echo "run-tests.sh: --list needs --lane {chats|agents|library|settings|contracts|shared}" >&2
+  exit 2
+fi
 
 if [[ -n "$lane" ]]; then
   browser_dir="tests/browser"
@@ -62,7 +76,7 @@ if [[ -n "$lane" ]]; then
   # quoted so the '*' survives array storage and expands only in expand_lane.
   chats_pat=('test_flow_chat*' 'test_flow_markdown_chat.py' 'test_flow_new_chat.py' \
              'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
-             'test_flow_usage_restore.py')
+             'test_flow_usage_restore.py' 'test_chats_helper.py')
   # Library-owned files (explicit): knowledge inventory, MCP servers,
   # connectors, and the Library list (M25 F3 L4a). Each name also matches a
   # studio glob, so it runs in this lane only (agents = studio minus these).
@@ -77,6 +91,9 @@ if [[ -n "$lane" ]]; then
   # Settings: the admin pages and the provider editor, plus the Settings item
   # pages' list/detail file (M25 F3 L5b).
   settings_pat=('test_flow_admin_*' 'test_flow_provider_*' 'test_flow_settings_*')
+  # Contracts: the `App.ui` control-library contract files (M25 F4 L1,
+  # squawk 0117). No other lane's glob matches `test_ui_*`.
+  contracts_pat=('test_ui_*')
 
   # Files matching $@ (globs) minus files matching library_pat, sorted.
   agents_files() {
@@ -91,19 +108,20 @@ if [[ -n "$lane" ]]; then
     library)       mapfile -t lane_files < <(expand_lane "${library_pat[@]}" | sort -u) ;;
     settings|system) mapfile -t lane_files < <(expand_lane "${settings_pat[@]}" | sort -u) ;;
     studio)        mapfile -t lane_files < <(expand_lane "${studio_pat[@]}" | sort -u) ;;
+    contracts)     mapfile -t lane_files < <(expand_lane "${contracts_pat[@]}" | sort -u) ;;
     shared)
-      # Complement: all browser test files, minus the four destination lanes
-      # and the pixel-only snapshot file (which carries no @pytest.mark.browser
-      # tests).
+      # Complement: all browser test files, minus the five named lanes
+      # (agents + library = studio_pat) and the pixel-only snapshot file
+      # (which carries no @pytest.mark.browser tests).
       mapfile -t _assigned < <(
         expand_lane "${chats_pat[@]}" "${studio_pat[@]}" "${settings_pat[@]}" \
-                    'test_visual_snapshots.py' | sort -u)
+                    "${contracts_pat[@]}" 'test_visual_snapshots.py' | sort -u)
       mapfile -t _all < <(for f in "$browser_dir/"test_*.py; do printf '%s\n' "$f"; done | sort -u)
       mapfile -t lane_files < <(comm -23 \
         <(printf '%s\n' "${_all[@]}") <(printf '%s\n' "${_assigned[@]}"))
       ;;
     *)
-      echo "run-tests.sh: unknown lane '$lane' (want: chats|agents|library|settings|shared; aliases: chat|studio|system)" >&2
+      echo "run-tests.sh: unknown lane '$lane' (want: chats|agents|library|settings|contracts|shared; aliases: chat|studio|system)" >&2
       exit 2
       ;;
   esac
@@ -111,6 +129,11 @@ if [[ -n "$lane" ]]; then
   if [[ ${#lane_files[@]} -eq 0 ]]; then
     echo "run-tests.sh: lane '$lane' matched no test files" >&2
     exit 2
+  fi
+
+  if [[ "$list" -eq 1 ]]; then
+    printf '%s\n' "${lane_files[@]}"
+    exit 0
   fi
 
   echo "run-tests.sh: lane '$lane' — ${#lane_files[@]} browser test file(s)" >&2

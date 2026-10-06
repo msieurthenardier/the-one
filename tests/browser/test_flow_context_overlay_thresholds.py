@@ -27,6 +27,7 @@ import re
 from pathlib import Path
 
 import pytest
+from browser import _chats
 from browser._credential_registry import auth_headers_for
 from browser._credential_registry import unregister as _unregister_credential
 from browser.conftest import _spawn_app, _teardown_proc
@@ -35,9 +36,9 @@ from playwright.sync_api import Page, expect
 
 
 def _enter_session(page: Page, base_url: str) -> str:
-    """Seed a mock provider + agent, navigate, and click into a session so the
-    chat chrome (and the telemetry overlay inside it) is mounted. Returns the
-    agent name.
+    """Seed a mock provider + agent, navigate, start a chat and send its first
+    message so a session exists and the chat chrome (and the telemetry overlay
+    inside it) is mounted. Returns the agent name.
 
     Waits for the join-time ``/context-window`` fetch to settle before
     returning. That fetch fires ``setTelemetryMax(content, max)`` asynchronously
@@ -50,16 +51,20 @@ def _enter_session(page: Page, base_url: str) -> str:
     agent_name = seed_mock_agent(base_url, provider_id, name="ctx-overlay-agent")
 
     page.goto(base_url)
-    expect(page.locator('[data-testid="chat-welcome"]')).to_be_visible(timeout=8000)
-    agent_item = page.locator(".chat-welcome-item").filter(has_text=agent_name)
-    expect(agent_item).to_be_visible(timeout=8000)
+    expect(_chats.welcome(page)).to_be_visible(timeout=8000)
     # Capture the join-time context-window fetch so we know when the async
     # setTelemetryMax callback has run before we drive the overlay.
+    # M25 F4 L3b: a start is a pending chat with no session; the first send
+    # creates the session, and its session_joined fires the fetch.
     with page.expect_response(lambda r: "/context-window" in r.url, timeout=10000):
-        agent_item.click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+        _chats.start_chat(page, agent_name)
+        _chats.send_first(page, "hello")
     # The overlay is mounted inside .chat-chrome once a session is open.
     expect(page.locator(".telemetry-overlay")).to_have_count(1, timeout=8000)
+    # Let the first turn finish (its usage frame updates the overlay) before
+    # a test drives it.
+    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     return agent_name
 
 

@@ -18,6 +18,7 @@ Route table (new scheme -> legacy hash)::
 
     chats                          -> #chat
     chats/{sid}                    -> #chat/sessions/{sid}
+    chats/~new/{agent}             -> (none: ``legacy_hash`` raises)
     agents                         -> #studio          (app redirects to #studio/agents)
     agents/{name}[/{tab}[/{sid}]]  -> #studio/agents/{name}[/...]
     library                        -> #studio/knowledge
@@ -46,8 +47,10 @@ since M25 F3 leg 4a, connectors); ``agents/new/general`` is an agent NAMED
 
 Canonicalisation (``canonical``) folds the app's own default redirects, so
 ``expect_route`` / ``current_route`` accept either form: ``#studio`` ==
-``#studio/agents`` (both are ``agents``), ``settings`` == ``settings/appearance``
-and ``library`` == ``library/knowledge``.  Since M25 F3 leg 5a the former single
+``#studio/agents`` (both are ``agents``), ``settings`` == ``settings/appearance``,
+``library`` == ``library/knowledge`` and a bare ``chats/~new`` == ``chats``.
+``chats/~new/{agent}`` is the pending new chat (M25 F4 L3b); it never had a
+legacy form, so ``legacy_hash`` raises for it.  Since M25 F3 leg 5a the former single
 General page is three (Appearance, Prompts, Encryption): the app redirects
 ``settings/general`` (any suffix) and the legacy ``#admin``, ``#admin/system`` and
 ``#admin/general`` to ``settings/appearance``.  The legacy observations fold
@@ -162,6 +165,8 @@ def canonical(route: str) -> str:
         return "library/knowledge"
     if head == "settings" and len(s) == 1:
         return "settings/appearance"
+    if head == "chats" and s[1:] == [_RESERVED_NEW]:
+        return "chats"
     return _join(s)
 
 
@@ -185,6 +190,8 @@ def legacy_hash(route: str) -> str:
         raise ValueError("empty route")
     head, rest = s[0], s[1:]
     if head == "chats":
+        if rest[:1] == [_RESERVED_NEW]:
+            raise ValueError(f"no legacy hash for the pending new chat: {route!r}")
         return "#chat" if not rest else "#" + _join(["chat", "sessions", *rest])
     if head == "agents":
         # Bare `agents` -> bare `#studio` (what most tests use); the app

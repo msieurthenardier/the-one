@@ -91,7 +91,9 @@ _RAW_CONTROL = re.compile(
 
 
 def test_library_sections_exist() -> None:
-    assert len(LIBRARY_SECTIONS) == 7
+    # M25 F4 L1 adds ui-search-section.js (App.ui.searchList), to 8; L6 adds
+    # ui-drawer-section.js (App.ui.drawer), to 9.
+    assert len(LIBRARY_SECTIONS) == 9
 
 
 @pytest.mark.parametrize("path", LIBRARY_SECTIONS, ids=lambda p: p.name)

@@ -96,6 +96,28 @@ def test_settings_general_is_not_folded():
         _nav.legacy_hash("settings/general")
 
 
+def test_chats_new_route_canonical_and_no_legacy_form():
+    """M25 F4 leg 3b (AC11): ``#chats/~new/{agent}`` is the pending new chat.
+
+    ``canonical`` folds a bare ``chats/~new`` to ``chats`` (the app's own
+    redirect) and keeps the agent form; ``legacy_hash`` raises for it, since it
+    never had a legacy form (so it is not a ``DD2_ROWS`` row).
+    """
+    assert _nav.canonical("chats/~new") == "chats"
+    assert _nav.canonical("#chats/~new/") == "chats"
+    assert _nav.canonical("chats/~new/Alpha") == "chats/~new/Alpha"
+    assert _nav.canonical("chats/~new/My Agent") == "chats/~new/My%20Agent"
+    assert _nav.canonical("chats/~new/%7Ex") == "chats/~new/%7Ex"
+    assert _nav.routes_equal("chats/~new", "chats")
+    assert not _nav.routes_equal("chats/~new/a", "chats")
+    for route in ("chats/~new/Alpha", "chats/~new", "chats/~new/a/b"):
+        with pytest.raises(ValueError):
+            _nav.legacy_hash(route)
+    assert not [r for r, _ in DD2_ROWS if r.startswith("chats/~new")]
+    # A session id still maps as before.
+    assert _nav.legacy_hash("chats/abc") == "#chat/sessions/abc"
+
+
 def test_per_segment_comparison():
     assert _nav.routes_equal("agents/My%20Agent/tools", "agents/My Agent/tools")
     # %2F inside an id is NOT a path separator
@@ -296,10 +318,29 @@ def test_no_raw_route_hashes_in_browser_tests():
 # Selectors of the surfaces Flight 3 retired: the entity tiles, the section nav
 # (DD6), the Back controls (DD2), the Library grids' create CTAs (leg 4a, DD5:
 # the Library list's Add menu replaces them) and the agent tiles' tool counts
-# (leg 3).  Browser tests reach list rows through ``tests/browser/_lists.py``
-# instead.  An id never leaves this tuple: a retired surface cannot come back
-# into a test.  ``test_retired_selectors_cover_the_registry_retired_table`` pins
-# it against ``docs/ui-testid-registry.md``'s "Retired testids" table.
+# (leg 3).  Flight 4 leg 4a (DD12) adds the old chat history list's class
+# fragments: ``session-item`` (and its ``-title``/``-agent``/``-source``
+# parts), ``session-list``, ``session-group`` and ``list-item-delete`` (the
+# Chats list is an App.ui.listPane; tests reach its rows through
+# ``tests/browser/_chats.py``).  ``list-item-delete`` is fenced for browser
+# tests only: the Design language page's surfaces demo keeps the class.
+# Flight 4 leg 4b (DD3, DD6, DD12) adds the chat pane's retired surfaces: the
+# header's ``new-chat-btn`` (a testid, also in the registry's Retired table)
+# and two class fragments, ``chat-welcome-item`` (the welcome's agent options,
+# with their ``-name``/``-meta`` parts) and ``session-agent-badge`` (the old
+# header's h2), plus ``chat-welcome-list`` (the welcome listbox that held the
+# options).  They replace the leg 3a chat-seam guard (``CHAT_SEAM_*``), which
+# fenced the first two outside ``_chats.py`` while the flight migrated; the
+# seam module is now checked like every other file.  The KEPT welcome surface
+# is NOT retired: the ``chat-welcome`` testid (the pane's empty and guidance
+# state) and its ``chat-welcome-mascot`` / ``-greeting`` / ``-prompt`` /
+# ``-guidance`` / ``-link`` / ``-notice`` / ``-inner`` / ``-actions`` classes
+# stay live (no entry here is a prefix of them).
+# Browser tests reach list rows through ``tests/browser/_lists.py`` instead.
+# An id never leaves this tuple: a retired surface cannot come back into a
+# test.  ``test_retired_selectors_cover_the_registry_retired_table`` pins the
+# union with ``RETIRED_EXACT`` against ``docs/ui-testid-registry.md``'s
+# "Retired testids" table.
 RETIRED_SELECTORS = (
     "entity-tile",
     "section-nav-item",
@@ -314,10 +355,33 @@ RETIRED_SELECTORS = (
     "new-connector-btn",
     "agent-tile-tool-count",
     "agent-tile-mcp-tool-count",
+    "session-item",
+    "session-list",
+    "session-group",
+    "list-item-delete",
+    "new-chat-btn",
+    "chat-welcome-item",
+    "chat-welcome-list",
+    "session-agent-badge",
+    # Flight 4 leg 5: the composer's old single-line row (its controls keep
+    # their testids inside the new ``.composer-box``).
+    "input-area",
 )
-# A left boundary only: ``entity-tile-name`` is part of the retired tile, while
-# a longer id that merely ends in one (``feedback-agent-btn``) is not.
-_RETIRED_RE = re.compile(r"(?<![\w-])(?:" + "|".join(re.escape(s) for s in RETIRED_SELECTORS) + ")")
+# Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
+# DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix
+# of the live Flight 3 testid ``agent-select-empty`` (the Agents detail
+# pane's empty state), which must stay usable.
+RETIRED_EXACT = ("agent-select",)
+# RETIRED_SELECTORS take a left boundary only: ``entity-tile-name`` is part of
+# the retired tile, while a longer id that merely ends in one
+# (``feedback-agent-btn``) is not.  RETIRED_EXACT entries take both.
+_RETIRED_RE = re.compile(
+    r"(?<![\w-])(?:"
+    + "|".join(re.escape(s) for s in RETIRED_SELECTORS)
+    + r")|(?<![\w-])(?:"
+    + "|".join(re.escape(s) for s in RETIRED_EXACT)
+    + r")(?![\w-])"
+)
 
 # The guard is unconditional.  While Flight 3 migrated the browser tests leg by
 # leg (M25 F3 L1-L5b), a per-file allow-list held the files that still named a
@@ -329,8 +393,8 @@ _RETIRED_RE = re.compile(r"(?<![\w-])(?:" + "|".join(re.escape(s) for s in RETIR
 # records which leg migrated which file.
 
 
-def find_retired_selectors(source: str, filename: str) -> list[str]:
-    """Retired selectors named in string literals (docstrings and comments exempt).
+def _selector_hits(source: str, filename: str, pattern: re.Pattern[str]) -> list[str]:
+    """Matches of *pattern* in string literals (docstrings and comments exempt).
 
     The walk sees every Python string literal, including JS passed to
     ``page.evaluate``.
@@ -343,10 +407,19 @@ def find_retired_selectors(source: str, filename: str) -> list[str]:
             continue
         if id(node) in skip:
             continue
-        hits = sorted(set(_RETIRED_RE.findall(node.value)))
+        hits = sorted(set(pattern.findall(node.value)))
         if hits:
             out.append(f"{filename}:{node.lineno}: {', '.join(hits)} in {node.value[:80]!r}")
     return out
+
+
+def find_retired_selectors(source: str, filename: str) -> list[str]:
+    """Retired selectors named in string literals (docstrings and comments exempt).
+
+    The walk sees every Python string literal, including JS passed to
+    ``page.evaluate``.
+    """
+    return _selector_hits(source, filename, _RETIRED_RE)
 
 
 def check_retired_selectors(sources: dict[str, str]) -> list[str]:
@@ -371,6 +444,48 @@ def test_retired_selector_guard_self_test():
     doc = 'def test_a(page):\n    """Replaces .entity-tile and back-tool-btn."""\n    pass\n'
     comment = "def test_a(page):\n    # was .section-nav-item\n    pass\n"
     longer = 'def test_a(page):\n    page.click("#feedback-agent-btn")\n'
+    # Flight 4 leg 4a: the old chat history list's fragments, and the exact id.
+    session = "def test_a(page):\n    page.locator('.session-item-title').first\n"
+    group = "def test_a(page):\n    page.locator('.session-group-label')\n"
+    delete = 'def test_a(page):\n    page.locator(".list-item .list-item-delete").click()\n'
+    dropdown = "def test_a(page):\n    page.locator('[data-testid=\"agent-select\"]')\n"
+    empty = "def test_a(page):\n    page.locator('[data-testid=\"agent-select-empty\"]')\n"
+    frame = 'def test_a(page):\n    assert f["type"] == "session_list"\n'
+    # Flight 4 leg 4b: the chat pane's retired header and welcome list.
+    header_btn = "def test_a(page):\n    page.locator('[data-testid=\"new-chat-btn\"]').click()\n"
+    option = 'def test_a(page):\n    page.locator(".chat-welcome-item-name")\n'
+    listbox = "def test_a(page):\n    page.locator('.chat-welcome-list')\n"
+    badge = (
+        "def test_a(page):\n    page.evaluate(\"document.querySelector('.session-agent-badge')\")\n"
+    )
+    kept = (
+        "def test_a(page):\n"
+        "    page.locator('[data-testid=\"chat-welcome\"] .chat-welcome-greeting')\n"
+        "    page.locator('.chat-welcome-prompt, .chat-welcome-guidance, .chat-welcome-link')\n"
+        "    page.locator('[data-testid=\"chat-welcome-mascot\"]')\n"
+        "    page.locator('[data-testid=\"chats-new-btn\"]')\n"
+        "    page.locator('[data-testid=\"chat-empty-new-btn\"]')\n"
+    )
+    # Flight 4 leg 5: the composer's old row; the box and the kept testids pass.
+    row = "def test_a(page):\n    page.locator('.area-chat .input-area')\n"
+    composer = (
+        "def test_a(page):\n"
+        "    page.locator('.composer-box [data-testid=\"chat-input\"]')\n"
+        "    page.locator('[data-testid=\"chat-send-btn\"], .composer-telemetry')\n"
+    )
+    for src in (header_btn, option, listbox, badge, row):
+        assert len(find_retired_selectors(src, "t.py")) == 1, src
+    assert find_retired_selectors(composer, "t.py") == []
+    assert find_retired_selectors(kept, "t.py") == []  # the kept welcome surface
+    # The former chat-seam module is no longer exempt.
+    problems = check_retired_selectors({"_chats.py": badge})
+    assert len(problems) == 1 and problems[0].startswith("_chats.py:"), problems
+    assert len(find_retired_selectors(session, "t.py")) == 1
+    assert len(find_retired_selectors(group, "t.py")) == 1
+    assert len(find_retired_selectors(delete, "t.py")) == 1
+    assert len(find_retired_selectors(dropdown, "t.py")) == 1
+    assert find_retired_selectors(empty, "t.py") == []  # the live Flight 3 id
+    assert find_retired_selectors(frame, "t.py") == []  # the WebSocket frame type
     assert len(find_retired_selectors(tile, "t.py")) == 1
     assert len(find_retired_selectors(back, "t.py")) == 1
     assert len(find_retired_selectors(in_js, "t.py")) == 1  # JS passed to evaluate counts
@@ -387,10 +502,23 @@ def test_retired_selector_guard_self_test():
     assert check_retired_selectors({"test_doc.py": doc + comment}) == []
 
 
+def test_retired_exact_spares_the_live_agent_select_empty():
+    """``agent-select`` is retired, but the live Flight 3 testid
+    ``agent-select-empty`` (the Agents detail pane's empty state) is not: the
+    helper that names it passes the guard, while the bare id fails."""
+    lists = (BROWSER_DIR / "_lists.py").read_text()
+    assert '[data-testid="agent-select-empty"]' in lists
+    assert find_retired_selectors(lists, "_lists.py") == []
+    assert _RETIRED_RE.findall('[data-testid="agent-select-empty"]') == []
+    assert _RETIRED_RE.findall('[data-testid="agent-select"]') == ["agent-select"]
+    assert _RETIRED_RE.findall("#agent-select.x") == ["agent-select"]
+
+
 def test_no_retired_selectors_in_browser_tests():
     sources = {p.name: p.read_text() for p in sorted(BROWSER_DIR.glob("*.py"))}
-    # The walk is not vacuous: it covers the test files and the helper modules.
-    assert {"_nav.py", "_lists.py", "seeders.py", "conftest.py"} <= set(sources)
+    # The walk is not vacuous: it covers the test files and the helper modules
+    # (``_chats.py`` included since Flight 4 leg 4b retired its seam guard).
+    assert {"_nav.py", "_lists.py", "_chats.py", "seeders.py", "conftest.py"} <= set(sources)
     assert sum(name.startswith("test_") for name in sources) > 50
     problems = check_retired_selectors(sources)
     assert not problems, (
@@ -422,10 +550,15 @@ def test_retired_selectors_cover_the_registry_retired_table():
     """A retired id cannot come back: every id the registry records as retired is
     fenced, and none of Flight 3's retired surfaces ever leaves the tuple."""
     retired = _registry_retired_ids()
-    assert len(retired) >= 11, retired  # the table is found and parsed
-    assert len(set(RETIRED_SELECTORS)) == len(RETIRED_SELECTORS)
-    missing = sorted(set(retired) - set(RETIRED_SELECTORS))
-    assert not missing, f"registry-retired ids missing from RETIRED_SELECTORS: {missing}"
+    assert len(retired) >= 12, retired  # the table is found and parsed
+    fenced = RETIRED_SELECTORS + RETIRED_EXACT
+    assert len(set(fenced)) == len(fenced)
+    missing = sorted(set(retired) - set(fenced))
+    assert not missing, (
+        f"registry-retired ids missing from RETIRED_SELECTORS / RETIRED_EXACT: {missing}"
+    )
+    assert "agent-select" in retired and "agent-select" in RETIRED_EXACT  # Flight 4 leg 4a
+    assert "new-chat-btn" in retired and "new-chat-btn" in RETIRED_SELECTORS  # Flight 4 leg 4b
     flight3 = {
         "entity-tile",
         "section-nav-item",

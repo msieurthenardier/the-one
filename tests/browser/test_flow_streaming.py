@@ -19,6 +19,7 @@ Validates two contracts:
 from __future__ import annotations
 
 import pytest
+from browser import _chats
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -44,11 +45,9 @@ def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page
     _ = SeededApp(base_url=base_url, provider_id=provider_id, agent_name=agent_name)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("hi")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "hi")
 
     user_msg = page.locator('[data-testid="message"].user')
     expect(user_msg).to_have_text("hi", timeout=5000)
@@ -86,11 +85,9 @@ def test_streaming_message_persists_to_history(app_clean: str, page: Page) -> No
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.start_chat(page, agent_name)
 
-    page.locator('[data-testid="chat-input"]').fill("ping")
-    page.locator('[data-testid="chat-send-btn"]').click()
+    _chats.send_first(page, "ping")
 
     # Wait for the streaming round to land.
     assistant_msg = page.locator('[data-testid="message"].assistant')
@@ -100,7 +97,7 @@ def test_streaming_message_persists_to_history(app_clean: str, page: Page) -> No
     # Reload — session id is in the URL hash; the client rejoins it on load
     # and replays history through `renderHistory`.
     page.reload()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    _chats.expect_chat(page, agent_name)
     # The assistant bubble re-renders from server-side history. If
     # `session.add_event` had NOT been called for the streamed message,
     # this expectation would fail (history would only contain the user msg).

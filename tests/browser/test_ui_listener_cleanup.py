@@ -220,3 +220,99 @@ def test_menu_open_then_host_wiped_leaves_nothing_outstanding(engine_page: Page)
         " document.getElementById('harness-root').appendChild(c.el); c.open('first'); window.__n = c.isOpen(); return true; }"
     )
     assert p.evaluate("() => window.__n") is True
+
+
+# ── searchList (M25 F4 L1, AC8) ─────────────────────────────────────────────
+
+SEARCH_MOUNT_JS = (
+    "() => { const c = App.ui.searchList({label: 'Find', inputTestid: 'cl-search',"
+    " source: (q) => [{label: 'G', items: ['alpha', 'beta', 'gamma'].filter((n) => n.indexOf(q) !== -1)"
+    ".map((n) => ({id: n, label: n}))}], onPick: () => {}});"
+    " document.getElementById('harness-root').appendChild(c.el); window.__sl = c; return true; }"
+)
+
+
+def test_search_list_wiping_host_leaves_no_listener(engine_page: Page) -> None:
+    """The search list installs no document/window listener while mounted, and a
+    host wiped with no destroy() call leaves nothing outstanding; keys and
+    clicks on the document afterwards touch no detached node."""
+    load_harness(engine_page)
+    p = engine_page
+    p.evaluate(INSTRUMENT_JS)
+    p.evaluate(SEARCH_MOUNT_JS)
+    p.get_by_test_id("cl-search").press_sequentially("a")
+    p.keyboard.press("ArrowDown")
+    p.locator("[role=option]").first.hover()
+    assert p.evaluate("() => window.__live()") == []
+    p.evaluate("() => { document.getElementById('harness-root').textContent = ''; return true; }")
+    assert p.evaluate("() => window.__live()") == []
+    p.evaluate("() => { window.__armed = true; return true; }")
+    for key in ["ArrowDown", "Enter", "Escape", "a"]:
+        p.evaluate(
+            "(k) => { document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true})); return true; }",
+            key,
+        )
+    p.evaluate(
+        "() => { document.dispatchEvent(new MouseEvent('click', {bubbles: true})); return true; }"
+    )
+    assert p.evaluate("() => window.__detachedTouches") == 0
+
+
+def test_search_list_destroy_removes_its_listeners(engine_page: Page) -> None:
+    """destroy() unbinds the input and listbox listeners: input events and keys
+    on the still-mounted nodes no longer reach the control."""
+    load_harness(engine_page)
+    p = engine_page
+    p.evaluate(SEARCH_MOUNT_JS)
+    p.evaluate("() => window.__sl.destroy()")
+    # No option is left, so no dangling active descendant either.
+    assert p.evaluate("() => window.__sl.input.hasAttribute('aria-activedescendant')") is False
+    p.get_by_test_id("cl-search").press_sequentially("b")
+    p.keyboard.press("ArrowDown")
+    # Neither the input listener (a re-render) nor the keydown one ran.
+    assert p.evaluate("() => document.querySelectorAll('[role=option]').length") == 0
+    assert p.evaluate("() => window.__sl.input.hasAttribute('aria-activedescendant')") is False
+
+
+# ── drawer (M25 F4 L6, AC2) ─────────────────────────────────────────────────
+
+DRAWER_MOUNT_JS = (
+    "() => { const btn = App.ui.button({label: 'Open settings', testid: 'cl-drawer-btn'});"
+    " const opener = App.ui.button({label: 'Show', testid: 'cl-drawer-opener'});"
+    " const c = App.ui.drawer({label: 'Panel', heading: 'Agent', footer: btn, testid: 'cl-drawer'});"
+    " const host = document.getElementById('harness-root');"
+    " host.appendChild(opener); host.appendChild(c.el); window.__dr = c; window.__drOpener = opener; return true; }"
+)
+
+
+def test_drawer_installs_no_document_listener_and_wiping_leaves_nothing(
+    engine_page: Page,
+) -> None:
+    """The drawer's one keydown listener is on its <aside>: none on the document
+    or window while open, closed, in either mode, after Escape, or after the
+    host is wiped with no destroy(); keys on the document afterwards touch no
+    detached node."""
+    load_harness(engine_page)
+    p = engine_page
+    p.evaluate(INSTRUMENT_JS)
+    p.evaluate(DRAWER_MOUNT_JS)
+    p.evaluate("() => window.__dr.open(window.__drOpener)")
+    p.get_by_test_id("cl-drawer-btn").focus()
+    p.keyboard.press("Escape")
+    p.evaluate(
+        "() => { window.__dr.setMode('overlay'); window.__dr.toggle(); window.__dr.setMode('push'); }"
+    )
+    assert p.evaluate("() => window.__dr.isOpen()") is True
+    assert p.evaluate("() => window.__live()") == []
+    p.evaluate("() => { document.getElementById('harness-root').textContent = ''; return true; }")
+    assert p.evaluate("() => window.__live()") == []
+    p.evaluate("() => { window.__armed = true; return true; }")
+    for key in ["Escape", "Tab", "a"]:
+        p.evaluate(
+            "(k) => { document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true})); return true; }",
+            key,
+        )
+    p.evaluate(
+        "() => { document.dispatchEvent(new MouseEvent('click', {bubbles: true})); return true; }"
+    )
+    assert p.evaluate("() => window.__detachedTouches") == 0

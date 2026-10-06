@@ -37,10 +37,13 @@
     return label;
   }
 
-  // Builds the chrome-free telemetry overlay (ghosted by default; hover/focus
+  // Builds the chrome-free telemetry readout (ghosted by default; hover/focus
   // expands details and lifts opacity to 1). Returns the .telemetry-overlay
   // container with all inner spans/divs. Mirrors the original innerHTML shape
-  // verbatim so the F2/F3 CSS rules and a11y attributes stay valid.
+  // verbatim so the F2/F3 CSS rules and a11y attributes stay valid. Since
+  // M25 F4 L5 the chat area places it in the composer's telemetry row
+  // (reference spec 5.3), in the flow, rather than as an absolute overlay;
+  // the class name is historical.
   function renderTelemetry() {
     var overlay = document.createElement('div');
     overlay.className = 'telemetry-overlay';

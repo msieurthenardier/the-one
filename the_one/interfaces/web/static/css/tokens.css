@@ -50,11 +50,14 @@
     --shadow-modal: 0 8px 30px rgb(0 0 0 / 0.18);
 
     /* workbench column widths (M25 F3 DD1), border-box, fixed at every
-       supported width: the Agents and Library list column, and the Settings
-       nav (the approved 261px board render, within 1px; A2). Applied by
-       base.css through #app-sidebar[data-destination]. */
+       supported width: the Chats (M25 F4 L4a), Agents and Library list
+       column, and the Settings nav (the approved 261px board render, within
+       1px; A2). Applied by base.css through #app-sidebar[data-destination]. */
     --list-w: 300px;
     --settings-nav-w: 260px;
+    /* The agent drawer (M25 F4 L6, reference spec 5.7): App.ui.drawer's
+       width, border-box, so its 1px left border sits inside the 320px. */
+    --drawer-w: 320px;
   }
 
   [data-theme="dark"] {
@@ -202,8 +205,8 @@
        the separation (explicit color, never `transparent` — M04). */
     --sidebar-bg: var(--surface);
 
-    /* density-and-geometry */
-    --sidebar-w: 240px;
+    /* density-and-geometry (the chat aside's --sidebar-w was retired in M25
+       F4 L4a: every list column is --list-w, in :root above). */
     /* toggle control width — used by admin toggle inputs (e.g. built-in tools,
        system settings) for padding-left alignment of adjacent labels. */
     --toggle-width: 36px;
@@ -349,7 +352,6 @@
     --sidebar-bg: var(--surface);
 
     /* density-and-geometry */
-    --sidebar-w: 240px;
     /* toggle control width — matches dark theme definition */
     --toggle-width: 36px;
   }

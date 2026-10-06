@@ -1,0 +1,248 @@
+// App.chat.chatPane -- the Chats detail pane (M25 F4 leg 4b; flight DD3, DD6;
+// reference spec 5.2, 5.4). Built with DOM APIs only (the chat area's former
+// content sink is gone). It folds in the former areas/chat/welcome.js.
+//
+// The pane is two siblings in the chat content panel:
+//
+//   the welcome (div.chat-welcome, testid chat-welcome)
+//     The empty and setup-guidance states, shown only while the session state
+//     is idle with no chat to auto-join (the chat area decides when). One h1,
+//     the "Hello." greeting (h1.chat-welcome-greeting), then an idle notice
+//     (p.chat-welcome-notice, role=status, hidden when empty), the prompt
+//     (p.chat-welcome-prompt), the guidance (p.chat-welcome-guidance) and the
+//     actions row. The mascot (chat-welcome-mascot) is prepended by the caller.
+//       setup complete    the prompt "Start a conversation with one of your
+//                         agents." and New chat (btn-filled-primary, testid
+//                         chat-empty-new-btn), which calls onNewChat(btn);
+//       setup incomplete  no prompt and no New chat: the guidance links
+//                         (.chat-welcome-link, router hrefs) to Settings ›
+//                         Providers and/or Agents, the copy unchanged from
+//                         welcome.js.
+//
+//   the chrome (div.chat-chrome)
+//     The header (header.chat-header, testid chat-header): an h1 (the chat's
+//     title, or "New chat") and "with {agent}" (span.chat-agent-line, testid
+//     chat-agent-line; "Default agent" for a null agent); hidden while idle.
+//     chat.js appends the agent drawer's toggle at its end (M25 F4 L6,
+//     areas/chat/agent-drawer.js).
+//     Then the new-chat state (div.chat-new-state, testid chat-new-state),
+//     shown only while a chat is pending: a badge badge--{type} whose TEXT is
+//     the model (A20), the agent name as an h2, the description and "Pick a
+//     different agent" (btn-ghost btn-sm, testid chat-pick-different-btn),
+//     which calls onPickDifferent(btn). Then the message log (div.messages).
+//     The caller appends the composer pieces, the telemetry overlay and the
+//     queued-message region after the log.
+//
+// Every render PATCHES nodes built once (text, classes, `hidden`), so a store
+// notification never rebuilds a focused control.
+//
+// API:
+//   App.chat.chatPane.create({onNewChat(btn), onPickDifferent(btn)}) -> {
+//     welcome, welcomeInner, welcomeNotice, chrome, header, newState, messages,
+//     newChatButton, pickDifferentButton,
+//     renderWelcome(setup)      setup {hasProviders, hasAgents}
+//     setNotice(text)           the idle notice on the welcome ('' hides it)
+//     renderHeader(view)        null hides it; {title, agent, blank}: blank
+//                               leaves the agent line empty (a cold `~new`
+//                               route still validating its agent)
+//     renderNewState(view)      null hides it; {blank} shows it empty; else
+//                               agentInfo()'s {name, model, description, kind}
+//   }
+//   App.chat.chatPane.agentInfo(name, agents, providers) -> {name, model,
+//     description, kind, known}: the agent's row from the `agents` list, the
+//     badge kind from the providers resolution (App.chat.agentPicker.
+//     providerType); a type outside App.ui.badge.KINDS, no provider or an
+//     unknown agent is 'unknown'.
+//   App.chat.chatPane.agentLine(agent) -> 'with {agent}' ('Default agent' for
+//     a null or empty agent)
+//   App.chat.chatPane.guidance(setup) -> the guidance <p> (setup incomplete)
+(function () {
+  'use strict';
+  window.App = window.App || {};
+  window.App.chat = window.App.chat || {};
+
+  var EMPTY_PROMPT = 'Start a conversation with one of your agents.';
+
+  function el(tag, attrs, children) {
+    return App.ui.util.el(tag, attrs, children);
+  }
+
+  // `href` is a router href (App.router.href), e.g. '#settings/providers'.
+  function welcomeLink(text, href) {
+    return el('a', { className: 'chat-welcome-link', href: href, text: text });
+  }
+
+  // The setup-incomplete guidance line: no provider (and maybe no agent), or
+  // no agent only. Same copy and hrefs as the former welcome.js.
+  function guidance(setup) {
+    var p = el('p', { className: 'chat-welcome-guidance' });
+    var settings = App.router.href({ destination: 'settings', section: 'providers' });
+    var agents = App.router.href({ destination: 'agents' });
+    if (!setup.hasProviders && !setup.hasAgents) {
+      p.appendChild(document.createTextNode('Add a provider in '));
+      p.appendChild(welcomeLink('Settings', settings));
+      p.appendChild(document.createTextNode(', then create an agent in '));
+      p.appendChild(welcomeLink('Agents', agents));
+      p.appendChild(document.createTextNode(' to start chatting.'));
+    } else if (!setup.hasProviders) {
+      p.appendChild(document.createTextNode('Add a provider in '));
+      p.appendChild(welcomeLink('Settings', settings));
+      p.appendChild(document.createTextNode(' to start chatting.'));
+    } else {
+      p.appendChild(document.createTextNode('Create an agent in '));
+      p.appendChild(welcomeLink('Agents', agents));
+      p.appendChild(document.createTextNode(' to start chatting.'));
+    }
+    return p;
+  }
+
+  function agentLine(agent) {
+    return 'with ' + (agent ? String(agent) : 'Default agent');
+  }
+
+  function agentInfo(name, agents, providers) {
+    var row = null;
+    var list = Array.isArray(agents) ? agents : [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].name === name) { row = list[i]; break; }
+    }
+    var type = row ? App.chat.agentPicker.providerType(row, providers) : null;
+    var kind = type && App.ui.badge.KINDS.indexOf(type) !== -1 ? type : 'unknown';
+    return {
+      name: name,
+      model: row && row.llm_model ? String(row.llm_model) : '',
+      description: row && row.description ? String(row.description) : '',
+      kind: kind,
+      known: !!row
+    };
+  }
+
+  function create(opts) {
+    opts = opts || {};
+
+    // ── The welcome: the empty and guidance states ────────────────────
+    var greeting = el('h1', { className: 'chat-welcome-greeting', text: 'Hello.' });
+    // An idle notice ("That conversation no longer exists"); the only
+    // role=status inside the welcome.
+    var notice = el('p', { className: 'chat-welcome-notice', role: 'status', hidden: true });
+    var prompt = el('p', { className: 'chat-welcome-prompt', text: EMPTY_PROMPT });
+    var guidanceSlot = el('div', { className: 'chat-welcome-guidance-slot' });
+    var newChatButton = App.ui.button({
+      variant: 'primary',
+      label: 'New chat',
+      icon: 'square-pen',
+      testid: 'chat-empty-new-btn',
+      onClick: function () { if (opts.onNewChat) opts.onNewChat(newChatButton); }
+    });
+    var actions = el('div', { className: 'chat-welcome-actions' });
+    var inner = el('div', { className: 'chat-welcome-inner' }, [greeting, notice, prompt, guidanceSlot, actions]);
+    var welcome = el('div', { className: 'chat-welcome', hidden: true }, [inner]);
+    welcome.setAttribute('data-testid', 'chat-welcome');
+
+    function renderWelcome(setup) {
+      setup = setup || {};
+      var complete = !!(setup.hasProviders && setup.hasAgents);
+      while (guidanceSlot.firstChild) guidanceSlot.removeChild(guidanceSlot.firstChild);
+      if (complete) {
+        prompt.hidden = false;
+        guidanceSlot.hidden = true;
+        if (newChatButton.parentNode !== actions) actions.appendChild(newChatButton);
+        actions.hidden = false;
+      } else {
+        prompt.hidden = true;
+        guidanceSlot.appendChild(guidance(setup));
+        guidanceSlot.hidden = false;
+        if (newChatButton.parentNode) newChatButton.parentNode.removeChild(newChatButton);
+        actions.hidden = true;
+      }
+    }
+
+    function setNotice(text) {
+      notice.textContent = text || '';
+      notice.hidden = !text;
+    }
+
+    // ── The chrome: header, new-chat state, message log ───────────────
+    var title = el('h1', { className: 'chat-header-title' });
+    var line = el('span', { className: 'chat-agent-line' });
+    line.setAttribute('data-testid', 'chat-agent-line');
+    var header = el('header', { className: 'chat-header', hidden: true }, [title, line]);
+    header.setAttribute('data-testid', 'chat-header');
+
+    function renderHeader(view) {
+      if (!view) {
+        header.hidden = true;
+        return;
+      }
+      title.textContent = view.title || '';
+      line.textContent = view.blank ? '' : agentLine(view.agent);
+      header.hidden = false;
+    }
+
+    var badge = el('span', { className: 'badge badge--unknown', hidden: true });
+    var agentName = el('h2', { className: 'chat-new-state-agent' });
+    var description = el('p', { className: 'chat-new-state-description', hidden: true });
+    var pickDifferentButton = App.ui.button({
+      variant: 'ghost',
+      size: 'sm',
+      label: 'Pick a different agent',
+      className: 'chat-new-state-pick',
+      testid: 'chat-pick-different-btn',
+      onClick: function () { if (opts.onPickDifferent) opts.onPickDifferent(pickDifferentButton); }
+    });
+    var newInner = el('div', { className: 'chat-new-state-inner' }, [badge, agentName, description, pickDifferentButton]);
+    var newState = el('div', { className: 'chat-new-state', hidden: true }, [newInner]);
+    newState.setAttribute('data-testid', 'chat-new-state');
+
+    function renderNewState(view) {
+      if (!view) {
+        newState.hidden = true;
+        return;
+      }
+      newState.hidden = false;
+      // A cold `~new` route still validating its agent: a neutral, empty
+      // state (the agent may be unknown and heal to #chats).
+      newInner.hidden = !!view.blank;
+      if (view.blank) return;
+      badge.className = 'badge badge--' + (view.kind || 'unknown');
+      badge.textContent = view.model || '';
+      badge.hidden = !view.model;
+      agentName.textContent = view.name || '';
+      description.textContent = view.description || '';
+      description.hidden = !view.description;
+    }
+
+    var messages = el('div', {
+      className: 'messages',
+      role: 'log',
+      'aria-live': 'polite',
+      'aria-relevant': 'additions',
+      'aria-atomic': 'false'
+    });
+
+    var chrome = el('div', { className: 'chat-chrome' }, [header, newState, messages]);
+
+    return {
+      welcome: welcome,
+      welcomeInner: inner,
+      welcomeNotice: notice,
+      chrome: chrome,
+      header: header,
+      newState: newState,
+      messages: messages,
+      newChatButton: newChatButton,
+      pickDifferentButton: pickDifferentButton,
+      renderWelcome: renderWelcome,
+      setNotice: setNotice,
+      renderHeader: renderHeader,
+      renderNewState: renderNewState
+    };
+  }
+
+  window.App.chat.chatPane = {
+    create: create,
+    agentInfo: agentInfo,
+    agentLine: agentLine,
+    guidance: guidance
+  };
+})();
