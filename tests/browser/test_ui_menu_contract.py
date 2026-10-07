@@ -205,16 +205,23 @@ def test_arrow_wrap_home_end_skip_disabled_and_keep_tabindex(engine_page: Page) 
     _mount(p)
     p.get_by_test_id("m-trigger").focus()
     p.keyboard.press("Enter")
+    tabs_js = (
+        "() => Array.from(document.querySelectorAll('[role=menuitem]'))"
+        ".map((i) => i.getAttribute('tabindex'))"
+    )
+    assert p.evaluate(tabs_js) == ["-1"] * 4  # after open('first')
     seen = [_active(p)]
     for key in ["ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowUp"]:
         p.keyboard.press(key)
         seen.append(_active(p))
+        assert p.evaluate(tabs_js) == ["-1"] * 4  # after every keyboard move
     # skips the disabled item, wraps downward, then ArrowUp from dup returns to rename
     assert seen == ["m-rename", "m-dup", "m-del", "m-rename", "m-dup", "m-rename"]
     p.keyboard.press("ArrowUp")
     assert _active(p) == "m-del"  # wraps upward
     p.keyboard.press("Home")
     assert _active(p) == "m-rename"
+    assert p.evaluate(tabs_js) == ["-1"] * 4
     p.keyboard.press("End")
     assert _active(p) == "m-del"
     tabs = p.evaluate(

@@ -1,10 +1,10 @@
 # Squawk 0131: Document focus-after's re-render finding in agents.md
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-07
-**Completed**: —
+**Completed**: 2026-10-07
 
 ## Report
 
@@ -21,10 +21,14 @@ So `App.focusAfter`'s never-steal rule, and any test of it, must target an eleme
 - `the_one/agents.md`, section "Focus after an in-place action".
 
 ## Corrective Action
-*(written at completion)*
+Added a paragraph, "What a held save can steal", to `the_one/agents.md` under "Focus after an in-place action": a re-rendering editor (agent) loses an inner field's focus to the re-render; an in-place patching editor (provider) keeps it; never-steal tests must target a surviving element (the Agents list filter `agents-filter` for the agent, `#pf-name` for the provider). CLAUDE.md untouched.
 
 ## Verification
-Doc-only. The section names the two editor kinds, and the never-steal targeting rule cites the leg 1b tests.
+
+Doc-only. The paragraph names both editor kinds and cites the leg 1b tests (`test_flow_agents_focus_after.py`, `test_flow_settings_focus_after.py`). `make test-unit` and ruff were run; see the developer report.
 
 ## Sign-Off
-*(written at completion)*
+
+**Reviewer**: independent batch Reviewer (Haiku tier: no credential, gate, sandbox or self-configuration-identity surface in the diff); `make test-unit` 5496 passed, 10 skipped; static guards 265 passed; ruff clean
+**Verdict**: confirmed (`[HANDOFF:confirmed]`)
+**Commit**: `squawk: turnaround 2026-10-07` on branch `squawk/turnaround-2026-10-07`

@@ -1,10 +1,10 @@
 # Squawk 0128: Move formatClock and the MCP error helpers into their own modules
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-07
-**Completed**: —
+**Completed**: 2026-10-07
 
 ## Report
 
@@ -22,11 +22,14 @@ Move them into their own modules and raise the pin deliberately. The globals sta
 - The Flight 6 debrief, Technical and recommendation 2.
 
 ## Corrective Action
-*(written at completion)*
-New `static/js/time.js` and `static/js/mcp-error.js`, loaded before their consumers in `index.html`. The pin raised with a comment. Docs follow (CLAUDE.md, `agents.md`).
+Moved `formatClock` out of `app.js` into new `static/js/time.js` (`App.time.formatClock`), and `mcpErrorMessage`/`buildMcpError` out of `areas/studio/mcps-tab.js` into new `static/js/mcp-error.js`; code and comments moved verbatim, globals unchanged. Both tags load right after `app.js` in `index.html`, before every consumer. Script-count pin raised 83 to 85 with a comment naming this squawk. Docs updated (CLAUDE.md Flight 6 alignment notes, `agents.md` DD19 and Chats-list time entries).
 
 ## Verification
-The existing tests cover both helpers (`test_clock_formatter_edges`, the MCP error helper and surface tests). The chats, agents and library lanes, plus the static guards.
+Static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_index_asset_cache_busting`): 265 passed. Browser (`-m browser`, netns): `test_flow_chat_list`, `test_studio_mcps_tab`, `test_mcp_test_connection_button`, `test_flow_studio_mcp_editor`, `test_flow_new_chat`, `test_flow_chat_peer_attribution`: 93 passed, 1 skipped. `make test-unit`: 5452 passed, 10 skipped. `ruff check` and `ruff format --check` clean.
+Review fix: removed the duplicate pre-guard `window.App.*` assignments from `mcp-error.js`; re-run static guards plus `test_mcp_error_classes_pinned`: 268 passed; browser `test_mcp_test_connection_button` + `test_studio_mcps_tab`: 16 passed, 1 skipped.
 
 ## Sign-Off
-*(written at completion)*
+
+**Reviewer**: independent batch Reviewer (Haiku tier: no credential, gate, sandbox or self-configuration-identity surface in the diff); `make test-unit` 5496 passed, 10 skipped; static guards 265 passed; ruff clean; review cycle 1 found one blocking issue (a duplicate pre-guard `window.App` assignment pair in `mcp-error.js`), fixed by a fix Developer and confirmed by a fresh re-review Reviewer
+**Verdict**: confirmed (`[HANDOFF:confirmed]`)
+**Commit**: `squawk: turnaround 2026-10-07` on branch `squawk/turnaround-2026-10-07`

@@ -143,13 +143,16 @@
       }
     });
 
-    // Arrow/Home/End on the popup; then keep every item out of the tab order.
+    // Arrow/Home/End on the popup. rovingFocus writes tabindex="0" on the item it
+    // focuses, always BEFORE calling .focus(); resetting on the popup's focusin
+    // (fired synchronously by that focus move) keeps every item out of the tab
+    // order without depending on keydown listener registration order.
     var unbindRoving = util.rovingFocus(popup, ITEM_SELECTOR, { wrap: true });
     function resetTabindex() {
       var all = popup.querySelectorAll('[role="menuitem"]');
       for (var k = 0; k < all.length; k++) all[k].setAttribute('tabindex', '-1');
     }
-    popup.addEventListener('keydown', resetTabindex);
+    popup.addEventListener('focusin', resetTabindex);
     // Keep focus where it is on a mouse press inside the popup (WebKit does not
     // focus a pressed button, which would otherwise blur the menu mid-click).
     popup.addEventListener('mousedown', function (e) {

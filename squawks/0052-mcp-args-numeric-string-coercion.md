@@ -1,10 +1,10 @@
 # Squawk 0052: MCP tool calls rejected when the model sends an integer as a string
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-14
-**Completed**: —
+**Completed**: 2026-10-07
 
 ## Report
 
@@ -41,9 +41,11 @@ scalar), so `test_type_mismatch_raises_argument_error` (int supplied for a
 - `tests/test_mcp_client.py` L6b class ("jsonschema-driven input validation") — the existing pin the coercion must not break
 
 ## Corrective Action
-*(written at completion)*
+Added `the_one/mcp/_arg_coerce.py` (pure stdlib `coerce_arguments`) and called it in `MCPClient.call_tool` right before `jsonschema_validate`; the coerced copy is validated and sent on the wire, the caller's dict is never mutated. Coercion is string -> declared scalar only, and only when the type is unambiguous and excludes `string` (also skipped for `anyOf`/`oneOf`/`allOf`/`$ref`/`enum`/`const`/untyped). Edge choices: integer = base-10 `-?[0-9]+` (whitespace trimmed; no `+`, `7.0`, `1e3`, `0x10`, underscores, non-ASCII digits); number = int literal -> `int`, else decimal/exponent -> `float`, `nan`/`inf`/overflow rejected; boolean = `true`/`false` case-insensitive only. Recursion follows `properties` and single-schema `items` only; `additionalProperties`/`patternProperties`/tuple `items` are not followed. Documented in `the_one/agents.md`.
 
 ## Verification
+(Result: `tests/test_mcp_arg_coerce.py` plus two new `call_tool` tests in `tests/test_mcp_client.py` pass; existing L6b tests green; ruff clean.)
+
 New unit tests for the helper (numeric string → int/float, `"true"`/`"false"`
 → bool, non-parsing strings and non-string values left as-is, nested objects
 / arrays untouched unless the schema describes them) plus a `call_tool` test
@@ -52,7 +54,7 @@ that a `{"x": "42"}` argument for an `integer` field reaches the wire as
 clean.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+
+**Reviewer**: independent batch Reviewer (Haiku tier: no credential, gate, sandbox or self-configuration-identity surface in the diff); `make test-unit` 5496 passed, 10 skipped; static guards 265 passed; ruff clean
+**Verdict**: confirmed (`[HANDOFF:confirmed]`)
+**Commit**: `squawk: turnaround 2026-10-07` on branch `squawk/turnaround-2026-10-07`

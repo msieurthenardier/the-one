@@ -1,10 +1,10 @@
 # Squawk 0053: Ollama "Pull Model" dropdown lists only 20 cloud models, not the library
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-15
-**Completed**: —
+**Completed**: 2026-10-07
 
 ## Report
 
@@ -55,9 +55,17 @@ a nice belt-and-braces, but that is new behavior — not this squawk.
 - `the_one/interfaces/web/static/js/areas/admin/provider-models.js:loadLibraryOptions` — `fetch('/api/ollama-library/search')`; size suffix rendered only when `Number(models[i].size) > 0`
 
 ## Corrective Action
-*(written at completion)*
+`search_ollama_library` now builds its cache through a new `_fetch_library_models()` that merges two sources by name: the `https://ollama.com/library` HTML page (parsed by the new pure helper `ollama_api.parse_library_html`, one entry per bare name, size `"0"`) and `/api/tags` (cloud models and byte sizes; a byte size overrides the HTML placeholder). Each source is fetched in its own try block, so one failing never wipes the other; a page that parses to zero entries contributes nothing (a failed source, not an empty library). If both yield nothing the stale cache is kept (or `[]` when empty). The 300 s TTL, `{name, size}` shape, alphabetical sort and no-cap behavior are unchanged. Chosen over a single-source swap because `/api/tags` is the only source of cloud models and sizes, and over per-variant entries because bare names pull `:latest` and keep the dropdown short. The regex tolerates attribute order, quote style, absolute URLs, query strings and fragments.
 
 ## Verification
+Implementation run (Developer):
+- Added `tests/fixtures/ollama_library_excerpt.html` (4 real entries trimmed from the live page) and updated `TestOllamaLibrarySearch` (`_mock_httpx` now routes per URL: HTML for `/library`, JSON for `/api/tags`); new tests cover merge/no-dupes/sort, `q` filtering, each source failing alone, zero-entry parse, both-empty, both-fail stale-cache fallback; new `TestParseLibraryHtml` (4 tests).
+- `PYTHON=.venv/bin/python bash scripts/run-tests.sh tests/test_provider_api.py -x --timeout 30` -> 190 passed.
+- `make test-unit` -> 5452 passed, 10 skipped, 0 failed.
+- `ruff check` and `ruff format --check` clean.
+- Live check (new `_fetch_library_models()` against real upstream, 2026-10-07): 251 entries (245 library names + cloud-only tags); `llama3.2`, `qwen3`, `nomic-embed-text` present; 14 entries carry byte sizes from `/api/tags`.
+
+Original acceptance:
 `GET /api/ollama-library/search` with empty `q` returns ≥ 200 entries
 including `llama3.2`; `?q=llama` returns the llama family; the cloud models
 from `/api/tags` are still present. `TestOllamaLibrarySearch` updated to the
@@ -65,7 +73,7 @@ new fixture and green; `make test-unit` green; `ruff check` /
 `ruff format --check` clean.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+
+**Reviewer**: independent batch Reviewer (Haiku tier: no credential, gate, sandbox or self-configuration-identity surface in the diff); `make test-unit` 5496 passed, 10 skipped; static guards 265 passed; ruff clean
+**Verdict**: confirmed (`[HANDOFF:confirmed]`)
+**Commit**: `squawk: turnaround 2026-10-07` on branch `squawk/turnaround-2026-10-07`

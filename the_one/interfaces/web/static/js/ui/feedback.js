@@ -48,7 +48,7 @@
   // App.ui.emptyState(opts) -> HTMLDivElement.
   //   title (required), body, action (an element), icon (an App.icons name),
   //   headingLevel (1-6, default 3), size ('inline' | 'pane', default inline),
-  //   role (set on the root when given; listPane passes 'status').
+  //   role (set on the root when given; listPane passes none, its own live region announces).
   //   The test id option is placed on the root element (supplied by the caller).
   //   inline: div.empty-state. pane: div.empty-canvas > div.empty-canvas-inner;
   //   the action gains .empty-canvas-cta (its own classes are kept).

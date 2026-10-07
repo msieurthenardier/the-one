@@ -59,3 +59,39 @@ def test_custom_element_call_site_ids_are_all_registry_visible(tmp_path) -> None
     assert {"agents-pane", "agents-pane-b"} <= set(literals)
     assert set(parametric) == {"agents-row-"}
     assert violations == []
+
+
+# Squawk 0130: a quoted ``'data-testid':`` key in an element-builder attrs object.
+ATTRS_KEY_SNIPPET = """
+var h = el('h1', {className: 'x', 'data-testid': 'root-heading', text: 'Library'});
+var d = el('div', {"data-testid": 'start-page-literal'});
+var p = el('div', {'data-testid': 'library-empty-' + group.id});
+"""
+
+ATTRS_KEY_NEGATIVE_SNIPPET = """
+var a = {data_testid: 'not-a-key'};
+var b = {'data-testid-x': 'not-a-key-either'};
+var c = el.getAttribute('data-testid');
+var d = {'data-testid': someVar};
+"""
+
+
+def test_quoted_attrs_key_is_registry_visible(tmp_path) -> None:
+    (literals, parametric, _), violations = _scan(tmp_path, "attrs", ATTRS_KEY_SNIPPET)
+    assert set(literals) == {"root-heading", "start-page-literal"}
+    assert set(parametric) == {"library-empty-"}  # prefix only, never also a literal
+    assert violations == []
+
+
+def test_quoted_attrs_key_does_not_over_match(tmp_path) -> None:
+    (literals, parametric, _), _ = _scan(tmp_path, "attrs-neg", ATTRS_KEY_NEGATIVE_SNIPPET)
+    assert literals == {} and parametric == {}
+
+
+def test_quoted_attrs_key_pattern_bites() -> None:
+    """The new patterns are what finds the form: the pre-0130 patterns miss it."""
+    from tests import _ui_guard_helpers as h
+
+    old = [h._ATTR_LITERAL, h._SETATTR_LITERAL, h._PROP_LITERAL]
+    assert not any(r.findall(ATTRS_KEY_SNIPPET) for r in old)
+    assert h._KEY_LITERAL.findall(ATTRS_KEY_SNIPPET)

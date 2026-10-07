@@ -10,130 +10,79 @@
 
 ## What this is
 
-GleepGlorp AI lets you orchestrate your own constellation of AI agents — the kind that live on your laptop, talk to whichever LLM you point them at, and reach into your filesystem, your shell, and the open web through a rich set of built-in tools. You give an agent a goal in plain English; it figures out which tools to use, calls them, reads the results, and keeps going until the work is done. Configure agents in Agents (system prompts, which tools they can touch, which model powers them), talk to them in Chats (per-session, with the full execution trace one click away), keep knowledge bases, MCP servers and connectors in Library, and manage providers and built-in-tool defaults in Settings. No agent framework — the agent loop, tool registry, and LLM abstraction are written from scratch in plain Python on top of a small set of well-known libraries: FastAPI + uvicorn + websockets + Jinja2 for the web layer, Rich + prompt-toolkit for the CLI, Pydantic for config, aiosqlite for persistence, cryptography for at-rest secrets, httpx for HTTP, and the official MCP SDK for Model Context Protocol clients.
+GleepGlorp AI is a personal AI agent that runs on your own computer. You pick the language model, give an agent a goal in plain English, and it chooses tools, runs them, reads the results and keeps going until the work is done. Your data and settings stay on your machine.
 
-## Screenshots
+## What it can do
 
-<p align="center">
-  <img src="docs/screenshots/chat-dark.png" alt="Chat — the agent describing its environment, with the per-response tool-call trace expanded to show the search_tools call that enumerated the 19 built-in tools" width="900">
-  <br>
-  <em>Chat — talking to an agent, with the per-response tool-call trace expanded.</em>
-</p>
+- **Chats**: talk to an agent and open the full tool-call trace for any reply.
+- **Agents**: set each agent's model, system prompt and which tools it may use.
+- **Built-in tools**: 22 tools for files, shell and interactive terminal sessions, Python, web fetch, download and search, raw HTTP requests, and connector messaging.
+- **MCP servers**: connect external Model Context Protocol servers over stdio or streamable HTTP. Local servers run in a sandbox on Linux.
+- **Knowledge bases**: point at a folder and agents can search it. The index stays current as files change.
+- **Connectors**: let an agent chat on Discord and Telegram. See [docs/connector-setup.md](docs/connector-setup.md).
+- **Self-configuration**: an agent can propose edits to its own description and system prompt. It is off by default, and you can require your approval for each change.
+- **Desktop window**: run it as a native window with a tray icon instead of a browser tab.
 
-<p align="center">
-  <img src="docs/screenshots/studio-dark.png" alt="Agents — the agent editor showing provider, model, capability chips, and max-context resolution (an earlier screenshot, from before the agent list column)" width="900">
-  <br>
-  <em>Agents — configuring an agent: provider, model, capability chips, system prompt.</em>
-</p>
+## Install
 
-<p align="center">
-  <img src="docs/screenshots/admin-dark.png" alt="Settings — the Providers page in an earlier screenshot, when providers showed as a grid of tiles, with one configured Ollama tile (the page is now a table)" width="900">
-  <br>
-  <em>Settings — managing providers, built-in tools, encryption, appearance. (Screenshot predates the current Providers table.)</em>
-</p>
+**Windows installer.** Download and run it. You need no Python and no command line. See [docs/windows-install.md](docs/windows-install.md).
 
-(Dark theme is the default — Settings → Appearance has light / dark / auto.)
-
-## Quickstart
-
-You'll need at least one LLM provider configured — see [Supported LLMs](#supported-llms) below.
-
-**Windows installer** (end-user path):
-
-Download and run the installer — no Python, no command line. See [docs/windows-install.md](docs/windows-install.md) for the full walkthrough (download, SmartScreen click-through, first launch, CLI reference).
-
-**Local Python** (dev / source path, all platforms):
+**From source** (Python 3.11+, all platforms):
 
 ```bash
-pip install -e ".[all-llms,dev]"
-cp .env.example .env  # optional — only needed to change operational tunables; see "Supported LLMs" below to configure a provider
-the-one chat          # CLI
-the-one serve         # web UI at http://localhost:8484
-the-one doctor        # diagnose the runtime seam (child spawn, interpreter, desktop shell, LLM providers, model catalog, vector store, FTS5, bundled embedding model, file watcher, node/uv/python on PATH)
+pip install -e ".[all-llms]"
+the-one serve   # web UI at http://localhost:8484
 ```
 
-> **Docker fully removed (M15 F1 / M16 F3):** the Docker deployment path was retired for the
-> Windows installer and host-native runtime; its scaffolding has now been removed entirely.
-> The app runs host-native via `the-one serve` (or `make up` for a backgrounded dev server).
-> The host-native `pip` path and the Windows installer are the supported options.
+Other commands: `the-one chat` (terminal chat), `the-one app` (desktop window), `the-one doctor` (check the runtime), `the-one rotate-api-credential`, `the-one version`.
 
 ### Desktop window
 
-GleepGlorp AI can open as a **native desktop window** (no browser chrome, no URL bar) instead of a browser tab:
-
 ```bash
-pip install 'the-one[gui]'
+pip install -e ".[gui]"
 the-one app
 ```
 
-The window is backed by the platform's built-in WebView — no Chromium bundled, no extra download:
-
-| Platform | Backend |
-|----------|---------|
-| Windows  | WebView2 (ships with Windows 10+ / Edge) |
-| macOS    | WKWebView (built-in) |
-| Linux    | WebKitGTK — requires system packages (see below) |
-
-**Linux system packages** (Ubuntu/Debian):
+On Windows and macOS the window uses the system web view. On Linux it needs WebKitGTK:
 
 ```bash
-sudo apt install python3-gi gir1.2-webkit2-4.1
-# Ubuntu 20.04 / older distros: gir1.2-webkit2-4.0
+sudo apt install python3-gi gir1.2-webkit2-4.1   # older distros: gir1.2-webkit2-4.0
 ```
 
-**Launch splash**: while the backend starts up, a small branded splash window is shown. It disappears automatically once the main window has loaded.
+Closing the window hides it to the tray, and Quit in the tray menu exits. Starting `the-one app` again focuses the running window instead of opening a second one. With no web view available, it opens your system browser instead.
 
-**System-browser fallback**: if no WebView backend is present (e.g., a headless server or a Linux box without WebKitGTK installed), `the-one app` falls back to opening the system browser and keeps the server running until you press Ctrl-C.
+## Getting started
 
-**Background run / close-to-tray**: closing the window (pressing ×) hides the app to the system tray — the process keeps running in the background. The tray icon stays visible. **"Quit" from the tray menu is the real exit** — that is the only action that terminates the process.
+1. Open the app and go to **Settings → Providers**. Choose **Add provider** and enter the details for your model provider.
+2. Go to **Agents**, choose **New**, and pick that provider and a model.
+3. Go to **Chats**, choose **New chat**, pick your agent and start talking.
 
-**Single-instance behaviour**: `the-one app` does NOT start a second server when one is already running on the configured port. A second `the-one app` invocation detects the running instance and focuses its window (`/api/window/focus`) instead of opening a new one. One server, one window.
+## Supported LLM providers
 
-**Window-state persistence**: the window size and position are saved to `window-state.json` under the data directory and restored on the next launch (clamped to visible screen bounds).
+- **Ollama**: local models, no API key. Use `http://localhost:11434` (the `/v1` suffix is added for you). Pull a model first, for example `ollama pull llama3.2`.
+- **OpenAI-compatible**: any server that speaks the OpenAI API, with its base URL and optional key.
+- **OpenAI**: GPT models, with an API key.
+- **Anthropic**: Claude models, with an API key.
+- **Anthropic plan**: Claude through your Pro or Max subscription. Sign in from Settings → Providers, no API key.
+- **OpenRouter**: many providers behind one API key.
 
-**Windows packaging**: to freeze a standalone Windows bundle (one-dir `the-one.exe`), see [`packaging/windows/README.md`](packaging/windows/README.md) — must build on native Windows.
-
-**Install on Windows:** see [docs/windows-install.md](docs/windows-install.md) — download, SmartScreen click-through, first launch, and CLI reference.
-
-### Supported LLMs
-
-GleepGlorp AI talks to four LLM providers out of the box. Pick whichever fits your setup; the app doesn't ship with any of them installed.
-
-- **[Ollama](https://ollama.com/)** — run local models on your own machine. Install and start Ollama yourself (e.g. `ollama serve`), pull a model (e.g. `ollama pull qwen2.5:7b`), then point GleepGlorp AI at `http://localhost:11434/v1`. No API key.
-- **Anthropic** — cloud Claude models. Needs an API key from console.anthropic.com.
-- **OpenAI** — cloud GPT models. Needs an API key from platform.openai.com.
-- **OpenRouter** — model marketplace fronting many providers. Needs an API key from openrouter.ai.
-
-Once the app is up, configure each provider in **Settings → Providers** ("Add provider") — paste the URL and (for cloud providers) the API key into the editor. Keys are encrypted at rest in the local database via Fernet symmetric encryption; the encryption key lives at `{data_dir}/encryption.key` and can be rotated from Settings → Encryption. Then create an agent in **Agents** that uses the provider.
-
-## Architecture
-
-*(For implementation depth, see `CLAUDE.md` and `the_one/agents.md`. The four-layer diagram there is the canonical implementation view; the six paragraphs below are the product-shaped view for orientation.)*
-
-**Interfaces** (`the_one/interfaces/`) — CLI (Rich + prompt-toolkit) and Web (FastAPI + WebSocket). Both use `AgentFactory.create()` to spin up agents and call `agent.step()` to drive them. The web UI is vanilla JS with hand-rolled CSS — no frameworks, no build step.
-
-**Agent** (`the_one/agent/`) — The agent loop. User input → LLM call → tool execution → repeat, capped at 20 iterations per step as a safety limit. `AgentConfig` (Pydantic) defines provider, model, system prompt, tool selection, and behavior; `AgentFactory` resolves config from the database into a ready-to-use `Agent`.
-
-**LLM** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` and `stream()`. Lazy-loaded registry of four implementations: Ollama (local models), Anthropic, OpenAI, and OpenRouter. Adding a fifth provider means adding a `*_provider.py`, registering it, and writing one wire-shape adapter — patterns established in M03.
-
-**Tools** (`the_one/tools/`) — 21 built-in tools: filesystem (read/write/edit/glob/grep), execution (shell + PTY sessions), Python interpreter, web (fetch/download/search), an HTTP-request escape hatch, and the two connector tools below. Each tool is a `Tool` subclass with a Pydantic `Config` for operator-set defaults; per-agent overrides narrow or substitute fields at runtime.
-
-**MCP** (`the_one/mcp/`) — Model Context Protocol client (M07). Talks to external MCP servers over stdio or streamable-HTTP; sandboxed with bubblewrap by default; OAuth pause-and-replay for servers requiring user authorization. Built-in execution tools (`shell`, `python_exec`) route through the same bubblewrap seam via a host-workspace profile (M14).
-
-**Connectors** (`the_one/connectors/`) — Bridges external chat platforms to the agent loop (Mission 23 Flight 2 reset the pre-reset framework — a message-routing layer, ACLs, manual peer-approval flows, slash commands — down to a small, platform-agnostic core: a `ConnectorPlugin`/`ConnectorClient` Protocol pair, one supervised listener task per connector with reconnect/backoff, an inbound pipeline (allowlist admission → optional pairing-code consumption → reply-policy filter → session resolution → agent dispatch), and three built-in tools — `send_to_platform_channel` (agent-initiated sends), `find_platform_destination` (the passively-populated name directory, so an agent can address "Chuck R on discord" without knowing ids), and `fetch_channel_history` — while an admitted peer's inbound message gets the agent's reply delivered back to the originating channel or DM mechanically (Flight 3's auto-reply fallback); operator-typed console messages never reach the platform. Discord (Flight 3) and Telegram (Flight 4) are the two real plugins; the Library's Connectors group manages accounts, with an in-process stub plugin standing in for dev/test. See `the_one/connectors/README.md` for the full contract, [`docs/connector-setup.md`](docs/connector-setup.md) for the per-platform operator walkthrough, and [SECURITY-MODEL.md](SECURITY-MODEL.md) for admission/authorization.
-
-**Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connectors, chat sessions, and a Knowledge Base index live here. API keys, MCP secrets, and connector secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts every encrypted corpus (seven columns).
+API keys are encrypted at rest. You can rotate the key from **Settings → Encryption**.
 
 ## Security
 
-GleepGlorp AI is a single-user local tool — no auth on routes by design. See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the threat model, the Origin-allowlist middleware, the tool execution boundary, and what the model deliberately excludes.
+GleepGlorp AI is a single-user, local-only tool. Every route except `GET /api/live` needs a local credential, and the server accepts requests only from local origins. See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the threat model.
 
 ## Accessibility
 
-GleepGlorp AI targets WCAG 2.1 AA. The UI is keyboard-operable end-to-end, honors `prefers-reduced-motion` (continuous animations collapse to a static rest state), and meets minimum contrast on both light and dark themes. The Design language gallery (Settings → Design language, available in dev mode) is the canonical reference for tokens, components, and indicator vocabulary.
+The UI targets WCAG 2.1 AA: it works from the keyboard, respects reduced-motion settings, and keeps contrast on both light and dark themes. To report a problem, [open a GitHub issue](https://github.com/msieurthenardier/the-one/issues) with the `accessibility` label.
 
-Known gaps and ongoing accessibility work are tracked in [`missions/`](missions/) under each mission's maintenance report. To report an accessibility issue, [open a GitHub issue](https://github.com/msieurthenardier/the-one/issues) with the `accessibility` label.
+## Developing
 
-## Project organization & methodology
+```bash
+pip install -e ".[all-llms,dev]"
+make up           # run the app in the background
+make test-unit    # unit tests
+ruff check the_one/ tests/ scripts/ && ruff format --check the_one/ tests/ scripts/
+```
 
-The codebase is organized using [Mission Control](https://github.com/msieurthenardier/mission-control), an aviation-themed AI-first development methodology — missions, flights, and legs live under [`missions/`](missions/), and the per-mission artifacts there capture the design and execution history of every change.
+Read [CLAUDE.md](CLAUDE.md) for the working rules and [the_one/agents.md](the_one/agents.md) for architecture and module internals. [SECURITY-MODEL.md](SECURITY-MODEL.md) covers the security choices. The project is planned with [Mission Control](https://github.com/msieurthenardier/mission-control), and its mission records live in [`missions/`](missions/).
