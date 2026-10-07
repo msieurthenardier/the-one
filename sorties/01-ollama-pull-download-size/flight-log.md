@@ -3,7 +3,12 @@
 **Flight**: [Ollama Pull shows the download size first](flight.md)
 
 ## Summary
-Sortie 01, in flight (execution started 2026-10-07). Leg 1 `pull-size-flow` completed and committed after review; leg 2 (HAT) next. Charter agreed with the operator on 2026-10-07; the flight spec was approved by the operator on 2026-10-07 after two Architect design-review cycles.
+Sortie 01, **landed** on 2026-10-07. Both legs are completed.
+- **`pull-size-flow`** (`d59786e`) built the size-first Pull flow. It went through three review cycles.
+- **`hat-and-alignment`:** the operator passed HAT steps 1–6 against their real Ollama and the live registry, and signed off. The mid-HAT filter box (DD12) was built, reviewed, then rejected by the operator on trying it and reverted. The plain list with first-letter jumping is accepted.
+- **Charter:** all four success criteria were observed in the HAT.
+- **Squawks logged:** 0135 (move to Python 3.12), 0136 (KB-watcher timing flake) and 0137 (`App.formatBytes` units, the DD8 close-out).
+- **Release:** the operator asked for the PR to be merged and a patch release cut.
 
 ---
 
@@ -35,6 +40,43 @@ Sortie 01, in flight (execution started 2026-10-07). Leg 1 `pull-size-flow` comp
 - An early stop sets a 300 s in-memory cooldown (`_cooldown_until`) so a failing registry is not re-requested on each panel render; the spec says the rest "stay unsettled", and without a cooldown every search would immediately start another fill. Recorded under Deviations.
 
 ---
+
+### hat-and-alignment
+**Status**: completed
+**Started**: 2026-10-07
+**Completed**: 2026-10-07
+
+#### Changes Made
+- No net code change. DD12's filter box was implemented and reviewed, then reverted at the operator's request (see Flight Director Notes).
+
+#### Notes
+- **Setup:** a scratch instance on 8486, with the seam unset, against the operator's Ollama v0.34.0.
+- **Steps 1–6 passed:**
+  - the cold load showed "Loading…", then the list, with 448 sizes cached;
+  - the list labels and greying were right;
+  - a large-model confirm, then Cancel (`deepseek-coder-v2:236b`), sent no pull;
+  - a real pull of `qwen3:0.6b`, 523 MB as confirmed;
+  - the delete restored Ollama to its pre-HAT state;
+  - after a restart, the list came straight from the disk cache.
+- **Step 7:** the operator signed off ("works") on the leg 1 behaviour, including first-letter type-to-jump.
+
+### hat-and-alignment — DD12 filter box (reverted)
+**Changes Made** (Developer, Sonnet; not committed):
+- `the_one/interfaces/web/static/js/areas/admin/provider-models.js`:
+  - the template gains the filter `<input type="search">` (`admin-pf-pull-filter`) and the visually hidden live count (`admin-pf-pull-filter-status`), both ahead of `.admin-pf-pull-input`, after the template's first 80 characters;
+  - `libraryList` holds the full catalog; `showLibrary` stores it and calls the new `renderOptions()`, which applies the multi-token AND filter, builds options with `optionFor`, keeps or resets the selection per rev. 1 (the status line is cleared only when a non-empty selection is filtered out), and sets the count;
+  - `renderPullButton()` is now the single place that disables the select and the filter (`!libraryReady || checking || !!pullAbort`); the scattered `pullNameInput.disabled` writes in `setSelectMessage`, `showLibrary`, `startPull`, `showPullError` and `finishPull` are removed;
+  - the filter listens on `input` only.
+- `the_one/interfaces/web/static/css/admin.css`: `.area-admin .admin-pf-pull-filter { display: block; width: 100%; margin-top: 8px; }`.
+- `docs/ui-testid-registry.md`: rows for `admin-pf-pull-filter` and `admin-pf-pull-filter-status`.
+- `the_one/agents.md` ("Ollama pull catalog", Panel bullet): a filter-box note.
+- `tests/browser/test_flow_provider_ollama_pull.py`: 6 new tests (17 in the file): case-insensitive narrowing, multi-token, greyed entry kept, live count; matching selection survives; filtered-out selection resets Pull and clears the status line; "No models match" with the select enabled and Pull disabled; filter disabled while loading and during "Checking size…", enabled after; filter text survives the cloud/missing list re-run and the "no longer downloadable" warning survives typing.
+
+**Verification**:
+- Static guards (`tests/test_ui_guards.py`, `test_token_definitions.py`, `test_design_tokens_a11y.py`, `test_ui_mechanism_testids.py`, `test_nav_guard_static.py`): 269 passed.
+- `tests/browser/test_flow_provider_ollama_pull.py`: 17 passed.
+- Settings lane (`--lane settings -x`): 220 passed (6m53s).
+- `ruff check the_one/ tests/ scripts/`: clean; `ruff format --check`: 534 files already formatted.
 
 ## Decisions
 
@@ -104,6 +146,67 @@ The designer answered cycle 2's four questions:
 
 Of the suggestions, these were adopted: port the parser tolerance tests, one client per fill, a 5 s re-check timeout, `aria-live` on the status line, re-run only `loadLibraryOptions` in the cloud/missing branch, disable Refresh during a pull, and persist the library listing. This one was declined: splitting the leg into backend and frontend. That would be a split by task type, and the agentic workflow reviews once per flight, so it adds no review checkpoint.
 **Impact**: The maximum of 2 design-review cycles is reached. The spec goes to the operator for approval.
+
+### HAT finding, DD12: a filter box for the Pull list (2026-10-07, operator)
+**Context**: At HAT step 3, the operator found that typing in the native `<select>` only jumps by the first letter (Windows). DD1's trade-off rested on "type-to-jump still works" across about 448 entries, and in practice it doesn't: to reach `deepseek-r1:671b`, the operator landed on `deepseek-coder-v2:236b`.
+**Decision**: The operator chose "Add a filter box now". This is a FEATURE under the fix-versus-feature gate, so it gets a scoped Developer design review before implementation. It is single-surface: `provider-models.js`, `admin.css`, one browser test, and one registry row. No server change.
+
+DD12:
+- **The box:** a text box above the Pull row, `<input type="search">` with class `field-input admin-pf-pull-filter`, `data-testid="admin-pf-pull-filter"`, `aria-label="Filter models"`, and the placeholder "Filter models, e.g. llama3.2".
+  - It sits in its own row directly above `.admin-pf-pull-input`, which keeps the select and Pull button together.
+  - It is added inside the existing template, after the template's first 80 characters (so the sink baseline holds).
+  - The panel is not inside a `<form>`, so Enter needs no special handling.
+- **Filtering is client-side.** The full list is already in memory from the search route. It is a case-insensitive substring match on the entry's `name`, applied by rebuilding the select's options from the stored list. The server's `q` stays unused by the panel: no request per keystroke, and filtering keeps working through `loading` and cache fallbacks.
+- **Options while filtering:**
+  - The select keeps its first placeholder option, "Select a model…".
+  - Matching entries keep their labels and disabled states (greyed cloud and missing entries still show when they match).
+  - With no matches, the placeholder reads "No models match" and Pull is disabled.
+- **Selection:** if the current selection still matches, it stays selected. Otherwise the select resets to the placeholder, and the Pull label and status line update (Pull disabled, status cleared). They update through the same functions the select's `change` handler uses.
+- **State:**
+  - The box is disabled whenever the select is (loading, "Library unavailable", during the size re-check and during a pull) and enabled with it.
+  - Its text survives a list re-run (`loadLibraryOptions`, for example the cloud/missing branch), and the filter is re-applied when the list arrives.
+  - A full panel re-render (Refresh, after Pull/Load/Delete) starts it empty, as it does the select.
+- **Keyboard:** no extra shortcuts; Tab order is filter, select, Pull.
+- **Test:** add cases to `tests/browser/test_flow_provider_ollama_pull.py`:
+  - typing narrows the options, case-insensitively;
+  - a selection that is filtered out resets Pull to disabled and clears the status line;
+  - a selection that still matches survives;
+  - no matches gives "No models match" with Pull disabled;
+  - the box is disabled while loading and enabled after.
+- **Registry:** a `docs/ui-testid-registry.md` row for `admin-pf-pull-filter` (Surface `admin`).
+**Scoped design review (Developer, Sonnet): "approve with changes".** Three medium issues, three low, and an accessibility point were raised. All are folded in as **DD12 rev. 1**, which supersedes the bullets above where they differ:
+- **One place for disabled state.** The select is NOT disabled during the size re-check today; only the button is (`requestPull`, `provider-models.js:331-335`). At the top of `renderPullButton()`, which runs at every transition, set `var off = !libraryReady || checking || !!pullAbort; pullNameInput.disabled = filterEl.disabled = off;`, and remove the scattered `pullNameInput.disabled` writes (`setSelectMessage`, `showLibrary`, `startPull`, `showPullError`, `finishPull`). Both controls are then disabled during the re-check, so the selection can't change under an opening modal. A browser assertion checks that the filter is disabled while "Checking size…" shows.
+- **Selection rule.**
+  - Capture `prev = pullNameInput.value` before the options rebuild.
+  - After the rebuild, restore `prev` if its entry still matches.
+  - Only if `prev` was non-empty and no longer matches: set the value to `''` and call `renderPullButton()` and `renderSizeLine()`.
+  - If `prev` was already empty, leave the status line alone, so the cloud/missing branch's "no longer downloadable" warning survives typing.
+- **A stored list.** Add `libraryList = []` beside `libraryEntries`, filled in `showLibrary` and cleared in `setSelectMessage`.
+  - Split `showLibrary` into storing the list, then `renderOptions()`. `renderOptions()` applies the current filter and builds the options with the existing `optionFor` (DOM APIs, so no new sink), clearing them with `textContent = ''`.
+  - `libraryEntries` stays the full map, so `selectedEntry()` is unchanged.
+- **Matching.** Trim and lower-case the query, split it on whitespace, and every token must be a substring of the lower-cased `name`. This is multi-token AND, so "deepseek 671" finds `deepseek-r1:671b`, the operator's HAT scenario. An empty query shows everything. Matching is on `name` only.
+- **No-match state.** The select stays ENABLED with the single option "No models match" (`value=""`), so Pull is disabled because nothing is selected.
+- **Match count, for screen readers only.** A new visually hidden live element: `<div class="visually-hidden" data-testid="admin-pf-pull-filter-status" aria-live="polite">`.
+  - `renderOptions()` sets it to "{n} of {total} models", or "No models match", while a query is set, and clears it when the query is empty.
+  - It does NOT reuse `admin-pf-pull-size`.
+  - It gets a registry row.
+- **Layout.** A bare input directly above `.admin-pf-pull-input`. In admin.css's Pull UI block, `.area-admin .admin-pf-pull-filter { display: block; width: 100%; }`, with spacing evened against the row's `padding: 8px 0`. Add `appearance: none` only if the native search styling clashes. Listen on `input` only; native Esc/× clear fires `input`.
+- **Unchanged.**
+  - The filter has no `data-field`, so it never marks the provider form dirty.
+  - The editor has no `<form>`, so Enter and Esc need nothing.
+  - "Library unavailable" leaves the box disabled with its text kept, which is harmless.
+- **Tests** against the default seam catalog (6 entries):
+  - `"LLAMA"` gives 2 matches;
+  - `llama3.2:3b` survives `"3.2"`;
+  - `llama3.2:1b` is reset by `"nomic"`: Pull disabled, status line cleared;
+  - `"zzz"` gives "No models match" with the select enabled;
+  - `"kimi"` keeps the greyed option disabled;
+  - `"llama 3b"` gives 1 match (multi-token);
+  - the filter is disabled while loading and during "Checking size…", and enabled after;
+  - the live count text.
+- **No second review cycle:** the revisions follow the review's own recommendations, and the flight-end-style Reviewer covers the code.
+
+**Impact**: HAT steps 1–6 passed. Step 7 (the operator's verdict) is "satisfied" on everything else, with this filter box as the one change. After implementation and review, the HAT re-verifies the filter box in a short added step 3b, then closes.
 
 ---
 
@@ -204,3 +307,31 @@ Of the suggestions, these were adopted: port the parser tolerance tests, one cli
 
   These are not logged as squawks: the app writes this file itself, and DD4's requirement ("never a 500") holds. They can be revisited if the cache ever reads data from outside the app.
 - **Leg 1 → `completed`.** All 16 acceptance criteria are ticked, and the flight spec's leg list is checked off. Commit next, then a draft PR.
+
+### Leg 2, `hat-and-alignment` (2026-10-07)
+- **Committed and PR:** the flight commit is `d59786e`, and draft PR #235 is open.
+- **Leg 2:** designed as an interactive HAT in seven state-transition steps. No design review: it is an interactive verification leg with no code.
+- **Prerequisites verified:**
+  - the operator's Ollama is up (v0.34.0), and `qwen3:0.6b` is not installed;
+  - the HAT instance is on port 8486 with a fresh scratch data directory under the session scratchpad;
+  - `THE_ONE_OLLAMA_LIBRARY_TEST_JSON` is absent from the process environment, while dev mode is on through the repo `.env`;
+  - a credential was created for the scratch directory only, and a handoff URL minted.
+- **Operator consent** to pull, then delete, `qwen3:0.6b` is taken at step 4.
+- **HAT progress:** steps 1–6 passed (2026-10-07).
+  - **Step 1, cold load:** the cache file held 448 sizes (431 ok, 15 cloud, 2 missing, 0 unknown), with no log errors.
+  - **Step 3** used `deepseek-coder-v2:236b`, because type-to-jump only matched the first letter; that became DD12. No pull request was sent on Cancel.
+  - **Step 4:** `qwen3:0.6b` installed at 522,653,767 B ("523 MB").
+  - **Step 5:** deleted, and Ollama is back to its pre-HAT models.
+  - **Step 6:** after `make restart`, one search request with no loading re-requests, so the list came from the disk cache.
+  - **Step 7:** the operator is satisfied apart from DD12 (the filter box), which goes to a scoped design review.
+
+- **DD12 review (Reviewer, Haiku tier: UI only, no security-sensitive surface):** `[HANDOFF:confirmed]` with no issues. It walked every disabled-state transition; 17 browser tests and 269 static guards pass. HAT step 3b follows on the running 8486 instance, which needs no restart for JS/CSS.
+- **DD12 reverted (operator, 2026-10-07).** At HAT step 3b the operator tried the filter box and said: "this is not right, revert, lets go with the previous version of the first letter."
+  - The five DD12 source and doc files (`provider-models.js`, `admin.css`, `test_flow_provider_ollama_pull.py`, `docs/ui-testid-registry.md`, `the_one/agents.md`) were restored to the leg 1 commit `d59786e` with `git checkout --`. No DD12 change is committed or shipped, and the instance now serves the leg 1 panel.
+  - DD12's design, review and implementation record stays above as history. The Pull list stays as leg 1 built it: a native `<select>` with first-letter type-to-jump, which the operator accepts. DD1's "type-to-jump still works" holds only for first-letter jumps; that limitation is accepted.
+
+### Flight close (2026-10-07)
+- **Legs:** both are `completed`, and the flight log has an entry for each.
+- **Docs:** checked. `the_one/agents.md` ("Ollama pull catalog"), `SECURITY-MODEL.md` (the outbound-fetch note) and `.env.example` (the seam) shipped in `d59786e`. CLAUDE.md needs no change: following the OpenRouter seam precedent, there is no paragraph, and no command or config changed.
+- **Squawk 0137** logged for `App.formatBytes`, the DD8 close-out. The other open items are 0135 and 0136.
+- **Status `landed`.** HAT instance 8486 stopped. The operator said "works, merge the pr, cut a patch". Debrief next: `/mission-control:flight-debrief sortie 01`.

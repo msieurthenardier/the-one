@@ -1,6 +1,6 @@
 # Sortie: Ollama Pull shows the download size first
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -11,10 +11,10 @@ Before you pull an Ollama model, the Models panel shows exactly how big the down
 v0.10.2 (squawk 0053) grew the Pull Model list from about 18 models to about 251, but only about 14 of them show a size. One click on any of the other ~237 could start a multi-GB download unannounced, and some cloud-model weights run to hundreds of GB. The operator raised it on 2026-10-07.
 
 ### Success Criteria
-- [ ] For the chosen model, the exact download size (from Ollama's registry manifest) is shown before Pull is enabled.
-- [ ] Every pull needs an explicit confirmation that names its download size. *(Operator decision 2026-10-07: always confirm, no threshold.)*
-- [ ] If the size can't be determined, you're told so, and nothing downloads unless you explicitly agree to pull without knowing its size.
-- [ ] You can choose a variant, such as `llama3.2:1b` instead of `llama3.2:3b`, not only `:latest`.
+- [x] For the chosen model, the exact download size (from Ollama's registry manifest) is shown before Pull is enabled.
+- [x] Every pull needs an explicit confirmation that names its download size. *(Operator decision 2026-10-07: always confirm, no threshold.)*
+- [x] If the size can't be determined, you're told so, and nothing downloads unless you explicitly agree to pull without knowing its size.
+- [x] You can choose a variant, such as `llama3.2:1b` instead of `llama3.2:3b`, not only `:latest`.
 
 ### Constraints
 - The pull mechanism itself (`POST /api/providers/{id}/models/pull` streaming) is unchanged; the size step comes before it.
@@ -233,17 +233,17 @@ Verified against the working tree at `f770947`, and spot-checked independently b
 
 ### Prerequisites
 - [x] No active mission overlaps; no other open sortie
-- [ ] **At the start of each leg (external, re-verified per leg):**
+- [x] **At the start of each leg (external, re-verified per leg):**
   - the Ollama registry serves v2 manifests (`llama3.2:1b` → 200; `kimi-k3:latest` → 404);
   - the library page still carries per-entry size tags and the cloud badge.
 
   These are the checks behind the Divert criteria.
-- [ ] **HAT only:**
+- [x] **HAT only:**
   - the operator's local Ollama at `http://localhost:11434` is running;
   - the operator agrees to pull, then delete, `qwen3:0.6b` (523 MB).
 
   Re-verify at the start of the HAT leg.
-- [ ] **HAT only:** a dev instance on a non-default port, never 8484, with:
+- [x] **HAT only:** a dev instance on a non-default port, never 8484, with:
   - a fresh scratch data directory, never the default one, for the cold load;
   - `THE_ONE_OLLAMA_LIBRARY_TEST_JSON` unset (with dev mode on, a leaked variable would silently swap in the canned catalog);
   - an Ollama provider pointed at the operator's Ollama.
@@ -301,10 +301,10 @@ Verified against the working tree at `f770947`, and spot-checked independently b
    - `.env.example` gains the seam entry.
 
 ### Checkpoints
-- [ ] The search route returns `name:tag` entries in DD9's sort, with sizes and statuses, from a cold cache, and instantly from a warm one
-- [ ] The panel lists `llama3.2:3b (2.0 GB)`-style entries, greys out cloud/missing, re-checks the size on Pull and confirms every pull with it
-- [ ] No browser test reaches ollama.com
-- [ ] HAT: the operator pulls a small model against the real Ollama and is satisfied
+- [x] The search route returns `name:tag` entries in DD9's sort, with sizes and statuses, from a cold cache, and instantly from a warm one
+- [x] The panel lists `llama3.2:3b (2.0 GB)`-style entries, greys out cloud/missing, re-checks the size on Pull and confirms every pull with it
+- [x] No browser test reaches ollama.com
+- [x] HAT: the operator pulls a small model against the real Ollama and is satisfied
 
 ### Adaptation Criteria
 
@@ -321,7 +321,7 @@ Verified against the working tree at `f770947`, and spot-checked independently b
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [x] `pull-size-flow` - First, before building on DD4, run one full ~445-request cold fill against the live registry with a throwaway script and record timing and any 403/429 responses (the Divert check). Then the whole feature slice: the backend catalog module (variants, registry sizes, disk cache, single-flight, test seam); the search and size routes; the panel's flat list, Pull label, status line, size re-check and confirmation modal; testids and same-surface fixes; unit and settings-lane browser tests; docs.
-- [ ] `hat-and-alignment` *(optional, opted in)* - A guided HAT against the operator's real Ollama on a fresh scratch dev instance. Walk:
+- [x] `hat-and-alignment` *(optional, opted in)* - A guided HAT against the operator's real Ollama on a fresh scratch dev instance. Walk:
   - the cold load;
   - scanning the list;
   - a cloud entry;
@@ -336,10 +336,10 @@ Verified against the working tree at `f770947`, and spot-checked independently b
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - **Unit (`make test-unit`):**
