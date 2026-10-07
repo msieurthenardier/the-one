@@ -1,6 +1,6 @@
 # Flight: Alignment
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria

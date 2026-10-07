@@ -365,6 +365,22 @@ history but do not appear in the picker, and their drawer shows no settings link
     `windows-window-chrome` on the frozen build, passed 11 of 11.
   - **What remains:** SC9 stays open for the operator's packaged-build walk at
     Flight 6.
-- [ ] Flight 6: **Alignment** — hands-on session with the operator in the running app and
+- [x] Flight 6: **Alignment** — hands-on session with the operator in the running app and
   the packaged build: walk the surfaces against the samples, adjust, and fix or accept
   remaining deviations.
+  *Landed on 2026-10-07* (PR #227).
+  - **What shipped:**
+    - the carried squawks fixed: provider and session 422s that never echo a key,
+      `App.focusAfter`, and the WebSocket cancel and join edge cases;
+    - the operator's walk-time changes: "Available models", eyebrow section labels,
+      12-hour times, the Agents and Library start pages, a full-width composer, text
+      selection in the desktop window, a plain MCP connection error, and themed inline
+      links.
+  - **How it was verified:**
+    - the operator's v0.10.0 use and light walk ("the walk looks good"), and their SC9
+      packaged-build answer ("All fine");
+    - seven behavior specs re-run and passing in both themes;
+    - every gate green.
+  - **What remains:** nothing for this mission. The follow-ups are GitHub issues #207
+    (editor migration onto `App.ui`), #223 (a time tool and a time-zone setting), #224
+    (a per-message Copy button), #225 (narrow layouts) and #226 (the masked MCP cause).

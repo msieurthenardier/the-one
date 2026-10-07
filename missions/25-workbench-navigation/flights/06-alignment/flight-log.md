@@ -553,6 +553,9 @@ This is a read-only sweep of `main` at `aaee705` (v0.10.0) by a Sonnet agent, on
       - focus and forced colours are unaffected.
     - **The theoretical case it flagged:** a link on the API user bubble (`--accent-api`). This cannot occur, because only assistant messages render markdown (`message-bubble.js`).
 - **Leg 6 is completed**, and SC1–SC10 are ticked in `mission.md` with their evidence.
+- **Flight landed (2026-10-07).**
+  - **The check:** every leg is `completed`, the flight log has an entry for each, and the docs are read through. `CLAUDE.md` and `agents.md` gained a note on the bare-link convention (the leg 6 link fix).
+  - **The record:** flight status `landed`, and the Flight 6 line ticked in `mission.md`. The flight and mission debriefs follow, then the merge of PR #227 and v0.10.1.
 - **2026-10-06, during planning: the provider Models list (DD10).**
   - **Reported:** "you can't select a model on the provider page" (an Anthropic and a
     Claude Max provider).
