@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
@@ -2614,248 +2616,152 @@ _LIBRARY_HTML_FIXTURE = Path(__file__).parent / "fixtures" / "ollama_library_exc
 
 
 class TestOllamaLibrarySearch:
-    """Tests for GET /api/ollama-library/search."""
+    """Tests for GET /api/ollama-library/search and /size (the thin routes)."""
 
     @pytest.fixture(autouse=True)
-    def _reset_cache(self):
-        """Reset the library cache before each test."""
-        from the_one.interfaces.web import api as _api_mod
+    def _reset_catalog(self, tmp_path):
+        from the_one.llm import ollama_library
 
-        _api_mod._library_cache["models"] = []
-        _api_mod._library_cache["timestamp"] = 0.0
+        ollama_library._reset_for_tests(cache_path=tmp_path / "ollama-sizes.json")
         yield
-        _api_mod._library_cache["models"] = []
-        _api_mod._library_cache["timestamp"] = 0.0
+        ollama_library._reset_for_tests(cache_path=None)
 
     def _mock_httpx(
         self,
-        models: list[dict] | Exception,
+        tags: list[str] | Exception,
         html: str | Exception | None = None,
+        manifests: dict[str, int] | None = None,
     ):
-        """Patch httpx.AsyncClient so each upstream URL gets its own response.
+        """Route each upstream URL explicitly through ``httpx.MockTransport``.
 
-        ``models`` is the ``/api/tags`` JSON payload (or an exception to
-        raise); ``html`` is the ``/library`` page body (or an exception).
-        ``None`` for ``html`` means that source fails.
+        ``tags`` is the ``/api/tags`` name list (or an exception to raise); ``html`` the
+        ``/library`` page (``None`` or an exception means that source fails);
+        ``manifests`` maps ``name:tag`` to a registry status (default 200 with 1000 B).
+        Patches the catalog module's client factory, not the global ``httpx`` module.
         """
+        manifests = manifests or {}
 
-        def _get(url, *args, **kwargs):
-            resp = MagicMock()
-            resp.raise_for_status = MagicMock()
-            if url.endswith("/library"):
-                src = html if html is not None else ConnectionError("no html")
-                if isinstance(src, Exception):
-                    raise src
-                resp.text = src
-            else:
-                if isinstance(models, Exception):
-                    raise models
-                resp.json.return_value = {"models": models}
-            return resp
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = request.url
+            if url.host == "ollama.com" and url.path == "/library":
+                if html is None:
+                    return httpx.Response(500)
+                if isinstance(html, Exception):
+                    raise html
+                return httpx.Response(200, text=html)
+            if url.host == "ollama.com" and url.path == "/api/tags":
+                if isinstance(tags, Exception):
+                    raise tags
+                return httpx.Response(200, json={"models": [{"name": n} for n in tags]})
+            m = re.fullmatch(r"/v2/library/([^/]+)/manifests/([^/]+)", url.path)
+            assert url.host == "registry.ollama.ai" and m, f"unexpected request {url}"
+            code = manifests.get(f"{m.group(1)}:{m.group(2)}", 200)
+            if code != 200:
+                return httpx.Response(code)
+            return httpx.Response(200, json={"config": {"size": 485}, "layers": [{"size": 1000}]})
 
-        instance = AsyncMock()
-        instance.__aenter__ = AsyncMock(return_value=instance)
-        instance.__aexit__ = AsyncMock(return_value=False)
-        instance.get = AsyncMock(side_effect=_get)
-
+        real = httpx.AsyncClient
         return patch(
-            "the_one.interfaces.web.api.httpx.AsyncClient",
-            return_value=instance,
+            "the_one.llm.ollama_library._new_client",
+            lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
         )
 
-    async def test_basic_search(self, client: AsyncClient) -> None:
-        models = [
-            {"name": "llama3:8b", "size": 5_000_000_000},
-            {"name": "llama3:70b", "size": 40_000_000_000},
-            {"name": "qwen2.5:7b", "size": 4_500_000_000},
-        ]
-        with self._mock_httpx(models):
-            resp = await client.get("/api/ollama-library/search?q=llama")
+    async def test_new_shape_and_model_name_sort(self, client: AsyncClient) -> None:
+        html = _LIBRARY_HTML_FIXTURE.read_text()
+        with self._mock_httpx([], html=html):
+            resp = await client.get("/api/ollama-library/search")
         assert resp.status_code == 200
         data = resp.json()
-        # Filtered by substring "llama" then sorted alphabetically — `:7` <
-        # `:8` so the 70b variant sorts before 8b.
-        assert [m["name"] for m in data] == ["llama3:70b", "llama3:8b"]
+        assert data["loading"] is False
+        names = [m["name"] for m in data["models"]]
+        for m in data["models"]:
+            assert set(m) == {"name", "size", "status"}
+        # `1b` before `12b` (tag order kept), models grouped alphabetically.
+        assert names.index("gemma3:1b") < names.index("gemma3:12b")
+        assert names.index("gemma3:27b") < names.index("llama3.2:1b")
+        by_name = {m["name"]: m for m in data["models"]}
+        assert by_name["llama3.2:3b"] == {"name": "llama3.2:3b", "size": 1485, "status": "ok"}
 
-    async def test_empty_query_returns_full_library(self, client: AsyncClient) -> None:
-        # Empty q lists the full library (used to populate the Pull Model
-        # dropdown). Result is alphabetically sorted.
-        models = [
-            {"name": "qwen2.5:7b", "size": 4_500_000_000},
-            {"name": "llama3:8b", "size": 5_000_000_000},
+    async def test_sort_does_not_interleave_prefixed_models(self, client: AsyncClient) -> None:
+        html = (
+            '<li  class="flex items-baseline"><a href="/library/llama3.2-vision">'
+            '<span class="text-blue-600">11b</span></a></li>'
+            '<li  class="flex items-baseline"><a href="/library/llama3.2">'
+            '<span class="text-blue-600">1b</span><span class="text-blue-600">3b</span></a></li>'
+        )
+        with self._mock_httpx([], html=html):
+            resp = await client.get("/api/ollama-library/search")
+        assert [m["name"] for m in resp.json()["models"]] == [
+            "llama3.2:1b",
+            "llama3.2:3b",
+            "llama3.2-vision:11b",
         ]
-        with self._mock_httpx(models):
-            resp = await client.get("/api/ollama-library/search?q=")
-        assert resp.status_code == 200
-        assert [m["name"] for m in resp.json()] == ["llama3:8b", "qwen2.5:7b"]
 
-    async def test_short_query_still_filters(self, client: AsyncClient) -> None:
-        # The legacy `len(q) < 2` short-circuit was removed when the dropdown
-        # replaced the typeahead — single-char queries now filter normally.
-        models = [
-            {"name": "llama3:8b", "size": 1},
-            {"name": "qwen2.5:7b", "size": 1},
-        ]
-        with self._mock_httpx(models):
-            resp = await client.get("/api/ollama-library/search?q=q")
-        assert resp.status_code == 200
-        assert [m["name"] for m in resp.json()] == ["qwen2.5:7b"]
+    async def test_cloud_missing_and_unknown_statuses(self, client: AsyncClient) -> None:
+        html = _LIBRARY_HTML_FIXTURE.read_text()
+        manifests = {"kimi-k3:latest": 404, "qwen3:0.6b": 404, "qwen3:1.7b": 503}
+        with self._mock_httpx(["kimi-k3"], html=html, manifests=manifests):
+            resp = await client.get("/api/ollama-library/search")
+        by_name = {m["name"]: m for m in resp.json()["models"]}
+        assert by_name["kimi-k3"]["status"] == "cloud" and by_name["kimi-k3"]["size"] is None
+        assert by_name["qwen3:0.6b"]["status"] == "missing"
+        assert by_name["qwen3:1.7b"]["status"] == "unknown"
+
+    async def test_q_filters_case_insensitively(self, client: AsyncClient) -> None:
+        with self._mock_httpx([], html=_LIBRARY_HTML_FIXTURE.read_text()):
+            resp = await client.get("/api/ollama-library/search?q=GEMMA3")
+        names = [m["name"] for m in resp.json()["models"]]
+        assert names and all(n.startswith("gemma3:") for n in names)
 
     async def test_results_not_capped(self, client: AsyncClient) -> None:
-        # Issue #93: every matching model must be reachable. The previous
-        # 30-item filtered cap silently hid models from broad searches.
-        models = [{"name": f"model-x-{i:03d}", "size": 100} for i in range(50)]
-        with self._mock_httpx(models):
-            resp = await client.get("/api/ollama-library/search?q=model-x")
-        assert resp.status_code == 200
-        assert len(resp.json()) == 50
-
-    async def test_cache_hit(self, client: AsyncClient) -> None:
-        models = [
-            {"name": "llama3:8b", "size": 5_000_000_000},
-            {"name": "qwen2.5:7b", "size": 4_500_000_000},
-        ]
-        mock_ctx = self._mock_httpx(models)
-        with mock_ctx as mock_cls:
-            resp1 = await client.get("/api/ollama-library/search?q=llama")
-            resp2 = await client.get("/api/ollama-library/search?q=qwen")
-            # One client per upstream source (library page + tags), all from
-            # the first call; the second call is served from the cache.
-            assert mock_cls.call_count == 2
-        assert len(resp1.json()) == 1
-        assert resp1.json()[0]["name"] == "llama3:8b"
-        assert len(resp2.json()) == 1
-        assert resp2.json()[0]["name"] == "qwen2.5:7b"
-
-    async def test_http_error_no_cache(self, client: AsyncClient) -> None:
-        """HTTP error with no cached data returns empty list."""
-        with self._mock_httpx(ConnectionError("refused")):
-            resp = await client.get("/api/ollama-library/search?q=llama")
-        assert resp.status_code == 200
-        assert resp.json() == []
-
-    async def test_http_error_stale_cache_fallback(self, client: AsyncClient) -> None:
-        """HTTP error with stale cache falls back to cached data."""
-        from the_one.interfaces.web import api as _api_mod
-
-        models = [
-            {"name": "llama3:8b", "size": 5_000_000_000},
-        ]
-        # Pre-populate cache, then expire it
-        with self._mock_httpx(models):
-            await client.get("/api/ollama-library/search?q=llama")
-
-        # Expire the cache
-        _api_mod._library_cache["timestamp"] = 0.0
-
-        # Now fetch fails — should fall back to stale cache
-        with self._mock_httpx(ConnectionError("timeout")):
-            resp = await client.get("/api/ollama-library/search?q=llama")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "llama3:8b"
-
-    async def test_merges_html_and_tags_sources(self, client: AsyncClient) -> None:
-        tags = [
-            {"name": "kimi-k3", "size": 1_500_000_000_000},
-            {"name": "llama3.2", "size": 2_000_000_000},
-        ]
-        with self._mock_httpx(tags, html=_LIBRARY_HTML_FIXTURE.read_text()):
-            resp = await client.get("/api/ollama-library/search")
-        assert resp.status_code == 200
-        data = resp.json()
-        names = [m["name"] for m in data]
-        # HTML-only, cloud-only, and shared names all present, no duplicates.
-        assert {"qwen3", "gemma3", "nomic-embed-text", "kimi-k3", "llama3.2"} <= set(names)
-        assert len(names) == len(set(names))
-        assert names == sorted(names, key=str.lower)
-        by_name = {m["name"]: m["size"] for m in data}
-        assert by_name["qwen3"] == "0"
-        assert by_name["kimi-k3"] == "1500000000000"
-        # Byte size from /api/tags wins over the HTML placeholder.
-        assert by_name["llama3.2"] == "2000000000"
-
-    async def test_merged_query_filter(self, client: AsyncClient) -> None:
-        tags = [{"name": "kimi-k3", "size": 1}]
-        with self._mock_httpx(tags, html=_LIBRARY_HTML_FIXTURE.read_text()):
-            resp = await client.get("/api/ollama-library/search?q=GEMMA")
-        assert [m["name"] for m in resp.json()] == ["gemma3"]
-
-    async def test_tags_failure_keeps_html_entries(self, client: AsyncClient) -> None:
-        with self._mock_httpx(ConnectionError("down"), html=_LIBRARY_HTML_FIXTURE.read_text()):
-            resp = await client.get("/api/ollama-library/search")
-        names = {m["name"] for m in resp.json()}
-        assert {"llama3.2", "qwen3", "gemma3", "nomic-embed-text"} == names
-
-    async def test_html_failure_keeps_tags_entries(self, client: AsyncClient) -> None:
-        tags = [{"name": "kimi-k3", "size": 5}]
-        with self._mock_httpx(tags, html=ConnectionError("down")):
-            resp = await client.get("/api/ollama-library/search")
-        assert [m["name"] for m in resp.json()] == ["kimi-k3"]
-
-    async def test_zero_entry_parse_is_a_failed_source(self, client: AsyncClient) -> None:
-        from the_one.interfaces.web import api as _api_mod
-
-        tags = [{"name": "kimi-k3", "size": 5}]
-        # Page that parses to nothing: tags still served.
-        with self._mock_httpx(tags, html="<html><body>maintenance</body></html>"):
-            resp = await client.get("/api/ollama-library/search")
-        assert [m["name"] for m in resp.json()] == ["kimi-k3"]
-
-        # Both sources empty with a populated stale cache: cache is kept.
-        _api_mod._library_cache["timestamp"] = 0.0
-        with self._mock_httpx([], html="<html></html>"):
-            resp = await client.get("/api/ollama-library/search")
-        assert [m["name"] for m in resp.json()] == ["kimi-k3"]
-
-    async def test_both_empty_no_cache_returns_empty(self, client: AsyncClient) -> None:
-        with self._mock_httpx([], html="<html></html>"):
-            resp = await client.get("/api/ollama-library/search")
-        assert resp.json() == []
-
-    async def test_both_fail_stale_cache_fallback(self, client: AsyncClient) -> None:
-        from the_one.interfaces.web import api as _api_mod
-
-        with self._mock_httpx([], html=_LIBRARY_HTML_FIXTURE.read_text()):
-            await client.get("/api/ollama-library/search")
-        _api_mod._library_cache["timestamp"] = 0.0
-        with self._mock_httpx(ConnectionError("x"), html=ConnectionError("y")):
-            resp = await client.get("/api/ollama-library/search?q=qwen")
-        assert [m["name"] for m in resp.json()] == ["qwen3"]
-
-
-class TestParseLibraryHtml:
-    """Tests for ollama_api.parse_library_html()."""
-
-    def test_fixture_excerpt(self) -> None:
-        from the_one.llm.ollama_api import parse_library_html
-
-        names = parse_library_html(_LIBRARY_HTML_FIXTURE.read_text())
-        assert sorted(names) == ["gemma3", "llama3.2", "nomic-embed-text", "qwen3"]
-
-    def test_tolerates_attribute_order_quotes_and_suffixes(self) -> None:
-        from the_one.llm.ollama_api import parse_library_html
-
-        html = (
-            "<a class='x' href='/library/phi4'>a</a>"
-            '<a href="/library/deepseek-r1?tab=tags" class="y">b</a>'
-            '<a data-x="1" href="/library/bge-m3#top">c</a>'
-            '<a href="https://ollama.com/library/mistral/">d</a>'
-            '<a href="/library/phi4">dup</a>'
+        # Issue #93: every matching model must be reachable.
+        html = "".join(
+            f'<li  class="flex items-baseline"><a href="/library/model-x-{i:03d}">x</a></li>'
+            for i in range(50)
         )
-        assert parse_library_html(html) == ["phi4", "deepseek-r1", "bge-m3", "mistral"]
+        with self._mock_httpx([], html=html):
+            resp = await client.get("/api/ollama-library/search?q=model-x")
+        assert len(resp.json()["models"]) == 50
 
-    def test_ignores_non_library_links(self) -> None:
-        from the_one.llm.ollama_api import parse_library_html
+    async def test_second_search_is_served_from_the_cache(self, client: AsyncClient) -> None:
+        html = _LIBRARY_HTML_FIXTURE.read_text()
+        with self._mock_httpx([], html=html) as _:
+            await client.get("/api/ollama-library/search")
+        # No patch active: a warm cache must not need the network at all.
+        resp = await client.get("/api/ollama-library/search?q=qwen3")
+        assert resp.status_code == 200
+        assert resp.json()["models"] and resp.json()["loading"] is False
 
-        html = '<a href="/library">all</a><a href="/blog">b</a><a href="/search?q=/library/x">s</a>'
-        assert parse_library_html(html) == []
+    async def test_both_sources_down_returns_empty(self, client: AsyncClient) -> None:
+        with self._mock_httpx(ConnectionError("refused"), html=ConnectionError("down")):
+            resp = await client.get("/api/ollama-library/search")
+        assert resp.status_code == 200
+        assert resp.json() == {"loading": False, "models": []}
 
-    def test_empty_input(self) -> None:
-        from the_one.llm.ollama_api import parse_library_html
+    async def test_page_down_serves_api_tags_names(self, client: AsyncClient) -> None:
+        with self._mock_httpx(["kimi-k3", "gpt-oss:20b"], html=None):
+            resp = await client.get("/api/ollama-library/search")
+        assert sorted(m["name"] for m in resp.json()["models"]) == ["gpt-oss:20b", "kimi-k3"]
 
-        assert parse_library_html("") == []
+    async def test_size_route_ok_and_bare_name_echo(self, client: AsyncClient) -> None:
+        with self._mock_httpx([]):
+            resp = await client.get("/api/ollama-library/size?model=nomic-embed-text")
+        assert resp.status_code == 200
+        assert resp.json() == {"name": "nomic-embed-text", "size": 1485, "status": "ok"}
+
+    async def test_size_route_unknown_status(self, client: AsyncClient) -> None:
+        with self._mock_httpx([], manifests={"m:1b": 503}):
+            resp = await client.get("/api/ollama-library/size?model=m:1b")
+        assert resp.status_code == 200
+        assert resp.json() == {"name": "m:1b", "size": None, "status": "unknown"}
+
+    @pytest.mark.parametrize("model", ["", "A/b", "x:a b", "ns/x:1b", "x:"])
+    async def test_size_route_rejects_invalid_model_with_string_detail(
+        self, client: AsyncClient, model: str
+    ) -> None:
+        resp = await client.get("/api/ollama-library/size", params={"model": model})
+        assert resp.status_code == 422
+        assert isinstance(resp.json()["detail"], str)
 
 
 class TestStripV1:

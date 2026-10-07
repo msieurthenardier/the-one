@@ -486,6 +486,10 @@ reconnecting on secrets decrypted before a rotation).
   responsible for fronting it with a reverse proxy that adds auth — that
   configuration is out of scope for this project.
 
+## Ollama library and registry fetches
+
+The Pull Model control makes outbound requests from the server to three URL shapes: `https://ollama.com/library` and `https://ollama.com/api/tags` (the catalog of pullable models; fixed URLs, redirects are followed, and the response is only parsed, never acted on: every name and tag it yields is validated before any manifest URL is built) and `https://registry.ollama.ai/v2/library/{name}/manifests/{tag}` (each entry's exact download size; fixed host, no redirects). The hosts are module constants; no part of any host or path is user-controlled. The model `name` and `tag` that reach a manifest URL, whether parsed from the library page or supplied to `GET /api/ollama-library/size?model=`, must first pass an anchored allowlist (`re.fullmatch`, the operator-supplied-identifier rule above: names `[a-z0-9][a-z0-9._-]{0,127}`, tags `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`, a single path segment); a failing entry is dropped and logged, and the size route answers 422. Manifest requests do not follow redirects (a 3xx is treated as "size unknown"); the listing fetches do. Nothing is sent about the operator or their Ollama server, and the pull itself (`POST /api/providers/{id}/models/pull`) is unchanged. Sizes and the listing are cached on disk in `{data_dir}/ollama-sizes.json` (public catalog data, no secrets). See `the_one/agents.md` "Ollama pull catalog".
+
 ## Tool Execution Boundary
 
 The per-category Pydantic Configs (`FilesystemConfig`, `ExecutionConfig`,

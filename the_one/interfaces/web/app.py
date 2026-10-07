@@ -82,6 +82,7 @@ from the_one.knowledge.manager import IndexingManager
 from the_one.knowledge.manager import set_manager as _set_module_indexing_manager
 from the_one.knowledge.watcher import WatchManager
 from the_one.knowledge.watcher import set_manager as _set_module_watch_manager
+from the_one.llm import ollama_library
 from the_one.llm.base import (
     OPERATOR_VISIBILITY,
     ContentBlock,
@@ -379,6 +380,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("watch manager startup failed")
         yield
+        # Pull-catalog size fill: a detached module task (requests wait for it at
+        # most ~8 s), so it is cancelled here and what settled is persisted. No-op
+        # with no fill. Own try/except like the other drains.
+        try:
+            await ollama_library.shutdown_drain()
+        except Exception:
+            logger.exception("ollama library fill shutdown failed")
         # Drain the PTY session registry on shutdown — cancels the idle
         # reaper task and closes any live sessions. Wrapped in
         # ``try/except Exception`` (NOT ``BaseException``) so

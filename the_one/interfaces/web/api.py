@@ -80,7 +80,7 @@ from the_one.knowledge.settings import (
 )
 from the_one.knowledge.walk import content_hash, is_filesystem_root
 from the_one.knowledge.watcher import get_manager as get_watch_manager
-from the_one.llm import anthropic_oauth, ollama_api, plan_credentials
+from the_one.llm import anthropic_oauth, ollama_api, ollama_library, plan_credentials
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS
 from the_one.platform.paths import canonicalize, is_within
 from the_one.self_configuration import external_credentials as self_configuration_external
@@ -5303,76 +5303,25 @@ async def model_status(provider_id: str) -> list[dict[str, Any]]:
 
 # ── Ollama Library Search ────────────────────────────────────────────────
 
-_library_cache: dict[str, Any] = {"models": [], "timestamp": 0.0}
-
-_LIBRARY_CACHE_TTL = 300  # seconds
-
-_OLLAMA_LIBRARY_URL = "https://ollama.com/library"
-_OLLAMA_TAGS_URL = "https://ollama.com/api/tags"
-
-
-async def _fetch_library_models() -> list[dict[str, Any]] | None:
-    """Fetch and merge both upstream catalogs into ``[{name, size}]``.
-
-    ``/library`` (HTML) carries the full public library but no byte sizes;
-    ``/api/tags`` (JSON) carries the cloud models and sizes. A failure of one
-    source never discards the other; ``None`` means both failed (or yielded
-    nothing), so the caller keeps its stale cache.
-    """
-    merged: dict[str, dict[str, Any]] = {}
-
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            resp = await client.get(_OLLAMA_LIBRARY_URL)
-            resp.raise_for_status()
-            html = resp.text
-        for name in ollama_api.parse_library_html(html):
-            merged[name] = {"name": name, "size": 0}
-    except Exception:
-        logger.warning("Ollama library page fetch failed", exc_info=True)
-
-    try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            resp = await client.get(_OLLAMA_TAGS_URL)
-            resp.raise_for_status()
-            data = resp.json()
-        for m in data.get("models", []):
-            name = m.get("name", "")
-            if name:
-                merged[name] = {"name": name, "size": m.get("size", 0)}
-    except Exception:
-        logger.warning("Ollama tags fetch failed", exc_info=True)
-
-    return list(merged.values()) or None
-
 
 @router.get("/ollama-library/search")
-async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
-    """Return Ollama library models. Empty `q` lists the full cached library
-    (alphabetical), used to populate the Pull Model dropdown. Non-empty `q`
-    filters by substring."""
-    q = q.strip().lower()
+async def search_ollama_library(q: str = "") -> dict[str, Any]:
+    """Every pullable Ollama ``name:tag`` with its download size and status.
 
-    now = time.time()
-    if now - _library_cache["timestamp"] >= _LIBRARY_CACHE_TTL:
-        fetched = await _fetch_library_models()
-        if fetched is not None:
-            _library_cache["models"] = fetched
-            _library_cache["timestamp"] = now
-        elif not _library_cache["models"]:
-            return []
+    Returns ``{"loading": bool, "models": [{"name", "size", "status"}]}``. While the
+    catalog is still filling (``loading``), the panel re-requests. See
+    ``the_one/llm/ollama_library.py``.
+    """
+    return await ollama_library.search(q)
 
-    results = []
-    for m in _library_cache["models"]:
-        name = m.get("name", "")
-        if not q or q in name.lower():
-            results.append({"name": name, "size": str(m.get("size", 0))})
-    results.sort(key=lambda r: r["name"].lower())
-    # No result cap: every matching model must be reachable in the picker
-    # (issue #93). The library is ~100 models and renders into a native
-    # <select>, so returning the full match set is cheap; the previous
-    # 30-item filtered cap silently hid models from broad searches.
-    return results
+
+@router.get("/ollama-library/size")
+async def ollama_library_size(model: str = "") -> dict[str, Any]:
+    """Re-check one entry's download size (the Pull click). 422 on an invalid name."""
+    try:
+        return await ollama_library.size(model)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 # ── Encryption ───────────────────────────────────────────────────────────

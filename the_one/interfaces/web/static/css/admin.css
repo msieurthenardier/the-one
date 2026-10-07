@@ -249,6 +249,9 @@
   .area-admin .admin-pf-pull-cancel { position: relative; z-index: 1; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; flex-shrink: 0; margin-right: 6px; }
   .area-admin .admin-pf-pull-cancel:hover { color: var(--status-danger); border-color: var(--status-danger); }
   .area-admin .admin-pf-pull-cancel svg { width: 12px; height: 12px; display: block; }
+  .area-admin .admin-pf-pull-size { font-size: var(--font-size-caption); padding: 4px 0; }
+  .area-admin .admin-pf-pull-size:not(.test-result-warning) { color: var(--fg-secondary); }
+  .area-admin .admin-pf-pull-size:empty { padding: 0; }
   .area-admin .admin-pf-pull-error { font-size: var(--font-size-caption); color: var(--status-danger); padding: 4px 0; }
 
   /* === Provider Type Badges === */

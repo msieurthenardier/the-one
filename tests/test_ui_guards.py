@@ -115,8 +115,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "listEl.innerHTML = html;",
         "listEl.innerHTML = '<span class=\"test-result-fail\">' + escapeHtml(err.message ||",
         "container.innerHTML = '<div class=\"admin-pf-models-header\">' + '<button class=\"b",
-        "pullNameInput.innerHTML = html;",
-        "vramEl.innerHTML = '<span class=\"admin-pf-vram-value\">' + escapeHtml(formatBytes",
         "listEl.innerHTML = html;",
         "listEl.innerHTML = '<span class=\"test-result-fail\">' + escapeHtml(err.message ||",
     ],

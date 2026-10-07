@@ -47,7 +47,7 @@
   function renderProviderModels(container, provider) {
     if (!provider || !provider.id) return;
     if (provider.type === 'ollama') {
-      renderOllamaModels(provider.id, container);
+      renderOllamaModels(provider, container);
     } else {
       renderBasicModels(provider.id, container);
     }
@@ -95,76 +95,191 @@
       });
   }
 
-  function renderOllamaModels(providerId, container) {
+  // Decimal units on purpose (matches ollama.com and `ollama pull`). App.formatBytes is
+  // binary maths labelled "GB", which would read a model as 2.0 GB in the Pull list and
+  // 1.9 GB once installed. Do not "simplify" this into App.formatBytes.
+  function formatSize(bytes) {
+    var n = Number(bytes);
+    if (!(n > 0)) return '';
+    if (n < 1e9) return Math.max(1, Math.round(n / 1e6)) + ' MB';
+    return (n / 1e9).toFixed(1) + ' GB';
+  }
+
+  // "localhost:11434" for the modal; the raw base_url if it does not parse.
+  function hostOf(baseUrl) {
+    try {
+      return new URL(baseUrl).host;
+    } catch (e) {
+      return baseUrl;
+    }
+  }
+
+  var LOADING_COPY = 'Loading models and sizes. The first load takes a little while…';
+
+  function renderOllamaModels(provider, container) {
     if (!container) return;
-    var formatBytes = window.App.formatBytes;
+    var providerId = provider.id;
 
     container.innerHTML =
       '<div class="admin-pf-models-header">' +
         '<button class="btn-outlined-primary refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
       '</div>' +
       '<div class="admin-pf-pull-input">' +
-        '<select class="field-input admin-pf-select admin-pf-pull-name" disabled>' +
+        '<select class="field-input admin-pf-select admin-pf-pull-name" data-testid="admin-pf-pull-select" aria-label="Model to pull" disabled>' +
           '<option value="">Loading library…</option>' +
         '</select>' +
-        '<button class="btn-filled-primary btn-sm admin-pf-pull-go" disabled>Pull</button>' +
+        '<button class="btn-filled-primary btn-sm admin-pf-pull-go" data-testid="admin-pf-pull-btn" disabled>Pull</button>' +
       '</div>' +
-      '<div class="admin-pf-pull-progress is-hidden">' +
+      '<div class="admin-pf-pull-size" data-testid="admin-pf-pull-size" aria-live="polite"></div>' +
+      '<div class="admin-pf-pull-progress is-hidden" data-testid="admin-pf-pull-progress">' +
         '<div class="admin-pf-pull-fill"></div>' +
         '<span class="admin-pf-pull-text"></span>' +
-        '<button class="admin-pf-pull-cancel" aria-label="Cancel pull">' + window.App.icon('x') + '</button>' +
+        '<button class="admin-pf-pull-cancel" data-testid="admin-pf-pull-cancel" aria-label="Cancel pull">' + window.App.icon('x') + '</button>' +
       '</div>' +
-      '<div class="admin-pf-pull-error is-hidden"></div>' +
+      '<div class="admin-pf-pull-error is-hidden" data-testid="admin-pf-pull-error"></div>' +
       '<div class="admin-pf-vram-summary"></div>' +
       '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models…</span></div>';
 
     var refreshBtn = container.querySelector('.admin-pf-models-refresh');
     refreshBtn.addEventListener('click', function () {
-      renderOllamaModels(providerId, container);
+      renderOllamaModels(provider, container);
     });
 
     // Pull UI wiring
     var pullNameInput = container.querySelector('.admin-pf-pull-name');
     var pullGoBtn = container.querySelector('.admin-pf-pull-go');
+    var pullSizeEl = container.querySelector('.admin-pf-pull-size');
     var pullProgress = container.querySelector('.admin-pf-pull-progress');
     var pullFill = container.querySelector('.admin-pf-pull-fill');
     var pullText = container.querySelector('.admin-pf-pull-text');
     var pullError = container.querySelector('.admin-pf-pull-error');
+    var pullCancelBtn = container.querySelector('.admin-pf-pull-cancel');
 
     var pullAbort = null;
+    var checking = false; // the size re-check is in flight
+    var libraryReady = false; // the select holds real entries
+    var libraryEntries = {}; // name -> {name, size, status}
+    var libraryTimer = null;
 
-    function loadLibraryOptions() {
+    function selectedEntry() {
+      var v = pullNameInput.value;
+      return v && libraryEntries[v] ? libraryEntries[v] : null;
+    }
+
+    // The Pull button: label carries the size when known; disabled with nothing
+    // selected, during the re-check and during a pull.
+    function renderPullButton() {
+      var entry = selectedEntry();
+      if (checking) {
+        pullGoBtn.textContent = 'Checking size…';
+        pullGoBtn.disabled = true;
+        return;
+      }
+      if (entry && entry.status === 'ok' && entry.size) {
+        pullGoBtn.textContent = 'Pull · ' + formatSize(entry.size);
+      } else {
+        pullGoBtn.textContent = 'Pull';
+      }
+      pullGoBtn.disabled = !entry || !!pullAbort;
+    }
+
+    function setSizeLine(text, warn) {
+      pullSizeEl.textContent = text;
+      pullSizeEl.classList.toggle('test-result-warning', !!warn);
+    }
+
+    function renderSizeLine() {
+      var entry = selectedEntry();
+      if (entry && entry.status === 'ok' && entry.size) {
+        setSizeLine('Download: ' + formatSize(entry.size) + ', from the Ollama registry.', false);
+      } else if (entry && entry.status === 'unknown') {
+        setSizeLine("Size unknown: the Ollama registry couldn't be reached. Pull will ask before it starts.", true);
+      } else {
+        setSizeLine('', false);
+      }
+    }
+
+    function setSelectMessage(text) {
+      libraryReady = false;
+      libraryEntries = {};
+      pullNameInput.textContent = '';
+      var opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = text;
+      pullNameInput.appendChild(opt);
       pullNameInput.disabled = true;
-      pullNameInput.innerHTML = '<option value="">Loading library…</option>';
+      renderPullButton();
+    }
+
+    function optionFor(m) {
+      var opt = document.createElement('option');
+      opt.value = m.name;
+      if (m.status === 'ok' && m.size) {
+        opt.textContent = m.name + ' (' + formatSize(m.size) + ')';
+      } else if (m.status === 'cloud') {
+        opt.textContent = m.name + ' (cloud only, not downloadable)';
+        opt.disabled = true;
+      } else if (m.status === 'missing') {
+        opt.textContent = m.name + ' (not downloadable)';
+        opt.disabled = true;
+      } else {
+        opt.textContent = m.name + ' (size unknown)';
+      }
+      return opt;
+    }
+
+    function showLibrary(models) {
+      libraryEntries = {};
+      pullNameInput.textContent = '';
+      var first = document.createElement('option');
+      first.value = '';
+      first.textContent = 'Select a model…';
+      pullNameInput.appendChild(first);
+      for (var i = 0; i < models.length; i++) {
+        libraryEntries[models[i].name] = models[i];
+        pullNameInput.appendChild(optionFor(models[i]));
+      }
+      libraryReady = true;
+      pullNameInput.disabled = !!pullAbort;
+      renderPullButton();
+    }
+
+    // Ask the catalog; while it answers "loading" keep the select disabled and ask
+    // again every 2 s. Stops once this render's controls are gone (a re-render).
+    function requestLibrary() {
+      if (!pullNameInput.isConnected) return;
       fetch('/api/ollama-library/search')
-        .then(function (r) { return r.ok ? r.json() : []; })
-        .then(function (models) {
-          if (!models.length) {
-            pullNameInput.innerHTML = '<option value="">Library unavailable</option>';
-            pullNameInput.disabled = true;
+        .then(function (r) { return r.ok ? r.json() : { loading: false, models: [] }; })
+        .then(function (data) {
+          if (!pullNameInput.isConnected) return;
+          if (data.loading) {
+            setSelectMessage(LOADING_COPY);
+            libraryTimer = setTimeout(requestLibrary, 2000);
             return;
           }
-          var html = '<option value="">Select a model…</option>';
-          for (var i = 0; i < models.length; i++) {
-            var sz = models[i].size && Number(models[i].size) > 0
-              ? ' (' + formatBytes(Number(models[i].size)) + ')'
-              : '';
-            html += '<option value="' + escapeAttr(models[i].name) + '">' +
-              escapeHtml(models[i].name) + escapeHtml(sz) + '</option>';
+          var models = data.models || [];
+          if (!models.length) {
+            setSelectMessage('Library unavailable');
+            return;
           }
-          pullNameInput.innerHTML = html;
-          pullNameInput.disabled = false;
+          showLibrary(models);
         })
         .catch(function () {
-          pullNameInput.innerHTML = '<option value="">Library unavailable</option>';
-          pullNameInput.disabled = true;
+          if (pullNameInput.isConnected) setSelectMessage('Library unavailable');
         });
     }
 
-    pullGoBtn.addEventListener('click', function () { startPull(); });
+    function loadLibraryOptions() {
+      clearTimeout(libraryTimer);
+      setSelectMessage('Loading library…');
+      requestLibrary();
+    }
+
+    pullGoBtn.addEventListener('click', function () { requestPull(); });
 
     pullNameInput.addEventListener('change', function () {
-      pullGoBtn.disabled = !pullNameInput.value;
+      renderPullButton();
+      renderSizeLine();
     });
 
     // Load the library on render so the dropdown is populated immediately.
@@ -172,7 +287,6 @@
     loadLibraryOptions();
 
     // Cancel button
-    var pullCancelBtn = container.querySelector('.admin-pf-pull-cancel');
     pullCancelBtn.addEventListener('click', function () {
       if (pullAbort) {
         pullAbort.abort();
@@ -182,17 +296,94 @@
       window.App.showFlash(container, 'Pull cancelled');
     });
 
-    function startPull() {
-      var model = pullNameInput.value.trim();
+    function showError(msg) {
+      pullError.classList.remove('is-hidden');
+      pullError.textContent = msg;
+    }
+
+    // Pull click: re-check this one entry's size, then always confirm.
+    function requestPull() {
+      var entry = selectedEntry();
+      if (!entry || checking || pullAbort) return;
+      pullError.classList.add('is-hidden');
+      checking = true;
+      renderPullButton();
+      fetch('/api/ollama-library/size?model=' + encodeURIComponent(entry.name))
+        .then(function (r) {
+          if (!r.ok) {
+            return r.json().catch(function () { return {}; }).then(function (e) {
+              throw new Error(typeof e.detail === 'string' ? e.detail : 'Size check failed');
+            });
+          }
+          return r.json();
+        })
+        .then(function (res) {
+          checking = false;
+          if (!pullGoBtn.isConnected) {
+            window.App.showFlash(container, 'The panel refreshed; choose the model again');
+            return;
+          }
+          renderPullButton();
+          if (res.status === 'cloud' || res.status === 'missing') {
+            // The registry changed since the list loaded: refresh the list only.
+            loadLibraryOptions();
+            setSizeLine(entry.name + ' is no longer downloadable.', true);
+            return;
+          }
+          confirmPull(entry.name, res.status === 'ok' && res.size ? res.size : null);
+        })
+        .catch(function (err) {
+          checking = false;
+          if (!pullGoBtn.isConnected) return;
+          renderPullButton();
+          showError(err.message || 'Size check failed');
+        });
+    }
+
+    function confirmPull(name, size) {
+      var known = size !== null;
+      var where = provider.name + ' (' + hostOf(provider.base_url) + ')';
+      var dialog = window.App.ui.modal({
+        title: known ? 'Pull ' + name + '?' : 'Pull ' + name + ' without knowing its size?',
+        body: known
+          ? 'This downloads ' + formatSize(size) + ' to ' + where + '.'
+          : "The Ollama registry couldn't be reached, so the download size is unknown. It could be very large.",
+        actions: [
+          { label: 'Cancel', value: null, autofocus: true, testid: 'admin-pf-pull-confirm-cancel' },
+          {
+            label: known ? 'Pull ' + formatSize(size) : 'Pull anyway',
+            variant: 'primary',
+            value: 'pull',
+            testid: 'admin-pf-pull-confirm-go'
+          }
+        ],
+        testid: 'admin-pf-pull-confirm',
+        onClose: function (value) {
+          if (value !== 'pull') return;
+          // Runs after the modal restored focus. Start only if this render's controls
+          // are still live (a Load/Unload/Refresh may have re-rendered the panel).
+          if (!pullGoBtn.isConnected) {
+            window.App.showFlash(container, 'The panel refreshed; choose the model again');
+            return;
+          }
+          startPull(name);
+          pullCancelBtn.focus();
+        }
+      });
+      dialog.open(pullGoBtn);
+    }
+
+    function startPull(model) {
       if (!model) return;
 
       pullAbort = new AbortController();
-      pullGoBtn.disabled = true;
       pullNameInput.disabled = true;
+      refreshBtn.disabled = true;
+      renderPullButton();
       pullError.classList.add('is-hidden');
       pullProgress.classList.remove('is-hidden');
       pullFill.style.width = '0%';
-      pullText.textContent = 'Pulling ' + escapeHtml(model) + '…';
+      pullText.textContent = 'Pulling ' + model + '…';
 
       fetch('/api/providers/' + encodeURIComponent(providerId) + '/models/pull', {
         method: 'POST',
@@ -236,7 +427,7 @@
                       pct = Math.round((evt.completed / evt.total) * 100);
                     }
                     pullFill.style.width = pct + '%';
-                    pullText.textContent = escapeHtml(evt.status || '') + (pct > 0 ? ' — ' + pct + '%' : '');
+                    pullText.textContent = (evt.status || '') + (pct > 0 ? ' — ' + pct + '%' : '');
                   } catch (parseErr) {
                     // skip unparseable lines
                   }
@@ -257,21 +448,23 @@
     function showPullError(msg) {
       pullAbort = null;
       pullProgress.classList.add('is-hidden');
-      pullError.classList.remove('is-hidden');
-      pullError.textContent = escapeHtml(msg);
-      pullGoBtn.disabled = false;
-      pullNameInput.disabled = false;
+      showError(msg);
+      pullNameInput.disabled = !libraryReady;
+      refreshBtn.disabled = false;
+      renderPullButton();
     }
 
     function finishPull(success) {
       pullAbort = null;
       pullProgress.classList.add('is-hidden');
-      pullGoBtn.disabled = false;
-      pullNameInput.disabled = false;
+      pullNameInput.disabled = !libraryReady;
       pullNameInput.value = '';
+      refreshBtn.disabled = false;
+      renderPullButton();
+      renderSizeLine();
       if (success) {
         window.App.showFlash(container, 'Model pulled successfully');
-        renderOllamaModels(providerId, container);
+        renderOllamaModels(provider, container);
       }
     }
 
@@ -321,7 +514,11 @@
         if (runningModels.length === 0) {
           vramEl.textContent = 'No models loaded';
         } else if (totalVram > 0) {
-          vramEl.innerHTML = '<span class="admin-pf-vram-value">' + escapeHtml(formatBytes(totalVram)) + ' loaded</span>';
+          var vramValue = document.createElement('span');
+          vramValue.className = 'admin-pf-vram-value';
+          vramValue.textContent = formatSize(totalVram) + ' loaded';
+          vramEl.textContent = '';
+          vramEl.appendChild(vramValue);
         } else {
           vramEl.textContent = 'VRAM info unavailable';
         }
@@ -340,7 +537,7 @@
           for (var i = 0; i < runningModels.length; i++) {
             var run = runningModels[i];
             var runName = run.name || run.model || 'unknown';
-            var runVram = run.size_vram ? formatBytes(run.size_vram) : '';
+            var runVram = run.size_vram ? formatSize(run.size_vram) : '';
             html +=
               '<div class="admin-pf-model-row">' +
                 '<span class="indicator-led indicator-led--success" aria-hidden="true"></span>' +
@@ -369,7 +566,7 @@
           for (var k = 0; k < availableModels.length; k++) {
             var avail = availableModels[k];
             var availName = avail.name || avail.id || 'unknown';
-            var availSize = avail.size ? formatBytes(avail.size) : '';
+            var availSize = avail.size ? formatSize(avail.size) : '';
             html +=
               '<div class="admin-pf-model-row">' +
                 '<span class="indicator-led indicator-led--idle" aria-hidden="true"></span>' +
@@ -387,7 +584,7 @@
         listEl.innerHTML = html;
 
         // Wire action buttons
-        wireOllamaActions(providerId, container);
+        wireOllamaActions(provider, container);
       })
       .catch(function (err) {
         var listEl = container.querySelector('.admin-pf-models-list');
@@ -397,7 +594,7 @@
       });
   }
 
-  function wireOllamaActions(providerId, container) {
+  function wireOllamaActions(provider, container) {
     // Unload buttons
     var unloadBtns = container.querySelectorAll('.admin-pf-model-unload');
     for (var u = 0; u < unloadBtns.length; u++) {
@@ -406,7 +603,7 @@
         var model = btn.dataset.model;
         btn.disabled = true;
         btn.textContent = 'Unloading…';
-        ollamaAction(providerId, container, 'unload', model, btn);
+        ollamaAction(provider, container, 'unload', model, btn);
       });
     }
 
@@ -418,7 +615,7 @@
         var model = btn.dataset.model;
         btn.disabled = true;
         btn.textContent = 'Loading…';
-        ollamaAction(providerId, container, 'load', model, btn);
+        ollamaAction(provider, container, 'load', model, btn);
       });
     }
 
@@ -431,7 +628,7 @@
         if (btn.classList.contains('admin-pf-model-delete-confirm')) {
           btn.disabled = true;
           btn.textContent = 'Deleting…';
-          ollamaAction(providerId, container, 'delete', model, btn);
+          ollamaAction(provider, container, 'delete', model, btn);
         } else {
           btn.classList.add('admin-pf-model-delete-confirm');
           btn.textContent = 'Confirm?';
@@ -444,8 +641,8 @@
     }
   }
 
-  function ollamaAction(providerId, container, action, model, btn) {
-    var url = '/api/providers/' + encodeURIComponent(providerId) + '/models/' + action;
+  function ollamaAction(provider, container, action, model, btn) {
+    var url = '/api/providers/' + encodeURIComponent(provider.id) + '/models/' + action;
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -457,7 +654,7 @@
       })
       .then(function () {
         window.App.showFlash(container, 'Model ' + action + (action === 'delete' ? 'd' : 'ed') + ' successfully');
-        renderOllamaModels(providerId, container);
+        renderOllamaModels(provider, container);
       })
       .catch(function (err) {
         btn.disabled = false;
