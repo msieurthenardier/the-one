@@ -600,6 +600,20 @@ with a neutral equivalent, without operator sign-off.
 | D4 | **Connector channel count** `3 channels` | Library list, Connectors group, `B3:L197` | Channel counts | `{n} agents` (derivable) |
 | D5 | **Providers as a table** (§8.2): Name · Type · Status · Used by rows | Settings › Providers, `B3:L239–L246` | — (an **operator decision**, not missing data: the Mission 25 Flight 3 DD14 checkpoint, 2026-10-05) | The list renders as **tiles matching Built-in tools**: the name link is the item link, with a type badge, the base URL and "Used by". The intro, the page header and "Add provider" stay, and the item opens below the list (Flight 3 DD7, leg 7) |
 
+### Operator-accepted deviations (Flight 6)
+
+Decided by the operator during Flight 6 (2026-10-06) and recorded in `flights/06-alignment/flight.md`
+and its flight log. D1 to D5 above stand unchanged.
+
+| # | Element | What the board drew | What ships | The operator's words or date |
+|---|---|---|---|---|
+| D6 (DD13) | Section labels, §3 group label | A plain group label in the list and nav columns | An "eyebrow with a rule": small, semibold, letter-spaced uppercase in `--fg-tertiary`, then a hairline in `--border` to the edge. Applies to `listPane` and `navGroups` captions and `.section-title` in editors and Settings pages | 2026-10-06: chose option D of four (the group labels and section headers were "too close in style to the items under them"); accepted at the leg 5 walk |
+| D7 (DD14) | Today's times, §5.1 `HH:MM` | 24-hour `HH:MM` on Today rows | Local 12-hour `h:mm AM/PM`, formatted by hand; also the message attributions in a chat (were `HH:MM:SS UTC`) | 2026-10-06: "The time on todays chats is military time. We should format that normally with am/pm." |
+| D8 (DD15) | Root empty states, §6 and §7 | A one-line empty state at the Agents and Library roots | A start page: a visible `h1`, a description and the add buttons (Agents: what an agent is and New agent; Library: one block per type with its own Add button) | 2026-10-06: the Library page "should be a description of what each of the things are with an add button for each of them", and the same "friendly description" for Agents |
+| D9 (DD16) | Composer width, §5.5 max 760px | A composer box capped at 760px | The box, the staged-image row and the queued chip fill the pane's width, so the box's right edge meets the telemetry readout's | 2026-10-06: "I think we just allow the message box to expand to the max width." |
+
+DD10's "Available models" label on the provider page is additive, not a deviation.
+
 **Out of scope, not deviations** (hosted unchanged this mission, next mission redesigns them):
 the agent-detail body (outline, Capabilities toggles, "On this page"), the knowledge-base
 detail body (folders with watch and index status, "Try a search", the "Used by" aside), and
@@ -672,40 +686,45 @@ MCP-server and connector detail bodies (not drawn).
 Each item is stated as found. Resolve it in the named flight or raise it at the operator
 checkpoint. Do not silently pick a value.
 
-| # | Finding | Source | Owner |
-|---|---|---|---|
-| A1 | B3 renders buttons and toggles in the **current** treatment; Deep violet comes only from the Buttons board (§0, §11) | `bundle:L412–L543` | F1 |
-| A2 | Content-box board versus border-box app: rail 73, list 301 and drawer 321 render 1px wider than written; the **Settings nav renders 261 against 240 as written** | §1.3 | F3 |
-| A3 | Settings heading `margin: 0 0 4px 10px; margin: 0;`: the duplicate cancels the indent, so the heading sits 10px inset against the items' 20px. B2 had the indent | `B3:L232` | F3 |
-| A4 | SVG `width`/`height` attributes are overridden by `.btn-* svg { 16px }`: "New" and "Add" plus (12→16), rail jump-to (18→16), attach (14→16). The author's intent is unclear | `B3:L25`, `L30`, `L158`, `L186` | F1 |
-| A5 | Icon-only buttons on B3 are not square (42 × 32, 34 × 24). The Buttons board's icon variant is 32 × 32. The rail jump-to is 44 × 44 | §11.4 | F1 |
-| A6 | `.btn-sm` (24px, 10px label) is used five times on B3 but not defined in Deep violet, which says "13px medium" | §11.4 | F1 |
-| A7 | Primary padding: Deep violet `0 12px` against the app's `0 16px`. `.b.wide` against `.btn-lg`: `0 12px` against `0 20px` | `Btn:L16`, `bundle:L449`, `L533` | F1 |
-| A8 | List-row geometry differs per list: Agents `7px 10px` with 0 gap (48px); Chats and Library `8px 10px` with 2px gap (51 and 50px); picker `10px 12px` (55px); palette `8px 12px` (33px); Settings items `6px 10px` at 12px type (28px) | §3 | F1 (list pane) |
-| A9 | Selected marker: a 1px border on rows and the rail, but an inset `box-shadow` ring on Settings items (visually the same) | `B3:L233` | F1 |
-| A10 | **No hover, focus-visible or keyboard-active style** for rail items, list rows, picker rows or palette rows. "Enter to start" and "Enter to open" imply an active row that is never shown | — | F1, F4 |
-| A11 | **The script binds no keys.** Ctrl K, Esc and Enter are copy only. The "Esc" buttons' accessible name is "Esc" | §10 item 27 | F1, F4 |
-| A12 | `aria-current` is missing on the active rail item, the selected chat row and the selected Settings item; only agent rows have it. B1 and B2 used `aria-current="page"` on the rail | `B3:L21–L24`, `L41`, `L233` | F2, F3 |
-| A13 | **The drawer lacks "what it can use"**, which the mission requires (decision 3, SC3); it shows only Model, Provider and Chats | `B3:L171–L178` | F4 |
-| A14 | **The Add menu is not drawn**; the Library "Add" button is inert | `B3:L186` | F3 |
-| A15 | **No unsaved-changes indicator on B3**; only superseded B1 has one ("Unsaved changes", `--status-warning`, plus Discard and Save) | `B1:` header | F2, F3 |
-| A16 | The Agents filter and the picker match the provider **type slug** ("anthropic-plan"), not the provider display name ("Claude Max"). The picker also matches descriptions while the Agents filter does not. Filtered picker results come in **data order, not A–Z**. "All agents" repeats the Recently-used agents | `B3:L333`, `L360`, `L363–L365` | F3, F4 |
-| A17 | Palette: no groups, no type ordering, cap 8 (an empty query shows only agents), no empty state, footer not split like the picker's | §9 | F4 |
-| A18 | Agent **Delete** lives in the out-of-scope outline; the header has no Delete. Its place in the hosted tabbed editor is not on the board | `B3:L61–L64`, `L91` | F3 |
-| A19 | The Library intro says "Attach them from an agent's **Capabilities**", which does not exist this mission (the tabbed editor stays) | `B3:L187` | F3 |
-| A20 | Badge text differs: the new-chat welcome badge shows the **model**, while the drawer and Providers badges show the **provider type** | `B3:L129`, `L169` | F4 |
-| A21 | Drawer header (42px) and chat header (48px plus 1px) hairlines do not line up | `B3:L121`, `L167` | F4 |
-| A22 | Header heights differ across panes: item header 62, page header 64, chat header 48, drawer header 42, Chats list block 93. No cross-column alignment is intended or shown | §4 | info |
-| A23 | Static sample data is inconsistent: Providers "Used by" 9/4/9/6/2 (30 agents) against the 28-agent data set (7/4/8/6/2 plus 1 mock, which has no provider row); drawer "Chats 3" against the list. **Counts must come from data, not the board** | `B3:L242–L246`, `L312` | F3, F4 |
-| A24 | **Light-theme contrast**: `--fg-muted` caption text on the selected-row wash is **4.43:1** (below 4.5). This affects the model line in a selected agent row, the time in a selected chat row and the meta in a selected Library row. Dark is 4.62:1 | App. C | F1 (SC7) |
-| A25 | The composer `<textarea>` has `outline: none` and nothing replaces it, so a focus indicator (for example `:focus-within` on the box) must be added for SC10. The same applies to the palette input | `B3:L156`, `L294` | F4 |
-| A26 | The initially selected agent is not scrolled into view (it is 22nd of 28) | §3 | F3 |
-| A27 | The board's item and page bodies are `overflow: hidden` because they are static; the app needs scrolling bodies under fixed headers | §4 | F3 |
-| A28 | Chats groups: only Today, Yesterday and Last 7 days are drawn; "Yesterday" rows show a weekday rather than a time; older chats are undefined | `B3:L103–L117` | F4 |
-| A29 | The pending new chat is **discarded** when another conversation is opened. Is a session created on pick (SC3: "starts a new conversation … with no further step") or on first send? | `B3:L374` | F4 |
-| A30 | Scrim `rgba(0,0,0,0.3)` is a literal, the same in both themes, with no token. The scrim is also a focusable full-screen `<button aria-label="Close">` | `B3:L255`, `L290` | F1 |
-| A31 | Provider dots on agent and picker rows are colour-only and `aria-hidden`; the provider is not named in the row text | `B3:L42`, `L271` | F1 (a11y) |
-| A32 | The board includes a connector agent (Discord concierge) in "Recently used"; mission DD excludes connector-driven sessions from recency (that is data, not a design rule) | `B3:L364` | F4 |
+**Closed at Mission 25 Flight 6 leg 6.** Every item now carries its resolution, found in the
+flight logs, flight debriefs and flight specs under `flights/` (F1 to F5 are the owner
+flights). Result: 29 resolved, 2 accepted as is (A4, A6), 1 informational (A22), none
+carried; 32 in all.
+
+| # | Finding | Source | Owner | Resolution (Flight 6 sweep) |
+|---|---|---|---|---|
+| A1 | B3 renders buttons and toggles in the **current** treatment; Deep violet comes only from the Buttons board (§0, §11) | `bundle:L412–L543` | F1 | Resolved, F1 DD6: Deep violet applied app-wide; placement from B3, appearance from the Buttons board (F1 flight.md, resolutions table). |
+| A2 | Content-box board versus border-box app: rail 73, list 301 and drawer 321 render 1px wider than written; the **Settings nav renders 261 against 240 as written** | §1.3 | F3 | Resolved, F3 DD1: the Settings nav is 260px, the approved 261px render within 1px (F3 flight.md, DD1 and resolutions table). |
+| A3 | Settings heading `margin: 0 0 4px 10px; margin: 0;`: the duplicate cancels the indent, so the heading sits 10px inset against the items' 20px. B2 had the indent | `B3:L232` | F3 | Resolved, F3: the heading aligns with the items' text, 20px in (F3 flight.md; flight-log, leg 5a nav). |
+| A4 | SVG `width`/`height` attributes are overridden by `.btn-* svg { 16px }`: "New" and "Add" plus (12→16), rail jump-to (18→16), attach (14→16). The author's intent is unclear | `B3:L25`, `L30`, `L158`, `L186` | F1 | Accepted as is, F1 DD6: icons are 16px in standard buttons and the existing `.btn-* svg` rule stands (F1 flight.md, resolutions table). |
+| A5 | Icon-only buttons on B3 are not square (42 × 32, 34 × 24). The Buttons board's icon variant is 32 × 32. The rail jump-to is 44 × 44 | §11.4 | F1 | Resolved, F1 DD6: a `.btn-icon` modifier makes a square 32px button, 24px with `.btn-sm` (F1 flight.md). |
+| A6 | `.btn-sm` (24px, 10px label) is used five times on B3 but not defined in Deep violet, which says "13px medium" | §11.4 | F1 | Accepted as is, F1 DD6: `.btn-sm` stays 24px with a 10px label; flagged at the Flight 3 operator checkpoint, which kept it (F1 flight-debrief; F3 flight-log, checkpoint). |
+| A7 | Primary padding: Deep violet `0 12px` against the app's `0 16px`. `.b.wide` against `.btn-lg`: `0 12px` against `0 20px` | `Btn:L16`, `bundle:L449`, `L533` | F1 | Resolved, F1 DD6: `0 12px` for all variants, `.btn-lg` keeps `0 20px` (F1 flight.md). |
+| A8 | List-row geometry differs per list: Agents `7px 10px` with 0 gap (48px); Chats and Library `8px 10px` with 2px gap (51 and 50px); picker `10px 12px` (55px); palette `8px 12px` (33px); Settings items `6px 10px` at 12px type (28px) | §3 | F1 (list pane) | Resolved, F1 DD14 and F3 DD3: the list pane's `rowStyle` option carries each list's geometry; Agents, Library, Chats and the pickers choose theirs (F1 flight.md; F3 flight-log, list pane). |
+| A9 | Selected marker: a 1px border on rows and the rail, but an inset `box-shadow` ring on Settings items (visually the same) | `B3:L233` | F1 | Resolved, F1 DD14: one selected marker, a translucent wash plus an inset 1px accent ring (F1 flight.md). |
+| A10 | **No hover, focus-visible or keyboard-active style** for rail items, list rows, picker rows or palette rows. "Enter to start" and "Enter to open" imply an active row that is never shown | — | F1, F4 | Resolved, F1 DD14 and F4 DD15: hover and focus-visible are defined, and the keyboard-active row of the selection list is built in `searchList` (F1 flight.md; F4 flight-log, 'Resolved in DD15'). |
+| A11 | **The script binds no keys.** Ctrl K, Esc and Enter are copy only. The "Esc" buttons' accessible name is "Esc" | §10 item 27 | F1, F4 | Resolved, F4 DD15: Ctrl K, Esc and Enter are bound, and the Esc buttons are named 'Close (Esc)' (F4 flight.md DD10; F4 flight-log, leg 7). Ctrl K in WebView2 was confirmed by the operator at Flight 6 (mission.md Known Issues). |
+| A12 | `aria-current` is missing on the active rail item, the selected chat row and the selected Settings item; only agent rows have it. B1 and B2 used `aria-current="page"` on the rail | `B3:L21–L24`, `L41`, `L233` | F2, F3 | Resolved, F2 DD7 (rail), F3 DD4-DD6 (Settings items and list rows), F4 (chat rows): `aria-current="page"` on every selected item (F2 flight.md; F3 flight-log, the nav; F4 flight.md). |
+| A13 | **The drawer lacks "what it can use"**, which the mission requires (decision 3, SC3); it shows only Model, Provider and Chats | `B3:L171–L178` | F4 | Resolved, F4 DD7: 'what it can use' is computed client-side in the drawer (F4 flight.md; F4 flight-log, leg 6). |
+| A14 | **The Add menu is not drawn**; the Library "Add" button is inert | `B3:L186` | F3 | Resolved, F3 DD5: the Add menu is the first production `App.ui.menu` (F3 flight.md; F3 flight-log, Library list). |
+| A15 | **No unsaved-changes indicator on B3**; only superseded B1 has one ("Unsaved changes", `--status-warning`, plus Discard and Save) | `B1:` header | F2, F3 | Resolved, F3 DD2: the stable `editor-unsaved` caption in every editor header (F3 flight.md; F3 flight-log, unsaved indicator). |
+| A16 | The Agents filter and the picker match the provider **type slug** ("anthropic-plan"), not the provider display name ("Claude Max"). The picker also matches descriptions while the Agents filter does not. Filtered picker results come in **data order, not A–Z**. "All agents" repeats the Recently-used agents | `B3:L333`, `L360`, `L363–L365` | F3, F4 | Resolved, F3 DD4 (the Agents filter matches the type slug) and F4 DD4 (the picker also matches descriptions; filtered results A-Z, recorded as a deviation; 'All agents' repeats the recent ones) (F3 and F4 flight.md). |
+| A17 | Palette: no groups, no type ordering, cap 8 (an empty query shows only agents), no empty state, footer not split like the picker's | §9 | F4 | Resolved, F4 DD10, option C at leg 9: the empty query shows recent chats, New chat..., recent agents, then the board order, 8 in all; a no-match empty state (F4 flight.md; F4 flight-log, leg 9). |
+| A18 | Agent **Delete** lives in the out-of-scope outline; the header has no Delete. Its place in the hosted tabbed editor is not on the board | `B3:L61–L64`, `L91` | F3 | Resolved, F3 DD2: Delete stays where each editor has it today (F3 flight.md). |
+| A19 | The Library intro says "Attach them from an agent's **Capabilities**", which does not exist this mission (the tabbed editor stays) | `B3:L187` | F3 | Resolved, F3 DD5: the intro reads 'Attach them from an agent's Knowledge and MCPs tabs' (F3 flight.md). |
+| A20 | Badge text differs: the new-chat welcome badge shows the **model**, while the drawer and Providers badges show the **provider type** | `B3:L129`, `L169` | F4 | Resolved, F4 DD3 and DD7: the new-chat badge shows the model, the drawer and Providers badges the provider type, falsification done (F4 flight-log, legs 5 and 6). |
+| A21 | Drawer header (42px) and chat header (48px plus 1px) hairlines do not line up | `B3:L121`, `L167` | F4 | Resolved, F4 DD7: the drawer header is 48px and lines up with the chat header (F4 flight.md). |
+| A22 | Header heights differ across panes: item header 62, page header 64, chat header 48, drawer header 42, Chats list block 93. No cross-column alignment is intended or shown | §4 | info | Informational, no action: no cross-column alignment is intended. |
+| A23 | Static sample data is inconsistent: Providers "Used by" 9/4/9/6/2 (30 agents) against the 28-agent data set (7/4/8/6/2 plus 1 mock, which has no provider row); drawer "Chats 3" against the list. **Counts must come from data, not the board** | `B3:L242–L246`, `L312` | F3, F4 | Resolved, F3 DD9: every count comes from data, never from the board (F3 flight.md). |
+| A24 | **Light-theme contrast**: `--fg-muted` caption text on the selected-row wash is **4.43:1** (below 4.5). This affects the model line in a selected agent row, the time in a selected chat row and the meta in a selected Library row. Dark is 4.62:1 | App. C | F1 (SC7) | Resolved, F1 (SC7) and F3: the pair is a gated contrast test, `test_selected_row_meta_passes_body_aa` (F3 flight.md; F3 flight-log, A24 verify-only). |
+| A25 | The composer `<textarea>` has `outline: none` and nothing replaces it, so a focus indicator (for example `:focus-within` on the box) must be added for SC10. The same applies to the palette input | `B3:L156`, `L294` | F4 | Resolved, F4 DD6 and DD14: a `:focus-within` ring on the composer box, and the palette input's ring is on its bar (F4 flight.md). |
+| A26 | The initially selected agent is not scrolled into view (it is 22nd of 28) | §3 | F3 | Resolved, F3 DD4: the selected row scrolls into view (F3 flight.md). |
+| A27 | The board's item and page bodies are `overflow: hidden` because they are static; the app needs scrolling bodies under fixed headers | §4 | F3 | Resolved, F3 DD1: scrolling bodies under fixed headers (F3 flight.md). |
+| A28 | Chats groups: only Today, Yesterday and Last 7 days are drawn; "Yesterday" rows show a weekday rather than a time; older chats are undefined | `B3:L103–L117` | F4 | Resolved, F4 DD5: Today, Yesterday, Last 7 days, Last 30 days, Older. F6 DD14 later changed Today's times to 12-hour (see 13, Flight 6 table) (F4 flight.md). |
+| A29 | The pending new chat is **discarded** when another conversation is opened. Is a session created on pick (SC3: "starts a new conversation … with no further step") or on first send? | `B3:L374` | F4 | Resolved, F4 DD1: the session is created on the first send, atomically and idempotently (F4 flight.md). |
+| A30 | Scrim `rgba(0,0,0,0.3)` is a literal, the same in both themes, with no token. The scrim is also a focusable full-screen `<button aria-label="Close">` | `B3:L255`, `L290` | F1 | Resolved, F1 DD8: a non-focusable `::backdrop` with the per-theme `--scrim` token; the dark 0.5 against the board's 0.3 was a Flight 4 preview question, accepted (F1 flight.md; F4 flight.md). |
+| A31 | Provider dots on agent and picker rows are colour-only and `aria-hidden`; the provider is not named in the row text | `B3:L42`, `L271` | F1 (a11y) | Resolved, F1 DD14 and F3 DD4: never colour alone; the row's accessible name appends the provider name (F1 and F3 flight.md). |
+| A32 | The board includes a connector agent (Discord concierge) in "Recently used"; mission DD excludes connector-driven sessions from recency (that is data, not a design rule) | `B3:L364` | F4 | Resolved, F4 DD4: connector sessions are excluded from Recently used (F4 flight.md). |
 
 ---
 

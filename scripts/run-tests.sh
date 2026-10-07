@@ -82,7 +82,8 @@ if [[ -n "$lane" ]]; then
   # studio glob, so it runs in this lane only (agents = studio minus these).
   library_pat=('test_flow_studio_knowledge_inventory.py' 'test_flow_studio_mcp_editor.py' \
                'test_flow_studio_mcp_navigation.py' 'test_mcp_test_connection_button.py' \
-               'test_studio_connector_editor.py' 'test_flow_studio_library_list.py')
+               'test_studio_connector_editor.py' 'test_flow_studio_library_list.py' \
+               'test_flow_studio_library_focus.py')
   # Today's studio globs; `agents` is these minus the Library list. The
   # agents list/detail files (M25 F3 L3) are `test_flow_agents_*` and
   # `test_agents_*` (`test_flow_agent_*` does not match a plural "agents").

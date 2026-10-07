@@ -81,6 +81,16 @@ ENV_PREFIXES = ("WEBVIEW2_", "THE_ONE_")
 # Names the sync never deletes (build products and the editable install).
 SYNC_PROTECTED_PARTS = ("dist", "build", "__pycache__")
 SYNC_PROTECTED_SUFFIXES = (".egg-info",)
+# The dependency-closure commands, pinned to ci/tasks/windows-installer-build.yml
+# by tests/test_windows_test_copy.py (squawk 0124). Argument tails after
+# ``python -m uv export`` / ``python -m pip install``.
+CLOSURE_UV_EXPORT_ARGS = (
+    "--no-dev", "--no-emit-project", "--extra", "gui", "--extra", "all-llms",
+    "--format", "requirements-txt",
+)  # fmt: skip
+CLOSURE_PIP_REQUIREMENTS_ARGS = ("-r", "{requirements}", "--no-deps", "--quiet")
+CLOSURE_PIP_EDITABLE_ARGS = ("-e", ".", "--no-deps", "--quiet")
+
 NEEDLES = (
     "usearch: OK",
     "fts5: OK",
@@ -2233,10 +2243,7 @@ def op_build_venv(a: dict) -> dict:
     t0 = time.time()
     with open(lp, "wb") as f:
         proc = subprocess.run(  # noqa: S603
-            [
-                vpy, "-m", "uv", "export", "--no-dev", "--no-emit-project", "--extra", "gui",
-                "--extra", "all-llms", "--format", "requirements-txt",
-            ],
+            [vpy, "-m", "uv", "export", *CLOSURE_UV_EXPORT_ARGS],
             cwd=src, env=env, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.PIPE,
         )  # fmt: skip
     if proc.returncode != 0 or os.path.getsize(lp) == 0:
@@ -2247,7 +2254,13 @@ def op_build_venv(a: dict) -> dict:
     times["pip_closure"] = _run_logged(
         root,
         log,
-        [vpy, "-m", "pip", "install", "-r", req, "--no-deps", "--quiet"],
+        [
+            vpy,
+            "-m",
+            "pip",
+            "install",
+            *(req if a == "{requirements}" else a for a in CLOSURE_PIP_REQUIREMENTS_ARGS),
+        ],
         src,
         env,
         "pip install closure",
@@ -2255,7 +2268,7 @@ def op_build_venv(a: dict) -> dict:
     times["pip_editable"] = _run_logged(
         root,
         log,
-        [vpy, "-m", "pip", "install", "-e", ".", "--no-deps", "--quiet"],
+        [vpy, "-m", "pip", "install", *CLOSURE_PIP_EDITABLE_ARGS],
         src,
         env,
         "pip install -e",

@@ -4316,7 +4316,13 @@ async def create_chat_session(request: Request) -> dict[str, Any]:
     data = await request.json()
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
-    session = ChatSession.model_validate(data)
+    try:
+        session = ChatSession.model_validate(data)
+    except ValidationError as e:
+        # Squawk 0081: invalid input is a 422, not an unhandled 500.
+        raise HTTPException(
+            status_code=422, detail=e.errors(include_context=False, include_input=False)
+        )
     repo = await _chat_repo()
     await repo.create(session)
     return _session_summary(session)
@@ -4648,7 +4654,14 @@ async def create_provider(request: Request) -> dict[str, Any]:
     # regardless of the client-supplied body. Token material enters ONLY
     # via the /oauth/code exchange path.
     data["secrets"] = {}
-    provider = LLMProviderConfig.model_validate(data)
+    try:
+        provider = LLMProviderConfig.model_validate(data)
+    except ValidationError as e:
+        # Squawks 0112 / 0081: a missing field is a 422. ``include_input=False``
+        # keeps the submitted ``api_key`` out of the response.
+        raise HTTPException(
+            status_code=422, detail=e.errors(include_context=False, include_input=False)
+        )
     # URL safety: refuse non-https for non-localhost when the provider type
     # actually transmits an API key (skips ``mock`` / ``ollama``).
     if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:

@@ -168,8 +168,6 @@ DYNAMIC_SINK_BASELINE: dict[str, list[str]] = {
         "wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths', (sou",
         "statusEl.innerHTML = ( 'Server exposes <strong>' + data.tools.length + '</strong",
         "listEl.innerHTML = renderToolsListHtml(data.tools);",
-        "statusEl.innerHTML = '<span class=\"mcp-tools-error\">✗ Error:</span> ' + escapeHt",
-        "statusEl.innerHTML = '<span class=\"mcp-tools-error\">✗ Network error:</span> ' + ",
     ],
     "areas/studio/mcps-tab.js": [
         "div.innerHTML = 'No MCP sources registered yet. ' + '<a href=\"#studio/mcp-source",

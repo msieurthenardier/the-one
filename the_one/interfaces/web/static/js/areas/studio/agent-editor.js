@@ -76,7 +76,7 @@
     // === Editor header ============================================
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
-    html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
+    html += '<h1 class="editor-title" tabindex="-1">' + escapeHtml(name) + '</h1>';
     if (!isCreate) {
       html += '<p class="editor-subtitle">' + escapeHtml(description) + '</p>';
     }

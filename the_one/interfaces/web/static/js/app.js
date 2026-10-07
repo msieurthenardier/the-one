@@ -287,6 +287,15 @@
     }, 5000);
   }
 
+  function formatClock(d) {
+    var h = d.getHours();
+    var m = d.getMinutes();
+    var suffix = h < 12 ? 'AM' : 'PM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return h + ':' + (m < 10 ? '0' + m : String(m)) + ' ' + suffix;
+  }
+
   window.App = window.App || {};
   Object.assign(window.App, {
     registerArea: registerArea,
@@ -304,6 +313,10 @@
     safeUrl: safeUrl,
     formatBytes: formatBytes,
     showFlash: showFlash,
+    // Local 12-hour clock time, "3:45 PM" (M25 F6 L4b, DD14): hand-formatted
+    // (never toLocaleString) so every engine and locale draws the same label.
+    // Shared by the Chats list's Today rows and the message attributions.
+    time: { formatClock: formatClock },
     // The Ctrl K shortcut's pure helpers (M25 F4 L7, DD9): the platform
     // detector, the key matcher and the platform-aware copy, shared with the
     // jump-to palette's footer and unit-tested in the browser.

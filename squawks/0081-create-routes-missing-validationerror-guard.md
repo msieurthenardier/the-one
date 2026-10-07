@@ -1,10 +1,10 @@
 # Squawk 0081: `create_provider` and `create_chat_session` 500 on a malformed body instead of 422
 
-**Status**: deferred
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-18
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -59,3 +59,17 @@ decisions (the fix is the established pattern, copied), bounded blast radius (tw
 handlers, no schema or shared-interface change; no caller can depend on a 500),
 and verifiable by unit tests asserting 422 for each malformed-body case. The
 stale `seed_mock_provider` docstring is corrected in the same pass.
+
+## Corrective Action
+
+Both create routes now catch `ValidationError` and raise 422 with `e.errors(include_context=False, include_input=False)`, the sibling pattern (`include_input=False` keeps a submitted `api_key` out of the response). Fixed together with squawk 0112, which this one duplicates and widens; the `seed_mock_provider` docstring is now accurate as written.
+
+Commit: pending the Flight 6 legs 1-3 commit.
+
+## Verification
+
+`tests/test_db_api.py::TestChatSessionAPI::test_create_invalid_returns_422`; the provider routes are verified under squawk 0112.
+
+## Sign-Off
+
+**Reviewer**: pending the Flight 6 leg review

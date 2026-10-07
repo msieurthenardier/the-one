@@ -403,30 +403,51 @@
   .checkbox-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Section Title === */
-  /* Quiet label (v3): sans, small, medium weight, secondary ink — no
-     prefix marker, no uppercase, no letter-spacing. */
+  /* Eyebrow with a rule (M25 F6 L4, DD13, operator option D): small,
+     semibold, letter-spaced uppercase in --fg-tertiary, then a hairline
+     that runs to the container's edge. The retired eyebrow is back, by
+     operator decision (an accepted SC8 deviation from the reference spec
+     section 3). Every .section-title takes this one treatment whatever its
+     element (h2 keeps only its heading semantics, D6). Opt out with
+     .section-title--plain (a path, a gallery sample: text that is not a
+     section header). The shared caption block below uses the same recipe. */
   .section-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 22px 0 10px;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--fg-secondary);
-    margin-top: 24px;
-    margin-bottom: 12px;
+    font-size: 10px;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-tertiary);
+  }
+  .section-title::after {
+    content: "";
+    flex: 1;
+    min-width: 0;
+    height: 1px;
+    background: var(--border);
   }
   /* First section-title inside any container has no leading gap — its
      parent (`.editor-section`, `.tabpanel`, etc.) already supplies the
-     top padding. The 24px above kicks in only for sibling headers, where
-     the operator wanted more breathing room. */
+     top padding. */
   .section-title:first-child { margin-top: 0; }
-  /* Real section HEADINGS (h2) get an element-scoped size bump. The
-     `.section-title` class is worn by BOTH true headings (studio
-     mcp-server-editor.js's h2 section labels) AND non-heading quiet labels
-     (div/label.section-title; the chat sidebar's "Select Agent" label was
-     one until M25 F4 L4a retired it). A bare `.section-title { font-size }`
-     rule would inflate those labels too; the `h2` element scope keeps them at
-     body-sm. The class rename is deferred (churn without payoff — M17 F3
-     "Section-title semantics" DD). */
-  h2.section-title { font-size: var(--font-size-h3); }
+  /* Opt-out (D5): the old quiet label, 12px medium secondary ink, sentence
+     case, no rule. */
+  .section-title--plain,
+  .section-title--plain:first-child {
+    display: block;
+    margin: 24px 0 12px;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-medium);
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--fg-secondary);
+  }
+  .section-title--plain:first-child { margin-top: 0; }
+  .section-title--plain::after { content: none; }
 
   /* === Button vocabulary (M17 F3 — one vocabulary, four variants;
      restyled deep violet in M25 F1 L3, DD6) ===
@@ -637,10 +658,32 @@
   /* The section 3 group label, shared with App.ui.navGroups. */
   .ui-list-pane-caption,
   .ui-nav-groups-caption {
-    padding: var(--space-3) 10px var(--space-1);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    color: var(--fg-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 10px 6px;
+    font-size: 10px;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--fg-tertiary);
+  }
+  /* The rule fills to the content edge and shrinks to zero before the
+     label would wrap or truncate. */
+  .ui-list-pane-caption::after,
+  .ui-nav-groups-caption::after {
+    content: "";
+    flex: 1 1 0;
+    min-width: 0;
+    height: 1px;
+    background: var(--border);
+  }
+  /* The first VISIBLE group sits at 10px; every later one at 16px. A sibling
+     rule (never :first-of-type) so a hidden first group does not count. */
+  .ui-list-pane-group:not([hidden]) ~ .ui-list-pane-group > .ui-list-pane-caption,
+  .ui-nav-groups-group:not([hidden]) ~ .ui-nav-groups-group > .ui-nav-groups-caption {
+    padding-top: 16px;
   }
   /* A group with no items shows this line in place of rows (never a row). */
   .ui-list-pane-group-empty {
@@ -1270,6 +1313,9 @@
     flex-direction: column;
     gap: 2px;
   }
+  /* A programmatic focus (App.focusAfter, M25 F6 L1b) lands here: the shared
+     focus-visible ring, no heavier. */
+  .editor-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .editor-header-text .editor-title {
     font-weight: var(--font-weight-bold);
     font-size: var(--font-size-h2);
@@ -1446,6 +1492,11 @@
      Models / Danger Zone). */
   .editor-section { padding: 12px 0; }
   .editor-section + .editor-section { border-top: 1px solid var(--border); padding-top: 16px; }
+  /* One rule per section boundary (M25 F6 L4, D2): a section that opens with a
+     section title already draws that title's rule, so the divider goes. A
+     section with no leading title keeps its divider. */
+  .editor-section + .editor-section:has(> .section-title:first-child),
+  .editor-section + .editor-section:has(> .section-title-row:first-child) { border-top: 0; }
 
   /* === Danger Zone (editor section variant) === */
   /* Lifted from .area-studio .danger-zone-title (F6 leg 03). The section
@@ -1454,6 +1505,8 @@
      itself is currently a hook for grep-ability + future styling. */
   .danger-zone { /* hook for future destructive-section accent; bare class for grep */ }
   .danger-zone-title { color: var(--status-danger); }
+  /* D3: the rule is decorative, so it takes the danger colour too. */
+  .danger-zone-title::after { background: var(--status-danger); }
 
   /* === Banner ===
      Surface a status / advisory message inline. Three semantic variants:

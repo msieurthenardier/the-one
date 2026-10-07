@@ -158,7 +158,7 @@ def test_chat_renders_peer_attribution(
     # 'alice'. Since the message-timestamp-on-replay fix (PR #159,
     # 8b02669), Message.user()/assistant() persist created_at and the codec
     # projects it as `ts` on replay, so restored attributions render with a
-    # ' · HH:MM:SS UTC' suffix — assert prefix + suffix shape, not bare
+    # ' · h:mm AM/PM' suffix — assert prefix + suffix shape, not bare
     # equality (this test predated the fix and was asserting the pre-fix
     # bare-name rendering; caught stale in M19 F01 L03's full-suite run).
     first_peer = peer_bubbles.nth(0)
@@ -179,8 +179,8 @@ def test_chat_renders_peer_attribution(
     assert "from-peer" in first_peer_attr["cls"], (
         f"expected from-peer class on first peer attribution, got cls={first_peer_attr['cls']!r}"
     )
-    assert re.fullmatch(r"alice( · \d{2}:\d{2}(:\d{2})? UTC)?", first_peer_attr["text"]), (
-        f"expected first peer attribution 'alice' (+ optional ' · HH:MM[:SS] UTC' "
+    assert re.fullmatch(r"alice( · \d{1,2}:\d{2} [AP]M)?", first_peer_attr["text"]), (
+        f"expected first peer attribution 'alice' (+ optional ' · h:mm AM/PM' "
         f"timestamp suffix), got {first_peer_attr['text']!r}"
     )
 
@@ -199,8 +199,8 @@ def test_chat_renders_peer_attribution(
     assert "from-peer" in second_peer_attr["cls"], (
         f"expected from-peer class on second peer attribution, got cls={second_peer_attr['cls']!r}"
     )
-    assert re.fullmatch(r"bob( · \d{2}:\d{2}(:\d{2})? UTC)?", second_peer_attr["text"]), (
-        f"expected second peer attribution 'bob' (+ optional ' · HH:MM[:SS] UTC' "
+    assert re.fullmatch(r"bob( · \d{1,2}:\d{2} [AP]M)?", second_peer_attr["text"]), (
+        f"expected second peer attribution 'bob' (+ optional ' · h:mm AM/PM' "
         f"timestamp suffix), got {second_peer_attr['text']!r}"
     )
 
@@ -220,8 +220,8 @@ def test_chat_renders_peer_attribution(
     assert "from-you" in op_user_attr["cls"], (
         f"expected from-you class on operator-typed attribution, got cls={op_user_attr['cls']!r}"
     )
-    assert re.fullmatch(r"You( · \d{2}:\d{2}(:\d{2})? UTC)?", op_user_attr["text"]), (
-        f"expected operator-typed attribution 'You' (+ optional ' · HH:MM[:SS] UTC' "
+    assert re.fullmatch(r"You( · \d{1,2}:\d{2} [AP]M)?", op_user_attr["text"]), (
+        f"expected operator-typed attribution 'You' (+ optional ' · h:mm AM/PM' "
         f"timestamp suffix), got {op_user_attr['text']!r}"
     )
 

@@ -1058,3 +1058,22 @@ def test_needles_match_ci_foreach_list() -> None:
     m = re.search(r"foreach \(\$needle in @\((.*?)\)\)", yml)
     assert m, "foreach needle list not found in the CI task"
     assert tuple(re.findall(r'"([^"]+)"', m.group(1))) == h.NEEDLES
+
+
+def test_closure_commands_match_ci_task() -> None:
+    """Squawk 0124: the helper's dependency closure equals the CI Windows build's."""
+    yml = (
+        Path(__file__).parent.parent / "ci" / "tasks" / "windows-installer-build.yml"
+    ).read_text()
+    m = re.search(r"-m uv export (.+?) > release-requirements\.txt", yml)
+    assert m, "uv export line not found in the CI task"
+    assert tuple(m.group(1).split()) == h.CLOSURE_UV_EXPORT_ARGS
+    m = re.search(r"-m pip install (-r release-requirements\.txt .+)", yml)
+    assert m, "pip install -r line not found in the CI task"
+    assert tuple(m.group(1).split()) == tuple(
+        "release-requirements.txt" if a == "{requirements}" else a
+        for a in h.CLOSURE_PIP_REQUIREMENTS_ARGS
+    )
+    m = re.search(r"-m pip install (-e \. .+)", yml)
+    assert m, "pip install -e line not found in the CI task"
+    assert tuple(m.group(1).split()) == h.CLOSURE_PIP_EDITABLE_ARGS

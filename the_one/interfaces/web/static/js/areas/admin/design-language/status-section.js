@@ -54,15 +54,15 @@
       '<div style="display: flex; flex-direction: column; gap: 4px;">' +
         '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">telemetry-strip (gallery sample)</span>' +
         '<div class="telemetry-strip">' +
-          '<div class="section-title">System</div>' +
+          '<div class="section-title section-title--plain">System</div>' +
           '<div class="telemetry-value"><span class="indicator-led indicator-led--success" aria-hidden="true"></span><span>Online</span></div>' +
         '</div>' +
         '<div class="telemetry-strip">' +
-          '<div class="section-title">Agents</div>' +
+          '<div class="section-title section-title--plain">Agents</div>' +
           '<div class="telemetry-value">3 active</div>' +
         '</div>' +
         '<div class="telemetry-strip">' +
-          '<div class="section-title">MCP</div>' +
+          '<div class="section-title section-title--plain">MCP</div>' +
           '<div class="telemetry-value"><span class="indicator-led indicator-led--warning" aria-hidden="true"></span><span>2/3</span></div>' +
         '</div>' +
       '</div>' +

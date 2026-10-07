@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-05
 **Updated**: 2026-10-05 (M25 F3 leg 7: Providers as tiles, matching Built-in tools, by the operator's decision at the Flight 3 checkpoint; items open below the list, breadcrumb, no Back)
-**Last Run**: 2026-10-05-14-53-19 (pass — LIGHT 10/10 + DARK 10/10; re-run after M25 F3 leg 7, Providers tiles; see runs/)
+**Last Run**: 2026-10-07-11-51-23 (pass — LIGHT 10/10 + DARK 10/10; M25 F6 mission close; wording drift from F6 recorded in the run log; see runs/)
 
 > **Apparatus note (from run 2026-07-30)**: for the row-9 armed state (or any sub-3s transient UI state), single-shot screenshot round-trips lose the race to the revert window. Use the **filmstrip technique**: `performance_start_trace` with screenshots enabled → drive arm(+fire) in ONE `evaluate_script` call (no inter-call gaps) → `performance_stop_trace` → extract the embedded Screenshot frame from the repaint burst as the rendered-state evidence. Proven in both themes.
 

@@ -710,6 +710,36 @@ _inflight_tasks: set[asyncio.Task] = set()
 # discards the finished task and deletes the key when the set empties.
 _session_inflight: dict[str, set[asyncio.Task]] = {}
 
+# M25 F6 L2 (squawk 0120): a WS `cancel` can cancel a spawned turn BEFORE its
+# first step (no body code ever runs) or while it waits on the session lock
+# (outside `_process_and_broadcast`'s `except CancelledError`, the only other
+# sender of `cancelled`). Two markers + a per-cancel token make the client
+# get EXACTLY ONE `cancelled` per `cancel`:
+#   * `_started_tasks`: the spawned coroutine's first statement ran.
+#   * `_running_tasks`: the task is inside `_process_and_broadcast`'s `try`,
+#     whose `except` sends `cancelled` itself (after saving partial text).
+#   * `_cancel_tokens[sid]`: `{"sent": bool, "running": bool}`, created by the
+#     `cancel` branch before any `t.cancel()`, dropped when the session's
+#     in-flight set empties. A started, running task is the sole sender.
+_started_tasks: set[asyncio.Task] = set()
+_running_tasks: set[asyncio.Task] = set()
+_cancel_tokens: dict[str, dict[str, bool]] = {}
+
+
+async def _notify_cancelled_once(session: Session) -> None:
+    """Send ``cancelled`` unless this cancel's token says it already went out.
+
+    No token (lifespan shutdown, a cancel not from a WS `cancel`) always sends.
+    """
+    token = _cancel_tokens.get(session.id)
+    if token is not None:
+        if token["sent"]:
+            return
+        token["sent"] = True
+    with contextlib.suppress(Exception):
+        await _send_to_session(session, {"type": "cancelled"})
+
+
 # F5 L3: tasks driving ``_resume_paused_session`` after the OAuth-callback
 # route resolves a paused agent. Tracked separately from ``_inflight_tasks``
 # so the lifespan teardown can drain both in one pass; the OAuth-callback
@@ -925,6 +955,31 @@ async def _spawn_message_processing(
     the session's subscribers as a `system` event so the user sees them
     instead of silently dropping into a crashed task.
     """
+    me = asyncio.current_task()
+    if me is not None:
+        _started_tasks.add(me)
+    try:
+        await _locked_message_processing(session, user_input, source, exclude_user_echo)
+    except asyncio.CancelledError:
+        # Cancelled while waiting on the lock, or before `_process_and_broadcast`
+        # reached its `try`. A task that was running sends its own `cancelled`
+        # (after persisting partial text); so does the batch's running task.
+        token = _cancel_tokens.get(session.id)
+        if me not in _running_tasks and not (token is not None and token["running"]):
+            await _notify_cancelled_once(session)
+        raise
+    finally:
+        _started_tasks.discard(me)
+        _running_tasks.discard(me)
+
+
+async def _locked_message_processing(
+    session: Session,
+    user_input: str | list[ContentBlock],
+    source: str,
+    exclude_user_echo: WebSocket | None,
+) -> None:
+    """The lock + `_process_and_broadcast` body of `_spawn_message_processing`."""
     async with session_locks[session.id]:
         # F05 L01: touch last_activity at the start of message processing
         # so the reaper clock advances on every new user turn.
@@ -990,6 +1045,7 @@ def _spawn_web_message(
         tasks.discard(t)
         if not tasks:
             del _session_inflight[_sid]
+            _cancel_tokens.pop(_sid, None)
 
     task.add_done_callback(_clear_session_inflight)
     return task
@@ -2087,6 +2143,10 @@ async def _process_and_broadcast(
     # visible from this WS write path.
     pre_step_len = len(session.agent.messages)
 
+    # M25 F6 L2 (0120): from here a cancel is answered by the `except` below.
+    _me = asyncio.current_task()
+    if _me in _started_tasks:
+        _running_tasks.add(_me)
     try:
         async for msg in session.agent.step(
             user_input,
@@ -2294,8 +2354,7 @@ async def _process_and_broadcast(
         # lock-release semantics in _spawn_message_processing (:455-458).
         with contextlib.suppress(Exception):
             await _save_session_to_db(session)
-        with contextlib.suppress(Exception):
-            await _send_to_session(session, {"type": "cancelled"})
+        await _notify_cancelled_once(session)
         raise
     except Exception as exc:
         # Surface the failure to the UI so the client can drop its "thinking…"
@@ -2797,6 +2856,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                         continue
                     if restored.is_degraded:
                         # Don't operate on a degraded session in this connection.
+                        # 0119: a same-id re-join skipped the leave above; unsubscribe.
+                        if session is not None:
+                            remove_subscriber(session.id, ws)
                         session = None
                         await ws.send_json(await _build_session_joined_degraded(restored))
                         continue
@@ -3036,9 +3098,18 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # the race with natural completion.
             if action == "cancel":
                 if session is not None:
-                    for t in tuple(_session_inflight.get(session.id, ())):
-                        if not t.done():
+                    batch = [t for t in _session_inflight.get(session.id, ()) if not t.done()]
+                    if batch:
+                        # Token first, before any `t.cancel()` (0120).
+                        _cancel_tokens[session.id] = {
+                            "sent": False,
+                            "running": any(t in _running_tasks for t in batch),
+                        }
+                        for t in batch:
                             t.cancel()
+                        if not any(t in _started_tasks for t in batch):
+                            # Nothing started: no body code will ever send.
+                            await _notify_cancelled_once(session)
                 continue
 
             # Regular message. M16 F12 L08: `images` is an optional list of

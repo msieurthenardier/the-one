@@ -615,11 +615,19 @@ def test_connector_cancel_reverts_in_edit_and_returns_on_create(
     [
         (
             "knowledge",
-            "Select a knowledge base, or add one.",
+            "Folders of your documents that agents can search.",
             '[data-testid="kb-create-name-input"]',
         ),
-        ("mcp", "Select an MCP server, or add one.", '[data-testid="save-mcp-source-btn"]'),
-        ("connectors", "Select a connector, or add one.", '[data-testid="save-connector-btn"]'),
+        (
+            "mcp",
+            "Tool servers that use the Model Context Protocol",
+            '[data-testid="save-mcp-source-btn"]',
+        ),
+        (
+            "connectors",
+            "Links to chat platforms such as Discord",
+            '[data-testid="save-connector-btn"]',
+        ),
     ],
 )
 def test_section_root_empty_state(
@@ -628,7 +636,7 @@ def test_section_root_empty_state(
     _ready(page, app_with_agent.base_url, f"library/{kind}")
     empty = _lists.library_empty_state(page, kind)
     expect(empty).to_be_visible(timeout=8000)
-    expect(empty.locator("h2")).to_have_text(copy)
+    expect(empty).to_contain_text(copy)
     # No grid markup in the detail pane (AC6). A NEGATIVE check on the retired
     # tile classes: the class is built from parts so the retired-selector guard,
     # which fences tests that DRIVE retired surfaces, does not read it as one.

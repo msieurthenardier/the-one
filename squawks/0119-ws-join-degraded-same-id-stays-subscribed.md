@@ -1,10 +1,10 @@
 # Squawk 0119: A degraded `join` of the already-bound session leaves the socket subscribed
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-05
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -41,14 +41,14 @@ bound and does not copy this behaviour. `join` itself was out of that leg's scop
 
 ## Corrective Action
 
-*(written at completion)*
+In `websocket_endpoint`'s `join` branch, the degraded path now calls `remove_subscriber(session.id, ws)` when a session is bound, before `session = None` and the degraded `session_joined` frame (the `not_found` branch's pattern). A join of a different id is unchanged (the earlier `session.id != session_id` unsubscribe still covers it). No message shape changed.
+
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
-In the `tests/test_ws_start_session.py` harness: bind a socket to session X. Make X's
-restore degrade (delete its agent). Send `join(X)`. Then broadcast to X, and assert the
-socket receives nothing and `subscribers_for(X)` excludes it.
+`tests/test_ws_start_session.py::TestExistingIdJoins::test_degraded_same_id_rejoin_unsubscribes_the_socket`: bind a socket to a session, make its agent missing, re-`join` the same id; asserts the degraded frame (`agent_deleted`), that `subscribers_for(sid)` excludes the socket, and that a probe broadcast never reaches it.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: pending the Flight 6 leg review

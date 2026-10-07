@@ -170,9 +170,7 @@
       html += '<div class="editor-section tools-editor-test-section">';
       html += '<div class="section-title-row">';
       html += '<span class="section-title">Test connection</span>';
-      var testDescId = 'test-connection-' + escapeAttr(name) + '-desc';
-      html += '<button type="button" class="field-info-icon" title="' + testHintAttr + '" aria-describedby="' + testDescId + '">' + infoIconHtml + '</button>';
-      html += '<span id="' + testDescId + '" class="visually-hidden">' + escapeHtml(testHint) + '</span>';
+      html += '<button type="button" class="field-info-icon" title="' + testHintAttr + '" aria-label="' + testHintAttr + '">' + infoIconHtml + '</button>';
       html += '</div>';
       html += '<div class="form-actions tools-editor-test-actions">';
       // F6 HAT addition — editable input pre-filled with the per-tool
@@ -425,8 +423,13 @@
     // onDirtyChange(false) bridge fires AFTER the prior closure already
     // fired its final transition (orchestrator mirror is correct).
     var cancelBtn = container.querySelector('.cancel-btn');
+    // Focus after an in-place action (M25 F6 L1b, DD2): the title and Save are
+    // re-resolved when the focus timer fires.
+    function focusTitle() { return container.querySelector('.editor-title'); }
+    function focusSave() { return container.querySelector('.save-btn'); }
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {
+        var cancelTok = App.focusAfter.begin(cancelBtn);
         if (callbacks.onCancel) callbacks.onCancel();
         // Re-mount — this rebuilds the closure wholesale; the new one
         // captures originalToolDetail again (idempotent: re-mounting with
@@ -440,6 +443,7 @@
           unsavedEl.textContent = '';
           freshEl.parentNode.replaceChild(unsavedEl, freshEl);
         }
+        App.focusAfter.restore(cancelTok, focusTitle);
       });
     }
 
@@ -482,6 +486,7 @@
 
         var snap = JSON.parse(getFormSnapshot(container, fieldNames));
         var url = '/api/tools/configs/' + encodeURIComponent(toolDetail.name);
+        var saveTok = App.focusAfter.begin(saveBtn); // before the disable below
         saveBtn.disabled = true;
         fetch(url, {
           method: 'PUT',
@@ -520,9 +525,11 @@
             config: updated.config
           });
           if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
+          App.focusAfter.restore(saveTok, focusTitle);
         }).catch(function (err) {
           // Error path: re-enable Save (form remains dirty).
           if (saveBtn) saveBtn.disabled = false;
+          App.focusAfter.restore(saveTok, focusSave);
           if (err && err.status === 422 && err.body && Array.isArray(err.body.detail)) {
             // renderFieldErrors attaches inline `.field-error` spans to
             // matching `[data-field-name]` rows (and adds the
@@ -571,6 +578,7 @@
         resultEl.innerHTML = '<span class="test-result-pending">Testing…</span>';
         outputEl.hidden = true;
         outputEl.textContent = '';
+        var testTok = App.focusAfter.begin(testBtn); // before the disable below
         testBtn.disabled = true;
 
         // F6 HAT addition — read the editable test-input field (if
@@ -597,6 +605,7 @@
           })
           .then(function (resp) {
             testBtn.disabled = false;
+            App.focusAfter.restore(testTok, testBtn);
             if (resp.ok) {
               renderTestSuccess(resp.body, resultEl, outputEl);
             } else {
@@ -605,6 +614,7 @@
           })
           .catch(function (err) {
             testBtn.disabled = false;
+            App.focusAfter.restore(testTok, testBtn);
             resultEl.innerHTML = '<span class="test-result-fail">✗ Request failed</span>';
             outputEl.hidden = false;
             outputEl.textContent = String(err && err.message ? err.message : err);

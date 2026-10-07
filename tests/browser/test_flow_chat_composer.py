@@ -7,8 +7,9 @@ The composer (``areas/chat/composer.js``) is a wrapper (``.composer``,
 * the telemetry row (``.composer-telemetry``): the token readout, flex-end,
   shown only while a chat is joined (none in the new-chat state, 5.4);
 * the staged-image chicklets (``chat-attachments``) and the queued-message
-  region (``pending-queued-region``), in the box's 760px column;
-* the box (``.composer-box``): max 760px, centred, ``--surface``, a hairline,
+  region (``pending-queued-region``), filling the wrapper's content width;
+* the box (``.composer-box``): fills the wrapper's content width (no 760px cap
+  since M25 F6 L4b, DD16), ``--surface``, a hairline,
   ``--radius-md``; the focus ring is its ``:focus-within`` (A25). Inside, a
   visually hidden ``<label for>`` "Message", the ``<textarea rows=2>``
   (``chat-input``; placeholder "Message {agent}…"; Enter sends, Shift+Enter is
@@ -173,11 +174,9 @@ def test_composer_box_textarea_and_toolbar_match_the_board(
     ], shape["wrapKids"]
     assert shape["wrapPad"] == "12px 24px 20px", shape
     box = shape["box"]
-    # Capped at 760px and centred in the wrapper's column. Since M25 F4 L6 the
-    # agent drawer is open by default at 1280 and wider (push), so at 1440 the
-    # pane is 748px and the column 700px: the box fills it below the cap.
-    assert box["maxW"] == "760px" and box["centred"], box
-    assert box["width"] == min(760, box["column"]), box
+    # Uncapped (DD16): the box fills the wrapper's content width.
+    assert box["maxW"] == "none", box
+    assert abs(box["width"] - box["column"]) < 1, box
     assert box["display"] == "flex" and box["dir"] == "column" and box["gap"] == "8px", box
     assert box["bg"] == _token(page, "backgroundColor", "var(--surface)"), box
     assert box["border"] == "1px solid", box
@@ -474,12 +473,14 @@ def test_the_telemetry_row_shows_only_while_joined_above_the_box(
           return {justify: getComputedStyle(row).justifyContent, gap: br.top - rr.bottom,
                   between, rightInset: main.right - or.right,
                   position: getComputedStyle(out).position,
+                  edgeGap: br.right - or.right,
                   opacity: getComputedStyle(out).opacity};
         }"""
     )
     assert geo["justify"] == "flex-end" and geo["position"] == "static", geo
     assert geo["between"] == [] and abs(geo["gap"] - 8) < 1, geo
     assert abs(geo["rightInset"] - 24) < 1, geo
+    assert abs(geo["edgeGap"]) <= 1, geo  # the readout meets the box's right edge
     assert geo["opacity"] == "0.7", geo
     # Focus still expands it (content and behaviour unchanged).
     readout.focus()
@@ -495,6 +496,55 @@ def test_the_telemetry_row_shows_only_while_joined_above_the_box(
     expect(row).to_be_hidden()
     _chats.open_chat(page, sid)
     expect(row).to_be_visible()
+
+
+@pytest.mark.parametrize(
+    ("width", "drawer"), [(1024, "closed"), (1280, "open"), (1920, "closed")], ids=str
+)
+def test_the_box_fills_the_pane_and_meets_the_readout(
+    app_with_agent: SeededApp, page: Page, width: int, drawer: str
+) -> None:
+    """DD16: the box has no 760px cap, so its right edge meets the telemetry
+    readout's, and the staged-image row and queued chip share its left edge."""
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    page.set_viewport_size({"width": width, "height": 900})
+    _nav.goto(page, base, "chats")
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "hello")
+    _wait_state(page, "joined")
+    expect(page.locator('[data-testid="message"].assistant')).to_have_count(1, timeout=10000)
+    toggle = page.locator('[data-testid="chat-drawer-toggle"]')
+    want = "true" if drawer == "open" else "false"
+    if toggle.get_attribute("aria-pressed") != want:
+        toggle.click()
+        expect(toggle).to_have_attribute("aria-pressed", want)
+    page.mouse.move(0, 0)
+    geo = page.evaluate(
+        """() => {
+          const q = (s) => document.querySelector(s);
+          const box = q('.area-chat .composer-box').getBoundingClientRect();
+          const out = q('.area-chat .telemetry-overlay').getBoundingClientRect();
+          const wrap = q('.area-chat .composer');
+          const cs = getComputedStyle(wrap);
+          const att = q('.area-chat .chat-attachments');
+          const reg = q('.area-chat .pending-queued-region');
+          return {boxRight: box.right, outRight: out.right, boxLeft: box.left,
+                  width: box.width,
+                  column: wrap.getBoundingClientRect().width
+                          - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+                  attMargin: getComputedStyle(att).marginLeft,
+                  regMargin: getComputedStyle(reg).marginLeft,
+                  attMax: getComputedStyle(att).maxWidth,
+                  regMax: getComputedStyle(reg).maxWidth};
+        }"""
+    )
+    assert abs(geo["boxRight"] - geo["outRight"]) <= 1, geo
+    assert abs(geo["width"] - geo["column"]) <= 1, geo
+    # The chicklet row and the queued region are hidden here (they have no
+    # rect to compare), so their caps are what is pinned; they sit in the same wrapper
+    # content box with no centring margin.
+    assert geo["attMargin"] == geo["regMargin"] == "0px", geo
+    assert geo["attMax"] == "none" and geo["regMax"] == "none", geo
 
 
 # ── Chicklets and the queued chip stay above the box (AC1) ───────────────────

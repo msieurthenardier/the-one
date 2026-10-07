@@ -9,14 +9,15 @@
 //
 // Recency, in LOCAL time, by `updated_at || created_at` (whole calendar days
 // between that day and today):
-//   day 0 (or a future date)  Today         time HH:MM (24-hour)
+//   day 0 (or a future date)  Today         time h:mm AM/PM (12-hour)
 //   day 1                     Yesterday     time Mon (short weekday)
 //   days 2-6                  Last 7 days   time Mon
 //   days 7-29                 Last 30 days  time Sep 12 (short month, day)
 //   day 30 and older          Older         time Sep 12
 //   missing or invalid        Older         time ''
 // Day 7 goes to Last 30 days, so a weekday label is never ambiguous with
-// today's weekday. Times are formatted by hand (never toLocaleString), so
+// today's weekday. Times are formatted by hand (never toLocaleString; the clock
+// is App.time.formatClock), so
 // every engine and locale draws the same English labels.
 //
 // A row: label = the title, time as above, meta = the agent name ("Default
@@ -84,13 +85,9 @@
     return 'older';
   }
 
-  function pad2(n) {
-    return n < 10 ? '0' + n : String(n);
-  }
-
   function timeOf(d, bucket) {
     if (!d) return '';
-    if (bucket === 'today') return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    if (bucket === 'today') return window.App.time.formatClock(d);
     if (bucket === 'yesterday' || bucket === 'last7') return WEEKDAYS[d.getDay()];
     return MONTHS[d.getMonth()] + ' ' + d.getDate();
   }

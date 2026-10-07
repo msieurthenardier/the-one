@@ -109,6 +109,10 @@ openai = ["openai>=2.16"]
 anthropic = ["anthropic>=0.40,<0.97"]
 all-llms = ["openai>=2.16", "anthropic>=0.40,<0.97"]
 gui = [
+    # Upgrade blocker: pywebview 6.x's WinForms backend adds update_title_bar_theme(),
+    # which sets DWM attributes 20/38 from the OS theme on creation and on
+    # UserPreferenceChanged, overwriting the app-chosen title-bar theme (the window
+    # chrome, M25 F5). Re-check that before lifting <6; see agents.md "Window chrome".
     "pywebview[gtk]>=5,<6; sys_platform == 'linux'",
     "pywebview>=5,<6; sys_platform != 'linux'",
     "pystray>=0.19",

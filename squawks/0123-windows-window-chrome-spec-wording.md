@@ -1,10 +1,10 @@
 # Squawk 0123: Wording fixes for `windows-window-chrome` from its Flight 5 close-gate run
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-06
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -41,16 +41,34 @@ The Orchestrator Notes and Closing Summaries in
 
 ## Corrective Action
 
-*(written at completion)*
+Wording only, in `tests/behavior/windows-window-chrome.md`, with a `Revised` line and no
+expectation changed:
+- **Step 7:** clicks Light, then Dark, and polls after the last click (step 6 ends on Dark);
+  when the outcome (dark survives the hard stop) is observed but the flush is not, the step is
+  judged on the outcome and the report says so (INCONCLUSIVE only when the outcome is not
+  dark either); its splash bound is the frame mean or a body patch; the x button's
+  coordinates are formulas only.
+- **Steps 1 and 7:** `no-window` and `covered_by_tree` frames are not judged; step 1's
+  "creates none" is "the run creates none" (the app writes `window-chrome.json` at launch);
+  both series are 300 frames.
+- **Step 5:** "close to" is stated as within +-8 per channel.
+- **Step 4:** the border sample is anchored on the left edge of `frame_bounds`.
+- **Step 3:** at least one `capture --window` while the palette is open is required.
+- **Step 9:** minimize is judged on the outer rect (the `visible` flag stays True); own
+  window A is re-shown as setup before a `front` more than about 8 minutes after step 1 (or
+  shown with a longer `--seconds`); step 10's x button also uses the formula.
+No item was skipped.
 
-Edit only the named steps and Preconditions text in `tests/behavior/windows-window-chrome.md`,
-and add a Revised line. Do not change any expectation's meaning.
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
-Re-read each edited step against the run log: every expectation the run judged still
-reads the same.
+- Every edited step re-read against `runs/2026-10-06-20-06-24.md`: every expectation the run
+  judged still reads the same (step 7's intent, the dark preference surviving a hard stop and
+  a relaunch with no light frame, is unchanged).
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: Developer agent, Mission 25 Flight 6 leg 3 (the flight-end review confirms)
+**Verdict**: confirmed
+**Commit**: pending the Flight 6 legs 1-3 commit

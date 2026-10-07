@@ -341,7 +341,9 @@
     var header = _el('div', { className: 'editor-header' });
     var headerText = _el('div', { className: 'editor-header-text' });
     headerText.appendChild(_breadcrumb());
-    headerText.appendChild(_el('h1', { className: 'editor-title', text: 'New knowledge base' }));
+    var newTitle = _el('h1', { className: 'editor-title', text: 'New knowledge base' });
+    newTitle.setAttribute('tabindex', '-1');
+    headerText.appendChild(newTitle);
     header.appendChild(headerText);
     var actions = _el('div', { className: 'form-actions' });
     var unsavedEl = _unsaved();
@@ -464,7 +466,9 @@
     var header = _el('div', { className: 'editor-header' });
     var headerText = _el('div', { className: 'editor-header-text' });
     headerText.appendChild(_breadcrumb());
-    headerText.appendChild(_el('h1', { className: 'editor-title', text: kb.name }));
+    var detailTitle = _el('h1', { className: 'editor-title', text: kb.name });
+    detailTitle.setAttribute('tabindex', '-1');
+    headerText.appendChild(detailTitle);
     headerText.appendChild(_el('p', { className: 'editor-subtitle', text: kb.description || '' }));
     header.appendChild(headerText);
 
@@ -536,12 +540,21 @@
       checkDirty();
     });
 
+    // Focus after an in-place action (M25 F6 L1b, DD2): Save and Cancel disable
+    // themselves, so a keyboard user's focus goes to the title.
+    function detailTitleEl() { return detailTitle; }
+    function liveTitleEl() {
+      return document.querySelector('[data-testid="studio-knowledge-inventory"] .editor-title');
+    }
+
     cancelBtn.addEventListener('click', function () {
+      var focusTok = App.focusAfter.begin(cancelBtn);
       nameInput.value = kb.name;
       descInput.value = kb.description || '';
       nameHint.hidden = Array.from(kb.name || '').length <= 43;
       headerErrorEl.textContent = '';
       recapture();
+      App.focusAfter.restore(focusTok, detailTitleEl);
     });
 
     saveBtn.addEventListener('click', function () {
@@ -554,6 +567,7 @@
         headerErrorEl.textContent = 'Name is required.';
         return;
       }
+      var saveTok = App.focusAfter.begin(saveBtn);
       saveBtn.disabled = true;
       cancelBtn.disabled = true;
       fetch('/api/knowledge-bases/' + encodeURIComponent(kb.id), {
@@ -577,10 +591,15 @@
         // re-fetches status/items — and reloads the Library list so the row
         // shows the new name. The remount naturally re-disables Save/Cancel
         // (AC-3).
+        // The remount is asynchronous (status + items fetches): park the focus
+        // restore; the caller's mount flushes it after renderKnowledgeDetail.
+        App.focusAfter.defer(saveTok, liveTitleEl);
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
       }).catch(function (err) {
         checkDirty(); // restore button state to match actual dirtiness
         headerErrorEl.textContent = err.message || String(err);
+        App.focusAfter.defer(null);
+        App.focusAfter.restore(saveTok, saveBtn);
       });
     });
 
@@ -746,7 +765,7 @@
     // which item's content is showing. Title each panel with the item's
     // own path on open.
     function _panelTitle(item) {
-      var t = _el('div', { className: 'section-title', text: item.path_or_url });
+      var t = _el('div', { className: 'section-title section-title--plain', text: item.path_or_url });
       t.setAttribute('data-testid', 'kb-panel-title');
       return t;
     }

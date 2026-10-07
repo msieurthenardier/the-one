@@ -1,10 +1,10 @@
 # Squawk 0114: Editor info-icon buttons are named only by `title`
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-02
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -46,10 +46,14 @@ records "Tooltip carried by `title` plus `aria-describedby`; no keyboard-visible
 
 ## Corrective Action
 
-*(written at completion)*
+The `field-info-icon` buttons in `provider-editor.js` (3), `tools-editor.js` and `tools-form-helpers.js` gained `aria-label` carrying their description (via `escapeAttr`; `title` kept). `mcp-server-editor.js`'s icon already had one.
+
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
+`tests/browser/test_flow_settings_visible_fixes.py`: `test_provider_info_icons_have_accessible_names` and `test_tools_editor_info_icons_have_accessible_names` (the shared `_a11y_resolve.js` resolver) in the settings lane.
+
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: pending the Flight 6 leg review

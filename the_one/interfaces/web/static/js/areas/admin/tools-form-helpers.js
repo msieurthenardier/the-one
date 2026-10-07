@@ -113,11 +113,12 @@
       var descAttr = escapeAttr(prop.description);
       descId = idAttr + '-desc';
       // Render as a focusable <button> so keyboard users can reach the
-      // tooltip and screen readers announce the description via
-      // aria-describedby. Keep `title=` for mouse-hover UX (and to
-      // preserve compatibility with browser tests that assert on the
-      // title attribute).
-      infoButton = '<button type="button" class="field-info-icon" title="' + descAttr + '" aria-describedby="' + descId + '">' +
+      // tooltip. The button is named by aria-label alone; the control
+      // itself is described through the visually-hidden descSpan below
+      // (its aria-describedby points at descId). Keep `title=` for
+      // mouse-hover UX (and to preserve compatibility with browser tests
+      // that assert on the title attribute).
+      infoButton = '<button type="button" class="field-info-icon" title="' + descAttr + '" aria-label="' + descAttr + '">' +
                    iconHtml + '</button>';
       descSpan = '<span id="' + descId + '" class="visually-hidden">' + escapeHtml(prop.description) + '</span>';
     }

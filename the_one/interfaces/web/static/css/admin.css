@@ -139,21 +139,22 @@
   .area-admin .provider-tile:not(.active):hover { border-color: var(--border); background-color: var(--surface); }
   /* The badge is App.ui.badge's own element (quiet, lowercase, per-type ink
      from .badge--{kind}); this class only places it in the corner. */
-  .area-admin .provider-tile-badge { position: absolute; top: 8px; right: 8px; }
+  /* DD3 (squawk 0116): the name and the badge share a flex title row, so the
+     badge is in the flow beside the name and can never overlap it: the name
+     takes the free width and ellipsizes, the badge keeps its own. */
+  .area-admin .tile-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .area-admin .tile-title-row .entity-tile-name { flex: 1 1 auto; min-width: 0; }
+  .area-admin .tile-title-row .provider-tile-badge,
+  .area-admin .tile-title-row .admin-tool-badge { position: static; flex: none; }
   /* The name link (tool and provider tiles): the tile's title ink (it keeps
-     .entity-tile-name's size, weight and ellipsis), as wide as its text,
-     underlined on hover, with the standard accent ring on keyboard focus. The
-     provider link also clears the widest badge (openai-compatible, anthropic-plan:
-     about 115px plus the 8px offset). */
+     .entity-tile-name's size, weight and ellipsis), it takes the title row's free width,
+     underlined on hover, with the standard accent ring on keyboard focus. */
   .area-admin .tool-tile-link,
   .area-admin .provider-tile-link {
     color: var(--fg);
     text-decoration: none;
     border-radius: var(--radius-sm);
-    align-self: flex-start;
   }
-  .area-admin .provider-tile-link { max-width: calc(100% - 128px); }
-  .area-admin .tool-tile-link { max-width: 100%; }
   .area-admin .tool-tile-link:hover,
   .area-admin .provider-tile-link:hover { text-decoration: underline; }
   .area-admin .tool-tile-link:focus-visible,
@@ -204,13 +205,15 @@
   /* === Model List === */
   .area-admin .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
   .area-admin .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  /* Quiet vocabulary label (M17 F3 "admin labels" DD): the v2 mono-uppercase-
-     letterspaced eyebrow is retired for the `.section-title` quiet-label recipe
+  /* Quiet vocabulary label (M17 F3 "admin labels" DD): a sub-label inside one section, not a section
+     header, so it does not take the `.section-title` eyebrow-with-rule recipe
      (sans, body-sm, weight 500, --fg-secondary). */
   .area-admin .admin-pf-models-title { font-family: var(--font-family-sans); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-medium); color: var(--fg-secondary); }
   .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
-  .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); }
+  /* DD10: plain information, not options - no hover, no cursor, a muted separator. */
+  .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); cursor: default; }
   .area-admin .admin-pf-model-item:last-child { border-bottom: none; }
+  .area-admin .admin-pf-models-help { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
 
   /* === Ollama Lifecycle Panel === */
   .area-admin .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
@@ -429,7 +432,7 @@
     letter-spacing: normal;
     color: var(--fg-muted);
   }
-  /* Tools-editor prompt section — canonical .section-title quiet label
+  /* Tools-editor prompt section — canonical .section-title eyebrow label
      + .code-block body; the editor-prompt-block wrapper just adds layout. */
   .area-admin .editor-prompt-block {
     margin-top: 12px;
@@ -605,11 +608,24 @@
      the same baseline as the title text without affecting other section
      titles (which keep their original block layout). The `.field-info-icon`
      selector reuses the existing 14×14 styling block defined above. */
+  /* M25 F6 L4 (D1): the eyebrow rule sits on the ROW's ::after, after the info
+     icon; the row's .section-title suppresses its own rule (a flex-item span's
+     ::after would collapse and the icon would be pushed to the far edge). */
   .area-admin .section-title-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 8px;
+    gap: 8px;
+    margin: 22px 0 10px;
+  }
+  .area-admin .section-title-row:first-child { margin-top: 0; }
+  .area-admin .section-title-row .section-title { display: block; margin: 0; }
+  .area-admin .section-title-row .section-title::after { content: none; }
+  .area-admin .section-title-row::after {
+    content: "";
+    flex: 1;
+    min-width: 0;
+    height: 1px;
+    background: var(--border);
   }
   /* Section-title-row info-icon — base reset lives in components.css; no
      admin-specific overrides needed. */
@@ -768,7 +784,7 @@
     padding: 6px 0;
     border-bottom: 1px solid var(--border);
   }
-  .area-admin .telemetry-strip .section-title { margin: 0; }
+  .area-admin .telemetry-strip .section-title { margin: 0; }  /* also .section-title--plain in markup */
   .area-admin .telemetry-strip .telemetry-value {
     display: inline-flex;
     align-items: center;

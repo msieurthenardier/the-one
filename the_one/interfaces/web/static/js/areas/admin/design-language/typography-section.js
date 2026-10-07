@@ -91,14 +91,13 @@
     renderSectionTitleConvention(host);
   }
 
-  // M17 F6 L4 — surface the element-scoped `.section-title` convention in the
-  // gallery (closes the SC3 "one component vocabulary" overload item as
-  // intentional/element-handled). The class is worn by BOTH a true section
-  // HEADING and a quiet standalone LABEL; the ELEMENT differentiates the role,
-  // so no rename or new recipe is needed. The rename was deferred as churn
-  // without payoff (M17 F3 "Section-title semantics" DD); this note documents
-  // that decision where operators can see the two renderings side by side.
-  // The internal record lives in the components.css `.section-title` comment.
+  // M25 F6 L4 (DD13) — the section label recipe, "an eyebrow with a rule":
+  // 10px semibold letter-spaced uppercase in --fg-tertiary, then a hairline to
+  // the container's edge. One treatment for every .section-title whatever its
+  // element (an h2 keeps only its heading semantics); .section-title--plain is
+  // the opt-out for text that is not a section header (a path, a gallery
+  // sample). The list and nav group captions (listPane, navGroups) wear the
+  // same recipe; see the controls sections below.
   function renderSectionTitleConvention(host) {
     var wrap = document.createElement('div');
     wrap.style.marginTop = '20px';
@@ -108,35 +107,30 @@
     caption.style.fontSize = 'var(--font-size-tiny)';
     caption.style.color = 'var(--fg-muted)';
     caption.style.marginBottom = '8px';
-    caption.textContent = '.section-title — element-scoped (one class, two roles)';
+    caption.textContent = '.section-title: eyebrow with a rule (one class, any element)';
     wrap.appendChild(caption);
 
-    // Heading role: h2.section-title takes the h3 size bump.
     var heading = document.createElement('h2');
     heading.className = 'section-title';
-    heading.textContent = 'Heading role — h2.section-title';
+    heading.textContent = 'Section header: h2.section-title';
     wrap.appendChild(heading);
 
-    var headingNote = document.createElement('span');
-    headingNote.style.fontFamily = 'var(--font-family-mono)';
-    headingNote.style.fontSize = 'var(--font-size-tiny)';
-    headingNote.style.color = 'var(--fg-muted)';
-    headingNote.textContent = 'h2 → h3-size bump (editor section headers)';
-    wrap.appendChild(headingNote);
+    var divLabel = document.createElement('div');
+    divLabel.className = 'section-title';
+    divLabel.textContent = 'Section header: div.section-title';
+    wrap.appendChild(divLabel);
 
-    // Quiet-label role: div/label.section-title stays body-sm.
-    var quietLabel = document.createElement('div');
-    quietLabel.className = 'section-title';
-    quietLabel.style.marginTop = '12px';
-    quietLabel.textContent = 'Quiet-label role — div/label.section-title';
-    wrap.appendChild(quietLabel);
+    var plain = document.createElement('div');
+    plain.className = 'section-title section-title--plain';
+    plain.textContent = 'Plain opt-out: section-title--plain';
+    wrap.appendChild(plain);
 
-    var quietNote = document.createElement('span');
-    quietNote.style.fontFamily = 'var(--font-family-mono)';
-    quietNote.style.fontSize = 'var(--font-size-tiny)';
-    quietNote.style.color = 'var(--fg-muted)';
-    quietNote.textContent = 'div / label → body-sm quiet standalone label (system page sections)';
-    wrap.appendChild(quietNote);
+    var plainNote = document.createElement('span');
+    plainNote.style.fontFamily = 'var(--font-family-mono)';
+    plainNote.style.fontSize = 'var(--font-size-tiny)';
+    plainNote.style.color = 'var(--fg-muted)';
+    plainNote.textContent = 'quiet 12px label, sentence case, no rule (a file path, a gallery sample)';
+    wrap.appendChild(plainNote);
 
     var convention = document.createElement('p');
     convention.style.fontSize = 'var(--font-size-body-sm)';
@@ -144,10 +138,10 @@
     convention.style.lineHeight = 'var(--line-height-normal)';
     convention.style.marginTop = '12px';
     convention.textContent =
-      'Same class, ELEMENT-differentiated: h2.section-title gets the heading ' +
-      'size bump; every other element (div, label) renders as a body-sm quiet ' +
-      'standalone label. The overload is intentional and element-handled — the ' +
-      'class rename was deferred as churn without payoff (M17 F3).';
+      'One treatment for every section title, whatever its element: small, ' +
+      'semibold, letter-spaced uppercase in the tertiary ink, then a hairline ' +
+      'that runs to the edge. Operator decision (M25 F6, DD13). Opt out with ' +
+      'section-title--plain for text that is not a section header.';
     wrap.appendChild(convention);
 
     host.appendChild(wrap);

@@ -129,6 +129,7 @@
         masterCb.type = 'checkbox';
         masterCb.className = 'tool-toggle';
         masterCb.setAttribute('data-category-master', cat);
+        masterCb.setAttribute('aria-label', 'Enable all ' + cat + ' tools');
         masterWrap.appendChild(masterCb);
 
         var masterSwitch = document.createElement('span');

@@ -1,10 +1,10 @@
 # Squawk 0115: KB detail test can search while "Re-index all" is still running
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-02
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -45,10 +45,14 @@ knowledge-base code. The lane was rerun in full and passed.
 
 ## Corrective Action
 
-*(written at completion)*
+`test_detail_view_indexing_poll_reindex_and_search` no longer waits on the already-showing `indexed: 3`. It first waits for nothing pending or indexing (quiescing the earlier "changed" re-index), records `content_freshness` from `GET /api/knowledge-bases/{kb_id}/status`, clicks "Re-index all files", and then polls (bounded 30s, failing loudly with the status body) until `content_freshness` has changed AND no item is pending or indexing, before searching. Checked first: `indexed_at` is `datetime.now(timezone.utc).isoformat()` (microsecond resolution), and `scope=all` calls `requeue_for_reindex`, so every file re-enters `pending` and `update_status(..., "indexed")` rewrites its `indexed_at`.
+
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
+`tests/browser/test_flow_studio_knowledge_inventory.py -k indexing_poll_reindex`: 1 passed. The `library` lane gate is recorded in the flight log (leg 2).
+
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: pending the Flight 6 leg review

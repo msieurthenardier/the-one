@@ -21,7 +21,8 @@
 //     <div class="test-result"></div>
 //   </div>
 //   <div class="editor-section">                    (edit only)
-//     <div class="section-title">Models</div>
+//     <div class="section-title">Available models</div>
+//     <p class="admin-pf-models-help">…Agents link…</p>
 //     <div class="provider-models"></div>
 //   </div>
 //   <div class="editor-section danger-zone">        (edit only)
@@ -105,7 +106,8 @@
     // ── Models section (edit only) ──────────────────────────────────
     if (!isCreate) {
       html += '<div class="editor-section">';
-      html += '<div class="section-title">Models</div>';
+      html += '<div class="section-title">Available models</div>';
+      html += '<p class="admin-pf-models-help" data-testid="provider-models-help"></p>';
       html += '<div class="provider-models"></div>';
       html += '</div>';
     }
@@ -143,6 +145,18 @@
     crumbLink.textContent = 'Providers';
     crumb.appendChild(crumbLink);
     headerText.insertBefore(crumb, headerText.firstChild);
+
+    // DD10: the Models list is information, not a picker. Its one line of help
+    // is built with DOM APIs (this editor is string-built) so "Agents" can link.
+    var modelsHelp = container.querySelector('.admin-pf-models-help');
+    if (modelsHelp) {
+      modelsHelp.appendChild(document.createTextNode('Each agent chooses one of these in its Model section. '));
+      var agentsLink = document.createElement('a');
+      agentsLink.setAttribute('href', window.App.router.href({ destination: 'agents' }));
+      agentsLink.setAttribute('data-testid', 'provider-models-agents-link');
+      agentsLink.textContent = 'Agents';
+      modelsHelp.appendChild(agentsLink);
+    }
 
     wireEditorEvents(container, provider, providerTypes, callbacks);
 
@@ -224,7 +238,7 @@
     html += '<div class="field-group admin-pf-num-ctx' + (defaults.showNumCtx ? '' : ' is-hidden') + '">';
     html += '<div class="field-group-label">';
     html += '<label for="pf-num-ctx">Context Window</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(numCtxDesc) + '" aria-describedby="pf-num-ctx-desc">' + numCtxIcon + '</button>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(numCtxDesc) + '" aria-label="' + escapeAttr(numCtxDesc) + '">' + numCtxIcon + '</button>';
     html += '</div>';
     html += '<span id="pf-num-ctx-desc" class="visually-hidden">' + escapeHtml(numCtxDesc) + '</span>';
     html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" required data-field="config.num_ctx" aria-describedby="pf-num-ctx-desc" value="' + escapeAttr(String(numCtx)) + '" />';
@@ -259,7 +273,7 @@
     // show/hide.
     html += '<div class="field-row admin-pf-row admin-pf-thinking-enabled' + (defaults.showThinkingEnabled ? '' : ' is-hidden') + '">';
     html += '<label for="pf-thinking-enabled">Extended thinking</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-describedby="pf-thinking-enabled-desc">' + teIcon + '</button>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-label="' + escapeAttr(teDesc) + '">' + teIcon + '</button>';
     html += '<span id="pf-thinking-enabled-desc" class="visually-hidden">' + escapeHtml(teDesc) + '</span>';
     html += '<label class="tool-enable-switch">';
     html += '<input class="field-input" id="pf-thinking-enabled" type="checkbox" data-field="config.thinking_enabled" aria-describedby="pf-thinking-enabled-desc"' + (thinkingEnabled ? ' checked' : '') + ' />';
@@ -282,7 +296,7 @@
     html += '<div class="field-group admin-pf-reasoning-effort' + (defaults.showReasoningEffort ? '' : ' is-hidden') + '">';
     html += '<div class="field-group-label">';
     html += '<label for="pf-reasoning-effort">Reasoning Effort</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(reDesc) + '" aria-describedby="pf-reasoning-effort-desc">' + reIcon + '</button>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(reDesc) + '" aria-label="' + escapeAttr(reDesc) + '">' + reIcon + '</button>';
     html += '</div>';
     html += '<span id="pf-reasoning-effort-desc" class="visually-hidden">' + escapeHtml(reDesc) + '</span>';
     html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-reasoning-effort" data-field="config.reasoning_effort" aria-describedby="pf-reasoning-effort-desc">';
@@ -776,9 +790,14 @@
        form's Cancel is enabled from first render, so onCancel runs on a
        pristine form as well as a dirty one. */
     var cancelBtn = container.querySelector('.cancel-btn');
+    /* Focus after an in-place action (M25 F6 L1b, DD2): the title and Save are
+       re-resolved when the focus timer fires. */
+    function focusTitle() { return container.querySelector('.editor-title'); }
+    function focusSave() { return container.querySelector('.save-btn'); }
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {
         if (isEdit) {
+          var cancelTok = App.focusAfter.begin(cancelBtn);
           // Revert to snapshot.
           var snap = JSON.parse(snapshot);
           var fields2 = container.querySelectorAll('[data-field]');
@@ -794,6 +813,7 @@
           }
           dirty = false;
           checkDirty();
+          App.focusAfter.restore(cancelTok, focusTitle);
         } else if (callbacks.onCancel) {
           callbacks.onCancel();
         }
@@ -813,21 +833,22 @@
       errorEl.textContent = '';
       var payload = collectFormData(container, callbacks, originalMaskedApiKey, MASKED_SENTINEL, isEdit, provider);
       if (!payload) return; // validation failed; collectFormData wrote error
+      var saveTok = App.focusAfter.begin(focusSave());
       var url = isEdit ? '/api/providers/' + encodeURIComponent(provider.id) : '/api/providers';
       var method = isEdit ? 'PUT' : 'POST';
-      fetch(url, {
+      // fetchJson flattens a 422 detail list to "field: message" (squawk 0112).
+      App.api.fetchJson(url, {
         method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || (isEdit ? 'Save failed' : 'Create failed')); });
-          return r.json();
-        })
         .then(function (updated) {
           App.store.invalidate('providers');
           window.App.showFlash(container, isEdit ? 'Provider saved' : 'Provider created');
           if (!isEdit && onCreateSuccess) onCreateSuccess(updated);
+          // Create re-mounts the editor in edit mode asynchronously (the
+          // orchestrator's `ready` promise): park the restore for that mount.
+          if (!isEdit) App.focusAfter.defer(saveTok, focusTitle);
           if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
           // For create→edit transition the orchestrator re-renders the
           // editor with the new provider — closure is replaced. The
@@ -852,6 +873,7 @@
             snapshot = getFormSnapshot(container);
             dirty = false;
             checkDirty();
+            App.focusAfter.restore(saveTok, focusTitle);
           }
         })
         .catch(function (err) {
@@ -860,6 +882,8 @@
           // is overwritten) survive for debugging.
           console.error('provider save failed', err);
           errorEl.textContent = err.message || String(err);
+          App.focusAfter.defer(null);
+          App.focusAfter.restore(saveTok, focusSave);
         });
     }
 
@@ -874,11 +898,14 @@
       testBtn.addEventListener('click', function () {
         var resultEl = container.querySelector('.test-result');
         resultEl.innerHTML = '<span class="test-result-pending">Testing…</span>';
+        // Recorded before the disable below (M25 F6 L1b, DD2).
+        var testTok = App.focusAfter.begin(testBtn);
         testBtn.disabled = true;
         fetch('/api/providers/' + encodeURIComponent(provider.id) + '/test', { method: 'POST' })
           .then(function (r) { return r.json(); })
           .then(function (result) {
             testBtn.disabled = false;
+            App.focusAfter.restore(testTok, testBtn);
             // Render via DOM API (textContent on a class-tagged span) so
             // operator-supplied detail text cannot break out of the
             // surrounding markup. Three states: ok / warning / error.
@@ -926,6 +953,7 @@
           })
           .catch(function (err) {
             testBtn.disabled = false;
+            App.focusAfter.restore(testTok, testBtn);
             resultEl.innerHTML = '<span class="test-result-fail">' + window.App.escapeHtml(err.message || 'Request failed') + '</span>';
             window.App.showFlash(container, 'Connection test error', true);
           });

@@ -167,6 +167,9 @@
   .area-studio .mcp-connection-actions .indicator-led { align-self: center; margin-left: 4px; }
   .area-studio .mcp-tools-success { color: var(--status-success, var(--accent)); font-weight: 600; }
   .area-studio .mcp-tools-error { color: var(--status-danger); font-weight: 600; }
+  .area-studio .mcp-error-details { margin-top: 6px; font-weight: 400; color: var(--fg-secondary); font-size: var(--font-size-body-sm); }
+  .area-studio .mcp-error-details > summary { cursor: pointer; }
+  .area-studio .mcp-error-raw { margin: 6px 0 0; padding: 8px; font-family: var(--font-family-mono, monospace); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; max-width: 100%; }
   .area-studio .mcp-tools-list { display: flex; flex-direction: column; gap: 6px; }
   /* Mission 08 F4 L3 — Tools list on the MCP source-editor page restructured
      to match the agent-editor MCPs tab tile pattern. Each tool = a <details>
@@ -1443,4 +1446,55 @@
     color: var(--status-danger);
     padding: 8px 0;
   }
+
+/* === Start pages (M25 F6 leg 4c, DD15): the Agents and Library roots === */
+.area-studio .studio-section-content > .start-page-title,
+.area-studio .studio-section-content > .start-page {
+  width: 100%;
+  max-width: 720px;
+  box-sizing: border-box;
+  padding-left: var(--space-5);
+  padding-right: var(--space-5);
+}
+.area-studio .start-page-title {
+  margin: 0;
+  padding-top: var(--space-5);
+  padding-bottom: var(--space-3);
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg);
+}
+.area-studio .start-page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding-bottom: var(--space-6);
+}
+.area-studio .start-page-text {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-normal);
+  color: var(--fg-secondary);
+}
+.area-studio .start-page-card {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 12px 14px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.area-studio .start-page-card-icon { flex: none; color: var(--fg-muted); display: inline-flex; padding-top: 2px; }
+.area-studio .start-page-card-body { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.area-studio .start-page-card-title {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--fg);
+}
+.area-studio .start-page-card > .btn { flex: none; }
 }

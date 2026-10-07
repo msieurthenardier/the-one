@@ -445,6 +445,48 @@ def test_new_chat_route_hydrates_and_heals(app_with_agent: SeededApp, page: Page
     assert _sessions(base) == []
 
 
+def test_a_pending_chat_whose_agent_was_deleted_heals(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """The Flight 4 action item: an agent deleted AFTER its pending chat opened.
+    The delete goes through the API on purpose (a UI delete would invalidate the
+    agents store and hide the hazard), so a warm traversal sees a stale cached
+    list: the pending pane renders at once from it, and the background forced
+    read heals it. Cold (a reload) and warm (a history traversal)."""
+    base = app_with_provider.base_url
+    headers = auth_headers_for(base)
+    cold = seed_mock_agent(base, app_with_provider.provider_id, name="gone-cold")
+    warm = seed_mock_agent(base, app_with_provider.provider_id, name="gone-warm")
+
+    # Cold: pending, delete, reload.
+    _nav.goto(page, base, "chats")
+    _chats.start_chat(page, cold)
+    _wait_state(page, "pending")
+    _nav.expect_route(page, f"chats/~new/{_nav.seg(cold)}")
+    r = httpx.delete(f"{base}/api/agents/{cold}", headers=headers, timeout=5)
+    assert r.status_code in (200, 204), r.text
+    page.reload()
+    _nav.expect_route(page, "chats", timeout=8000)
+    _wait_state(page, "idle")
+    expect(_chats.welcome(page)).to_be_visible()
+    assert _sessions(base) == []
+
+    # Warm: pending, leave to Settings (the agents store stays loaded), delete,
+    # traverse back to the pending route.
+    _chats.start_chat(page, warm)
+    _wait_state(page, "pending")
+    _nav.expect_route(page, f"chats/~new/{_nav.seg(warm)}")
+    _nav.open_destination(page, "settings")
+    _nav.expect_route(page, "settings", timeout=8000)
+    r = httpx.delete(f"{base}/api/agents/{warm}", headers=headers, timeout=5)
+    assert r.status_code in (200, 204), r.text
+    page.go_back()
+    _nav.expect_route(page, "chats", timeout=8000)
+    _wait_state(page, "idle")
+    expect(_chats.welcome(page)).to_be_visible()
+    assert _sessions(base) == []
+
+
 def test_a_first_pick_pushes_and_a_re_pick_replaces(
     app_with_provider: SeededApp, page: Page
 ) -> None:
