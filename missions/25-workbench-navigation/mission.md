@@ -210,21 +210,30 @@ coverage for every remaining surface.
 
 ## Open Questions
 
-- [ ] **Control-library mechanism** (Flight 1): factory functions returning native
+- [x] **Control-library mechanism** (Flight 1): resolved by Flight 1 DD1 (ES5 factory
+  functions returning native elements under `App.ui`, settled by the
+  `control-mechanism-spike` leg; see `flights/01-control-library-foundation/flight.md` DD1
+  and its flight log). Original question: factory functions returning native
   elements (current lean) vs. custom elements rendered into the page DOM, with custom
   elements reserved for stateful composites (modal, drawer, palette, list pane). Settled
   by a spike that must show: (1) library-authored test ids are seen by the registry guard
   with no manual exceptions; (2) fill, select, check, disabled and strict locators work in
   Chromium and WebKit; (3) a runtime label/description resolver passes over library
   surfaces; (4) no new HTML-string sinks; (5) a manual pass in the packaged WebKitGTK app.
-- [ ] **Modal, drawer and palette mechanics** (Flight 1 rule, built where consumed): one
+- [x] **Modal, drawer and palette mechanics** (resolved: rule set by Flight 1 DD8, built
+  in Flights 2 and 4; see `flights/01-control-library-foundation/flight.md` DD8 and
+  `flights/04-chats-and-jump-to/flight-log.md`). Original question (Flight 1 rule, built where consumed): one
   focus-trap, Escape, scroll-lock and focus-restore rule, including chaining (palette →
   leave guard → confirm dialog); native `<dialog>` vs. the existing overlay.
-- [ ] **Router contract** (Flight 2): URL scheme for the four destinations; legacy
+- [x] **Router contract** (resolved by Flight 2 DD1, destination-first hash routes with the
+  reserved `~new` segment and legacy redirects; see `flights/02-shell-and-router/flight.md`).
+  Original question (Flight 2): URL scheme for the four destinations; legacy
   `#studio/…` / `#admin/…` redirect table (must not collide with the `#main-content` skip
   link); four registered areas vs. an alias layer over the current three; history policy
   (does browser Back step between items? does the rail restore the last-open item?).
-- [ ] **Settings pages with item editors** (Flight 3): Providers and Built-in tools show a
+- [x] **Settings pages with item editors** (resolved by Flight 3 DD7: the item opens below
+  the still-visible list; see `flights/03-list-and-detail/flight.md` DD7). Original
+  question (Flight 3): Providers and Built-in tools show a
   table/list in the board with no editor state — define how an item opens while the list
   stays visible, inside Settings' own nav.
 - [x] **Drawer push vs. overlay** at different widths (Flight 4): resolved by Flight 4 DD7. The drawer pushes the pane at 1280px and wider (open by default), overlays below that (closed by default), and remembers each mode separately. The 1024 overlay covering Send is an open preview question.
@@ -268,7 +277,11 @@ history but do not appear in the picker, and their drawer shows no settings link
   `/mission-control:init-project`: methodology files synced, 008–012 applied (flight-end
   review and commit; Service Report section with upstream reporting enabled; Sortie
   artifact; Flight Director paragraph; leg checklist retired), crew customizations kept.
-- [ ] **Ctrl K in WebView2**, carried from Flight 4 DD9 to **Flight 5**.
+- [x] **Ctrl K in WebView2**, carried from Flight 4 DD9 to **Flight 5**. **CLOSED at
+  Flight 6 (2026-10-07).** Evidence: the operator's SC9 answer in the packaged app, "All
+  fine" (2026-10-06, `flights/06-alignment/flight-log.md`, Decisions), plus the Flight 5
+  test-copy finding (premise 9) that a real `SendInput` Ctrl+K opens the palette on
+  WebView2, repeated on the frozen build and passed by the close gate (below).
   - The jump-to shortcut is a page-level `keydown` listener (one on `document`, in `app.js`).
   - **WebKitGTK: partially verified (GTK-level key)**, Flight 4 leg 7, 2026-10-05.
     - **How:** WebKitGTK 2.52.6 on WSLg, through `scripts/webkitgtk_probe.py --press-keys
@@ -290,8 +303,8 @@ history but do not appear in the picker, and their drawer shows no settings link
     repeated it on the **frozen** build (the same result).
   - **The close gate passed it on the frozen build,** 2026-10-06 (`windows-window-chrome`
     run `2026-10-06-20-06-24`, steps 3 and 9).
-  - **Still open** only for the operator's own confirmation in the installed build at
-    Flight 6 (`windows-native-frame-splash` step 18).
+  - **Closed** by the operator's own confirmation in the installed build at Flight 6
+    (the SC9 answer above, covering `windows-native-frame-splash` step 18).
 
 ## Flights
 

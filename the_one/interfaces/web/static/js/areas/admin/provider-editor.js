@@ -238,7 +238,7 @@
     html += '<div class="field-group admin-pf-num-ctx' + (defaults.showNumCtx ? '' : ' is-hidden') + '">';
     html += '<div class="field-group-label">';
     html += '<label for="pf-num-ctx">Context Window</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(numCtxDesc) + '" aria-label="' + escapeAttr(numCtxDesc) + '" aria-describedby="pf-num-ctx-desc">' + numCtxIcon + '</button>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(numCtxDesc) + '" aria-label="' + escapeAttr(numCtxDesc) + '">' + numCtxIcon + '</button>';
     html += '</div>';
     html += '<span id="pf-num-ctx-desc" class="visually-hidden">' + escapeHtml(numCtxDesc) + '</span>';
     html += '<input class="field-input admin-pf-input" id="pf-num-ctx" type="number" min="1" step="1" required data-field="config.num_ctx" aria-describedby="pf-num-ctx-desc" value="' + escapeAttr(String(numCtx)) + '" />';
@@ -273,7 +273,7 @@
     // show/hide.
     html += '<div class="field-row admin-pf-row admin-pf-thinking-enabled' + (defaults.showThinkingEnabled ? '' : ' is-hidden') + '">';
     html += '<label for="pf-thinking-enabled">Extended thinking</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-label="' + escapeAttr(teDesc) + '" aria-describedby="pf-thinking-enabled-desc">' + teIcon + '</button>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(teDesc) + '" aria-label="' + escapeAttr(teDesc) + '">' + teIcon + '</button>';
     html += '<span id="pf-thinking-enabled-desc" class="visually-hidden">' + escapeHtml(teDesc) + '</span>';
     html += '<label class="tool-enable-switch">';
     html += '<input class="field-input" id="pf-thinking-enabled" type="checkbox" data-field="config.thinking_enabled" aria-describedby="pf-thinking-enabled-desc"' + (thinkingEnabled ? ' checked' : '') + ' />';
@@ -296,7 +296,7 @@
     html += '<div class="field-group admin-pf-reasoning-effort' + (defaults.showReasoningEffort ? '' : ' is-hidden') + '">';
     html += '<div class="field-group-label">';
     html += '<label for="pf-reasoning-effort">Reasoning Effort</label>';
-    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(reDesc) + '" aria-label="' + escapeAttr(reDesc) + '" aria-describedby="pf-reasoning-effort-desc">' + reIcon + '</button>';
+    html += '<button type="button" class="field-info-icon" title="' + escapeAttr(reDesc) + '" aria-label="' + escapeAttr(reDesc) + '">' + reIcon + '</button>';
     html += '</div>';
     html += '<span id="pf-reasoning-effort-desc" class="visually-hidden">' + escapeHtml(reDesc) + '</span>';
     html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-reasoning-effort" data-field="config.reasoning_effort" aria-describedby="pf-reasoning-effort-desc">';

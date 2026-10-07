@@ -139,6 +139,8 @@ def test_provider_info_icons_have_accessible_names(app_clean: str, page: Page) -
     for i in range(icons.count()):
         assert (icons.nth(i).get_attribute("aria-label") or "").strip(), i
         assert icons.nth(i).get_attribute("title")
+        # Named once: the label carries the hint, so no second description.
+        assert icons.nth(i).get_attribute("aria-describedby") is None, i
 
 
 @pytest.mark.browser
@@ -147,6 +149,8 @@ def test_tools_editor_info_icons_have_accessible_names(app_clean: str, page: Pag
     _lists.open_tool(page, "web_search")
     icons = page.locator("button.field-info-icon")
     expect(icons.first).to_be_attached(timeout=8000)
+    for i in range(icons.count()):
+        assert icons.nth(i).get_attribute("aria-describedby") is None, i
     assert_controls_labelled_and_described(page, ".settings-item")
 
 

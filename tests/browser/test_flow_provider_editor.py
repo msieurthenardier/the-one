@@ -448,7 +448,7 @@ def test_num_ctx_info_icon_tooltip(app_clean: str, page: Page) -> None:
     icon = page.locator(".admin-pf-num-ctx .field-info-icon")
     expect(icon).to_be_visible()
     expect(icon).to_have_attribute("title", desc)
-    expect(icon).to_have_attribute("aria-describedby", "pf-num-ctx-desc")
+    assert icon.get_attribute("aria-describedby") is None  # label carries the hint
     expect(page.locator("#pf-num-ctx-desc")).to_have_text(desc)
     expect(page.locator("#pf-num-ctx")).to_have_attribute("aria-describedby", "pf-num-ctx-desc")
 
@@ -495,7 +495,7 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
     icon = page.locator(".admin-pf-thinking-enabled .field-info-icon")
     expect(icon).to_be_visible()
     expect(icon).to_have_attribute("title", desc)
-    expect(icon).to_have_attribute("aria-describedby", "pf-thinking-enabled-desc")
+    assert icon.get_attribute("aria-describedby") is None  # label carries the hint
     expect(page.locator("#pf-thinking-enabled-desc")).to_have_text(desc)
     expect(page.locator("#pf-thinking-enabled")).to_have_attribute(
         "aria-describedby", "pf-thinking-enabled-desc"

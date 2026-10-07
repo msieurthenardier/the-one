@@ -489,7 +489,7 @@ it only on a yes.
   descriptions and Add buttons, and the pinned copy, specs and docs updated.
 - [x] `mcp-error-message` (4d, added 2026-10-06, DD19): a plain headline with the raw text
   under "Technical details" on the agent MCPs tab and in the Library MCP editor.
-- [ ] `alignment-walk` (HAT, interactive; light under DD18): one pass with the operator
+- [x] `alignment-walk` (HAT, interactive; light under DD18): one pass with the operator
   over this flight's own fixes on a dev instance (8486), the Flight Director's DD17 probe
   on a Windows test copy, and inline fixes under DD7. The decision sheet and SC9 were
   answered before the walk (flight log, Decisions).

@@ -598,6 +598,8 @@ def test_mcps_tab_error_shows_plain_headline_and_details(app_clean: str, page: P
     expect(err).to_be_visible(timeout=4000)
     expect(err).to_contain_text("Couldn't connect to this server.")
     expect(err).not_to_contain_text("Error loading tools")
+    # WCAG 4.1.3: the error is announced when it is inserted.
+    expect(err).to_have_attribute("role", "alert")
     details = err.locator("details")
     assert details.evaluate("el => el.open") is False
     expect(err.locator("summary")).to_have_text("Technical details")

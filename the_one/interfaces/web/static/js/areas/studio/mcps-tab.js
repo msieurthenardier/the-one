@@ -629,6 +629,9 @@
     var msg = mcpErrorMessage(raw);
     var root = document.createElement('div');
     root.className = 'mcp-tools-error';
+    // WCAG 4.1.3: announced when inserted; each build is a fresh node, so
+    // unrelated re-renders that don't rebuild it stay silent.
+    root.setAttribute('role', 'alert');
     var head = document.createElement('div');
     head.className = 'mcp-error-headline';
     head.textContent = msg.headline;

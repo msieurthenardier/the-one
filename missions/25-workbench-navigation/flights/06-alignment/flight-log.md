@@ -59,6 +59,24 @@ This is a read-only sweep of `main` at `aaee705` (v0.10.0) by a Sonnet agent, on
 
 ## Leg Progress
 
+### Leg 6: mission-close (documents)
+
+- **Reference spec §15:** all 32 rows gained a Resolution column, each citing the flight spec
+  or log that settled it. 29 resolved, 2 accepted as is (A4, A6), 1 informational (A22),
+  none carried. Source flights: F1 (A1, A4-A11, A30, A31), F2 (A12 rail), F3 (A2, A3, A8,
+  A12, A14-A16, A18, A19, A23, A24, A26, A27), F4 (A10, A11, A13, A16, A17, A20, A21, A25,
+  A28, A29, A32).
+- **Reference spec §13:** added "Operator-accepted deviations (Flight 6)", D6 (DD13 section
+  labels), D7 (DD14 12-hour times), D8 (DD15 start pages), D9 (DD16 composer width), with the
+  operator's words. D1-D5 unchanged. DD10's label noted as additive.
+- **mission.md:** Ctrl K in WebView2 closed with the SC9 answer and the Flight 5 premise 9
+  finding. The four unchecked open questions are ticked with pointers (F1 DD1, F1 DD8,
+  F2 DD1, F3 DD7). No SC box or Flight 6 line ticked.
+- **Docs read-through:** `the_one/agents.md` already described DD2, DD4, DD5, DD10, DD13-DD17
+  and DD19; no edit. `CLAUDE.md` already covered DD2, DD4, DD10, DD14-DD16; added one brief
+  paragraph for DD5, DD13, DD17 and DD19.
+- Gates and the Flight Director's parts remain; the leg stays in-flight.
+
 ### Leg 4c: root-pages
 
 **Landed** (uncommitted).
@@ -168,6 +186,14 @@ This is a read-only sweep of `main` at `aaee705` (v0.10.0) by a Sonnet agent, on
 - **Tests.** New: 3 unit (`test_provider_api.py` x2, `test_db_api.py` x1), `tests/test_index_html_static.py` (1), browser `test_flow_settings_visible_fixes.py` (11 incl. parametrized) and `test_flow_agents_root_heading.py` (6). Changed: `test_design_tokens_a11y.py` (tile rules), `test_flow_settings_items.py` (reading order now inside the title row), `docs/ui-testid-registry.md` (3 new ids).
 - **Gates.** `make test-unit` 5433 passed, 10 skipped (11:00); settings lane 191 (the one failure, the reading-order test above, fixed and re-run green: 30/30 in file); agents 140 passed, 2 skipped (5:39); library 145 passed, 1 skipped (7:58); shared 465 passed (11:47); static guards and ruff pass. `contracts` not run: no `ui/` file changed.
 - **Squawks** 0081, 0112, 0113, 0114, 0116 completed; commit reference left "pending the Flight 6 legs 1-3 commit".
+
+### Leg 5: inline batch (review polish)
+
+- **MCP error announced (4.1.3):** `buildMcpError` (`mcps-tab.js`) now sets `role="alert"` on the error root. Each build is a fresh node, so it is announced on insertion only; unrelated re-renders do not rebuild it, and a successful Refresh still replaces it. Pinned on both surfaces (`test_studio_mcps_tab.py`, `test_flow_studio_mcp_editor.py`).
+- **Info icons read once:** dropped `aria-describedby` from every `field-info-icon` button that also had an `aria-label` with the same text (`provider-editor.js` x3, `tools-editor.js`, `tools-form-helpers.js`). The "Test connection" hidden span (used only by the button) is removed. The hidden `-desc` spans in the provider editor and the tool form fields stay, because their inputs still use them as `aria-describedby` (a different control, read once there). `title` is unchanged. The MCP "Sensitive" icon already had no describedby. Pins updated: `test_flow_settings_visible_fixes.py` (now asserts no describedby on icons), `test_flow_provider_editor.py` (two pins flipped to None).
+- **Cancel contract:** one clause added to the `cancel` row in `the_one/agents.md`: a second `cancel` during unwinding replaces the per-session token, so at most one `cancelled` per `cancel` message.
+- **Proof:** each new assertion failed with the change reverted (info icons 2 failed; MCP agents-tab 1 failed; Library editor 1 failed), then passed restored.
+- **Gates:** static guards 261 passed; agents lane 153 passed, 2 skipped; library lane 153 passed, 1 skipped; settings lane 201 passed (first run had 2 failures from the provider-editor pins, fixed, whole lane re-run); `make test-unit` 5441 passed, 10 skipped (11m44s).
 
 ## Flight Director Notes
 
@@ -376,6 +402,99 @@ This is a read-only sweep of `main` at `aaee705` (v0.10.0) by a Sonnet agent, on
 
 ## Decisions
 
+- **Committed:** `52f7612`, "flight/6: Fixes before the walk (legs 1a-4d)". It was pushed
+  and opened as draft PR #227.
+- **Leg 5 (the light walk, DD18).**
+  - **The instance:** 8486, scratch data `/tmp/the-one-f6-walk`, dev mode, seeded through
+    the API.
+  - **Access:** a one-time handoff to the operator's Windows browser. The first link
+    expired before use, and the operator asked for a second.
+  - **The verdict: "the walk looks good."** All seven items are accepted as they are:
+    - the section labels;
+    - "Available models";
+    - the tile title row;
+    - the start pages;
+    - 12-hour times and the composer;
+    - the plain MCP error;
+    - focus after Save.
+
+    No inline fix came from the walk.
+  - **The seed's caveat:** it was seeded before local midnight, so by the time of the walk
+    its "today" chats had moved to Yesterday (weekday labels). The 12-hour list times are
+    pinned by `test_clock_formatter_edges` and the chat-list tests.
+  - **The inline batch:** a Developer took the review polish (the `role="alert"` MCP
+    error, info icons read once, the cancel-contract note).
+  - **DD17:** the Flight Director's live check on a Windows test copy, run in parallel.
+- **The operator's direction after the walk** (2026-10-07): "go ahead and wrap up the
+  mission and debriefs, then merge to main and cut a patch release".
+  - **DD9 is answered:** a patch release, v0.10.1, cut after the merge.
+  - **Authorized:** merging PR #227 to `main`, and the release.
+  - **Autonomous from here:** leg 5's batch review and commit, leg 6 (mission close), the
+    flight debrief and the mission debrief.
+- **DD17 checked live on a Windows test copy (2026-10-07).**
+  - **The copy:** built by `setup` from the working tree (source build, not frozen), run
+    as `launch --port 8490 --cdp-port 9390 --max-minutes 15 --tree-id f6dd17`, with
+    scratch data under the helper's root.
+  - **Seeded** through the API: an `openai-compatible` provider pointing at an unused
+    port (never called), an agent, and a session whose stored history holds one reply.
+  - **The probe** used Playwright over CDP: `location.hash` to the session, then a mouse
+    drag across the reply.
+  - **The result:**
+    - `pywebview.platform` is `edgechromium`;
+    - `getComputedStyle(document.body).userSelect` is `auto` (pywebview's injected
+      `user-select: none` is gone);
+    - the reply's own `userSelect` is `auto`;
+    - the drag selected "This reply should be selectable in the desktop window.", inside
+      `.msg.assistant`.
+
+    **Pass.**
+  - **The session:**
+    - bracketed by `snapshot --out` and `--compare`; the compare was `ok` with no
+      allowed changes or failures;
+    - the installed app was untouched (same PID and creation time);
+    - the copy was stopped by identity (`stop --tree-id f6dd17`), watchdog included.
+- **The published design system was updated (SC7, DD13)** at
+  https://claude.ai/artifact/51jpj1RcXp18MehEQAteWs, versions 12 (files) and 13 (index).
+  - **README:**
+    - the section-label recipe, replacing "quiet" section titles and the "no eyebrows"
+      rule;
+    - the rail shell in Layout, replacing the top bar and the 240px sidebar;
+    - the four destinations;
+    - 12-hour clock times;
+    - start-page and plain-error copy.
+  - **A new SectionLabel card** (README and preview: nav captions, section headers, the
+    danger zone, `--plain`).
+  - **`bundle.css`:** the section-title, caption, editor-section and danger-zone blocks,
+    copied from `components.css`.
+  - **TopBar and SectionNav** are marked retired (Flights 2 and 3), not deleted.
+- **GitHub issue #207** (a reusable JS component layer) was reviewed at the operator's
+  request.
+  - **The verdict: partly resolved.** Mission 25 delivered the layer: 16 `App.ui`
+    factories, DOM-returning ES5 with no build step, a single icon path, the gallery
+    rendering real factories, and two-engine contract tests.
+  - **Not done:** the migration of the existing editors.
+    - `_el` is still copied 3 times; `_fieldGroup` and `_section` twice each.
+    - The danger zone is hand-written 5 times.
+    - There are no factories for tiles, confirm-delete or an expandable panel.
+    - 33 `App.icon` string call sites remain.
+    - There is no guard on component-owned classes.
+  - At the operator's direction, the issue stays open with a status comment
+    (https://github.com/msieurthenardier/the-one/issues/207#issuecomment-6036899898).
+    The mission debrief should carry it as the next control-library mission's scope.
+- **The leg 5 inline batch and leg 6's documents were reviewed:** both reviewers confirmed.
+  - **The Reviewer** (Haiku: no security surface) found no issues. It spot-checked five
+    §15 resolutions and the D6–D9 rows.
+  - **The Accessibility Reviewer** found `role="alert"` acceptable: a fresh node on
+    insertion, and a collapsed `<details>` is not read until opened. No orphaned
+    descriptions.
+  - **Two non-blocking notes:**
+    1. `mcp-server-editor.js`'s `renderRetryUi` sign-in message has no live role. It
+       predates this flight and belongs to the OAuth sign-in flow. **Accepted**, out of
+       DD19's scope.
+    2. A stale comment in `tools-form-helpers.js` (about lines 115–118) still says the
+       button carries `aria-describedby`. It is **fixed with leg 6's gates**.
+- **Leg 5 is completed.** It is committed with leg 6's documents. Leg 6 stays in flight
+  for the behavior re-runs, the gates and the SC ticks.
 - **2026-10-06, during planning: the provider Models list (DD10).**
   - **Reported:** "you can't select a model on the provider page" (an Anthropic and a
     Claude Max provider).

@@ -117,7 +117,7 @@
       // aria-describedby. Keep `title=` for mouse-hover UX (and to
       // preserve compatibility with browser tests that assert on the
       // title attribute).
-      infoButton = '<button type="button" class="field-info-icon" title="' + descAttr + '" aria-label="' + descAttr + '" aria-describedby="' + descId + '">' +
+      infoButton = '<button type="button" class="field-info-icon" title="' + descAttr + '" aria-label="' + descAttr + '">' +
                    iconHtml + '</button>';
       descSpan = '<span id="' + descId + '" class="visually-hidden">' + escapeHtml(prop.description) + '</span>';
     }

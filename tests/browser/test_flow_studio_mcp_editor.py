@@ -1932,6 +1932,8 @@ def test_library_editor_connection_error_plain_headline(app_clean: str, page: Pa
     expect(err).to_be_visible(timeout=4000)
     expect(err).to_contain_text("Couldn't connect to this server.")
     expect(status_panel).not_to_contain_text("✗ Error")
+    # WCAG 4.1.3: the error is announced when it is inserted.
+    expect(err).to_have_attribute("role", "alert")
     assert err.locator("details").evaluate("el => el.open") is False
     expect(err.locator("summary")).to_have_text("Technical details")
     expect(err.locator('[data-testid="mcp-error-raw"]')).not_to_be_visible()
