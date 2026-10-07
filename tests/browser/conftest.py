@@ -48,6 +48,7 @@ a regression — a genuine regression fails isolated too.
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -185,6 +186,22 @@ def _write_credential(data_dir: Path) -> LocalApiCredential:
 # ── App subprocess ────────────────────────────────────────────────────────
 
 
+# A small catalog covering all four statuses (the shape the seam pins: name, size in
+# bytes or null, status). Sizes are the registry's real layers + config for the two
+# llama3.2 variants. ``shaky:7b`` is the `unknown` entry; `wizardlm` and `kimi-k3` are
+# real `missing` / `cloud` cases.
+OLLAMA_LIBRARY_TEST_CATALOG = {
+    "models": [
+        {"name": "llama3.2:1b", "size": 1321098329, "status": "ok"},
+        {"name": "llama3.2:3b", "size": 2019377376, "status": "ok"},
+        {"name": "nomic-embed-text", "size": 274302915, "status": "ok"},
+        {"name": "kimi-k3", "size": None, "status": "cloud"},
+        {"name": "wizardlm", "size": None, "status": "missing"},
+        {"name": "shaky:7b", "size": None, "status": "unknown"},
+    ]
+}
+
+
 def _spawn_app(
     tmp_path: Path, extra_env: dict[str, str] | None = None
 ) -> tuple[str, subprocess.Popen, LocalApiCredential, Path]:
@@ -216,6 +233,10 @@ def _spawn_app(
     env = os.environ.copy()
     env["THE_ONE_DATA_DIR"] = str(data_dir)
     env["THE_ONE_DEV_MODE"] = "true"
+    # Default Ollama pull catalog (stateless seam, dev mode only): no browser test ever
+    # reaches ollama.com / registry.ollama.ai. Set before ``extra_env`` so a test can
+    # override it.
+    env["THE_ONE_OLLAMA_LIBRARY_TEST_JSON"] = json.dumps(OLLAMA_LIBRARY_TEST_CATALOG)
     # Note: THE_ONE_PORT/THE_ONE_HOST omitted — uvicorn binds via the explicit
     # --host/--port flags below; nothing in app.py reads settings.port post-init.
     if extra_env:

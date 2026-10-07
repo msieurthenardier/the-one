@@ -30,6 +30,15 @@ caught — but it cannot see where the attribute is emitted.
 
 | Testid | Surface | Notes |
 |--------|---------|-------|
+| `admin-pf-pull-btn` | admin | The Ollama Pull button; label "Pull · {size}" with a known size, "Pull" for an unknown one, "Checking size…" during the re-check; disabled with nothing selected, during the re-check and during a pull (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-cancel` | admin | The pull progress bar's Cancel button; focus lands here when a confirmed pull starts (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-confirm` | admin | The pull confirmation `<dialog>` (`App.ui.modal`), opened on every Pull after the size re-check (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-confirm-cancel` | admin | The confirmation's Cancel (autofocused; agrees with Esc and the backdrop) (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-confirm-go` | admin | The confirmation's confirm action: "Pull {size}", or "Pull anyway" when the size is unknown (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-error` | admin | The pull panel's error line (a failed size re-check or a failed pull) (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-progress` | admin | The pull progress bar container (hidden until a pull starts) (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-select` | admin | The Pull Model `<select>` of `name:tag (size)` entries; disabled with the loading copy while the catalog fills (Ollama pull sizes, sortie 01) |
+| `admin-pf-pull-size` | admin | The `aria-live` status line under the Pull row: "Download: {size}, from the Ollama registry." or the size-unknown warning (Ollama pull sizes, sortie 01) |
 | `agent-chat-btn` | studio | The agent editor header's **Chat** (`App.ui.button` secondary, the `chat` icon), DOM-inserted into `.form-actions` before Cancel on a SAVED agent only (absent in create mode); `App.chat.chatWith(name)`: the guarded go() to `#chats/~new/{name}` with the chat area's pick intent, so a dirty editor asks once (M25 F4 L6, DD8) |
 | `agent-empty` | studio | Agents start page node with NO agents (the description plus the line "No agents yet."; M25 F3 L3, copy and structure changed in M25 F6 L4c) |
 | `agent-empty-new` | studio | Agents start page action "New agent" (both variants) -> `#agents/~new` (M25 F3 L3) |
