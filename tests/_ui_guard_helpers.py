@@ -62,6 +62,14 @@ _SETATTR_LITERAL = re.compile(r"setAttribute\(\s*'data-testid'\s*,\s*'([^\"'\n]+
 # setAttribute parametric: setAttribute('data-testid', 'prefix-' + ...)
 _SETATTR_PARAMETRIC = re.compile(r"setAttribute\(\s*'data-testid'\s*,\s*'([^\"'\n]+)'\s*\+")
 
+# Quoted attrs-key literal (squawk 0130): an element-builder attrs object's
+# ``'data-testid': 'foo'`` (or ``"data-testid": 'foo'``) key. The backreference
+# pairs the key's quotes; the lookahead stops a parametric value also matching.
+_KEY_LITERAL = re.compile(r"""(['"])data-testid\1\s*:\s*'([^"'\n]+)'(?!\s*\+)""")
+
+# Quoted attrs-key parametric: ``'data-testid': 'prefix-' + ...``.
+_KEY_PARAMETRIC = re.compile(r"""(['"])data-testid\1\s*:\s*'([^"'\n]+)'\s*\+""")
+
 # Library literal (DD2, M25 F1): a ``testid: 'foo'`` property handed to an
 # ``App.ui`` factory (own options, a nested option object, or a per-item
 # object). ``\b`` excludes ``rowtestid:``; the negative lookahead stops a
@@ -107,6 +115,10 @@ def extract_testids(
             literals.setdefault(testid, set()).add(rel)
         for testid in _SETATTR_LITERAL.findall(text):
             literals.setdefault(testid, set()).add(rel)
+        for _q, testid in _KEY_LITERAL.findall(text):
+            literals.setdefault(testid, set()).add(rel)
+        for _q, prefix in _KEY_PARAMETRIC.findall(text):
+            parametric.setdefault(prefix, set()).add(rel)
         for prefix in _ATTR_PARAMETRIC.findall(text):
             parametric.setdefault(prefix, set()).add(rel)
         for prefix in _SETATTR_PARAMETRIC.findall(text):

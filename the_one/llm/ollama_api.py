@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -22,6 +23,28 @@ logger = logging.getLogger(__name__)
 # `make restart` or new model pull is reflected within minutes.
 _CAPABILITIES_TTL = 300  # seconds
 _capabilities_cache: dict[tuple[str, str], tuple[frozenset[str], float]] = {}
+
+# Matches ``<a ... href="/library/{name}" ...>`` tolerant of attribute order,
+# quote style, absolute URLs, and trailing query strings / fragments.
+_LIBRARY_LINK_RE = re.compile(
+    r"""<a\b[^>]*?\bhref\s*=\s*["'](?:https?://ollama\.com)?/library/"""
+    r"""(?P<name>[A-Za-z0-9][\w.\-]*(?:/[\w.\-]+)?)/?(?:[?#][^"']*)?["']""",
+    re.IGNORECASE,
+)
+
+
+def parse_library_html(html: str) -> list[str]:
+    """Extract unique model names from the ``https://ollama.com/library`` page.
+
+    Pure (no network). Returns names in first-seen order; an empty list means
+    nothing recognisable was found, which callers should treat as a failed
+    source rather than an empty library.
+    """
+    seen: dict[str, None] = {}
+    for match in _LIBRARY_LINK_RE.finditer(html):
+        seen.setdefault(match.group("name"), None)
+    return list(seen)
+
 
 # ---------------------------------------------------------------------------
 # Helpers

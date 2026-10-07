@@ -1,10 +1,10 @@
 # Squawk 0130: The testid registry extractor misses a quoted `'data-testid':` attrs key
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-07
-**Completed**: —
+**Completed**: 2026-10-07
 
 ## Report
 
@@ -19,10 +19,13 @@ The UI guard's testid extractor does not see a testid passed as a quoted `'data-
 - The Flight 6 leg 4c flight-log entry, "Testid guard".
 
 ## Corrective Action
-*(written at completion)*
+`tests/_ui_guard_helpers.py` gains `_KEY_LITERAL` and `_KEY_PARAMETRIC`: a quoted `'data-testid':` / `"data-testid":` attrs key (key quotes paired by backreference) with a single-quoted value. A literal value lands in `literals`; a `'prefix-' + ...` value lands in `parametric`, mirroring the `setAttribute` patterns exactly. `extract_testids` runs both. The two `setAttribute('data-testid', ...)` sites in `studio.js` were left unchanged (optional; their elements are not built from an attrs object in a mechanical way), so no JS changed.
 
 ## Verification
-A guard self-test (with the existing extractor tests) proves that a quoted-key literal and a parametric key are both extracted, and that nothing extracted before is lost.
+New tests in `tests/test_ui_mechanism_testids.py`: single- and double-quoted keys and a prefix-concatenation case are extracted; a negative snippet (`data_testid:`, `'data-testid-x':`, `getAttribute('data-testid')`, a non-literal value) yields nothing; and a bite test shows the pre-0130 patterns find nothing in the same snippet while `_KEY_LITERAL` does. `tests/test_ui_mechanism_testids.py` + `tests/test_ui_guards.py`: 25 passed. `make test-unit`: 5458 passed, 10 skipped, 0 failed (no self-configuration flakes). ruff check and format --check clean. Original intent: A guard self-test (with the existing extractor tests) proves that a quoted-key literal and a parametric key are both extracted, and that nothing extracted before is lost.
 
 ## Sign-Off
-*(written at completion)*
+
+**Reviewer**: independent batch Reviewer (Haiku tier: no credential, gate, sandbox or self-configuration-identity surface in the diff); `make test-unit` 5496 passed, 10 skipped; static guards 265 passed; ruff clean
+**Verdict**: confirmed (`[HANDOFF:confirmed]`)
+**Commit**: `squawk: turnaround 2026-10-07` on branch `squawk/turnaround-2026-10-07`

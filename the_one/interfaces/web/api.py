@@ -5307,6 +5307,44 @@ _library_cache: dict[str, Any] = {"models": [], "timestamp": 0.0}
 
 _LIBRARY_CACHE_TTL = 300  # seconds
 
+_OLLAMA_LIBRARY_URL = "https://ollama.com/library"
+_OLLAMA_TAGS_URL = "https://ollama.com/api/tags"
+
+
+async def _fetch_library_models() -> list[dict[str, Any]] | None:
+    """Fetch and merge both upstream catalogs into ``[{name, size}]``.
+
+    ``/library`` (HTML) carries the full public library but no byte sizes;
+    ``/api/tags`` (JSON) carries the cloud models and sizes. A failure of one
+    source never discards the other; ``None`` means both failed (or yielded
+    nothing), so the caller keeps its stale cache.
+    """
+    merged: dict[str, dict[str, Any]] = {}
+
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(_OLLAMA_LIBRARY_URL)
+            resp.raise_for_status()
+            html = resp.text
+        for name in ollama_api.parse_library_html(html):
+            merged[name] = {"name": name, "size": 0}
+    except Exception:
+        logger.warning("Ollama library page fetch failed", exc_info=True)
+
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(_OLLAMA_TAGS_URL)
+            resp.raise_for_status()
+            data = resp.json()
+        for m in data.get("models", []):
+            name = m.get("name", "")
+            if name:
+                merged[name] = {"name": name, "size": m.get("size", 0)}
+    except Exception:
+        logger.warning("Ollama tags fetch failed", exc_info=True)
+
+    return list(merged.values()) or None
+
 
 @router.get("/ollama-library/search")
 async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
@@ -5317,16 +5355,12 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
 
     now = time.time()
     if now - _library_cache["timestamp"] >= _LIBRARY_CACHE_TTL:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get("https://ollama.com/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-            _library_cache["models"] = data.get("models", [])
+        fetched = await _fetch_library_models()
+        if fetched is not None:
+            _library_cache["models"] = fetched
             _library_cache["timestamp"] = now
-        except Exception:
-            if not _library_cache["models"]:
-                return []
+        elif not _library_cache["models"]:
+            return []
 
     results = []
     for m in _library_cache["models"]:

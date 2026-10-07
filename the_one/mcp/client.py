@@ -27,6 +27,7 @@ from mcp.client.auth.utils import extract_field_from_www_auth
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 
 from the_one.db.models import MCPSource
+from the_one.mcp._arg_coerce import coerce_arguments
 from the_one.mcp.errors import (
     MCPArgumentError,
     MCPAuthRequired,
@@ -753,6 +754,9 @@ class MCPClient:
         # skip validation per flight §5.
         tool_meta = next(t for t in self._tools_cache if t.name == name)
         if tool_meta.input_schema:
+            # Squawk 0052: some models send integers as numeric strings; coerce
+            # (copy, schema-guided) so the validated args are what goes on the wire.
+            arguments = coerce_arguments(arguments, tool_meta.input_schema)
             try:
                 jsonschema_validate(arguments, tool_meta.input_schema)
             except ValidationError as e:

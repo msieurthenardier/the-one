@@ -74,11 +74,12 @@ def test_index_appends_version_to_static_asset_refs() -> None:
     # areas/chat/composer.js and areas/chat/chat-pane.js, to 76; Leg 6 adds
     # ui/drawer.js, tool-categories.js, areas/chat/agent-drawer.js and the
     # design-language ui-drawer-section.js, to 80; Leg 7 adds settings-pages.js
-    # and jump-to.js, to 82; M25 F6 L1b adds focus-after.js, to 83.)
+    # and jump-to.js, to 82; M25 F6 L1b adds focus-after.js, to 83; squawk 0128 adds
+    # time.js and mcp-error.js, to 85.)
     import re
 
     refs = re.findall(r'(?:src|href)="/static/[^"]*?\.(?:js|css)[^"]*"', body)
-    assert len(refs) == 83
+    assert len(refs) == 85
     for ref in refs:
         assert f"?v={__version__}" in ref
         assert "?v=" in ref and "&v=" not in ref  # single query, no double-suffix

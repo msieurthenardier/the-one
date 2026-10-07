@@ -1409,6 +1409,50 @@ class TestCallToolInputValidation:
         finally:
             await c.disconnect()
 
+    async def test_numeric_string_coerced_to_int_on_wire(
+        self, patch_transport, mock_session
+    ) -> None:
+        """Squawk 0052: "42" for an integer field reaches the wire as 42."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(
+            return_value=_make_list_tools_result(
+                [_make_tool("t", "", {"type": "object", "properties": {"x": {"type": "integer"}}})]
+            )
+        )
+        mock_session.call_tool = AsyncMock(
+            return_value=_make_call_tool_result(
+                content=[_make_text_content("ok")], structured=None, is_error=False
+            )
+        )
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            original = {"x": "42"}
+            await c.call_tool("t", original)
+            mock_session.call_tool.assert_awaited_once_with("t", {"x": 42})
+            assert original == {"x": "42"}
+        finally:
+            await c.disconnect()
+
+    async def test_uncoercible_string_for_integer_still_rejected(
+        self, patch_transport, mock_session
+    ) -> None:
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(
+            return_value=_make_list_tools_result(
+                [_make_tool("t", "", {"type": "object", "properties": {"x": {"type": "integer"}}})]
+            )
+        )
+        mock_session.call_tool = AsyncMock()
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPArgumentError, match="7.5"):
+                await c.call_tool("t", {"x": "7.5"})
+            mock_session.call_tool.assert_not_called()
+        finally:
+            await c.disconnect()
+
     async def test_type_mismatch_raises_argument_error(self, patch_transport, mock_session) -> None:
         """Type mismatch raises MCPArgumentError; wire call is NOT made."""
         patch_transport(mock_session)
