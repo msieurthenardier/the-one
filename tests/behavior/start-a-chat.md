@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-05
 **Updated**: 2026-10-06 (M25 F6 leg 4b, DD14: step 2 Today time reads local 12-hour `h:mm AM/PM`; M25 F6 leg 3, squawk 0122: wording only, no expectation changed: frames judged per step with each step's frame actions listed, a recorder restart's reload sequence, step 11's geometric criterion, step 13's Description selector); 2026-10-05 (M25 F4 leg 8: finalized against the shipped build: testids, copy, routes, seeding and apparatus)
-**Last Run**: 2026-10-06-06-01-26 — pass (26/26; Light + Dark; first run, M25 F4 close gate)
+**Last Run**: 2026-10-07-11-51-23 — pass (26/26; Light + Dark; M25 F6 mission close, step 2 12-hour Today times)
 
 ## Intent
 

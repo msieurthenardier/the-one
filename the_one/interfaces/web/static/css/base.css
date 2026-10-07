@@ -9,6 +9,13 @@
      even behind the rail). */
   body { font-family: var(--font-family-sans); background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
+  /* === Links ===
+     A low-specificity default: with no global link colour, any bare <a>
+     (the provider page's "Agents" link, an empty-state link, a chat
+     markdown link) fell back to the UA blue/purple. Declared in the base
+     layer so every class-level link rule (components/areas layers) wins. */
+  a:any-link { color: var(--accent); }
+
   /* === App Shell Row (rail + sidebar + content) === */
   /* A flex row, not a grid: a hidden aside would otherwise let <main>
      auto-place into the aside's track. The rail mounts in #app-rail; the

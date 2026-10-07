@@ -1,6 +1,6 @@
 # Leg: mission-close
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Alignment](../flight.md)
 
 ## Objective

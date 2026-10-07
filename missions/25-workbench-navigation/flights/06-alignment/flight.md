@@ -5,20 +5,20 @@
 
 ## Contributing to Criteria
 
-- [ ] **SC8: Matches the approved samples.** The operator walks every redesigned surface
+- [x] **SC8: Matches the approved samples.** The operator walks every redesigned surface
   in both themes against the approved B3 board, and each deviation is fixed or explicitly
   accepted. The pre-accepted deviations D1–D5 (reference spec §13) stand.
-- [ ] **SC9: The window belongs to the product.** The operator walks their own installed
+- [x] **SC9: The window belongs to the product.** The operator walks their own installed
   v0.10.0 using `windows-native-frame-splash` steps 11–19: theme tint in both themes, a
   real OS theme flip, inactive dimming, snap layouts, Win+arrows, the upgrade keeping
   their size, Ctrl K and the splash.
-- [ ] **SC10: Operable and regression-safe** (the remainder):
+- [x] **SC10: Operable and regression-safe** (the remainder):
   - accessible names for the Tools-tab master toggles and the editor info icons
     (squawks 0113, 0114);
   - focus that no longer drops to the page after Create, Save or Test (Flight 3 Q7);
   - a page `h1` at the Agents and Library roots;
   - suites, guards and the affected behavior specs green at close.
-- [ ] **Known Issue: Ctrl K in WebView2** closes with the operator's confirmation in the
+- [x] **Known Issue: Ctrl K in WebView2** closes with the operator's confirmation in the
   installed build.
 - **The carried squawks** 0112–0116 and 0119–0125, all confirmed live by reconnaissance,
   are completed in this flight (operator decision, 2026-10-06).
@@ -44,8 +44,8 @@ green.
 - [x] **Windows install.** The operator has already installed v0.10.0, and the walk uses
   it (operator, 2026-10-06).
 - [x] **Window widths 640–1023.** "Show me first": decided during the walk (DD6).
-- [ ] **A release at mission close.** Asked at the end of the close leg (DD9). It does not
-  block planning.
+- [x] **A release at mission close.** Asked at the end of the close leg (DD9). It does not
+  block planning. *Answered 2026-10-07: a patch release, v0.10.1, after the merge.*
 
 ### Design Decisions
 
@@ -376,7 +376,7 @@ it only on a yes.
 - [x] The operator has installed v0.10.0 on their Windows machine (2026-10-06).
 - [x] The reconnaissance is in the flight log; every carried item is confirmed live or
   classified.
-- [ ] Port 8486 is free on both sides when leg 4 starts. 8485 is still the Flight 4
+- [x] Port 8486 is free on both sides when leg 4 starts. 8485 is still the Flight 4
   preview instance: re-check at leg 4, and stop that instance by PID if it is no longer
   needed.
 - [x] The operator is present for leg 4. They started this flight interactively.
@@ -387,7 +387,7 @@ it only on a yes.
   DD9)
 - [x] Design decisions documented
 - [x] Citation Audit complete (in the flight log's Reconnaissance Report)
-- [ ] Prerequisites verified (the port check at leg 4)
+- [x] Prerequisites verified (the port check at leg 4)
 - [x] Validation approach defined
 - [x] Legs defined
 
@@ -428,13 +428,13 @@ it only on a yes.
 
 ### Checkpoints
 
-- [ ] Legs 1–3 landed, each with its tests and the squawks (including 0081) completed.
-- [ ] The flight-end review of legs 1–3 confirmed, and committed before the walk, so the
+- [x] Legs 1–3 landed, each with its tests and the squawks (including 0081) completed.
+- [x] The flight-end review of legs 1–3 confirmed, and committed before the walk, so the
   walk runs on reviewed code.
-- [ ] The walk is complete: every surface's verdict and every decision-sheet item is
+- [x] The walk is complete: every surface's verdict and every decision-sheet item is
   recorded, and the inline fixes are re-verified.
-- [ ] SC9 walked and accepted by the operator on their installed build.
-- [ ] Close-out: specs re-authored where needed, gates green, criteria checked, and the
+- [x] SC9 walked and accepted by the operator on their installed build.
+- [x] Close-out: specs re-authored where needed, gates green, criteria checked, and the
   release question answered.
 
 ### Adaptation Criteria
@@ -493,7 +493,7 @@ it only on a yes.
   over this flight's own fixes on a dev instance (8486), the Flight Director's DD17 probe
   on a Windows test copy, and inline fixes under DD7. The decision sheet and SC9 were
   answered before the walk (flight log, Decisions).
-- [ ] `mission-close`:
+- [x] `mission-close`:
   - the §15 status sweep;
   - spec re-authors from walk changes;
   - affected behavior specs re-run;
@@ -507,14 +507,14 @@ it only on a yes.
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing: the unit suite, the six browser lanes, the UI guards, and the
+- [x] Tests passing: the unit suite, the six browser lanes, the UI guards, and the
   affected behavior specs
-- [ ] Squawks 0081, 0112–0116 and 0119–0125 completed
-- [ ] The Known Issue "Ctrl K in WebView2" closed
-- [ ] SC8, SC9 and SC10 checked in `mission.md` (and SC1–SC7 confirmed)
-- [ ] Documentation updated: `CLAUDE.md` and `the_one/agents.md` for every behaviour the
+- [x] Squawks 0081, 0112–0116 and 0119–0125 completed
+- [x] The Known Issue "Ctrl K in WebView2" closed
+- [x] SC8, SC9 and SC10 checked in `mission.md` (and SC1–SC7 confirmed)
+- [x] Documentation updated: `CLAUDE.md` and `the_one/agents.md` for every behaviour the
   walk changed
 
 ### Verification

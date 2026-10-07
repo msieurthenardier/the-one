@@ -3,7 +3,7 @@
 **Slug**: `chat-roundtrip`
 **Status**: active
 **Created**: 2026-07-04
-**Last Run**: 2026-10-06-06-01-26 — pass (9/9; Light steps 1–6 + Dark steps 3–6; M25 F4 close gate, chats start as a pending chat)
+**Last Run**: 2026-10-07-11-51-23 — pass (9/9; Light steps 1–6 + Dark steps 3–6; step 4 re-run after an apparatus gap; M25 F6 mission close)
 **Updated**: 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: step 3 names `GET /api/chat/sessions` as its "nothing is created yet" check, step 4 bounds "tinted" and says when to sample); 2026-10-05 (M25 F4 leg 8: step 3 starts through New chat and the agent picker, as a pending chat; steps 4 and 6 name the session the first send creates; the Dark variant runs in its own fresh context)
 
 ## Intent

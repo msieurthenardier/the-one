@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-05
 **Updated**: 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-02 (M25 F3: list and detail; New → `#agents/~new`, list rows, breadcrumb, no Back)
-**Last Run**: 2026-10-02-12-46-53 (pass — LIGHT 9/9 + DARK 9/9; M25 F3 close gate, list-and-detail shell; see runs/)
+**Last Run**: 2026-10-07-11-51-23 (pass — LIGHT 9/9 + DARK 9/9; M25 F6 mission close, Agents start page re-authored in leg 4c; see runs/)
 
 ## Intent
 

@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-10-02
 **Updated**: 2026-10-06 (steps 2, 8, 10, 15 and 17: the Agents and Library start pages, M25 F6 leg 4c); 2026-10-06 (step 2: the visually hidden root `h1`, M25 F6 leg 1a); 2026-10-05 (step 20: Providers tiles, M25 F3 leg 7)
-**Last Run**: 2026-10-05-14-53-19 (targeted re-run after leg 7, steps 18 and 20 in both themes: 4/4 pass); full run 2026-10-02-12-08-59 (38/38; see runs/)
+**Last Run**: 2026-10-07-11-51-23 — pass (38/38; Light + Dark; M25 F6 mission close, start pages re-authored in leg 4c; see runs/)
 
 ## Intent
 

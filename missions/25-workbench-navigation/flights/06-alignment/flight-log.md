@@ -75,7 +75,13 @@ This is a read-only sweep of `main` at `aaee705` (v0.10.0) by a Sonnet agent, on
 - **Docs read-through:** `the_one/agents.md` already described DD2, DD4, DD5, DD10, DD13-DD17
   and DD19; no edit. `CLAUDE.md` already covered DD2, DD4, DD10, DD14-DD16; added one brief
   paragraph for DD5, DD13, DD17 and DD19.
-- Gates and the Flight Director's parts remain; the leg stays in-flight.
+- **Status: completed (2026-10-07).** The gates, the behavior re-runs, the design system and the SC ticks are all done.
+- **Inline fixes (Developer part).** A1: `css/base.css` gained `a:any-link { color: var(--accent); }` in the base layer (every class-level link rule in the components/areas layers still wins); the provider page's "Agents" link rendered the UA blue in Light. Audit of app-content `<a>`: bare (no colour rule) were the provider help link, the agent Knowledge tab empty-state link, and chat markdown links; all now take `--accent`. Already styled and unchanged: `chat-welcome-link`, `.mcp-empty-state a`, `.mcp-auth-required-notice a`, breadcrumb, rail, nav-groups, list-pane and tile links. Not chased: none found. `--accent` on `--bg`/`--surface` is an audited AA pair (`test_design_tokens_a11y.py`); no new pair. New test `test_models_help_agents_link_uses_accent_colour[light|dark]` in `tests/browser/test_flow_provider_editor.py` (settings lane); fails without the base.css rule (link `rgb(158, 158, 255)` vs accent `rgb(167, 139, 250)`), passes with it. A2: the `tools-form-helpers.js` comment now says the info button is named by `aria-label` alone and the control's `aria-describedby` points at the hidden `descSpan` (still emitted).
+- **Gates** (all `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python`, after the inline fixes):
+  1. Static guards (8 files, `scripts/run-tests.sh ... -x --timeout 60`): 362 passed, 3.8s.
+  2. ruff check + format --check: all passed, 528 files formatted.
+  3. `make test-unit`: 5439 passed, 12 skipped, 1898 deselected, 12:01 (725s). The first attempt was stopped at 78% by the harness's 30-minute background cap (no failure; rerun with a longer cap, clean).
+  4. Browser lanes (`--lane <lane> -q`): chats 168 passed (4:30); agents 153 passed, 2 skipped (6:16); library 153 passed, 1 skipped (8:39); settings 203 passed (6:35); contracts (`THE_ONE_REQUIRE_WEBKIT=1`) 672 passed, 3 skipped (3:01); shared 465 passed (12:06). No flakes or reruns.
 
 ### Leg 4c: root-pages
 
@@ -495,6 +501,58 @@ This is a read-only sweep of `main` at `aaee705` (v0.10.0) by a Sonnet agent, on
        button carries `aria-describedby`. It is **fixed with leg 6's gates**.
 - **Leg 5 is completed.** It is committed with leg 6's documents. Leg 6 stays in flight
   for the behavior re-runs, the gates and the SC ticks.
+- **Leg 6's behavior re-runs (2026-10-07): all seven passed.**
+  - **Setup:**
+    - live Executor and Validator pairs;
+    - cold cache, with a fresh Chromium and profile per variant;
+    - each run on its own instance (8487–8494) and scratch data dir;
+    - per-run checkpoint ledgers;
+    - one shared timestamp, `2026-10-07-11-51-23`.
+  - **Batches:**
+    - batch A (four specs) ran concurrently;
+    - batch B (three specs) followed, overlapping the end of list-and-detail.
+  - **Results** (run logs under `tests/behavior/{slug}/runs/2026-10-07-11-51-23.md`; each spec's Last Run line updated):
+
+    | Spec | Checkpoints | Notes |
+    |---|---|---|
+    | `chat-roundtrip` | 9/9 | Light 1–6, Dark 3–6. Step 4 was INCONCLUSIVE on its first attempt (the Executor's sampler selector matched nothing) and passed on an Orchestrator-ordered re-run. |
+    | `workbench-navigation` | 28/28 | Light and Dark. |
+    | `start-a-chat` | 26/26 | Light and Dark. The 12-hour Today times held in both themes. |
+    | `list-and-detail` | 38/38 | Light and Dark. |
+    | `shell-navigation-smoke` | 8/8 judged | Step 2 is a setup row. |
+    | `studio-agent-crud` | 18/18 | Light and Dark. |
+    | `system-provider-config` | 20/20 | Light and Dark. |
+
+  - **Process slips, none affecting a verdict:**
+    - list-and-detail's Executor seeded twice before Dark. It caught this from the counts and tore down fully. The Validator verified the clean re-seed with its own GETs.
+    - Some Dark reports in workbench-navigation (step 4) and list-and-detail (step 3) were adapted from the Light text. The Validators judged those steps from the Dark evidence files, and the Executors were told to write the rest fresh.
+    - In studio-agent-crud, a duplicate background run of the Dark step 9 script found no Delete button and changed nothing.
+  - **The armed-delete wait point.** The armed state lapses after about 3 s while it is being judged. So studio-agent-crud step 9 and system-provider-config step 10 re-armed with one recorded click, then confirmed inside the window. This is an orchestration accommodation, not a spec deviation, and it also exercised the confirm-lapse cue.
+  - **One product defect found:** an unthemed link. In Light, the "Available models" help line's "Agents" link rendered in the browser-default blue, with no global link colour. It is fixed in leg 6's inline batch, with a test.
+  - **Spec wording drift** from this flight's intended changes is listed in each run log's Validator closing. It is carried to the flight debrief, not fixed here:
+    - shell-navigation-smoke step 9's "first sample", which a sample at navigation commit cannot meet;
+    - system-provider-config's intro line, toasts and visually hidden "Used by";
+    - studio-agent-crud's single-provider pre-selection.
+  - **Observations (not defects):**
+    - the rail's Settings href reads `#settings/appearance` while on Settings;
+    - the subtle pending-row wash in Dark (alpha 0.1);
+    - the grey "mock" badge, which is legible but low-contrast;
+    - the Design language page's own `role=alert` demos;
+    - the provider delete arm lands after the agent-usage pre-fetch (about 0.1 s).
+- **Leg 6's gates and inline batch.**
+  - **The Developer's work:** the link fix (`a:any-link` in `base.css`, with a two-theme test), the `tools-form-helpers.js` comment, and every gate green. The counts are in "Leg 6" above.
+  - **The batch review.** Both reviewers confirmed (`[HANDOFF:confirmed]`) with no issues.
+    - **Reviewer:** Haiku, because the batch touches no security surface. Its checks:
+      - the cascade, `tokens < base < components < areas < utilities`, so every class-level link rule still wins;
+      - the test, which fails without the fix;
+      - the static guards, 261 passed;
+      - the artifacts' consistency.
+    - **Accessibility Reviewer:** Sonnet. Its checks:
+      - `--accent` link text measures at least 5.62:1 on every surface it can sit on, both themes, with the translucent bubbles composited;
+      - the UA underline is kept (1.4.1);
+      - focus and forced colours are unaffected.
+    - **The theoretical case it flagged:** a link on the API user bubble (`--accent-api`). This cannot occur, because only assistant messages render markdown (`message-bubble.js`).
+- **Leg 6 is completed**, and SC1–SC10 are ticked in `mission.md` with their evidence.
 - **2026-10-06, during planning: the provider Models list (DD10).**
   - **Reported:** "you can't select a model on the provider page" (an Anthropic and a
     Claude Max provider).

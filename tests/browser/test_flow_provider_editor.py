@@ -557,3 +557,39 @@ def test_thinking_toggle_cancel_reverts(app_clean: str, page: Page) -> None:
     expect(page.locator("#pf-thinking-enabled")).not_to_be_checked()
     expect(page.locator(".save-btn")).to_be_disabled()
     expect(page.locator(".cancel-btn")).to_be_disabled()
+
+
+# ── Inline link colour (mission-close A1) ─────────────────────────────────
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_models_help_agents_link_uses_accent_colour(
+    app_with_provider: SeededApp, page: Page, theme: str
+) -> None:
+    """A bare <a> has no class rule of its own; without the base-layer link
+    default it rendered in the UA blue. It must resolve to --accent in both
+    themes."""
+    page.add_init_script(
+        f"try {{ localStorage.setItem('theme-preference', '{theme}'); }} catch (e) {{}}"
+    )
+    _nav.goto(
+        page,
+        app_with_provider.base_url,
+        f"settings/providers/{_nav.seg(app_with_provider.provider_id)}",
+    )
+    link = page.locator('[data-testid="provider-models-agents-link"]')
+    expect(link).to_be_visible(timeout=8000)
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    colors = page.evaluate(
+        """() => {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--accent)';
+          document.body.appendChild(probe);
+          const accent = getComputedStyle(probe).color;
+          probe.remove();
+          const link = document.querySelector('[data-testid="provider-models-agents-link"]');
+          return { link: getComputedStyle(link).color, accent };
+        }"""
+    )
+    assert colors["link"] == colors["accent"], colors

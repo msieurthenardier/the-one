@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-03
 **Updated**: 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-06 (M25 F6 leg 3, squawk 0122: wording only, no expectation changed: the empty-instance branch in Preconditions, step 2's inferred baseline, step 8's true reload, step 9's hash sample); 2026-10-05 (M25 F3: the Agents list, the Library groups; Providers as tiles, leg 7. M25 F4 leg 8: step 1's Jump to control, step 3 re-authored for the Chats list, the chat pane and the empty and guidance states)
-**Last Run**: 2026-10-06-06-01-26 — pass (9/9; M25 F4 close gate, empty instance)
+**Last Run**: 2026-10-07-11-51-23 — pass (8/8 judged; step 2 a setup row; M25 F6 mission close, empty instance, start pages re-authored in leg 4c)
 
 ## Intent
 
