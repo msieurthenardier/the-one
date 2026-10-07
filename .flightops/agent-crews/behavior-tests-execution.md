@@ -36,8 +36,9 @@ rather than guessing or falling back to the default port.
 
 ## Run rules (this project)
 
-Six rules the Flight Director used to carry by hand in every spawn prompt (Mission 25
-Flight 2 debrief, recommendation 1; Flight 3 debrief, recommendation 5). The operative text
+Eleven rules the Flight Director used to carry by hand in every spawn prompt (Mission 25
+Flight 2 debrief, recommendation 1; Flight 3 debrief, recommendation 5; rules 7 to 11 from
+the Flight 4 and Flight 5 close gates, squawk 0121). The operative text
 is in the Executor and Validator prompts below; this list is the why.
 
 1. **Per-run scratch.** Each run's agents keep their helper scripts and temporary files in
@@ -61,6 +62,27 @@ is in the Executor and Validator prompts below; this list is the why.
 6. **Toast evidence is a screenshot.** A toast or flash is `position: fixed`, so its
    `offsetParent` is always null; `offsetParent` (or a `role=status` filter) missed toasts
    that the screenshots showed.
+7. **Driver and browser lifetime.** The CDP Chromium's state (session cookie, theme in
+   `localStorage`) must outlive each step. Use one long-lived driver process per run that
+   holds the CDP connection, or a fresh Chromium process with a fresh `--user-data-dir` per
+   variant, driven through its persistent default context. Never a `new_context()` that a
+   short-lived script owns: that context is destroyed when the script disconnects. At the
+   Flight 4 close gate three of five Executors lost their cookie and theme this way (one
+   apparatus re-run, one step redone).
+8. **PIDs, stopped by PID only.** Record every PID at launch (the Chromium, the driver)
+   and stop only those. Never `pkill -f` or `killall` with a pattern: one such pattern
+   matched its own shell, and another run's Chromium exited at the same time.
+9. **Report-file hand-off.** The Executor writes each step's report to
+   `{evidence-dir}/step-N[-variant]-report.json` without `executor_notes`, and the
+   Orchestrator hands the Validator that path. The Validator reads the file, so the notes
+   never reach it and a burst of reports is not retyped.
+10. **Checkpoint ledger for concurrent runs.** The Orchestrator keeps one ledger per run, a
+   line per checkpoint (step, variant, Executor reported, handed to the Validator, verdict),
+   and checks that every Executor step was handed to the Validator before it sends the next
+   step. One hand-off was skipped in a burst of reports and judged late.
+11. **Verify evidence paths.** Before reporting, the Executor checks that every path it lists
+   in `evidence_paths` exists (and is non-empty); the Validator checks each path it cites.
+   A listed path that was never written costs the step its evidence.
 
 ## Crew
 
@@ -155,13 +177,16 @@ parses.
 ### Variants and concurrent runs
 
 - **Variants.** A spec's Variants (for example Light and Dark) each run in their own fresh
-  browser context (a new handoff mint). The Executor sets the variant inside that context
+  browser context (a new handoff mint), kept alive per rule 7 (never a `new_context()` owned
+  by a short-lived script). The Executor sets the variant inside that context
   before the variant's first checkpoint, and the Validator checks the variant is in effect
   (for a theme: `aria-checked="true"` on the option and `data-theme` on `<html>`) before
   judging any variant-dependent expectation.
 - **Concurrent runs.** Several specs may run at once, each against its own dev instance.
   Every agent keeps its files in its own per-run scratch subdirectory
   (`<scratchpad>/{test-slug}-{run-timestamp}/`), never a shared path or a generic name.
+  The Orchestrator keeps a per-run checkpoint ledger (rule 10), and every PID a run starts
+  is recorded and stopped by PID only (rule 8).
 
 ### Actions-only rows
 
@@ -281,6 +306,24 @@ PROJECT RUN RULES (this project's crew file, "Run rules")
   and stay in that context for the whole variant: a fresh tab must
   open in the same context. A choice made in another context does not
   carry over (the theme lives in the context's `localStorage`).
+- BROWSER LIFETIME: drive the browser from ONE long-lived driver
+  process for the whole run (it holds the CDP connection), or start a
+  fresh Chromium process with a fresh `--user-data-dir` per variant and
+  drive its persistent default context. NEVER use a `new_context()`
+  that a short-lived script owns: it is destroyed when that script
+  disconnects, taking the session cookie and theme with it.
+- PIDS: record the PID of every process you launch (Chromium, driver)
+  at launch, in your scratch directory. Stop processes by those PIDs
+  only. Never `pkill -f`, `pkill` or `killall` with a pattern: it can
+  match your own shell or another run's browser.
+- REPORT FILE: write each step's structured report (the JSON in "PER-STEP
+  REPORT FORMAT" below, WITHOUT `executor_notes`) to
+  `{evidence-dir}/step-N[-variant]-report.json` before you signal
+  `[STEP:N:done]`, and name that path in your reply. The Validator reads
+  the file. Put `executor_notes` only in your reply.
+- EVIDENCE PATHS: before reporting, verify that every path you list in
+  `evidence_paths` exists and is non-empty. Drop or redo any that does
+  not (a redo may only be a read-only observation).
 - TOASTS: evidence for a toast or flash (any `position: fixed`
   element) is a screenshot taken while it shows, plus its text. Never
   use `offsetParent` to decide whether it rendered (it is always null
@@ -422,6 +465,17 @@ PROJECT RUN RULES (this project's crew file, "Run rules")
   that the variant was in effect (for a theme: `aria-checked="true"`
   on the option and `data-theme` on `<html>`). Evidence from the
   wrong variant does not meet the step.
+- REPORT FILE: the Executor's structured report arrives as a file,
+  `{evidence-dir}/step-N[-variant]-report.json` (it carries no
+  `executor_notes`). Read the file for every step; if the Orchestrator
+  has not handed you the path, or the file is missing, say so rather
+  than judging from a retyped summary.
+- EVIDENCE PATHS: open every evidence path you cite; if a listed path
+  does not exist, say so in `validator_notes`, and judge only from what
+  you can read.
+- PIDS: if you start a process for a fresh observation, record its PID
+  and stop it by PID only, never with `pkill -f` or `killall`, and
+  never touch the Executor's processes.
 - TOASTS: judge a toast or flash from a screenshot. An
   `offsetParent`-based (or `role=status`-filtered) "no toast" is not
   evidence of absence: a `position: fixed` element always has a null
@@ -498,8 +552,10 @@ Actions to perform:
 {step-actions}
 
 Perform the actions in order. Capture raw state after all actions
-complete. Save evidence to {evidence-dir}. Return your structured
-report and signal `[STEP:{step-number}:done]`.
+complete. Save evidence to {evidence-dir}. Write your structured
+report to `{evidence-dir}/step-{step-number}[-variant]-report.json`
+(without `executor_notes`), verify every evidence path exists, return
+the report and signal `[STEP:{step-number}:done]`.
 
 If an action raises an exception, capture what state you got to,
 return the report with the exception noted in `executor_notes`, and
@@ -520,6 +576,7 @@ Expected Results:
 
 Executor's structured report:
 {executor-step-report}
+(Also read the report file `{evidence-dir}/step-{step-number}[-variant]-report.json`.)
 
 Render your verdict. If the Executor's `raw_state` is sufficient,
 judge directly. Otherwise take a fresh (read-only) observation. Return

@@ -3947,3 +3947,22 @@ class TestPlanCredentialSourceEvictionWiring:
         assert resp.status_code == 200
         assert plan_credentials.get_credential_source(provider_id) is not before
         plan_credentials._reset_for_tests()
+
+
+class TestCreateProviderValidation:
+    """Squawks 0112 / 0081: a missing field is a 422, never a 500."""
+
+    async def test_missing_base_url_returns_422(self, client: AsyncClient) -> None:
+        resp = await client.post("/api/providers", json={"name": "p", "type": "openai"})
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert isinstance(detail, list)
+        assert any("base_url" in item["loc"] for item in detail)
+
+    async def test_422_does_not_echo_api_key(self, client: AsyncClient) -> None:
+        secret = "sk-super-secret-value-123456"
+        resp = await client.post(
+            "/api/providers", json={"name": "p", "type": "openai", "api_key": secret}
+        )
+        assert resp.status_code == 422
+        assert secret not in resp.text

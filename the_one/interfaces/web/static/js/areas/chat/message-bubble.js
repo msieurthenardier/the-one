@@ -103,21 +103,20 @@
     return el;
   }
 
-  // Format an ISO timestamp as "HH:MM:SS UTC". Returns "" for falsy input.
+  // Format an ISO timestamp as a LOCAL 12-hour clock time ("3:45 PM", DD14).
+  // Returns "" for falsy or invalid input. A time-zone setting and a time tool
+  // are GitHub issue #223.
   function fmtTs(ts) {
     if (!ts) return '';
     var d = new Date(ts);
     if (isNaN(d.getTime())) return '';
-    var hh = String(d.getUTCHours()).padStart(2, '0');
-    var mm = String(d.getUTCMinutes()).padStart(2, '0');
-    var ss = String(d.getUTCSeconds()).padStart(2, '0');
-    return hh + ':' + mm + ':' + ss + ' UTC';
+    return window.App.time.formatClock(d);
   }
 
   // Builds an attribution label: <div class="msg-attribution {side}">{text}<span class="msg-attribution-ts">{ts}</span></div>.
   // side is 'from-you' (user) or 'from-agent' (everything else). ts is an
-  // optional ISO 8601 timestamp string; if present, it renders as a UTC time
-  // suffix. Per-session timezone preference belongs in a future settings flight.
+  // optional ISO 8601 timestamp string; if present, it renders as a local
+  // 12-hour time suffix (no seconds).
   function renderAttribution(side, text, ts) {
     var el = document.createElement('div');
     el.className = 'msg-attribution ' + side;

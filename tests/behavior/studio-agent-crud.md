@@ -3,7 +3,7 @@
 **Slug**: `studio-agent-crud`
 **Status**: active
 **Created**: 2026-07-05
-**Updated**: 2026-10-02 (M25 F3: list and detail; New → `#agents/~new`, list rows, breadcrumb, no Back)
+**Updated**: 2026-10-06 (M25 F6 leg 4c: the Agents and Library start pages replace the old empty-state copy in the steps that quote it); 2026-10-02 (M25 F3: list and detail; New → `#agents/~new`, list rows, breadcrumb, no Back)
 **Last Run**: 2026-10-02-12-46-53 (pass — LIGHT 9/9 + DARK 9/9; M25 F3 close gate, list-and-detail shell; see runs/)
 
 ## Intent
@@ -59,7 +59,7 @@ theme-coupled render regression in the editor surfaces.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` includes `mock`; seed the mock provider via `POST /api/providers` (body above) and record its `id`. | (empty) |
-| 2 | Defeat client caching (fresh tab / hard reload, ignore cache), navigate to `http://localhost:8485/`, click the rail's **Agents** link (`#agents`). | The Agents destination renders as a list beside a detail pane. The list column shows a list titled "Agents" with a "New" button (`new-agent-btn`, accessible name "New agent"), plus either agent rows or the line "No agents yet.". The detail pane shows the matching empty state ("Select an agent to edit it, or create a new one.", or "No agents yet. Create one to get started."). No error banner. |
+| 2 | Defeat client caching (fresh tab / hard reload, ignore cache), navigate to `http://localhost:8485/`, click the rail's **Agents** link (`#agents`). | The Agents destination renders as a list beside a detail pane. The list column shows a list titled "Agents" with a "New" button (`new-agent-btn`, accessible name "New agent"), plus either agent rows or the line "No agents yet.". The detail pane shows the Agents start page (the description "An agent is an assistant you set up for a kind of work." and a "New agent" button), with the line "Pick an agent from the list to edit it." or "No agents yet." matching the list column. No error banner. |
 | 3 | Click the **New** button (`new-agent-btn`). | The hash is `#agents/~new`. The agent editor opens in create mode in the detail pane, beside the list: <ul><li>the **General** tab (`tab-general`) is the selected tab panel;</li><li>its fields (Name, Description, Provider, Model) are visible and empty or default;</li><li>the Create button (`save-agent-btn`) is present and **disabled** (nothing entered yet).</li></ul> |
 | 4 | In the General tab, type a distinctive Name (e.g. `Behave CRUD Agent`) and a Description; select the seeded **Mock (studio-agent-crud)** provider from the Provider dropdown; then select a Model (e.g. `mock-default`) from the now-populated Model dropdown. | The Name and Description fields show the typed text; the Provider dropdown shows the mock provider selected (the disabled "No provider" placeholder is gone); the Model dropdown is enabled and shows the chosen model; the Create/Save button (`save-agent-btn`) is now **enabled**. |
 | 5 | Click **Create/Save** (`save-agent-btn`). | The save succeeds (no error flash). The editor settles into edit mode for the new agent: the button reads "Save" and is disabled again, and there is no "Unsaved changes" text. The hash is `#agents/Behave%20CRUD%20Agent/general` (or the same name with the browser's own encoding of the space). |

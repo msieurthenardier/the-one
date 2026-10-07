@@ -3509,6 +3509,12 @@ class TestMCPSourceAPI:
 
 
 class TestChatSessionAPI:
+    async def test_create_invalid_returns_422(self, client: AsyncClient) -> None:
+        # Squawk 0081: a ValidationError is a 422, not an unhandled 500.
+        resp = await client.post("/api/chat/sessions", json={"title": {"not": "a string"}})
+        assert resp.status_code == 422
+        assert isinstance(resp.json()["detail"], list)
+
     async def test_crud(self, client: AsyncClient) -> None:
         # Need an agent first
         await client.post("/api/agents", json={"name": "agent1"})

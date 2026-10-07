@@ -144,10 +144,13 @@ def test_providers_tile_anatomy_and_used_by_counts(
     assert "Used by" in used.text_content()
     # Reading order: name link, then the badge, then (URL,) "Used by" (SC 1.3.2).
     order = first.evaluate(
-        """(t) => [...t.children].map((c) => c.classList.contains('provider-tile-link') ? 'link'
+        """(t) => [...t.querySelectorAll(
+          '.provider-tile-link, .badge, .provider-tile-url, .provider-tile-used'
+        )].map((c) => c.classList.contains('provider-tile-link') ? 'link'
           : c.classList.contains('badge') ? 'badge'
           : c.classList.contains('provider-tile-url') ? 'url' : 'used')"""
     )
+    # DD3: the name and badge share a title row (flex), still in that order.
     assert order == ["link", "badge", "used"], order
     assert used.evaluate("(n) => getComputedStyle(n).whiteSpace") == "nowrap"
     # Pre-accepted deviations D1/D2: no Status, no health banner.

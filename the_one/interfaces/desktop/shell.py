@@ -641,6 +641,9 @@ class DesktopSession:
                     # Created hidden, tinted, then shown (first-paint order).
                     "hidden": True,
                     "min_size": MIN_SIZE,
+                    # pywebview defaults text_select=False, which injects
+                    # `body { user-select: none }` and blocks copying a reply.
+                    "text_select": True,
                 }
 
                 def _resolve_screens() -> list:

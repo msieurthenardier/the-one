@@ -91,7 +91,8 @@ def _stamps(page: Page, specs: list[list[Any]]) -> list[dict[str, Any]]:
 
 
 def _hhmm(s: dict[str, Any]) -> str:
-    return f"{s['h']:02d}:{s['m']:02d}"
+    """The Today time as the list draws it: local 12-hour, ``h:mm AM/PM`` (DD14)."""
+    return f"{s['h'] % 12 or 12}:{s['m']:02d} {'AM' if s['h'] < 12 else 'PM'}"
 
 
 def _md(s: dict[str, Any]) -> str:
@@ -120,7 +121,7 @@ def test_groups_boundaries_times_and_cross_agent_rows(
 ) -> None:
     """Day 0, 1, 2, 6, 7, 29, 30 and 400 land in Today, Yesterday, Last 7 days
     (2 and 6), Last 30 days (7 and 29) and Older (30 and 400), newest first,
-    under sentence-case captions, with HH:MM / weekday / "Mon D" times. The
+    under sentence-case captions, with h:mm AM/PM / weekday / "Mon D" times. The
     rows interleave agents, a null agent reads "Default agent", and a connector
     row carries its platform as a neutral plain badge."""
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
@@ -430,3 +431,25 @@ def test_chats_column_is_300px_with_a_full_width_new_chat(
     assert geo["title"] == "Chats" and geo["filter"] is False, geo
     assert geo["btnW"] == geo["inner"] and geo["btnH"] == 36, geo
     assert "btn-filled-primary" in geo["cls"] and "btn-lg" in geo["cls"] and geo["svg"], geo
+
+
+def test_clock_formatter_edges(app_with_agent: SeededApp, page: Page) -> None:
+    """``App.time.formatClock`` (DD14): local 12-hour ``h:mm AM/PM``, no leading
+    zero on the hour, at midnight, noon and the minutes around them."""
+    _nav.goto(page, app_with_agent.base_url, "chats")
+    got = page.evaluate(
+        """() => [[0, 0], [0, 5], [9, 7], [11, 59], [12, 0], [12, 59], [13, 0],
+                  [15, 45], [23, 59]]
+          .map(([h, m]) => App.time.formatClock(new Date(2026, 5, 15, h, m, 30)))"""
+    )
+    assert got == [
+        "12:00 AM",
+        "12:05 AM",
+        "9:07 AM",
+        "11:59 AM",
+        "12:00 PM",
+        "12:59 PM",
+        "1:00 PM",
+        "3:45 PM",
+        "11:59 PM",
+    ]

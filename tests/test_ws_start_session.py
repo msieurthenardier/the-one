@@ -169,6 +169,14 @@ class Do:
             await result
 
 
+class NoYield:
+    """Script step: a frame delivered WITHOUT the receive's usual yield, so a
+    task spawned by the previous frame has not run its first step yet."""
+
+    def __init__(self, frame: dict) -> None:
+        self.frame = frame
+
+
 class FakeWebSocket:
     """Copied from ``test_ws_message_branch_crash_guard.py`` and extended
     with awaitable script steps (``Wait``/``WaitFrame``/``Do``) and an
@@ -186,10 +194,14 @@ class FakeWebSocket:
         self.accepted = True
 
     async def receive_text(self) -> str:
-        # Yield like a real receive, so just-spawned tasks get to run.
-        await asyncio.sleep(0)
+        # Yield like a real receive, so just-spawned tasks get to run (a
+        # `NoYield` frame is the one exception).
+        if not (self._script and isinstance(self._script[0], NoYield)):
+            await asyncio.sleep(0)
         while self._script:
             step = self._script.pop(0)
+            if isinstance(step, NoYield):
+                step = step.frame
             if isinstance(step, dict):
                 self.consumed.append(step)
                 return json.dumps(step)
@@ -316,6 +328,9 @@ async def _settle(ws: FakeWebSocket, n_consumed: int) -> None:
 def _reset_state() -> None:
     _inflight_tasks.clear()
     _session_inflight.clear()
+    app_module._cancel_tokens.clear()
+    app_module._started_tasks.clear()
+    app_module._running_tasks.clear()
     app_module._start_reservations.clear()
     app_module._sessions.clear()
     clear_for_test()
@@ -716,6 +731,35 @@ class TestExistingIdJoins:
         assert ws.types()[-1] == "session_list"
         assert ws.frames("start_failed") == []
         assert recorder.steps == [("alpha", "first")]
+
+    async def test_degraded_same_id_rejoin_unsubscribes_the_socket(
+        self, recorder: _Recorder
+    ) -> None:
+        """Squawk 0119: `join` of the already-bound id, degraded, drops the sub."""
+        sid = _sid(12)
+        await _precreate(sid)
+        state: dict[str, Any] = {}
+
+        def _delete_agent() -> None:
+            state["session"] = app_module._sessions[sid]
+            recorder.missing_agents.add("alpha")
+
+        ws = FakeWebSocket(
+            [
+                {"action": "join", "session_id": sid},
+                Do(lambda: state.__setitem__("bound", ws in app_module.subscribers_for(sid))),
+                Do(_delete_agent),
+                {"action": "join", "session_id": sid},
+                Do(lambda: _probe(state["session"])()),
+                {"action": "list_sessions"},
+            ]
+        )
+        await _run(ws)
+
+        assert state["bound"] is True
+        assert ws.frames("session_joined")[-1]["status"] == "agent_deleted"
+        assert ws not in app_module.subscribers_for(sid)
+        assert "probe" not in ws.types()
 
 
 # ── AC5: the reservation ──────────────────────────────────────────────────
@@ -1132,3 +1176,113 @@ async def test_new_session_is_gone_and_creates_nothing(recorder: _Recorder) -> N
     assert ws.frames("system") == []
     assert await _row_ids() == set()
     assert recorder.creates == []
+
+
+# ── Squawk 0120: exactly one `cancelled` per `cancel` ─────────────────────
+
+
+class TestCancelSendsExactlyOneCancelled:
+    async def test_a_cancel_before_the_spawned_task_starts(self, recorder: _Recorder) -> None:
+        sid = _sid(30)
+        await _precreate(sid)
+        ws = FakeWebSocket(
+            [
+                {"action": "join", "session_id": sid},
+                {"action": "message", "message": "never"},
+                NoYield({"action": "cancel"}),
+                WaitFrame("cancelled"),
+                Do(_drain_turns),
+            ]
+        )
+        await _run(ws)
+
+        assert len(ws.frames("cancelled")) == 1
+        assert recorder.steps == []
+        assert not app_module.session_locks[sid].locked()
+        assert app_module._session_inflight == {}
+        assert app_module._cancel_tokens == {}
+        assert not app_module.is_session_processing(sid)
+
+    async def test_a_cancel_while_the_task_waits_on_the_session_lock(
+        self, recorder: _Recorder
+    ) -> None:
+        sid = _sid(31)
+        await _precreate(sid)
+        lock = app_module.session_locks[sid]
+        await lock.acquire()
+        released: list[bool] = []
+
+        def _release() -> None:
+            lock.release()
+            released.append(True)
+
+        ws = FakeWebSocket(
+            [
+                {"action": "join", "session_id": sid},
+                {"action": "message", "message": "queued"},
+                Do(lambda: _until(lambda: len(app_module._started_tasks) == 1)),
+                {"action": "cancel"},
+                WaitFrame("cancelled"),
+                Do(_release),
+                Do(_drain_turns),
+            ]
+        )
+        await _run(ws)
+
+        assert released == [True]
+        assert len(ws.frames("cancelled")) == 1
+        assert recorder.steps == []
+        assert not lock.locked()
+        assert app_module._session_inflight == {}
+        assert app_module._cancel_tokens == {}
+        assert not app_module.is_session_processing(sid)
+
+    async def test_a_cancel_of_a_running_turn(self, recorder: _Recorder) -> None:
+        sid = _sid(32)
+        await _precreate(sid)
+        recorder.gates["slow"] = asyncio.Event()
+        ws = FakeWebSocket(
+            [
+                {"action": "join", "session_id": sid},
+                {"action": "message", "message": "slow"},
+                Wait(recorder.started("slow")),
+                {"action": "cancel"},
+                WaitFrame("cancelled"),
+                Do(_drain_turns),
+            ]
+        )
+        await _run(ws)
+
+        assert len(ws.frames("cancelled")) == 1
+        assert not app_module.session_locks[sid].locked()
+        assert app_module._session_inflight == {}
+        assert app_module._cancel_tokens == {}
+        assert not app_module.is_session_processing(sid)
+
+    async def test_one_cancel_over_a_running_turn_and_an_unstarted_one(
+        self, recorder: _Recorder
+    ) -> None:
+        sid = _sid(33)
+        await _precreate(sid)
+        recorder.gates["slow"] = asyncio.Event()
+        ws = FakeWebSocket(
+            [
+                {"action": "join", "session_id": sid},
+                {"action": "message", "message": "slow"},
+                Wait(recorder.started("slow")),
+                {"action": "message", "message": "second"},
+                NoYield({"action": "cancel"}),
+                WaitFrame("cancelled"),
+                Do(_drain_turns),
+            ]
+        )
+        await _run(ws)
+
+        cancelled_at = ws.types().index("cancelled")
+        assert len(ws.frames("cancelled")) == 1
+        assert recorder.steps == [("alpha", "slow")]
+        assert not app_module.session_locks[sid].locked()
+        assert app_module._session_inflight == {}
+        assert app_module._cancel_tokens == {}
+        assert not app_module.is_session_processing(sid)
+        assert cancelled_at == len(ws.types()) - 1 or "done" not in ws.types()[cancelled_at:]

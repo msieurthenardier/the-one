@@ -1,10 +1,10 @@
 # Squawk 0113: Built-in Tools tab category master toggles have no accessible name
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-01
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -35,4 +35,14 @@ name is the visible tile heading next to it, so sighted operators are unaffected
 
 ## Corrective Action
 
-*(written at completion)*
+The Tools tab's category master checkbox (`areas/studio/tools-tab.js`) now carries `aria-label="Enable all {category} tools"`, set through `setAttribute` (no HTML-string sink).
+
+Commit: pending the Flight 6 legs 1-3 commit.
+
+## Verification
+
+`tests/browser/test_flow_agents_root_heading.py::test_tools_tab_category_master_toggles_are_named` (agents lane) asserts the label on every master toggle.
+
+## Sign-Off
+
+**Reviewer**: pending the Flight 6 leg review

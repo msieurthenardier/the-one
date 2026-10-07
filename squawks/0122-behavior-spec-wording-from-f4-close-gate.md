@@ -1,10 +1,10 @@
 # Squawk 0122: Behavior-spec wording fixes raised by the Flight 4 close-gate Validators
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-06
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -49,17 +49,42 @@ The Validator closings in `tests/behavior/{jump-to-palette,shell-navigation-smok
 
 ## Corrective Action
 
-*(written at completion)*
+Wording only, in the five specs, each with an `Updated` line and no expectation changed:
+- `jump-to-palette`: step 8's hash is `#chats/{chatId}` with the picker over it; step 9 and
+  its expectations name the field by `id` `studio-description` (no `data-testid`, select by
+  `#studio-description`); step 12 counts dialogs while the confirm is open; the Variants
+  state the scrim alpha (Light 0.3, Dark 0.5) and which element's colour the "where" text
+  check reads.
+- `shell-navigation-smoke`: an empty instance takes the setup-guidance branch
+  (Preconditions); step 2's baseline is inferred (the `theme-preference` key) and confirmed
+  at step 6's pre-state; step 8 requires a true reload proven by a lost `window` marker;
+  step 9 asserts "not `#admin/` at the first sample and after the reload".
+- `chat-roundtrip`: step 3 names `GET /api/chat/sessions` as the "nothing is created yet"
+  check and notes the Dark variant sees the Light run's session; step 4 bounds "tinted"
+  (background alpha at most 0.15, legible text) and says to sample right after Send.
+- `start-a-chat`: frames are judged per step with each step's frame actions listed, and a
+  recorder restart adds a reload sequence; step 11's "drawer header's right corner" is a
+  geometric criterion; step 13 names the Description field by `id`.
+- `workbench-navigation`: a fresh `window` marker before each step that needs one; step 13
+  says the hash reads the previous entry while the dialog is open; the screenshot and
+  accessibility snapshot are named the primary evidence (the goldfinch text is the
+  fallback), and the apparatus line names the CDP Chromium.
+**Skipped:** none of the squawk's items. The Validators' other notes (the Dark "fresh
+context" record, the pending-row wash threshold, the step 14 lapse, the Dark scrim as an
+open question) are not in the squawk's list and were left alone. `list-and-detail.md` was
+not touched (leg 1a owns it).
 
-Edit only the named steps, Preconditions and Variants text in the five specs, and give each
-spec an `Updated` line. Do not change any expectation's meaning.
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
-- Re-read each edited step against its run log: every expectation the run judged still
-  reads the same.
-- `grep` confirms no step now names `studio-description` as a testid.
+- Each edited step re-read against its run log (`.../runs/2026-10-06-06-01-26.md`): every
+  expectation the run judged still reads the same.
+- `grep -n "studio-description" tests/behavior/*.md`: each hit names it as an `id`; none as a
+  testid.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: Developer agent, Mission 25 Flight 6 leg 3 (the flight-end review confirms)
+**Verdict**: confirmed
+**Commit**: pending the Flight 6 legs 1-3 commit

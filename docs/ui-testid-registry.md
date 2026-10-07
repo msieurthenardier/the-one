@@ -31,8 +31,11 @@ caught — but it cannot see where the attribute is emitted.
 | Testid | Surface | Notes |
 |--------|---------|-------|
 | `agent-chat-btn` | studio | The agent editor header's **Chat** (`App.ui.button` secondary, the `chat` icon), DOM-inserted into `.form-actions` before Cancel on a SAVED agent only (absent in create mode); `App.chat.chatWith(name)`: the guarded go() to `#chats/~new/{name}` with the chat area's pick intent, so a dirty editor asks once (M25 F4 L6, DD8) |
-| `agent-empty` | studio | Agents detail pane empty state with NO agents ("No agents yet. Create one to get started."), an `App.ui.emptyState` pane (M25 F3 L3; kept from the retired grid's empty canvas) |
-| `agent-empty-new` | studio | Agents detail empty-state action "New agent" (both copies) -> `#agents/~new` (M25 F3 L3) |
+| `agent-empty` | studio | Agents start page node with NO agents (the description plus the line "No agents yet."; M25 F3 L3, copy and structure changed in M25 F6 L4c) |
+| `agent-empty-new` | studio | Agents start page action "New agent" (both variants) -> `#agents/~new` (M25 F3 L3) |
+| `root-heading` | studio | The page `h1` ("Agents" / "Library") at an Agents or Library root with no editor open, visible as the start page's title since M25 F6 L4c (DD15; it was visually hidden in L1a, DD11); absent with an item open |
+| `provider-models-help` | admin | The provider editor's one line of help under "Available models" (M25 F6 L1a, DD10) |
+| `provider-models-agents-link` | admin | Its "Agents" link -> `#agents` (M25 F6 L1a) |
 | `agent-item` | studio | Agents list row: an `App.ui.listPane` `<a href="#agents/{name}">` (M25 F3 L3; kept from the retired tile grid) |
 | `agent-knowledge-empty-state` | studio | Agent editor Knowledge tab — no knowledge bases exist, marker still set (M24 F06 L03) |
 | `agent-knowledge-list` | studio | Agent editor Knowledge tab — attach-row list container (M24 F06 L03) |
@@ -43,7 +46,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-picker-close` | chat | The agent picker's "Esc" close button (accessible name "Close (Esc)"; the modal's `closeButton`, M25 F4 L4a) |
 | `agent-picker-row` | chat | One agent option in the picker (`role=option`, `data-agent`; the `searchList` `rowTestid`; an agent in both "Recently used" and "All agents" has two, M25 F4 L4a) |
 | `agent-picker-search` | chat | The agent picker's search input ("Find an agent"; the `searchList` `inputTestid`, focused on open, M25 F4 L4a) |
-| `agent-select-empty` | studio | Agents detail pane empty state WITH agents ("Select an agent to edit it, or create a new one.") (M25 F3 L3) |
+| `agent-select-empty` | studio | Agents start page node WITH agents (the description plus "Pick an agent from the list to edit it."; M25 F3 L3, copy changed in M25 F6 L4c) |
 | `agents-filter` | studio | Agents list filter input ("Filter agents"; matches name, model id and provider type slug) (M25 F3 L3) |
 | `agents-list` | studio | Agents list column root, the `App.ui.listPane` `<section>` in the aside (M25 F3 L3) |
 | `approval-mode-error` | studio | Self-configuration tab approval-mode toggle (M21 F02 L02) |
@@ -176,8 +179,10 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-command-custom` | studio | |
 | `mcp-command-hint` | studio | |
 | `mcp-command-runtime` | studio | |
+| `mcp-connection-error` | studio | |
 | `mcp-connection-led` | studio | |
 | `mcp-consent-btn` | studio | |
+| `mcp-error-raw` | studio | |
 | `mcp-empty-state` | studio | |
 | `mcp-kv-sensitive-info` | studio | |
 | `mcp-kv-table` | studio | |
@@ -301,7 +306,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-knowledge-toggle-` | studio | Agent editor Knowledge tab — a row's attach checkbox, suffixed with the knowledge base id (DD-3, M24 F06 L03) |
 | `agent-knowledge-tool-name-` | studio | Agent editor Knowledge tab — a row's server-derived tool name slot, suffixed with the knowledge base id (L3-D2, M24 F06 L03) |
 | `connector-setup-steps-list-` | studio | Connector-editor inline setup-steps `<ul>`, suffixed with the selected connector type (e.g. `-discord`) (Squawk 0046) |
-| `library-empty-` | studio | Library detail pane empty state at a section root, suffixed with the group (`library-empty-knowledge`, `library-empty-mcp`, `library-empty-connectors`), and its action that opens the section's `~new` (`library-empty-{group}-add`) (M25 F3 L4a, DD5) |
+| `library-empty-` | studio | Library start page (title, intro and one card per type) at a section root, suffixed with the group (`library-empty-knowledge`, `library-empty-mcp`, `library-empty-connectors`), and its action that opens the section's `~new` (`library-empty-{group}-add`) (M25 F3 L4a, DD5) |
 | `mcp-auth-required-link-` | studio | |
 | `mcp-auth-required-notice-` | studio | |
 | `mcp-no-tools-msg-` | studio | |

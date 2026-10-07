@@ -39,7 +39,7 @@ def test_studio_connectors_empty_inventory_shows_empty_state(app_clean: str, pag
     _nav.goto_settled(page, app_clean, "library/connectors")
     empty = _lists.library_empty_state(page, "connectors")
     expect(empty).to_be_visible(timeout=8000)
-    expect(empty).to_contain_text("Select a connector, or add one.")
+    expect(empty).to_contain_text("Links to chat platforms such as Discord")
     expect(
         page.locator(
             '[data-testid="library-list"] .ui-list-pane-group-empty', has_text="No connectors yet."
@@ -302,3 +302,18 @@ def test_delete_connector_confirm_lapse_is_visually_distinct(
     expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     expect(delete_btn).to_have_text("Delete Connector")
+
+
+@pytest.mark.browser
+def test_connector_rename_updates_the_editor_title(app_clean: str, page: Page) -> None:
+    """Squawk 0126: the h1 follows an edit save's new name without re-opening."""
+    from browser.seeders import seed_connector
+
+    seed_connector(app_clean, "Before rename")
+    _nav.goto_settled(page, app_clean, "library/connectors")
+    _lists.open_item(page, "library/connectors", "Before rename")
+    title = page.locator(".editor-title")
+    expect(title).to_have_text("Before rename", timeout=8000)
+    page.locator('[data-field="name"]').fill("After rename")
+    page.locator('[data-testid="save-connector-btn"]').click()
+    expect(title).to_have_text("After rename", timeout=8000)

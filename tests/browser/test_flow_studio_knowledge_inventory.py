@@ -158,7 +158,7 @@ def test_knowledge_grid_renders_real_inventory_no_stub(app_clean: str, page: Pag
     )
     expect(page.locator('[data-testid="library-add-btn"]')).to_be_visible()
     expect(_lists.library_empty_state(page, "knowledge")).to_contain_text(
-        "Select a knowledge base, or add one."
+        "Folders of your documents that agents can search."
     )
     page.locator('[data-testid="library-empty-knowledge-add"]').click()
     _nav.expect_route(page, "library/knowledge/~new")
@@ -462,7 +462,7 @@ def test_detail_view_indexing_poll_reindex_and_search(
     (fixture_dir / "notes" / "incident.md").write_text(_MULTI_CHUNK_BODY)
 
     _goto_knowledge_grid(base_url, page)
-    _create_knowledge_base(page, "Pipeline KB")
+    kb_id = _create_knowledge_base(page, "Pipeline KB")
     expect(page.locator('[data-testid="kb-folder-path-input"]')).to_be_visible(timeout=5000)
 
     page.locator('[data-testid="kb-folder-path-input"]').fill(str(fixture_dir))
@@ -600,7 +600,42 @@ def test_detail_view_indexing_poll_reindex_and_search(
     expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
         "indexed: 3", timeout=10000
     )
+    # Squawk 0115: "indexed: 3" is ALREADY showing, so waiting on it again
+    # proves nothing and the search below could run mid-reindex. Wait on the
+    # real signal instead: `content_freshness` (MAX file `indexed_at`, a
+    # microsecond ISO stamp rewritten when `scope=all` re-indexes each file)
+    # moves only when a file actually re-indexes. It moves on the FIRST file,
+    # so also wait for nothing pending or indexing. Bounded; fails loudly.
+    kb_status_url = f"{base_url}/api/knowledge-bases/{kb_id}/status"
+    kb_headers = auth_headers_for(base_url)
+
+    def _kb_status() -> dict:
+        return httpx.get(kb_status_url, headers=kb_headers, timeout=5.0).json()
+
+    def _kb_idle(body: dict) -> bool:
+        items = body["items"]
+        return items.get("pending", 0) == 0 and items.get("indexing", 0) == 0
+
+    # Quiesce the "changed" re-index above, then record the freshness.
+    settle_deadline = time.monotonic() + 15
+    while not _kb_idle(_kb_status()):
+        assert time.monotonic() < settle_deadline, "KB never went idle before Re-index all"
+        time.sleep(0.1)
+    freshness_before_all = _kb_status()["content_freshness"]
+    assert freshness_before_all
+
     page.locator('[data-testid="kb-reindex-all-btn"]').click()
+
+    reindex_deadline = time.monotonic() + 30
+    while True:
+        body = _kb_status()
+        if body["content_freshness"] != freshness_before_all and _kb_idle(body):
+            break
+        assert time.monotonic() < reindex_deadline, (
+            "Re-index all files did not finish (content_freshness unchanged or items "
+            f"still pending/indexing): {body}"
+        )
+        time.sleep(0.1)
     expect(page.locator('[data-testid="kb-status-count"][data-status="indexed"]')).to_have_text(
         "indexed: 3", timeout=15000
     )

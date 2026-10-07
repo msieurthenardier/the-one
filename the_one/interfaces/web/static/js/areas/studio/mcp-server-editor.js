@@ -483,7 +483,7 @@
     var html = '';
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
-    html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
+    html += '<h1 class="editor-title" tabindex="-1">' + escapeHtml(name) + '</h1>';
     if (!isCreate) {
       var summary = '';
       if (source.config) {
@@ -1206,9 +1206,13 @@
     // form's Cancel is enabled from first render, so onCancel runs on a
     // pristine form as well as a dirty one.
     var cancelBtn = container.querySelector('.cancel-btn');
+    // Focus after an in-place action (M25 F6 L1b, DD2): the title is re-resolved
+    // when the focus timer fires.
+    function titleEl() { return container.querySelector('.editor-title'); }
     if (cancelBtn) {
       cancelBtn.addEventListener('click', function () {
         if (isEdit) {
+          var cancelTok = App.focusAfter.begin(cancelBtn);
           revertEditorToSource(container, source, callbacks);
           // Re-bind delegated/static listeners that depend on snapshot/dirty
           // tracking — note: kv table itself was rebuilt; the table's
@@ -1217,6 +1221,7 @@
           // the table) — but to be safe, re-acquire references.
           // Actually we replace the tbody contents in-place.
           recaptureSnapshot();
+          App.focusAfter.restore(cancelTok, titleEl);
         } else if (callbacks.onCancel) {
           callbacks.onCancel();
         }
@@ -1231,6 +1236,7 @@
         if (errorEl) errorEl.textContent = '';
         var payload = collectFormData(container, source, isEdit);
         if (!payload) return;
+        var saveTok = App.focusAfter.begin(saveBtn);
         var url = isEdit ? '/api/mcp-sources/' + encodeURIComponent(source.id) : '/api/mcp-sources';
         var method = isEdit ? 'PUT' : 'POST';
         fetch(url, {
@@ -1274,6 +1280,9 @@
             // onSaveSuccess, whose router sync names the new item.
             App.store.invalidate('mcp-sources');
             window.App.showFlash(container, isEdit ? 'MCP Server saved' : 'MCP Server created');
+            // Create mounts the saved editor asynchronously (the orchestrator's
+            // `ready` promise): park the restore for its mount to flush.
+            if (!isEdit) App.focusAfter.defer(saveTok, titleEl);
             if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, !isEdit);
             if (isEdit) {
               // Edit→edit: refresh snapshot from the masked response so
@@ -1284,10 +1293,16 @@
               var c2 = container.querySelector('.cancel-btn');
               if (c2) c2.disabled = true;
               reportDirty(false);
+              // Squawk 0126: the title follows the saved row (a rename).
+              var t2 = titleEl();
+              if (t2 && updated && updated.name) t2.textContent = updated.name;
+              App.focusAfter.restore(saveTok, titleEl);
             }
           })
           .catch(function (err) {
             if (errorEl) errorEl.textContent = err.message || String(err);
+            App.focusAfter.defer(null);
+            App.focusAfter.restore(saveTok, saveBtn);
           });
       });
     }
@@ -1340,8 +1355,13 @@
         // after read so subsequent manual clicks behave normally.
         var autoRun = testBtn.dataset.autoRun === '1';
         if (autoRun) delete testBtn.dataset.autoRun;
+        // The auto-run has no keyboard user behind it: no token, so it does not
+        // supersede the create's parked focus restore.
         handleTestConnection(source.id, container, testBtn, formData,
-          onTestConnectSuccess, { noAutoPopup: autoRun });
+          onTestConnectSuccess, {
+            noAutoPopup: autoRun,
+            focusTok: autoRun ? null : App.focusAfter.begin(testBtn)
+          });
       });
     }
 
@@ -1789,6 +1809,9 @@
 
     function settle() {
       testBtn.disabled = false; // re-enable on final state
+      // M25 F6 L1b (DD2): focus returns to the button the keyboard user pressed.
+      // A null token (the auto-run after create) is a no-op.
+      App.focusAfter.restore(opts && opts.focusTok, testBtn);
     }
 
     // F9 L1 (vibing follow-up) + F4 L3 popup-loop fix: popup-launch +
@@ -2077,12 +2100,18 @@
             launchConsentPopup(data.consent_url);
           }
         } else {
-          statusEl.innerHTML = '<span class="mcp-tools-error">✗ Error:</span> ' + escapeHtml(data.error || 'unknown');
+          statusEl.innerHTML = '';
+          var errEl = window.App.buildMcpError(data.error || '');
+          errEl.setAttribute('data-testid', 'mcp-connection-error');
+          statusEl.appendChild(errEl);
           settle();
         }
       })
       .catch(function (err) {
-        statusEl.innerHTML = '<span class="mcp-tools-error">✗ Network error:</span> ' + escapeHtml(err.message);
+        statusEl.innerHTML = '';
+        var netErrEl = window.App.buildMcpError(err && err.message ? err.message : '');
+        netErrEl.setAttribute('data-testid', 'mcp-connection-error');
+        statusEl.appendChild(netErrEl);
         settle();
       });
   }

@@ -1,10 +1,10 @@
 # Squawk 0116: Settings tile names truncate early (Providers) or can run under the badge (Built-in tools)
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-05
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -58,7 +58,9 @@ behavior re-runs, outside leg 7's charter.
 
 ## Corrective Action
 
-*(written at completion)*
+Both Settings tile kinds (`providers-list.js`, `tools-grid.js`) put the name and badge in a `.tile-title-row` flex row (`admin.css`): the name takes `flex: 1 1 auto; min-width: 0` with the ellipsis, the badge is `flex: none` and no longer absolutely positioned; the `calc(100% - 128px)` reserve is removed. `tests/test_design_tokens_a11y.py` pins the new rules.
+
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
@@ -69,4 +71,4 @@ truncated when the space beside the badge fits it. Both themes, at 1024px and 14
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: pending the Flight 6 leg review

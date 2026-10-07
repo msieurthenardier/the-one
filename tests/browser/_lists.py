@@ -27,7 +27,7 @@ beside the detail pane, so a row stays visible while its agent is open:
 * ``filter_agents(page, q)`` -- type *q* into the list's filter;
 * ``agents_new(page)`` -- click "New" and wait for the create form at
   ``#agents/~new``;
-* ``agents_empty_state(page)`` -- the detail pane's empty state (no agent
+* ``agents_empty_state(page)`` -- the detail pane's start page (no agent
   open): ``agent-select-empty`` with agents, ``agent-empty`` without.
 
 Library (leg 4a) is one grouped list column (testid ``library-list``: Knowledge
@@ -39,8 +39,8 @@ Library row has an item route (connectors included):
 * ``library_add(page, kind)`` -- open the Add menu, choose *kind*
   (``"knowledge"``, ``"mcp"`` or ``"connectors"``) and wait for its create
   route ``#library/<kind>/~new``;
-* ``library_empty_state(page, kind)`` -- the detail pane's empty state at that
-  section root (``library-empty-<kind>``).
+* ``library_empty_state(page, kind)`` -- the detail pane's start page at that
+  section root (``library-empty-<kind>``; it holds all three types' blocks).
 
 Leg 4b retired the Library editors' Back controls (leg 3 retired the agent
 editor's): every Agents and Library item header carries a breadcrumb whose last
@@ -197,7 +197,7 @@ def agents_new(page: Page, timeout: float = 8000) -> None:
 
 
 def agents_empty_state(page: Page) -> Locator:
-    """The Agents detail pane's empty state (either copy)."""
+    """The Agents start page node (either variant; the ``h1`` is a sibling)."""
     return page.locator('[data-testid="agent-select-empty"], [data-testid="agent-empty"]')
 
 
@@ -222,7 +222,7 @@ def library_add(page: Page, kind: str, timeout: float = 8000) -> None:
 
 
 def library_empty_state(page: Page, kind: str) -> Locator:
-    """The Library detail pane's empty state at the *kind* section root."""
+    """The Library start page at the *kind* section root (all three blocks)."""
     return page.locator(f'[data-testid="library-empty-{_kind(kind)}"]')
 
 

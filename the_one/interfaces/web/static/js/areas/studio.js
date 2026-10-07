@@ -529,11 +529,32 @@ App.registerArea({
         failText: 'Couldn\u2019t load connectors.', icon: 'plug',
         testid: 'connector-card', prefix: 'connector:' }
     ];
+    // The Library start page (DD15): one block per type, in LIBRARY_GROUPS order.
     var LIBRARY_EMPTY = {
-      knowledge: { title: 'Select a knowledge base, or add one.', add: 'Add knowledge base' },
-      mcp: { title: 'Select an MCP server, or add one.', add: 'Add MCP server' },
-      connectors: { title: 'Select a connector, or add one.', add: 'Add connector' }
+      knowledge: {
+        add: 'Add knowledge base',
+        text: 'Folders of your documents that agents can search. The app indexes the files and ' +
+          'keeps the index current as they change. Attach a knowledge base to an agent on the ' +
+          'agent\u2019s Knowledge tab.'
+      },
+      mcp: {
+        add: 'Add MCP server',
+        text: 'Tool servers that use the Model Context Protocol, such as a browser, a database ' +
+          'or another app\u2019s API. Choose which agents get which tools on each agent\u2019s ' +
+          'MCPs tab.'
+      },
+      connectors: {
+        add: 'Add connector',
+        text: 'Links to chat platforms such as Discord, so people can talk to your agents there. ' +
+          'Each connector routes its channels to the agents you choose.'
+      }
     };
+    var LIBRARY_INTRO = 'Add something here once, then choose which agents use it in each ' +
+      'agent\u2019s settings.';
+    var AGENTS_INTRO = 'An agent is an assistant you set up for a kind of work. Each one has a ' +
+      'model from one of your providers, instructions that shape how it behaves, and the tools ' +
+      'and knowledge it can use. Chat with an agent from Chats, or connect it to a chat ' +
+      'platform with a connector.';
     var libraryList = null;     // the Library App.ui.listPane while on Library
     var libraryAddMenu = null;  // its title-row Add menu (App.ui.menu)
     var libraryRendered = false; // the gated first setItems has run
@@ -906,24 +927,46 @@ App.registerArea({
     // The detail pane at a section root: a pane-size empty state whose action
     // opens that section's create form. Only built at a root (never while a
     // deep-link id is pending, so a cold item link never flashes it).
+    // DD11: a section root with no editor open has one visually hidden page
+    // `h1` ("Agents" / "Library"). It lives and dies with the root state: the
+    // Library root's is built here beside the empty state (every section
+    // render starts by clearing sectionContentEl); the Agents root's is
+    // synced by updateContentVisibility. With an editor open, `.editor-title`
+    // is the page's only `h1`.
+    function buildRootHeading(text) {
+      var h = document.createElement('h1');
+      h.className = 'start-page-title';
+      h.setAttribute('data-testid', 'root-heading');
+      h.textContent = text;
+      return h;
+    }
+
     function renderLibraryEmpty(section) {
       var group = libraryGroupFor(section);
       if (!group) return;
-      var copy = LIBRARY_EMPTY[group.id];
-      var action = App.ui.button({
-        variant: 'secondary',
-        icon: 'plus',
-        label: copy.add,
-        testid: 'library-empty-' + group.id + '-add',
-        onClick: function (e) { goLibraryCreate(group.route, e && e.currentTarget); }
+      var el = App.ui.util.el;
+      sectionContentEl.appendChild(buildRootHeading('Library'));
+      var blocks = LIBRARY_GROUPS.map(function (g) {
+        var copy = LIBRARY_EMPTY[g.id];
+        return el('section', { className: 'start-page-card' }, [
+          el('span', { className: 'start-page-card-icon' }, [App.ui.util.icon(g.icon)]),
+          el('div', { className: 'start-page-card-body' }, [
+            el('h2', { className: 'start-page-card-title', text: g.label }),
+            el('p', { className: 'start-page-text', text: copy.text })
+          ]),
+          App.ui.button({
+            variant: 'secondary',
+            icon: 'plus',
+            label: copy.add,
+            testid: 'library-empty-' + g.id + '-add',
+            onClick: function (e) { goLibraryCreate(g.route, e && e.currentTarget); }
+          })
+        ]);
       });
-      sectionContentEl.appendChild(App.ui.emptyState({
-        title: copy.title,
-        size: 'pane',
-        headingLevel: 2,
-        action: action,
-        testid: 'library-empty-' + group.id
-      }));
+      var page = el('div', { className: 'start-page' },
+        [el('p', { className: 'start-page-text', text: LIBRARY_INTRO })].concat(blocks));
+      page.setAttribute('data-testid', 'library-empty-' + group.id);
+      sectionContentEl.appendChild(page);
     }
 
     // The Agents section: the list column plus, in the detail pane, the empty
@@ -1159,6 +1202,7 @@ App.registerArea({
           var folderInput = sectionContentEl.querySelector('[data-testid="kb-folder-path-input"]');
           if (folderInput) folderInput.focus();
         }
+        App.focusAfter.flush();
       }).catch(function (err) {
         if (self._activeSection !== 'knowledge' || self._selectedKbId !== kb.id) return;
         if (err && err.gone) {
@@ -1362,6 +1406,8 @@ App.registerArea({
             onListStale: function () { reloadLibrary('mcp-sources'); },
             onDirtyChange: function (d) { dirty = d; }
           });
+          // A create's parked focus restore (M25 F6 L1b, DD2) lands on the new title.
+          App.focusAfter.flush();
         });
         syncLibrarySelection(false);
         return;
@@ -1507,6 +1553,8 @@ App.registerArea({
               onDirtyChange: function (d) { dirty = d; }
             }
           );
+          // A create's or an edit-mode Cancel's parked focus restore (M25 F6 L1b).
+          App.focusAfter.flush();
         });
         syncLibrarySelection(false);
         return;
@@ -1655,6 +1703,7 @@ App.registerArea({
     // item that is being opened. Bumping selectSeq invalidates an in-flight
     // doSelect.
     function closeOpenItem() {
+      App.focusAfter.cancel();
       selectSeq += 1;
       editorGen += 1; // invalidates in-flight editor resolvers (saves, type waits)
       // Unconditional: a caller may have cleared _selectedAgent already (post-
@@ -1827,6 +1876,14 @@ App.registerArea({
                           (self._selectedAgent || self._createMode);
       sectionContentEl.classList.toggle('is-hidden', !!inAgentEditor);
       editorEl.classList.toggle('is-hidden', !inAgentEditor);
+      // DD11: the Agents root's `h1` exists only with no agent open.
+      var rootH1 = sectionContentEl.querySelector(':scope > h1[data-testid="root-heading"]');
+      var wantRootH1 = self._activeSection === 'agents' && !inAgentEditor;
+      if (wantRootH1 && !rootH1) {
+        sectionContentEl.insertBefore(buildRootHeading('Agents'), sectionContentEl.firstChild);
+      } else if (!wantRootH1 && rootH1 && self._activeSection === 'agents') {
+        sectionContentEl.removeChild(rootH1);
+      }
     }
 
     // ── Single URL-write call site ──────────────────────────────────────
@@ -2476,20 +2533,28 @@ App.registerArea({
       agentsEmptyEl = null;
       agentsEmptyKind = kind;
       if (!kind) return;
-      var opts = kind === 'some'
-        ? { title: 'Select an agent to edit it, or create a new one.', testid: 'agent-select-empty' }
-        : { title: 'No agents yet. Create one to get started.', testid: 'agent-empty' };
-      opts.size = 'pane';
-      opts.headingLevel = 2;
-      opts.action = App.ui.button({
-        variant: 'secondary',
-        icon: 'plus',
-        label: 'New agent',
-        testid: 'agent-empty-new',
-        onClick: goCreateAgent
-      });
-      agentsEmptyEl = App.ui.emptyState(opts);
-      sectionContentEl.insertBefore(agentsEmptyEl, sectionContentEl.firstChild);
+      var el = App.ui.util.el;
+      agentsEmptyEl = el('div', {
+        className: 'start-page'
+      }, [
+        el('p', { className: 'start-page-text', text: AGENTS_INTRO }),
+        el('p', {
+          className: 'start-page-text',
+          text: kind === 'some' ? 'Pick an agent from the list to edit it.' : 'No agents yet.'
+        }),
+        App.ui.button({
+          variant: 'primary',
+          icon: 'plus',
+          label: 'New agent',
+          testid: 'agent-empty-new',
+          onClick: goCreateAgent
+        })
+      ]);
+      if (kind === 'some') agentsEmptyEl.setAttribute('data-testid', 'agent-select-empty');
+      else agentsEmptyEl.setAttribute('data-testid', 'agent-empty');
+      // After the visible root heading (a sibling) when it is there.
+      var rootH1 = sectionContentEl.querySelector(':scope > h1[data-testid="root-heading"]');
+      sectionContentEl.insertBefore(agentsEmptyEl, rootH1 ? rootH1.nextSibling : sectionContentEl.firstChild);
     }
 
     // DD8 focus rule after a delete or a create-form Cancel: the row at
@@ -2625,6 +2690,7 @@ App.registerArea({
         renderEditor(freshAgent);
         updateContentVisibility();
         writeUrl_();
+        App.focusAfter.flush();
       });
     }
 
@@ -2841,9 +2907,11 @@ App.registerArea({
         return;
       }
       if (self._selectedAgent) {
+        var cancelTok = App.focusAfter.begin(editorEl.querySelector('.cancel-btn'));
         renderEditor(self._selectedAgent);
         dirty = false;
         checkDirty();
+        App.focusAfter.restore(cancelTok, editorTitleEl_);
       }
     }
 
@@ -3447,15 +3515,24 @@ App.registerArea({
 
     // ── Save ─────────────────────────────────────────────────────────
 
+    // Focus after an in-place action (M25 F6 L1b, DD2): the title and the Save
+    // button are re-resolved when the focus timer fires.
+    function editorTitleEl_() { return editorEl.querySelector('.editor-title'); }
+    function saveBtnEl_() { return editorEl.querySelector('.save-btn'); }
+
     function save(isCreate) {
       var data = collectFormData();
       var errorEl = editorEl.querySelector('.editor-error');
+      var focusTok = App.focusAfter.begin(saveBtnEl_());
 
       if (isCreate) {
         if (!data.name || !data.name.trim()) {
           if (errorEl) errorEl.textContent = 'Name is required.';
           return;
         }
+        // Create turns into the saved agent's editor asynchronously (doSelect's
+        // fetches): park the restore; doSelect's final mount flushes it.
+        App.focusAfter.defer(focusTok, editorTitleEl_);
         // Save-create staleness (the knowledge-base create form's
         // stillOnCreate() pattern): the user may move on while the POST or
         // the list reload that follows it is in flight. This form is still
@@ -3492,7 +3569,10 @@ App.registerArea({
               // leave decision pending: a bypass replace would otherwise pull
               // someone who moved on (another agent, the Agents root, another
               // destination) onto the new agent.
-              if (!stayed || !onThisForm() || App.router.isDeciding()) return;
+              if (!stayed || !onThisForm() || App.router.isDeciding()) {
+                App.focusAfter.defer(null);
+                return;
+              }
               var found = null;
               for (var i = 0; i < self._agents.length; i++) {
                 if (self._agents[i].name === created.name) { found = self._agents[i]; break; }
@@ -3505,6 +3585,8 @@ App.registerArea({
           })
           .catch(function (err) {
             if (errorEl) errorEl.textContent = err.message;
+            App.focusAfter.defer(null);
+            App.focusAfter.restore(focusTok, saveBtnEl_);
           });
       } else {
         // Squawk 0090 — belt-and-braces behind the disabled Save button
@@ -3599,6 +3681,7 @@ App.registerArea({
                 found.kb_tool_names = updated.kb_tool_names;
                 self._selectedAgent = found;
                 renderEditor(found);
+                App.focusAfter.restore(focusTok, editorTitleEl_);
                 showFlash('Saved');
                 // Rewrite the URL so refresh / back-button targets the
                 // new agent name (the area's URL keys on
@@ -3618,6 +3701,7 @@ App.registerArea({
           })
           .catch(function (err) {
             if (errorEl) errorEl.textContent = err.message;
+            App.focusAfter.restore(focusTok, saveBtnEl_);
           });
       }
     }

@@ -887,6 +887,46 @@ def test_list_pane_group_empty_text(engine_page: Page) -> None:
     assert [g[1] for g in _groups(p)] == [False, False, True, False]
 
 
+CAPTION_JS = """() => {
+  const c = App.ui.listPane({title: 'Library', groups: [
+    {label: 'Hidden first', items: []},
+    {label: 'Knowledge bases', items: [{id: 'k', label: 'K', href: '#k'}]},
+    {label: 'A very long group label that would never fit in a narrow column at all', items: [{id: 'c', label: 'C', href: '#c'}]},
+  ]});
+  const col = document.createElement('div'); col.style.width = '180px';
+  col.appendChild(c.el); document.getElementById('harness-root').appendChild(col);
+  return Array.from(c.el.querySelectorAll('.ui-list-pane-group')).map((g) => {
+    const cap = g.querySelector('.ui-list-pane-caption'), s = getComputedStyle(cap);
+    const a = getComputedStyle(cap, '::after');
+    return {hidden: g.hidden, text: cap.textContent, size: s.fontSize, weight: s.fontWeight,
+            transform: s.textTransform, spacing: parseFloat(s.letterSpacing), color: s.color,
+            padTop: s.paddingTop, padRight: s.paddingRight, wrap: s.whiteSpace,
+            rule: {h: parseFloat(a.height), w: parseFloat(a.width), bg: a.backgroundColor},
+            capH: cap.getBoundingClientRect().height, scrollW: cap.scrollWidth, clientW: cap.clientWidth};
+  });
+}"""
+
+
+def test_list_pane_caption_is_an_eyebrow_with_a_rule(engine_page: Page) -> None:
+    """M25 F6 L4 (DD13): 10px semibold letter-spaced uppercase --fg-tertiary and a 1px
+    --border rule; the first VISIBLE group (the first group hidden) takes 10px
+    padding-top, the later ones 16px; a long label never wraps and the rule shrinks."""
+    _load(engine_page)
+    groups = engine_page.evaluate(CAPTION_JS)
+    assert groups[0]["hidden"] is True
+    for g in groups[1:]:
+        assert (g["size"], g["weight"], g["transform"]) == ("10px", "600", "uppercase"), g
+        assert abs(g["spacing"] - 0.8) <= 0.05, g
+        assert g["color"] == _rgb(DARK["fg_tertiary"]), g
+        assert g["rule"]["h"] == 1 and g["rule"]["bg"] == _rgb(DARK["border"]), g
+        assert g["wrap"] == "nowrap" and g["padRight"] == "10px", g
+    assert groups[1]["padTop"] == "10px" and groups[1]["rule"]["w"] > 0, groups[1]
+    assert groups[2]["padTop"] == "16px", groups[2]
+    assert groups[2]["capH"] < 40 and groups[2]["rule"]["w"] == 0, groups[
+        2
+    ]  # one line, rule at zero
+
+
 def test_list_pane_all_groups_empty_shows_the_group_lines(engine_page: Page) -> None:
     _load(engine_page)
     out = engine_page.evaluate(

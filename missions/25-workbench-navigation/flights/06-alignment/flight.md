@@ -1,6 +1,6 @@
 # Flight: Alignment
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Workbench Navigation and Control Library](../../mission.md)
 
 ## Contributing to Criteria
@@ -243,6 +243,128 @@ inline edit. The one exception is a change decided at planning: DD11's `h1` re-a
 - **The flight goes `landed`** only after leg 5.
 - **Leg 5's behavior re-runs** use ports 8487 and up, or stop the walk instance first.
 
+**DD13: Section labels are an "eyebrow with a rule"** (operator, 2026-10-06).
+- **The report.** The operator found the group labels in left navs and lists, and the
+  section headers in editors, too close in style to the items under them.
+- **The choice.** From four options
+  (`https://claude.ai/artifact/HBur9t8QP7nguottk6VKAr`), the operator chose **D**: small,
+  semibold, letter-spaced uppercase in `--fg-tertiary`, followed by a hairline in
+  `--border` to the edge.
+- **Where it applies:** `App.ui.listPane` and `navGroups` captions, and `.section-title`
+  across editors and Settings pages.
+- **SC8.** It is an operator-accepted deviation from the reference spec's §3 group label.
+- **The work** is leg `section-labels`, which is multi-surface, so it gets a design review.
+
+**DD14: Displayed times are local, 12-hour, with AM/PM** (operator, 2026-10-06).
+- **The report.** "The time on todays chats is military time. We should format that
+  normally with am/pm."
+- **The rule.** A clock time the app shows a person reads `h:mm AM` / `h:mm PM` in local
+  time (for example `3:45 PM`, `12:05 AM`), formatted by hand as today, so every engine
+  and locale draws the same label.
+- **Where it applies:**
+  - the Chats list's Today rows (`HH:MM` today);
+  - the message attributions in a chat (`HH:MM:SS UTC` today). This also answers
+    decision-sheet item **B5** (UTC bubble times against local list times): both read
+    local. The operator can still revisit it in the walk.
+- **Out of scope:**
+  - the Knowledge inventory's `Indexed:` line, a precise freshness signal that tests and
+    `kb-studio-round-trip` compare before and after a re-index (a minute-precision label
+    would make two indexes in one minute look identical);
+  - the Self-configuration tab's "N minutes ago";
+  - a time-zone setting, which is new behaviour (DD7). The display already follows the OS
+    time zone. A setting goes with a built-in time tool, logged as a GitHub issue.
+- **SC8.** It is an operator-accepted deviation from the reference spec 5.1's Today
+  `HH:MM`.
+- **The work** is leg `chat-polish` (4b), low risk.
+
+**DD16: The composer fills the pane's width** (operator, 2026-10-06).
+- **The report.** "the message input box has a max width, but it looks a little strange
+  because the context % indicator is pinned to the right. I think we just allow the
+  message box to expand to the max width."
+- **The change.** `.composer-box`, the staged-image row and the queued chip lose their
+  760px cap, so the box's right edge meets the telemetry readout's.
+- **Fix or feature (DD7): a fix** (CSS on one surface).
+- **SC8.** It is an operator-accepted deviation from the reference spec 5.5's max 760px.
+- **The work** joins leg 4b, renamed `chat-polish` (it had not started).
+
+**DD17: The desktop window allows text selection** (operator, 2026-10-06).
+- **The report.** In a chat, "you cant even highlight to copy paste" a reply. The code
+  block's Copy button works.
+- **The cause.** pywebview defaults `text_select=False` and injects `body { user-select:
+  none }`. The main window never passed `text_select`.
+- **The fix:** `text_select=True` on the main window. It is verified live in the walk on
+  a Windows test copy.
+- **Fix or feature (DD7): a fix.** The per-message Copy button the operator also
+  mentioned is new behaviour, out of scope, and filed as GitHub issue #224.
+- **The work** joins leg 4b `chat-polish`.
+
+**DD18: A light walk** (operator, 2026-10-06). "I've been using the newly installed version
+for testing, it looks pretty good with the feedback I've already provided. We can keep the
+walk though pretty light."
+- **SC8's surface walk** is the operator's own use of v0.10.0. Their feedback became
+  DD10, DD13, DD14, DD15, DD16 and DD17, and the operator accepts the rest. The full
+  ordered walk under DD6 is replaced.
+- **The decision sheet** is answered in one batch before the walk, with each item kept as
+  it is unless the operator ticks it. B5 is answered by DD14. B4 (bubble times 1–4 seconds
+  off after a reload) is moot under DD14's minute precision, except across a minute
+  boundary, and is recorded as such.
+- **Leg 5, the light walk:** one pass on a dev instance (8486) in the operator's browser
+  over this flight's own fixes:
+  - the Models label;
+  - the tile title row;
+  - the section labels;
+  - the Agents and Library start pages;
+  - 12-hour times;
+  - the composer's width;
+  - focus after Save.
+
+  The Flight Director verifies DD17 (text selection) on a Windows test copy with a probe.
+  The operator looks only if they want to.
+- **SC9** is judged from the operator's v0.10.0 use, plus any items they haven't tried,
+  which the walk covers. Step 16 is judged from recollection. Steps 17 and 19 are
+  operator-only and optional.
+
+**DD19: An MCP connection error reads as a plain message** (operator, 2026-10-06).
+- **The report.** The MCPs tab shows "Error loading tools: MCPConnectionError: MCP
+  connect failed: cancelled during initialize (cross-task cleanup deadlock; …)", which is
+  "far from friendly".
+- **The change.** One client helper maps the API's `"{Class}: {message}"` text to a
+  plain headline, with the raw text under a collapsed "Technical details". It applies on
+  the agent MCPs tab and in the Library MCP editor's connection result.
+- **No backend change.** The masked original cause on the cancelled path is GitHub issue
+  #226.
+- **Fix or feature (DD7): a fix** (presentation only).
+- **The work** is leg `mcp-error-message` (4d), low risk.
+
+**DD15: The Agents and Library start pages explain what is there** (operator, 2026-10-06).
+- **The report.** "on the library main page...it just says select a kb or add one.
+  Instead, it should be a description of what each of the things are with an add button
+  for each of them." Then: "similarly we should add a friendly description to the agents
+  base page including what agents are."
+- **The change.** At the Agents root and at each Library section root (no editor open),
+  the detail pane shows a page instead of a one-line empty state:
+  - **Agents:** a visible `h1` "Agents", a short description of what an agent is, and New
+    agent;
+  - **Library:** a visible `h1` "Library", one intro line, then one block per type
+    (Knowledge bases, MCP servers, Connectors), each with its icon, a name, a description
+    and its own Add button.
+
+  The same Library page shows at all three section roots.
+- **DD11 is amended.** The root `h1` (`root-heading`) becomes visible on these pages
+  instead of visually hidden. It is still absent while an editor is open.
+- **The contract** (behavior specs and tests read it): the testids are kept.
+  - `agent-select-empty` / `agent-empty` and `agent-empty-new` stay on the Agents page.
+  - `library-empty-{section}` stays on the Library page at that section's root, and
+    `library-empty-{knowledge|mcp|connectors}-add` stays on each type's Add button.
+  - Only the copy changes, so each spec or test asserting the old text is updated
+    deliberately.
+- **Fix or feature (DD7): a fix.** It reshapes existing empty states, and it reuses the
+  existing create actions (the Add menu stays). It still gets a design review, since it
+  touches pinned copy and DD11 across many tests and specs.
+- **SC8.** It is an operator-accepted deviation from the reference spec's root empty
+  state.
+- **The work** is leg `root-pages` (4c).
+
 **DD9: A release at mission close is the operator's call.** v0.10.0 already carries
 Flights 1–5. Leg 5 asks whether the alignment changes warrant v0.10.1 or v0.11.0, and cuts
 it only on a yes.
@@ -337,7 +459,12 @@ it only on a yes.
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `visible-fixes`:
+> **In-flight change (2026-10-06):** `visible-fixes` is split into **1a `visible-fixes`**
+> (the independent fixes) and **1b `focus-after-action`** (DD2, which changes focus in
+> six editors and gets its own design review). Both touch `provider-editor.js`, so they
+> run one after the other.
+
+- [x] `visible-fixes` (now 1a, plus 1b for DD2):
   - 0112 and 0081 (the create routes' 422 and the form's error display, DD4);
   - 0113 and 0114 (accessible names; six info-icon sites);
   - 0116 (the tile title row, DD3);
@@ -346,14 +473,26 @@ it only on a yes.
   - the root `h1` (DD11, with `list-and-detail` step 2 re-authored);
   - a label on the provider page's Models list (DD10);
   - tests and docs.
-- [ ] `chat-and-test-fixes`:
+- [x] `chat-and-test-fixes`:
   - 0119 and 0120 (WebSocket edge cases);
   - 0115 (the Knowledge test race);
   - the deleted-agent heal test.
-- [ ] `servicing`: 0121, 0122, 0123, 0124 and 0125, each squawk completed.
-- [ ] `alignment-walk` (HAT, interactive): the guided walk of every surface against B3 in
-  both themes, the decision sheet, the narrow widths and the operator's SC9 walk, with
-  inline fixes under DD7.
+- [x] `servicing`: 0121, 0122, 0123, 0124 and 0125, each squawk completed.
+- [x] `section-labels` (added 2026-10-06, DD13): the operator's chosen label style across
+  list and nav captions and editor section headers, with probes, contrast, the Design
+  language page and docs.
+- [x] `chat-polish` (4b, added 2026-10-06, DD14, DD16 and DD17): local 12-hour times with
+  AM/PM in the Chats list and the message attributions, the composer filling the pane's
+  width, and text selection in the desktop window, with the pinned tests, specs and docs
+  updated.
+- [x] `root-pages` (4c, added 2026-10-06, DD15): the Agents and Library start pages, with
+  descriptions and Add buttons, and the pinned copy, specs and docs updated.
+- [x] `mcp-error-message` (4d, added 2026-10-06, DD19): a plain headline with the raw text
+  under "Technical details" on the agent MCPs tab and in the Library MCP editor.
+- [ ] `alignment-walk` (HAT, interactive; light under DD18): one pass with the operator
+  over this flight's own fixes on a dev instance (8486), the Flight Director's DD17 probe
+  on a Windows test copy, and inline fixes under DD7. The decision sheet and SC9 were
+  answered before the walk (flight log, Decisions).
 - [ ] `mission-close`:
   - the §15 status sweep;
   - spec re-authors from walk changes;

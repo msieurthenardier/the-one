@@ -409,6 +409,7 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     splash_call = webview_mock.create_window.call_args_list[0]
     assert "starting" in splash_call.args[0].lower() or "starting" in splash_call.args[0]
     assert splash_call.kwargs.get("frameless") is True
+    assert splash_call.kwargs.get("text_select") is not True
     assert splash_call.kwargs.get("html") is not None
 
     # webview.start called with a positional _boot callable + persistence kwargs.
@@ -445,6 +446,7 @@ def test_run_calls_create_window_start_and_graceful_shutdown(
     main_call = webview_mock.create_window.call_args
     assert main_call.args[0] == "GleepGlorp AI"
     assert main_call.kwargs.get("frameless") is False
+    assert main_call.kwargs["text_select"] is True  # DD17: copy a reply
 
     # The URL passed to create_window must carry a one-time handoff credential
     # (DD7/DD12) — without it, CredentialGateMiddleware refuses the window's
@@ -1087,6 +1089,7 @@ def test_main_window_created_hidden_with_launch_background(
 ) -> None:
     ns = _boot_harness(webview_mock, tmp_path, monkeypatch, os_theme="dark")
     assert ns.main_call.kwargs["hidden"] is True
+    assert ns.main_call.kwargs["text_select"] is True
     assert ns.main_call.kwargs["background_color"] == "#101114"
     assert ns.main_call.kwargs["frameless"] is False
     assert ns.main_call.kwargs["resizable"] is True

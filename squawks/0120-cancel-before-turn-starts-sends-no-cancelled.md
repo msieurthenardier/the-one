@@ -1,10 +1,10 @@
 # Squawk 0120: A `cancel` processed before a spawned turn starts sends no `cancelled`
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-05
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -43,19 +43,14 @@ It predates the flight: the `message` path behaves the same way.
 
 ## Corrective Action
 
-*(written at completion)*
+A spawned turn now records two markers and a per-cancel token (`app.py`: `_started_tasks`, `_running_tasks`, `_cancel_tokens`, `_notify_cancelled_once`). `_spawn_message_processing`'s first statement marks the task started; `_process_and_broadcast` marks it running at the `try` whose `except CancelledError` sends `cancelled` (after persisting partial text, now through `_notify_cancelled_once`). The `cancel` branch creates the token (`sent`, `running`) before any `t.cancel()`, and sends through the helper only when no task in the batch ever started (a task cancelled before its first step runs no body code). A task cancelled while waiting on the session lock, or before `_process_and_broadcast`'s `try`, sends from `_spawn_message_processing`'s wrapper `except CancelledError`, unless it was running itself or the batch has a running task (the sole sender). The token is dropped when `_session_inflight[sid]` empties; with no token (lifespan shutdown) the helper always sends. Result: exactly one `cancelled` per `cancel`. Only the WebSocket spawn path changed; no message shape changed.
 
-A likely shape: a done-callback on the spawned task (or the `cancel` branch) that sends
-`cancelled` when the task was cancelled without its coroutine ever starting, for example
-tracked by a "started" flag the coroutine sets on entry.
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
-In the `tests/test_ws_start_session.py` harness: script `start_session` (or `message`)
-followed immediately by `cancel` on one socket, and assert a `cancelled` frame arrives and
-`is_session_processing(sid)` ends false. Then a browser test: send and click Stop at once,
-and assert Stop hides and Send re-enables.
+`tests/test_ws_start_session.py::TestCancelSendsExactlyOneCancelled` (new `NoYield` step in the `FakeWebSocket` harness, since its receive yields before every frame): (a) a cancel before the task starts, (b) a cancel while it waits on `session_locks[sid]` (lock released afterwards, not left held), (c) a cancel of a running turn, (d) one cancel over a running turn plus an unstarted one. Each asserts exactly one `cancelled` frame, a clean `_session_inflight` and `_cancel_tokens`, and `is_session_processing` false. `tests/test_cancel.py` and the other cancel tests pass. The squawk's browser check ("Stop at once, then Send re-enables") is dropped: WebSocket frame ordering cannot be made deterministic from Playwright, and the unit tests pin the server behaviour the client reacts to.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: pending the Flight 6 leg review

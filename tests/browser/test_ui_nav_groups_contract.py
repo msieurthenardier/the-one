@@ -273,7 +273,10 @@ GEOMETRY_JS = """() => {
   const caps = Array.from(nav.querySelectorAll('.ui-nav-groups-caption')).map((c) => {
     const s = getComputedStyle(c);
     return {h: c.getBoundingClientRect().height, text: textLeft(c) - col.left,
-            style: [s.fontSize, s.fontWeight, s.color, s.padding]};
+            style: [s.fontSize, s.fontWeight, s.color, s.padding],
+            transform: s.textTransform, spacing: parseFloat(s.letterSpacing),
+            rule: (() => { const a = getComputedStyle(c, '::after');
+              return {h: parseFloat(a.height), w: parseFloat(a.width), bg: a.backgroundColor}; })()};
   });
   return {heading: {text: textLeft(h2) - col.left, top: h2.getBoundingClientRect().top - col.top,
                     style: [hs.fontSize, hs.fontWeight, hs.color, hs.marginTop, hs.marginBottom]},
@@ -307,8 +310,14 @@ def test_nav_groups_geometry_and_colour(engine_page: Page, theme: str, pal: dict
     for item in g["items"]:
         assert abs(item["text"] - g["heading"]["text"]) <= 1, (item, g["heading"])
     # Captions: the section 3 group label, aligned with the item text too.
-    for cap in g["caps"]:
-        assert cap["style"] == ["11px", "500", _rgb(pal["fg_muted"]), "12px 10px 4px"], cap
+    # M25 F6 L4 (DD13): the eyebrow with a rule: 10px semibold uppercase in
+    # --fg-tertiary; the first group at 10px padding-top, every later one at 16px.
+    for idx, cap in enumerate(g["caps"]):
+        pad = "10px 10px 6px" if idx == 0 else "16px 10px 6px"
+        assert cap["style"] == ["10px", "600", _rgb(pal["fg_tertiary"]), pad], cap
+        assert cap["transform"] == "uppercase" and abs(cap["spacing"] - 0.8) <= 0.05, cap
+        assert cap["rule"]["h"] == 1 and cap["rule"]["w"] > 0, cap
+        assert cap["rule"]["bg"] == _rgb(pal["border"]), cap
         assert abs(cap["text"] - g["heading"]["text"]) <= 1, cap
     # The board's pitch: heading at the column's top padding, then 2px gaps.
     assert g["heading"]["top"] == 14

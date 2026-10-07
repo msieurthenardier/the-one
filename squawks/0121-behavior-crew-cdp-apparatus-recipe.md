@@ -1,10 +1,10 @@
 # Squawk 0121: The behavior-test crew file has no CDP apparatus recipe or concurrent-run rules
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-06
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -38,29 +38,34 @@ Source: the Flight 4 debrief, recommendation 2 and methodology observations 4–
 
 ## Corrective Action
 
-*(written at completion)*
+Added to `.flightops/agent-crews/behavior-tests-execution.md`:
+- **Run rules 7 to 11** (the list now reads "Eleven rules"): driver and browser lifetime
+  (one long-lived driver per run, or a fresh Chromium process with a fresh
+  `--user-data-dir` per variant driven through its persistent default context, never a
+  `new_context()` a short-lived script owns); PIDs recorded at launch and stopped by PID
+  only (never `pkill -f` or `killall` with a pattern); the report-file hand-off
+  (`step-N[-variant]-report.json` without `executor_notes`, read by the Validator); the
+  Orchestrator's per-run checkpoint ledger for concurrent runs; and, from Flight 5, verify
+  every evidence path exists before reporting.
+- **The prompts where each acts:** the Executor Initial prompt gains BROWSER LIFETIME, PIDS,
+  REPORT FILE and EVIDENCE PATHS; the Validator Initial prompt gains REPORT FILE, EVIDENCE
+  PATHS and PIDS; the per-step Executor and Validator prompts name the report file.
+- "Variants and concurrent runs" now points at rules 7, 8 and 10.
+Signal names, `## Crew`, `## Interaction Protocol`, `## Prompts` and every fenced prompt are
+unchanged.
 
-Add to the crew file's run rules, and to the Executor and Validator prompts where they act:
-- **Driver or browser lifetime:**
-  - one long-lived driver process per run holding the CDP connection, or a fresh Chromium
-    process with a fresh `--user-data-dir` per variant, driving its persistent default
-    context;
-  - never a `new_context()` that a short-lived script owns.
-- **PIDs:** record them at launch and stop only those (never `pkill -f` or `killall` with
-  a pattern).
-- **The report-file hand-off** above.
-- **For concurrent runs:** an Orchestrator ledger, one line per checkpoint, and a check
-  that every Executor step was handed to the Validator before the next step is sent.
-
-Keep the file's required sections, signal names and fenced prompts intact.
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
-- The file still has `## Crew`, `## Interaction Protocol` and `## Prompts`, with every
-  prompt in a fenced block.
-- A re-read shows each rule in both the rationale list and the prompt that acts on it.
-- The next behavior run's Executors follow it without a mid-run advisory.
+- A parse check: the file has `## Crew`, `## Interaction Protocol` and `## Prompts`, and
+  each of the six `###` prompt subsections under `## Prompts` holds a fenced block.
+- A re-read shows each rule in the rationale list and in the prompt that acts on it.
+- The next behavior run's Executors following it without a mid-run advisory is the open
+  observation, for the next run.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: Developer agent, Mission 25 Flight 6 leg 3 (the flight-end review confirms)
+**Verdict**: confirmed
+**Commit**: pending the Flight 6 legs 1-3 commit

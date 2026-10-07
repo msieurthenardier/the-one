@@ -1592,7 +1592,7 @@ def test_test_connection_500_response_renders_useful_error(app_clean: str, page:
     test_btn.click()
 
     status_panel = page.locator('[data-testid="mcp-test-status"]')
-    # The .catch handler renders "Network error: <err.message>" — the
+    # The .catch handler renders "error block (headline + raw text under Technical details)" — the
     # message must include "Server error 500" (so the operator knows the
     # server side faulted) and NOT "Unexpected token" (the JSON parse
     # error that the resp.ok check is preventing).
@@ -1895,3 +1895,45 @@ def test_deep_linked_editor_mounts_after_slow_list_fetch(app_clean: str, page: P
     page.add_init_script(_DELAY_MCP_LIST_JS)
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=1000)
+
+
+@pytest.mark.browser
+def test_library_editor_connection_error_plain_headline(app_clean: str, page: Page) -> None:
+    """DD19: Test connection's error shows a plain headline with the raw text
+    under a collapsed "Technical details"; no "✗ Error:" prefix."""
+    raw_error = (
+        "MCPConnectionError: MCP connect failed: cancelled during initialize "
+        "(cross-task cleanup deadlock; original cause likely transport error or "
+        "malformed initial response): Cancelled via cancel scope 29abb186b90"
+    )
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "dd19-lib-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": raw_error}),
+        ),
+    )
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    page.locator('[data-testid="mcp-test-connection"]').click()
+
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    err = status_panel.locator('[data-testid="mcp-connection-error"]')
+    expect(err).to_be_visible(timeout=4000)
+    expect(err).to_contain_text("Couldn't connect to this server.")
+    expect(status_panel).not_to_contain_text("✗ Error")
+    assert err.locator("details").evaluate("el => el.open") is False
+    expect(err.locator("summary")).to_have_text("Technical details")
+    expect(err.locator('[data-testid="mcp-error-raw"]')).not_to_be_visible()
+    err.locator("summary").click()
+    assert err.locator('[data-testid="mcp-error-raw"]').inner_text() == raw_error

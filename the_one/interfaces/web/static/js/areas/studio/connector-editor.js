@@ -247,10 +247,12 @@
     crumbLink.setAttribute('data-testid', 'editor-breadcrumb-link');
     crumb.appendChild(crumbLink);
     headerText.appendChild(crumb);
-    headerText.appendChild(_el('h1', {
+    var connTitle = _el('h1', {
       className: 'editor-title',
       text: isCreate ? 'New Connector' : (cfg.name || '')
-    }));
+    });
+    connTitle.setAttribute('tabindex', '-1');
+    headerText.appendChild(connTitle);
 
     // Squawk 0045: connection-status LED, edit mode only (no LED on the
     // create form — nothing to probe until the connector exists). Sits in
@@ -595,7 +597,18 @@
       el.addEventListener('change', markDirty);
     });
 
-    if (callbacks.onCancel) cancelBtn.addEventListener('click', function () { callbacks.onCancel(); });
+    // Focus after an in-place action (M25 F6 L1b, DD2). The title is re-resolved
+    // when the focus timer fires (a create or an edit-mode Cancel re-mounts).
+    function titleEl() { return container.querySelector('.editor-title'); }
+    if (callbacks.onCancel) {
+      cancelBtn.addEventListener('click', function () {
+        // Edit-mode Cancel reverts in place through a re-mount (async: the
+        // agents fetch): park the restore, the orchestrator's mount flushes it.
+        // Create-mode Cancel closes the editor (DD8) and takes none.
+        if (!isCreate) App.focusAfter.defer(App.focusAfter.begin(cancelBtn), titleEl);
+        callbacks.onCancel();
+      });
+    }
 
     // ── Save ─────────────────────────────────────────────────────────
     function collectPayload() {
@@ -663,6 +676,7 @@
         errorEl.textContent = 'Name is required.';
         return;
       }
+      var saveTok = App.focusAfter.begin(saveBtn);
       var url = isCreate ? '/api/connectors' : '/api/connectors/' + encodeURIComponent(cfg.id);
       var method = isCreate ? 'POST' : 'PUT';
       fetch(url, {
@@ -680,6 +694,9 @@
       }).then(function (updated) {
         App.store.invalidate('connectors'); // the Library list shows it (DD9)
         window.App.showFlash(container, isCreate ? 'Connector created' : 'Connector saved');
+        // A create re-mounts in edit mode asynchronously: park the restore for
+        // the orchestrator's mount to flush.
+        if (isCreate) App.focusAfter.defer(saveTok, titleEl);
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, isCreate);
         // An edit save keeps this editor (a create re-renders it in edit
         // mode): the form now matches the saved row, so it reads clean again
@@ -690,9 +707,14 @@
           unsavedEl.textContent = '';
           saveBtn.disabled = true;
           cancelBtn.disabled = true;
+          // Squawk 0126: the title follows the saved row (a rename).
+          if (updated && updated.name) connTitle.textContent = updated.name;
+          App.focusAfter.restore(saveTok, titleEl);
         }
       }).catch(function (err) {
         errorEl.textContent = err.message || String(err);
+        App.focusAfter.defer(null);
+        App.focusAfter.restore(saveTok, saveBtn);
       });
     });
   }

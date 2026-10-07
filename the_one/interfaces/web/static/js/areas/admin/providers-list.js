@@ -88,8 +88,9 @@
     link.setAttribute('data-testid', 'provider-card');
     link.setAttribute('data-id', row.id);
     // Source order is the reading order: name, then type, URL, "Used by".
-    // The badge stays in the tile corner through position:absolute.
-    var kids = [link, badge];
+    // The name and the badge share a flex title row (DD3), so the badge never
+    // overlaps the name.
+    var kids = [el('div', { className: 'tile-title-row' }, [link, badge])];
     if (row.baseUrl) {
       kids.push(el('span', { className: 'provider-tile-url', text: row.baseUrl, title: row.baseUrl }));
     }

@@ -523,3 +523,86 @@ def test_auth_required_notice_uses_source_name_not_id(app_clean: str, page: Page
     assert sid not in notice_without_link, (
         f"Notice label text should not expose DB id '{sid}'; got: {notice_without_link!r}"
     )
+
+
+# ── DD19: plain-words connection errors ─────────────────────────────────────
+
+_OPERATOR_ERROR = (
+    "MCPConnectionError: MCP connect failed: cancelled during initialize "
+    "(cross-task cleanup deadlock; original cause likely transport error or "
+    "malformed initial response): Cancelled via cancel scope 29abb186b90"
+)
+
+
+@pytest.mark.browser
+def test_mcp_error_message_helper_headlines(app_clean: str, page: Page) -> None:
+    """App.mcpErrorMessage maps each class and known phrase to a plain headline
+    and keeps the raw text as the detail, unchanged."""
+    _nav.goto(page, app_clean, "agents")
+    page.wait_for_function("window.App && window.App.mcpErrorMessage")
+    cases = [
+        (
+            "MCPConnectionError: MCP connect failed: server did not respond within 30 seconds "
+            "during initialize",
+            "The server didn't respond in time.",
+        ),
+        (_OPERATOR_ERROR, "Couldn't connect to this server."),
+        (
+            "MCPVersionMismatch: x",
+            "This server uses a protocol version the app doesn't support.",
+        ),
+        ("MCPCapabilityMissing: x", "This server doesn't offer the tools capability."),
+        ("SandboxError: x", "The server couldn't start in its sandbox."),
+        (
+            "fetchMcpSourceTools: HTTP 500",
+            "The app couldn't check this server (the request failed).",
+        ),
+        (
+            "Server error 500 Internal Server Error: boom",
+            "The app couldn't check this server (the request failed).",
+        ),
+        ("ValueError: weird", "Couldn't load this server's tools."),
+        ("something unclassifiable", "Couldn't load this server's tools."),
+        ("", "Couldn't load this server's tools."),
+    ]
+    for raw, headline in cases:
+        got = page.evaluate("raw => window.App.mcpErrorMessage(raw)", raw)
+        assert got["headline"].startswith(headline), (raw, got)
+        assert got["detail"] == raw
+
+
+@pytest.mark.browser
+def test_mcps_tab_error_shows_plain_headline_and_details(app_clean: str, page: Page) -> None:
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "dd19-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(app_clean, "dd19-agent", {"description": "test"})
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": _OPERATOR_ERROR}),
+        ),
+    )
+    _navigate_to_agent_mcps_tab(page, app_clean, "dd19-agent")
+    _expand_source_tile(page, sid)
+
+    err = page.locator(f'[data-testid="mcp-tools-error-{sid}"]')
+    expect(err).to_be_visible(timeout=4000)
+    expect(err).to_contain_text("Couldn't connect to this server.")
+    expect(err).not_to_contain_text("Error loading tools")
+    details = err.locator("details")
+    assert details.evaluate("el => el.open") is False
+    expect(err.locator("summary")).to_have_text("Technical details")
+    expect(err.locator('[data-testid="mcp-error-raw"]')).not_to_be_visible()
+    err.locator("summary").click()
+    raw = err.locator('[data-testid="mcp-error-raw"]')
+    expect(raw).to_be_visible()
+    assert raw.inner_text() == _OPERATOR_ERROR

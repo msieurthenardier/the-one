@@ -886,12 +886,30 @@ def test_nav_groups_pairs_pass_body_aa(theme: str) -> None:
         "rest (fg_secondary on sidebar)": (palette["fg_secondary"], ground),
         "hover (fg on surface_elevated)": (palette["fg"], palette["surface_elevated"]),
         "selected (fg on wash over sidebar)": (palette["fg"], wash),
-        "caption (fg_muted on sidebar)": (palette["fg_muted"], ground),
+        "caption (fg_tertiary on sidebar)": (palette["fg_tertiary"], ground),
         "heading (fg on sidebar)": (palette["fg"], ground),
     }
     for name, (ink, bg) in pairs.items():
         ratio = contrast_ratio(ink, bg)
         assert ratio >= 4.5, f"{theme} navGroups {name} = {ratio:.2f}:1 (need >= 4.5:1)"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_section_label_eyebrow_pairs_pass_body_aa(theme: str) -> None:
+    """M25 F6 L4 (DD13): the eyebrow-with-a-rule label (10px semibold uppercase) is
+    --fg-tertiary on --bg (editor pages), --surface (the aside) and
+    --surface-elevated, all above 4.5:1. The rule itself is decorative."""
+    palette = _palette(theme)
+    for ground in ("bg", "surface", "surface_elevated"):
+        ratio = contrast_ratio(palette["fg_tertiary"], palette[ground])
+        assert ratio >= 4.5, f"{theme} section label on {ground} = {ratio:.2f}:1 (need >= 4.5:1)"
+
+
+def test_section_label_rules_consume_the_gated_pair() -> None:
+    for selector in (".section-title", ".ui-list-pane-caption", ".ui-nav-groups-caption"):
+        body = " ".join(_rule_bodies("components.css", selector))
+        assert "color: var(--fg-tertiary)" in body, f"{selector}: {body.strip()}"
+        assert "text-transform: uppercase" in body, f"{selector}: {body.strip()}"
 
 
 def test_nav_groups_rules_consume_the_gated_pairs() -> None:
@@ -902,7 +920,7 @@ def test_nav_groups_rules_consume_the_gated_pairs() -> None:
     cur = " ".join(_rule_bodies("components.css", '.ui-nav-groups-item[aria-current="page"]'))
     assert "background: var(--accent-translucent)" in cur and "color: var(--fg)" in cur, cur
     cap = " ".join(_rule_bodies("components.css", ".ui-nav-groups-caption"))
-    assert "color: var(--fg-muted)" in cap, cap
+    assert "color: var(--fg-tertiary)" in cap, cap
     heading = " ".join(_rule_bodies("components.css", ".ui-nav-groups-heading"))
     assert "color: var(--fg)" in heading, heading
 
@@ -949,15 +967,19 @@ def test_providers_tile_rules_consume_the_gated_pairs() -> None:
     assert "color: var(--fg-muted)" in intro, intro
     link = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link"))
     assert "color: var(--fg)" in link, link
-    assert "max-width: calc(100% - 128px)" in link, link
+    assert "calc(100%" not in link, link  # DD3: no badge reserve; the title row lays it out
+    row = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row"))
+    assert "display: flex" in row, row
+    name = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row .entity-tile-name"))
+    assert "flex: 1 1 auto" in name and "min-width: 0" in name, name
     ring = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-link:focus-visible"))
     assert "outline: 2px solid var(--accent)" in ring, ring
     used = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-used"))
     assert "color: var(--fg-secondary)" in used, used
     url = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-url"))
     assert "color: var(--fg-secondary)" in url, url
-    badge = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile-badge"))
-    assert "position: absolute" in badge, badge
+    badge = " ".join(_rule_bodies("admin.css", ".area-admin .tile-title-row .provider-tile-badge"))
+    assert "position: static" in badge and "flex: none" in badge, badge
     assert "background" not in badge and "color" not in badge, badge
     hover = " ".join(_rule_bodies("admin.css", ".area-admin .provider-tile:not(.active):hover"))
     assert "background-color: var(--surface)" in hover, hover

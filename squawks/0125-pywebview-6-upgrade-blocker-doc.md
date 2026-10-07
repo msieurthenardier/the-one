@@ -1,10 +1,10 @@
 # Squawk 0125: Document the pywebview 6.x upgrade blocker for the window chrome
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-10-06
-**Completed**: —
+**Completed**: 2026-10-06
 
 ## Report
 
@@ -26,16 +26,20 @@ Source: the Mission 25 Flight 5 debrief, recommendation 4.
 
 ## Corrective Action
 
-*(written at completion)*
+`the_one/agents.md`'s Window chrome block gains an "Upgrade blocker: pywebview 6.x" bullet
+naming `update_title_bar_theme()` (creation and `SystemEvents.UserPreferenceChanged`, DWM
+attributes 20 and 38 from the OS theme) and the re-check a lift of the pin needs. A matching
+comment sits above the `gui` extra's `pywebview>=5,<6` pins in `pyproject.toml`. No code
+changed.
 
-Add a short "upgrade blocker" note to `the_one/agents.md`'s Window chrome block, and a
-comment beside the `pyproject.toml` pin, both naming `update_title_bar_theme()` and the
-re-check an upgrade needs.
+Commit: pending the Flight 6 legs 1-3 commit.
 
 ## Verification
 
-`grep update_title_bar_theme the_one/agents.md pyproject.toml` finds both notes.
+`grep -n update_title_bar_theme the_one/agents.md pyproject.toml` finds one hit in each.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: Developer agent, Mission 25 Flight 6 leg 3 (the flight-end review confirms)
+**Verdict**: confirmed
+**Commit**: pending the Flight 6 legs 1-3 commit

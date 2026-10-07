@@ -733,6 +733,14 @@ App.registerArea({
         if (!pickAgent(agent) && wasValidating && st.name === 'pending' && st.agent === agent) {
           finishValidation();
         }
+        // M25 F6 L2: the cached list can lag an API-side delete (nothing
+        // invalidates the store), so a pending chat renders at once from it
+        // and a background forced read re-validates: a deleted agent heals.
+        if (chatState.state().name === 'pending') {
+          App.store.get('agents', { force: true }).then(function (list) {
+            validatePending(agent, list);
+          }, function () { /* unverifiable: the server's start_session validates */ });
+        }
         return;
       }
       // A cold load (or an agent the cached list lacks): pending at once

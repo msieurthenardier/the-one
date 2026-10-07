@@ -49,10 +49,12 @@
     return (
       '<div class="entity-tile tool-tile' + (selected ? ' active' : '') + '" data-testid="tool-card" ' +
            'data-name="' + escapeAttr(t.name) + '" role="listitem">' +
-        '<span class="entity-tile-badge admin-tool-badge admin-tool-badge--' +
-          escapeAttr(cat) + '">' + escapeHtml(cat) + '</span>' +
-        '<a class="entity-tile-name tool-tile-link" href="' + escapeAttr(href) + '"' +
-          (selected ? ' aria-current="page"' : '') + '>' + escapeHtml(t.name) + '</a>' +
+        '<div class="tile-title-row">' +
+          '<a class="entity-tile-name tool-tile-link" href="' + escapeAttr(href) + '"' +
+            (selected ? ' aria-current="page"' : '') + '>' + escapeHtml(t.name) + '</a>' +
+          '<span class="entity-tile-badge admin-tool-badge admin-tool-badge--' +
+            escapeAttr(cat) + '">' + escapeHtml(cat) + '</span>' +
+        '</div>' +
         '<span class="entity-tile-description">' + escapeHtml(t.description) + '</span>' +
         '<label class="tool-enable-switch tool-enable-switch--corner" title="' + escapeAttr(titleText) + '">' +
           '<input type="checkbox" ' + checkedAttr + ' ' + disabledAttr + ' ' +

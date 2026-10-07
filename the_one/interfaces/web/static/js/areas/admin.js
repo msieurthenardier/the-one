@@ -478,10 +478,7 @@ App.registerArea({
     }
 
     // Mount the provider editor (create or edit) in the item section.
-    // opts.keepFocus: a re-mount (save-create) puts focus on the new title
-    // when focus was inside the editor it replaces.
-    function mountProviderItem(opts) {
-      opts = opts || {};
+    function mountProviderItem() {
       if (!scaffoldFor('providers') || !providerFormMode) return;
       // Reset orchestrator's dirty mirror BEFORE editor mount (F6 leg 04).
       // The fresh editor closure starts at dirty=false; the onDirtyChange
@@ -498,15 +495,16 @@ App.registerArea({
       ready.then(function () {
         var sc = scaffoldFor('providers');
         if (mountGen !== editorGen || !sc || !providerFormMode) return; // closed while the types loaded
-        var hadFocus = !!opts.keepFocus && sc.itemEl.contains(document.activeElement);
         rescueFlashes(sc.itemEl);
         App.admin.renderProviderEditor(sc.itemEl, editingProvider, PROVIDER_TYPES, providerCallbacks(mountGen));
         App.admin.setProvidersSelection(sc.listEl, selectedProviderId());
         if (reveal) {
+          App.focusAfter.defer(null);
           revealItem(sc.itemEl);
-        } else if (hadFocus) {
-          var title = sc.itemEl.querySelector('.editor-title');
-          if (title) focusNoScroll(title);
+        } else {
+          // A save-create's parked focus restore (App.focusAfter, M25 F6 L1b,
+          // DD2): never together with an intent open's reveal.
+          App.focusAfter.flush();
         }
       });
     }
@@ -559,7 +557,7 @@ App.registerArea({
           if (isCreate) {
             // Create -> edit: re-mount ONLY the item section in edit mode
             // (Models, Danger Zone and Test now render); the tile list stays.
-            mountProviderItem({ keepFocus: true });
+            mountProviderItem();
           }
           // Edit -> edit: the editor stays mounted; its own snapshot
           // recapture handles the dirty reset.
@@ -1037,6 +1035,7 @@ App.registerArea({
     }
     self._discardEditor = function () {
       editorGen += 1;
+      App.focusAfter.cancel();
       try {
         // Knowledge settings is one form: discard is just dirty=false (re-entry
         // re-renders from the saved settings). Otherwise tear the item down:
@@ -1128,6 +1127,7 @@ App.registerArea({
       var itemOpen = !!(providerFormMode || toolFormMode || currentCategory === 'knowledge');
       if (currentCategory !== sub || itemOpen || editorDomStale) {
         editorGen += 1;
+        App.focusAfter.cancel();
         currentCategory = sub;
         providerFormMode = null;
         editingProvider = null;
@@ -1162,6 +1162,7 @@ App.registerArea({
     // the category that is already showing then mounts the new item there.
     self._closeOpenItem = function () {
       editorGen += 1; // a teardown invalidates any in-flight editor resolver
+      App.focusAfter.cancel();
       providerFormMode = null;
       editingProvider = null;
       pendingProviderId = null;
