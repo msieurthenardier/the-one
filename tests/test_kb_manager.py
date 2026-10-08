@@ -270,6 +270,36 @@ class TestPass:
         counts = _json.loads(raw)
         assert counts == {"skipped_dirs": 1, "skipped_entries": 0}
 
+    async def test_walk_skips_counter_write_when_folder_deleted_mid_walk(
+        self, conn, kb_repo, item_repo, store, backend, tmp_path, monkeypatch
+    ) -> None:
+        """Squawk 0148: a folder deleted after its walk reconciled but
+        before the counter write must not leave an orphan kv row."""
+        kb = await _make_kb(kb_repo)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "a.txt").write_text("hello world")
+        await item_repo.create(
+            KBItem(id="folder1", kb_id=kb.id, type="folder", path_or_url=str(folder))
+        )
+
+        real_update_status = KBItemRepository.update_status
+
+        async def _deleting_update_status(self, item_id, status, *, error=None):
+            out = await real_update_status(self, item_id, status, error=error)
+            if item_id == "folder1" and status == "indexed":
+                await self.delete(item_id)
+            return out
+
+        monkeypatch.setattr(KBItemRepository, "update_status", _deleting_update_status)
+
+        manager = _make_manager(conn, store, backend)
+        manager.request_index(kb.id)
+        await manager.wait_until_idle(kb.id, timeout=10.0)
+
+        meta_repo = AppMetadataRepository(conn)
+        assert await meta_repo.get(walk_skip_counters_key("folder1")) is None
+
     async def test_dormant_url_folder_and_broken_file_still_reaches_idle(
         self, conn, kb_repo, item_repo, store, backend, tmp_path, monkeypatch
     ) -> None:

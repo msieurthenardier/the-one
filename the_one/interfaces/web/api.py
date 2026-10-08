@@ -114,6 +114,15 @@ new endpoints log through it directly.
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
+def _validation_detail(e: ValidationError) -> list[dict]:
+    """The one 422 body for a pydantic ``ValidationError``.
+
+    ``include_context=False``: ``ctx`` may hold a raw exception (not JSON-serializable).
+    ``include_input=False``: ``input`` echoes the submitted value, secrets included.
+    """
+    return e.errors(include_context=False, include_input=False)
+
+
 async def _agent_store() -> SQLiteAgentStore:
     conn = await get_connection()
     # M21 F01 L01: pass the encryptor explicitly (rather than relying on
@@ -582,7 +591,7 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
             # operator narrowed `timeout_seconds_max < timeout_seconds_default`
             # and the resulting model-validator ValueError crashed the JSON
             # encoder, surfacing as 500 instead of 422.
-            raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+            raise HTTPException(status_code=422, detail=_validation_detail(e))
         dumped = validated.model_dump()
         # M16 F08 L03: SPLIT secret-marked fields OUT of the config column
         # into the encrypted `secrets` store — a plaintext key must never
@@ -827,7 +836,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     # M21 F01 L02 (LD1 ownership guard + Edge Case credential-override
     # guard): run on the VALIDATED config, after the mcp_overrides merge
     # above — an agent can never attach another agent's self-configuration
@@ -901,7 +910,7 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
     try:
         cfg = AgentConfig.model_validate(data)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     # M21 F01 L02: ownership + credential-override guards, on the validated
     # config, after the preserve-on-PUT merge above (see create_agent for
     # the shared rationale).
@@ -975,7 +984,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     try:
         AgentConfig.model_validate(payload)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     try:
         await store.rename(name, new_name)
     except KeyError:
@@ -1491,7 +1500,7 @@ async def create_knowledge_base(request: Request) -> dict[str, Any]:
         # "../../../evil") must 422 via the model's charset validator, not
         # crash as an unhandled 500 — `KnowledgeBase.id` is used verbatim
         # to build a filesystem path in `UsearchStore._path_for`.
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     repo = await _kb_repo()
     await repo.create(kb)
     # M24 F02 L03, DD-1: kick the embedding warm-up on the operator's first
@@ -1523,7 +1532,7 @@ async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
         merged.update(data)
         updated = KnowledgeBase.model_validate(merged)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     await repo.update(updated)
 
     # L2-D7/L2-D9: the agent rewrite happens AFTER the knowledge-base row
@@ -1625,12 +1634,22 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, str]:
         # orphan forever. Same log-and-continue shape as the vector-store
         # cleanup above: a failure here must not un-delete the knowledge
         # base that already committed.
+        # Squawk 0148: per-folder try, so one failed delete does not skip
+        # the remaining folders' keys.
         try:
             meta_repo = await _app_metadata_repo()
-            for folder in folders:
-                await meta_repo.delete(walk_skip_counters_key(folder.id))
         except Exception:
             logger.exception("walk-skip-counter cleanup failed for knowledge base %s", kb_id)
+        else:
+            for folder in folders:
+                try:
+                    await meta_repo.delete(walk_skip_counters_key(folder.id))
+                except Exception:
+                    logger.exception(
+                        "walk-skip-counter cleanup failed for knowledge base %s folder %s",
+                        kb_id,
+                        folder.id,
+                    )
     return {"status": "ok"}
 
 
@@ -1664,7 +1683,7 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
     except ValidationError as e:
         # Flight 3 Leg 1: the create_knowledge_base 422 shape (:1414-1420)
         # — a malformed item body used to 500 unhandled.
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
 
     repo = await _kb_item_repo()
     if item.type == "folder":
@@ -1704,6 +1723,24 @@ async def create_kb_item(kb_id: str, request: Request) -> dict[str, Any]:
                         f"folder overlaps registered folder {existing.id}: {existing.path_or_url}"
                     ),
                 )
+        item = item.model_copy(update={"path_or_url": str(canonical)})
+
+    elif item.type == "file":
+        # Squawk 0147: DD-6 applies to a file item too — one that equals or
+        # lies inside the data directory would let the extractor (and the
+        # source read-back) read the app's own database and credentials.
+        # Same canonicalization and same refusal as a folder; the file need
+        # not exist (the indexer reports a missing file as a failed item).
+        canonical = canonicalize(item.path_or_url)
+        if is_within(canonical, settings.data_dir):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"file lies inside the application data directory ({settings.data_dir}); "
+                    "the app's own database and index live there — register a file "
+                    "outside it"
+                ),
+            )
         item = item.model_copy(update={"path_or_url": str(canonical)})
 
     await repo.create(item)
@@ -2162,7 +2199,7 @@ async def update_knowledge_settings(request: Request) -> dict[str, Any]:
             monitoring=MonitoringSettings.model_validate(merged_monitoring),
         )
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
 
     await save_knowledge_settings(conn, updated)
     # DD-5: applied live, not only on the next indexing pass (unlike
@@ -2570,7 +2607,7 @@ async def create_mcp_source(request: Request) -> dict[str, Any]:
         # ``include_context=False`` so the response stays JSON-encodable
         # — ``model_validator`` paths populate ``ctx['error']`` with raw
         # exceptions that aren't JSON-serializable.
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     _reject_reserved_surface_name(source)
     _validate_mcp_source_config(source)
     repo = await _mcp_repo()
@@ -2697,7 +2734,7 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         merged.update(data)
         updated = MCPSource.model_validate(merged)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     # AC8b: `existing` is guaranteed non-surface at this point (a marked
     # row was already refused above), so this only fires when the PUT
     # would rename an ORDINARY source into the reserved constant name.
@@ -3531,7 +3568,7 @@ async def create_connector(request: Request) -> dict[str, Any]:
     try:
         account = Connector.model_validate(data)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     if account.type not in _creatable_connector_types():
         raise HTTPException(
             status_code=422,
@@ -3585,7 +3622,7 @@ async def update_connector(connector_id: str, request: Request) -> dict[str, Any
         merged.update(data)
         updated = Connector.model_validate(merged)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     if updated.type not in _creatable_connector_types():
         raise HTTPException(
             status_code=422,
@@ -4320,9 +4357,7 @@ async def create_chat_session(request: Request) -> dict[str, Any]:
         session = ChatSession.model_validate(data)
     except ValidationError as e:
         # Squawk 0081: invalid input is a 422, not an unhandled 500.
-        raise HTTPException(
-            status_code=422, detail=e.errors(include_context=False, include_input=False)
-        )
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     repo = await _chat_repo()
     await repo.create(session)
     return _session_summary(session)
@@ -4348,7 +4383,7 @@ async def update_chat_session(session_id: str, request: Request) -> dict[str, An
         merged.update(data)
         updated = ChatSession.model_validate(merged)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     await repo.update(updated)
     return _session_summary(updated)
 
@@ -4411,7 +4446,8 @@ class _PendingOAuthFlowBody(BaseModel):
 
 @router.post("/_test/oauth/pending")
 async def seed_pending_oauth_flow(body: _PendingOAuthFlowBody) -> dict[str, str]:
-    """Mission 22 / Flight 01 / Leg 03 — dev-mode-gated test seam.
+    """Mission 22 / Flight 01 / Leg 03 — dual-gated test seam (dev mode AND
+    ``THE_ONE_OAUTH_TEST_ENDPOINT=1``, checked at request time).
 
     Registers a pending OAuth flow (`the_one.mcp.oauth._state.register`) so
     an out-of-process caller can seed one over HTTP. Only in-process code
@@ -4419,13 +4455,14 @@ async def seed_pending_oauth_flow(body: _PendingOAuthFlowBody) -> dict[str, str]
     suite (it imports `_state` directly) but not for a browser-lane test
     driving a spawned app subprocess — this seam exists solely so
     `tests/browser/test_flow_oauth_callback_cross_site.py` can seed a flow
-    before navigating to `/api/oauth/callback`. Gating mirrors the sibling
-    `/_test/` seams (403 when dev_mode is off).
+    before navigating to `/api/oauth/callback`. It helps forge an OAuth
+    callback, so it carries its own flag like the sibling `/_test/` seams
+    (403 unless both gates are open).
     """
-    if not settings.dev_mode:
+    if not settings.dev_mode or os.environ.get("THE_ONE_OAUTH_TEST_ENDPOINT") != "1":
         raise HTTPException(
             status_code=403,
-            detail="test-seam endpoint requires THE_ONE_DEV_MODE=true",
+            detail="test-seam endpoint requires dev_mode + THE_ONE_OAUTH_TEST_ENDPOINT=1",
         )
     from the_one.mcp.oauth import _state as oauth_state
 
@@ -4659,9 +4696,7 @@ async def create_provider(request: Request) -> dict[str, Any]:
     except ValidationError as e:
         # Squawks 0112 / 0081: a missing field is a 422. ``include_input=False``
         # keeps the submitted ``api_key`` out of the response.
-        raise HTTPException(
-            status_code=422, detail=e.errors(include_context=False, include_input=False)
-        )
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     # URL safety: refuse non-https for non-localhost when the provider type
     # actually transmits an API key (skips ``mock`` / ``ollama``).
     if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:
@@ -4721,7 +4756,7 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
         merged.update(data)
         updated = LLMProviderConfig.model_validate(merged)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
     # URL safety check on the RESOLVED base_url — i.e. after the
     # model_dump()|data round-trip above has merged any
     # ``__MASKED__``-preserved fields. This blocks the regression where a

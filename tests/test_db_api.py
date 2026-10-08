@@ -1479,6 +1479,69 @@ class TestKnowledgeBaseFolderRegistrationDataDirRefusal:
         assert resp.status_code == 201
 
 
+class TestKnowledgeBaseFileItemDataDirRefusal:
+    """Squawk 0147: the data-directory refusal covers ``file`` items too."""
+
+    async def _kb(self, client: AsyncClient) -> str:
+        return (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+
+    async def test_file_inside_data_dir_422(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+        db = data_dir / "the-one.db"
+        db.write_text("x")
+        kb_id = await self._kb(client)
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": str(db)},
+        )
+        assert resp.status_code == 422
+        assert "data directory" in resp.json()["detail"]
+
+    async def test_file_inside_data_dir_via_dotdot_422(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (tmp_path / "other").mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+        (data_dir / "secret").write_text("x")
+        kb_id = await self._kb(client)
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={
+                "type": "file",
+                "path_or_url": str(tmp_path / "other" / ".." / "data" / "secret"),
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_file_outside_data_dir_created(
+        self, client: AsyncClient, tmp_path, monkeypatch
+    ) -> None:
+        from the_one.config import settings
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setattr(settings, "data_dir", data_dir)
+        note = tmp_path / "note.txt"
+        note.write_text("hello")
+        kb_id = await self._kb(client)
+        resp = await client.post(
+            f"/api/knowledge-bases/{kb_id}/items",
+            json={"type": "file", "path_or_url": str(note)},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["path_or_url"] == str(note.resolve())
+
+
 class TestKnowledgeBaseCreateWarmsUpEmbeddingBackend:
     """M24 F02 L03, DD-1, AC-5: creating a KB kicks the embedding warm-up
     exactly once on a cold process; a second creation does not kick it
@@ -2181,6 +2244,52 @@ class TestKnowledgeBaseWalkSkipCounters:
 
         assert await meta_repo.get(key_a) is None
         assert await meta_repo.get(key_b) is None
+
+    async def test_delete_knowledge_base_cleanup_continues_past_a_failing_key(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        """Squawk 0148: one failed key delete must not skip the others."""
+        import json as _json
+
+        from the_one.db.repositories import AppMetadataRepository
+        from the_one.interfaces.web import api as api_module
+        from the_one.knowledge.settings import walk_skip_counters_key
+
+        kb_id = (await client.post("/api/knowledge-bases", json={"name": "KB"})).json()["id"]
+        items = []
+        for name in ("a", "b", "c"):
+            d = tmp_path / name
+            d.mkdir()
+            items.append(
+                (
+                    await client.post(
+                        f"/api/knowledge-bases/{kb_id}/items",
+                        json={"type": "folder", "path_or_url": str(d)},
+                    )
+                ).json()
+            )
+        conn = await api_module.get_connection()
+        meta_repo = AppMetadataRepository(conn)
+        keys = [walk_skip_counters_key(i["id"]) for i in items]
+        for k in keys:
+            await meta_repo.set(k, _json.dumps({"skipped_dirs": 1, "skipped_entries": 0}))
+
+        real_delete = AppMetadataRepository.delete
+        calls: list[str] = []
+
+        async def _failing_first(self, key):
+            calls.append(key)
+            if len(calls) == 1:
+                raise RuntimeError("simulated kv failure")
+            return await real_delete(self, key)
+
+        with patch.object(AppMetadataRepository, "delete", _failing_first):
+            resp = await client.delete(f"/api/knowledge-bases/{kb_id}")
+        assert resp.status_code == 200
+
+        assert len(calls) == 3
+        remaining = [k for k in keys if await meta_repo.get(k) is not None]
+        assert remaining == [calls[0]]
 
     async def test_delete_kb_item_file_type_does_not_error(self, client: AsyncClient) -> None:
         """A standalone `file` item delete must not attempt (or need) any
@@ -3200,6 +3309,21 @@ class TestKnowledgeSettingsMonitoringAPI:
 
 
 class TestMCPSourceAPI:
+    async def test_create_422_does_not_echo_submitted_secret(self, client: AsyncClient) -> None:
+        """Squawk 0143: a validation 422 must not echo the request body (`input`)."""
+        sentinel = "SENTINEL-env-secret-0143"
+        resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "type": "stdio",
+                "config": {"command": "python"},
+                "secrets": {"env": {"API_KEY": sentinel}},
+            },
+        )
+        assert resp.status_code == 422
+        assert sentinel not in resp.text
+        assert any(err["loc"] == ["name"] for err in resp.json()["detail"])
+
     async def test_crud(self, client: AsyncClient) -> None:
         # Create
         resp = await client.post(

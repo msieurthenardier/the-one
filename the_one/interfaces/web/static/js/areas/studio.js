@@ -1897,14 +1897,14 @@ App.registerArea({
     // ── Data fetching ────────────────────────────────────────────────
 
     function fetchAgents(force) { return App.store.get('agents', { force: !!force }); }
-    function fetchTools() { return fetch('/api/tools').then(function (r) { return r.json(); }); }
+    function fetchTools() { return App.api.fetchJson('/api/tools'); }
     // M21 F01 L02 (DD3): the editor's fetch — as opposed to the Library
     // list's store collection ('mcp-sources', the plain list) — includes
     // per-agent self-configuration surface rows so the agent editor's MCPs
     // tab and Self-configuration tab can see them; the Library list excludes
     // them (no query param there).
     function fetchMcpSources() {
-      return fetch('/api/mcp-sources?include_agent_surfaces=1').then(function (r) { return r.json(); });
+      return App.api.fetchJson('/api/mcp-sources?include_agent_surfaces=1');
     }
 
     // M21 F01 L02 — self-configuration status/enable/disable network calls.
@@ -1927,7 +1927,7 @@ App.registerArea({
       // so the MCPs tab reflects the new/removed row without a reload.
       return Promise.all([
         refreshMcpSourcesCache(),
-        fetch('/api/agents/' + encodeURIComponent(name)).then(function (r) { return r.json(); })
+        App.api.fetchJson('/api/agents/' + encodeURIComponent(name))
       ]).then(function (results) {
         var updated = results[1];
         for (var i = 0; i < self._agents.length; i++) {
@@ -2115,7 +2115,7 @@ App.registerArea({
     self._operatorConfigs = {};
 
     function fetchToolConfigs() {
-      return fetch('/api/tools/configs').then(function (r) { return r.json(); });
+      return App.api.fetchJson('/api/tools/configs');
     }
 
     function refreshToolConfigsCache() {

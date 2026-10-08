@@ -213,7 +213,9 @@ def test_library_fetch_sites_read_through_the_store() -> None:
     for gone in ("fetchKnowledgeBases_", "fetchMcpSources_", "fetchConnectors_"):
         assert gone not in src, gone
     # The agent editor's detail-shaped variant stays a direct fetch.
-    assert "fetch('/api/mcp-sources?include_agent_surfaces=1')" in src
+    # (0145: through App.api.fetchJson so a non-ok response throws; never App.store.)
+    assert "App.api.fetchJson('/api/mcp-sources?include_agent_surfaces=1')" in src
+    assert "App.store.get('mcp-sources?include_agent_surfaces" not in src
 
 
 def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:

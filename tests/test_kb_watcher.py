@@ -968,10 +968,17 @@ class TestStopAndDrain:
         await mgr.stop("f1")
         assert time.monotonic() - start < 1.0
 
-    async def test_drain_three_live_entries_under_a_second(self, tmp_path) -> None:
+    async def test_drain_three_live_entries_stops_via_sentinel_not_timeout(self, tmp_path) -> None:
+        # The property: drain() ends each watch through its stop sentinel, never by
+        # running into ``drain_timeout`` (the cancel fallback). A drain that waited on
+        # a watcher ignoring the sentinel would take the full 30 s timeout; the bound
+        # is half of it, so host load (the watchers poll every 20 ms) cannot reach it.
+        drain_timeout = 30.0
         idx = _FakeIndexManager()
         factory = _QueueFactory()
-        mgr = WatchManager(idx, watch_factory=factory, excluded_roots=(), drain_timeout=5.0)
+        mgr = WatchManager(
+            idx, watch_factory=factory, excluded_roots=(), drain_timeout=drain_timeout
+        )
         roots = []
         for i in range(3):
             r = tmp_path / f"r{i}"
@@ -985,7 +992,11 @@ class TestStopAndDrain:
         thread_names = [f"the-one-watch-f{i}" for i in range(3)]
         start = time.monotonic()
         await mgr.drain()
-        assert time.monotonic() - start < 1.0
+        assert time.monotonic() - start < drain_timeout / 2
+        # The task ends when the thread posts its terminal ``_Done``, a moment before
+        # the thread itself is reaped, so wait for the exit instead of sampling it.
+        for name in thread_names:
+            _wait_thread_gone(name, timeout=10.0)
         assert not any(t.name in thread_names for t in threading.enumerate())
         assert mgr._timers == {}
         assert mgr._reconcile_task is None

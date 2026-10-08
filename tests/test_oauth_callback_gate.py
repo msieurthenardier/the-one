@@ -19,7 +19,7 @@ Isolation mirrors two existing modules:
 - `tests/test_oauth_callback_route.py`'s `_reset_oauth_state` — clears
   `_state._pending` before/after each test.
 
-`TestSeam` covers the dev-mode-gated `POST /api/_test/oauth/pending` seam
+`TestSeam` covers the dual-gated `POST /api/_test/oauth/pending` seam
 (AC5) that only a browser-lane test (a separate process, unable to call
 `_state.register` in-process) actually needs; the tests in this module
 seed pending flows directly via `_state.register`.
@@ -217,6 +217,7 @@ class TestSeam:
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(settings, "dev_mode", True)
+        monkeypatch.setenv("THE_ONE_OAUTH_TEST_ENDPOINT", "1")
         resp = await client.post(
             "/api/_test/oauth/pending",
             json={
@@ -230,10 +231,29 @@ class TestSeam:
         assert resp.json() == {"state": "S-SEAM-1"}
         assert _state.peek("S-SEAM-1") is not None
 
+    async def test_seam_403s_without_flag(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dev mode on but THE_ONE_OAUTH_TEST_ENDPOINT unset: still 403 (squawk 0146)."""
+        monkeypatch.setattr(settings, "dev_mode", True)
+        monkeypatch.delenv("THE_ONE_OAUTH_TEST_ENDPOINT", raising=False)
+        resp = await client.post(
+            "/api/_test/oauth/pending",
+            json={
+                "state": "S-SEAM-NOFLAG",
+                "source_id": "src-seam-nf",
+                "chat_session_id": "cs-seam-nf",
+            },
+            headers=auth_headers(),
+        )
+        assert resp.status_code == 403
+        assert _state.peek("S-SEAM-NOFLAG") is None
+
     async def test_seam_403s_without_dev_mode(
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(settings, "dev_mode", False)
+        monkeypatch.setenv("THE_ONE_OAUTH_TEST_ENDPOINT", "1")
         resp = await client.post(
             "/api/_test/oauth/pending",
             json={
@@ -250,6 +270,7 @@ class TestSeam:
         self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(settings, "dev_mode", True)
+        monkeypatch.setenv("THE_ONE_OAUTH_TEST_ENDPOINT", "1")
         body = {
             "state": "S-SEAM-DUP",
             "source_id": "src-seam-3",
