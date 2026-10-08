@@ -449,13 +449,29 @@ class IndexingManager:
         # (AC-11b) so the read site (`get_kb_status`) and both cleanup
         # sites (`delete_kb_item`, `delete_knowledge_base`) can never drift
         # from where this actually wrote.
+        #
+        # Squawk 0148: the delete paths clear this key once, at delete time
+        # (app_metadata sits outside the kb_items FK cascade), so a write
+        # landing after the folder was deleted would orphan the row for
+        # good. Re-check the folder still exists and skip the write if not.
+        # Residual window: a delete committed on another connection between
+        # this get and the set can still orphan one row (no cross-table
+        # transaction without new repo API); the check closes the realistic
+        # case of a delete during the walk/reconcile.
         meta_repo = AppMetadataRepository(ctx.conn)
-        await meta_repo.set(
-            walk_skip_counters_key(folder.id),
-            json.dumps(
-                {"skipped_dirs": result.skipped_dirs, "skipped_entries": result.skipped_entries}
-            ),
-        )
+        try:
+            await ctx.item_repo.get(folder.id)
+        except KeyError:
+            folder_gone = True
+        else:
+            folder_gone = False
+        if not folder_gone:
+            await meta_repo.set(
+                walk_skip_counters_key(folder.id),
+                json.dumps(
+                    {"skipped_dirs": result.skipped_dirs, "skipped_entries": result.skipped_entries}
+                ),
+            )
         logger.info(
             "kb %s: folder %s walk: %d new, %d changed, %d removed, %d unchanged "
             "(skipped_dirs=%d, skipped_entries=%d)",

@@ -5,6 +5,7 @@ every GUI/Win32 seam is injected or monkeypatched."""
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
 import types
@@ -113,6 +114,48 @@ def test_os_theme_unreadable_value_is_dark(monkeypatch: pytest.MonkeyPatch) -> N
     fake = types.SimpleNamespace(HKEY_CURRENT_USER=object(), OpenKey=boom)
     monkeypatch.setitem(sys.modules, "winreg", fake)
     assert chrome.os_theme() == "dark"
+
+
+def _debug_records(caplog: pytest.LogCaptureFixture, needle: str) -> list[Any]:
+    return [
+        r
+        for r in caplog.records
+        if r.name == chrome.log.name and r.levelno == logging.DEBUG and needle in r.getMessage()
+    ]
+
+
+def test_os_theme_failure_is_logged_at_debug_with_traceback(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def boom(*_a: Any) -> Any:
+        raise OSError("no key")
+
+    fake = types.SimpleNamespace(HKEY_CURRENT_USER=object(), OpenKey=boom)
+    monkeypatch.setitem(sys.modules, "winreg", fake)
+    caplog.set_level(logging.DEBUG, logger=chrome.log.name)
+    assert chrome.os_theme() == "dark"
+    recs = _debug_records(caplog, "OS theme detection failed")
+    assert len(recs) == 1
+    assert recs[0].exc_info and isinstance(recs[0].exc_info[1], OSError)
+
+
+def test_os_theme_close_key_failure_is_logged_and_value_kept(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def bad_close(_k: Any) -> None:
+        raise OSError("close failed")
+
+    fake = types.SimpleNamespace(
+        HKEY_CURRENT_USER=object(),
+        OpenKey=lambda root, path: "key",
+        QueryValueEx=lambda key, name: (1, 4),
+        CloseKey=bad_close,
+    )
+    monkeypatch.setitem(sys.modules, "winreg", fake)
+    caplog.set_level(logging.DEBUG, logger=chrome.log.name)
+    assert chrome.os_theme() == "light"
+    recs = _debug_records(caplog, "CloseKey failed")
+    assert len(recs) == 1 and recs[0].exc_info
 
 
 # ── persistence ──────────────────────────────────────────────────────────────

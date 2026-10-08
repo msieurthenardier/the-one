@@ -146,9 +146,10 @@ def os_theme() -> str:
             try:
                 winreg.CloseKey(key)
             except Exception:
-                pass
+                log.debug("chrome: winreg.CloseKey failed", exc_info=True)
         return "light" if int(value) == 1 else "dark"
     except Exception:
+        log.debug("chrome: OS theme detection failed; falling back to dark", exc_info=True)
         return "dark"
 
 
@@ -335,7 +336,7 @@ def _ui_apply(window: Any, queued_at: float) -> None:
         try:
             _record(seq, queued_at, theme, active, {}, f"{type(exc).__name__}: {exc}")
         except Exception:
-            pass
+            log.debug("chrome: recording the apply failure raised", exc_info=True)
 
 
 def _dispatch(window: Any) -> bool | str:

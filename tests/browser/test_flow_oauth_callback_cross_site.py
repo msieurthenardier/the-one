@@ -29,10 +29,31 @@ itself decides to attach per its same-site/cross-site rules.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from pathlib import Path
+
 import pytest
 from browser._credential_registry import credential_for
-from browser.conftest import _establish_session_cookie
+from browser.conftest import (
+    _establish_session_cookie,
+    _spawn_app,
+    _teardown_proc,
+    _unregister_credential,
+)
 from playwright.sync_api import Browser
+
+
+@pytest.fixture
+def app_clean(tmp_path: Path) -> Iterator[str]:
+    """`app_clean`, plus the OAuth-pending seam's own gate flag (squawk 0146)."""
+    base_url, proc, _credential, _data_dir = _spawn_app(
+        tmp_path, extra_env={"THE_ONE_OAUTH_TEST_ENDPOINT": "1"}
+    )
+    try:
+        yield base_url
+    finally:
+        _unregister_credential(base_url)
+        _teardown_proc(proc)
 
 
 @pytest.mark.browser

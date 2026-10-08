@@ -128,6 +128,17 @@ async def test_create_masks_secrets_in_response(client: AsyncClient, stub_gate) 
     assert "s3cr3t-token-value" not in got.text
 
 
+async def test_create_422_does_not_echo_submitted_secret(client: AsyncClient, stub_gate) -> None:
+    """Squawk 0143: a validation 422 must not echo the request body (`input`)."""
+    sentinel = "SENTINEL-bot-token-0143"
+    payload = _stub_payload(secrets={"bot_token": sentinel})
+    del payload["name"]
+    resp = await client.post("/api/connectors", json=payload)
+    assert resp.status_code == 422
+    assert sentinel not in resp.text
+    assert any(err["loc"] == ["name"] for err in resp.json()["detail"])
+
+
 async def test_create_rejects_masked_sentinel(client: AsyncClient, stub_gate) -> None:
     resp = await client.post("/api/connectors", json=_stub_payload(secrets={"token": "__MASKED__"}))
     assert resp.status_code == 422

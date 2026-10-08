@@ -447,7 +447,7 @@ identically.
 **Dual-gated test seams**: `POST /api/_test/stub/inbound` and
 `GET /api/_test/stub/outbound` require **both** `settings.dev_mode` and
 `THE_ONE_STUB_TEST_ENDPOINT=1` — mirroring the purge-sweep test seam's risk
-profile, not the inert-metadata OAuth-pending seam's, because these seams
+profile, because these seams
 inject free text into a live agent loop with real LLM calls and tool
 execution. `THE_ONE_STUB_TEST_ENDPOINT=1` also gates `"stub"`'s entry in
 `GET /api/connectors/types` (so it cannot be created outside a dev/test
@@ -455,7 +455,7 @@ instance) and the lifespan-startup hook that registers `StubPlugin`
 (`the_one/interfaces/web/app.py`). All three gates share one env var by
 design — there is no way to open one without the others. The retired
 pre-reset name `THE_ONE_REGISTER_STUB_CONNECTOR` is fully gone, not
-resurrected.
+resurrected. `POST /api/_test/oauth/pending` is likewise dual-gated, with its own flag `THE_ONE_OAUTH_TEST_ENDPOINT=1` (squawk 0146).
 
 **Credentials, masking, and rotation**: `Connector.secrets` (the platform
 token/credential) is Fernet-encrypted at rest, masked on every response via

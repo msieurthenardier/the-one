@@ -460,3 +460,20 @@ requirement for always-listen groups.
   it wasn't told. See `tests/behavior/stub-connector-round-trip.md`'s "Why
   the reply steps embed the tool-call target" note for the empirical read
   on this residual gap.
+
+## Size budget
+
+Mission 23 capped the connector subsystem at **3,000 Python lines**: the
+`the_one/connectors/` package plus the three connector tools
+(`connector_send.py`, `connector_lookup.py`, `connector_history.py` in
+`the_one/tools/`). The count is a plain `wc -l`, so blank lines, comments and
+docstrings all count. Reproduce it from the repo root:
+
+```bash
+find the_one/connectors -name '*.py' | xargs cat the_one/tools/connector_*.py | wc -l
+```
+
+Figure at the time of writing: **2,970 / 3,000** (package 2,553 + tools 417),
+the same as at the Mission 23 close. A new platform does not fit in the
+remaining 30 lines and requires an explicit trim-or-raise decision before it is
+planned.

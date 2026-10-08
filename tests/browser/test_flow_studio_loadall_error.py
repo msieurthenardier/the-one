@@ -112,3 +112,25 @@ def test_loadall_rejects_on_agents_list_500(app_clean: str, page: Page) -> None:
     error_line = page.locator(".studio-loadall-error")
     expect(error_line).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_loadall_rejects_on_tools_json_500(app_clean: str, page: Page) -> None:
+    """Squawk 0145: `/api/tools` is read through App.api.fetchJson, so a JSON
+    error body (which a bare `r.json()` handed to the renderer as data) rejects
+    loadAll() and shows the load-error line, with no page error."""
+    page_errors: list[str] = []
+    page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+
+    def fail(route) -> None:
+        if route.request.url.split("?")[0].endswith("/api/tools"):
+            route.fulfill(status=500, content_type="application/json", body='{"detail": "boom"}')
+        else:
+            route.continue_()
+
+    page.route("**/api/tools", fail)
+    _nav.goto(page, app_clean, "agents")
+    error_line = page.locator(".studio-loadall-error")
+    expect(error_line).to_be_visible(timeout=8000)
+    expect(error_line).to_contain_text("boom")
+    assert page_errors == []
