@@ -3,7 +3,7 @@
 **Flight**: [Ollama Pull shows the download size first](flight.md)
 
 ## Summary
-Sortie 01, **landed** on 2026-10-07. Both legs are completed.
+Sortie 01, **completed** on 2026-10-07 (landed, merged as `2cb1456`, released as v0.10.3, debriefed). Both legs are completed.
 - **`pull-size-flow`** (`d59786e`) built the size-first Pull flow. It went through three review cycles.
 - **`hat-and-alignment`:** the operator passed HAT steps 1–6 against their real Ollama and the live registry, and signed off. The mid-HAT filter box (DD12) was built, reviewed, then rejected by the operator on trying it and reverted. The plain list with first-letter jumping is accepted.
 - **Charter:** all four success criteria were observed in the HAT.
@@ -335,3 +335,10 @@ DD12:
 - **Docs:** checked. `the_one/agents.md` ("Ollama pull catalog"), `SECURITY-MODEL.md` (the outbound-fetch note) and `.env.example` (the seam) shipped in `d59786e`. CLAUDE.md needs no change: following the OpenRouter seam precedent, there is no paragraph, and no command or config changed.
 - **Squawk 0137** logged for `App.formatBytes`, the DD8 close-out. The other open items are 0135 and 0136.
 - **Status `landed`.** HAT instance 8486 stopped. The operator said "works, merge the pr, cut a patch". Debrief next: `/mission-control:flight-debrief sortie 01`.
+
+### Debrief (2026-10-07)
+- **Debrief:** `flight-debrief.md`. The Developer and Architect interviews ran; the human interview was skipped (the operator's input came through the session).
+- **Test run:** unit 5600/10 skipped (724 s); chats, agents, library and settings green with no flakes. Contracts and shared were skipped at the operator's direction ("this is way too slow").
+- **Operator finding:** the suite is too slow. The browser suite went from 15.7 to 39.2 min in Mission 25; 936 per-test server starts at about 1.6 s each. A sortie is recommended.
+- **Squawks logged:** 0138 (Playwright and Chromium 11 versions behind, operator-requested), and 0139–0142 (debrief follow-ups).
+- **Status `landed` → `completed`**, on operator confirmation.
