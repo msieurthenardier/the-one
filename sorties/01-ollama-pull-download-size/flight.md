@@ -1,6 +1,6 @@
 # Sortie: Ollama Pull shows the download size first
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
@@ -337,7 +337,7 @@ Verified against the working tree at `f770947`, and spot-checked independently b
 
 ### Completion Checklist
 - [x] All legs completed
-- [ ] Code merged
+- [x] Code merged
 - [x] Tests passing
 - [x] Documentation updated
 
