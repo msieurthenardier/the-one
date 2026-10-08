@@ -152,7 +152,7 @@ paths `concourse/the-one/<var>`:
 | `concourse/the-one/minio` | `access_key`, `secret_key`, `endpoint`, `bucket` | inline `minio/mc` publish task in `build-windows-installer` |
 
 > **MinIO endpoint is a bare `host:port` — no scheme.** The `((minio.endpoint))`
-> Vault value is `172.19.0.5:9000` (no `http://`). The inline `minio/mc` publish
+> Vault value is `172.19.0.20:9000` (no `http://`). The inline `minio/mc` publish
 > task builds the URL itself: `MC_HOST_minio="http://${MINIO_KEY}:${MINIO_SECRET}@${MINIO_ENDPOINT}"`.
 > Do NOT add `http://` to the Vault value — the task would produce a double-scheme
 > URL (`http://http://...`) and fail to connect.
@@ -163,17 +163,10 @@ paths `concourse/the-one/<var>`:
 
 > **IP, not the compose service name.** Concourse task containers use external DNS
 > (8.8.8.8) and are NOT on the compose network, so `minio` does not resolve inside
-> them. Use the compose-network IP (`172.19.0.5`, or whatever `docker inspect` reports
-> for the minio container). If `docker compose down/up` reassigns the IP, update the
-> Vault value:
->
-> ```bash
-> # Via MCP:
-> # set_secret concourse/the-one/minio endpoint=<new-ip:9000>
->
-> # Via fly:
-> # fly -t the-one set-team ... (or edit .vault-seeds.json and reseed)
-> ```
+> them. Use the compose-network IP, `172.19.0.20`: a static address in
+> concourse-local's reserved block, pinned in
+> `~/projects/concourse-local/docker-compose.yml`, so it does not move on
+> `docker compose down/up` and the Vault value needs no re-pointing.
 
 > **The Vault dev server is in-memory** — secrets are lost on container restart.
 > They are reseeded from `~/projects/concourse-local/.vault-seeds.json` on startup.
