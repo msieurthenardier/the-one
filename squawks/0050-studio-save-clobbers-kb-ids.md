@@ -1,10 +1,10 @@
 # Squawk 0050: Studio agent save writes `kb_ids: []` on every save
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-14
-**Completed**: —
+**Completed**: 2026-10-08
 
 ## Report
 
@@ -34,13 +34,15 @@ lands must not break the Mission 24 flight that builds the real attach tab.
 - Surfaced by Mission 24 Flight 2 reconnaissance (R17)
 
 ## Corrective Action
-*(written at completion)*
+Already fixed in Mission 24 Flight 6 (commit 189a23a, "flight/6: Studio surfaces -- knowledge inventory, attach tab, settings panel"); the fix was never recorded here. Two parts: (1) `update_agent` in `the_one/interfaces/web/api.py` treats an omitted `kb_ids` key as "keep" (AC-7: `if "kb_ids" not in data: data["kb_ids"] = existing.kb_ids`); an explicit `kb_ids: []` still clears. (2) The agent editor's Knowledge tab is now a real per-knowledge-base attach toggle rather than a stub, and a failed knowledge-base fetch omits `kb_ids` from the save. Pinned by `tests/test_db_api.py::TestAgentKbToolNames::test_put_omitting_kb_ids_preserves_stored_value` and `::TestAgentKbToolNames::test_put_omitting_both_kb_ids_and_mcp_overrides_preserves_both`, and by the browser test `tests/browser/test_flow_studio_knowledge_attach.py::test_failed_fetch_shows_load_error_and_omits_kb_ids_from_save`. Records-only completion; no code changed.
 
 ## Verification
-Unit: set `kb_ids=["kb-1"]` via API, PUT the agent through the same body Studio sends without a `kb_ids` key (or with the tab unrendered), GET shows `["kb-1"]` retained. Browser (studio lane): save an agent from the General tab, assert `kb_ids` unchanged.
+Run 2026-10-08 (turnaround 2026-10-08): the two `tests/test_db_api.py` pinning tests above pass (2 passed). Behavior run `tests/behavior/kb-studio-round-trip/runs/2026-09-22-01-05-35.md`, checkpoint 11 ("squawk 0050's regression net"): PASS -- description changed on the General tab with the Knowledge tab untouched, the mutation verified as landed, and `kb_ids` unchanged after save.
+
+Original plan: set `kb_ids=["kb-1"]` via API, PUT the agent through the same body Studio sends without a `kb_ids` key (or with the tab unrendered), GET shows `["kb-1"]` retained. Browser (studio lane): save an agent from the General tab, assert `kb_ids` unchanged.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+
+**Reviewer**: independent Reviewer (Haiku tier: records only). It confirmed the keep-on-omit logic in `update_agent`, commit 189a23a, both pinning tests passing, and checkpoint 11 PASS in `tests/behavior/kb-studio-round-trip/runs/2026-09-22-01-05-35.md`. The Flight Director corrected the test node ids, which had been missing their class prefix, and re-ran both green (2 passed).
+**Verdict**: confirmed (`[HANDOFF:confirmed]` on substance; the Reviewer's two "changes requested" were the Status/Sign-Off fields, which the Flight Director writes at close-out)
+**Commit**: `squawk: turnaround 2026-10-08 (2)` on branch `squawk/turnaround-2026-10-08-2`
