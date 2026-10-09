@@ -295,3 +295,14 @@ Drawer clamp/title, drawer loading announcements and target size: accepted as-is
   same tests pass in isolation.
 - **Severity:** degraded (gate noise).
 - **Resolution:** unresolved; carried to the debrief.
+- **Behavior test:** `agent-rules-round-trip` passed **9/9**
+  ([run log](../../../../tests/behavior/agent-rules-round-trip/runs/2026-10-09-22-40-11.md)).
+  It ran live (`SendMessage`), on a scratch instance on port 8491 with
+  `gpt-oss:20b`. Step 4 of the spec was reworded afterwards (the panel is open
+  by default at 1280 px or wider).
+- **Flight landed:**
+  - Mission Known Issues 1 and 2 ticked, each with its pinning test.
+  - Mission criterion "Rules shape new conversations" ticked.
+  - The other contributing criteria wait for Flight 2's halves.
+  - PR #257 marked ready.
+  - `[COMPLETE:flight]`

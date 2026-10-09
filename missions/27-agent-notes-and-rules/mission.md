@@ -95,11 +95,21 @@ Facts about the codebase that shape the design (verified at `77308c5`):
 
 ## Success Criteria
 
-- [ ] **Rules shape new conversations.** The operator can add, edit, reorder,
+- [x] **Rules shape new conversations.** The operator can add, edit, reorder,
       enable, disable and delete an agent's rules. Every new conversation with
       that agent, web or connector, follows its enabled rules in order. A
       disabled rule has no effect. *(Behavior-test-backed: needs a live agent
-      turn.)*
+      turn.)* *(Flight 1. `agent-rules-round-trip` passed 9/9 on 2026-10-09
+      against local `gpt-oss:20b`:*
+      - *sentinel replies "NAUTILUS Hello!" (web and connector) and "MARLIN
+        Hello!" after an edit;*
+      - *the stored system messages show the rules in order, with the disabled
+        rule absent;*
+      - *the connector conversation is rebuilt on its next message;*
+      - *rename carries the rules and delete removes them.*
+
+      *Still to confirm at the HAT: the operator watching the live behaviour,
+      and the deliberately chosen wording of DD4/DD5.)*
 - [ ] **The agent keeps notes across conversations.** With notes on, the agent
       can save, update and forget notes during a conversation. Each write
       appears in the normal tool stream. The notes reach every later
@@ -282,7 +292,7 @@ Facts about the codebase that shape the design (verified at `77308c5`):
 
 ## Known Issues
 
-- [ ] **Renaming an agent that has self-configuration revision history fails.**
+- [x] **Renaming an agent that has self-configuration revision history fails.** *(Fixed in Flight 1 by migration v42, which rebuilds `agent_revisions` with `ON UPDATE CASCADE`. Pinned by `tests/test_db_migration.py::TestSchemaV42::test_rename_carries_revisions_and_rules`, which fails on the v41 shape.)*
       `agent_revisions.agent_name` references `agents(name)` with
       `ON DELETE CASCADE` but no update action
       (`the_one/db/schema.py:2061`, `:2195`). `SQLiteAgentStore.rename`
@@ -293,8 +303,8 @@ Facts about the codebase that shape the design (verified at `77308c5`):
       failure. **Disposition: fixed in Flight 1**, alongside the rename cascade
       for the new tables, with a test that renames an agent holding revisions,
       rules and notes.
-- [ ] **A `next_turn` self-configuration system-prompt revision drops the base
-      prompt.** `self_configuration/pending.py::apply_pending_revision` puts the
+- [x] **A `next_turn` self-configuration system-prompt revision drops the base
+      prompt.** *(Fixed in Flight 1: `apply_pending_revision` recomposes through `build_system_prompt`. Pinned in `tests/test_self_configuration_write.py`.)* `self_configuration/pending.py::apply_pending_revision` puts the
       raw persona text in as the live agent's whole system prompt
       (`pending.py:94-97`) instead of recomposing base + persona. For the rest
       of that web conversation, the agent loses the tool-discovery and turn
@@ -311,7 +321,7 @@ Facts about the codebase that shape the design (verified at `77308c5`):
 > planned and created one at a time as work progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] Flight 1: **Rules and the prompt foundation.**
+- [x] Flight 1: **Rules and the prompt foundation.** *(landed 2026-10-09, PR #257; `agent-rules-round-trip` 9/9)*
   - The single compose-this-agent's-prompt helper (persona, then rules, then a
     reserved notes slot), with the pending-revision path moved onto it.
   - The rules store and migration.

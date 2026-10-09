@@ -1,6 +1,6 @@
 # Flight: Rules and the Prompt Foundation
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Agent Notes and Rules](../../mission.md)
 
 ## Contributing to Criteria
@@ -378,15 +378,15 @@ flight branch.
 
 ### Checkpoints
 
-- [ ] v42 migrates a populated v41 database: revisions are kept, and renaming an
+- [x] v42 migrates a populated v41 database: revisions are kept, and renaming an
       agent that has revisions now succeeds.
-- [ ] A built agent's system prompt is base, persona, then numbered enabled
+- [x] A built agent's system prompt is base, persona, then numbered enabled
       rules, on web, connector and chat-only paths.
-- [ ] A `next_turn` self-revision keeps the base prompt and rules.
-- [ ] Studio's Rules and notes tab manages rules end to end, and the drawer
+- [x] A `next_turn` self-revision keeps the base prompt and rules.
+- [x] Studio's Rules and notes tab manages rules end to end, and the drawer
       shows them.
-- [ ] `make gate` is green.
-- [ ] `agent-rules-round-trip` behavior test passes.
+- [x] `make gate` is green.
+- [x] `agent-rules-round-trip` behavior test passes.
 
 ### Adaptation Criteria
 
@@ -407,12 +407,12 @@ flight branch.
 > and created one at a time as the flight progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] `rules-backend` — v42 (`agent_rules` + the `agent_revisions` rebuild), the
+- [x] `rules-backend` — v42 (`agent_rules` + the `agent_revisions` rebuild), the
       rules repository and limits, the extended composer and async loader,
       factory and `next_turn` wiring (fixes Known Issues 1 and 2), REST routes,
       unit and migration tests, and `the_one/agents.md` for the backend
       contract. If it overruns, split the REST routes into their own leg.
-- [ ] `rules-ui` — the Rules and notes tab (Rules section), the drawer's Rules
+- [x] `rules-ui` — the Rules and notes tab (Rules section), the drawer's Rules
       group, testid registry, browser tests, and the CLAUDE.md and
       `the_one/agents.md` UI entries
 
@@ -423,11 +423,11 @@ No HAT leg: the mission ends with a dedicated HAT flight (operator decision).
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (`make gate`)
-- [ ] Documentation updated (`the_one/agents.md`, CLAUDE.md, testid registry)
-- [ ] Behavior test `agent-rules-round-trip` run and logged
+- [x] Tests passing (`make gate`)
+- [x] Documentation updated (`the_one/agents.md`, CLAUDE.md, testid registry)
+- [x] Behavior test `agent-rules-round-trip` run and logged
 
 ### Verification
 - `make gate` green (unit, then all browser lanes).
