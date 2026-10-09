@@ -37,6 +37,7 @@ from the_one.db.codec import decode_messages
 from the_one.db.connection import get_connection
 from the_one.db.models import ChatSession, Connector, LLMProviderConfig
 from the_one.db.repositories import (
+    AgentRuleRepository,
     ChatSessionRepository,
     ConnectorDirectoryRepository,
     ConnectorRepository,
@@ -555,6 +556,49 @@ async def test_directory_upsert_survives_a_later_agent_step_failure(
     entry = await dir_repo.get("conn-1", "peer", "peer-1")
     assert entry is not None
     assert entry.display_name == "Alice"
+
+
+async def test_connector_session_system_message_carries_enabled_rules(conn_repo, chat_repo) -> None:
+    """M27 F1 (AC20, connector half): a real ``AgentFactory`` builds the
+    connector agent; the persisted session's system message (element 0) is
+    base + persona + the agent's enabled rules in order, no disabled rule."""
+    from the_one.agent.config import BASE_PROMPT, compose_system_prompt
+
+    connector = _connector({"default_agent": "bot", "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+
+    provider_repo = LLMProviderRepository(conn_repo.conn, conn_repo.encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(id="prov-1", name="p", type="ollama", base_url="http://x")
+    )
+    agent_store = SQLiteAgentStore(conn_repo.conn)
+    await agent_store.save(
+        AgentConfig(name="bot", provider_config_id="prov-1", system_prompt="Be brief.")
+    )
+    rules = AgentRuleRepository(conn_repo.conn)
+    await rules.create("bot", "Rule A.")
+    await rules.create("bot", "Rule hidden.", enabled=False)
+    await rules.create("bot", "Rule B.")
+
+    fake_llm = FakeLLM(responses=[Message.assistant(content="ok")])
+    with patch("the_one.agent.factory.get_provider", lambda name, **kw: fake_llm):
+        set_factory(AgentFactory(store=agent_store))
+        await dispatch_inbound(
+            "conn-1",
+            _envelope(peer_id="peer-1", peer_name="Alice", is_dm=True, text="hello"),
+            manager=mgr,
+        )
+
+    sessions = await chat_repo.list()
+    assert len(sessions) == 1
+    stored = await chat_repo.get(sessions[0].id)
+    system = decode_messages(stored.messages)[0]
+    expected = compose_system_prompt(BASE_PROMPT, "Be brief.", rules=["Rule A.", "Rule B."])
+    assert system.role == Role.SYSTEM
+    assert system.content == expected
+    assert "Rule hidden." not in system.content
 
 
 # ── pairing, end to end through dispatch_inbound ─────────────────────────

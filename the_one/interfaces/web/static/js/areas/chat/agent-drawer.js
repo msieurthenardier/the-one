@@ -44,6 +44,12 @@
 //            AND the agent's AgentConfig.is_tool_enabled), Self-configuration
 //            (On or Off). An empty group says "None"; a failed load says
 //            "Couldn't load" for that group only.
+//   Rules (M27 F1 L2, DD7): first in "What it can use": the agent's enabled
+//            rules in order (two-line clamp, full text in `title`), "{n} off"
+//            for disabled ones, "No rules" (also on a 404), and an "Edit rules"
+//            link (a plain <a href> to `#agents/{name}/rules-and-notes`, so the
+//            global link interceptor runs the leave guard). Fetched once per
+//            open and agent: GET /api/agents/{name}/rules.
 //   footer   Open agent settings (App.ui.button secondary, the settings gear,
 //            testid chat-drawer-settings-link): a guarded go() to the agent,
 //            then App.studio.clearAgentFilter() on a commit (reference spec
@@ -165,6 +171,7 @@
     var current = null; // the agent name the settings link opens
     var configs = { gen: -1, status: 'idle', value: null };
     var selfConf = { gen: -1, agent: null, status: 'idle', value: null };
+    var rulesState = { gen: -1, agent: null, status: 'idle', value: null };
     var storeTried = {};
     var storeFailed = {};
 
@@ -299,6 +306,51 @@
       return box;
     }
 
+    // M27 F1 L2 (DD7): the Rules group. Not built by group(): it lists the
+    // ENABLED rules in order (each text clamped to two lines by CSS, the full
+    // text in `title`), "{n} off" for the disabled ones, "No rules" when none
+    // are enabled, and an "Edit rules" link to the editor's tab. The rules are
+    // shown as SAVED (what the next build of the agent uses).
+    function rulesGroup(agentName) {
+      var box = el('div', { className: 'chat-drawer-group', dataset: { group: 'rules' } }, [
+        el('h4', { className: 'chat-drawer-group-label', text: 'Rules' })
+      ]);
+      if (rulesState.status === 'ok') {
+        var all = arr(rulesState.value);
+        var on = [];
+        for (var i = 0; i < all.length; i++) if (all[i] && all[i].enabled) on.push(all[i]);
+        var off = all.length - on.length;
+        if (!on.length) {
+          box.appendChild(el('p', { className: 'chat-drawer-none', text: 'No rules' }));
+        } else {
+          var ol = el('ol', { className: 'chat-drawer-rules' });
+          ol.setAttribute('data-testid', 'chat-drawer-rules');
+          for (var j = 0; j < on.length; j++) {
+            var li = el('li', null, [el('span', { className: 'chat-drawer-rule-text', text: String(on[j].text) })]);
+            li.setAttribute('title', String(on[j].text));
+            li.setAttribute('data-testid', 'chat-drawer-rule');
+            ol.appendChild(li);
+          }
+          box.appendChild(ol);
+        }
+        if (off > 0) {
+          var offEl = el('p', { className: 'chat-drawer-rules-off', text: off + ' off' });
+          offEl.setAttribute('data-testid', 'chat-drawer-rules-off');
+          box.appendChild(offEl);
+        }
+        var link = el('a', { className: 'chat-drawer-rules-link', text: 'Edit rules' });
+        link.setAttribute('href', App.router.href({ destination: 'agents', id: agentName, tab: 'rules-and-notes' }));
+        link.setAttribute('data-testid', 'chat-drawer-rules-edit-link');
+        box.appendChild(link);
+        return box;
+      }
+      box.appendChild(el('p', {
+        className: 'chat-drawer-none',
+        text: rulesState.status === 'error' ? 'Couldn\'t load' : 'Loading…'
+      }));
+      return box;
+    }
+
     function storeStatus(name) {
       var peek = App.store.peek(name);
       if (peek.loaded) return 'ok';
@@ -312,6 +364,8 @@
         el('h3', { className: 'chat-drawer-uses-title', text: 'What it can use' })
       ]);
       box.setAttribute('data-testid', 'chat-drawer-uses');
+
+      box.appendChild(rulesGroup(agent.name));
 
       var kbStatus = storeStatus('knowledge-bases');
       var kbs = [];
@@ -434,6 +488,25 @@
         }, function () {
           if (selfConf.gen !== gen || selfConf.agent !== agent) return;
           selfConf = { gen: gen, agent: agent, status: 'error', value: null };
+          render();
+        });
+      }
+      if (rulesState.gen !== gen || rulesState.agent !== info.name) {
+        var ruleAgent = info.name;
+        rulesState = { gen: gen, agent: ruleAgent, status: 'pending', value: null };
+        // A raw fetch, not fetchJson: a 404 (no stored row) means an empty
+        // list, while any other failure is the error state.
+        fetch('/api/agents/' + encodeURIComponent(ruleAgent) + '/rules').then(function (r) {
+          if (r.status === 404) return { rules: [] };
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then(function (body) {
+          if (rulesState.gen !== gen || rulesState.agent !== ruleAgent) return;
+          rulesState = { gen: gen, agent: ruleAgent, status: 'ok', value: (body && body.rules) || [] };
+          render();
+        }, function () {
+          if (rulesState.gen !== gen || rulesState.agent !== ruleAgent) return;
+          rulesState = { gen: gen, agent: ruleAgent, status: 'error', value: null };
           render();
         });
       }

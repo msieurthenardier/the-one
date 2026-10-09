@@ -30,6 +30,12 @@ from the_one.connectors.base import ConnectorClientError, DoctorReport, InboundE
 from the_one.connectors.manager import PAIRING_TTL_SECONDS
 from the_one.connectors.manager import get_manager as get_connector_manager
 from the_one.db._kb_types import KBItemTransitionError
+from the_one.db._rules import (
+    RULE_MAX_CHARS,
+    RULES_TOTAL_MAX_CHARS,
+    RuleLimitError,
+    RuleOrderError,
+)
 from the_one.db._write_lock import write_transaction
 from the_one.db.connection import get_connection
 from the_one.db.models import (
@@ -44,6 +50,7 @@ from the_one.db.models import (
 from the_one.db.repositories import (
     AgentExternalCredentialRepository,
     AgentRevisionRepository,
+    AgentRuleRepository,
     AppMetadataRepository,
     ChatSessionRepository,
     ConnectorDirectoryRepository,
@@ -376,6 +383,12 @@ async def _agent_revisions_repo() -> AgentRevisionRepository:
     # description/system_prompt values.
     conn = await get_connection()
     return AgentRevisionRepository(conn)
+
+
+async def _agent_rules_repo() -> AgentRuleRepository:
+    # M27 F1: plaintext operator-authored rules, no encryptor.
+    conn = await get_connection()
+    return AgentRuleRepository(conn)
 
 
 async def _agent_external_credentials_repo() -> AgentExternalCredentialRepository:
@@ -1279,6 +1292,104 @@ async def set_agent_approval_mode(name: str, body: _ApprovalModeBody) -> dict[st
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     return {"requires_approval": body.requires_approval}
+
+
+# ── Rules (M27 F1) ──────────────────────────────────────────────────────
+#
+# Operator-only: no agent-facing tool, MCP source or self-configuration
+# capability reaches these routes. All 404 for an unknown agent; a rule id of
+# another agent is a 404 too (every repository call is name-scoped).
+
+
+class _RuleCreateBody(BaseModel):
+    text: str
+    enabled: bool = True
+
+
+class _RuleUpdateBody(BaseModel):
+    text: str | None = None
+    enabled: bool | None = None
+
+
+class _RuleOrderBody(BaseModel):
+    ids: list[str]
+
+
+async def _rules_body(request: Request, model: type[BaseModel]) -> Any:
+    """Parse and validate a rules request body without echoing submitted text.
+
+    Taking the body as a typed parameter would let FastAPI's default 422 echo the
+    submitted ``input`` (the rule text); validating here reuses ``_validation_detail``.
+    """
+    try:
+        data = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Request body must be JSON")
+    try:
+        return model.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=_validation_detail(e))
+
+
+def _rules_limits() -> dict[str, int]:
+    return {"rule_chars": RULE_MAX_CHARS, "total_chars": RULES_TOTAL_MAX_CHARS}
+
+
+@router.get("/agents/{name}/rules")
+async def list_agent_rules(name: str) -> dict[str, Any]:
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    rules = await repo.list_for_agent(name)
+    return {"rules": [r.model_dump() for r in rules], "limits": _rules_limits()}
+
+
+@router.post("/agents/{name}/rules", status_code=201)
+async def create_agent_rule(name: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _RuleCreateBody)
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        rule = await repo.create(name, body.text, body.enabled)
+    except RuleLimitError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return rule.model_dump()
+
+
+@router.put("/agents/{name}/rules/order")
+async def reorder_agent_rules(name: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _RuleOrderBody)
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        rules = await repo.reorder(name, body.ids)
+    except RuleOrderError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return {"rules": [r.model_dump() for r in rules], "limits": _rules_limits()}
+
+
+@router.put("/agents/{name}/rules/{rule_id}")
+async def update_agent_rule(name: str, rule_id: str, request: Request) -> dict[str, Any]:
+    body = await _rules_body(request, _RuleUpdateBody)
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        rule = await repo.update(name, rule_id, text=body.text, enabled=body.enabled)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
+    except RuleLimitError as e:
+        raise HTTPException(status_code=422, detail=e.detail)
+    return rule.model_dump()
+
+
+@router.delete("/agents/{name}/rules/{rule_id}")
+async def delete_agent_rule(name: str, rule_id: str) -> dict[str, str]:
+    await _load_agent_or_404(name)
+    repo = await _agent_rules_repo()
+    try:
+        await repo.delete(name, rule_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
+    return {"status": "ok"}
 
 
 @router.get("/agents/{name}/self-configuration/revisions")

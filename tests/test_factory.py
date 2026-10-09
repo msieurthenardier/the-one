@@ -10,7 +10,9 @@ import pytest
 from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import (
+    BASE_PROMPT,
     AgentConfig,
+    compose_system_prompt,
 )
 from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
 from the_one.agent.factory import AgentFactory
@@ -104,6 +106,14 @@ def store() -> InMemoryStore:
     return InMemoryStore()
 
 
+def _no_rules_repo() -> AsyncMock:
+    """Stand-in ``AgentRuleRepository`` for factories built over an
+    ``AsyncMock`` connection (M27 F1): the agent has no stored rules."""
+    repo = AsyncMock()
+    repo.list_for_agent = AsyncMock(return_value=[])
+    return repo
+
+
 @pytest.fixture
 def factory(store: InMemoryStore) -> AgentFactory:
     mock_repo = AsyncMock()
@@ -127,6 +137,7 @@ def factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -155,6 +166,7 @@ def builtin_factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -181,7 +193,7 @@ class TestDefaultAgent:
         factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
         # Use _default_config directly since create() will fail without provider
         config = factory._default_config()
-        assert config.get_system_prompt() != ""
+        assert compose_system_prompt(BASE_PROMPT, config.system_prompt) != ""
 
 
 class TestNamedAgent:
@@ -521,6 +533,10 @@ class TestResolverWiring:
                 "the_one.db.repositories.ToolConfigRepository",
                 return_value=mock_tool_repo,
             ),
+            patch(
+                "the_one.db.repositories.AgentRuleRepository",
+                return_value=_no_rules_repo(),
+            ),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")
@@ -582,6 +598,10 @@ class TestResolverWiring:
             patch(
                 "the_one.db.repositories.ToolConfigRepository",
                 return_value=mock_tool_repo,
+            ),
+            patch(
+                "the_one.db.repositories.AgentRuleRepository",
+                return_value=_no_rules_repo(),
             ),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
@@ -667,6 +687,7 @@ class TestPlanProviderConstruction:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
         )
 
     async def _create(self, store: InMemoryStore, get_provider_patch, provider_config=None):
@@ -851,6 +872,7 @@ class TestNativeApiWiring:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch("the_one.db.repositories.AgentRuleRepository", return_value=_no_rules_repo()),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")

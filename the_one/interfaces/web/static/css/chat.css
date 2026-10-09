@@ -171,6 +171,28 @@
   .chat-drawer-value { margin: 0; }
   .chat-drawer-none { color: var(--fg-muted); }
 
+  /* M27 F1 L2 (DD7): the Rules group. Each enabled rule is clamped to two
+     lines (the full text is in the row's title); "{n} off" and the "Edit
+     rules" link sit under the list. */
+  .chat-drawer-rules {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .chat-drawer-rule-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .chat-drawer-rules-off { margin: 0; color: var(--fg-muted); font-size: var(--font-size-caption); }
+  .chat-drawer-rules-link { align-self: flex-start; font-size: var(--font-size-caption); }
+
   /* M25 F4 L4b (reference spec 5.4): the new-chat state, shown only while a
      chat is pending. Centred on both axes, padded 24px, an inner column at
      most 480px wide with 8px gaps and centred text: the model badge, the

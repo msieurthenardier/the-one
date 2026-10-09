@@ -1498,3 +1498,84 @@
 }
 .area-studio .start-page-card > .btn { flex: none; }
 }
+
+/* === Rules and notes tab (M27 F1 L2, flight DD6) ===========================
+   Rules list: numbered rows (number, toggle, text, actions), the Add control
+   below. A disabled rule keeps its place and renders muted. */
+.area-studio .rules-applies-note {
+  font-size: var(--font-size-body-sm);
+  color: var(--fg-secondary);
+  line-height: var(--line-height-normal);
+  margin: 4px 0 12px;
+}
+.area-studio .rules-error {
+  font-size: var(--font-size-body-sm);
+  color: var(--status-danger);
+  margin: 4px 0 8px;
+}
+.area-studio .rules-error[hidden] { display: none; }
+.area-studio .rules-empty,
+.area-studio .rules-loading {
+  margin: 0 0 var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--font-size-body-sm);
+}
+.area-studio .rules-list {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.area-studio .rules-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.area-studio .rules-row:first-child { border-top: 1px solid var(--border); }
+.area-studio .rules-row-number {
+  flex: none;
+  min-width: 20px;
+  padding-top: 6px;
+  color: var(--fg-muted);
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+.area-studio .rules-row-toggle-wrap { flex: none; padding-top: 4px; }
+.area-studio .rules-row-body { flex: 1 1 auto; min-width: 0; }
+.area-studio .rules-row-text {
+  margin: 0;
+  padding-top: 4px;
+  color: var(--fg);
+  line-height: var(--line-height-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.area-studio .rules-row--off .rules-row-text { color: var(--fg-muted); }
+.area-studio .rules-row-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+.area-studio .rules-add { display: flex; flex-direction: column; gap: var(--space-2); }
+.area-studio .rules-add-label {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--fg-secondary);
+}
+.area-studio .rules-add-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.area-studio .rules-add-count {
+  font-size: var(--font-size-caption);
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.area-studio .rules-add-count--over { color: var(--status-danger); }

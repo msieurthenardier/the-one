@@ -17,6 +17,7 @@
 //   </div>
 //   <div role="tablist" class="tablist">
 //     <button role="tab">General</button>
+//     <button role="tab">Rules and notes</button>  (M27 F1 L2)
 //     <button role="tab">Knowledge</button>
 //     <button role="tab">Tools</button>
 //   </div>
@@ -55,6 +56,7 @@
 
   var PANEL_IDS = {
     general: 'agent-tab-panel-general',
+    'rules-and-notes': 'agent-tab-panel-rules-and-notes',
     knowledge: 'agent-tab-panel-knowledge',
     mcps: 'agent-tab-panel-mcps',
     tools: 'agent-tab-panel-tools',
@@ -106,6 +108,11 @@
     html += '<button type="button" role="tab" class="tab" id="agent-tab-general" ' +
       'aria-controls="' + PANEL_IDS.general + '" data-tab-id="general" ' +
       'data-testid="tab-general" aria-selected="false" tabindex="-1">General</button>';
+    // M27 F1 L2 (DD6) -- second tab: the operator's rules for the agent
+    // (immediate-save list; see studio/rules-notes-tab.js).
+    html += '<button type="button" role="tab" class="tab" id="agent-tab-rules-and-notes" ' +
+      'aria-controls="' + PANEL_IDS['rules-and-notes'] + '" data-tab-id="rules-and-notes" ' +
+      'data-testid="tab-rules-and-notes" aria-selected="false" tabindex="-1">Rules and notes</button>';
     html += '<button type="button" role="tab" class="tab" id="agent-tab-knowledge" ' +
       'aria-controls="' + PANEL_IDS.knowledge + '" data-tab-id="knowledge" ' +
       'data-testid="tab-knowledge" aria-selected="false" tabindex="-1">Knowledge</button>';
@@ -130,6 +137,8 @@
     html += '<div class="tabpanels">';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.general +
       '" data-tab-id="general" aria-labelledby="agent-tab-general" hidden></div>';
+    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS['rules-and-notes'] +
+      '" data-tab-id="rules-and-notes" aria-labelledby="agent-tab-rules-and-notes" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.knowledge +
       '" data-tab-id="knowledge" aria-labelledby="agent-tab-knowledge" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.mcps +
@@ -200,12 +209,22 @@
     var knowledgePanel = container.querySelector('#' + PANEL_IDS.knowledge);
     var mcpsPanel = container.querySelector('#' + PANEL_IDS.mcps);
     var toolsPanel = container.querySelector('#' + PANEL_IDS.tools);
+    var rulesNotesPanel = container.querySelector('#' + PANEL_IDS['rules-and-notes']);
     var selfConfigurationPanel = container.querySelector('#' + PANEL_IDS['self-configuration']);
 
     window.App.studio.renderGeneralTab(generalPanel, agent, providers, {
       onTestProvider: callbacks.onTestProvider,
       onDelete: callbacks.onDelete,
       onPurge: callbacks.onPurge
+    });
+    // M27 F1 L2 -- Rules and notes tab: immediate-save rules list. `agent` is
+    // null in create mode (the tab shows a "save first" notice).
+    window.App.studio.renderRulesNotesTab(rulesNotesPanel, agent, {
+      fetchRules: callbacks.fetchRules,
+      createRule: callbacks.createRule,
+      updateRule: callbacks.updateRule,
+      deleteRule: callbacks.deleteRule,
+      reorderRules: callbacks.reorderRules
     });
     // F6 L3 — extended signature: pass agent + allKnowledgeBases +
     // callbacks so the Knowledge tab can render the real attach surface

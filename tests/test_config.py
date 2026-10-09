@@ -226,20 +226,51 @@ class TestIsToolEnabled:
 
 
 # ===================================================================
-# get_system_prompt
+# compose_system_prompt: persona and rules layers (M27 F1)
 # ===================================================================
 
 
-class TestGetSystemPrompt:
-    """Test get_system_prompt() fallback behavior."""
+class TestComposeLayers:
+    """The composer replaced ``AgentConfig.get_system_prompt`` (M27 F1, DD2)."""
 
-    def test_empty_returns_default(self):
-        cfg = AgentConfig(name="t")
-        assert cfg.get_system_prompt() == BASE_PROMPT
+    def test_empty_persona_returns_base(self):
+        from the_one.agent.config import compose_system_prompt
+
+        assert compose_system_prompt(BASE_PROMPT, "") == BASE_PROMPT
 
     def test_custom_prompt_appended(self):
-        cfg = AgentConfig(name="t", system_prompt="Custom prompt.")
-        assert cfg.get_system_prompt() == BASE_PROMPT + "\n\n---\n\nCustom prompt."
+        from the_one.agent.config import compose_system_prompt
+
+        assert (
+            compose_system_prompt(BASE_PROMPT, "Custom prompt.")
+            == BASE_PROMPT + "\n\n---\n\nCustom prompt."
+        )
+
+    def test_rules_follow_persona_numbered(self):
+        from the_one.agent.config import compose_system_prompt
+        from the_one.db._rules import RULES_HEADING
+
+        out = compose_system_prompt(BASE_PROMPT, "P", rules=["a", "b\nc"])
+        assert out == (
+            BASE_PROMPT + "\n\n---\n\nP\n\n---\n\n" + RULES_HEADING + "\n\n1. a\n2. b\nc"
+        )
+
+    def test_rules_without_persona_have_no_empty_layer(self):
+        from the_one.agent.config import compose_system_prompt
+        from the_one.db._rules import RULES_HEADING
+
+        out = compose_system_prompt(BASE_PROMPT, "", rules=["only"])
+        assert out == BASE_PROMPT + "\n\n---\n\n" + RULES_HEADING + "\n\n1. only"
+
+    def test_notes_are_reserved_and_ignored(self):
+        from the_one.agent.config import compose_system_prompt
+
+        assert compose_system_prompt(BASE_PROMPT, "P", notes=["n"]) == compose_system_prompt(
+            BASE_PROMPT, "P"
+        )
+
+    def test_get_system_prompt_is_gone(self):
+        assert not hasattr(AgentConfig(name="t"), "get_system_prompt")
 
 
 # ===================================================================

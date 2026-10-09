@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from the_one.agent.config import BASE_PROMPT, AgentConfig, compose_system_prompt
+from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
+from the_one.agent.prompt_layers import build_system_prompt
 from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
 from the_one.llm import get_provider
@@ -512,7 +513,7 @@ class AgentFactory:
                 loaded_tool_names.add(seed_tool_name)
 
         # 3. Resolve system prompt
-        system_prompt = compose_system_prompt(BASE_PROMPT, config.system_prompt)
+        system_prompt = await build_system_prompt(config.name, config.system_prompt, conn=conn)
 
         # 4. Create agent
         # F10 L1: pass the shared containers so the Agent's

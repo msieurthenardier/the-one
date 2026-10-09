@@ -4985,7 +4985,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 41
+        assert CURRENT_VERSION == 42
 
         await conn.close()
 
@@ -5254,4 +5254,226 @@ class TestSchemaV41:
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
 
+        await conn.close()
+
+
+# ── v42 (Mission 27 Flight 1, DD3): agent_rules + agent_revisions rebuild ──
+
+
+_V37_SHAPE_REVISIONS = (
+    "PRAGMA foreign_keys=OFF;\n"
+    "DROP TABLE agent_revisions;\n"
+    "CREATE TABLE agent_revisions_new ("
+    "    id TEXT PRIMARY KEY,"
+    "    agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,"
+    "    field TEXT NOT NULL CHECK (field IN ('description', 'system_prompt')),"
+    "    proposed_value TEXT NOT NULL,"
+    "    base_value TEXT NOT NULL,"
+    "    status TEXT NOT NULL"
+    "        CHECK (status IN ('applied', 'pending', 'dismissed', 'superseded')),"
+    "    source TEXT NOT NULL CHECK (source IN ('self', 'restore', 'external')),"
+    "    source_principal TEXT,"
+    "    restored_from TEXT REFERENCES agent_revisions_new(id) ON DELETE SET NULL,"
+    "    created_at TEXT NOT NULL,"
+    "    resolved_at TEXT"
+    ");\n"
+    "ALTER TABLE agent_revisions_new RENAME TO agent_revisions;\n"
+    "CREATE INDEX IF NOT EXISTS idx_agent_revisions_agent_status "
+    "ON agent_revisions (agent_name, status);\n"
+)
+
+
+async def _open(path) -> aiosqlite.Connection:
+    conn = await aiosqlite.connect(str(path))
+    await conn.execute("PRAGMA synchronous=OFF")
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+async def _fk_rows(conn, table: str) -> dict[str, aiosqlite.Row]:
+    async with conn.execute(f"PRAGMA foreign_key_list({table})") as cur:
+        return {r["from"]: r for r in await cur.fetchall()}
+
+
+async def _rewind_to_v41(conn, *, legacy_alter: bool) -> None:
+    """Make a populated v41-shaped database: ``agent_revisions`` in its v37
+    shape (no ON UPDATE action), no ``agent_rules``, stamp 42 removed.
+    ``legacy_alter`` leaves the self-FK naming ``agent_revisions_new`` the way
+    a build with ``legacy_alter_table`` on would."""
+    await conn.execute("DROP TABLE IF EXISTS agent_rules")
+    await conn.commit()
+    if legacy_alter:
+        await conn.execute("PRAGMA legacy_alter_table=ON")
+    await conn.executescript(_V37_SHAPE_REVISIONS)
+    if legacy_alter:
+        await conn.execute("PRAGMA legacy_alter_table=OFF")
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await conn.execute("DELETE FROM schema_version WHERE version >= 42")
+    await conn.commit()
+
+
+async def _seed_revisions(conn) -> None:
+    await conn.execute(
+        "INSERT INTO agents (name, description, system_prompt) VALUES ('alpha', '', '')"
+    )
+    rows = [
+        ("r1", "alpha", "description", "p1", "b1", "applied", "self", None, None),
+        ("r2", "alpha", "system_prompt", "p2", "b2", "applied", "external", "ext_x", None),
+        ("r3", "alpha", "description", "b1", "p1", "applied", "restore", None, "r1"),
+        ("r4", "alpha", "description", "p4", "b4", "pending", "self", None, None),
+    ]
+    for r in rows:
+        await conn.execute(
+            "INSERT INTO agent_revisions (id, agent_name, field, proposed_value, base_value, "
+            "status, source, source_principal, restored_from, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 't')",
+            r,
+        )
+    await conn.commit()
+
+
+class TestSchemaV42:
+    async def test_fresh_replay_has_agent_rules_and_cascading_revisions(self, tmp_path) -> None:
+        """AC1, AC3: a fresh v0 replay (v34 creates, v37 rebuilds, v42
+        rebuilds again) reaches v42 with the new table and FK shapes."""
+        conn = await _open(tmp_path / "fresh.db")
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 42 == CURRENT_VERSION
+        async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert list(cols) == [
+            "id",
+            "agent_name",
+            "text",
+            "enabled",
+            "position",
+            "created_at",
+            "updated_at",
+        ]
+        assert cols["enabled"]["dflt_value"] == "1"
+        fk = (await _fk_rows(conn, "agent_rules"))["agent_name"]
+        assert (fk["table"], fk["on_update"], fk["on_delete"]) == ("agents", "CASCADE", "CASCADE")
+        async with conn.execute("PRAGMA index_info(idx_agent_rules_agent_position)") as cur:
+            assert [r["name"] for r in await cur.fetchall()] == ["agent_name", "position"]
+
+        fks = await _fk_rows(conn, "agent_revisions")
+        assert (fks["agent_name"]["table"], fks["agent_name"]["on_update"]) == (
+            "agents",
+            "CASCADE",
+        )
+        assert fks["agent_name"]["on_delete"] == "CASCADE"
+        assert fks["restored_from"]["table"] == "agent_revisions"
+        assert fks["restored_from"]["on_delete"] == "SET NULL"
+        await conn.close()
+
+    @pytest.mark.parametrize("legacy_alter", [False, True])
+    async def test_populated_v41_upgrade_keeps_rows_chain_and_index(
+        self, tmp_path, legacy_alter
+    ) -> None:
+        """AC2, AC3: a populated v41 database (also one whose self-FK still
+        names ``agent_revisions_new``) keeps every row, the restored_from
+        chain and the index, and gains the cascading FKs."""
+        conn = await _open(tmp_path / f"v41-{legacy_alter}.db")
+        await ensure_schema(conn)
+        await _rewind_to_v41(conn, legacy_alter=legacy_alter)
+        before = await _fk_rows(conn, "agent_revisions")
+        assert before["agent_name"]["on_update"] == "NO ACTION"
+        if legacy_alter:
+            assert before["restored_from"]["table"] == "agent_revisions_new"
+        # The `_new`-named self-FK dangles, so seed with enforcement off.
+        await conn.execute("PRAGMA foreign_keys=OFF")
+        await _seed_revisions(conn)
+        await conn.execute("PRAGMA foreign_keys=ON")
+        async with conn.execute("SELECT * FROM agent_revisions ORDER BY id") as cur:
+            rows_before = [tuple(r) for r in await cur.fetchall()]
+
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT * FROM agent_revisions ORDER BY id") as cur:
+            assert [tuple(r) for r in await cur.fetchall()] == rows_before
+        async with conn.execute("SELECT restored_from FROM agent_revisions WHERE id = 'r3'") as cur:
+            assert (await cur.fetchone())[0] == "r1"
+        async with conn.execute("PRAGMA index_list(agent_revisions)") as cur:
+            assert "idx_agent_revisions_agent_status" in {r["name"] for r in await cur.fetchall()}
+        fks = await _fk_rows(conn, "agent_revisions")
+        assert (fks["agent_name"]["on_update"], fks["agent_name"]["on_delete"]) == (
+            "CASCADE",
+            "CASCADE",
+        )
+        assert fks["restored_from"]["table"] == "agent_revisions"
+        assert fks["restored_from"]["on_delete"] == "SET NULL"
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1
+        async with conn.execute("PRAGMA foreign_key_check") as cur:
+            assert await cur.fetchall() == []
+        # SET NULL still works on the rebuilt self-reference.
+        await conn.execute("DELETE FROM agent_revisions WHERE id = 'r1'")
+        async with conn.execute("SELECT restored_from FROM agent_revisions WHERE id = 'r3'") as cur:
+            assert (await cur.fetchone())[0] is None
+        await conn.close()
+
+    async def test_rerun_on_v42_changes_nothing(self, tmp_path) -> None:
+        """AC4: the guard — a second ensure_schema leaves the table alone."""
+        conn = await _open(tmp_path / "rerun.db")
+        await ensure_schema(conn)
+        await _seed_revisions(conn)
+        # Rewind only the stamp: the table already carries the cascade.
+        await conn.execute("DELETE FROM schema_version WHERE version = 42")
+        await conn.commit()
+        async with conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'agent_revisions'"
+        ) as cur:
+            sql_before = (await cur.fetchone())[0]
+        await ensure_schema(conn)
+        async with conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'agent_revisions'"
+        ) as cur:
+            assert (await cur.fetchone())[0] == sql_before
+        async with conn.execute("SELECT COUNT(*) FROM agent_revisions") as cur:
+            assert (await cur.fetchone())[0] == 4
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 42") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+    async def test_rename_carries_revisions_and_rules(self, tmp_path) -> None:
+        """AC5: renaming an agent with revision AND rule rows succeeds and both
+        follow. Without the v42 rebuild the same rename raises ``FOREIGN KEY
+        constraint failed`` (Known Issue 1); the pre-rebuild half asserts it."""
+        from the_one.db.repositories import AgentRuleRepository
+
+        conn = await _open(tmp_path / "rename.db")
+        await ensure_schema(conn)
+        store = SQLiteAgentStore(conn, None)
+
+        # Pre-v42 shape: the rename fails (this is what main did).
+        await _rewind_to_v41(conn, legacy_alter=False)
+        await _seed_revisions(conn)
+        with pytest.raises(aiosqlite.IntegrityError, match="FOREIGN KEY"):
+            await store.rename("alpha", "beta")
+        await conn.rollback()
+
+        # After the migration it succeeds and carries both tables.
+        await ensure_schema(conn)
+        await AgentRuleRepository(conn).create("alpha", "Rule one.")
+        await store.rename("alpha", "beta")
+        async with conn.execute("SELECT DISTINCT agent_name FROM agent_revisions") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["beta"]
+        async with conn.execute("SELECT agent_name, text FROM agent_rules") as cur:
+            assert [tuple(r) for r in await cur.fetchall()] == [("beta", "Rule one.")]
+        await conn.close()
+
+    async def test_delete_agent_cascades_rules_and_revisions(self, tmp_path) -> None:
+        from the_one.db.repositories import AgentRuleRepository
+
+        conn = await _open(tmp_path / "delete.db")
+        await ensure_schema(conn)
+        await _seed_revisions(conn)
+        await AgentRuleRepository(conn).create("alpha", "Rule one.")
+        await SQLiteAgentStore(conn, None).delete("alpha")
+        for table in ("agent_rules", "agent_revisions"):
+            async with conn.execute(f"SELECT COUNT(*) FROM {table}") as cur:
+                assert (await cur.fetchone())[0] == 0
         await conn.close()

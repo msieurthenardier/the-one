@@ -274,9 +274,9 @@ def test_arrow_keys_in_tablist_do_not_open_dialog(app_with_agent: SeededApp, pag
 
     # No dialog opened.
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    # Focus moved to Knowledge.
+    # Focus moved to the next tab (Rules and notes, second after General).
     focused_id = page.evaluate("document.activeElement?.id")
-    assert focused_id == "agent-tab-knowledge"
+    assert focused_id == "agent-tab-rules-and-notes"
 
 
 @pytest.mark.browser

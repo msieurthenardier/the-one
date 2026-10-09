@@ -353,7 +353,13 @@ def test_what_it_can_use_lists_the_attachments_and_the_effective_built_ins(
         "Connectors 3 of 3",  # find_platform_destination included (AC9)
     ]
     labels = page.locator(f"{USES} h4").all_inner_texts()
-    assert labels == ["Knowledge bases", "MCP servers", "Built-in tools", "Self-configuration"]
+    assert labels == [
+        "Rules",
+        "Knowledge bases",
+        "MCP servers",
+        "Built-in tools",
+        "Self-configuration",
+    ]
 
     # An agent with nothing attached: "None", self-configuration Off, and a
     # whitelist that leaves one effective built-in (glob; read_file is off).
@@ -665,3 +671,97 @@ def test_the_drawer_subscribes_to_five_stores_and_releases_them_on_destroy(
     assert set(out["after"].values()) == {0}, out
     assert (out["duringListeners"], out["afterListeners"]) == (1, 0), out
     assert out["kids"] == 0 and out["hidden"] is True, out
+
+
+# ── The Rules group (M27 F1 L2; flight DD7) ──────────────────────────────────
+
+
+def _add_rule(base: str, agent: str, text: str, enabled: bool = True) -> str:
+    r = httpx.post(
+        f"{base}/api/agents/{agent}/rules",
+        json={"text": text, "enabled": enabled},
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def test_rules_group_lists_enabled_rules_in_order_with_off_count_and_edit_link(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _add_rule(base, agent, "Always answer in French.")
+    _add_rule(base, agent, "Never mention the weather.", enabled=False)
+    long_text = "Keep every reply short. " * 15  # well past two lines
+    _add_rule(base, agent, long_text.strip())
+
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "rules")
+    expect(group.locator("h4")).to_have_text("Rules")
+    rows = group.locator('[data-testid="chat-drawer-rule"]')
+    expect(rows).to_have_count(2, timeout=8000)
+    assert _group_items(page, "rules")[0] == "Always answer in French."
+    expect(rows.nth(1)).to_have_attribute("title", long_text.strip())
+    # The Rules group is the first group in "What it can use".
+    first = page.locator(f"{USES} .chat-drawer-group").first
+    expect(first).to_have_attribute("data-group", "rules")
+    # The long rule is clamped to two lines.
+    clamped = page.evaluate(
+        """() => { const e = document.querySelectorAll('[data-testid="chat-drawer-rule"] .chat-drawer-rule-text')[1];
+                   return e.scrollHeight > e.clientHeight; }"""
+    )
+    assert clamped
+    expect(group.locator('[data-testid="chat-drawer-rules-off"]')).to_have_text("1 off")
+
+    link = group.locator('[data-testid="chat-drawer-rules-edit-link"]')
+    expect(link).to_have_text("Edit rules")
+    link.click()
+    _nav.expect_route(page, f"agents/{_nav.seg(agent)}/rules-and-notes")
+    expect(page.locator('[data-testid="tab-rules-and-notes"]')).to_have_attribute(
+        "aria-selected", "true", timeout=8000
+    )
+
+
+def test_rules_group_says_no_rules_when_none_or_none_enabled(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _open_pending(page, base, agent, 1440, 900)
+    group = _group(page, "rules")
+    expect(group.locator("p.chat-drawer-none")).to_have_text("No rules", timeout=8000)
+    expect(group.locator('[data-testid="chat-drawer-rules-off"]')).to_have_count(0)
+
+    # Only disabled rules: "No rules" and "1 off" together.
+    _add_rule(base, agent, "Disabled one.", enabled=False)
+    page.reload()
+    _chats.start_chat(page, agent)
+    group = _group(page, "rules")
+    expect(group.locator("p.chat-drawer-none")).to_have_text("No rules", timeout=8000)
+    expect(group.locator('[data-testid="chat-drawer-rules-off"]')).to_have_text("1 off")
+
+
+def test_rules_group_404_is_no_rules_and_500_is_couldnt_load(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    page.route(
+        "**/api/agents/*/rules",
+        lambda route: route.fulfill(
+            status=404, body='{"detail": "nope"}', content_type="application/json"
+        ),
+    )
+    _open_pending(page, base, agent, 1440, 900)
+    expect(_group(page, "rules").locator("p")).to_have_text("No rules", timeout=8000)
+
+    page.unroute("**/api/agents/*/rules")
+    page.route(
+        "**/api/agents/*/rules",
+        lambda route: route.fulfill(
+            status=500, body='{"detail": "boom"}', content_type="application/json"
+        ),
+    )
+    page.reload()
+    _chats.start_chat(page, agent)
+    expect(_group(page, "rules").locator("p")).to_have_text("Couldn't load", timeout=8000)
+    expect(_group(page, "knowledge").locator("p")).to_have_text("None")

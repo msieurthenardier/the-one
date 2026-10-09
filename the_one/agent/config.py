@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -79,20 +80,36 @@ to direct, concise responses.
 """
 
 
-def compose_system_prompt(base: str, persona: str) -> str:
-    """Compose the agent's system prompt: ``base``, optionally appended
-    with a per-agent ``persona`` via a "---" separator.
+def compose_system_prompt(
+    base: str,
+    persona: str,
+    *,
+    rules: Sequence[str] = (),
+    notes: Sequence[str] = (),
+) -> str:
+    """Compose the agent's system prompt from its layers.
 
-    Mission 23 Flight 1 (backend-removal leg): the connector-aware
-    extension point (``connector_attached``/``send_tool_enabled`` kwargs
-    and the auto-relay directive they selected) was removed with the
-    connector subsystem — every caller now gets the plain
-    ``{base}\\n\\n---\\n\\n{persona}`` shape unconditionally.
+    Layers join in a fixed order — ``base``, ``persona``, ``rules``,
+    ``notes`` — with a "---" separator between them; an empty layer is
+    omitted entirely (no stray separator, no empty heading). The result
+    always starts with ``base`` (the degraded chat-only path relies on
+    ``startswith(BASE_PROMPT)``). ``rules`` is the list of enabled rule
+    texts in position order (Mission 27 DD1/DD5). ``notes`` is reserved and
+    ignored until Flight 2.
+
+    With ``rules`` and ``notes`` empty the output is byte-identical to the
+    pre-Mission-27 ``{base}\\n\\n---\\n\\n{persona}`` shape.
     """
     parts = [base]
     if persona:
         parts.append("---")
         parts.append(persona)
+    if rules:
+        # Deferred: importing the db package at module load would be a cycle.
+        from the_one.db._rules import render_rules_block
+
+        parts.append("---")
+        parts.append(render_rules_block(rules))
     return "\n\n".join(parts)
 
 
@@ -189,9 +206,3 @@ class AgentConfig(BaseModel):
         if tool_name in self.disabled_tools:
             return False
         return True
-
-    def get_system_prompt(self) -> str:
-        """Return the resolved system prompt: BASE_PROMPT, optionally
-        appended with a per-agent persona via a "---" separator.
-        """
-        return compose_system_prompt(BASE_PROMPT, self.system_prompt)

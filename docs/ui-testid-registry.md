@@ -75,9 +75,13 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer` | chat | The agent drawer: the static shell slot `<aside id="chat-drawer" aria-label="This chat's agent">` after `<main>` in `index.html` (also set by `App.ui.drawer`'s test id option in `areas/chat/agent-drawer.js`), filled by the chat area and toggled with `hidden`: shown only on Chats with a chat open and its mode's state open; push (a 320px flex sibling, open by default) at 1280px and wider, overlay (closed by default) below; `data-mode` mirrors the mode (M25 F4 L6, DD7) |
 | `chat-drawer-facts` | chat | The drawer's facts `<dl>`: Model (mono), Provider (the provider's display name), Chats (the `sessions` count, connector sessions included); Chats only for the default or a deleted agent (M25 F4 L6) |
 | `chat-drawer-note` | chat | The drawer's state line for a non-agent view: "The default agent", "This agent no longer exists" or "Loading…" (M25 F4 L6) |
+| `chat-drawer-rule` | chat | one enabled rule in the drawer's Rules group (`<li>`, full text in `title`, text clamped to two lines) (M27 F1 L2) |
+| `chat-drawer-rules` | chat | the drawer Rules group's `<ol>` of enabled rules (M27 F1 L2) |
+| `chat-drawer-rules-edit-link` | chat | the Rules group's **Edit rules** `<a>` to `#agents/{name}/rules-and-notes` (M27 F1 L2) |
+| `chat-drawer-rules-off` | chat | the Rules group's "{n} off" line, present only when some rules are disabled (M27 F1 L2) |
 | `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
 | `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
-| `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=knowledge|mcp|tools|self-configuration]`, each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
+| `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=rules|knowledge|mcp|tools|self-configuration]` (Rules first, M27 F1 L2), each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
 | `chat-empty-new-btn` | chat | The empty state's New chat (`App.ui.button` primary, square-pen icon), inside `chat-welcome` when setup is complete and no chat is open; opens the agent picker. Absent in the setup-guidance state (M25 F4 L4b) |
 | `chat-header` | chat | The chat header (`<header>`, 48px, hairline; reference spec 5.2): an `h1` with the chat's title (read from the `sessions` store by id, so it follows the auto-title) or "New chat", and `chat-agent-line`. Hidden while idle (M25 F4 L4b) |
 | `chat-image-input` | chat | The composer's hidden `<input type=file accept=image/* multiple>`, named "Attach images" by `aria-label` since M25 F4 L5 (squawk 0110) |
@@ -282,6 +286,26 @@ caught — but it cannot see where the attribute is emitted.
 | `self-configuration-external-token-reveal` | studio | Self-configuration External access — copy-once secret reveal region (M21 F03 L03) |
 | `self-configuration-external-token-url` | studio | Self-configuration External access — surface URL in the reveal (M21 F03 L03) |
 | `self-configuration-external-token-value` | studio | Self-configuration External access — copy-once token readonly field (M21 F03 L03) |
+| `rules-add-btn` | studio | Rules and notes tab, Add rule button; disabled while the text is empty after trimming (M27 F1 L2) |
+| `rules-add-count` | studio | the Add textarea's live "{n} / 500" count (M27 F1 L2) |
+| `rules-add-input` | studio | the Add rule textarea, with a visible label "Add a rule" (M27 F1 L2) |
+| `rules-applies-note` | studio | "Changes apply to new and reopened chats, and to the next message in connector channels." (M27 F1 L2) |
+| `rules-create-mode` | studio | create-mode notice "Save the agent first to add rules." (M27 F1 L2) |
+| `rules-empty` | studio | the Rules list's "No rules yet." empty state (M27 F1 L2) |
+| `rules-error` | studio | the Rules section's inline error area (`role=alert`, hidden when empty); shows a 422's `detail` (M27 F1 L2) |
+| `rules-status` | studio | the Rules section's visually hidden polite status line: announces the delete arm and crossing the per-rule limit (M27 F1 review) |
+| `rules-list` | studio | the ordered rule list (`<ol>`) (M27 F1 L2) |
+| `rules-row` | studio | one rule row (`<li>`, `data-id`, `data-enabled`); `.rules-row--off` when disabled (M27 F1 L2) |
+| `rules-row-cancel` | studio | inline edit Cancel; restores the text (M27 F1 L2) |
+| `rules-row-delete` | studio | rule Delete, two-step through `App.confirmDelete` (M27 F1 L2) |
+| `rules-row-down` | studio | rule Move down; disabled on the last row (M27 F1 L2) |
+| `rules-row-edit` | studio | rule Edit (opens the inline textarea); `data-rule-id` (M27 F1 L2) |
+| `rules-row-edit-input` | studio | the inline edit textarea (M27 F1 L2) |
+| `rules-row-save` | studio | inline edit Save (M27 F1 L2) |
+| `rules-row-text` | studio | the rule's text paragraph (M27 F1 L2) |
+| `rules-row-toggle` | studio | the rule's on/off `App.ui.toggle` input (`role=switch`, name "Rule N enabled") (M27 F1 L2) |
+| `rules-row-up` | studio | rule Move up; disabled on the first row (M27 F1 L2) |
+| `rules-section` | studio | the Rules section of the Rules and notes tab (M27 F1 L2) |
 | `self-configuration-save-first` | studio | Self-configuration tab, create-mode notice (M21 F01 L02) |
 | `self-configuration-status` | studio | Self-configuration tab (M21 F01 L02) |
 | `self-configuration-toggle-btn` | studio | Self-configuration tab enable/disable (M21 F01 L02); rendered as a `.tool-enable-switch` checkbox `<input>` as of the HAT UX pass (M21 F02 L04) — same testid, moved from the retired `<button>` |
@@ -290,7 +314,8 @@ caught — but it cannot see where the attribute is emitted.
 | `tab-general` | studio | |
 | `tab-knowledge` | studio | |
 | `tab-mcps` | studio | |
-| `tab-self-configuration` | studio | fifth agent-editor tab (M21 F01 L02) |
+| `tab-rules-and-notes` | studio | the agent editor's second tab (after General), label "Rules and notes" (or "Rules" if it cannot fit at 1024px), `data-tab-id="rules-and-notes"`, route `#agents/{name}/rules-and-notes` (M27 F1 L2) |
+| `tab-self-configuration` | studio | last (sixth) agent-editor tab (M21 F01 L02) |
 | `tab-tools` | studio | |
 | `test-connection-btn` | admin | |
 | `test-provider-btn` | studio | |

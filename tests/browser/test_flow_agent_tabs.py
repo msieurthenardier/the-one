@@ -81,10 +81,13 @@ def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -
     expect(tablist).to_be_visible()
 
     tabs = page.locator('[role="tab"]')
-    # General + Knowledge + MCPs + Built-in Tools + Self-configuration
-    expect(tabs).to_have_count(5)
+    # General + Rules and notes + Knowledge + MCPs + Built-in Tools + Self-configuration
+    expect(tabs).to_have_count(6)
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
+    expect(page.locator('[data-testid="tab-rules-and-notes"]')).to_have_attribute(
+        "aria-selected", "false"
+    )
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
@@ -120,7 +123,11 @@ def test_arrow_keys_move_focus_only(app_with_agent: SeededApp, page: Page) -> No
     # Focus the General tab.
     page.locator('[data-testid="tab-general"]').focus()
 
-    # Arrow Right → focus moves to Knowledge but URL/aria-selected stay.
+    # Arrow Right → focus moves to Rules and notes (the second tab) but
+    # URL/aria-selected stay; a second press reaches Knowledge.
+    page.keyboard.press("ArrowRight")
+    focused_id = page.evaluate("document.activeElement?.id")
+    assert focused_id == "agent-tab-rules-and-notes"
     page.keyboard.press("ArrowRight")
     focused_id = page.evaluate("document.activeElement?.id")
     assert focused_id == "agent-tab-knowledge"
@@ -142,8 +149,9 @@ def test_enter_commits_focused_tab(app_with_agent: SeededApp, page: Page) -> Non
     _nav.goto(page, base_url, "agents")
     _wait_editor_ready(page)
 
-    # Move focus to Knowledge then Enter.
+    # Move focus to Knowledge (two tabs right of General) then Enter.
     page.locator('[data-testid="tab-general"]').focus()
+    page.keyboard.press("ArrowRight")
     page.keyboard.press("ArrowRight")
     page.keyboard.press("Enter")
 

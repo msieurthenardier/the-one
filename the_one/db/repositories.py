@@ -25,9 +25,16 @@ from the_one.db._kb_types import (
     ChunkRecord,
     KBItemTransitionError,
 )
+from the_one.db._rules import (
+    RULES_TOTAL_MAX_CHARS,
+    RuleOrderError,
+    total_limit_error,
+    validate_rule_text,
+)
 from the_one.db._write_lock import write_transaction
 from the_one.db.models import (
     AgentRevision,
+    AgentRule,
     ChatSession,
     Connector,
     ConnectorDirectoryEntry,
@@ -1509,6 +1516,159 @@ class ConnectorDirectoryRepository:
             await self.conn.execute(
                 "DELETE FROM connector_directory WHERE connector_id = ?", (connector_id,)
             )
+
+
+# ── Agent rule repository ────────────────────────────────────────────────
+
+
+class AgentRuleRepository:
+    """Async access to ``agent_rules`` (Mission 27 F1, DD3/DD4).
+
+    Each mutating method opens ONE ``write_transaction`` itself (the guard is
+    not re-entrant) and reads, validates and writes inside it, so the 4,000
+    character cap check and the insert are atomic. Positions are 0-based and
+    dense. Limit violations raise :class:`RuleLimitError` /
+    :class:`RuleOrderError`; a missing or another agent's rule raises
+    ``KeyError``.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    @staticmethod
+    def _row(row: Any) -> AgentRule:
+        return AgentRule(
+            id=row[0],
+            agent_name=row[1],
+            text=row[2],
+            enabled=bool(row[3]),
+            position=row[4],
+            created_at=row[5],
+            updated_at=row[6],
+        )
+
+    _COLS = "id, agent_name, text, enabled, position, created_at, updated_at"
+
+    async def list_for_agent(self, name: str, *, enabled_only: bool = False) -> list[AgentRule]:
+        sql = f"SELECT {self._COLS} FROM agent_rules WHERE agent_name = ?"
+        if enabled_only:
+            sql += " AND enabled = 1"
+        sql += " ORDER BY position, id"
+        async with self.conn.execute(sql, (name,)) as cur:
+            return [self._row(r) for r in await cur.fetchall()]
+
+    async def get(self, name: str, rule_id: str) -> AgentRule | None:
+        async with self.conn.execute(
+            f"SELECT {self._COLS} FROM agent_rules WHERE agent_name = ? AND id = ?",
+            (name, rule_id),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._row(row) if row else None
+
+    async def total_chars(self, name: str, *, exclude_id: str | None = None) -> int:
+        sql = "SELECT COALESCE(SUM(LENGTH(text)), 0) FROM agent_rules WHERE agent_name = ?"
+        params: tuple[Any, ...] = (name,)
+        if exclude_id is not None:
+            sql += " AND id != ?"
+            params = (name, exclude_id)
+        async with self.conn.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
+    async def create(self, name: str, text: str, enabled: bool = True) -> AgentRule:
+        text = validate_rule_text(text)
+        rule_id = uuid.uuid4().hex
+        now = now_iso()
+        async with write_transaction(self.conn):
+            total = await self.total_chars(name)
+            if total + len(text) > RULES_TOTAL_MAX_CHARS:
+                raise total_limit_error(total + len(text))
+            async with self.conn.execute(
+                "SELECT COALESCE(MAX(position) + 1, 0) FROM agent_rules WHERE agent_name = ?",
+                (name,),
+            ) as cur:
+                row = await cur.fetchone()
+            position = int(row[0])
+            await self.conn.execute(
+                "INSERT INTO agent_rules "
+                "(id, agent_name, text, enabled, position, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (rule_id, name, text, 1 if enabled else 0, position, now, now),
+            )
+        return AgentRule(
+            id=rule_id,
+            agent_name=name,
+            text=text,
+            enabled=enabled,
+            position=position,
+            created_at=now,
+            updated_at=now,
+        )
+
+    async def update(
+        self,
+        name: str,
+        rule_id: str,
+        *,
+        text: str | None = None,
+        enabled: bool | None = None,
+    ) -> AgentRule:
+        new_text = validate_rule_text(text) if text is not None else None
+        async with write_transaction(self.conn):
+            current = await self.get(name, rule_id)
+            if current is None:
+                raise KeyError(f"Rule not found: {rule_id}")
+            if new_text is not None:
+                others = await self.total_chars(name, exclude_id=rule_id)
+                if others + len(new_text) > RULES_TOTAL_MAX_CHARS:
+                    raise total_limit_error(others + len(new_text))
+            final_text = new_text if new_text is not None else current.text
+            final_enabled = current.enabled if enabled is None else enabled
+            now = now_iso()
+            await self.conn.execute(
+                "UPDATE agent_rules SET text = ?, enabled = ?, updated_at = ? "
+                "WHERE agent_name = ? AND id = ?",
+                (final_text, 1 if final_enabled else 0, now, name, rule_id),
+            )
+        return current.model_copy(
+            update={"text": final_text, "enabled": final_enabled, "updated_at": now}
+        )
+
+    async def delete(self, name: str, rule_id: str) -> None:
+        async with write_transaction(self.conn):
+            if await self.get(name, rule_id) is None:
+                raise KeyError(f"Rule not found: {rule_id}")
+            await self.conn.execute(
+                "DELETE FROM agent_rules WHERE agent_name = ? AND id = ?", (name, rule_id)
+            )
+            await self._redensify(name)
+
+    async def _redensify(self, name: str) -> None:
+        async with self.conn.execute(
+            "SELECT id FROM agent_rules WHERE agent_name = ? ORDER BY position, id", (name,)
+        ) as cur:
+            ids = [r[0] for r in await cur.fetchall()]
+        for pos, rid in enumerate(ids):
+            await self.conn.execute("UPDATE agent_rules SET position = ? WHERE id = ?", (pos, rid))
+
+    async def reorder(self, name: str, ids: Sequence[str]) -> list[AgentRule]:
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id FROM agent_rules WHERE agent_name = ?", (name,)
+            ) as cur:
+                existing = {r[0] for r in await cur.fetchall()}
+            if len(ids) != len(set(ids)) or set(ids) != existing:
+                raise RuleOrderError(
+                    "ids must list every one of this agent's rules exactly once, "
+                    f"in the new order ({len(existing)} expected, {len(ids)} given)."
+                )
+            now = now_iso()
+            for pos, rid in enumerate(ids):
+                await self.conn.execute(
+                    "UPDATE agent_rules SET position = ?, updated_at = ? WHERE id = ?",
+                    (pos, now, rid),
+                )
+        return await self.list_for_agent(name)
 
 
 # ── Agent revision repository ────────────────────────────────────────────

@@ -2419,7 +2419,7 @@ async def _process_and_broadcast(
         # _calling_agent) key on the literal "default"; a skip-on-None
         # guard would silently degrade next_turn to next_session for
         # single-agent installs.
-        _self_configuration_pending.apply_pending_revision(
+        await _self_configuration_pending.apply_pending_revision(
             session.agent_name or "default", session.agent
         )
 
@@ -2493,7 +2493,7 @@ async def _resume_paused_session(session: Session) -> None:
             # — apply any pending next_turn self-revision here too. NOT in
             # the unconditional tail below `_save_session_to_db`, which
             # also runs when the resume re-pauses (that is not a settle).
-            _self_configuration_pending.apply_pending_revision(
+            await _self_configuration_pending.apply_pending_revision(
                 session.agent_name or "default", session.agent
             )
             await _send_to_session(session, {"type": "done"})

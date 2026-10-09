@@ -317,6 +317,21 @@ class ConnectorDirectoryEntry(BaseModel):
     last_seen: str
 
 
+class AgentRule(BaseModel):
+    """A row in ``agent_rules`` (Mission 27 F1): one operator-authored rule.
+
+    ``position`` is 0-based and dense (``0..n-1``) per agent.
+    """
+
+    id: str
+    agent_name: str
+    text: str
+    enabled: bool
+    position: int
+    created_at: str
+    updated_at: str
+
+
 class AgentRevision(BaseModel):
     """A row in the ``agent_revisions`` revision log (M21 F02).
 
