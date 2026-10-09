@@ -1,4 +1,6 @@
-# Squawk 0157: Windows `shell` tool escapes double quotes as literal `\"`
+# Squawk 0161: Windows `shell` tool escapes double quotes as literal `\"`
+
+> Renumbered from 0157 on 2026-10-09: the id collided with a squawk logged concurrently by another session (#247). Commits and the #248 PR still cite the old id.
 
 **Status**: completed
 **Type**: defect

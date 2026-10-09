@@ -1,4 +1,6 @@
-# Squawk 0159: Packaged app resolves the Microsoft Store `python.exe` stub as a real interpreter
+# Squawk 0163: Packaged app resolves the Microsoft Store `python.exe` stub as a real interpreter
+
+> Renumbered from 0159 on 2026-10-09: the id collided with a squawk logged concurrently by another session (#247). Commits and the #248 PR still cite the old id.
 
 **Status**: completed
 **Type**: defect
@@ -20,6 +22,6 @@ From GitHub issue #245, the "Related, lower priority" section. On a Windows host
 Three new tests in `tests/test_platform_interpreter.py` (stub only raises; stub then real `python` returns the real one; `THE_ONE_PYTHON` on a WindowsApps path returned unfiltered). `scripts/run-tests.sh tests/test_platform_interpreter.py -x --timeout 30`: 11 passed. `ruff check` / `ruff format --check`: clean. The Reviewer's batch run of the three touched test files gave 25 passed.
 
 ## Sign-Off
-**Reviewer**: independent Reviewer (Sonnet tier, batched with 0157). It confirmed the stub check runs on `which`'s raw result before `resolve()`, the `THE_ONE_PYTHON` override is never filtered, non-frozen behavior is unchanged, and the error names the Store alias only when one was skipped.
+**Reviewer**: independent Reviewer (Sonnet tier, batched with 0161). It confirmed the stub check runs on `which`'s raw result before `resolve()`, the `THE_ONE_PYTHON` override is never filtered, non-frozen behavior is unchanged, and the error names the Store alias only when one was skipped.
 **Verdict**: confirmed (`[HANDOFF:confirmed]`)
 **Commit**: `squawk: turnaround 2026-10-08 (3)` on branch `squawk/turnaround-2026-10-08-3`

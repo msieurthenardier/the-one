@@ -1,4 +1,4 @@
-"""Static guard for squawk 0158: the frozen bundle must ship pywinpty's .exe helpers.
+"""Static guard for squawk 0162: the frozen bundle must ship pywinpty's .exe helpers.
 
 The spec cannot be frozen off Windows, so this reads its source. pywinpty >= 3's
 bundled conpty.dll launches OpenConsole.exe from its own directory; PyInstaller's
