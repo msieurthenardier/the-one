@@ -1,4 +1,6 @@
-# Squawk 0158: Packaged Windows app omits pywinpty's OpenConsole.exe, so PTY sessions die at start
+# Squawk 0162: Packaged Windows app omits pywinpty's OpenConsole.exe, so PTY sessions die at start
+
+> Renumbered from 0158 on 2026-10-09: the id collided with a squawk logged concurrently by another session (#247). Commits and the #248 PR still cite the old id.
 
 **Status**: completed
 **Type**: defect
@@ -23,6 +25,6 @@ GitHub issue #246. In the packaged Windows app, `shell_session_start` (`host_acc
 Unit: the new static spec test passes; ruff clean. This could NOT be proven here: the spec cannot be frozen on Linux. The real proof needs a Windows freeze (`fly execute -c ci/tasks/windows-installer-build.yml` or a local PyInstaller build) and then, in the packaged app: confirm `_internal/winpty/OpenConsole.exe` (and `winpty-agent.exe`) exist, and that `shell_session_start` (`host_access=true`) followed by `shell_session_send "echo hello"` returns output instead of `[error] session not active`.
 
 ## Sign-Off
-**Reviewer**: independent Reviewer (Sonnet tier, batched with 0157). It checked that `collect_dynamic_libs` with `destdir=None` keeps the package-relative `winpty/` directory, so the `.exe` files land beside `conpty.dll`, and that `*winpty_bins` stays in `binaries`. The static test is a source-text guard, which is weak but not tautological. **Not yet proven on a real Windows freeze** (see Verification).
+**Reviewer**: independent Reviewer (Sonnet tier, batched with 0161). It checked that `collect_dynamic_libs` with `destdir=None` keeps the package-relative `winpty/` directory, so the `.exe` files land beside `conpty.dll`, and that `*winpty_bins` stays in `binaries`. The static test is a source-text guard, which is weak but not tautological. **Not yet proven on a real Windows freeze** (see Verification).
 **Verdict**: confirmed (`[HANDOFF:confirmed]`)
 **Commit**: `squawk: turnaround 2026-10-08 (3)` on branch `squawk/turnaround-2026-10-08-3`

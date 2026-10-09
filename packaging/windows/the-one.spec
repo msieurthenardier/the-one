@@ -87,7 +87,7 @@ mcp_hidden = collect_submodules(
 # at the installed pywinpty package (the flight's DD7 Divert criterion).
 # collect_dynamic_libs returns [] off-Windows / when pywinpty is absent, which is
 # why this spec cannot be freeze-validated on Linux.
-# Squawk 0158: collect_dynamic_libs' default patterns match only *.dll/*.pyd, so
+# Squawk 0162: collect_dynamic_libs' default patterns match only *.dll/*.pyd, so
 # pywinpty >= 3's helper executables were left out of the bundle. They must sit
 # in the same winpty/ dir as conpty.dll: the bundled conpty.dll spawns
 # OpenConsole.exe from its own directory (without it every PTY child dies at

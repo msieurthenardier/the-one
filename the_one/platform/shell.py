@@ -21,7 +21,7 @@ Two helpers with a deliberate divergence:
         used on both paths. On Windows the sandboxed path spawns through
         ``create_subprocess_shell`` (verbatim ``cmd.exe /c "<command>"``)
         because ``create_subprocess_exec`` would MSVCRT-escape every ``"`` in
-        the command to ``\\"`` (squawk 0157).
+        the command to ``\\"`` (squawk 0161).
 
 Both return raw bytes; decoding is the caller's responsibility (preserving
 the existing ``decode(errors="replace")`` policy in ``ShellTool``).
@@ -160,7 +160,7 @@ async def run_shell(
     if os.name == "nt":
         # Windows: ``create_subprocess_exec`` joins its argv with
         # ``list2cmdline`` (MSVCRT escaping), so every ``"`` in the command
-        # would reach cmd.exe as a literal ``\"`` (squawk 0157). cmd.exe does
+        # would reach cmd.exe as a literal ``\"`` (squawk 0161). cmd.exe does
         # not parse its command line that way. ``create_subprocess_shell`` hands
         # CreateProcess ``cmd.exe /c "<command>"`` verbatim (the same call the
         # legacy path makes). ``spec.command`` is always ``cmd.exe`` here and

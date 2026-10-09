@@ -140,7 +140,7 @@ class TestRunShell:
 
 
 class TestWindowsSandboxedCommandVerbatim:
-    """Squawk 0157: on Windows the sandboxed path must hand cmd.exe the command verbatim."""
+    """Squawk 0161: on Windows the sandboxed path must hand cmd.exe the command verbatim."""
 
     @pytest.mark.parametrize(
         "command",
