@@ -222,6 +222,18 @@ def _create_job_and_assign(pid: int) -> wintypes.HANDLE:  # type: ignore[name-de
     return job
 
 
+def _normalize_submit(text: str) -> str:
+    """Turn every line ending (``\\r\\n``, ``\\n``, ``\\r``) into the ConPTY
+    submit sequence ``\\r\\n`` and end the input with exactly one.
+
+    ConPTY submits a line only on ``\\r`` (squawk 0164); pywinpty's own tests
+    use ``\\r\\n``. Trailing line endings collapse into one submit, so a
+    terminated and an unterminated input behave alike.
+    """
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n").split("\n")
+    return "\r\n".join(lines) + "\r\n"
+
+
 class WindowsPtySession(PtySession):
     """Windows concrete ``PtySession`` using pywinpty ``PtyProcess`` (ConPTY).
 
@@ -334,8 +346,12 @@ class WindowsPtySession(PtySession):
         self._last_activity = time.monotonic()
 
     async def send(self, input: str, timeout: float = 30.0) -> bytes:
-        """Write ``input`` (newline-appended if not already terminated)
-        to cmd.exe; read response until idle or timeout.
+        """Write ``input`` to cmd.exe as submitted lines; read response
+        until idle or timeout.
+
+        Line endings are normalized by ``_normalize_submit`` so every line
+        (and the end of the input) is pressed as Enter, which ConPTY only
+        recognizes as ``\\r``; a bare ``\\n`` just types at the prompt.
 
         Returns raw bytes. Raises ``asyncio.TimeoutError`` on no-output
         windows. Raises ``RuntimeError`` if the session is closed or
@@ -343,13 +359,11 @@ class WindowsPtySession(PtySession):
         """
         if self._closed or not self.is_alive:
             raise RuntimeError("session not active")
-        if not input.endswith("\n"):
-            input = input + "\n"
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
             self._send_blocking,
-            input,
+            _normalize_submit(input),
             timeout,
         )
         self._last_activity = time.monotonic()
