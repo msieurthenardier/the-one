@@ -1,10 +1,10 @@
 # Squawk 0092: a Windows-only test failure — `pytest.raises(match=)` given an unescaped Windows path
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-09-20
-**Completed**: —
+**Completed**: 2026-10-09
 
 ## Report
 
@@ -64,16 +64,22 @@ execution in this mission's history.
 
 ## Corrective Action
 
-*(pending)* Wrap the pattern: `match=re.escape(str(path))`. Check the rest of
-the file — and any other `pytest.raises(match=...)` fed a path — for the same
-shape.
+Wrapped the pattern: `tests/test_api_credential.py:391` now `match=re.escape(str(path))`; added `import re` (line 14). Grepped all of `tests/` for `match=str(` / `match=f"...{...}` path interpolation: this was the only occurrence. No production code touched.
 
 ## Verification
 
-*(pending)* `fly -t the-one execute -c ci/tasks/windows-tests.yml -i repo=.`
-returns 0 failures, and the test still fails (for the right reason) if
-`CredentialFileError` stops naming the path.
+**Target:** `windows-tests` returns 0 failures, and the test still fails, for the right reason, if `CredentialFileError` stops naming the path.
+
+**Results:**
+- **Linux:** `tests/test_api_credential.py` 40 passed. `ruff check` and `ruff format --check` are clean on `tests/`.
+- **Windows:** build 692704, `fly -t the-one execute -c ci/tasks/windows-tests.yml` on a clean export. 550 passed, 21 skipped, 2 xfailed, 1 deselected, **0 failed** (pytest 85 s, wall 166 s). The previous build, 692683, had 549 passed and 1 failed, on this test.
+- **Still meaningful (Reviewer, scratch script with `PureWindowsPath(r"C:\Users\Test\data\api-credential")`):**
+  - `match=re.escape(str(p))` passes when the message contains the path.
+  - It raises `AssertionError` when the message omits it.
+  - The old unescaped `match=str(p)` reproduces the bad-escape failure.
 
 ## Sign-Off
 
-*(written at completion)*
+**Reviewer**: independent Reviewer (Sonnet tier: credentials test file). It confirmed the change is confined to `tests/test_api_credential.py` (`import re`, `match=re.escape(str(path))`) with no production credential code touched. Its scratch-script falsification shows the escaped match still pins that the error names the file.
+**Verdict**: confirmed (`[HANDOFF:confirmed]`)
+**Commit**: `squawk: turnaround 2026-10-09 (0092)` on branch `squawk/turnaround-2026-10-09`
