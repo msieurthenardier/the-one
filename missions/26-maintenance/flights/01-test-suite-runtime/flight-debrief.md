@@ -115,7 +115,7 @@ CI now installs every Linux task from `uv.lock` with `uv sync --locked`. A push 
 
 ## Key Learnings
 - **Probe the host before designing for it.** Every CI surprise was a host capability, not code. A capability probe (limits, memory behaviour under repeated builds, exec on caches, network family) belongs in pre-flight, next to the Citation Audit.
-- **The memory incident was seen as "the entire WSL came to a halt".** Shmem reached 12.6 GB in Docker Desktop's VM while one browser build at a time was being uploaded and run, and killing Docker Desktop released it. The exact holder (leftover build containers, or worker volumes on memory-backed storage) is **unconfirmed**. The next CI work on this host should snapshot `docker stats` and the worker volume usage before and after a build.
+- **The memory incident was seen as "the entire WSL came to a halt".** Shmem reached 12.6 GB in Docker Desktop's VM while one browser build at a time was being uploaded and run, and killing Docker Desktop released it. **Root cause found afterwards:** each Linux worker's `/worker-state` is a 16 GB `tmpfs` (`concourse-local` `docker-compose.yml`), so build images, uploads, caches and volumes live in RAM across two workers (concourse-local#11). The next CI work on this host should snapshot `docker stats` and the worker volume usage before and after a build.
 - **Parallelism bought the gate; per-test work did not shrink.** The next speed lever is the per-start boot (leg 7's module-scoped server, or a lighter test lifespan), not more lanes. 3 slots is the operator's host policy.
 - **Point projections invite surprise.** State a range and the method behind it.
 
@@ -164,6 +164,8 @@ Plugin version 1.2.0 for all of these.
 - [ ] Validate a uv install for `windows-tests` on `windows-worker`, and move it to `uv sync --locked`. → **squawk 0158**
 - [ ] Add the template-DB rule and the runner lifecycle contract to `the_one/agents.md`. → **squawk 0159**
 - [ ] Add "never `pkill`/`killall` by pattern" to `.flightops/agent-crews/leg-execution.md`'s Implement prompt. → **squawk 0160**
-- [ ] `concourse-local`: the cgroup v2 `garden` threaded mode, and the worker storage memory build-up. Operator, outside this repo.
+- [ ] `concourse-local`: filed as msieurthenardier/concourse-local#11 and #12.
+  - **#11, root cause found:** each of the 2 Linux workers mounts `/worker-state` as a 16 GB `tmpfs`. That is up to 32 GB in RAM on a 15 GB host, which explains the 12.6 GB Shmem.
+  - **#12:** `container_limits` are rejected because cgroup v2 `garden` is in threaded mode.
 - [ ] An early budget warning, a `routing` rebalance, and leg 7 as a ready sortie (needs design; next planning).
 - [ ] Squawk 0156 (the model picker drops its value on a provider switch): carried.
