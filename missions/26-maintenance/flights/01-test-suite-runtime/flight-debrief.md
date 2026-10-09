@@ -144,6 +144,31 @@ Plugin version 1.2.0 for all of these.
    - **Cost.** No damage either time, but a latent risk to the operator's processes.
    - This is a project crew-file matter more than a plugin one; it is recorded so a sweep can see the pattern.
 
+## Post-Merge Addendum (2026-10-09)
+
+**Checklist step 1 done:** `ci/set-pipeline.sh` was applied, with `ignore_paths` live.
+
+**Step 2, the first build, failed on memory.** The first build after merge, `the-one/ci/73` (all 5 tasks in parallel), was **aborted after 2m37s** by a memory watcher at Shmem 8.3 GB, still during setup, before any test ran:
+
+| | At build start | At abort |
+|---|---|---|
+| Shmem | 0.6 GB | 8.3 GB |
+| MemAvailable | 12.5 GB | 4.2 GB |
+
+That confirms concourse-local#11 (the measurements were added there). The 5-task `ci` job cannot run on this host while worker storage is a 16 GB `tmpfs` per worker.
+
+**Actions taken, at the operator's direction:**
+- the `the-one` pipeline is **paused**;
+- both Linux workers were restarted, and Shmem fell back to 75 MB.
+
+**What stays unverified until #11 is fixed:**
+- the CI browser task, WebKit in CI, and cached install times;
+- whether squawk 0157 recurs;
+- the artifact-only-push check;
+- the first scheduled pip-audit run.
+
+The pipeline is unpaused with `fly -t the-one unpause-pipeline -p the-one` once the fix lands.
+
 ## Recommendations
 1. **Run the post-merge operator checklist promptly, and snapshot host memory around the first build** (`free -g`, Docker Desktop memory, `docker stats`). It is the only proof the CI half of this flight works, and the only data on the memory incident's cause.
 2. **Fix the two `concourse-local` issues:**
