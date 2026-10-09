@@ -335,3 +335,14 @@ Not started.
   - All four were fixed by a Developer and confirmed by a Sonnet re-review, which exercised the CI failure-dump block against a stub.
   - Review cycles: 1 review plus 1 scoped re-review.
 - **Legs 1–5 → `completed`.** Leg 7 was not flown.
+- **Flight landed (2026-10-08).**
+  - Code commit `fd14a86`; PR #247.
+  - Documentation check: the flight-end Reviewer confirmed CLAUDE.md (lanes, budgets, `make gate`, policy, netns skip note) and `ci/README.md` against the code.
+  - Flight → `landed`, checked off in the mission.
+  - **Carried to the debrief:**
+    - the post-merge operator checklist (Leg 5);
+    - the unresolved one-off CI failure of `test_live_surface_connection_evicted_before_general_drain`;
+    - follow-ups for `concourse-local`: the cgroup v2 threaded `garden` group that blocks `container_limits`, and worker storage memory (Shmem build-up during `fly execute` trials);
+    - validating a uv install on `windows-worker`;
+    - squawk 0156;
+    - the 1.6 min margin under the 20 min gate.
