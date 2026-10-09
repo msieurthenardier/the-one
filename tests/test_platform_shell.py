@@ -137,3 +137,63 @@ class TestRunShell:
         stdout, _, returncode = await run_shell("echo $FOO", timeout=5, env={"FOO": "bar"})
         assert returncode == 0
         assert stdout.strip() == b"bar"
+
+
+class TestWindowsSandboxedCommandVerbatim:
+    """Squawk 0157: on Windows the sandboxed path must hand cmd.exe the command verbatim."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'echo "a b" "c d" $X %PATH:~0,5%',
+            "powershell -NoProfile -Command \"Write-Output 'hi'; $x=5; Write-Output $x\"",
+        ],
+    )
+    def test_windows_uses_shell_string_not_argv(self, monkeypatch, command) -> None:
+        import the_one.platform.shell as shell_mod
+
+        class _OsProxy:
+            name = "nt"
+
+            def __getattr__(self, attr):
+                return getattr(os, attr)
+
+        calls: dict[str, object] = {}
+
+        class _Proc:
+            returncode = 0
+
+            async def communicate(self):
+                return b"", b""
+
+        async def fake_shell(cmd, **kwargs):
+            calls["shell"] = (cmd, kwargs)
+            return _Proc()
+
+        async def fake_exec(*a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("create_subprocess_exec would list2cmdline-escape quotes")
+
+        monkeypatch.setattr(shell_mod, "os", _OsProxy())
+        monkeypatch.setattr(shell_mod.asyncio, "create_subprocess_shell", fake_shell)
+        monkeypatch.setattr(shell_mod.asyncio, "create_subprocess_exec", fake_exec)
+        from the_one.platform.sandbox.base import SandboxProfile
+        from the_one.platform.sandbox.passthrough import PassthroughSandbox
+
+        profile = SandboxProfile()
+        monkeypatch.setattr(
+            "the_one.platform.sandbox.get_sandbox_backend", lambda: PassthroughSandbox()
+        )
+        monkeypatch.setattr(
+            "the_one.platform.sandbox._seam.warn_if_isolation_unenforced", lambda *a: None
+        )
+
+        import asyncio
+
+        out = asyncio.run(
+            shell_mod.run_shell(command, timeout=5, env={"A": "1"}, cwd=None, profile=profile)
+        )
+        assert out == (b"", b"", 0)
+        sent, kwargs = calls["shell"]
+        assert sent == command
+        assert "\\" + '"' not in sent
+        assert kwargs["env"] == {"A": "1"}

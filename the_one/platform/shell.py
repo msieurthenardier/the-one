@@ -18,7 +18,10 @@ Two helpers with a deliberate divergence:
         path: calls ``get_sandbox_backend().prepare_spawn()`` and spawns via
         ``create_subprocess_exec`` using ``select_shell()`` (DD7 — $SHELL-
         honoring, falls back to /bin/sh). The same kill/session pattern is
-        used on both paths.
+        used on both paths. On Windows the sandboxed path spawns through
+        ``create_subprocess_shell`` (verbatim ``cmd.exe /c "<command>"``)
+        because ``create_subprocess_exec`` would MSVCRT-escape every ``"`` in
+        the command to ``\\"`` (squawk 0157).
 
 Both return raw bytes; decoding is the caller's responsibility (preserving
 the existing ``decode(errors="replace")`` policy in ``ShellTool``).
@@ -154,15 +157,32 @@ async def run_shell(
     if os.name == "posix":
         session_kwargs["start_new_session"] = True
 
-    proc = await asyncio.create_subprocess_exec(
-        spec.command,
-        *spec.args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=spec.env,
-        cwd=spec.cwd,
-        **session_kwargs,
-    )
+    if os.name == "nt":
+        # Windows: ``create_subprocess_exec`` joins its argv with
+        # ``list2cmdline`` (MSVCRT escaping), so every ``"`` in the command
+        # would reach cmd.exe as a literal ``\"`` (squawk 0157). cmd.exe does
+        # not parse its command line that way. ``create_subprocess_shell`` hands
+        # CreateProcess ``cmd.exe /c "<command>"`` verbatim (the same call the
+        # legacy path makes). ``spec.command`` is always ``cmd.exe`` here and
+        # ``PassthroughSandbox`` forwards it unchanged, so env/cwd from the
+        # spec are all that need carrying over.
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=spec.env,
+            cwd=spec.cwd,
+        )
+    else:
+        proc = await asyncio.create_subprocess_exec(
+            spec.command,
+            *spec.args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=spec.env,
+            cwd=spec.cwd,
+            **session_kwargs,
+        )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:

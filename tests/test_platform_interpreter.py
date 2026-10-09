@@ -83,6 +83,42 @@ class TestResolvePythonFrozen:
         assert "install python" in msg or "set the_one_python" in msg
         assert "docker" not in msg
 
+    def test_store_alias_stub_only_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _freeze(monkeypatch)
+        monkeypatch.delenv(_PYTHON_OVERRIDE_ENV, raising=False)
+        stubs = {
+            "python3": r"C:\Users\a\AppData\Local\Microsoft\WindowsApps\python3.exe",
+            "python": r"C:\Users\a\AppData\Local\MICROSOFT\windowsapps\python.exe",
+        }
+        monkeypatch.setattr(interp_mod.shutil, "which", lambda cmd, path=None: stubs.get(cmd))
+        with pytest.raises(FrozenInterpreterError) as exc:
+            resolve_python()
+        assert "Microsoft Store" in str(exc.value)
+
+    def test_store_alias_skipped_for_real_python_later(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze(monkeypatch)
+        monkeypatch.delenv(_PYTHON_OVERRIDE_ENV, raising=False)
+        real = r"C:\Python312\python.exe"
+        found = {
+            "python3": r"C:\Users\a\AppData\Local\Microsoft\WindowsApps\python3.exe",
+            "python": real,
+        }
+        monkeypatch.setattr(interp_mod.shutil, "which", lambda cmd, path=None: found.get(cmd))
+        assert resolve_python() == str(interp_mod.Path(real).resolve())
+
+    def test_override_on_windowsapps_path_not_filtered(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _freeze(monkeypatch)
+        alias = r"C:\Users\a\AppData\Local\Microsoft\WindowsApps\python.exe"
+        monkeypatch.setenv(_PYTHON_OVERRIDE_ENV, alias)
+        monkeypatch.setattr(
+            interp_mod.shutil, "which", lambda cmd, path=None: alias if cmd == alias else None
+        )
+        assert resolve_python() == str(interp_mod.Path(alias).resolve())
+
     def test_non_frozen_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delattr(env_mod.sys, "frozen", raising=False)
         monkeypatch.delattr(env_mod.sys, "_MEIPASS", raising=False)

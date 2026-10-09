@@ -30,7 +30,7 @@ import os
 import shutil
 import signal
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING
 
 from the_one.platform.env import _build_subprocess_env, is_frozen
@@ -87,6 +87,21 @@ def resolve_python() -> str:
     return str(Path(sys.executable).resolve())
 
 
+def _is_store_alias(found: str) -> bool:
+    """True if ``found`` lives in ``...\\Microsoft\\WindowsApps`` (case-insensitive).
+
+    That directory holds the Microsoft Store App Execution Aliases. With no real
+    Python installed, ``python.exe``/``python3.exe`` there are stubs that print
+    "Python was not found; run without arguments to install from the Microsoft
+    Store" and exit 9009. Real Store-installed Python also exposes its aliases in
+    this same directory, so those are skipped too; the operator can set
+    ``THE_ONE_PYTHON`` to the real interpreter path. Checked on the string
+    ``which`` returned (before any ``resolve()``), purely path-based.
+    """
+    parent = PureWindowsPath(found).parent
+    return parent.name.lower() == "windowsapps" and parent.parent.name.lower() == "microsoft"
+
+
 def _resolve_frozen_python() -> str:
     """Resolve a real external interpreter for a frozen app, or raise.
 
@@ -105,17 +120,27 @@ def _resolve_frozen_python() -> str:
     else:
         candidates = ["python3", "python"]
 
+    skipped_alias = False
     for cand in candidates:
         # An override given as an absolute/relative path resolves directly;
         # a bare name resolves against the augmented PATH.
         found = shutil.which(cand, path=search_path)
         if found:
+            # A bare-name hit on a Store alias stub is not an interpreter: skip it
+            # and keep searching. An explicit override is never filtered.
+            if not override and _is_store_alias(found):
+                skipped_alias = True
+                continue
             return str(Path(found).resolve())
 
     if override:
         detail = (
             f"the interpreter set in {_PYTHON_OVERRIDE_ENV}={override!r} was not "
             f"found or is not executable"
+        )
+    elif skipped_alias:
+        detail = (
+            "only the Microsoft Store `python` alias was found, which is not a real interpreter"
         )
     else:
         detail = "no `python3`/`python` interpreter was found on PATH"
