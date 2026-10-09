@@ -19,14 +19,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import aiosqlite
 import pytest
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import KnowledgeBase, LLMProviderConfig
 from the_one.db.repositories import KnowledgeBaseRepository, ToolConfigRepository
-from the_one.db.schema import ensure_schema
 from the_one.tools.base import Tool
 
 
@@ -111,10 +110,7 @@ def _make_provider_config() -> LLMProviderConfig:
 @pytest.fixture
 async def db_conn(tmp_path):
     """Open a fresh isolated SQLite DB with the v9 schema applied."""
-    conn = await aiosqlite.connect(str(tmp_path / "test.db"))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(tmp_path / "test.db")
     yield conn
     await conn.close()
 

@@ -30,17 +30,16 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._schema_template import connect_template_db
 from the_one import api_credential
 from the_one.api_credential import FileCredentialSource
 from the_one.config import settings
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 from the_one.interfaces.web.middleware import (
@@ -83,10 +82,7 @@ async def client(tmp_path):
     error.
     """
     db_path = tmp_path / "callback_gate.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
 
     with (

@@ -29,24 +29,34 @@
 # Runnable two ways:
 #   fly -t the-one execute -p -c ci/tasks/bwrap.yml -i repo=.   (local tree, -p required)
 #   as a privileged task step in ci/the-one.pipeline.yml                 (git resource)
+# Installs from uv.lock (`uv sync --locked`): exactly the locked closure, and an
+# error if uv.lock is stale against pyproject.toml. The uv cache is a Concourse
+# task cache (per worker, per job, per task step NAME; cold on `fly execute`).
+# uv is pinned through the image tag.
 platform: linux
 
 image_resource:
   type: registry-image
   source:
-    repository: python
-    tag: "3.11"
+    repository: ghcr.io/astral-sh/uv
+    tag: "0.9.30-python3.11-bookworm"
 
 inputs:
   - name: repo
+
+caches:
+  - path: uv-cache
 
 run:
   path: bash
   args:
     - -ceu
     - |
+      export UV_CACHE_DIR="$PWD/uv-cache" UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_NO_PROGRESS=1
+      echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
       apt-get update && apt-get install -y bubblewrap
       cp -a repo /opt/the-one
-      python -m venv /opt/venv
-      cd /opt/the-one && /opt/venv/bin/pip install -e ".[all-llms,dev]"
-      cd /opt/the-one && /opt/venv/bin/python -m pytest -m requires_bwrap tests/ --timeout=300 --tb=short --log-cli-level=INFO
+      cd /opt/the-one
+      # The venv is built INSIDE /opt/the-one so the editable install points there.
+      time uv sync --locked --extra all-llms --extra dev
+      .venv/bin/python -m pytest -m requires_bwrap tests/ --timeout=300 --tb=short --log-cli-level=INFO

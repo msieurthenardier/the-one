@@ -26,16 +26,15 @@ import json
 import logging
 from unittest.mock import AsyncMock, patch
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._schema_template import connect_template_db
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 from the_one.mcp import _pool, cache_cleanup
@@ -382,10 +381,7 @@ async def _clear_pool():
 async def client_and_repo(tmp_path):
     """FastAPI client + back-channel repo. Mirrors test_mcp_connection_reset."""
     db_path = tmp_path / "delete.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
     repo = MCPSourceRepository(conn, encryptor)
 
@@ -526,10 +522,7 @@ async def test_delete_404_short_circuits(client_and_repo) -> None:
 async def test_find_by_runtime_package_returns_matches(tmp_path) -> None:
     """Direct repo-level test of find_by_runtime_package decoding."""
     db_path = tmp_path / "find.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "k.key")
     repo = MCPSourceRepository(conn, encryptor)
 

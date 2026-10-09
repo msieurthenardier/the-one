@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import aiosqlite
 import pytest
 from conftest import FakeLLM
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
 from the_one.db.models import LLMProviderConfig
 from the_one.db.repositories import LLMProviderRepository, SQLiteAgentStore
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.sessions import add_subscriber
 from the_one.sessions import clear_for_test as _clear_session_registry
@@ -25,10 +24,7 @@ from the_one.sessions import clear_for_test as _clear_session_registry
 @pytest.fixture
 async def conn(tmp_path):
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

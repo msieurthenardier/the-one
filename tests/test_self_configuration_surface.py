@@ -40,7 +40,6 @@ from tests._credential_helpers import auth_headers
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
-from the_one.db import init_db
 from the_one.db.connection import close_connection, get_connection
 from the_one.db.models import LLMProviderConfig, MCPSource
 from the_one.db.repositories import LLMProviderRepository, MCPSourceRepository, SQLiteAgentStore
@@ -93,7 +92,6 @@ async def running_surface(isolated_db, monkeypatch):
 
     @asynccontextmanager
     async def test_lifespan(app: FastAPI):
-        await init_db()
         conn = await get_connection()
         async with surface_mod.mcp.session_manager.run():
             sc_credentials.register_credential_source_once()

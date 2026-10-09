@@ -182,7 +182,7 @@ def test_goto_builds_absolute_url_and_passes_kwargs():
 
 
 def test_legacy_url_tests_are_well_formed():
-    assert len(_nav.LEGACY_URL_TESTS) >= 8
+    assert len(_nav.LEGACY_URL_TESTS) >= 7
     for ident in _nav.LEGACY_URL_TESTS:
         assert re.fullmatch(r"test_\w+\.py::test_\w+", ident), ident
         assert ident in _nav.__doc__, f"{ident} missing from _nav.py docstring"

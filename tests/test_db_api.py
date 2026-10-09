@@ -7,15 +7,14 @@ import logging
 import os
 from unittest.mock import patch
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._schema_template import connect_template_db
 from the_one.db.repositories import SQLiteAgentStore
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 
@@ -25,10 +24,7 @@ async def client(tmp_path):
     """Create a test client with an isolated DB and test encryptor."""
     db_path = tmp_path / "test.db"
 
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     # Test encryptor — function-scoped (mirrors test_provider_api.py).
     test_key = Fernet.generate_key()

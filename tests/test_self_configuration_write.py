@@ -25,10 +25,10 @@ import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
 from the_one.db.repositories import AgentRevisionRepository, SQLiteAgentStore
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.app import Session, _process_and_broadcast, _resume_paused_session
@@ -47,10 +47,7 @@ def _clear_pending():
 
 @pytest.fixture
 async def db(tmp_path):
-    conn = await aiosqlite.connect(str(tmp_path / "test.db"))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(tmp_path / "test.db")
     test_key = Fernet.generate_key()
     encryptor = Encryptor(test_key, key_path=tmp_path / "test.key")
     yield conn, encryptor

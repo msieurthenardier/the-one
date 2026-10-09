@@ -213,7 +213,7 @@ bench-vector-store: ## Benchmark the two DD-9 usearch vector-store cells (smoke 
 # All test targets run host-native via the repo .venv (see PY variable above).
 
 .PHONY: test
-test: ## Run all default tests host-native (unit + browser; excludes -m live and -m pixel)
+test: ## Run the default tests host-native (the unit tier under pyproject addopts; browser, live and pixel are deselected)
 	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -v --tb=short
 
 .PHONY: test-unit
@@ -222,9 +222,14 @@ test-unit: ## Run unit tests only host-native (excludes browser, live, pixel, re
 	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap' -v --tb=short
 
 .PHONY: test-browser
-test-browser: ## Run browser tests host-native (requires THE_ONE_DEV_MODE=true; uses Playwright)
+test-browser: ## Run all browser lanes 3 at a time (run-tests.sh --parallel 3)
 	@$(MAKE) --no-print-directory _ensure-playwright
-	PYTHON=$(PY) bash scripts/run-tests.sh -m browser tests/browser/ -v --tb=short
+	PYTHON=$(PY) bash scripts/run-tests.sh --parallel 3 --tb=short
+
+.PHONY: gate
+gate: ## Full local gate: unit tests, then the parallel browser lanes (never concurrent)
+	$(MAKE) test-unit
+	$(MAKE) test-browser
 
 .PHONY: test-pixel
 test-pixel: ## Run visual snapshot tests host-native (baselines gitignored — local regen only)

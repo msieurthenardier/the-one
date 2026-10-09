@@ -24,13 +24,13 @@ from __future__ import annotations
 import logging
 from unittest.mock import patch
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from tests._credential_helpers import auth_headers
+from tests._schema_template import connect_template_db
 from the_one import api_credential
 from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.db.repositories import (
@@ -38,7 +38,6 @@ from the_one.db.repositories import (
     MCPSourceRepository,
     SQLiteAgentStore,
 )
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
@@ -68,10 +67,7 @@ async def env(tmp_path):
     """Isolated DB + encryptor, exposed both as an HTTP client and as raw
     repos (for the direct DB-level AC9/AC10 assertions)."""
     db_path = tmp_path / "test.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     test_encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
 

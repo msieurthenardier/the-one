@@ -20,6 +20,8 @@ Any browser-test compromises are documented in the flight log Anomalies section.
 from __future__ import annotations
 
 import json
+import sqlite3
+from pathlib import Path
 
 import httpx
 import pytest
@@ -234,25 +236,18 @@ def test_test_connection_button_click_shows_result(app_clean: str, page: Page) -
 
 
 @pytest.mark.browser
-@pytest.mark.skip(
-    reason=(
-        "Leg 03 MCP polish restructured capability-flags rendering: flags are now "
-        "surfaced inside renderServerInfoSection (shown from the cache on editor mount) "
-        "rather than appended directly to the test-connect response status element. "
-        "Testing via the test-connect stub path no longer exercises this code path. "
-        "A new test that seeds cache data and verifies the server-info panel would be "
-        "the correct replacement. Deferred to Flight 6 / maintenance pass. "
-        "See mission 08 Known Issues."
-    )
-)
-def test_capability_flags_render_for_announced_capabilities(app_clean: str, page: Page) -> None:
-    """L2.1: capability flags show the spec-defined keys whose values are non-null.
+def test_capability_flags_render_for_announced_capabilities(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """L2.1: the server-info panel's capability flags list only announced keys.
 
-    Stubs /test/connect to return capabilities with tools+resources announced
-    (non-null) and prompts/logging/completions/tasks as None. Asserts the
-    rendered .mcp-capability-flags one-liner contains exactly the announced
-    capabilities and none of the un-announced ones.
+    The editor mounts the Server section from ``source.config._cache`` (the
+    API drops an operator-supplied ``_cache``, so the cache is seeded the way
+    /test/connect persists it: straight into the source row). Asserts the
+    rendered ``.mcp-capability-flags`` line names exactly the announced
+    (non-null) capabilities and none of the un-announced ones.
     """
+    app_clean, data_dir = app_with_data_dir
     sid = _seed_mcp_source(
         app_clean,
         {
@@ -262,10 +257,9 @@ def test_capability_flags_render_for_announced_capabilities(app_clean: str, page
             "secrets": {},
         },
     )
-
-    stub_payload = {
-        "status": "ok",
-        "tools": [{"name": "echo", "description": "echo back", "input_schema": {}}],
+    cache = {
+        "tools": [],
+        "server_info": {"name": "cap-server", "version": "1.2.3"},
         "capabilities": {
             "tools": {},
             "resources": {},
@@ -275,28 +269,27 @@ def test_capability_flags_render_for_announced_capabilities(app_clean: str, page
             "tasks": None,
         },
     }
-
-    def handle_test_connect(route):
-        route.fulfill(
-            status=200,
-            content_type="application/json",
-            body=json.dumps(stub_payload),
-        )
-
-    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        row = conn.execute("SELECT config FROM mcp_sources WHERE id = ?", (sid,)).fetchone()
+        config = json.loads(row[0])
+        config["_cache"] = cache
+        conn.execute("UPDATE mcp_sources SET config = ? WHERE id = ?", (json.dumps(config), sid))
+        conn.commit()
+    finally:
+        conn.close()
 
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
-    test_btn = page.locator('[data-testid="mcp-test-connection"]')
-    test_btn.click()
-
-    flags = page.locator(".mcp-capability-flags")
-    expect(flags).to_be_visible(timeout=4000)
-    # Positive assertions: tools and resources were non-null → rendered.
+    section = page.locator('[data-testid="mcp-server-info-section"]')
+    expect(section).to_be_visible(timeout=4000)
+    flags = section.locator(".mcp-capability-flags")
+    expect(flags).to_be_visible()
+    # Positive assertions: tools and resources were non-null -> rendered.
     expect(flags).to_contain_text("tools")
     expect(flags).to_contain_text("resources")
-    # Negative assertions: prompts/logging/completions/tasks were null → not rendered.
+    # Negative assertions: prompts/logging/completions/tasks were null -> not rendered.
     flags_text = flags.inner_text()
     assert "prompts" not in flags_text
     assert "logging" not in flags_text

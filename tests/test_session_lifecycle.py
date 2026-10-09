@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import aiosqlite
 import pytest
 from conftest import FakeLLM
 
+from tests._schema_template import connect_template_db
 from the_one.agent.core import Agent
 from the_one.db.codec import decode_messages
 from the_one.db.repositories import ChatSessionRepository
-from the_one.db.schema import ensure_schema
 from the_one.llm.base import Message
 
 
@@ -19,10 +18,7 @@ from the_one.llm.base import Message
 async def conn(tmp_path):
     """Create a fresh DB connection with schema applied."""
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

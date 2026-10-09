@@ -21,15 +21,14 @@ import dataclasses
 import inspect
 import logging
 
-import aiosqlite
 import pytest
 
 from tests._embedding_stub import StubEmbeddingBackend
+from tests._schema_template import connect_template_memory
 from the_one.db._kb_types import ChunkRecord
 from the_one.db._write_lock import reset_for_test
 from the_one.db.models import KBChunk, KBItem, KnowledgeBase
 from the_one.db.repositories import KBChunkRepository, KBItemRepository, KnowledgeBaseRepository
-from the_one.db.schema import ensure_schema
 from the_one.knowledge import retrieval
 from the_one.knowledge.retrieval import (
     RRF_K,
@@ -559,11 +558,8 @@ class TestFusionAndReservedSlot:
         # FTS5's implicit AND: a sentence-shaped query containing the rare
         # identifier returns zero keyword hits, against a real
         # KBChunkRepository/sqlite FTS5 index.
-        conn = await aiosqlite.connect(":memory:")
+        conn = await connect_template_memory()
         try:
-            conn.row_factory = aiosqlite.Row
-            await conn.execute("PRAGMA foreign_keys=ON")
-            await ensure_schema(conn)
             reset_for_test()
 
             kb_repo = KnowledgeBaseRepository(conn)

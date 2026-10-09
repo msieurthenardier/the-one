@@ -199,10 +199,12 @@ async def test_reap_once_does_not_evict_fresh_session() -> None:
 @pytest.fixture
 def _isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Isolated data dir + fresh DB connection for rehydration test."""
+    from tests._schema_template import copy_template
     from the_one.config import settings
     from the_one.db import connection as db_connection
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
+    copy_template(settings.db_path)
     monkeypatch.setattr(db_connection, "_connection", None)
     yield tmp_path
     monkeypatch.setattr(db_connection, "_connection", None)
@@ -219,7 +221,6 @@ async def test_rehydration_after_eviction(_isolated_data_dir: Path) -> None:
     """
     import the_one.interfaces.web.app as app_mod
     from the_one.agent.factory import AgentFactory
-    from the_one.db import init_db
     from the_one.db.codec import encode_messages
     from the_one.db.connection import get_connection
     from the_one.db.migration import migrate_json_to_sqlite
@@ -228,7 +229,6 @@ async def test_rehydration_after_eviction(_isolated_data_dir: Path) -> None:
     from the_one.llm.base import Message, Role
 
     # Initialize DB.
-    await init_db()
     conn = await get_connection()
     store = SQLiteAgentStore(conn)
     await migrate_json_to_sqlite(store)
@@ -488,7 +488,6 @@ async def test_cached_session_rebuilds_agent_from_edited_stored_config(
     from the_one.agent.config import AgentConfig
     from the_one.agent.factory import AgentFactory
     from the_one.config import settings
-    from the_one.db import init_db
     from the_one.db.connection import get_connection
     from the_one.db.migration import migrate_json_to_sqlite
     from the_one.db.models import LLMProviderConfig
@@ -496,7 +495,6 @@ async def test_cached_session_rebuilds_agent_from_edited_stored_config(
     from the_one.encryption import get_encryptor
     from the_one.llm.base import Message
 
-    await init_db()
     conn = await get_connection()
     store = SQLiteAgentStore(conn)
     await migrate_json_to_sqlite(store)

@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 
-import aiosqlite
 import httpx
 import pytest
 from cryptography.fernet import Fernet
 from mcp.client.auth import OAuthClientProvider
 
+from tests._schema_template import connect_template_db
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.mcp.oauth import (
     build_oauth_provider_for_source,
@@ -23,10 +22,7 @@ from the_one.mcp.oauth import (
 async def repo_with_source(tmp_path):
     """An MCPSourceRepository + a streamable-http MCPSource with empty secrets."""
     db_path = tmp_path / "factory-test.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
     repo = MCPSourceRepository(conn, encryptor)

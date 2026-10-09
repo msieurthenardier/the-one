@@ -17,7 +17,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Squawk 0107: the same release-closure audit pr-lint.yml runs (kept in sync by
+  # hand: same export, same flags). The build job `needs:` it, so a finding fails
+  # the release before any Windows build time is spent.
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install uv and pip-audit
+        run: pip install uv "pip-audit>=2.7"
+      - name: Export release dependency closure (runtime + installer extras)
+        run: uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt > release-requirements.txt
+      - name: pip-audit (release closure — fails on findings)
+        run: pip-audit --disable-pip -r release-requirements.txt
+
   build-windows-installer:
+    needs: pip-audit
     # Freezes the one-dir from packaging/windows/the-one.spec, proves the DD2
     # child-spawn fix against the REAL frozen binary (the spawn-fix's only true
     # apparatus — a checkout interpreter can't exercise a PyInstaller bundle), then

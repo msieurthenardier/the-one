@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import LLMProviderConfig
 from the_one.db.repositories import LLMProviderRepository, SQLiteAgentStore
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.llm.openrouter_provider import _APP_NAME, _APP_URL, OpenRouterProvider
 
@@ -26,10 +25,7 @@ async def test_factory_resolves_openrouter_provider(tmp_path, monkeypatch):
 
     # Set up isolated DB + encryptor
     db_path = tmp_path / "test.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     enc = Encryptor(Fernet.generate_key())
     prov_repo = LLMProviderRepository(conn, enc)

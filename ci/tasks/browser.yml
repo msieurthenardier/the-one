@@ -1,34 +1,86 @@
 ---
-# Browser test suite — mirrors the GitHub Actions "browser" job (test.yml).
-# Runs Playwright-driven browser tests with a mock LLM provider.
-# `playwright install --with-deps chromium webkit` runs as root in the debian
-# python:3.11-bookworm image (tag pinned so the Debian base cannot drift) — apt deps
-# are installed automatically by --with-deps. WebKit backs the engine-parametrized
-# App.ui contract tests; THE_ONE_REQUIRE_WEBKIT=1 makes an unlaunchable WebKit FAIL
-# instead of skip.
-# Bare `python -m pytest` is correct here (Concourse task containers are ephemeral —
-# orphaned uvicorn/Chromium children die with the container).
-# Expected wall-clock: ~15 min (the CI long pole).
-# Runnable two ways:
-#   fly -t the-one execute -c ci/tasks/browser.yml -i repo=.   (local tree)
-#   as a task in ci/the-one.pipeline.yml                               (git resource)
+# Browser test task: ONE task that runs every browser lane in sequence through
+# `scripts/run-tests.sh --parallel 1` (all canonical lanes by construction, so CI
+# cannot drift from the local lanes; no lane list lives in this file). Process-group
+# kill, watchdog and junit work as locally. No `-x` on purpose: CI wants the whole
+# failure surface; the per-test --timeout bounds a hang.
+#
+# CI TIME IS UNMEASURED: no browser task has completed under CI. The first
+# post-merge pipeline build is the measurement (ci/README.md, "Measured times").
+# Local reference: the eight lanes sum to ~2240 s sequential (flight log, Leg 4).
+#
+# WebKit: this task installs chromium AND webkit and sets THE_ONE_REQUIRE_WEBKIT=1
+# (an unlaunchable WebKit FAILS instead of skipping), because the `contracts` lane
+# is engine-parametrized. Chromium runs with Playwright's default
+# --disable-dev-shm-usage, so the container's small /dev/shm is not a problem.
+#
+# NO container_limits, on purpose: the local Concourse workers reject any
+# container_limits (runc: "cannot enter cgroupv2 /sys/fs/cgroup/garden with domain
+# controllers -- it is in threaded mode"), so the task fails at container creation.
+# Do not re-add them until the workers' cgroup layout is fixed
+# (tests/test_run_tests_lanes.py fails if one appears). Host protection is the
+# single browser task plus the policy that a local gate and a CI build never run at
+# the same time (ci/README.md "Concurrency policy").
+#
+# Installs from uv.lock (`uv sync --locked`); the uv cache and the Playwright
+# browsers are task caches (per worker, per job, per task step NAME; renaming the
+# task drops its cache). The cache volume is mounted noexec, so the browsers are
+# downloaded into it but run from a copy under /opt/pw. THE_ONE_DEV_MODE is set per
+# spawned server by tests/browser/conftest.py.
+#
+# Runnable by hand (`repo` must be a clean export of the tree, no .venv):
+#   fly -t the-one execute -c ci/tasks/browser.yml -i repo=<dir>
 platform: linux
 
 image_resource:
   type: registry-image
   source:
-    repository: python
-    tag: "3.11-bookworm"
+    repository: ghcr.io/astral-sh/uv
+    tag: "0.9.30-python3.11-bookworm"
 
 inputs:
   - name: repo
+
+caches:
+  - path: uv-cache
+  - path: playwright-browsers
 
 run:
   path: bash
   args:
     - -ceu
     - |
+      export UV_CACHE_DIR="$PWD/uv-cache" UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_NO_PROGRESS=1
+      export PLAYWRIGHT_BROWSERS_PATH="$PWD/playwright-browsers"
+      echo "=== cgroup values ==="
+      for f in memory.max cpu.max cpu.weight; do
+        echo "$f: $(cat /sys/fs/cgroup/$f 2>/dev/null || echo n/a)"
+      done
       cd repo
-      pip install -e ".[all-llms,dev]"
-      python -m playwright install --with-deps chromium webkit
-      THE_ONE_REQUIRE_WEBKIT=1 THE_ONE_DEV_MODE=true python -m pytest -m browser tests/browser/ --timeout=300 --tb=short
+      echo "=== install ($(date +%T)) ==="
+      time uv sync --locked --extra all-llms --extra dev
+      # The workers have no IPv6 route: apt must not try deb.debian.org over IPv6
+      # (a build failed with "Network is unreachable" after ~7 min of retries).
+      echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+      time .venv/bin/python -m playwright install --with-deps chromium webkit
+      mkdir -p /opt/pw && cp -a "$PLAYWRIGHT_BROWSERS_PATH"/. /opt/pw/
+      export PLAYWRIGHT_BROWSERS_PATH=/opt/pw
+      echo "=== lanes ($(date +%T)) ==="
+      export PYTHON=.venv/bin/python TEST_TIMEOUT=5400 THE_ONE_REQUIRE_WEBKIT=1
+      # Per-lane logs go to a known dir so a failure's pytest output survives in
+      # the build log (the container is torn down afterwards).
+      export TEST_LANE_DIR="$PWD/lane-logs"
+      set +e
+      bash scripts/run-tests.sh --parallel 1 --tb=short --timeout=300 2>&1 \
+        | tee "$PWD/run-tests.out"
+      rc="${PIPESTATUS[0]}"
+      set -e
+      if [ "$rc" -ne 0 ]; then
+        failed="$(sed -n 's/^PARALLEL_RESULT .* failed=//p' "$PWD/run-tests.out" | tail -n 1)"
+        for lane in $(echo "${failed:--}" | tr ',' ' '); do
+          [ -e "$TEST_LANE_DIR/$lane.log" ] || continue
+          echo "=== failed lane log: $lane ==="
+          cat "$TEST_LANE_DIR/$lane.log"
+        done
+      fi
+      exit "$rc"

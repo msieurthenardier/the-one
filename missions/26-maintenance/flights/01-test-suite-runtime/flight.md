@@ -1,6 +1,6 @@
 # Flight: Test-suite runtime
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Post-Mission-25 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
@@ -170,13 +170,13 @@ The legs follow the maintenance report's finding numbers. Baseline: the 2026-10-
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `unit-template-db` - Session template DB for unit fixtures, `synchronous=OFF`, guard test (#1)
-- [ ] `browser-template-db` - Pre-seed the template into `_spawn_app` data dirs (#2)
-- [ ] `browser-quick-wins` - Redirect-table collapse, 5 duplicate deletions, ready-poll, stale skips, netns skip note (#6, #7, #8)
-- [ ] `local-lane-parallelism` - Rebalance `shared`, 3-lane concurrent runner, budgets and policy (#3 local)
-- [ ] `ci-lane-split` - 3 limited browser tasks via `--lane`, WebKit only in contracts, `ignore_paths`, measured docs (#3 CI, #12, #13)
-- [ ] `ci-locked-deps` - Locked CI installs (image or caches), scheduled and tag-time pip-audit (#11, 0107)
-- [ ] `module-scoped-server` *(conditional)* - Opt-in module server with unchanged-state guard (#4 R7a)
+- [x] `unit-template-db` - Session template DB for unit fixtures, `synchronous=OFF`, guard test (#1)
+- [x] `browser-template-db` - Pre-seed the template into `_spawn_app` data dirs (#2)
+- [x] `browser-quick-wins` - Redirect-table collapse, 5 duplicate deletions, ready-poll, stale skips, netns skip note (#6, #7, #8)
+- [x] `local-lane-parallelism` - Rebalance `shared`, 3-lane concurrent runner, budgets and policy (#3 local)
+- [x] `ci-lane-split` *(flown as leg 05 `ci-split-and-locked-installs`, merged with `ci-locked-deps`; see flight log Decisions)* - 3 limited browser tasks via `--lane`, WebKit only in contracts, `ignore_paths`, measured docs (#3 CI, #12, #13)
+- [x] `ci-locked-deps` *(merged into leg 05)* - Locked CI installs (image or caches), scheduled and tag-time pip-audit (#11, 0107)
+- [ ] `module-scoped-server` *(conditional; not flown, because the gate measured 18.4 min)* - Opt-in module server with unchanged-state guard (#4 R7a)
 
 ---
 

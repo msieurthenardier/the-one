@@ -364,22 +364,25 @@ def _assert_never_general(page: Page) -> None:
     assert page.evaluate("App.router.current().route") == "settings/appearance"
 
 
-@pytest.mark.parametrize(
-    "route", ["settings/general", "settings/general/x", "settings/general/x/y"]
-)
-def test_settings_general_redirects_on_a_cold_load(app_clean: str, page: Page, route: str) -> None:
+def test_settings_general_redirects_on_a_cold_load(app_clean: str, page: Page) -> None:
     """A cold load of the alias (any suffix dropped) boots on Appearance with one
-    replaceState and no pushed entry."""
-    page.add_init_script(_RECORD_WRITES_JS)
-    _nav.goto(page, app_clean, route)
-    expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=8000)
-    _nav.expect_route(page, "settings/appearance")
-    writes = _writes(page)
-    assert writes[0]["kind"] == "replaceState", writes
-    assert writes[0]["url"] == _nav.href("settings/appearance"), writes
-    assert not [w for w in writes if w["kind"] == "pushState"], writes
-    _lists.expect_settings_selected(page, "appearance")
-    _assert_never_general(page)
+    replaceState and no pushed entry. One server; a fresh page per route."""
+    page.goto(app_clean)  # the fixture page's first goto lands the session cookie
+    for route in ["settings/general", "settings/general/x", "settings/general/x/y"]:
+        fresh = page.context.new_page()
+        try:
+            fresh.add_init_script(_RECORD_WRITES_JS)
+            _nav.goto(fresh, app_clean, route)
+            expect(_lists.settings_page_title(fresh)).to_have_text("Appearance", timeout=8000)
+            _nav.expect_route(fresh, "settings/appearance")
+            writes = _writes(fresh)
+            assert writes[0]["kind"] == "replaceState", (route, writes)
+            assert writes[0]["url"] == _nav.href("settings/appearance"), (route, writes)
+            assert not [w for w in writes if w["kind"] == "pushState"], (route, writes)
+            _lists.expect_settings_selected(fresh, "appearance")
+            _assert_never_general(fresh)
+        finally:
+            fresh.close()
 
 
 def test_settings_general_redirects_in_app(app_clean: str, page: Page) -> None:
@@ -415,27 +418,32 @@ def test_settings_general_redirects_in_app(app_clean: str, page: Page) -> None:
     _nav.expect_route(page, "settings/providers")
 
 
-@pytest.mark.parametrize("legacy", ["admin", "admin/system", "admin/general"])
-def test_legacy_general_hashes_redirect_directly(app_clean: str, page: Page, legacy: str) -> None:
+def test_legacy_general_hashes_redirect_directly(app_clean: str, page: Page) -> None:
     """The legacy forms go straight to Appearance: their one history write is the
-    target, never ``settings/general`` (no chained redirect)."""
-    page.add_init_script(_RECORD_WRITES_JS)
-    page.goto(f"{app_clean}/#" + legacy)  # legacy URL on purpose: proves the redirect
-    expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=8000)
-    _nav.expect_route(page, "settings/appearance")
-    writes = _writes(page)
-    assert writes[0] == {"kind": "replaceState", "url": _nav.href("settings/appearance")}, writes
-    _assert_never_general(page)
-    # A typed legacy hash after boot: rewritten in place, directly.
-    assert page.evaluate("App.router.go('settings/providers')") is True
-    expect(_lists.settings_page_title(page)).to_have_text("Providers", timeout=8000)
-    page.evaluate("h => { window.__writes = []; location.hash = h; }", "#admin/general")
-    _nav.expect_route(page, "settings/appearance")
-    expect(_lists.settings_page_title(page)).to_have_text("Appearance", timeout=5000)
-    writes = _writes(page)
-    assert writes and all(
-        w == {"kind": "replaceState", "url": _nav.href("settings/appearance")} for w in writes
-    ), writes
+    target, never ``settings/general`` (no chained redirect). One server; a fresh
+    page per legacy form."""
+    page.goto(app_clean)  # the fixture page's first goto lands the session cookie
+    for legacy in ["admin", "admin/system", "admin/general"]:
+        fresh = page.context.new_page()
+        try:
+            fresh.add_init_script(_RECORD_WRITES_JS)
+            fresh.goto(f"{app_clean}/#" + legacy)  # legacy URL on purpose: proves the redirect
+            expect(_lists.settings_page_title(fresh)).to_have_text("Appearance", timeout=8000)
+            _nav.expect_route(fresh, "settings/appearance")
+            writes = _writes(fresh)
+            expected = {"kind": "replaceState", "url": _nav.href("settings/appearance")}
+            assert writes[0] == expected, (legacy, writes)
+            _assert_never_general(fresh)
+            # A typed legacy hash after boot: rewritten in place, directly.
+            assert fresh.evaluate("App.router.go('settings/providers')") is True
+            expect(_lists.settings_page_title(fresh)).to_have_text("Providers", timeout=8000)
+            fresh.evaluate("h => { window.__writes = []; location.hash = h; }", "#admin/general")
+            _nav.expect_route(fresh, "settings/appearance")
+            expect(_lists.settings_page_title(fresh)).to_have_text("Appearance", timeout=5000)
+            writes = _writes(fresh)
+            assert writes and all(w == expected for w in writes), (legacy, writes)
+        finally:
+            fresh.close()
 
 
 def test_rail_first_use_and_last_route_are_appearance(app_clean: str, page: Page) -> None:

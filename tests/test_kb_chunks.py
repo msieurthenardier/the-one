@@ -15,6 +15,7 @@ import sqlite3
 
 import pytest
 
+from tests._schema_template import connect_template_db
 from the_one.db._kb_types import ChunkRecord
 from the_one.db._write_lock import reset_for_test
 from the_one.db.models import KBItem, KnowledgeBase
@@ -39,15 +40,9 @@ def _reset_lock_state():
 @pytest.fixture
 async def conn(tmp_path):
     """Same idiom as ``tests/test_db_repositories.py`` (:55-80)."""
-    import aiosqlite
-
-    from the_one.db.schema import ensure_schema
 
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

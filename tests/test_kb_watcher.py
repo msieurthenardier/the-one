@@ -28,13 +28,12 @@ import threading
 import time
 from pathlib import Path
 
-import aiosqlite
 import pytest
 import watchfiles
 
+from tests._schema_template import connect_template_db
 from the_one.db.models import KBItem, KnowledgeBase
 from the_one.db.repositories import KBItemRepository, KnowledgeBaseRepository
-from the_one.db.schema import ensure_schema
 from the_one.knowledge import watcher as watcher_mod
 from the_one.knowledge.settings import MonitoringSettings
 from the_one.knowledge.watcher import (
@@ -59,10 +58,7 @@ def _reset_manager_module():
 @pytest.fixture
 async def conn(tmp_path):
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

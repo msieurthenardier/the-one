@@ -7,6 +7,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from tests._schema_template import connect_template_db
 from the_one.agent.config import AgentConfig
 from the_one.db._kb_types import KB_ITEM_TRANSITIONS, ChunkRecord, KBItemTransitionError
 from the_one.db.models import ChatSession, Connector, KBItem, KnowledgeBase, MCPSource
@@ -28,15 +29,9 @@ from the_one.db.repositories import (
 @pytest.fixture
 async def conn(tmp_path):
     """Create a fresh in-memory-like DB connection with schema applied."""
-    import aiosqlite
-
-    from the_one.db.schema import ensure_schema
 
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 

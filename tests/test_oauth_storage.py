@@ -5,14 +5,13 @@ from __future__ import annotations
 import time
 from unittest.mock import AsyncMock, MagicMock
 
-import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
+from tests._schema_template import connect_template_db
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
-from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS, MCPSourceTokenStorage
 
@@ -21,10 +20,7 @@ from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS, MCPSourceTokenS
 async def repo_with_source(tmp_path):
     """An MCPSourceRepository with one seeded streamable-http source."""
     db_path = tmp_path / "oauth-storage-test.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
+    conn = await connect_template_db(db_path)
 
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
     repo = MCPSourceRepository(conn, encryptor)

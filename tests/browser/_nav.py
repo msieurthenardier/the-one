@@ -78,13 +78,10 @@ They are the only functions the migration guard
 (``tests/test_nav_helper.py::test_no_raw_route_hashes_in_browser_tests``)
 lets use raw route hashes:
 
-* test_flow_admin_navigation.py::test_admin_redirect_root_to_appearance
-* test_flow_admin_navigation.py::test_admin_legacy_system_redirects_to_appearance
 * test_flow_admin_settings_nav.py::test_legacy_general_hashes_redirect_directly
 * test_flow_admin_tools_grid.py::test_admin_tools_deep_link_to_tool_loads_editor
 * test_flow_agent_tabs.py::test_refresh_on_knowledge_tab_persists
 * test_flow_chat_peer_attribution.py::test_chat_renders_peer_attribution
-* test_flow_hash_routing.py::test_studio_root_redirects_to_agents
 * test_flow_hash_routing.py::test_studio_knowledge_section_persists_on_refresh
 * test_flow_provider_grid.py::test_unknown_provider_id_falls_back_to_grid
 * test_flow_studio_mcp_navigation.py::test_studio_direct_load_mcp_sources
@@ -103,13 +100,10 @@ SCHEME = "new"
 # file::function identifiers (see module docstring).
 LEGACY_URL_TESTS: frozenset[str] = frozenset(
     {
-        "test_flow_admin_navigation.py::test_admin_redirect_root_to_appearance",
-        "test_flow_admin_navigation.py::test_admin_legacy_system_redirects_to_appearance",
         "test_flow_admin_settings_nav.py::test_legacy_general_hashes_redirect_directly",
         "test_flow_admin_tools_grid.py::test_admin_tools_deep_link_to_tool_loads_editor",
         "test_flow_agent_tabs.py::test_refresh_on_knowledge_tab_persists",
         "test_flow_chat_peer_attribution.py::test_chat_renders_peer_attribution",
-        "test_flow_hash_routing.py::test_studio_root_redirects_to_agents",
         "test_flow_hash_routing.py::test_studio_knowledge_section_persists_on_refresh",
         "test_flow_provider_grid.py::test_unknown_provider_id_falls_back_to_grid",
         "test_flow_studio_mcp_navigation.py::test_studio_direct_load_mcp_sources",

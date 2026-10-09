@@ -14,17 +14,16 @@ import asyncio
 import contextlib
 import time
 
-import aiosqlite
 import numpy as np
 import pytest
 
 from tests._embedding_stub import StubEmbeddingBackend
+from tests._schema_template import connect_template_db
 from the_one.config import settings
 from the_one.db._kb_types import ChunkRecord, KBItemTransitionError
 from the_one.db._write_lock import reset_for_test as reset_write_lock
 from the_one.db.models import KBItem, KnowledgeBase
 from the_one.db.repositories import KBChunkRepository, KBItemRepository, KnowledgeBaseRepository
-from the_one.db.schema import ensure_schema
 from the_one.embeddings._backend import EmbedResult
 from the_one.knowledge import indexer as indexer_module
 from the_one.knowledge.indexer import FlushPolicy, IndexContext, index_item, rebuild_kb
@@ -49,10 +48,7 @@ def _reset_module_state():
 @pytest.fixture
 async def conn(tmp_path):
     db_path = tmp_path / "test.db"
-    connection = await aiosqlite.connect(str(db_path))
-    connection.row_factory = aiosqlite.Row
-    await connection.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(connection)
+    connection = await connect_template_db(db_path)
     yield connection
     await connection.close()
 
